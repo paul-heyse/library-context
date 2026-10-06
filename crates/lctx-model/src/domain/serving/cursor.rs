@@ -55,6 +55,10 @@ pub struct Cursor {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CursorPosition {
     Key { key: ContentHash },
+    ScenarioDiagnostic {
+        association: Id<crate::domain::catalog::evidence::ScenarioAssociation>,
+        key: ContentHash,
+    },
     Ranked { score_bits: u64, key: ContentHash },
     Original { source: ContentHash, byte: u64 },
 }

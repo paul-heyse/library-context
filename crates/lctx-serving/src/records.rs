@@ -19,5 +19,5 @@ pub fn need<R: Record>(rows: &[R], id: Id<R>) -> Result<&R, ModelError> {
     })
 }
 pub fn wire(error: lctx_model::domain::serving::WireError) -> ModelError {
-    ModelError::Invalid(error.to_string())
+    ModelError::Serving(error.public_failure().kind)
 }

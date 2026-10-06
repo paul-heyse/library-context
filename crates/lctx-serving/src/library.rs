@@ -25,7 +25,7 @@ pub async fn resolve(
     let prepared = PreparedLibraryDomains::prepare(&data, budget)?;
     let resolved = prepared
         .resolve(name)
-        .map_err(|e| ModelError::Invalid(e.to_string()))?;
+        .map_err(|_| ModelError::Serving(lctx_model::domain::serving::FailureKind::UnknownLibrary))?;
     Ok(resolved.metadata(budget)?.domains)
 }
 pub fn native_definitions() -> &'static str {

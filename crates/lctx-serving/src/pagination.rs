@@ -86,6 +86,62 @@ pub fn page<T>(
     })
 }
 
+/// Select outer parents first. A nested continuation addresses exactly its original association,
+/// independently of the outer page's key range and the ordering of supplied rows.
+pub fn scenario_parents<T>(
+    values: Vec<(ContentHash, (lctx_model::domain::Id<lctx_model::domain::catalog::evidence::ScenarioAssociation>, T))>,
+    request: &Request, snapshot: &SnapshotHandle, channels: &ChannelState,
+    member: lctx_model::domain::Id<lctx_model::domain::catalog::CatalogMember>,
+) -> Result<SectionPage<(lctx_model::domain::Id<lctx_model::domain::catalog::evidence::ScenarioAssociation>, T)>, WireError> {
+    if let Some(token) = &request.page().cursor.0 {
+        let expected = binding(request, snapshot, channels, request.tool().name(), "scenario_diagnostics", Some(member))?;
+        let bytes = hex::decode(token.as_str()).map_err(|_| WireError::Invalid("cursor encoding".into()))?;
+        let cursor: Cursor = serde_json::from_slice(&bytes)?;
+        if cursor.binding.section.as_str() == "scenario_diagnostics" {
+            let cursor = Cursor::decode(token, &expected)?;
+            let CursorPosition::ScenarioDiagnostic { association, .. } = cursor.after else {
+                return Err(WireError::Continuation("scenario diagnostic continuation required".into()));
+            };
+            let mut selected = values.into_iter().filter(|(_, (id, _))| *id == association);
+            let (_, item) = selected.next().ok_or_else(|| WireError::Continuation("scenario association absent from member".into()))?;
+            if selected.next().is_some() { return Err(WireError::Continuation("scenario association duplicated".into())); }
+            return Ok(SectionPage { availability: Availability::Available {}, items: vec![item], continuation: Optional::default(), omitted: 0, truncated: false });
+        }
+    }
+    page(values, request, snapshot, channels, request.tool().name(), "scenarios", Some(member), Availability::Available {})
+}
+/// Child positions retain the owning association as well as the last diagnostic key.
+pub fn scenario_diagnostics<T>(
+    mut values: Vec<(ContentHash, T)>,
+    association: lctx_model::domain::Id<lctx_model::domain::catalog::evidence::ScenarioAssociation>,
+    request: &Request, snapshot: &SnapshotHandle, channels: &ChannelState,
+    member: lctx_model::domain::Id<lctx_model::domain::catalog::CatalogMember>,
+) -> Result<SectionPage<T>, WireError> {
+    let expected = binding(request, snapshot, channels, request.tool().name(), "scenario_diagnostics", Some(member))?;
+    let mut after = None;
+    if let Some(token) = &request.page().cursor.0 {
+        let bytes = hex::decode(token.as_str()).map_err(|_| WireError::Invalid("cursor encoding".into()))?;
+        let cursor: Cursor = serde_json::from_slice(&bytes)?;
+        if cursor.binding.section == expected.section {
+            let cursor = Cursor::decode(token, &expected)?;
+            let CursorPosition::ScenarioDiagnostic { association: parent, key } = cursor.after else {
+                return Err(WireError::Continuation("scenario diagnostic continuation required".into()));
+            };
+            if parent != association { return Err(WireError::Continuation("scenario diagnostic parent changed".into())); }
+            after = Some(key);
+        }
+    }
+    if let Some(after) = after
+        && !values.iter().any(|(key, _)| *key == after)
+    { return Err(WireError::Continuation("scenario diagnostic position absent".into())); }
+    values.sort_by_key(|(key, _)| *key);
+    values.retain(|(key, _)| after.is_none_or(|after| *key > after));
+    let omitted = values.len().saturating_sub(request.page().size as usize) as u64;
+    values.truncate(request.page().size as usize);
+    let continuation = if omitted > 0 { Optional(Some(Cursor { binding: expected, after: CursorPosition::ScenarioDiagnostic { association, key: values.last().expect("positive page size").0 } }.encode()?)) } else { Optional::default() };
+    Ok(SectionPage { availability: Availability::Available {}, items: values.into_iter().map(|(_, value)| value).collect(), continuation, omitted, truncated: omitted > 0 })
+}
+
 pub fn validate(
     request: &Request,
     snapshot: &SnapshotHandle,
@@ -116,15 +172,8 @@ pub fn validate(
                         r.sections.contains(&OperationSection::IncomingReferences)
                     }
                     "scenarios" => r.sections.contains(&OperationSection::Scenarios),
-                    section
-                        if section
-                            .strip_prefix("scenario_diagnostics_")
-                            .is_some_and(|key| {
-                                key.len() == 32 && key.bytes().all(|byte| byte.is_ascii_hexdigit())
-                            }) =>
-                    {
-                        r.sections.contains(&OperationSection::Scenarios)
-                    }
+                    "scenario_diagnostics" => r.sections.contains(&OperationSection::Scenarios)
+                        && matches!(cursor.after, CursorPosition::ScenarioDiagnostic { .. }),
                     "deployment" => r.sections.contains(&OperationSection::Deployment),
                     "relationships" => r.sections.contains(&OperationSection::Relationships),
                     "conflicts" => r.sections.contains(&OperationSection::Conflicts),
@@ -374,4 +423,36 @@ mod tests {
         };
         assert!(validate(&search, &h, &degraded).is_err());
     }
+    #[test]
+    fn remediation_second_scenario_child_cursor_keeps_its_parent_and_exact_member() {
+        use lctx_model::domain::{Id, catalog::{CatalogMember, evidence::ScenarioAssociation}};
+        fn id<T>(byte: u8) -> Id<T> { serde_json::from_value(serde_json::json!(vec![byte; 16])).unwrap() }
+        let member: Id<CatalogMember> = id(3);
+        let first: Id<ScenarioAssociation> = id(1);
+        let second: Id<ScenarioAssociation> = id(2);
+        let h = handle(); let c = channels();
+        let mut request = Request::GetOperation(GetOperationRequest { library: Name::new("fixture").unwrap(), operation: OperationSelector::Member { member }, comparison: Optional::default(), reference_parameter: Optional::default(), sections: vec![OperationSection::Scenarios], page: PageRequest { size: 1, ..Default::default() } });
+        let parents = || vec![(ContentHash([2; 32]), (second, "second")), (ContentHash([1; 32]), (first, "first"))];
+        let first_page = scenario_parents(parents(), &request, &h, &c, member).unwrap();
+        assert_eq!(first_page.items, vec![(first, "first")]);
+        let Request::GetOperation(r) = &mut request else { unreachable!() }; r.page.cursor = first_page.continuation;
+        let second_page = scenario_parents(parents(), &request, &h, &c, member).unwrap();
+        assert_eq!(second_page.items, vec![(second, "second")]);
+        let children = || vec![(ContentHash([8; 32]), "last"), (ContentHash([7; 32]), "next"), (ContentHash([6; 32]), "start")];
+        let child_page = scenario_diagnostics(children(), second, &request, &h, &c, member).unwrap();
+        assert_eq!(child_page.items, vec!["start"]);
+        let Request::GetOperation(r) = &mut request else { unreachable!() }; r.page.cursor = child_page.continuation;
+        validate(&request, &h, &c).unwrap();
+        let parent = scenario_parents(parents(), &request, &h, &c, member).unwrap();
+        assert_eq!(parent.items, vec![(second, "second")]);
+        assert!(scenario_parents(parents(), &request, &h, &c, id(4)).is_err());
+        assert!(scenario_parents(vec![(ContentHash([1; 32]), (first, "first"))], &request, &h, &c, member).is_err());
+        assert!(scenario_diagnostics(children(), first, &request, &h, &c, member).is_err());
+        let next = scenario_diagnostics(children(), second, &request, &h, &c, member).unwrap();
+        assert_eq!(next.items, vec!["next"]);
+        let Request::GetOperation(r) = &mut request else { unreachable!() }; r.page.cursor = next.continuation;
+        let last = scenario_diagnostics(children(), second, &request, &h, &c, member).unwrap();
+        assert_eq!(last.items, vec!["last"]); assert!(last.continuation.0.is_none());
+    }
+
 }

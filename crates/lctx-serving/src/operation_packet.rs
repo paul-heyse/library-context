@@ -287,36 +287,34 @@ pub async fn get(
                 .collect::<Result<Vec<_>, _>>()?;
             scenario_values.push((
                 key(association.id())?,
-                ScenarioPacket {
+                (association.id(), ScenarioPacket {
                     scenario: scenario.id(),
                     intent: association.intent,
                     basis: association.basis,
                     spans: originals,
-                    diagnostic_correlations: crate::pagination::page(
-                        scenario_diagnostics(
-                            association.id(),
-                            &diagnostic_targets,
-                            &diagnostic_links,
-                            &diagnostic_assessments,
-                        )?,
-                        request,
-                        reader.handle(),
-                        &quiet,
-                        request.tool().name(),
-                        &format!("scenario_diagnostics_{}", association.id().hex()),
-                        Some(member.id()),
-                        Availability::Available {},
-                    )
-                    .map_err(wire)?,
+                    diagnostic_correlations: SectionPage { availability: Availability::Available {}, items: Vec::new(), continuation: Optional::default(), omitted: 0, truncated: false },
                     parse: scenario.parse,
                     binding: scenario.binding,
                     environment: scenario.environment,
                     execution: scenario.execution,
-                },
+                }),
             ));
         }
     }
-    let scenarios = paged!(ScenarioPacket, "scenarios", Scenarios, scenario_values);
+    let parents = if r.sections.contains(&OperationSection::Scenarios) {
+        crate::pagination::scenario_parents(scenario_values, request, reader.handle(), &quiet, member.id()).map_err(wire)?
+    } else {
+        SectionPage { availability: Availability::NotRequested {}, items: Vec::new(), continuation: Optional::default(), omitted: 0, truncated: false }
+    };
+    let mut scenario_items = Vec::new();
+    for (association, mut packet) in parents.items {
+        packet.diagnostic_correlations = crate::pagination::scenario_diagnostics(
+            scenario_diagnostics(association, &diagnostic_targets, &diagnostic_links, &diagnostic_assessments)?,
+            association, request, reader.handle(), &quiet, member.id(),
+        ).map_err(wire)?;
+        scenario_items.push(packet);
+    }
+    let scenarios = SectionPage { availability: parents.availability, items: scenario_items, continuation: parents.continuation, omitted: parents.omitted, truncated: parents.truncated };
     let deployment_values = if r.sections.contains(&OperationSection::Deployment) {
         let deployments = rows::<catalog::evidence::CatalogDeployment>(&source)?;
         let observations = rows::<deployment::DeploymentObservation>(&source)?;

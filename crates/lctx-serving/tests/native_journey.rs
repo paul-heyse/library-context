@@ -16,6 +16,9 @@ const LIBRARY: &str = "synthesis-sources";
 fn library_fixture(
     budget: &lctx_model::domain::resources::ResourceBudget,
 ) -> Arc<cpg_extract::bundle::CapturedInputs> {
+    library_fixture_at("synthesis_sources", LIBRARY, budget)
+}
+fn library_fixture_at(case: &str, library: &str, budget: &lctx_model::domain::resources::ResourceBudget) -> Arc<cpg_extract::bundle::CapturedInputs> {
     use cpg_extract::{
         acquisition::{
             AcquiredInput, Acquisition, InventoryDistribution, InventoryFile, LibraryInventory,
@@ -24,7 +27,7 @@ fn library_fixture(
         bundle::CapturedInputs,
         capture::CapturedInput,
     };
-    let tree = runtime::capture("synthesis_sources", Profile::Catalog, budget);
+    let tree = runtime::capture(case, Profile::Catalog, budget);
     let original = tree.inputs()[0].captured();
     let derived = original
         .derivations()
@@ -50,7 +53,7 @@ fn library_fixture(
         .filter_map(|path| {
             admission::ArtifactClass::of(&path).map(|class| InventoryFile {
                 path,
-                owners: vec![LIBRARY.into()],
+                owners: vec![library.into()],
                 role: match class {
                     admission::ArtifactClass::PythonSource => input::SourceRole::Release,
                     admission::ArtifactClass::Document => input::SourceRole::Document,
@@ -60,15 +63,15 @@ fn library_fixture(
         })
         .collect();
     let inventory = LibraryInventory {
-        name: LIBRARY.into(),
-        requirement: format!("{LIBRARY}==0.0.0"),
+        name: library.into(),
+        requirement: format!("{library}==0.0.0"),
         lock_digest: ContentHash::of(b"native-serving-first-party-fixture"),
         installer: None,
         python_version: "3.14.7".into(),
         platform: "linux".into(),
         site_packages: captured.root().to_owned(),
         distributions: vec![InventoryDistribution {
-            name: LIBRARY.into(),
+            name: library.into(),
             version: "0.0.0".into(),
             first_party: true,
             artifact_sha256: vec![],
@@ -169,6 +172,12 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     .await
     .unwrap();
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
+    let missing = service.execute("browse_library", r#"{"library":"absent-library"}"#).await.unwrap_err();
+    assert_eq!(missing.public_failure(), PublicFailure::new(FailureKind::UnknownLibrary));
+    let invalid = service.execute("browse_library", r#"{"library":"fixture","unknown":true}"#).await.unwrap_err();
+    assert_eq!(invalid.public_failure(), PublicFailure::new(FailureKind::Incompatible));
+    let refused = service.execute_for("browse_library", r#"{"library":"fixture"}"#, None, false, 0).await.unwrap_err();
+    assert_eq!(refused.public_failure(), PublicFailure::new(FailureKind::ResourceRefused));
     let library = LIBRARY;
     let find = call(
         &service,
@@ -360,11 +369,15 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     );
     let retained = std::env::var("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG").ok();
     if let Some(path) = retained {
+        let selection = std::path::Path::new(&path).with_extension("selected.json");
+        let mut selected = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&selection).unwrap();
+        selected.write_all(&serde_json::to_vec(&handle).unwrap()).unwrap();
+        selected.sync_all().unwrap();
         let viewer = lctx_surrealdb::config::ViewerConfig {
             endpoint: config.endpoint.clone(),
             username: config.viewer_username.clone(),
             password: config.viewer_password.clone(),
-            snapshot: handle.clone(),
+            selection,
         };
         let mut output = std::fs::OpenOptions::new()
             .write(true)
@@ -394,4 +407,102 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
             .check()
             .unwrap();
     }
+}
+
+#[tokio::test]
+async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
+    let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(
+        std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned fixture required")
+    ).unwrap()).unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let workspace = Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions {
+        memory_bytes: 1 << 30, partitions: 1, batch_rows: 128,
+    }).unwrap();
+    let library = "remediation-scopes";
+    let captured = library_fixture_at("remediation_scopes", library, workspace.budget());
+    let mut analytics = runtime::settings("alpha");
+    analytics.module_prefixes = vec!["alpha".into(), "beta".into()];
+    analytics.public_roots = analytics.module_prefixes.clone();
+    let settings = ContentHash::of(b"remediation-scoped-native-serving");
+    let prepared = PreparedCompilation::new(Frontier::Catalog, analytics,
+        captured.config().catalog(), None, workspace.budget()).unwrap();
+    compilation::compile(&workspace, captured.clone(), Profile::Catalog, settings,
+        Frontier::Catalog, Some(&prepared), None, None).await.unwrap();
+    drop(prepared);
+    let admitted = artifact::admit(&workspace, &captured, Frontier::Catalog, Profile::Catalog, settings).await.unwrap();
+    let export = scratch.path().join("export");
+    admitted.export(&export).unwrap();
+    drop(admitted);
+    let verified = artifact::verify_export(&export, &workspace).await.unwrap();
+    let config = RuntimeConfig {
+        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
+        username: fixture["admin_user"].as_str().unwrap().into(),
+        password: fixture["admin_password"].as_str().unwrap().into(),
+        viewer_username: "scope_viewer".into(), viewer_password: "owned-scope-viewer".into(),
+        namespace: Name::new("gn_remediation_scopes").unwrap(),
+        cache_database: Name::new("cache").unwrap(), selection: scratch.path().join("selection.json"),
+    };
+    let handle = lctx_publisher::publish(&verified, &config, &lctx_serving::native_definitions()).await.unwrap();
+    let reader = NativeReader::connect(&config.endpoint, &config.viewer_credentials(), handle).await.unwrap();
+    let sources = reader.records::<source::SourceArtifact>(RecordSelection::Scope { field: "input".into(), values: vec![serde_json::json!(captured.inputs()[0].captured().revision().id().bytes())] }).await.unwrap();
+    let modules = reader.records::<source::Module>(RecordSelection::Scope { field: "source".into(), values: sources.iter().map(|source| serde_json::json!(source.id().bytes())).collect() }).await.unwrap();
+    let module = |name: &str| modules.iter().find(|module| module.qualified_name == name).unwrap().id();
+    let service = NativeService::new(reader, ResourceLimits::default()).unwrap();
+    let selection = serde_json::json!({"requirements":[{"predicate":{"DeclaresParameter":{"name":"red"}},"quantifier":0}],"mode":1,"joint":1});
+    for (module_name, class_name, own, foreign) in [("alpha", "Alpha", "red", "blue"), ("beta", "Beta", "blue", "red")] {
+        let scope = serde_json::json!({"kind":"module","module":module(module_name)});
+        let members = call(&service, "browse_library", serde_json::json!({"library":library,"scope":scope,"page":{"size":100}})).await;
+        let unique = members["entries"]["items"].as_array().unwrap().iter().map(|entry| entry["candidate"]["member"].to_string()).collect::<std::collections::BTreeSet<_>>();
+        assert!(!unique.is_empty());
+        assert_eq!(members["extent"]["total"], unique.len() as u64);
+        let groups = call(&service, "browse_library", serde_json::json!({"library":library,"scope":scope,"view":"modules"})).await;
+        let groups = groups["entries"]["items"].as_array().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0]["members"], unique.len() as u64);
+        let vocabulary = call(&service, "browse_library", serde_json::json!({"library":library,"scope":scope,"view":"vocabulary"})).await;
+        let names = vocabulary["entries"]["items"].as_array().unwrap().iter().flat_map(|entry| entry["values"].as_array().unwrap()).filter_map(serde_json::Value::as_str).collect::<std::collections::BTreeSet<_>>();
+        assert!(names.contains(own)); assert!(!names.contains(foreign));
+        let classes = call(&service, "browse_library", serde_json::json!({"library":library,"scope":scope,"view":"classes"})).await;
+        let class_entries = classes["entries"]["items"].as_array().unwrap();
+        assert_eq!(class_entries.len(), class_entries.iter().map(|entry| entry["member"].to_string()).collect::<std::collections::BTreeSet<_>>().len());
+        let class = classes["entries"]["items"].as_array().unwrap().iter().find(|entry| entry["name"].as_str().unwrap().ends_with(class_name)).unwrap();
+        let class_scope = serde_json::json!({"kind":"class","member":class["member"]});
+        let children = call(&service, "browse_library", serde_json::json!({"library":library,"scope":class_scope,"page":{"size":100}})).await;
+        let children_unique = children["entries"]["items"].as_array().unwrap().iter().map(|entry| entry["candidate"]["member"].to_string()).collect::<std::collections::BTreeSet<_>>();
+        assert!(!children_unique.is_empty());
+        assert_eq!(class["members"], children_unique.len() as u64);
+        let class_vocabulary = call(&service, "browse_library", serde_json::json!({"library":library,"scope":class_scope,"view":"vocabulary"})).await;
+        let encoded = class_vocabulary.to_string(); assert!(encoded.contains(own)); assert!(!encoded.contains(foreign));
+        let selected = call(&service, "browse_library", serde_json::json!({"library":library,"scope":scope,"selection":selection})).await;
+        if own == "blue" { assert!(selected["entries"]["items"].as_array().unwrap().is_empty()); }
+        else { assert!(!selected["entries"]["items"].as_array().unwrap().is_empty()); }
+    }
+    let empty = call(&service, "browse_library", serde_json::json!({"library":library,"scope":{"kind":"module","module":module("empty")},"view":"vocabulary"})).await;
+    assert_eq!(empty["extent"]["total"], 0); assert!(empty["entries"]["items"].as_array().unwrap().is_empty());
+    // Independent document blocks call the same API. Each contains three distinct undefined
+    // arguments; diagnostic correspondence must retain its exact owning association.
+    let mut request = serde_json::json!({"library":library,"operation":{"kind":"public_path","path":["alpha","alpha"]},"sections":["scenarios"],"page":{"size":1}});
+    let first = call(&service,"get_operation",request.clone()).await;
+    let first_page = &first["operation"]["packet"]["scenarios"];
+    request["page"]["cursor"] = first_page["continuation"].clone();
+    assert!(!request["page"]["cursor"].is_null());
+    let second = call(&service,"get_operation",request.clone()).await;
+    let parent = &second["operation"]["packet"]["scenarios"]["items"][0];
+    let scenario = parent["scenario"].clone();
+    assert_ne!(scenario, first_page["items"][0]["scenario"]);
+    let child = &parent["diagnostic_correlations"];
+    assert!(child["omitted"].as_u64().unwrap() >= 2, "{parent}");
+    let mut seen = std::collections::BTreeSet::from([child["items"][0].to_string()]);
+    let mut cursor = child["continuation"].clone();
+    while !cursor.is_null() {
+        request["page"]["cursor"] = cursor;
+        let next = call(&service,"get_operation",request.clone()).await;
+        let parents = next["operation"]["packet"]["scenarios"]["items"].as_array().unwrap();
+        assert_eq!(parents.len(), 1);
+        assert_eq!(parents[0]["scenario"], scenario);
+        let children = &parents[0]["diagnostic_correlations"];
+        assert!(seen.insert(children["items"][0].to_string()), "diagnostic repeated");
+        cursor = children["continuation"].clone();
+    }
+    assert!(seen.len() >= 3);
 }

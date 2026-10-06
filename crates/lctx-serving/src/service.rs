@@ -110,9 +110,7 @@ impl NativeService {
                         .await
                         .map_err(failure)?;
                     if actual != crate::operation_definition().hex() {
-                        return Err(WireError::Invalid(
-                            "published operation executable differs from this service".into(),
-                        ));
+                        return Err(WireError::Failure(PublicFailure::new(FailureKind::Incompatible)));
                     }
                     Ok(())
                 })
@@ -208,10 +206,12 @@ impl NativeService {
     }
 }
 fn failure(error: ModelError) -> WireError {
-    match error {
-        ModelError::Resource { .. } | ModelError::Limit { .. } => {
-            WireError::ResourceRefused(error.to_string())
-        }
-        _ => WireError::Invalid(error.to_string()),
-    }
+    let kind = match error {
+        ModelError::Serving(kind) => kind,
+        ModelError::Resource { .. } | ModelError::Limit { .. } => FailureKind::ResourceRefused,
+        ModelError::Infrastructure { class: Infrastructure::Contract, .. } => FailureKind::Incompatible,
+        ModelError::Schema(_) | ModelError::Identity(_) | ModelError::Conflict(_) | ModelError::Invalid(_) | ModelError::Frontier(_) => FailureKind::Corrupt,
+        _ => FailureKind::Unavailable,
+    };
+    WireError::Failure(PublicFailure::new(kind))
 }
