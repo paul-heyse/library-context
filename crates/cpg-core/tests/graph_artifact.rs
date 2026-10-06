@@ -651,7 +651,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
         ipc::{reader::FileReader, writer::FileWriter},
         record_batch::RecordBatch,
     };
-    use lctx_model::domain::graph::{Entity, FamilyContent, FamilyHasher, Manifest};
+    use lctx_model::domain::graph::{EmbeddingConsumption, Entity, FamilyContent, FamilyHasher, Manifest};
     use std::{fs::File, io::Read};
     let admitted = compiled(Profile::Catalog, Frontier::Normalized, 1 << 30, 4096).await;
     let workspace = Workspace::new(
@@ -710,6 +710,16 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     write_manifest(&changed);
     assert!(matches!(artifact::verify_export(&output, &workspace).await,
         Err(lctx_model::domain::ModelError::Conflict("artifact projection definition"))));
+    changed = manifest.clone();
+    changed.embeddings.push(EmbeddingConsumption {
+        specification: ContentHash::of(b"unconsumed specification"),
+        text: ContentHash::of(b"unconsumed text"),
+        dimension: 1,
+        values: ContentHash::of(b"unconsumed values"),
+    });
+    write_manifest(&changed);
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact embedding membership"))));
     write_manifest(&manifest);
     let entity_file = output.join("entities.arrow");
     let original_entities = std::fs::read(&entity_file).unwrap();

@@ -550,11 +550,30 @@ async fn verify_transport(
     }
     let mut metadata_charge = StateCharge::new(workspace.budget(), "artifact-transport-metadata");
     metadata_charge.grow(manifest.originals.len() * (size_of::<EntityId>() + 64)
-        + manifest.captures.len() * (size_of::<EntityId>() + 32))?;
+        + manifest.captures.len() * (size_of::<EntityId>() + 32)
+        + manifest.embeddings.len() * (size_of::<(ContentHash, ContentHash)>() + 32))?;
     let mut originals = manifest.originals.iter().map(|o| (o.source, o)).collect::<BTreeMap<_, _>>();
     let mut captures = manifest.captures.iter().copied().collect::<BTreeSet<_>>();
     let mut specifications = BTreeMap::new();
     let mut projections = BTreeSet::new();
+    let mut embeddings = manifest.embeddings.iter().map(|value| (value.specification, value.text))
+        .collect::<BTreeSet<_>>();
+    // The two model owners share one exact value recipe. Repeated uses of a winner are allowed;
+    // the manifest records the complete union of consumed (specification, request) identities.
+    macro_rules! consume_embedding {
+        ($consumption:ident) => {{
+            use lctx_model::domain::embedding::analytic::VectorAvailability;
+            let spec = specifications.get(&$consumption.specification)
+                .ok_or(ModelError::Conflict("artifact embedding specification"))?;
+            let receipt = ($consumption.availability == VectorAvailability::Available)
+                .then(|| $consumption.receipt()).transpose()?;
+            if let Some(key) = verify_embedding(spec, $consumption.input, $consumption.availability,
+                $consumption.admitted_tokens, receipt, &manifest, workspace)?
+            {
+                embeddings.remove(&key);
+            }
+        }};
+    }
     let mut check = GraphBuilder::new(workspace.budget())?;
     for (file, family) in [
         ("entities.arrow", GraphFamily::Entities),
@@ -673,7 +692,10 @@ async fn verify_transport(
                             projections.insert(assessment.projection);
                         }
                         AssertionValue::Claim(ClaimValue::AnalysisEmbeddingUses(consumption)) => {
-                            verify_embedding(consumption, &specifications, &manifest, workspace)?;
+                            consume_embedding!(consumption);
+                        }
+                        AssertionValue::Analysis(AnalysisValue::RetrievalEmbeddingUse(consumption)) => {
+                            consume_embedding!(consumption);
                         }
                         _ => {}
                     }
@@ -706,12 +728,8 @@ async fn verify_transport(
         return Err(ModelError::Conflict("artifact source or capture membership"));
     }
     verify_projections(&projections, &manifest)?;
-    for embedding in &manifest.embeddings {
-        if !specifications.values().any(|spec| spec.hash() == embedding.specification
-            && spec.dimensions == embedding.dimension)
-        {
-            return Err(ModelError::Conflict("artifact embedding specification"));
-        }
+    if !embeddings.is_empty() {
+        return Err(ModelError::Conflict("artifact embedding membership"));
     }
     admit_graph_derivations(&check.derivations)?;
     let GraphBuilder {
@@ -768,31 +786,32 @@ async fn verify_transport(
 }
 
 fn verify_embedding(
-    consumption: &lctx_model::domain::embedding::analytic::AnalysisEmbeddingUse,
-    specifications: &BTreeMap<lctx_model::domain::Id<lctx_model::domain::embedding::EmbeddingSpec>, lctx_model::domain::embedding::Spec>,
+    spec: &lctx_model::domain::embedding::Spec,
+    input: ContentHash,
+    availability: lctx_model::domain::embedding::analytic::VectorAvailability,
+    admitted_tokens: Option<i64>,
+    receipt: Option<lctx_model::domain::embedding::consumption::ValueReceipt<'_>>,
     manifest: &Manifest,
     workspace: &Workspace,
-) -> Result<(), ModelError> {
+) -> Result<Option<(ContentHash, ContentHash)>, ModelError> {
     use lctx_model::domain::embedding::{analytic::VectorAvailability, value};
-    let spec = specifications.get(&consumption.specification)
-        .ok_or(ModelError::Conflict("artifact embedding specification"))?;
-    if consumption.availability == VectorAvailability::TokenLimit
-        && consumption.admitted_tokens.is_none_or(|tokens| tokens <= i64::from(spec.max_document_tokens))
+    if availability == VectorAvailability::TokenLimit
+        && admitted_tokens.is_none_or(|tokens| tokens <= i64::from(spec.max_document_tokens))
     {
         return Err(ModelError::Conflict("artifact embedding token limit"));
     }
-    if consumption.availability == VectorAvailability::Available {
-        let receipt = consumption.receipt()?;
+    if let Some(receipt) = receipt {
         let _value = value::decode(spec, receipt.bytes, receipt.digest, receipt.admitted_tokens, workspace.budget())?;
-        let key = (spec.hash(), consumption.input);
+        let key = (spec.hash(), input);
         let index = manifest.embeddings.binary_search_by_key(&key, |value| (value.specification, value.text))
             .map_err(|_| ModelError::Conflict("artifact embedding consumption"))?;
         let expected = &manifest.embeddings[index];
         if expected.dimension != spec.dimensions || expected.values != receipt.digest {
             return Err(ModelError::Conflict("artifact embedding consumption"));
         }
+        return Ok(Some(key));
     }
-    Ok(())
+    Ok(None)
 }
 
 fn verify_projections(
