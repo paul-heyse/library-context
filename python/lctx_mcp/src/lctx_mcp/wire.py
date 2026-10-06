@@ -1,4 +1,4 @@
-"""Rust-owned schemas and MCP serialization; native serving is unavailable."""
+"""Rust-owned schemas and complete MCP serialization over a pinned native operation session."""
 
 from __future__ import annotations
 
@@ -79,31 +79,52 @@ def negotiated_encodings(
 
 
 class SchemaTool(Tool):
+    _executor: Any = PrivateAttr()
     _byte_limits: dict[str, int] = PrivateAttr()
 
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
-        raise ToolError("unavailable: native graph serving is not implemented")
+        from lctx_semantics import wire_tool_result
+
+        expanded = bool(arguments.get("page", {}).get("expanded", False))
+        try:
+            raw = await self._executor.execute(self.name, arguments)
+            result = CallToolResult.model_validate_json(wire_tool_result(self.name, raw, expanded))
+            return ToolResult.from_mcp_result(result)
+        except (ValueError, RuntimeError) as exc:
+            raise ToolError(str(exc)) from exc
 
 
 class CapabilityResource(Resource):
+    _executor: Any = PrivateAttr()
     _capability: str = PrivateAttr()
     _byte_limits: dict[str, int] = PrivateAttr()
 
     async def read(self) -> ResourceResult:
-        raise ResourceError("unavailable: native graph serving is not implemented")
+        from lctx_semantics import wire_capability_resource
+
+        try:
+            capability = list(bytes.fromhex(self._capability))
+            if len(capability) != 16:
+                raise ValueError("capability key must contain 16 bytes")
+            raw = await self._executor.execute("get_capability", {"capability": capability})
+            return ResourceResult(wire_capability_resource(raw))
+        except (ValueError, RuntimeError) as exc:
+            raise ResourceError(str(exc)) from exc
 
 
 class CapabilityTemplate(ResourceTemplate):
+    _executor: Any = PrivateAttr()
     _byte_limits: dict[str, int] = PrivateAttr()
 
     async def create_resource(self, uri: str, params: dict[str, Any]) -> Resource:
         resource = CapabilityResource(uri=uri, name=self.name, mime_type=self.mime_type)
+        resource._executor = self._executor
         resource._capability = params["capability"]
         resource._byte_limits = self._byte_limits
         return resource
 
 
-def register(server) -> None:
+def register(server, executor) -> None:
     """Register the sole Rust inventory without Python domain field definitions."""
     from lctx_semantics import wire_resources, wire_tool, wire_tools
 
@@ -122,6 +143,7 @@ def register(server) -> None:
             ),
             meta={"lctx_wire_identity": contract["wire_identity"]},
         )
+        tool._executor = executor
         tool._byte_limits = contract["byte_limits"]
         server.add_tool(tool)
     for declaration in json.loads(wire_resources()):
@@ -136,5 +158,6 @@ def register(server) -> None:
                 "required": ["capability"],
             },
         )
+        template._executor = executor
         template._byte_limits = json.loads(wire_tool("get_capability"))["byte_limits"]
         server.add_template(template)

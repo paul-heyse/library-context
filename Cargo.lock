@@ -3904,6 +3904,8 @@ name = "lctx-publisher"
 version = "0.1.0"
 dependencies = [
  "cpg-core",
+ "cpg-extract",
+ "datafusion",
  "futures 0.3.34",
  "hex",
  "lctx-model",
@@ -3919,8 +3921,11 @@ name = "lctx-semantics"
 version = "0.1.0"
 dependencies = [
  "lctx-model",
+ "lctx-serving",
+ "lctx-surrealdb",
  "pyo3",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

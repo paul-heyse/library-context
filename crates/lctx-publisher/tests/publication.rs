@@ -1,0 +1,41 @@
+//! Actual compiled finite fixture, independent export verification, native publication and VIEWER.
+#[path="../../cpg-core/tests/fixtures/catalog_runtime.rs"]
+mod runtime;
+use cpg_core::{artifact,compilation,workspace::{Workspace,WorkspaceOptions}};
+use lctx_model::domain::{*,admission::Frontier,stages::Profile,serving::{Name,SnapshotHandle}};
+use lctx_surrealdb::{RuntimeConfig,NativeReader,reader};
+use std::sync::Arc;
+#[tokio::test]
+async fn compiled_export_publishes_unselected_and_viewer_is_immutable(){
+    let path=std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable native server required");
+    let fixture:serde_json::Value=serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let scratch=tempfile::tempdir().unwrap();
+    let workspace=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:1<<30,partitions:1,batch_rows:128}).unwrap();
+    let captured=runtime::capture("catalog_core",Profile::Catalog,workspace.budget());
+    let settings=ContentHash::of(b"native-publication-control");
+    compilation::compile(&workspace,captured.clone(),Profile::Catalog,settings,Frontier::Normalized,None,None,None).await.unwrap();
+    let admitted=artifact::admit(&workspace,&captured,Frontier::Normalized,Profile::Catalog,settings).await.unwrap();
+    let export=scratch.path().join("artifact");admitted.export(&export).unwrap();drop(admitted);
+    let verified=artifact::verify_export(&export,&workspace).await.unwrap();
+    let config=RuntimeConfig{endpoint:fixture["grpc_endpoint"].as_str().unwrap().into(),username:fixture["admin_user"].as_str().unwrap().into(),password:fixture["admin_password"].as_str().unwrap().into(),viewer_username:"fixture_viewer".into(),viewer_password:format!("fixture-viewer-{}",std::process::id()),namespace:Name::new("gn_publication").unwrap(),cache_database:Name::new("cache").unwrap(),selection:scratch.path().join("selected.json")};
+    let definitions=lctx_surrealdb::materialization::native_definitions();
+    let handle=lctx_publisher::publish(&verified,&config,&definitions).await.unwrap();
+    assert!(!config.selection.exists());
+    assert_eq!(handle.semantic,verified.manifest().content());
+    let viewer=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),handle.clone()).await.unwrap();
+    let marker:Vec<String>=viewer.query("SELECT VALUE handle FROM publication:current",surrealdb_vars()).await.unwrap();
+    assert_eq!(serde_json::from_slice::<SnapshotHandle>(&hex::decode(&marker[0]).unwrap()).unwrap(),handle);
+    // VIEWER can read and cannot modify either graph data or executable definitions.
+    let mut denied=viewer.client().query("CREATE entity:denied; SELECT VALUE id FROM entity:denied").await.unwrap().check().unwrap();
+    let changed:Vec<lctx_surrealdb::surrealdb::types::RecordId>=denied.take(1).unwrap();assert!(changed.is_empty());
+    assert!(viewer.client().query("DEFINE TABLE forbidden").await.unwrap().check().is_err());
+    for original in &verified.manifest().originals{
+        let bytes=viewer.original_bytes(original.source,0,usize::try_from(original.byte_len.min(256<<10)).unwrap()).await.unwrap();
+        let expected=std::fs::read(export.join(format!("original-{}.bin",original.source.0.hex()))).unwrap();assert_eq!(bytes,&expected[..bytes.len()]);
+    }
+    config.select(&handle).unwrap();assert_eq!(config.selected().unwrap(),handle);
+    let serving=lctx_surrealdb::config::ViewerConfig::read(&config.selection.with_extension("serving.json")).unwrap();assert_eq!(serving.snapshot,handle);
+    let admin=reader::connect(&config.endpoint,&config.root_credentials(),config.namespace.as_str(),handle.database.database.as_str()).await.unwrap();
+    admin.query(format!("REMOVE DATABASE `{}`",handle.database.database.as_str())).await.unwrap().check().unwrap();
+}
+fn surrealdb_vars()->lctx_surrealdb::surrealdb::types::Variables{Default::default()}

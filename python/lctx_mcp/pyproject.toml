@@ -1,7 +1,7 @@
 [project]
 name = "lctx-mcp"
 version = "0.1.0"
-description = "The capability server: FastMCP over one pinned serving generation (DESIGN §11)."
+description = "The capability server: FastMCP over one immutable native graph realization (DESIGN §11)."
 requires-python = ">=3.14"
 dependencies = [
     # Exact: the served wire bytes mirror FastMCP 4.0.5 and its mcp-types serializer
@@ -10,7 +10,6 @@ dependencies = [
     "mcp-types==2.2.0",
     "numpy>=2.4.6",
     "httpx2>=2.13.1",
-    "bm25s>=0.3.11",
     # Used directly (the holistic assessment's A7), and locked through fastmcp.
     "pydantic>=2.13.5",
     "lctx-semantics",

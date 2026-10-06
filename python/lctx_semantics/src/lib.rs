@@ -1,4 +1,5 @@
 //! Pure canonical serving schemas and wire validation; semantic requests run in their model owner.
+mod session;
 use lctx_model::domain::{embedding::Spec, serving};
 use pyo3::{exceptions::PyValueError, prelude::*};
 fn error(e: serving::WireError) -> PyErr {
@@ -53,8 +54,19 @@ fn wire_failure(kind: &str) -> PyResult<String> {
     serde_json::to_string(&serving::PublicFailure::new(kind))
         .map_err(|_| PyValueError::new_err("failure encoding"))
 }
+#[pyfunction]
+fn wire_capability_resource(py:Python<'_>,raw:&str)->PyResult<String>{
+    py.detach(|| {
+        serving::decode_response("get_capability",raw,true,&serving::ResourceLimits::default()).map_err(error)?;
+        let response:serving::GetCapabilityResponse=serde_json::from_str(raw).map_err(|e|PyValueError::new_err(e.to_string()))?;
+        let text=response.resource_text().map_err(error)?;
+        if text.len()as u64>serving::ResourceLimits::default().response_bytes(true){return Err(PyValueError::new_err("resource_refused: capability resource bytes"))}Ok(text)
+    })
+}
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<session::NativeSession>()?;
+    m.add_function(wrap_pyfunction!(wire_capability_resource,m)?)?;
     m.add_function(wrap_pyfunction!(canonical_embedding_spec, m)?)?;
     m.add_function(wrap_pyfunction!(wire_schema, m)?)?;
     m.add_function(wrap_pyfunction!(wire_decode, m)?)?;

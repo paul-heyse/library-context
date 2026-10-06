@@ -34,8 +34,10 @@ impl RuntimeConfig{
         let viewer=ViewerConfig{endpoint:self.endpoint.clone(),username:self.viewer_username.clone(),password:self.viewer_password.clone(),snapshot:handle.clone()};
         let serving_path=self.selection.with_extension("serving.json");
         use std::os::unix::fs::OpenOptionsExt;
-        let mut serving=std::fs::OpenOptions::new().create(true).truncate(true).write(true).mode(0o600).open(&serving_path).map_err(ModelError::codec)?;
+        let serving_staged=serving_path.with_extension(format!("{}.new",std::process::id()));
+        let mut serving=std::fs::OpenOptions::new().create_new(true).write(true).mode(0o600).open(&serving_staged).map_err(ModelError::codec)?;
         serving.write_all(&serde_json::to_vec(&viewer).map_err(ModelError::codec)?).map_err(ModelError::codec)?;serving.sync_all().map_err(ModelError::codec)?;
+        std::fs::rename(&serving_staged,&serving_path).map_err(ModelError::codec)?;
         std::fs::rename(&staged,&self.selection).map_err(ModelError::codec)?;std::fs::File::open(parent).map_err(ModelError::codec)?.sync_all().map_err(ModelError::codec)
     }
 }

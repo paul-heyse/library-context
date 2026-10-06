@@ -1,9 +1,11 @@
 """Canonical Rust-owned schema and wire validation, without an independent semantic executor."""
 
 from ._native import (
+    NativeSession,
     admit_envelope,
     canonical_embedding_spec,
     wire_decode,
+    wire_capability_resource,
     wire_failure,
     wire_resources,
     wire_schema,
@@ -13,9 +15,11 @@ from ._native import (
 )
 
 __all__ = [
+    "NativeSession",
     "admit_envelope",
     "canonical_embedding_spec",
     "wire_decode",
+    "wire_capability_resource",
     "wire_failure",
     "wire_resources",
     "wire_schema",

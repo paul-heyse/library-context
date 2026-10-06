@@ -32,5 +32,9 @@ cache-keys = [
     { file = "../../crates/lctx-model/models/**/*.toml" },
     { file = "../../crates/lctx-model-macros/Cargo.toml" },
     { file = "../../crates/lctx-model-macros/src/**/*.rs" },
+    { file = "../../crates/lctx-surrealdb/Cargo.toml" },
+    { file = "../../crates/lctx-surrealdb/src/**/*.rs" },
+    { file = "../../crates/lctx-serving/Cargo.toml" },
+    { file = "../../crates/lctx-serving/src/**/*.rs" },
     { env = "LCTX_NATIVE_SEMANTICS_INPUTS" },
 ]
