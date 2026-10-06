@@ -20,12 +20,15 @@ async fn actual_summary_matches_complete_finite_whole_operation(){
  let access=workspace.stage_inputs(&stage,profile).unwrap();let inputs=access.session(&workspace).await.unwrap();let mut data=SummaryData::new(workspace.budget());
  for input in SummaryData::inputs(){let mut stream=cpg_core::sql::query(&inputs,&format!("SELECT * FROM {} ORDER BY id",identifier(&access.table_for(&input).unwrap()))).await.unwrap().execute_stream().await.unwrap();while let Some(batch)=stream.try_next().await.unwrap(){data.visit_input(&input,&batch).unwrap();}}
  let frames=rows::<analysis::summary::AnalysisInvocation>(&session,analysis::summary::AnalysisInvocation::NAME,workspace.budget()).await;
- macro_rules! targets{($($field:ident:$ty:ty,)*)=>{$(let mut $field=Rows::<$ty>::new(workspace.budget());)*};}lctx_model::summary_outputs!(targets);let mut outcomes=Rows::new(workspace.budget());
+ macro_rules! targets{($($field:ident:$ty:ty,)*)=>{
+  struct Expected {$( $field:Rows<$ty>, )*}
+  impl Expected {fn new(budget:&resources::ResourceBudget)->Self{Self{$($field:Rows::new(budget),)*}}}
+ };}lctx_model::summary_outputs!(targets);let mut expected=Expected::new(workspace.budget());let mut outcomes=Rows::new(workspace.budget());
  let coverage=rows::<analysis::summary::AnalysisCoverage>(&session,analysis::summary::AnalysisCoverage::NAME,workspace.budget()).await;
  for frame in frames.iter(){let definition=data.definitions.get(frame.definition).unwrap();let assessment=data.graphs.assessments.iter().find(|row|(row.input,row.context,row.projection)==(frame.input,frame.context,projection::ProjectionName::CallableInvocation)).unwrap();let snapshot=data.graphs.snapshots.iter().find(|row|row.assessment==assessment.id()).unwrap();let graph=projection::snapshot::hydrate(snapshot,assessment,&data.graphs.chunks,workspace.budget()).unwrap();
   let mut oracle=produce(&data,frame,definition,profile,Some(&graph),workspace.budget()).unwrap();oracle.discharge(&coverage).unwrap();
-  macro_rules! merge{($($field:ident:$ty:ty,)*)=>{$(for row in oracle.$field.iter(){$field.insert(row.clone()).unwrap();})*};}lctx_model::summary_outputs!(merge);outcomes.insert(oracle.outcome).unwrap();
+  macro_rules! merge{($($field:ident:$ty:ty,)*)=>{$(for row in oracle.$field.iter(){expected.$field.insert(row.clone()).unwrap();})*};}lctx_model::summary_outputs!(merge);outcomes.insert(oracle.outcome).unwrap();
  }
- macro_rules! check{($($field:ident:$ty:ty,)*)=>{$(compare(&session,&$field,workspace.budget()).await;)*};}lctx_model::summary_outputs!(check);compare(&session,&outcomes,workspace.budget()).await;
- assert!(!components.is_empty()&&!component_members.is_empty(),"fixture must traverse actual invocation SCC topology");assert!(!origins.is_empty()&&!alternatives.is_empty(),"fixture must publish actual finite Summary proofs");
+ macro_rules! check{($($field:ident:$ty:ty,)*)=>{$(compare(&session,&expected.$field,workspace.budget()).await;)*};}lctx_model::summary_outputs!(check);compare(&session,&outcomes,workspace.budget()).await;
+ assert!(!expected.components.is_empty()&&!expected.component_members.is_empty(),"fixture must traverse actual invocation SCC topology");assert!(!expected.origins.is_empty()&&!expected.alternatives.is_empty(),"fixture must publish actual finite Summary proofs");
 }

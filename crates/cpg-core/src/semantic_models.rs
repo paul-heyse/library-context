@@ -342,7 +342,7 @@ mod selected_catalog_controls {
     #[tokio::test]
     async fn captured_catalog_is_selected_before_rich_decode() {
         let runtime=Workspace::new(Arc::new(model().unwrap()),crate::workspace::WorkspaceOptions{memory_bytes:128<<20,partitions:1,batch_rows:16}).unwrap();
-        let catalog=models::Catalog::parse("external.toml",include_str!("../../lctx-model/models/external.toml")).unwrap().declaration();
+        let parsed=models::Catalog::parse("external.toml",include_str!("../../lctx-model/models/external.toml")).unwrap();let catalog=parsed.declaration();
         let huge_source=format!("{}\n#{}",catalog.source,"x".repeat(6<<20));
         let unrelated=models::ModelCatalog{source_name:"unrelated.toml".into(),source:huge_source.clone(),content:ContentHash::of(huge_source.as_bytes()),..catalog.clone()};
         let access=runtime.inputs("catalog-config",Profile::Behavioral,[]).unwrap();
