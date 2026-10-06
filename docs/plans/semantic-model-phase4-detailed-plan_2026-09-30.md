@@ -1,6 +1,11 @@
 # Phase 4: analysis and catalog — detailed design and execution plan
 
-**Accepted execution target, 2026-09-30.** This document specifies cutover Phase 4, including the upstream
+**Prior implementation scope; current execution superseded by ADR-0128, 2026-10-05.**
+The [graph-native coordinator](graph-native-pivot-plan_2026-10-05.md) owns current compiler
+execution and acceptance. This document retains finite semantic detail, source-qualified
+obligations and dated receipts while they have current consumers. PostgreSQL mechanisms and
+the former phase sequence are not current execution prescriptions.
+This document specifies the former cutover Phase 4, including the upstream
 prerequisites its consumers expose. Package receipts below distinguish implementation and qualification.
 The [parent cutover plan](semantic-model-cutover-plan_2026-09-29.md) owns cross-phase sequence and
 finding disposition; this document owns Phase 4 contracts, packages and acceptance controls.

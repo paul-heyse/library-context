@@ -7,9 +7,10 @@
 analysis families record each producing owner. **Implemented compiler route, 2026-10-05:**
 `cpg-core` loads immutable completed workspace views and admits their typed graph outputs;
 `lctx-analytics`' native entry points re-export
-the model-owned computational kernels. The [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
-owns its scoped independent controls and dated qualification. The alignment coordinator owns
-current corrections; real-library serving qualification remains stopped. No phase-exit or pilot claim
+the model-owned computational kernels. The [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md)
+owns current compiler acceptance and corrections. The [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
+retains its dated finite semantic controls and prior qualification boundaries, which do not qualify
+the replacement. Real-library serving qualification remains separately authorized. No phase-exit or pilot claim
 follows from these implementation descriptions.
 
 The dependency order is Local → BaseEvaluation → BaseCompletion → SourceCall → EnrichedExecution

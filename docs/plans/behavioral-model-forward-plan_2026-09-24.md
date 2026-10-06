@@ -110,14 +110,15 @@ measured task benefit from the connected structured evidence.
 | Usable pilot differs from differentiated product | Comparative parity or unavailable fair comparison cannot close the stated value objective |
 
 Preserve five behavioral verdicts, strict negative-claim coverage, canonical identities/receipts,
-programmatic synthesis, generation pinning and evaluation-only gold. Existing false-claim defects
+programmatic synthesis, complete-realization pinning and evaluation-only gold. Existing false-claim defects
 remain safety obligations wherever their consumers remain exposed. The old behavioral suite keeps
 its questions, unmet exits and sealed heldout; it is not repurposed as the new confirmation set.
 
 ## 3. Product execution queue
 
-PR0–PR4 functional implementation is complete; qualification and comparative admission are
-reported in §1 and §6.2. PR5 is implemented; PR6 is the next proposed vertical slice.
+PR0–PR5 implementation and qualification receipts in §1 and §6.2 describe their dated prior
+scope. The graph-native replacement currently owns execution and acceptance; those receipts
+do not qualify the replacement. PR6 remains the proposed product confirmation slice afterward.
 Each uses targeted compile/functional controls; formatting and integrated gates
 wait until the authorized functional scope is complete. No extra hook, register or build system.
 
@@ -131,24 +132,24 @@ query scope remain. §6.2 owns the scheduled CLF findings; §7 retains library a
 
 ### 3.0 Consolidated execution
 
-**Current queue: the [semantic model cutover](semantic-model-cutover-plan_2026-09-29.md) (phases 0–5); PR6 (Proposed) follows its phase 5. PR5 is complete at its bounded qualification boundary. PR0 comparison remains blocked.** The old P0–P7/S1–S7 labels below are research identifiers,
+**Current queue: the [graph-native replacement](graph-native-pivot-plan_2026-10-05.md): complete compiler, then native realization/publication/serving and assembled Q0. PR6 remains Proposed after those prerequisites and separately authorized real-library/live-vector Q1 work. PR5 receipts describe prior scope; PR0 comparison remains blocked.** The old P0–P7/S1–S7 labels below are research identifiers,
 not product packages. The target's response budgets and comparison thresholds are frozen in PR0
 before outcomes; the design does not claim they have passed.
 
 | Packet / dependency | Concrete scope and owners | Required outcome and deletion obligation |
 |---|---|---|
 | **PR0 — Product contract and independent baseline**, first | Evaluation owner freezes 24 development tasks and separate 24 confirmation tasks; source/metadata inventory, selected pilot core APIs and predicate meanings. Verify comparable Context7 release/corpus availability. Schema owner maps existing fields and missing facts | Commit task criteria before tuning; baseline feasibility and explicit unmatched cases. No heldout/gold leakage. Inventory every R01–R08 requirement and deployment extension; comparison blocked if fair population unavailable |
-| **PR1 — Mandatory catalog and complete API packet**, after PR0 | `cpg-core` catalog module, `cpg-schema`, PG hydration/native/MCP. Separate public-root/API construction from optional analysis; ordered signatures, variants, synthesized constructors, public member/alias identity, raw evidence, capability-aware manifest/loading, optional valid briefs | Ordinary/undocumented/unresolved-decorator APIs publish and inspect without brief/deep pass; invalid mandatory references fail. Signature round-trip includes kinds/defaults/provenance. Remove facet-string signature construction and unconditional semantic capability assumptions |
+| **PR1 — Mandatory catalog and complete API packet**, after PR0 | `lctx-model` graph/catalog contracts and `cpg-core` admitted artifacts, followed by native publication/hydration/MCP. Separate public-root/API construction from optional analysis; ordered signatures, variants, synthesized constructors, public member/alias identity, raw evidence, capability-aware manifest/loading, optional valid briefs | Ordinary/undocumented/unresolved-decorator APIs publish and inspect without brief/deep pass; invalid mandatory references fail. Signature round-trip includes kinds/defaults/provenance. Remove facet-string signature construction and unconditional semantic capability assumptions |
 | **PR2 — Surface and configuration specificity**, after PR1 | Establish nominal IDs/shared wire foundation and load/index/pure-derive boundary with truthful dependencies. One decorator normalization owner reused by behavioral admission and synthesis; properties/accessors, inherited binding, selected protocol/registration forms; options/defaults and supported field/direct relationships | Narrow schema/Serde/MCP migration and isolated catalog controls; shadowed/replacement/wraps and two-field no-leakage; source-known/effective-unresolved coexist. Remove migrated duplicate wire definitions, trailing-name classifier and generic cross-field attribution; no general decorator/heap project |
-| **PR3 — Original scenarios and deployment evidence**, after PR1 and PR2 contract/input foundation | Acquisition metadata plus catalog-wide docs/usage associations as pure derivations over shared identities; enclosing contexts, intent/status and evidence-root closure; package requirements/extras/entry points and selected launch/config snippets | **Completed, Tested (2026-09-28).** API outside brief seeds has usable evidence; negative tests retain intent; unresolved fixtures disclosed; no install-sufficiency inference from all-extras environment. Typed scenario/deployment records reach PG/MCP/recovery; no new mixed-effect derivation path |
-| **PR4 — Typed requirements and evidence retrieval**, after PR2/PR3 | Complete Rust classifier and typed contextual witnesses/envelopes from PR2 vocabulary; shared eligibility, quantifiers/coverage/conflict/joint context. Extend SQLx checked stable reads while preserving inventory-derived hydration. View registry/winning-unit IPC; options/scenario/docs/class units, family fusion and migrated query instruction | Strict/discovery/contradiction/overload controls, stable cursors, actual witnesses, schema/transport parity and real-PG query checks. Replace duplicate semantic Pydantic/string-key packet decisions, fixed view lists and anonymous ranks; never edit deployed migrations |
-| **PR5 — Agent journeys and usability**, after PR4 | Finish schema-backed FastMCP tools; bounded packets, browse/vocabulary/facet counts, independent evidence search/expansion and thin comparison. Qualify setup/deployment and coarse compile/catalog/retrieval rebuilds | Real MCP listing/calls, useful original context and complete signatures; both profiles validate/import/restore. Clean/rebuilt semantic and evidence equality after membership/absence/coordinate/policy changes; no unsafe claims or cache fallback. Optional engines remain outside admission |
+| **PR3 — Original scenarios and deployment evidence**, after PR1 and PR2 contract/input foundation | Acquisition metadata plus catalog-wide docs/usage associations as pure derivations over shared identities; enclosing contexts, intent/status and evidence-root closure; package requirements/extras/entry points and selected launch/config snippets | **Prior-scope Completed, Tested (2026-09-28).** API outside brief seeds has usable evidence; negative tests retain intent; unresolved fixtures disclosed; no install-sufficiency inference from all-extras environment. Typed scenario/deployment records retain their original evidence through admitted graph and later native publication/MCP; prior PG recovery receipts do not qualify the replacement |
+| **PR4 — Typed requirements and evidence retrieval**, after PR2/PR3 | Complete Rust classifier and typed contextual witnesses/envelopes from PR2 vocabulary; shared eligibility, quantifiers/coverage/conflict/joint context. Native functions/queries realize the model-owned operations with batched hydration. View registry/winning-unit IPC; options/scenario/docs/class units, family fusion and migrated query instruction | Strict/discovery/contradiction/overload controls, stable cursors, actual witnesses, schema/transport parity and actual native operation checks. Replace duplicate semantic Pydantic/string-key packet decisions, fixed view lists and anonymous ranks; rebuild fresh realizations instead of adding old-format readers |
+| **PR5 — Agent journeys and usability**, after PR4 | Migrate the prior schema-backed FastMCP journey to native serving; bounded packets, browse/vocabulary/facet counts, independent evidence search/expansion and thin comparison. Qualify setup/deployment and coarse compile/catalog/retrieval rebuilds | Real MCP listing/calls, useful original context and complete signatures; both profiles validate/import/restore. Clean/rebuilt semantic and evidence equality after membership/absence/coordinate/policy changes; no unsafe claims or cache fallback. Optional engines remain outside admission |
 | **PR6 — Comparative confirmation and handoff**, after PR5 | Full authorized-scope code gate and real-embedding pilot; fixed A/B/C agent comparison, independent task checks, costs/latency, review/closure and current docs | Usable pilot recorded separately. Differentiation requires the §14.12 comparable-population material gain and false-claim rule; failed/parity results remain open. Second library/repeat required before broad claims |
 
 Every functional packet carries canonical/derived contract versions, validators and meaningful
-negative fixtures through bundle → PG import → Rust hydration → MCP. Retain new relation definitions
-in existing authorities. No schema-only completion. Coarse rebuilds reuse published facts when the
-input evidence is sufficient; new meanings/facts require explicit canonical migration.
+negative fixtures through admitted graph → native publication → typed hydration → MCP. Retain new relation definitions
+in existing authorities. No schema-only completion. Compatible consumers share immutable admitted inputs when sufficient; new meanings/facts
+require explicit canonical reconstruction. No historical runtime or rollback archive is required.
 
 **Work selection rule:** a new analysis must name a failed development task, the missing relation,
 why source/docs/current facts are insufficient, its bounded semantics and an independent control.
@@ -1198,33 +1199,32 @@ the established boundary. Skill availability and transitive lockfile presence ar
 
 <a id="postgresql-adoption"></a>
 
-### Superseded PostgreSQL adoption triggers
+### Current capability triggers
 
-These triggers are retired under ADR-0128. Native SurrealDB querying is selected and does not
-require an adoption comparison. The graph-native plans own current implementation choices;
-remaining product requirements above survive independently of these former mechanisms.
+PostgreSQL adoption mechanisms are retired under ADR-0128. Native SurrealDB querying is
+selected and does not require an adoption comparison. The graph-native plans own current
+implementation choices; the stable IDs below retain only their surviving functional triggers.
 
-**Proposed only when triggered.** The stable F IDs retain their original owners. Serving, exact
-pgvector ranks, COPY and admitted federation are implemented; library availability alone does
-not install another transport, query owner or service.
+**Consumer-triggered capabilities remain Proposed.** The selected native implementation is
+owned by the graph-native plans. Library availability alone does not install another transport,
+query owner or service; prior PG implementation receipts establish no native acceptance.
 
 | Package | Current route / trigger | Authority, lifecycle and acceptance |
 |---|---|---|
 | F1 Operator/manual-review workflow | Selected operator-facing review consumer under §10.4; existing operations plus projection contracts | Append exact-subject-revision events, provenance/idempotency and optimistic conflicts. Freeze a selected revision into canonical compiler inputs; never patch a published brief or infer approval from absence. Backup/restore and frozen-input replay |
-| F4 Dynamic SQL | Substantive typed variable joins/expressions beyond clear SQLx queries; not simple inventory hydration or the existence of PR4 predicates | SeaQuery+binder with allowlisted identifiers and bound values; null/array/adversarial SQL controls. Semantic predicate/witness authority stays in Rust; Stage 4 AST remains Rust→DataFusion |
-| F6 Direct Python workflow/SQLAlchemy | Python gains its own relational workflow, not just an MCP transport caller | Psycopg 3 default; one async pool owner; SQLAlchemy only for substantive Core/ORM ownership. Python 3.14 lifecycle/type controls, same Rust migration history |
-| F7 Notifications/durable jobs | Actual worker or polling-cost consumer | Durable rows/events are truth; LISTEN/NOTIFY is a reconnectable hint. Bound transactions, claiming/retry/idempotency and crash recovery before job scheduling |
-| F8 pgrx extension | Measured candidate-transfer cost cannot be handled by bounded fetch into the native executor | Separate PG18 extension crate/toolchain/runtime rules; pure shared kernel, explicit model/generation identity and refusal/evidence fidelity; no Tokio analysis engine in a PG backend |
-| F9 Canonical-store replacement | **Decided 2026-09-29 (ADR-0086):** PostgreSQL becomes the single relational store | Executed by [cutover plan](semantic-model-cutover-plan_2026-09-29.md) phase 1, which covers writes, validators, IDs, publication, reads, rebuilds and the deletion of Delta machinery |
+| F4 Dynamic query composition | Substantive typed variable joins/expressions beyond ordinary native functions | Bound values and allowlisted identifiers; preserve null/array/adversarial controls. Model-owned predicate/witness meaning is realized by native operations; in-process analytical expressions remain DataFusion |
+| F6 Direct Python workflow | Python gains a named workflow beyond transport/presentation | Keep one model and publication owner; establish explicit effects and lifecycle before adding a direct client. No alternate Python store or migration authority |
+| F7 Notifications/durable jobs | Actual worker or notification consumer | Native notifications are hints; authored durable state remains truth. Own claiming, retry, idempotency, cancellation and crash behavior before adding job scheduling |
+| F8 Optional database kernel | A concrete native operation benefits from a bounded Rust/WASM kernel | S2 owns the optional capability assessment; preserve pure semantic meaning, complete realization identity, resources and refusal/evidence fidelity. No full-model database port is required |
+| F9 Canonical-store replacement | **Decided 2026-10-05 (ADR-0128):** Rust-admitted graph with native SurrealDB persistence/querying replaces the PostgreSQL decision | The [graph-native coordinator](graph-native-pivot-plan_2026-10-05.md) owns compiler, publication, serving, fresh reconstruction and legacy retirement; compiler acceptance does not establish native publication or operator adoption |
 | F10 Retention/advanced operations | ADR-0078 supplies current-only replacement and reconstruction; actual growth/pressure/recovery need selects further work | Replacement must protect live readers and referenced artifacts plus in-flight users until the validated cutover. Replicas/PITR/proxies need separate durability/read/session contracts; no automatic topology expansion |
-| F11 Native ADBC bulk reads | Representative PG15 row-conversion/transfer cost or a named columnar client favors it | Pin core/manager/FFI 0.24, r2d2_adbc 0.3 and compatible provider plus native PG driver artifact; qualify mappings (including numeric/opaque types), C ABI, blocking executor/pool health, transactions/cancellation and supported expressions. Replace the selected transport for that consumer rather than duplicate defaults |
-| F12 DataFusion client protocols | Named psql/BI or embedded ADBC client | Select datafusion-postgres family for PG-wire serving, or adbc-driver-datafusion for ADBC access. Reverify pins for the selected implementation; own authentication/exposed SQL/read-only limits/cancellation/session generation and operational port/artifact. Neither is a PG storage provider |
-| F13 PostgreSQL lexical/FTS or alternate vector engine | Named lexical/discovery capability or measured limitation of the qualified target | PostgreSQL FTS/trigram/extension scores require a new policy versus bm25s; LanceDB requires a new case versus PG serving, not the obsolete 4096 threshold. Preserve abstention/name promotion, evidence separation and predeclared retrieval criteria |
+| F11 Additional columnar transport | A named columnar client needs more than the selected Arrow artifact/export route | Own exact mappings, native ABI where applicable, resources, cancellation and supported expressions. Replace the selected consumer transport rather than duplicating defaults; no PG driver is retained |
+| F12 Additional analytical client protocol | A named BI or embedded client | Choose an existing protocol implementation for that consumer; own authentication, read-only limits, cancellation and complete-realization pinning. No additional endpoint or database authority is selected merely by library availability |
+| F13 Search extension | A named capability missing from the selected native search or a consequential observed limitation | S2 owns native lexical/vector/fusion policy. Preserve abstention/name promotion, evidence separation and predeclared retrieval criteria; no alternate engine or comparison gate is required for selected native querying |
 
-PostgreSQL arrays, JSONB, constraints, indexes, CTEs, windows and transactions are available through
-SQLx without an ORM. `postgres-types` belongs to rust-postgres consumers, not SQLx codecs. PGK/F01
-requires a real driver/domain consumer and replacement evidence before Cornucopia adoption. Authored
-review events, if selected, remain provenance-bearing inputs; notification delivery is never truth.
+Authored review events, if selected, remain provenance-bearing inputs; notification delivery
+is never truth. The native realization and serving plans own actual codecs, functions, indexes
+and query execution; retired PG library choices are not current adoption prescriptions.
 
 ## 8. Risks
 
@@ -1237,10 +1237,10 @@ review events, if selected, remain provenance-bearing inputs; notification deliv
 | ty churn and salsa skew | Exact pins; parity tests on upgrade |
 | Scope creep | PR0–PR6 dependencies and task-driven additions; §7's triggers keep general research off the product critical path |
 | Disk and GPU | One pilot store; live GPU legs only with ≥30 GB free and vLLM stopped afterwards |
-| PostgreSQL/1024 migration disturbs the semantic baseline or creates a second authority | PG8 baseline preservation and explicit spec/projection identities; exact Delta receipts, fresh stores and separately named results; canonical replay independent of live PG/cache/embedder; no tuning of frozen semantic/evaluation parameters |
-| Partial PG projection or cross-generation hydration | PG11/PG12 whole-evidence/artifact validation and atomic ready, lifespan-pinned selection/cursors, PG16 restore/rebuild; retain ready generations and artifacts until explicit reader protection exists |
-| ANN/pushdown changes exhaustive or unknown semantics | PG13 exact universe/coverage; PG14 full ranks versus versioned approximate candidates and budget refusal; PG15 admitted expression/codec/read-view contracts. Similarity never becomes evidence |
-| PostgreSQL service, pool pressure and dependency/extension drift | PG10 actual server/extension/image/role checks and owned immutable fork; PG13 cancellation/reuse; PG16/PG17 two-pool/resource/recovery measurements. Native/lexical/rank memory remains measured, not assumed eliminated |
+| Physical realization changes logical meaning or creates a second authority | Separate semantic content, consumed embedding spec/bytes and physical realization identities; fresh reconstruction from pinned inputs. No old-store import or tuning of frozen evaluation parameters |
+| Partial publication or hydration across realizations | P2 reconciles admitted content and seals executable definitions before visibility; S2/S3 pin complete realizations in handles/cursors. Quiesce readers before replacing state |
+| ANN/query composition changes exhaustive or unknown semantics | Native operation contracts preserve exact eligibility/coverage, attributed candidates and truthful partial outcomes. Similarity never becomes evidence |
+| Native server/resource pressure or engine/index drift | Native realization owns actual configuration, index readiness and executable identity; operations own deadlines, cancellation and bounded bulk access. Measurements are required for quantitative claims, not routine design acceptance |
 
 ## 9. Standing conventions
 
@@ -1249,15 +1249,12 @@ review events, if selected, remain provenance-bearing inputs; notification deliv
   `reset --hard`.
 - Judgment calls go in the commit message; a scope change updates this plan; an architectural
   change gets an ADR.
-- Snapshot changes: read the `.snap.new`, then `cargo insta accept --workspace`; a schema snapshot
-  change is a declared migration. Never `cargo insta review`. A schema migration needs a fresh
-  store rebuilt from pinned inputs (ADR-0048). Moving `build/store` aside is a temporary rollback
-  measure, not a historical-read promise. New compiles publish `embedding_specs`, `used_embeddings`
-  and `embedding_uses`; shared reuse goes through PostgreSQL. Legacy cache admission uses the
-  explicit versioned importer and original request texts. Standard 1024 creates new spec/cache/receipt
-  identities and rebuilt derived outputs; never rewrite 4096 receipts. PG projection format/index
-  profile changes are separately versioned and cannot alter canonical snapshot identity. Do not
-  copy old analysis tables or require PG during canonical bundle reconstruction.
+- Snapshot changes: read the `.snap.new`, then use noninteractive `cargo insta accept` for the
+  reviewed snapshots. A schema snapshot change is a declared migration. Rebuild fresh admitted
+  artifacts and native realizations from pinned inputs; no old-format reader, cache importer or
+  historical runtime archive is required. Exact consumed embedding specs and bytes enter the
+  admitted artifact, and physical codec/index/function changes have their own realization identity.
+  Operator replacement requires quiesced readers and its separate authorization.
 - Codebooks are append-only (`verdict`, `boundary_reason`, `condition_atom`, effect kinds, concept
   ids, model ids). `libraries/fastmcp/analytics.toml` is frozen; an edit needs an ADR.
 - `fixtures/python/` is never executed; `eval/heldout/` stays sealed until increment 5's end.

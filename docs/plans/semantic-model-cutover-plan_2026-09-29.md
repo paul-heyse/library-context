@@ -1,6 +1,11 @@
 # Plan: the semantic model cutover
 
-**Active execution owner, 2026-09-29.** [ADR-0085](../adr/0085-typed-semantic-domain.md),
+**Prior implementation scope; current execution superseded by ADR-0128, 2026-10-05.**
+The [graph-native coordinator](graph-native-pivot-plan_2026-10-05.md) owns current replacement
+execution and acceptance. This document remains a consumer of surviving source-qualified
+obligations and dated receipts until those obligations transfer; its PostgreSQL mechanisms,
+phase sequence and old acceptance commands are not current execution prescriptions.
+[ADR-0085](../adr/0085-typed-semantic-domain.md),
 [ADR-0086](../adr/0086-immutable-postgresql-generations.md), and
 [ADR-0087](../adr/0087-clean-semantic-reconstruction.md) govern this plan.
 The target is [DESIGN §15](../design/sections/semantic-model.md).
@@ -13,7 +18,7 @@ identity and invariants. A bounded derive lowers those definitions to Arrow and 
 DataFusion is compute, not another schema authority. There are no compatibility readers, adapters,
 legacy identity maps, old-store flags, or dual writers.
 
-**Current scope, 2026-10-01:** phases 0–3 are implemented with the distinct qualification boundaries
+**Prior scope, 2026-10-01:** phases 0–3 are implemented with the distinct qualification boundaries
 recorded below and in the Phase 3 plan. Phase 4 functional scope and mapped legacy retirement are integrated on main, including
 cumulative Analysis/Catalog compilation, symbolic source/Local/Summary/C1/S0 and actual upper-frontier
 focused controls. The assembled Design/Target review is Accept scoped; Q0 passed within the recorded Phase 4 scope, 2026-10-01.

@@ -1,13 +1,16 @@
 # Analytics
 
-**Implemented; Phase 4 qualification in progress, 2026-10-01.** The typed Structural and Analytic
+**Implemented compiler route, 2026-10-05; current acceptance at the graph-native coordinator.** The typed Structural and Analytic
 owners are `lctx-model::domain::structural` and `domain::analytics`. Their declarations own
-semantic inputs, output identity, qualification, coverage, parameters and stored replay.
-`cpg-core::structural` and `analytic` acquire completed inputs and publish results;
+semantic inputs, output identity, qualification, coverage, parameters and independent replay.
+`cpg-core::structural` and `analytic` acquire completed workspace inputs and emit results;
 `analysis_graphs` prepares the borrowed computational snapshots.
 `lctx-analytics`' four native kernel entry points expose model-owned scheduling, ranking,
 concept and neighbor operations; they do not create a second semantic authority.
-The [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md) owns acceptance.
+The [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns current
+compiler acceptance; its [projection plan](../../plans/graph-native-projections-plan_2026-10-05.md)
+separates compiler topology from later published exports. Earlier Phase 4 receipts remain scoped
+to their original implementation and do not establish replacement acceptance.
 
 > Decision: ADR-0085, ADR-0086, ADR-0106, ADR-0108
 
@@ -250,8 +253,8 @@ contracts. Their removal does not retire the retained capability, independent fi
 uncertainty obligations.
 
 Ablation, controlled pilot costs and product benefit comparisons remain separate future evidence.
-Implementation and focused receipts do not establish measurement or differentiation; current
-Phase 4 qualification remains in progress. [§14.12](api-and-evidence-product.md#section-14-12)
+Implementation and focused receipts do not establish measurement or differentiation; the
+graph-native coordinator owns current functional acceptance. [§14.12](api-and-evidence-product.md#section-14-12)
 owns the product acceptance protocol.
 
 > Decision: ADR-0020, ADR-0071, ADR-0106

@@ -478,8 +478,9 @@ Unknown, proof=None, with the actual refusal. C1 consumes the same normalized as
 The symbolic depth-two marker counts the source route constructor→field→reader; it is independent
 of the finite call-path proof limit and never denotes a proved runtime transfer.
 Constructor and reader owners and reader conditions stay explicit even when their Artifact scopes
-coincide. This does not establish temporal heap identity. The [restart checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
-owns integration, native/store controls and corrective reinspection of P4B3-F01.
+coincide. This does not establish temporal heap identity. The [graph-native compiler plan](../../plans/graph-native-model-compiler-plan_2026-10-05.md)
+owns current integration and store-free controls. The earlier [Phase 4 checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
+retains the dated P4B3-F01 disposition; it is not current compiler or native-store acceptance.
 
 **Open calls and alternatives**
 - **A value crossing an unresolved or unsummarized call** is not a transfer kind. It is an obligation
@@ -527,7 +528,9 @@ owns integration, native/store controls and corrective reinspection of P4B3-F01.
   Exact. Separate evidence-occurrence DAGs from aggregate summary publication. An open residual
   prevents universal discharge; an exact finite witness retains its own qualified meaning.
   [Plan §6.4–§6.5](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#6-behavioral-evidence-and-finite-composition)
-  owns the implemented finite engine and its independent native/store controls. Production defaults remain depth eight and proof steps sixty-four; bounded fixtures do not qualify every recursive program.
+  retains the finite engine's dated independent controls. Current store-free integration and
+  acceptance belong to the [compiler plan](../../plans/graph-native-model-compiler-plan_2026-10-05.md).
+  Production defaults remain depth eight and proof steps sixty-four; bounded fixtures do not qualify every recursive program.
 
 **Implemented / focused-Tested, 2026-10-04 (ADR-0123).** Source composition witnesses retain
 the exact selected signature enumeration and its support when scoped declared closure is used;
