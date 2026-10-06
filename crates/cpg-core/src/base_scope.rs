@@ -275,10 +275,6 @@ mod controls {
         let batch=<R as Record>::encode(rows).unwrap();session.deregister_table(R::NAME).unwrap();
         session.register_table(R::NAME,Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();
     }
-    async fn selected<R:Record>(scope:&PreparedClosure,prepared:&BaseScopes)->Vec<R>{
-        let mut stream=crate::sql::query(scope.session(),&scope.select(prepared.index(TypeId::of::<R>()).unwrap()).unwrap()).await.unwrap().execute_stream().await.unwrap();
-        let mut rows=Vec::new();while let Some(batch)=stream.try_next().await.unwrap(){rows.extend(<R as Record>::decode(&batch).unwrap());}rows
-    }
     async fn data(session:&SessionContext,prepared:&BaseScopes,scope:Option<&PreparedClosure>,budget:&resources::ResourceBudget,opaque_literals:bool)->BaseData{
         let mut data=BaseData::new(budget);
         for (table,input) in prepared.inputs.iter().enumerate(){

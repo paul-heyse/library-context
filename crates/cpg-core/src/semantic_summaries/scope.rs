@@ -158,7 +158,7 @@ mod summary_scope_controls{
   let inputs:Vec<_>=SummaryData::inputs().into_iter().filter(|input|![projection::ProjectionSourceAssessment::NAME,projection::ProjectionSnapshot::NAME,projection::ProjectionSnapshotChunk::NAME].contains(&input.name())).collect();
   let tables:Vec<_>=inputs.iter().enumerate().map(|(i,input)|ClosureTable{relation:model.relation(input.name()).unwrap().clone(),alias:format!("summary_scope_{i}")}).collect();
   for table in &tables{session.register_batch(&table.alias,arrow_array::RecordBatch::new_empty(table.relation.schema().clone())).unwrap();}
-  fn replace<R:Record>(session:&datafusion::prelude::SessionContext,inputs:&[ValidationInput],tables:&[ClosureTable],epoch:Option<stages::PublicationBoundary>,rows:&[R]){for(i,input)in inputs.iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<R>()&&input.prefix()==epoch){session.deregister_table(&tables[i].alias).unwrap();session.register_batch(&tables[i].alias,<R as Record>::encode(rows).unwrap()).unwrap();}}
+  fn replace<R:Record>(session:&datafusion::prelude::SessionContext,inputs:&[ValidationInput],tables:&[ClosureTable],epoch:Option<stages::PublicationBoundary>,rows:&[R]){for(i,_input)in inputs.iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<R>()&&input.prefix()==epoch){session.deregister_table(&tables[i].alias).unwrap();session.register_batch(&tables[i].alias,<R as Record>::encode(rows).unwrap()).unwrap();}}
   let source=source::SourceArtifact::from_bytes(nominal(1),format!("{}.py","p".repeat(6<<20)),b"x").unwrap();
   let unrelated=source::SourceArtifact::from_bytes(source.input,format!("{}.py","z".repeat(256<<10)),b"y").unwrap();
   let foreign=source::SourceArtifact::from_bytes(nominal(2),"foreign.py".into(),b"x").unwrap();

@@ -33,7 +33,7 @@ impl SourcePayloadSpool {
 }
 
 use crate::{consumed_rows::{ClosureTable,NominalClosure,PreparedEdges,PreparedClosure,identifier},workspace::CompletedInputs};
-use lctx_model::domain::{execution::{source_call_records::SourceCallData,body_records::*,records::*},normalized::{binding_normalization::*,bindings::*,callables::*,entities::*,events::*},source::*,syntax::*,flow::*,calls::*,lexical::*,symbols::*};
+use lctx_model::domain::{execution::{source_call_records::SourceCallData,body_records::*,records::*},normalized::{bindings::*,callables::*,entities::*,events::*},source::*,syntax::*,flow::*,calls::*,lexical::*,symbols::*};
 use std::{any::TypeId,sync::Arc};
 use futures::TryStreamExt;
 use super::execution_scope::{nominal,predicate};

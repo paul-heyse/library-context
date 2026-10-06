@@ -27,15 +27,6 @@ macro_rules! decoder_inputs {
         lctx_model::expected_domain_inputs!($apply);
     };
 }
-fn consumed_inputs(profile: stages::Profile) -> Vec<ValidationInput> {
-    let mut declarations = Data::consumed_inputs(profile);
-    declarations.extend([
-        ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
-        ValidationInput::of::<analysis::MethodParameters>(&["id"]),
-    ]);
-    declarations.extend(analysis::expected::inputs(build::definition().1.method));
-    declarations
-}
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &SessionContext,

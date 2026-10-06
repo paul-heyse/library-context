@@ -1,7 +1,6 @@
 //! E0 selects actual C1 roots and canonical brief documents before decoding their rich premises.
 use crate::{consumed_rows::{ClosureTable,NominalClosure,PreparedEdges,PreparedClosure,identifier},workspace::{CompletedInputs,ProducerOutput,Workspace}};
 use datafusion::prelude::SessionContext;
-use futures::TryStreamExt;
 use lctx_model::domain::{retrieval::build::{self,Data,Output},*,catalog::evidence as c1};
 use std::{any::TypeId,sync::Arc};
 macro_rules! decoder_inputs {($apply:ident)=>{

@@ -46,13 +46,6 @@ macro_rules! decoder_inputs {
 
     };
 }
-fn consumed_inputs(profile: Profile) -> Vec<ValidationInput> {
-    let mut declarations = build::Data::consumed_inputs(profile);
-    for method in build::methods() {
-        declarations.extend(analysis::expected::inputs(method));
-    }
-    declarations
-}
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
