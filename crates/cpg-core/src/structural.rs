@@ -75,7 +75,7 @@ pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
@@ -88,19 +88,39 @@ pub async fn produce(
     let mut data = build::Data::new(runtime.budget());
     let mut context = frames::Context::new(runtime.budget());
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
-        consumed_inputs(access.profile()),
+        {let mut inputs=vec![ValidationInput::of::<attribution::ProviderRun>(&["id"]),ValidationInput::of::<analysis::catalog_core::Invocation>(&["id"]),ValidationInput::of::<analysis::settings::AnalyticsConfiguration>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"])];for method in build::methods(){inputs.extend(analysis::expected::inputs(method));}inputs},
         runtime.budget(),
     )?;
     macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut data,&mut context,&mut admission,&mut consumed).await?;)*};}
-    decoder_inputs!(inventory, access.profile());
+    inventory! {runs:attribution::ProviderRun,core:analysis::catalog_core::Invocation,settings:analysis::settings::AnalyticsConfiguration,definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,}
+    lctx_model::expected_domain_inputs!(inventory);
     consumed.finish(access.name())?;
-    drop(session);
+
     let settings = context.configuration()?.clone();
     let parents = frames::parents(&data, runtime.budget())?;
-    let mut results = semantic::Output::new(runtime.budget());
-    let mut receipts = normalized::Rows::new(runtime.budget());
-    let mut projections = normalized::Rows::new(runtime.budget());
+    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(if !common_type(std::any::TypeId::of::<$ty>()){output.declare::<$ty>()?;})*};}
+    lctx_model::structural_outputs!(declare);
+    output.declare::<assertion::AssertionQualification>()?;
+    output.declare::<conditions::Condition>()?;
+    output.declare::<conditions::ConditionNode>()?;
+    output.declare::<assumptions::AssumptionSet>()?;
+    output.declare::<assumptions::AssumptionSetMember>()?;
+    let scopes=crate::analytical_scopes::FrameScopes::prepare(&access,&session,model,build::Data::consumed_inputs(access.profile()),crate::analytical_scopes::Kind::Structural,runtime.budget()).await?;
+    drop(session);
+    drop(context);
+    drop(data);
     for core in parents.iter() {
+        let grain=scopes.grain(core.id(),runtime.budget()).await?;
+        let mut data=build::Data::new(runtime.budget());
+        let mut context=frames::Context::new(runtime.budget());
+        macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(scopes.read::<$ty>(&access,&grain,|input,batch|{data.visit_input(input,batch)?;context.visit(input.name(),batch)?;Ok(())}).await?;)*};}
+        decoder_inputs!(scoped,access.profile());
+        drop(grain);
+        let mut results=semantic::Output::new(runtime.budget());
+        let mut receipts=normalized::Rows::new(runtime.budget());
+        let mut projections=normalized::Rows::new(runtime.budget());
         let local = context.local_parent(core)?.id();
         for method in build::methods() {
             let (parameters, definition) = build::definition(&settings, method)?;
@@ -178,20 +198,13 @@ pub async fn produce(
                 runtime.budget(),
             )
         })?)?;
-        tokio::task::yield_now().await;
-    }
     let (condition, nodes) = conditions::Diagram::always().records();
     results.flow_conditions.insert(condition)?;
     for node in nodes {
         results.flow_condition_nodes.insert(node)?;
     }
-    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
-    lctx_model::analysis_publication!(common_publication);
     macro_rules! write {
         ($ty:ty,$rows:expr) => {{
-            if !common_type(std::any::TypeId::of::<$ty>()) {
-                output.declare::<$ty>()?;
-            }
             for row in $rows.iter() {
                 output.push(row.clone()).await?;
             }
@@ -261,10 +274,13 @@ pub async fn produce(
     }
     drop(receipts);
     drop(projections);
-    drop(parents);
     drop(results);
     drop(context);
     drop(data);
+    tokio::task::yield_now().await;
+    }
+    drop(parents);
+    drop(scopes);
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await

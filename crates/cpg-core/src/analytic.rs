@@ -24,7 +24,7 @@ pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
     graphs: &PreparedGraphs,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
@@ -36,7 +36,7 @@ pub async fn produce(
     let mut data = build::Data::new(runtime.budget());
     let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
-        build::Data::consumed_inputs(access.profile()),
+        {let mut inputs=vec![ValidationInput::of::<analysis::settings::AnalyticsConfiguration>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"]),ValidationInput::of::<structural::StructuralFrame>(&["id"]),ValidationInput::of::<analysis::structural::Invocation>(&["id"])];for method in build::METHODS {inputs.extend(analysis::expected::inputs(method));}inputs},
         runtime.budget(),
     )?;
     macro_rules! read{($($t:ty),*)=>{$(while let Some((input,permit))=consumed.next::<$t>(&access)? {
@@ -47,14 +47,37 @@ pub async fn produce(
         }).await?;
     })*};}
     macro_rules! inventory{($($f:ident:$t:ty,)*)=>{read!($($t),*);};}
-    decoder_inputs!(inventory);
+    inventory! {settings:analysis::settings::AnalyticsConfiguration,definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,frames:structural::StructuralFrame,parents:analysis::structural::Invocation,}
+    lctx_model::expected_domain_inputs!(inventory);
     consumed.finish(access.name())?;
     let settings = data.configuration()?.clone();
-    let mut context = frames::Context::new(runtime.budget());
-    let mut receipts = normalized::Rows::new(runtime.budget());
-    let mut projections = normalized::Rows::new(runtime.budget());
-    let mut results = semantic::Output::new(runtime.budget());
-    for sf in data.structural.frames.iter() {
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    lctx_model::analytic_outputs!(declare);
+    output.declare::<assertion::AssertionQualification>()?;
+    output.declare::<conditions::Condition>()?;
+    output.declare::<conditions::ConditionNode>()?;
+    let mut roots=normalized::Rows::new(runtime.budget());
+    for frame in data.structural.frames.iter(){roots.insert(frame.clone())?;}
+    let scopes=crate::analytical_scopes::FrameScopes::prepare(&access,&session,model,build::Data::consumed_inputs(access.profile()),crate::analytical_scopes::Kind::Analytic,runtime.budget()).await?;
+    drop(session);drop(data);
+    for sf in roots.iter() {
+        let grain=scopes.grain(sf.id(),runtime.budget()).await?;
+        let mut data=build::Data::new(runtime.budget());
+        // Parent is fixed metadata. Native dependencies can name other provider runs; they
+        // cannot widen the E1 consumer's expected invocation domain into another frame.
+        let mut parent_rows=normalized::Rows::<analysis::structural::Invocation>::new(runtime.budget());
+        scopes.read::<analysis::structural::Invocation>(&access,&grain,|_,batch|{parent_rows.decode(batch)?;Ok(())}).await?;
+        let frame_parent=parent_rows.get(sf.invocation).ok_or(ModelError::Schema("analytic selected parent"))?.clone();
+        drop(parent_rows);
+        macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(scopes.read::<$ty>(&access,&grain,|input,batch|data.visit_frame_input(input,batch,frame_parent.input,frame_parent.context)).await?;)*};}
+        decoder_inputs!(scoped);
+        drop(grain);
+        let mut context=frames::Context::new(runtime.budget());
+        let mut receipts=normalized::Rows::new(runtime.budget());
+        let mut projections=normalized::Rows::new(runtime.budget());
+        let mut results=semantic::Output::new(runtime.budget());
         let parent = data
             .structural_invocations
             .get(sf.invocation)
@@ -112,15 +135,9 @@ pub async fn produce(
         results.extend(crate::stage_runtime::borrowed_cpu(access.name(), || {
             build::produce(&data, &frame, &context.invocations, graph, runtime.budget())
         })?)?;
-        tokio::task::yield_now().await;
-    }
-    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
-    lctx_model::analysis_publication!(common_publication);
+
     macro_rules! write {
         ($t:ty,$rows:expr) => {{
-            if !common_type(std::any::TypeId::of::<$t>()) {
-                output.declare::<$t>()?;
-            }
             for row in $rows.iter() {
                 output.push(row.clone()).await?;
             }
@@ -129,8 +146,6 @@ pub async fn produce(
     macro_rules! result{($($f:ident:$t:ty,)*)=>{$(write!($t,results.$f);)*};}
     lctx_model::analytic_outputs!(result);
     write!(assertion::AssertionQualification, results.qualifications);
-    output.declare::<conditions::Condition>()?;
-    output.declare::<conditions::ConditionNode>()?;
     if !results.qualifications.is_empty() {
         let (c, nodes) = conditions::Diagram::always().records();
         output.push(c).await?;
@@ -183,6 +198,9 @@ pub async fn produce(
     drop(data);
     drop(receipts);
     drop(projections);
+    tokio::task::yield_now().await;
+    }
+    drop(roots);drop(scopes);
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await

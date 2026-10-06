@@ -173,6 +173,16 @@ impl Data {
         }
         inputs
     }
+    /// A named complete analytical frame uses its own E1 domain while native evidence keeps
+    /// exact dependency runs. This does not infer or rewrite a consumer's frame from its rows.
+    pub fn visit_frame_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch,selected_input:Id<input::InputRevision>,selected_context:Id<attribution::AnalysisContext>)->Result<(),ModelError>{
+        if input.name()==attribution::ProviderRun::NAME {
+            self.native.visit(input.name(),batch)?;
+            let rows=attribution::ProviderRun::decode(batch)?.into_iter().filter(|row|row.input==selected_input && row.context==selected_context).collect::<Vec<_>>();
+            self.vectors.visit(input.name(),&<attribution::ProviderRun as Record>::encode(&rows)?)?;
+            Ok(())
+        }else{self.visit_input(input,batch)}
+    }
     pub fn visit_input(
         &mut self,
         input: &ValidationInput,

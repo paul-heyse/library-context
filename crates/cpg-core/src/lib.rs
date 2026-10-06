@@ -69,3 +69,5 @@ mod ordered_stream;
 pub mod artifact;
 
 mod artifact_manifest;
+
+mod analytical_scopes;
