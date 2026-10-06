@@ -87,7 +87,7 @@ impl LocalScopes{
  pub(super) async fn load(&self,access:&CompletedInputs,grain:&PreparedClosure,budget:&resources::ResourceBudget)->Result<LocalData,ModelError>{
   let mut data=LocalData::new(budget);
   macro_rules! read{($($field:ident:$ty:ty,)*)=>{$({for(table,input)in self.inputs.iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<$ty>()){
-   let permit=access.read_at::<$ty>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&grain.select(table)?,|_,batch|data.visit(input.name(),batch)).await?;
+   let permit=access.read_at::<$ty>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&grain.select(table)?,|_,batch|data.visit(input.name(),batch).map(|_|())).await?;
   }})*};}
   lctx_model::entry_value_inputs!(read);lctx_model::local_semantic_inputs!(read);lctx_model::local_theory_inputs!(read);lctx_model::local_field_inputs!(read);
   Ok(data)
