@@ -98,11 +98,23 @@ pub(super) fn emit(
     records: &mut super::model_production::ModelRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    emit_with_inputs(protocol_inputs,items,outcomes,invocation,records,budget,None)
+}
+pub(super) fn emit_with_inputs(
+    protocol_inputs: ProtocolInputs<'_>,
+    items: &Rows<ContextItem>,
+    outcomes: &Rows<super::enriched_records::ExecutionOutcome>,
+    invocation: &publication::AnalysisInvocation,
+    records: &mut super::model_production::ModelRecords,
+    budget: &ResourceBudget,
+    prepared: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
+) -> Result<(), ModelError> {
     let ProtocolInputs {
         catalog,
         data,
         execution,
     } = protocol_inputs;
+    if let Some(prepared)=prepared {prepared.require(data,budget)?;}
     for item in items.iter().filter(|i| i.execution == execution.id()) {
         let protocol = CheckedContextProtocol::derive(
             catalog,
@@ -115,7 +127,7 @@ pub(super) fn emit(
         .map_err(|reason| {
             ModelError::Invalid(format!("replayed context protocol unavailable: {reason:?}"))
         })?;
-        let construction = CheckedContextConstruction::derive(
+        let construction = CheckedContextConstruction::derive_with_inputs(
             &protocol,
             data,
             item.site,
@@ -123,6 +135,7 @@ pub(super) fn emit(
             invocation.input,
             invocation.context,
             budget,
+            prepared,
         )?
         .map_err(|reason| {
             ModelError::Invalid(format!(

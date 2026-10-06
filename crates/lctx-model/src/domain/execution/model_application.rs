@@ -111,11 +111,24 @@ impl<'a> CheckedModelApplication<'a> {
         effective: Option<&EffectiveInvocationAdmission>,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_inputs(catalog,data,bound,shape,effective,budget,None)
+    }
+    pub(super) fn derive_with_inputs(
+        catalog: &'a Catalog,
+        data: &'a ModelApplicationData,
+        bound: &'a ValidatedBoundCall,
+        shape: &'a BindingShapeAdmission,
+        effective: Option<&EffectiveInvocationAdmission>,
+        budget: &ResourceBudget,
+        prepared: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let mut charge = charged::StateCharge::new(budget, "checked-model-application");
         charge.grow(size_of::<Self>())?;
-        if let Err(reason) =
-            super::closed_targets::runtime_identity(catalog, data, bound, shape, effective, budget)?
-        {
+        let identity=match prepared {
+            Some(prepared)=>super::closed_targets::runtime_identity_with_inputs(catalog,data,bound,shape,effective,budget,Some(prepared))?,
+            None=>super::closed_targets::runtime_identity(catalog,data,bound,shape,effective,budget)?,
+        };
+        if let Err(reason) = identity {
             return Ok(Err(reason));
         }
         let result = (|| {

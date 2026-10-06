@@ -334,13 +334,14 @@ fn enrich_with_application(
                 ) {
                     continue;
                 }
-                let application = super::model_application::CheckedModelApplication::derive(
+                let application = super::model_application::CheckedModelApplication::derive_with_inputs(
                     &catalog,
                     &data.application,
                     bound,
                     shape,
                     verified.effective_invocation(attempt.id()),
                     budget,
+                    construction.as_ref(),
                 )?;
                 let Ok(application) = application else {
                     continue;

@@ -411,6 +411,19 @@ pub(super) fn emit(
     out: &mut ModelRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    emit_with_inputs(data,catalog,verified,invocation,scope,out,budget,None)
+}
+pub(super) fn emit_with_inputs(
+    data: &ModelData,
+    catalog: &Catalog,
+    verified: &VerifiedBindings,
+    invocation: &analysis::model::AnalysisInvocation,
+    scope:super::model_production::ProductionScope,
+    out: &mut ModelRecords,
+    budget: &ResourceBudget,
+    prepared: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
+) -> Result<(), ModelError> {
+    if let Some(prepared)=prepared {prepared.require(&data.early,budget)?;}
     let b = &data.early.bindings;
     let extra = &data.protocol.target;
     for t in b.targets.iter().filter(|t| {
@@ -471,13 +484,14 @@ pub(super) fn emit(
                 assessment.original_qualification =
                     b.targets.get(shape.target()).map(|t| t.qualification);
                 assessment.qualification = assessment.original_qualification;
-                match closed_targets::runtime_identity(
+                match closed_targets::runtime_identity_with_inputs(
                     catalog,
                     &data.early,
                     bound,
                     shape,
                     verified.effective_invocation(attempt.id()),
                     budget,
+                    prepared,
                 )? {
                     Ok(receiver) => {
                         assessment.basis = TargetBasis::ExactRuntime;

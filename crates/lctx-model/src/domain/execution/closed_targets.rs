@@ -234,6 +234,18 @@ pub(super) fn runtime_identity(
     effective: Option<&EffectiveInvocationAdmission>,
     budget: &ResourceBudget,
 ) -> Result<RuntimeIdentityAssessment, ModelError> {
+    runtime_identity_with_inputs(catalog,data,bound,shape,effective,budget,None)
+}
+pub(super) fn runtime_identity_with_inputs(
+    catalog: &Catalog,
+    data: &ModelApplicationData,
+    bound: &ValidatedBoundCall,
+    shape: &BindingShapeAdmission,
+    effective: Option<&EffectiveInvocationAdmission>,
+    budget: &ResourceBudget,
+    prepared: Option<&super::model_construction::PreparedConstructionInputs<'_>>,
+) -> Result<RuntimeIdentityAssessment, ModelError> {
+    if let Some(prepared)=prepared {prepared.require(data,budget)?;}
     let b = &data.bindings;
     let target = b
         .targets
@@ -263,7 +275,7 @@ pub(super) fn runtime_identity(
         Ok(p) => p,
         Err(r) => return Ok(Err(r)),
     };
-    let construction = match CheckedContextConstruction::derive(
+    let construction = match CheckedContextConstruction::derive_with_inputs(
         &protocol,
         data,
         receiver,
@@ -271,6 +283,7 @@ pub(super) fn runtime_identity(
         shape.input(),
         shape.context(),
         budget,
+        prepared,
     )? {
         Ok(p) => p,
         Err(r) => return Ok(Err(r)),

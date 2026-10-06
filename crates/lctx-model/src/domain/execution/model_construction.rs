@@ -17,7 +17,7 @@ impl<'a> PreparedConstructionInputs<'a> {
         owner.require_enumerations(&data.bindings,budget)?;
         let mut charge=charged::StateCharge::new(budget,"prepared-context-construction");charge.grow(size_of::<Self>()*2)?;Ok(Self {data,_charge:charge})
     }
-    fn require(&self,data:&ModelApplicationData,budget:&ResourceBudget)->Result<(),ModelError> {
+    pub(super) fn require(&self,data:&ModelApplicationData,budget:&ResourceBudget)->Result<(),ModelError> {
         if !std::ptr::eq(self.data,data) || !self._charge.budget().expect("construction owner budget").shares_pool(budget) {return Err(ModelError::Conflict("construction predecessor foreign region/budget"));}Ok(())
     }
 }

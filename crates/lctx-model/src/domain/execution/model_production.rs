@@ -406,23 +406,19 @@ fn apply_selected_inner(
     if parent.subject.is_some() || *parent_definition != enriched_definition
         || data.parameters.get(enriched_parameters.id()) != Some(&enriched_parameters)
     { return Err(invalid("Model completed Enriched configuration differs from selected catalog")); }
+    // Actual selected regions borrow enumeration admission once; diagnostic application
+    // retains ordinary construction checks through the same core with no prepared borrow.
+    let construction=if actual.is_some() {Some(super::model_construction::PreparedConstructionInputs::new(&data.early,verified.ok_or_else(||invalid("Model binding owner authority absent"))?,budget)?)}else{None};
     let same_frame = |id| id == parent.id();
     // Enriched is a completed, checked predecessor. Model-specific applicability uses its
     // exact frame directly; recreating execution would replace predecessor authority with a
     // second producer run and retain another complete set of rich context/call records.
     for context in data.contexts.iter().filter(|context| same_frame(context.invocation) && (scope==ProductionScope::All || scope==ProductionScope::Context(context.id()))) {
-        super::model_protocol::emit(
-            super::model_protocol::ProtocolInputs {
-                catalog,
-                data: &data.early,
-                execution: context,
-            },
-            &data.context_items,
-            &data.context_outcomes,
-            invocation,
-            &mut records,
-            budget,
-        )?;
+        let inputs=super::model_protocol::ProtocolInputs {catalog,data:&data.early,execution:context};
+        match construction.as_ref() {
+            Some(prepared)=>super::model_protocol::emit_with_inputs(inputs,&data.context_items,&data.context_outcomes,invocation,&mut records,budget,Some(prepared))?,
+            None=>super::model_protocol::emit(inputs,&data.context_items,&data.context_outcomes,invocation,&mut records,budget)?,
+        }
     }
     for binding in data.context_bindings.iter().filter(|binding| same_frame(binding.invocation) && matches!(scope,ProductionScope::All|ProductionScope::Context(_))) {
         let resource = {
@@ -514,13 +510,14 @@ fn apply_selected_inner(
             })
     }) {
         let result = match (verified.bound(attempt.id()), verified.shape(attempt.id())) {
-            (Some(bound), Some(shape)) => CheckedModelApplication::derive(
+            (Some(bound), Some(shape)) => CheckedModelApplication::derive_with_inputs(
                 catalog,
                 &data.early,
                 bound,
                 shape,
                 verified.effective_invocation(attempt.id()),
                 budget,
+                construction.as_ref(),
             )?,
             _ => Err(attempt
                 .refusal
@@ -678,15 +675,10 @@ fn apply_selected_inner(
             }
         }
     }
-    super::protocol_interpretation::emit(
-        data,
-        catalog,
-        verified,
-        invocation,
-        scope,
-        &mut records,
-        budget,
-    )?;
+    match construction.as_ref() {
+        Some(prepared)=>super::protocol_interpretation::emit_with_inputs(data,catalog,verified,invocation,scope,&mut records,budget,Some(prepared))?,
+        None=>super::protocol_interpretation::emit(data,catalog,verified,invocation,scope,&mut records,budget)?,
+    }
     records.run.applied = records.applications.len() as i64;
     records.run.refused = records.boundaries.len() as i64;
     if !records.boundaries.is_empty()
@@ -1048,6 +1040,27 @@ mod completed_enriched_controls {
     use super::*;
     fn nominal<T>(byte: u8) -> Id<T> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+    }
+    #[test]
+    fn selected_protocol_borrow_refuses_another_immutable_region_before_empty_domain() {
+        let budget=ResourceBudget::fixed(8<<20).unwrap();
+        let catalog=Catalog::parse("empty.toml","version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
+        let data=ModelData::new(&budget);
+        let verified=prepare(&data.early.bindings,&data.bindings,&budget).unwrap();
+        let prepared=super::super::model_construction::PreparedConstructionInputs::new(&data.early,&verified,&budget).unwrap();
+        let (_,definition)=super::super::configuration::models(catalog.declaration().id());
+        let (invocation,_)=publication::AnalysisInvocation::new(nominal(1),nominal(2),definition.id(),None,[]);
+        let mut ordinary=ModelRecords::new(invocation.id(),&budget);
+        let mut selected=ModelRecords::new(invocation.id(),&budget);
+        super::super::protocol_interpretation::emit(&data,&catalog,&verified,&invocation,ProductionScope::All,&mut ordinary,&budget).unwrap();
+        super::super::protocol_interpretation::emit_with_inputs(&data,&catalog,&verified,&invocation,ProductionScope::All,&mut selected,&budget,Some(&prepared)).unwrap();
+        // A legitimate empty action domain stays empty under either construction entry.
+        assert!(ordinary.closed_targets.is_empty() && selected.closed_targets.is_empty());
+        assert!(ordinary.protocol_actions.is_empty() && selected.protocol_actions.is_empty());
+        assert!(ordinary.terminal_assessments.is_empty() && selected.terminal_assessments.is_empty());
+        let other=ModelData::new(&budget);
+        assert!(matches!(super::super::protocol_interpretation::emit_with_inputs(&other,&catalog,&verified,&invocation,ProductionScope::All,&mut selected,&budget,Some(&prepared)),Err(ModelError::Conflict(_))));
+        assert!(selected.closed_targets.is_empty() && selected.protocol_actions.is_empty());
     }
     #[test]
     fn model_consumes_completed_empty_enriched_frame_without_source_call_producer() {
