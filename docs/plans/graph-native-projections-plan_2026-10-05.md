@@ -1,8 +1,8 @@
 # Named graph projections, analytics and export
 
-**Compiler-side A1/A2 implemented and user-accepted; published exports Proposed, 2026-10-05.**
+**Compiler-side A1/A2 implemented and user-accepted; published exports Implemented / focused Tested, 2026-10-05.**
 Compiler model/analytics and artifact controls provide scoped Tested evidence; the coordinator
-records the interrupted verification and user-directed completion boundary. Supporting plan for A1/A2 in the
+records the preserved compiler-stage boundary and actual native projection/export control. Supporting plan for A1/A2 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). It consumes the
 [compiler's graph/workspace](graph-native-model-compiler-plan_2026-10-05.md) and, for published
 consumers, the [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
@@ -15,7 +15,7 @@ roles, multiplicity, gaps and canonical vertex/arc lineage. `cpg-core::analysis_
 graphs from explicit completed workspace inputs, while the pure `lctx-analytics` and model-owned
 kernels supply scheduling/SCC, ranking, concepts and exact neighbors. The compiler preserves these
 semantic contracts and useful kernels; completed-store/receipt/permit inputs and redundant
-persisted topology formats are retired. Published native-query/export consumers remain later work.
+persisted topology formats are retired. Published native-query/export consumers now use scoped canonical records under the same model-owned projection policy. The coordinator records scoped functional verification separately.
 
 An admitted evidence graph is not one interchangeable algorithm topology. Containment, candidate
 calls, derivations, source mentions and similarity have different meanings. A named projection
@@ -139,7 +139,8 @@ does not establish truth; producer replay is not independent evidence. Remove ob
 grant/topology-format tests once their replacement semantic/lifecycle controls exist.
 
 Run touched-crate compile checks and focused `verify-model`, `verify-analytics` and applicable
-`verify-store`/`verify-oracles` controls; Q0 owns assembled acceptance. Structural cost reasoning
+`verify-store`/`verify-oracles` controls; Q0 owns integrated targeted functional acceptance under
+the user-selected execution scope. Structural cost reasoning
 can justify topology reuse and removed crossings. No detailed allocation/edge accounting,
 mandatory per-projection benchmark or Measured benefit follows from this plan. Inspect native
 query diagnostics only for a concrete access-path uncertainty.

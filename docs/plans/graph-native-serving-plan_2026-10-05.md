@@ -1,6 +1,6 @@
 # Native graph retrieval, selection and evidence serving
 
-**Proposed, 2026-10-05.** Supporting plan for S1/S2/S3 in the
+**Implemented / focused Tested, 2026-10-06; operator adoption not_run.** Supporting plan for S1/S2/S3 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). It consumes one admitted
 graph and its [sealed SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
 The coordinator owns current state/disposition. Native querying is a selected part of the target,
@@ -8,11 +8,12 @@ not a capability awaiting a benchmark, accounting proof or adoption verdict.
 
 ## 1. Foundation assessment and operation ownership
 
-Current `GenerationReader::prepare_selection` loads 95 classification inputs, then output and
-admission inputs. `Prepared::select` enumerates the whole public-exposure domain; the catalog
-service applies library filtering afterwards. Store-backed packet/evidence/native services have
-many chained key reads; explanations can hash entire derivation relations for a small answer.
-These source-inspected routes, 2026-10-05, are replacement targets, not performance measurements.
+The retired `GenerationReader::prepare_selection` loaded 95 classification inputs, followed by
+output and admission inputs; selection enumerated all public exposures before library filtering.
+Native service now restricts contextual members at indexed roots, hydrates scoped stored facts,
+and uses the retained exact kernels only where required. Packets, original evidence and authored
+resources share one immutable snapshot. These execution choices are design judgments, not
+Measured performance claims; the coordinator records actual focused functional outcomes.
 
 Keep model-owned request meaning, selection/classification algebra, ranking/contribution rules,
 mandatory packet assembly, value rendering and precise uncertainty. Recompose their execution:
@@ -99,6 +100,9 @@ from the score. Final member limit follows collapse
 and fusion. Default discovery promises **ranking over bounded candidates**, not exact global
 member-top-k. A fixed overfetch factor cannot prove exact member ranking or exhaustive eligibility.
 Native filtered ANN remains explicitly approximate.
+Eligibility checks ask for one indexed qualifying occurrence with `LIMIT 1`; they do not
+materialize every matching role arc just to establish existence. Request input keys are prepared
+once and reused by candidate selection and witness hydration.
 
 Use the retained small authoritative Rust fold initially for contribution/family fusion where
 its semantics differ from native RRF. This does not prevent native channel retrieval/hydration.
@@ -205,6 +209,12 @@ same owned source, batch host calls and check WASI/ABI, state independence, stri
 memory. No mandatory full-model WASM port, native-analyzer port or module framework is needed.
 An unselected module remains deferred with its consumer trigger.
 
+**Current selection, 2026-10-05:** retain the existing condition, selection and rendering kernels
+in Rust over scoped, batched native inputs. Native functions perform restrictions and adjacency
+where they avoid transfer; adding a module ABI for these retained kernels would add another
+lowering and deployment surface without an identified transfer reduction. Reconsider one bounded
+shared-source module only when a concrete operation needs substantial repeated host transfer.
+
 ## 5. Packages and targeted functional acceptance
 
 | Package | Integrated implementation and revealing cases |
@@ -224,4 +234,5 @@ During implementation run touched-crate compile checks and selected `verify-serv
 `verify-model` or `verify-oracles` controls. Q0 exercises representative real native/store/MCP
 journeys on the assembled replacement. Q1 owns separately authorized real FastMCP/live-vector
 adoption; task usefulness, confirmation and comparative superiority remain distinct product work.
-All execution outcomes in this document are planned, not newly Tested or Measured.
+The tables describe intended coverage. Actual focused execution outcomes, including their Tested
+boundaries and omissions, are recorded in coordinator §8; no Measured claim follows.

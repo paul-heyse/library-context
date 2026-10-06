@@ -1,6 +1,6 @@
 # Graph-native replacement — implementation coordinator
 
-**Accepted target / implementation in progress, 2026-10-05 (ADR-0128).** Replace the PostgreSQL-centered compilation and serving architecture
+**Implemented / focused Tested, 2026-10-06 (ADR-0128); operator adoption remains not_run.** Replace the PostgreSQL-centered compilation and serving architecture
 directly with a Rust-admitted graph and SurrealDB-native persistence, querying and search. This
 coordinator owns the combined execution sequence, shared decisions, finding disposition and
 completion boundary. Supporting plans develop their respective designs; they do not create
@@ -106,7 +106,8 @@ concurrency if needed. A refusal at realistic size is not the performance object
 The complete compiler stage is **complete / user-accepted, 2026-10-05**, with partial verification
 and the user-directed stop recorded in §8. M1/C1/C2-N/C2-U and compiler-side A1/A2 are implemented,
 including their G0/S1 interfaces. G0 adopts ADR-0128; S1 supplies the agreed native operation contracts;
-P1/P2/S2/S3, published exports, assembled Q0 and operator Q1 remain **not_started**. Supporting plans supply implementation detail and focused
+P1/P2/S2/S3, published exports and I1 are implementation-closed; targeted native acceptance
+passed, with the exact boundary in §8. Operator Q1 remains **not_run**. Supporting plans supply implementation detail and focused
 controls; this table owns current package state. Root owns shared declarations, manifests,
 architectural decisions and integration. Independent investigation may run in parallel; ordinary
 edits remain on shared main unless genuinely concurrent production edits justify worktrees.
@@ -124,7 +125,7 @@ edits remain on shared main unless genuinely concurrent production edits justify
 | P2 — publish admitted content | Checked bulk load, one persisted reconciliation, ready indexes/functions, drained writers, sealed handle, short visibility transition. | P1 + admitted C1 artifact; repeats with C2-U artifact for upper-frontier acceptance |
 | S2/S3 — migrate serving | Native search/hydration, retained authoritative complex kernels, evidence/continuations and all CLI/native/MCP consumers. | P2 + S1; representative lower controls may precede full C2-U |
 | I1 — close the pivot | Replace tool/readiness/test recipes and remove every PostgreSQL consumer/dependency, old lifecycle and historical runs interface. | M/C/P/S/A replacements available for each affected consumer; deletion occurs with its replacement, not after a parallel runtime period |
-| Q0 — assembled functional acceptance | Affected contract families and representative actual persistent-store/native/MCP journeys pass on one tree, plus applicable leaves. | Integrated required packages; no legacy suite retention prerequisite |
+| Q0 — focused functional acceptance | Targeted actual persistent-store/native/MCP journeys and affected contract controls pass on the integrated tree, plus applicable leaves; user-directed execution excludes broad qualification and legacy suite parity. | Integrated required packages; no legacy suite retention prerequisite |
 | Q1 — fresh operator adoption | Fresh pinned-library compilation/publication, separately authorized live-embedding checks and activation; dispose obsolete state after readers close. | Q0 and explicit authorization for real-library/runtime actions |
 
 C2-N is an early slice of C2, not another published stage. A1 needs those normalized inputs;
@@ -140,7 +141,7 @@ dependency does not create a new durable store stage or a synchronization barrie
 Keep `lctx compile <library> --through facts|normalized|analysis|catalog --profile catalog|behavioral`
 as the cumulative user capability. Default orchestration compiles, admits and publishes an
 **unselected** snapshot; add `--artifact-only` for store-free compilation and a separate
-`lctx snapshot publish <artifact>` for consuming that admitted artifact. The compiler library
+`lctx publish-artifact <artifact>` for consuming that admitted artifact. The compiler library
 itself takes no store credentials. An artifact remains only while a current publisher/export/debug
 consumer needs it; it is not a runtime archive.
 
@@ -161,7 +162,7 @@ current consumer. Current attempt diagnostics use structured logging and minimal
 
 Do not import existing PostgreSQL bytes or cache rows. Fresh source chunks, vectors and indexes
 come from pinned inputs. Operator-state deletion requires quiesced readers and execution authority;
-this documentation session changes neither the databases nor client registrations.
+this execution uses owned disposable native databases and changes neither operator databases nor client registrations.
 
 ## 6. Functional verification and completion
 
@@ -176,9 +177,10 @@ tests cover durability, index availability, write/error handling and sealed defi
 listing/calls and generated CPython oracles challenge served meaning. Mem-only checks do not
 establish persistent-server or transport behavior.
 
-At Q0 run the affected families and one assembled `just qualify` for this shared-contract pivot,
-with the family recipes changed to the target prerequisites. Run applicable non-functional leaves
-at scope end; root runs `just turn-end` last. Repair failures and rerun affected boundaries; report
+For this execution the user selected targeted functional controls throughout the hard pivot,
+waiving assembled `just qualify`, legacy suite parity and further compiler-stage tests. Q0 uses
+actual small native publication, serving, search, projection and MCP journeys, with recipes changed
+to the native prerequisites. Run applicable non-functional leaves at scope end; root runs `just turn-end` last. Repair failures and rerun affected boundaries; report
 composite outcomes honestly. No broad gate after every slice. Scope-end documentation-only checks
 are independent of product qualification.
 
@@ -197,16 +199,17 @@ performance claim follows from functional acceptance or source-level simplificat
 
 IDs below are qualified by their source review to avoid the distinct meanings of F01. Compiler
 portions are implementation-closed at the user-accepted stage boundary; native persistence and
-serving obligations remain open. Scoped tests do not establish the later published journeys.
+serving are implemented, with their actual focused outcomes recorded in §8. Implementation alone
+does not establish a passed journey.
 
 | Source obligation | Owning package / completion evidence |
 |---|---|
-| Target GN01 — admission distinct from physical execution | M1/C1/C2 implemented and user-accepted: store-free compilation, bounded workspace and completed graph admission; §8 records scoped artifact controls. P2 faithful stored realization remains open. |
-| Target GN02 — efficient connected serving | S1/S2/S3 + P1: native indexed/coarse journeys, original evidence, honest missing/partial outcomes, no broad startup preparation or unrelated relation hashing |
-| Target GN03 — explicit projections | Compiler A1/A2 implemented and user-accepted: prepared topology, semantic IDs/roles, source membership and owner-derived losses; model/analytics and selected artifact controls passed (§8). Published exports remain open. |
-| Capabilities F01 — fusion semantics | S2: contribution collapse, canonical ties and separate eligible occurrence/channel witnesses through the actual operation |
+| Target GN01 — admission distinct from physical execution | M1/C1/C2 implemented and user-accepted: store-free compilation, bounded workspace and completed graph admission; §8 records scoped artifact controls. P2 is implementation-closed / focused Tested: reconciled unselected publication, read-only viewer, canonical backup, fresh restore and retirement; §8 records the native lifecycle control. |
+| Target GN02 — efficient connected serving | S1/S2/S3 + P1 implementation-closed / focused Tested: actual ten-tool Catalog and MCP journeys, scoped native selection/search/packets/originals, missing/NotRequested states, cursor and deadline refusal; §8. Indexed/coarse access avoids unrelated startup preparation; no Measured performance claim. |
+| Target GN03 — explicit projections | Compiler A1/A2 implemented and user-accepted: prepared topology, semantic IDs/roles, source membership and owner-derived losses; model/analytics and selected artifact controls passed (§8). Published A1 export is implementation-closed / focused Tested: actual native scope, isolates, parallel/self arcs, lineage, coverage and gaps; §8 records the control. |
+| Capabilities F01 — fusion semantics | S2 implementation-closed / focused Tested: actual native search checks eligible contextual/member admission before BM25/HNSW caps and witness retention; the operation collapses contributions and uses canonical ties/RRF-K60. §8 records the actual native and Catalog controls; live embedding quality is not_run. |
 | Capabilities F02 — API authorization/rollback | Ordinary functions selected; custom API adoption deferred to an HTTP consumer. If triggered, owning package must enforce explicit scope and actual transactional failure, with focused endpoint controls. |
-| Capabilities F03 — executable realization identity | P2 + S3: changed functions/analyzers/modules/index specs cannot silently substitute beneath a pinned handle |
+| Capabilities F03 — executable realization identity | P2 + S3 implementation-closed / focused Tested: sealed definition inventory/cold audit, actual analyzer-drift refusal and incompatible Rust-operation refusal; fixed viewer handles survive server restart and both MCP transports. §8. This is trusted-installer integrity, not adversarial-root assurance. |
 | Compiler-stage review F01 — shared embedding execution | Implementation-closed: shared actual winners and bounded independent request batches; embedding/retrieval controls passed within the compiler run (§8). Source repair independently accepted. |
 | Compiler-stage review F02 — duplicate retrieval replay | Implementation-closed: construction retained, narrow production completion, independent canonical replay retained in controls; retrieval controls passed (§8). Source repair independently accepted. |
 | Compiler-stage review F03 — duplicate projection policy | Implementation-closed: model-owned acceptance/exclusion policy feeds artifact losses; model and projection/artifact controls passed (§8). Source repair independently accepted. |
@@ -231,6 +234,11 @@ deployment are consumer-triggered. No canonical lightweight edges replace attrib
 
 ## 8. Current checkpoint
 
+**Native realization/serving execution: implementation-closed / focused Tested, 2026-10-06.**
+The replacement SDK, publisher, native queries/search, projection exports, CLI, PyO3 and MCP
+consumers are integrated. Targeted actual native and MCP controls passed within the boundaries below.
+Real-library/live-vector and operator activation remain separately authorized Q1 work.
+
 **Complete compiler stage: complete / user-accepted, 2026-10-05.** The user explicitly directed
 that tests stop and this plan scope be considered complete. This closes M1, C1, C2-N, C2-U,
 compiler-side A1/A2 and their G0/S1 interfaces as Implemented, with scoped Tested evidence below.
@@ -244,13 +252,12 @@ family ordering, bulk reference/span closure, original bytes and exact manifest 
 projection definitions and consumed vector values are integrated. Summary preparation shares
 indexed immutable inputs and condition preparation without replaying every producer in production.
 
-`lctx compile --artifact-only --output DIR` exports admitted artifacts. Ordinary compile reports
-unavailable before acquisition until the native publisher exists. PostgreSQL backend/binding,
-generation/store/query commands and old serving effects are retired; MCP remains unavailable
-until native serving. The broad CLI model-description snapshot control and its obsolete baseline
+`lctx compile --artifact-only --output DIR` exports admitted artifacts. Ordinary compile now admits and publishes an unselected native snapshot; explicit runtime
+configuration is checked before acquisition. Native CLI and MCP readers pin the complete handle.
+PostgreSQL backend/binding, generation commands and old serving effects are retired. The broad CLI model-description snapshot control and its obsolete baseline
 are retired for this hard pivot; the actual model-description tool and focused model controls remain.
 
-Current verification, 2026-10-05, on production baseline `b964e807` (later changes are documentation,
+Preserved user-accepted compiler-stage verification, 2026-10-05, on production baseline `b964e807` (later changes are documentation,
 snapshot-control retirement and the test-only unrequested-Flow repair `e9bcdd4a`):
 
 - `cargo check --locked -p cpg-core -p lctx-model -p lctx --tests`: **passed** (33.22s).
@@ -273,10 +280,137 @@ snapshot-control retirement and the test-only unrequested-Flow repair `e9bcdd4a`
 - Scope-end non-functional leaves and `just qualify`: **not_run**, further verification waived by
   the user's stop/completion instruction. Root `just turn-end` is final repository bookkeeping,
   not additional functional verification; STATUS records its outcome.
-- Native persistent-store/MCP journeys, real-library/live vectors, operator activation and Measured
-  performance: **not_run**. They belong to later packages/Q0 or separately authorized Q1.
+- At that compiler-stage checkpoint native persistent-store/MCP journeys were **not_run**; the
+  current execution owns their outcomes below. Real-library/live vectors, operator activation and
+  Measured performance remain **not_run**, separately authorized Q1 or measurement work.
 
-Next: P1/P2 native realization/publication and S2/S3 serving consume the completed admitted-artifact
-boundary; published projection exports and remaining I1 integration follow those consumers. Q0
-owns assembled acceptance after their integration; Q1 owns separately authorized fresh operator
-adoption. No further compiler-stage test or legacy snapshot work is scheduled by this completion.
+Current native verification consumes the completed admitted-artifact boundary without reopening
+the compiler-stage suite. Q1 owns separately authorized fresh operator adoption. No further
+compiler-stage test or legacy snapshot work is scheduled by this execution.
+
+### Native execution receipt — 2026-10-05–06
+
+P1/P2/S2/S3, published A1 exports and remaining I1 are implemented on shared main. Core native
+operations and their scoped data/index routes preceded publisher and transport integration.
+`lctx-surrealdb` owns remote SDK/typed codecs, sparse scope keys, enforced roles, original chunks,
+exact cache winners and native materialization. `lctx-publisher` loads/reconciles admitted exports,
+seals read-only realizations, and reconstructs fresh current definitions on portable restore.
+`lctx-serving` owns all ten tools and retained exact semantic kernels over scoped inputs; PyO3
+and FastMCP own the pinned lifecycle, bounded wire admission and draining worker shutdown.
+CLI and verification recipes now use the native owners; no PostgreSQL runtime dependency remains.
+The obsolete Python rule requiring pyarrow execution and banning every `.execute` call, together
+with its fixtures, is retired. Native operation dispatch remains Rust-owned; Python builds no SQL.
+
+Native runtime controls exposed SDK nullable readback, incomplete graph transport of retained
+consumer inputs, an internal conflict-vocabulary request above the public selector bound, capability search
+routed to the wrong retrieval family, and native packet preparation mixing
+its strict inventory with other scoped packet rows. Repairs preserve validators, keys, roles
+and algorithms: exact typed graph owners and scoped hydration, independent conflict batches
+sharing one prepared view, the existing API/options family for authored briefs, and each native
+preparation owner receiving its declared inputs. Final affected
+controls below own closure; no validator was weakened to obtain a pass.
+
+Actual focused outcomes:
+
+- `cargo check -p lctx-surrealdb -p lctx-publisher --message-format short`: **passed**, sparse
+  canonical layout and publisher compile. Earlier integrated publisher/bridge/consumer checks passed.
+- `cargo test --offline -p lctx-model --test graph_contract selected_semantic_inventory_has_nominally_closed_reference_types -- --exact`:
+  **passed, 2026-10-06**, stable main source after exact evidence, selection, signature, raw-packet and conditional
+  native binding input owners were integrated. The control checks every declared raw packet
+  source and actual selection/native/binding input against the finite graph inventory and nominal
+  reference closure. Keys, codebooks, roles and validators are preserved; this is not compiler-stage
+  suite parity or execution of every optional behavioral branch.
+- `cargo test --release -p lctx --locked --bin lctx tests::native_commands_keep_artifact_and_selection_boundaries_explicit -- --exact`:
+  **passed, 2026-10-06**, explicit command/handle/configuration/export/retirement parsing.
+- `cargo test --release -p lctx --locked --test compile_artifact ordinary_compile_requires_native_configuration_before_acquisition -- --exact`:
+  **passed**, actual CLI refuses missing runtime configuration before acquisition.
+- `UV_NO_SYNC=1 uv run --no-sync pytest tests/scripts/test_verify.py -q`: **passed**, ten native
+  verification-launcher controls. This tests orchestration, not a provider or product journey.
+- `UV_NO_SYNC=1 uv run --no-sync pytest tests/scripts/test_product_evidence.py -q`: **passed**,
+  independent original-source comparison baseline. Its BM25 dependency is development-only;
+  product search uses native SurrealDB BM25/HNSW.
+- `LCTX_SURREAL_TEST_CONFIG=<owned fixture> UV_NO_SYNC=1 cargo test --release -p lctx-publisher --test publication compiled_export_publishes_unselected_and_viewer_is_immutable -- --exact`:
+  **passed, 2026-10-06**. Actual unselected publication, read-only viewer, originals, live listing,
+  cold audit and analyzer-drift refusal, no-clobber canonical backup, fresh unselected restore,
+  restored audit/original bytes and explicitly quiesced retirement. This is a native lifecycle
+  control over an independently verified normalized fixture, not real-library activation.
+- `UV_NO_SYNC=1 uv run --no-sync pytest tests/scripts/test_build_measurements.py -q`:
+  **passed, 2026-10-06**, six build-measurement script controls. The explicit full measurement
+  runner now owns its native fixture; no build-performance campaign was run.
+- `UV_NO_SYNC=1 uv run --no-sync pytest python/lctx_mcp/tests/test_native_session.py python/lctx_mcp/tests/test_wire_contract.py python/lctx_mcp/tests/test_transport_envelope.py -q -k 'not test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot'`:
+  **passed, 2026-10-06**, fifteen isolated wire/schema/lifecycle controls after protocol typing repairs. Actual native MCP
+  journeys have their separate receipt below.
+- `UV_NO_SYNC=1 just ready`: **passed, 2026-10-06**, selected skill/tool readiness.
+- `LCTX_SURREAL_TEST_CONFIG=<owned fixture> UV_NO_SYNC=1 cargo test --release -p lctx-serving --test native_search -- --nocapture`:
+  **passed, 2026-10-06**, eligible contextual/member occurrences are admitted before lexical
+  and HNSW candidate caps; an excluded nearer vector cannot displace its eligible witness.
+  The operation refuses an incompatible sealed implementation. Known-positive BM25 fixture
+  terms have independent nonmatching background documents; this checks channel semantics,
+  not legacy ranking parity or live embedding quality.
+- `LCTX_SURREAL_TEST_CONFIG=<owned fixture> UV_NO_SYNC=1 cargo test --release -p lctx-surrealdb --test native --test projections -- --nocapture`:
+  **passed, 2026-10-05**, two actual persistent-server controls on the final sparse layout.
+  SDK point/scoped/adjacency reads, strict shape refusal and concurrent exact embedding-cache
+  winners; input/context projection scope, isolates, self-loops, parallel attributed arcs,
+  semantic lineage, coverage, gaps and foreign-input exclusion. These precede later semantic graph-owner
+  additions; their tested physical layout and projection policy are unchanged by those additions.
+- `LCTX_SURREAL_TEST_CONFIG=<owned fixture> LCTX_RETAIN_NATIVE_FIXTURE_CONFIG=<owned viewer file> UV_NO_SYNC=1 cargo test --release -p lctx-serving --test native_journey -- --nocapture`:
+  **passed, 2026-10-06**, actual Catalog compile/admission/publication and all ten native tools
+  over the installed first-party synthesis-sources fixture (29.15s runtime). Scoped selection,
+  browse/cursor and foreign-realization refusal, operation sections, comparison, authored capability
+  search/expanded packet, source originals and inspection with actual source formals; immediate
+  deadline refusal. Independent original-byte comparison remains active. Catalog-profile optional
+  NotRequested/Unavailable states are preserved; this is not every behavioral branch or real FastMCP.
+- `UV_NO_SYNC=1 uv build --package lctx-semantics --wheel --out-dir <owned wheel directory>` and
+  `UV_NO_SYNC=1 uv pip install --python .venv/bin/python --no-deps --reinstall <current wheel>`:
+  **passed, 2026-10-06**. Built and installed the matching NativeSession wheel after native workers
+  drained; source baseline `816fdc82` supplied the actual served semantic implementation.
+- `python3 <owned fixture>/runtime.py restart`: **passed, 2026-10-06**. Restarted the persistent
+  SurrealDB 3.3 fixture before exercising MCP; no operator service was touched.
+- `LCTX_NATIVE_SERVING_CONFIG=<owned viewer file> LCTX_NATIVE_TEST_LIBRARY=synthesis-sources UV_NO_SYNC=1 uv run --no-sync pytest python/lctx_mcp/tests/test_native_session.py -q -k test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot`:
+  **passed, 2026-10-06**, two actual Rust/SDK/native-server MCP journeys after restart, in-process
+  and stdio. Ten-tool inventory, pinned viewer, lexical search, expanded capability packet/resource
+  Markdown and attributed metadata, strict invalid-request refusal, draining close and reopening.
+  Latest Python baseline `3c8bc590`; actual native fixture, no mocked provider or live Qwen service.
+- `UV_NO_SYNC=1 cargo test --release -p lctx-serving --lib`:
+  **passed, 2026-10-06**, three affected pure controls: exact diagnostic correlation and two
+  pagination controls. These do not substitute for the actual native journey above.
+
+Scope-end leaves, **passed, 2026-10-06**:
+
+- `UV_NO_SYNC=1 cargo clippy --release -p lctx-model -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p lctx-semantics -p lctx --all-targets --keep-going -- -D warnings`
+  after applying `scripts/build_environment.py --shell`: scoped all-target compile/lint checks,
+  including their actual compiler/provider dependencies, on formatted source `599010a0`.
+- `UV_NO_SYNC=1 just ruff`, `UV_NO_SYNC=1 just types`, `UV_NO_SYNC=1 just deps`:
+  current formatting, Python types, nominal families/forks, unused dependencies and generated
+  feature union. Shared Catalog fixture imports are explicit development dependencies with narrow
+  scanner exceptions. Hakari's owning exclusions keep all native libraries outside the CLI union.
+- `UV_NO_SYNC=1 just adr-lint`, `UV_NO_SYNC=1 just lint-agents`, `UV_NO_SYNC=1 just rules-scan`,
+  `UV_NO_SYNC=1 just rules-test`, `UV_NO_SYNC=1 just docs-check`: governing references,
+  instructions, retained rules and publication links. The obsolete Python execution rule and
+  dead current-tree retrieval links are retired; dated reviews keep their original conclusions.
+- `UV_NO_SYNC=1 just ready`, `UV_NO_SYNC=1 just build-features`, `UV_NO_SYNC=1 just turn-end`:
+  selected tool/skill readiness and generated/formatting bookkeeping. Generator inspection exposed
+  the missing native-library exclusions; its owner was repaired and generated/dependency checks
+  rerun. No operator store or client registration was inspected or activated.
+
+Initial lint/style, protocol typing, dependency and governing-reference failures were repaired.
+Later compile/lint repairs and formatting preserve keys, validators, functional expectations,
+queries, limits and the existing explicit source-byte identity policy. Native runtime receipts
+remain attributed to their exercised baselines above; raw source changes naturally require a
+fresh realization and matching wheel. No source normalization or compatibility reader was added.
+The final `UV_NO_SYNC=1 uv build --package lctx-semantics --wheel --out-dir <owned directory>`
+and `UV_NO_SYNC=1 uv pip install --python .venv/bin/python --no-deps --reinstall <final wheel>`
+**passed, 2026-10-06**, after formatting, on production source `599010a0`. Importing NativeSession
+from the installed wheel with `UV_NO_SYNC=1 uv run --no-sync python -c 'from lctx_semantics import NativeSession; print(NativeSession.__name__)'`
+**passed**. This replaces the earlier installed wheel with the final linked definition; no old
+fixture was reactivated and no additional compiler suite or real-library pilot was run.
+Logs are `/tmp/graph-native-clippy-formatted.log`, `/tmp/graph-native-types-formatted.log`,
+`/tmp/graph-native-deps-final-passed.log`, `/tmp/graph-native-ruff-rechecked.log`,
+`/tmp/graph-native-docs-final-receipt.log`, `/tmp/graph-native-wheel-final-formatted.log`,
+`/tmp/graph-native-wheel-final-install.log` and the focused native/MCP logs.
+Owned fixture/container, credentials, probe/wheel scratch and the integrated MCP worktree are
+removed. Unrelated worktrees and shared Cargo caches are preserved.
+
+Owned persistent Docker databases exercised actual authentication and query paths. Live Qwen inference, real FastMCP acquisition/compilation,
+operator activation, broad `just qualify`, legacy suite parity and performance measurement are
+**not_run** under this user-selected execution scope. Compiler-stage tests remain stopped.

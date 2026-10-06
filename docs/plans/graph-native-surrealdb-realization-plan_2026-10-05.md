@@ -1,6 +1,6 @@
 # SurrealDB realization and immutable publication
 
-**Proposed, 2026-10-05.** Supporting plan for P1/P2/I1 in the
+**Implemented / focused Tested, 2026-10-06; operator adoption not_run.** Supporting plan for P1/P2/I1 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). The coordinator owns state,
 shared decisions and disposition. This plan consumes the [admitted graph](graph-native-model-compiler-plan_2026-10-05.md)
 and the [native serving operations](graph-native-serving-plan_2026-10-05.md); it owns their
@@ -52,6 +52,12 @@ fields. Generate physical types/kind codes and structural constraints from the m
 owns kind-specific semantics. Select useful indexes for exact public paths, input/release,
 assertion kind/context, ordered premises/chunks, retrieval text/spec and the chosen native queries.
 Create fresh 3.3 search indexes so shared document-ID/bitmap capabilities are available.
+
+The implementation retains canonical payloads and derived atomic scope fields, with one sparse
+`scope_keys.*` index per canonical entity/assertion family. Only present values contribute typed
+`semantic_type|field|value` keys; indexed `CONTAINSANY` requests select their exact type/field
+before decoding. This avoids a separate index for every optional field across the entire graph.
+Search documents, contextual occurrences and shared vectors retain their dedicated hot indexes.
 
 Classic identity-bearing relation records are inserted through `INSERT RELATION` / the SDK's
 relation insertion path. Ordinary INSERT of an edge-shaped object is not the same adjacency
@@ -150,6 +156,12 @@ than outer success establish write outcomes.
 Administrative access remains trusted recovery, outside the ordinary immutable-reader contract.
 An explicit audit streams content/definitions when an anomaly needs diagnosis; routine requests
 do not rehash the database. Recovery closes affected readers and replaces the realization.
+The implemented seal/audit inventory uses effective native database and table metadata, retaining
+fields, indexes, events, functions, analyzers and other declared executable groups. Credentials
+and live subscriptions are excluded. SurrealDB 3.3 INFO omits database STRICT mode; audit does not
+certify it. The publisher explicitly creates STRICT databases. Portable transport exports only
+canonical graph/role/original/manifest tables, rebuilding executable definitions and derived search
+in a fresh final database on restore.
 
 ### 3.2 Selection, pinning and retirement
 
@@ -168,8 +180,8 @@ concurrent same-key writes. Batch lookups/writes. Exact consumed winners are cop
 admitted graph, so serving/replay never depends on a mutable cache. Cache failure does not
 manufacture successful vectors. Do not change the embedder/model during the store pivot.
 
-Current `lctx_ops` / `runs` are historical-only interfaces: new compiles use the generation store
-instead. Delete those records, commands and migrations; do not recreate an event-history service
+The former `lctx_ops` / `runs` were historical-only interfaces. They and the generation store are
+removed; new compiles use the private workspace. Do not recreate an event-history service
 in SurrealDB. New attempts use existing structured logs and the minimal private/public target
 state needed for publication. LIVE/events are optional notifications, not publication authority.
 
@@ -202,9 +214,11 @@ route; test gRPC streaming if used, including missing final success. Restoring a
 fresh reconciliation/ready handle; a transport file is not itself published trust.
 
 Run compile checks and affected `verify-store`, `verify-serving` or `verify-tooling` controls
-with their new prerequisites. Q0 owns the single assembled acceptance. Fresh operator store reset,
+with their new prerequisites. Q0 owns integrated acceptance through the targeted actual journeys
+selected by the user, without broad qualification or legacy parity. Fresh operator store reset,
 real-library loading, embedding and selection are separately authorized Q1 actions. No runtime or
-Measured performance outcome is asserted by this plan.
+Measured performance outcome is asserted by this plan; actual functional outcomes are recorded
+in coordinator §8.
 
 Source anchors for library-specific decisions: [bulk relations/table contracts](https://surrealdb.com/docs/reference/query-language/statements/define/table),
 [typed streaming finality](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/src/method/query.rs),
