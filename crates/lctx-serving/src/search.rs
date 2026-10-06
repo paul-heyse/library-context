@@ -32,8 +32,9 @@ pub async fn lexical(reader:&NativeReader, query:&str, family:Family, inputs:&[[
     let table=family_table(family);
     let target=if member_mode {"out"} else {"unit"};
     let sql=format!(r#"RETURN {{
- LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND search::score(1)>0 AND array::len(->lex_occurs[WHERE eligible=true AND ($units=NULL OR unit IN $units) AND scope_input IN $inputs.map(|$v|<string>$v) AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs)])>0 ORDER BY score DESC,id ASC LIMIT 100;
- LET $occurrences=SELECT *, (SELECT VALUE score FROM $documents WHERE id=$parent.in)[0] AS score FROM lex_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND in IN $documents.id AND scope_input IN $inputs.map(|$v|<string>$v) AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $input_keys=$inputs.map(|$v|<string>$v);
+ LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND search::score(1)>0 AND array::len((SELECT VALUE id FROM lex_occurs WHERE in=$parent.id AND eligible=true AND ($units=NULL OR unit IN $units) AND scope_input IN $input_keys AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT 100;
+ LET $occurrences=SELECT *, (SELECT VALUE score FROM $documents WHERE id=$parent.in)[0] AS score FROM lex_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND in IN $documents.id AND scope_input IN $input_keys AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs);
  LET $best=SELECT {target} AS target,math::max(score) AS score FROM $occurrences GROUP BY target;
  RETURN SELECT VALUE (SELECT score,unit,fragment,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best WHERE score>0 ORDER BY score DESC,target ASC LIMIT $cap;
 }};"#);
@@ -66,8 +67,9 @@ pub async fn vector(reader:&NativeReader, vector:&[f32], specification:lctx_mode
     vars.insert("member_mode",member_mode);vars.insert("units",binding(units)?);
     let target=if member_mode {"out"} else {"unit"};
     let sql=format!(r#"RETURN {{
- LET $vectors=SELECT id,1.0-vector::distance::knn() AS score FROM vector WHERE scope_specification=<string>$specification AND array::len(->vec_occurs[WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND scope_input IN $inputs.map(|$v|<string>$v) AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs)])>0 AND embedding <|100,200|> $vector;
- LET $occurrences=SELECT *, (SELECT VALUE score FROM $vectors WHERE id=$parent.in)[0] AS score FROM vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND in IN $vectors.id AND scope_input IN $inputs.map(|$v|<string>$v) AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $input_keys=$inputs.map(|$v|<string>$v);
+ LET $vectors=SELECT id,1.0-vector::distance::knn() AS score FROM vector WHERE scope_specification=<string>$specification AND array::len((SELECT VALUE id FROM vec_occurs WHERE in=$parent.id AND eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 AND embedding <|100,200|> $vector;
+ LET $occurrences=SELECT *, (SELECT VALUE score FROM $vectors WHERE id=$parent.in)[0] AS score FROM vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR member!=NULL) AND ($pairs=NULL OR [member,context] IN $pairs);
  LET $best=SELECT {target} AS target,math::max(score) AS score FROM $occurrences GROUP BY target;
  RETURN SELECT VALUE (SELECT score,unit,fragment,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best ORDER BY score DESC,target ASC LIMIT $cap;
 }};"#);
