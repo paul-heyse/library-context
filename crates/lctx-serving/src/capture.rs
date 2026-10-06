@@ -613,7 +613,7 @@ async fn capture(
                 reference(declared.id())?,
                 reference(links[0].id())?,
                 reference(child[0].id())?,
-                declared_proof.support.support.clone(),
+                declared_proof.support.support,
             ]);
             CapturedValueSourcePacket::Entry {
                 formal,
@@ -696,9 +696,9 @@ async fn capture(
         }
     }
     proof.extend([
-        origin_proof.support.support.clone(),
-        capture_proof.support.support.clone(),
-        timing_proof.support.support.clone(),
+        origin_proof.support.support,
+        capture_proof.support.support,
+        timing_proof.support.support,
     ]);
     Ok(BehavioralCapturePacket {
         witness: witness.id(),

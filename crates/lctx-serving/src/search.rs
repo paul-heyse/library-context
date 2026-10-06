@@ -21,6 +21,7 @@ struct NativeHit {
 fn family_table(family:Family)-> &'static str {
     match family {Family::ApiOptions=>"search_api_options",Family::DocumentationDeployment=>"search_documentation_deployment",Family::Scenario=>"search_scenario",Family::Source=>"search_source"}
 }
+#[allow(clippy::too_many_arguments, reason = "Native lexical selection keeps exact eligibility, target mode, candidate cap and ranking policy explicit")]
 pub async fn lexical(reader:&NativeReader, query:&str, family:Family, inputs:&[[u8;16]],
     pairs:Option<&[([u8;16],[u8;16])]>, member_mode:bool,units:Option<&[Id<Unit>]>, cap:usize, policy:&RankingPolicy)->Result<Vec<CandidateScore>,ModelError> {
     let mut vars=Variables::new();
@@ -52,6 +53,7 @@ fn candidate(snapshot:&SnapshotHandle,row:NativeHit,family:Family,binding:Channe
 
 /// Filter-aware HNSW candidate collection. The same occurrence predicate admits both
 /// the vector and its winning contextual witness; an excluded nearest vector cannot crowd it out.
+#[allow(clippy::too_many_arguments, reason = "Native vector selection keeps exact vector identity, eligibility, target mode, cap and ranking policy explicit")]
 pub async fn vector(reader:&NativeReader, vector:&[f32], specification:lctx_model::domain::ContentHash,
     vector_digest:lctx_model::domain::ContentHash,family:Family,inputs:&[[u8;16]],
     pairs:Option<&[([u8;16],[u8;16])]>,member_mode:bool,units:Option<&[Id<Unit>]>,cap:usize,policy:&RankingPolicy)

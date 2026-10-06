@@ -17,6 +17,7 @@ pub async fn hydrate(reader:&NativeReader, roots:Vec<RecordId>, inputs:&[Validat
     hydrate_with(reader,roots,inputs,OWNED_FIELDS,budget).await
 }
 /// Each component chooses its semantic ownership closure; shared identities are never owners.
+#[allow(clippy::mutable_key_type, reason = "Graph node IDs are immutable generated string keys; the SDK key union includes unused mutable regex caches")]
 pub async fn hydrate_with(reader:&NativeReader, roots:Vec<RecordId>, inputs:&[ValidationInput],
     owned_fields:&[&str],budget:&ResourceBudget)->Result<CanonicalBatches,ModelError> {
     let types: BTreeSet<_> = inputs.iter().map(|i|i.name().to_owned()).collect();

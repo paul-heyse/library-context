@@ -44,7 +44,8 @@ pub async fn packets(source:&CanonicalBatches,member:Id<catalog::CatalogMember>,
         let captures=if let Some(id)=conclusion.proof{let(value,_charge)=crate::capture::captures(&mut native,need(&proofs,id)?,invocation,q,&basis).await.map_err(ModelError::from)?;value}else{Vec::new()};
         let condition=need(&conditions,q.condition)?;
         let mut visited=BTreeSet::new();let mut pending=vec![condition.root];let mut selected=Vec::new();
-        while let Some(id)=pending.pop(){if !visited.insert(id){continue}if visited.len()>4096{return Err(ModelError::Invalid("resource_refused: behavior condition rendering nodes".into()))}
+        while let Some(id)=pending.pop(){if !visited.insert(id){continue}
+            if visited.len()>4096{return Err(ModelError::Invalid("resource_refused: behavior condition rendering nodes".into()))}
             let node=need(&nodes,id)?;if let conditions::ConditionNode::Branch{low,high,..}=node{pending.push(*low);pending.push(*high);}selected.push(node.clone());}
         let diagram=conditions::Diagram::from_records(condition,&selected)?;
         let rendered=diagram.render_terms(16).map_err(|e|ModelError::Invalid(format!("behavior condition rendering: {e:?}")))?;

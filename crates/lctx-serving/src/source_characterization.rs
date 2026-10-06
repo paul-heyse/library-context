@@ -588,7 +588,7 @@ impl NativePackets<'_> {
             let mut proof = vec![
                 ProofReference::from_canonical(derivation::RowRef::of(row.id()))?,
                 ProofReference::from_canonical(derivation::RowRef::of(row.native))?,
-                payload.1.support.clone(),
+                payload.1.support,
             ];
             if let SourceCharacterizationPayload::Usage { usage } = &payload.0 {
                 proof.push(ProofReference::from_canonical(derivation::RowRef::of(

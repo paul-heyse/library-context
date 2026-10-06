@@ -28,7 +28,7 @@ impl NativeService {
   let _cpu=tokio::time::timeout_at(admission,self.cpu.acquire()).await.map_err(|_|WireError::ResourceRefused("CPU admission".into()))?.map_err(|_|WireError::ResourceRefused("CPU service closed".into()))?;
   let budget=ResourceBudget::scoped(&self.shared,self.limits.request_bytes as usize).map_err(failure)?;
   let _request_charge=budget.reserve("native-request-wire",raw.len().saturating_mul(2)).map_err(failure)?;
-  let result=tokio::time::timeout_at(deadline,async{
+  tokio::time::timeout_at(deadline,async{
    self.definition.get_or_try_init(||async{
     let actual:String=self.reader.query("RETURN fn::lctx_operation_definition();",Default::default()).await.map_err(failure)?;
     if actual!=crate::operation_definition().hex(){return Err(WireError::Invalid("published operation executable differs from this service".into()))}
@@ -53,8 +53,7 @@ impl NativeService {
    let bytes=response.to_json()?;
    if tokio::time::Instant::now()>=deadline{return Err(WireError::ResourceRefused("request deadline".into()))}
    Ok(bytes)
-  }).await.map_err(|_|WireError::ResourceRefused("request deadline".into()))?;
-  result
+  }).await.map_err(|_|WireError::ResourceRefused("request deadline".into()))?
  }
 }
 fn failure(error:ModelError)->WireError{match error{ModelError::Resource{..}|ModelError::Limit{..}=>WireError::ResourceRefused(error.to_string()),_=>WireError::Invalid(error.to_string())}}

@@ -7,6 +7,7 @@ pub fn binding(request:&Request,snapshot:&SnapshotHandle,channels:&ChannelState,
 }
 /// A response may expose several independently resumable sections. A cursor for one
 /// section leaves the other sections on their first page; its full binding is still checked.
+#[allow(clippy::too_many_arguments, reason = "Pagination binds snapshot, channel state, group, section, member and availability explicitly")]
 pub fn page<T>(mut values:Vec<(ContentHash,T)>,request:&Request,snapshot:&SnapshotHandle,channels:&ChannelState,group:&str,section:&str,member:Option<lctx_model::domain::Id<lctx_model::domain::catalog::CatalogMember>>,availability:Availability)->Result<SectionPage<T>,WireError>{
     values.sort_by_key(|(key,_)|*key);
     let expected=binding(request,snapshot,channels,group,section,member)?;
