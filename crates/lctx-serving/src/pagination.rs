@@ -77,3 +77,25 @@ pub fn ranked<T>(mut values:Vec<(ranking::RankedHit,ContentHash,T)>,request:&Req
     let (ranking,items)=values.into_iter().map(|(ranking,_,item)|(ranking,item)).unzip();
     Ok((SectionPage{availability:Availability::Available{},items,continuation,omitted,truncated:omitted>0},ranking))
 }
+#[cfg(test)]
+mod tests{
+ use super::*;
+ fn handle()->SnapshotHandle{SnapshotHandle{semantic:ContentHash::of(b"s"),realization:ContentHash::of(b"r"),database:DatabaseIdentity{namespace:Name::new("control").unwrap(),database:Name::new("snapshot").unwrap()}}}
+ fn request()->Request{Request::FindOperations(FindOperationsRequest{library:Name::new("fixture").unwrap(),selection:SelectionInput::default(),page:PageRequest{size:1,..PageRequest::default()}})}
+ fn channels()->ChannelState{ChannelState{lexical:false,vector:VectorChannel::Disabled{}}}
+ #[test]
+ fn key_pages_resume_by_key_and_refuse_changed_handle_or_representation(){
+  let h=handle();let c=channels();let r=request();let mut keys=[ContentHash::of(b"one"),ContentHash::of(b"two")];keys.sort();
+  let first=page(vec![(keys[1],2),(keys[0],1)],&r,&h,&c,"supported","results",None,Availability::Available{}).unwrap();assert_eq!(first.items,vec![1]);assert_eq!(first.omitted,1);
+  let mut next=r.clone();let Request::FindOperations(v)=&mut next else{unreachable!()};v.page.cursor=first.continuation;
+  validate(&next,&h,&c).unwrap();let second=page(vec![(keys[1],2),(keys[0],1)],&next,&h,&c,"supported","results",None,Availability::Available{}).unwrap();assert_eq!(second.items,vec![2]);assert!(!second.truncated);
+  let mut changed=h.clone();changed.realization=ContentHash::of(b"different policy");assert!(validate(&next,&changed,&c).is_err());changed=h.clone();changed.semantic=ContentHash::of(b"different content");assert!(validate(&next,&changed,&c).is_err());changed=h.clone();changed.database.database=Name::new("different_database").unwrap();assert!(validate(&next,&changed,&c).is_err());
+  let Request::FindOperations(v)=&mut next else{unreachable!()};v.page.expanded=true;assert!(validate(&next,&h,&c).is_err());
+ }
+ #[test]
+ fn foreign_section_and_degraded_channels_are_bound_before_reading(){
+  let h=handle();let c=channels();let mut r=request();let foreign_binding=binding(&r,&h,&c,"get_evidence","body",None).unwrap();let token=Cursor{binding:foreign_binding,after:CursorPosition::Key{key:ContentHash::of(b"row")}}.encode().unwrap();let Request::FindOperations(v)=&mut r else{unreachable!()};v.page.cursor=Optional(Some(token));assert!(validate(&r,&h,&c).is_err());
+  let mut search=Request::SearchEvidence(SearchEvidenceRequest{library:Optional::default(),query:QueryText::new("fixture").unwrap(),families:vec![],page:PageRequest::default()});
+  let disabled=ChannelState{lexical:true,vector:VectorChannel::Disabled{}};let binding=binding(&search,&h,&disabled,"search_evidence","results",None).unwrap();let token=Cursor{binding,after:CursorPosition::Ranked{score_bits:1f64.to_bits(),key:ContentHash::of(b"row")}}.encode().unwrap();let Request::SearchEvidence(v)=&mut search else{unreachable!()};v.page.cursor=Optional(Some(token));validate(&search,&h,&disabled).unwrap();let degraded=ChannelState{lexical:true,vector:VectorChannel::Degraded{reason:Name::new("embedding_service_unavailable").unwrap()}};assert!(validate(&search,&h,&degraded).is_err());
+ }
+}

@@ -15,7 +15,7 @@ pub async fn dispatch(reader:&NativeReader,request:&Request,channels:&ChannelSta
   Request::InspectValuePaths(r)=>crate::inspection::get(reader,r,request,limits,b).await.map(Response::InspectValuePaths),
   Request::FindOperations(r)=>{
    let domains=crate::library::resolve(reader,Some(&r.library),b).await?;let data=chosen(reader,&r.library,None,&r.selection.0,b).await?;
-   let group=|outcome,group|{let values=data.selected.group(outcome).map(|c|{let p=candidates::packet(c,data.prepared.data(),&domains)?;Ok((candidates::key(&p),p))}).collect::<Result<Vec<_>,ModelError>>()?;page(values,request,reader,group,"results",None,Availability::Available{})};
+   let group=|outcome,group|{let values=data.selected.group(outcome).filter(|_|r.selection.0.mode==selection::Mode::Discovery || outcome==selection::Outcome::Supported).map(|c|{let p=candidates::packet(c,data.prepared.data(),&domains)?;Ok((candidates::key(&p),p))}).collect::<Result<Vec<_>,ModelError>>()?;page(values,request,reader,group,"results",None,Availability::Available{})};
    Ok(Response::FindOperations(FindOperationsResponse{snapshot,domains:domains.clone(),supported:group(selection::Outcome::Supported,"supported")?,unresolved:group(selection::Outcome::Unresolved,"unresolved")?,conflicting:group(selection::Outcome::Conflicting,"conflicting")?,extent:extent(&data.selected)}))
   },
   Request::CompareOperations(r)=>{
