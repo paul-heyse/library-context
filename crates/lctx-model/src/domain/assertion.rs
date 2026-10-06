@@ -416,6 +416,16 @@ pub trait Support: Record {
     }
 }
 
+/// Typed dispatch for bounded admission of one assertion family. Selection does not replace
+/// the support predicate: every selected grain is still checked by `SupportCheck<A, S>`.
+#[derive(Debug, Clone)]
+pub struct SupportScope {
+    pub assertion: ValidationInput,
+    pub support: ValidationInput,
+    pub family: FactFamily,
+    pub source_inputs: Vec<ValidationInput>,
+}
+
 /// A generated companion has exactly one nominal owner source and its immutable input frame.
 pub struct DerivedSupportFrame {
     pub input: Id<super::input::InputRevision>,
@@ -1158,6 +1168,14 @@ impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
     }
 }
 impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A, S> {
+    fn support_scope(&self) -> Option<SupportScope> {
+        Some(SupportScope {
+            assertion: ValidationInput::of::<A>(&["id"]),
+            support: ValidationInput::of::<S>(&["id"]),
+            family: A::FAMILY,
+            source_inputs: S::Source::inputs(),
+        })
+    }
     fn visit(
         &mut self,
         relation: &str,

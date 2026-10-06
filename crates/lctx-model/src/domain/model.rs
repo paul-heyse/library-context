@@ -882,6 +882,9 @@ impl ValidationInput {
     }
 }
 pub trait InvariantCheck: Send {
+    fn support_scope(&self) -> Option<super::assertion::SupportScope> {
+        None
+    }
     fn visit_input(
         &mut self,
         input: &ValidationInput,

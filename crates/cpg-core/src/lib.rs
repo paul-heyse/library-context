@@ -9,6 +9,7 @@ pub mod catalog_core;
 pub mod catalog_evidence;
 pub mod catalog_selection;
 pub mod consumed_rows;
+mod scoped_admission;
 pub mod embedding_realization;
 pub mod embedding_service;
 pub mod facts;
