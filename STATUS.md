@@ -2,7 +2,21 @@
 
 _Updated 2026-10-06 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Paused at the user's request. Graph-native remediation is integrated; final native acceptance remains pending.**
+**Retrieval/evaluation target review completed, 2026-10-06: Revise.**
+The [design review](docs/design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
+assesses the colleague's proposal against current source and versioned library capabilities.
+Programmatic evaluation is the primary loop; outer agentic evaluation feeds both system
+improvements and evaluator task models, coverage and judgments. The review owns unscheduled
+F01–F03: evaluator revision/comparison semantics, analytical full-vector/projection policy,
+and finite-first evaluation with optional status-preserving solver operations. Its RC01–RC05
+are proposed authority changes, not adopted rules. No product code or acceptance changed.
+**passed:** `UV_NO_SYNC=1 just docs-check` on 2026-10-06 (323 canonical pages;
+offline links, ADR metadata and agent instructions). Product tests/probes are **not_run**
+for this static design review; no performance or retrieval-quality result is asserted.
+Next: incorporate these corrections into a revised target and subsequent implementation plan;
+the review retains disposition until a plan explicitly takes ownership.
+
+**Graph-native remediation remains paused at the user's request; it is integrated, with final native acceptance pending.**
 The authorized scope is [coordinator §9](docs/plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 and its four supporting plans. They retain the hard design pivot and targeted functional verification.
 The original graph-native target/capabilities reviews remain the architectural basis; the audit supplies defects.
@@ -17,7 +31,7 @@ Owned native fixtures and credentials are cleaned up. No owned build/test/worker
 Unrelated processes, containers and shared Cargo caches are preserved.
 
 [Coordinator §7](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
-remains the sole finding disposition owner. F01–F12 remain open pending complete integrated closure;
+remains the sole graph-native remediation finding disposition owner. Its F01–F12 remain open pending complete integrated closure;
 a landed slice or focused pass does not close the entire remediation.
 [Coordinator §8.1](docs/plans/graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06)
 records source, exact outcomes, stopped builds and resume order. All four supporting plans carry the pause.
