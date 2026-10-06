@@ -5,6 +5,7 @@ use surrealdb::types::{Variables,Value,RecordId,Bytes};
 fn id<R:Record>(byte:u8)->Id<R>{serde_json::from_value(serde_json::to_value([byte;16]).unwrap()).unwrap()}
 async fn insert(reader:&NativeReader,table:&str,relation:bool,rows:Vec<Value>){let mut vars=Variables::new();vars.insert("rows",rows);reader.query::<serde_json::Value>(format!("INSERT {}INTO {table} $rows RETURN NONE;",if relation{"RELATION "}else{""}),vars).await.unwrap();}
 fn object(body:serde_json::Value,id:RecordId)->surrealdb::types::Object{let Value::Object(mut obj)=json_value(body).unwrap()else{panic!("object")};obj.insert("id",id);obj}
+#[allow(clippy::too_many_arguments, reason = "The fixture explicitly separates physical endpoints and semantic eligibility witnesses")]
 fn occurrence(table:&str,key:&str,source:RecordId,out:RecordId,input:[u8;16],member:Option<Id<CatalogMember>>,context:Id<AnalysisContext>,unit:Id<Unit>)->Value{
  let mut obj=object(serde_json::json!({"family":Family::ApiOptions as i16,"unit":unit,"fragment":id::<Fragment>(7),"context":context,"member":member,"anchor":null,"input":input,"eligible":true,"occurrence_key":key}),RecordId::new(table,key.to_owned()));obj.insert("in",source);obj.insert("out",out);Value::Object(obj)
 }

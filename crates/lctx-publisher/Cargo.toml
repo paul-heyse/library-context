@@ -14,7 +14,13 @@ serde_json.workspace = true
 hex.workspace = true
 tempfile.workspace = true
 [dev-dependencies]
+cpg-extract = { path = "../cpg-extract" }
+datafusion.workspace = true
 tokio.workspace = true
 tempfile.workspace = true
 [lints]
 workspace = true
+
+# Used by the shared catalog_runtime.rs fixture included from cpg-core tests.
+[package.metadata.cargo-shear]
+ignored = ["cpg-extract", "datafusion"]

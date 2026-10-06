@@ -213,16 +213,14 @@ fn native_fixture_cli_exports_both_profiles_at_every_frontier() {
                             let entity: Entity =
                                 serde_json::from_slice(payloads.value(row)).unwrap();
                             entity.validate().unwrap();
-                            if let Entity::Source(source) = &entity {
-                                if source.path == "demo/__init__.py" {
-                                    assert_eq!(source.content, ContentHash::of(SOURCE.as_bytes()));
-                                    found_original = true;
-                                }
+                            if let Entity::Source(source) = &entity
+                                && source.path == "demo/__init__.py" {
+                                assert_eq!(source.content, ContentHash::of(SOURCE.as_bytes()));
+                                found_original = true;
                             }
-                            if let Entity::CatalogMember(member) = &entity {
-                                if member.name == "api" && member.path == ["api"] {
-                                    found_api = true;
-                                }
+                            if let Entity::CatalogMember(member) = &entity
+                                && member.name == "api" && member.path == ["api"] {
+                                found_api = true;
                             }
                             (entity.id().0, entity.content())
                         } else {

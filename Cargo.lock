@@ -3898,6 +3898,8 @@ name = "lctx-publisher"
 version = "0.1.0"
 dependencies = [
  "cpg-core",
+ "cpg-extract",
+ "datafusion",
  "hex",
  "lctx-model",
  "lctx-surrealdb",
@@ -3925,6 +3927,7 @@ version = "0.1.0"
 dependencies = [
  "cpg-core",
  "cpg-extract",
+ "datafusion",
  "hex",
  "lctx-model",
  "lctx-publisher",

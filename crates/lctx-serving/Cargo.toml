@@ -16,6 +16,7 @@ tokio.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
+datafusion.workspace = true
 cpg-core = { path = "../cpg-core" }
 cpg-extract = { path = "../cpg-extract" }
 lctx-publisher = { path = "../lctx-publisher" }
@@ -23,3 +24,7 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
+
+# Used by the shared catalog_runtime.rs fixture included from cpg-core tests.
+[package.metadata.cargo-shear]
+ignored = ["datafusion"]

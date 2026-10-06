@@ -219,7 +219,7 @@ fn refused(error: &anyhow::Error) -> bool {
 
 fn nominal_id<T>(raw: &str) -> Result<lctx_model::domain::Id<T>, String> {
     if raw.len() != 32 { return Err("nominal ID must contain 32 hexadecimal digits".into()); }
-    let bytes = raw.as_bytes().chunks_exact(2).map(|pair| {
+    let bytes = raw.as_bytes().as_chunks::<2>().0.iter().map(|pair| {
         let pair = std::str::from_utf8(pair).map_err(|_| "nominal ID must be hexadecimal")?;
         u8::from_str_radix(pair, 16).map_err(|_| "nominal ID must be hexadecimal")
     }).collect::<Result<Vec<_>, _>>()?;
