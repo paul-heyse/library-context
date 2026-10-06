@@ -10,6 +10,7 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+use arrow_array::Array;
 
 /// One transfer-bounded stream at a time. The typed collector admits every retained row; the
 /// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
@@ -26,32 +27,344 @@ async fn load<R: Record>(
     }
     Ok(())
 }
+// A compact exact-key work list closes a semantic kernel's premises without retaining a copy of
+// any other scope. Reverse candidate selection is SQL; forward nominal references use bounded
+// key reads against the immutable, qualified workspace views.
+struct PremiseClosure {
+    wanted: charged::ChargedSet<(&'static str, [u8; 16])>,
+    loaded: charged::ChargedSet<(&'static str, [u8; 16])>,
+    charge: charged::StateCharge,
+}
+impl PremiseClosure {
+    fn new(budget: &resources::ResourceBudget) -> Self {
+        Self { wanted: Default::default(), loaded: Default::default(), charge: charged::StateCharge::new(budget, "normalization-scope-keys") }
+    }
+    fn absorb<R: Record>(&mut self, batch: &arrow_array::RecordBatch, rows: &mut Rows<R>) -> Result<(), ModelError> {
+        let budget = self.charge.budget().expect("closure budget");
+        let _decode = budget.reserve("normalization-scope-decode", decode_allowance::<R>(batch)?)?;
+        for row in R::decode(batch)? {
+            self.loaded.insert(&mut self.charge, (R::NAME, *row.id().bytes()))?;
+            for reference in row.references() { self.wanted.insert(&mut self.charge, (reference.target, reference.key))?; }
+            rows.insert(row)?;
+        }
+        Ok(())
+    }
+    async fn seed<R: Record>(&mut self, access: &CompletedInputs, session: &datafusion::prelude::SessionContext, predicate: &str, rows: &mut Rows<R>) -> Result<(), ModelError> {
+        if !access.contains::<R>() { return Ok(()); }
+        let _input = access.read::<R>()?;
+        let table = access.table_at::<R>(None)?;
+        let sql = format!("SELECT * FROM \"{table}\" WHERE {predicate}");
+        let mut stream = crate::sql::query(session, &sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? { self.absorb(&batch, rows)?; }
+        Ok(())
+    }
+    async fn fetch<R: Record>(&mut self, access: &CompletedInputs, session: &datafusion::prelude::SessionContext, rows: &mut Rows<R>) -> Result<bool, ModelError> {
+        if !access.contains::<R>() { return Ok(false); }
+        let mut changed = false;
+        loop {
+            let keys: Vec<_> = self.wanted.iter().filter(|(name, key)| *name == R::NAME && !self.loaded.contains(&(*name, *key))).take(128).map(|(_, key)| *key).collect();
+            if keys.is_empty() { break; }
+            let _keys = self.charge.budget().expect("closure budget").reserve("normalization-key-transfer", 128 * 256)?;
+            let predicate = format!("id IN ({})", keys.iter().map(key_literal).collect::<Vec<_>>().join(","));
+            self.seed(access, session, &predicate, rows).await?;
+            if keys.iter().any(|key| !self.loaded.contains(&(R::NAME, *key))) { return Err(ModelError::Invalid(format!("normalization scope is missing a required {} premise", R::NAME))); }
+            changed = true;
+        }
+        Ok(changed)
+    }
+}
+fn key_literal(bytes: &[u8; 16]) -> String {
+    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("X'{hex}'")
+}
+struct ModuleKeys {
+    stream: datafusion::physical_plan::SendableRecordBatchStream,
+    batch: Option<arrow_array::RecordBatch>,
+    row: usize,
+}
+impl ModuleKeys {
+    async fn new(session: &datafusion::prelude::SessionContext) -> Result<Self,ModelError> {
+        let sql=format!("SELECT source,id FROM {} ORDER BY source,id", source::Module::NAME);
+        let stream=crate::sql::query(session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        Ok(Self {stream,batch:None,row:0})
+    }
+    async fn next(&mut self) -> Result<Option<([u8;16],[u8;16])>,ModelError> {
+        loop {
+            if let Some(batch)=&self.batch && self.row<batch.num_rows() {
+                let key=|column:usize| batch.column(column).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema("module key stream"))?.value(self.row).try_into().map_err(ModelError::codec);
+                let result=(key(0)?,key(1)?); self.row+=1; return Ok(Some(result));
+            }
+            self.batch=self.stream.try_next().await.map_err(ModelError::codec)?;self.row=0;
+            if self.batch.is_none() {return Ok(None);}
+        }
+    }
+}
+async fn entity_closure(access: &CompletedInputs, session: &datafusion::prelude::SessionContext, budget: &resources::ResourceBudget, seeds: &std::collections::BTreeMap<&'static str, String>) -> Result<EntityData, ModelError> {
+    let mut data = EntityData::new(budget);
+    let mut closure = PremiseClosure::new(budget);
+    macro_rules! seed_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(if let Some(predicate) = seeds.get(<$ty>::NAME) { closure.seed(access, session, predicate, &mut data.$field).await?; })* }; }
+    lctx_model::normalized_entity_inputs!(seed_inputs);
+    loop {
+        let mut changed = false;
+        macro_rules! fetch_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(if !matches!(stringify!($field), "symbols" | "terms" | "places") { changed |= closure.fetch(access, session, &mut data.$field).await?; })* }; }
+        lctx_model::normalized_entity_inputs!(fetch_inputs);
+        if !changed { break; }
+    }
+    Ok(data)
+}
+fn entity_symbol_seeds(symbols: String, public: Option<String>) -> std::collections::BTreeMap<&'static str, String> {
+    use lctx_model::domain::{calls::*, declarations::*, symbols::*, types::*};
+    let mut seeds = std::collections::BTreeMap::new();
+    let selected = format!("SELECT id FROM {} WHERE {symbols}", ProviderSymbol::NAME);
+    let declarations = format!("SELECT id FROM {} WHERE symbol IN ({selected})", SymbolDeclaration::NAME);
+    let signatures = format!("SELECT id FROM {} WHERE symbol IN ({selected})", Signature::NAME);
+    let parameters = format!("SELECT id FROM {} WHERE signature IN ({signatures})", SignatureParameter::NAME);
+    seeds.insert(ProviderSymbol::NAME, symbols);
+    seeds.insert(SymbolDeclaration::NAME, format!("symbol IN ({selected})"));
+    seeds.insert(SymbolDeclarationSupport::NAME, format!("assertion IN ({declarations})"));
+    seeds.insert(FunctionTraitObservation::NAME, format!("symbol IN ({selected})"));
+    seeds.insert(ClassTraitObservation::NAME, format!("symbol IN ({selected})"));
+    if public.is_none() {
+        seeds.insert(Signature::NAME, format!("symbol IN ({selected})"));
+        seeds.insert(SignatureParameter::NAME, format!("signature IN ({signatures})"));
+        seeds.insert(ParameterDeclaration::NAME, format!("parameter IN ({parameters})"));
+        seeds.insert(RecordFieldObservation::NAME, format!("class IN ({selected})"));
+    }
+    if let Some(public) = public {
+        let names = format!("SELECT id FROM {} WHERE {public}", PublicNameObservation::NAME);
+        let observations = format!("SELECT id FROM {} WHERE symbol IN ({selected})", SymbolObservation::NAME);
+        let enums = format!("SELECT e.id FROM {} e JOIN {} p ON e.access=p.access JOIN {} eq ON eq.id=e.qualification JOIN {} pq ON pq.id=p.qualification WHERE p.id IN ({names}) AND eq.context=pq.context AND eq.scope=pq.scope", ExportEnumerationObservation::NAME, PublicNameObservation::NAME, assertion::AssertionQualification::NAME, assertion::AssertionQualification::NAME);
+        seeds.insert(PublicNameObservation::NAME, public);
+        seeds.insert(PublicNameSupport::NAME, format!("assertion IN ({names})"));
+        seeds.insert(SymbolObservation::NAME, format!("symbol IN ({selected})"));
+        seeds.insert(SymbolSupport::NAME, format!("assertion IN ({observations})"));
+        seeds.insert(ExportEnumerationObservation::NAME, format!("id IN ({enums})"));
+        seeds.insert(ExportEnumerationSupport::NAME, format!("assertion IN ({enums})"));
+    }
+    seeds
+}
+async fn emit_entities(output: &ProducerOutput, rows: &entity_normalization::EntityOutput, public_only: bool) -> Result<(), ModelError> {
+    macro_rules! write { ($($field:ident: $ty:ty,)*) => { $(if !public_only || matches!(stringify!($field), "exposures" | "public_enumerations" | "exposure_candidates") { for row in rows.$field.iter() { output.push(row.clone()).await?; } })* }; }
+    lctx_model::normalized_entity_outputs!(write);
+    Ok(())
+}
+
 pub async fn entities(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
+    use lctx_model::domain::{source::*, calls::*, symbols::*, syntax::ClassFieldSyntaxObservation, lexical::BindingEvent, normalized::entities::*};
     let session = access.session(runtime).await?;
-    let mut data = EntityData::new(runtime.budget());
-    macro_rules! read_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
-        let _permit = access.read::<$ty>()?;
-
-        load(&session, &mut data.$field).await?;
-    )* }; }
-    lctx_model::normalized_entity_inputs!(read_inputs);
+    macro_rules! declare { ($($field:ident: $ty:ty,)*) => { $(output.declare::<$ty>()?;)* }; }
+    lctx_model::normalized_entity_outputs!(declare);
+    let mut owners = entity_normalization::OwnershipSweep::new(runtime.budget());
+    // Merge compact module keys with the structural stream. A rich occurrence-side hash join
+    // cannot spill when statistics pick the wrong build side; two external sorts can.
+    let _occurrences = access.read::<Occurrence>()?;
+    let _modules = access.read::<Module>()?;
+    let mut modules = ModuleKeys::new(&session).await?;
+    let mut pending = modules.next().await?;
+    let mut source_module: Option<([u8;16], Option<Id<Module>>)> = None;
+    let sql = format!("SELECT * FROM {} ORDER BY source,structural_path", Occurrence::NAME);
+    let mut stream = crate::sql::query(&session, &sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        let _decode = runtime.budget().reserve("ownership-stream-decode", decode_allowance::<Occurrence>(&batch)?)?;
+        for row in Occurrence::decode(&batch)?.iter() {
+            if source_module.as_ref().is_none_or(|(source,_)| source != row.source.bytes()) {
+                while pending.as_ref().is_some_and(|(source,_)| source < row.source.bytes()) { pending = modules.next().await?; }
+                let mut count=0usize; let mut only=None;
+                while let Some((source,module)) = pending && source == *row.source.bytes() {
+                    count=count.checked_add(1).ok_or(ModelError::Schema("source module membership count"))?;
+                    only=Some(serde_json::from_value(serde_json::to_value(module).map_err(ModelError::codec)?).map_err(ModelError::codec)?);
+                    pending=modules.next().await?;
+                }
+                source_module=Some((*row.source.bytes(),if count==1 {only} else {None}));
+            }
+            let module=source_module.as_ref().expect("selected source").1;
+            let rows = owners.push(row, module, runtime.budget())?;
+            emit_entities(&output, &rows, false).await?;
+        }
+    }
+    drop(stream); drop(modules); drop(owners);
+    // These vocabulary rows have no reducer state or dependency dictionary.
+    macro_rules! refs { ($ty:ty, $variant:ident, $field:ident) => {{
+        let _input = access.read::<$ty>()?;
+        let mut stream = crate::sql::query(&session, &format!("SELECT * FROM {}", <$ty>::NAME)).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+            let _decode = runtime.budget().reserve("entity-vocabulary-decode", decode_allowance::<$ty>(&batch)?)?;
+            for row in <$ty>::decode(&batch)? { output.push(EntityRef::$variant { $field: row.id() }).await?; }
+        }
+    }}; }
+    refs!(Module, Module, module);
+    refs!(types::TypeTerm, Type, term);
+    refs!(value::Place, Place, place);
+    for (relation, kernel) in [(ProviderSymbol::NAME, entity_normalization::EntityKernel::Symbol), (ClassFieldSyntaxObservation::NAME, entity_normalization::EntityKernel::SyntaxField), (PublicNameObservation::NAME, entity_normalization::EntityKernel::Public), (ExportEnumerationObservation::NAME, entity_normalization::EntityKernel::Enumeration)] {
+        let mut roots = crate::sql::query(&session, &format!("SELECT id FROM {relation} ORDER BY id")).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+            let keys = batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema("entity scope keys"))?;
+            for index in 0..keys.len() {
+                let key = key_literal(&keys.value(index).try_into().map_err(ModelError::codec)?);
+                let seeds = match kernel {
+                    entity_normalization::EntityKernel::Symbol => entity_symbol_seeds(format!("id={key}"), None),
+                    entity_normalization::EntityKernel::Public => {
+                        let symbols = format!("id IN (SELECT s.id FROM {} s JOIN {} p ON p.id={key} JOIN {} q ON q.id=p.qualification JOIN {} origin ON origin.id=p.origin WHERE s.context=q.context AND s.module=origin.traced_module AND s.name=origin.traced_name)", ProviderSymbol::NAME, PublicNameObservation::NAME, assertion::AssertionQualification::NAME, ExportOrigin::NAME);
+                        entity_symbol_seeds(symbols, Some(format!("id={key}")))
+                    }
+                    entity_normalization::EntityKernel::Enumeration => {
+                        let mut seeds = std::collections::BTreeMap::new();
+                        seeds.insert(ExportEnumerationObservation::NAME, format!("id={key}"));
+                        seeds.insert(ExportEnumerationSupport::NAME, format!("assertion={key}"));
+                        seeds
+                    }
+                    entity_normalization::EntityKernel::SyntaxField => {
+                        let mut seeds = std::collections::BTreeMap::new();
+                        seeds.insert(ClassFieldSyntaxObservation::NAME, format!("id={key}"));
+                        seeds.insert(BindingEvent::NAME, format!("site IN (SELECT target FROM {} WHERE id={key})", ClassFieldSyntaxObservation::NAME));
+                        seeds
+                    }
+                };
+                let data = entity_closure(&access, &session, runtime.budget(), &seeds).await?;
+                let rows = entity_normalization::normalize_scope(data.inputs(), kernel, runtime.budget())?;
+                drop(data);
+                emit_entities(&output, &rows, matches!(kernel, entity_normalization::EntityKernel::Public | entity_normalization::EntityKernel::Enumeration)).await?;
+            }
+        }
+    }
     drop(session);
-    let rows = compute(data, runtime.budget(), |data, budget| {
-        entity_normalization::normalize(data.inputs(), budget)
-    })
-    .await?;
-    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
-        output.declare::<$ty>()?;
-        for row in rows.$field.iter() { output.push(row.clone()).await?; }
-    )* }; }
-    lctx_model::normalized_entity_outputs!(write_outputs);
-    drop(rows);
     output.finish(ProviderOutcome::Complete).await
+}
+
+async fn relation_close(access: &CompletedInputs, session: &datafusion::prelude::SessionContext, closure: &mut PremiseClosure, data: &mut lctx_model::domain::normalized::relation_normalization::RelationData) -> Result<(), ModelError> {
+    loop {
+        let mut changed = false;
+        macro_rules! fetch_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(changed |= closure.fetch(access, session, &mut data.facts.$field).await?;)* }; }
+        lctx_model::normalized_entity_inputs!(fetch_facts);
+        macro_rules! fetch_entities { ($($field:ident: $ty:ty,)*) => { $(changed |= closure.fetch(access, session, &mut data.entities.$field).await?;)* }; }
+        lctx_model::normalized_entity_outputs!(fetch_entities);
+        macro_rules! fetch_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(changed |= closure.fetch(access, session, &mut data.$field).await?;)* }; }
+        lctx_model::normalized_relation_inputs!(fetch_inputs);
+        // Every referenced native symbol has one total N1 correspondence. The reverse lookup is
+        // by exact selected symbols; no global resolution or EntityRef dictionary is retained.
+        let unresolved: Vec<_> = data.facts.symbols.iter().filter(|symbol| !data.entities.resolutions.iter().any(|resolution| resolution.symbol == symbol.id())).take(128).map(|symbol| key_literal(symbol.id().bytes())).collect();
+        if !unresolved.is_empty() {
+            let before = data.entities.resolutions.len();
+            closure.seed(access, session, &format!("symbol IN ({})", unresolved.join(",")), &mut data.entities.resolutions).await?;
+            if data.entities.resolutions.len() == before { return Err(ModelError::Invalid("scoped relation requires total symbol correspondence".into())); }
+            changed = true;
+        }
+        if !changed { break; }
+    }
+    Ok(())
+}
+async fn relation_scope(access: &CompletedInputs, session: &datafusion::prelude::SessionContext, budget: &resources::ResourceBudget, root: &'static str, key: &str, kernel: lctx_model::domain::normalized::relation_normalization::RelationKernel) -> Result<lctx_model::domain::normalized::relation_normalization::RelationData, ModelError> {
+    use lctx_model::domain::{calls::*, lexical::*, symbols::*, ruff::*, syntax::*, types::*, attribution::*, source::*, normalized::{entities::*, relation_normalization::{RelationData, RelationKernel}}};
+    let mut data = RelationData::new(budget);
+    let mut closure = PremiseClosure::new(budget);
+    let mut seeds = std::collections::BTreeMap::<&'static str, String>::new();
+    seeds.insert(root, format!("id={key}"));
+    let qtable = assertion::AssertionQualification::NAME;
+    let same = |_candidate: &str| format!("qualification IN (SELECT id FROM {qtable} WHERE context IN (SELECT q.context FROM {qtable} q JOIN {root} root ON root.qualification=q.id WHERE root.id={key}))");
+    match kernel {
+        RelationKernel::Reference => {
+            seeds.insert(LexicalResolution::NAME, format!("read IN (SELECT read FROM {root} WHERE id={key}) AND {}", same(LexicalResolution::NAME)));
+            let native = format!("subject IN (SELECT read FROM {root} WHERE id={key}) AND {}", same(RuffContextObservation::NAME));
+            seeds.insert(RuffContextObservation::NAME, native.clone());
+            let contexts = format!("SELECT id FROM {} WHERE {native}", RuffContextObservation::NAME);
+            seeds.insert(RuffContextSupport::NAME, format!("assertion IN ({contexts})"));
+            let bindings = format!("event IN (SELECT final_binding FROM {} WHERE {native}) AND {}", RuffContextObservation::NAME, same(RuffBindingObservation::NAME));
+            seeds.insert(RuffBindingObservation::NAME, bindings.clone());
+            seeds.insert(RuffBindingSupport::NAME, format!("assertion IN (SELECT id FROM {} WHERE {bindings})", RuffBindingObservation::NAME));
+        }
+        RelationKernel::NativeDefinition => {
+            seeds.insert(DeclarationObservation::NAME, format!("declaration IN (SELECT declaration FROM {root} WHERE id={key}) AND {}", same(DeclarationObservation::NAME)));
+            seeds.insert(RuffDefinitionSupport::NAME, format!("assertion={key}"));
+        }
+        RelationKernel::Import => { seeds.insert(ModuleResolutionObservation::NAME, format!("alias IN (SELECT alias FROM {root} WHERE id={key}) AND {}", same(ModuleResolutionObservation::NAME))); }
+        RelationKernel::Ancestry => { seeds.insert(SymbolSequenceMember::NAME, format!("sequence IN (SELECT ancestors FROM {root} WHERE id={key})")); }
+        RelationKernel::TestOperand => {
+            seeds.insert(TypeObservation::NAME, format!("subject IN (SELECT operand FROM {root} WHERE id={key}) AND {}", same(TypeObservation::NAME)));
+            // Coverage is source-local and may contain multiple provider runs and statuses.
+            seeds.insert(ProviderCoverage::NAME, format!("EXISTS (SELECT 1 FROM {root} leaf JOIN {qtable} q ON q.id=leaf.qualification JOIN {} occurrence ON occurrence.id=leaf.test JOIN {} scope ON scope.artifact_artifact=occurrence.source WHERE leaf.id={key} AND {}.context=q.context AND {}.scope=scope.id)", Occurrence::NAME, CoverageScope::NAME, ProviderCoverage::NAME, ProviderCoverage::NAME));
+        }
+        RelationKernel::Binder => {
+            let source = format!("SELECT m.source FROM {root} v JOIN {} pm ON pm.id=v.module JOIN {} m ON m.id=pm.acquired_module WHERE v.id={key}", ProviderModule::NAME, Module::NAME);
+            let eligible = [SyntaxKind::StmtAssign,SyntaxKind::StmtAnnAssign,SyntaxKind::StmtTypeAlias,SyntaxKind::StmtFunctionDef,SyntaxKind::StmtClassDef].map(|kind| (kind as i16).to_string()).join(",");
+            let candidates = format!("SELECT o.id FROM {} o JOIN {root} v ON v.id={key} WHERE o.source IN ({source}) AND o.start<=v.anchor_start AND o.end>=v.anchor_end AND o.syntax_kind IN ({eligible})", Occurrence::NAME);
+            seeds.insert(DeclarationObservation::NAME, format!("declaration IN ({candidates}) AND qualification IN (SELECT q.id FROM {qtable} q JOIN {root} v ON v.context=q.context WHERE v.id={key})"));
+            // Only the nearest eligible ancestor contributes a Binding premise in the owner
+            // kernel. Rank compact ids/paths in SQL before loading any rich binding rows; an
+            // outer class/function candidate must not pull in its entire unrelated body.
+            let bindings = format!("SELECT event FROM (SELECT b.id AS event,ancestor.id AS ancestor,row_number() OVER (PARTITION BY b.id ORDER BY array_length(ancestor.structural_path) DESC) AS proximity FROM {} b JOIN {} site ON site.id=b.site JOIN {} ancestor ON ancestor.source=site.source AND array_slice(site.structural_path,1,CAST(array_length(ancestor.structural_path) AS BIGINT))=ancestor.structural_path WHERE site.source IN ({source}) AND ancestor.syntax_kind IN ({eligible})) nearest WHERE proximity=1 AND ancestor IN ({candidates})", BindingEvent::NAME, Occurrence::NAME, Occurrence::NAME);
+            let binding_kinds = [BindingEventKind::Assignment,BindingEventKind::AnnotationOnly,BindingEventKind::TypeAlias,BindingEventKind::TypeParam].map(|kind| (kind as i16).to_string()).join(",");
+            let observations = format!("event IN ({bindings}) AND kind IN ({binding_kinds}) AND qualification IN (SELECT q.id FROM {qtable} q JOIN {root} v ON v.context=q.context WHERE v.id={key})");
+            seeds.insert(BindingObservation::NAME, observations.clone());
+            let sites = format!("SELECT site.structural_path FROM {} site JOIN {} event ON event.site=site.id JOIN {} observation ON observation.event=event.id WHERE {observations}", Occurrence::NAME, BindingEvent::NAME, BindingObservation::NAME);
+            let sites = sites.replace("AND qualification IN", "AND observation.qualification IN");
+            let ancestors = format!("SELECT ancestor.id FROM {} ancestor JOIN ({sites}) selected_site ON array_slice(selected_site.structural_path,1,CAST(array_length(ancestor.structural_path) AS BIGINT))=ancestor.structural_path WHERE ancestor.source IN ({source})", Occurrence::NAME);
+            seeds.insert(Occurrence::NAME, format!("id IN ({candidates}) OR id IN ({ancestors})"));
+        }
+        RelationKernel::Mention | RelationKernel::Type | RelationKernel::Place => {}
+    }
+    macro_rules! seed_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(if let Some(predicate) = seeds.get(<$ty>::NAME) { closure.seed(access, session, predicate, &mut data.facts.$field).await?; })* }; }
+    lctx_model::normalized_entity_inputs!(seed_facts);
+    macro_rules! seed_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(if let Some(predicate) = seeds.get(<$ty>::NAME) { closure.seed(access, session, predicate, &mut data.$field).await?; })* }; }
+    lctx_model::normalized_relation_inputs!(seed_inputs);
+    relation_close(access, session, &mut closure, &mut data).await?;
+    if matches!(kernel, RelationKernel::Mention) {
+        let mention = data.mentions.iter().next().ok_or(ModelError::Schema("mention root"))?;
+        let own_input = lctx_model::domain::normalized::relation_normalization::captured_input(&data, mention.qualification)?;
+        let own = key_literal(own_input.bytes());
+        closure.seed(access, session, &format!("corpus={own}"), &mut data.corpus_libraries).await?;
+        let inputs = format!("SELECT {own} AS input UNION SELECT library FROM {} WHERE corpus={own}", input::CorpusLibrary::NAME);
+        let names = format!("SELECT access_path AS name FROM {root} WHERE id={key} AND access_path IS NOT NULL UNION SELECT qualified_name AS name FROM {root} WHERE id={key} AND qualified_name IS NOT NULL");
+        let exposures = format!("SELECT exposure.id FROM {} exposure JOIN {} m ON m.id=exposure.access JOIN {} artifact ON artifact.id=m.source JOIN {} public ON public.id=exposure.observation WHERE artifact.input IN ({inputs}) AND concat(m.qualified_name,'.',public.name) IN ({names})", PublicExposure::NAME, Module::NAME, SourceArtifact::NAME, PublicNameObservation::NAME);
+        closure.seed(access, session, &format!("id IN ({exposures})"), &mut data.entities.exposures).await?;
+        closure.seed(access, session, &format!("exposure IN ({exposures})"), &mut data.entities.exposure_candidates).await?;
+        // Narrow qualified-name leaves by module prefix and final spelling, then close all parent
+        // observations. Ambiguous parents are retained in full and remain unresolved in the model.
+        let module_name = "COALESCE(m.qualified_name, pm.bundled_name, pm.namespace_name, pm.unresolved_name)";
+        let scope_input = "COALESCE(scope.input_input, artifact.input, module_artifact.input)";
+        let observations = format!("SELECT observation.id FROM {} observation JOIN {} s ON s.id=observation.symbol JOIN {} pm ON pm.id=s.module LEFT JOIN {} m ON m.id=pm.acquired_module JOIN {qtable} q ON q.id=observation.qualification JOIN {} scope ON scope.id=q.scope LEFT JOIN {} artifact ON artifact.id=scope.artifact_artifact LEFT JOIN {} scope_module ON scope_module.id=scope.module_module LEFT JOIN {} module_artifact ON module_artifact.id=scope_module.source JOIN {root} mention ON mention.id={key} WHERE {scope_input} IN ({inputs}) AND starts_with(mention.qualified_name,concat({module_name},'.')) AND ends_with(mention.qualified_name,concat('.',s.name))", SymbolObservation::NAME, ProviderSymbol::NAME, ProviderModule::NAME, Module::NAME, CoverageScope::NAME, SourceArtifact::NAME, Module::NAME, SourceArtifact::NAME);
+        closure.seed(access, session, &format!("id IN ({observations})"), &mut data.symbol_observations).await?;
+        let mut ancestors = charged::ChargedSet::default();
+        let mut ancestor_charge = charged::StateCharge::new(budget, "mention-parent-closure");
+        loop {
+            let parents: Vec<_> = data.symbol_observations.iter().filter_map(|row| row.parent).filter(|parent| !ancestors.contains(parent)).take(128).collect();
+            if parents.is_empty() { break; }
+            for parent in &parents { ancestors.insert(&mut ancestor_charge, *parent)?; }
+            closure.seed(access, session, &format!("symbol IN ({})", parents.iter().map(|id| key_literal(id.bytes())).collect::<Vec<_>>().join(",")), &mut data.symbol_observations).await?;
+        }
+        relation_close(access, session, &mut closure, &mut data).await?;
+        let _keys = budget.reserve("mention-selected-key-transfer", data.entities.resolutions.len().saturating_mul(128))?;
+        let resolutions: Vec<_> = data.entities.resolutions.iter().map(|row| key_literal(row.id().bytes())).collect();
+        for chunk in resolutions.chunks(128) { closure.seed(access, session, &format!("resolution IN ({})", chunk.join(",")), &mut data.entities.candidates).await?; }
+        relation_close(access, session, &mut closure, &mut data).await?;
+    }
+    if matches!(kernel, RelationKernel::Reference | RelationKernel::Place) {
+        // Membership alternatives at the exact anchor, never an ancestor/name inference.
+        let _keys = budget.reserve("anchor-selected-key-transfer", data.facts.occurrences.len().saturating_mul(128))?;
+        let occurrences: Vec<_> = data.facts.occurrences.iter().map(|row| key_literal(row.id().bytes())).collect();
+        for chunk in occurrences.chunks(128) {
+            let ids = chunk.join(",");
+            let predicate = format!("occurrence_occurrence IN ({ids}) OR callable_callable IN (SELECT id FROM {} WHERE source_declaration IN ({ids})) OR class_class IN (SELECT id FROM {} WHERE source_declaration IN ({ids})) OR parameter_parameter IN (SELECT id FROM {} WHERE source_declaration IN ({ids}))", CallableEntity::NAME, ClassEntity::NAME, ParameterEntity::NAME);
+            closure.seed(access, session, &predicate, &mut data.entities.refs).await?;
+        }
+        if matches!(kernel, RelationKernel::Place) {
+            // Global/field roots can point at module or class field identities without an occurrence.
+            for row in data.roots.iter() {
+                let entity = match row {
+                    value::PlaceRoot::Global { module, .. } => Some(EntityRef::Module { module:*module }),
+                    value::PlaceRoot::Field { class, name } => Some(EntityRef::Field { field: FieldEntity { class: ClassEntity::Source { declaration:*class }.id(), name:name.as_str().into() }.id() }),
+                    _ => None,
+                };
+                if let Some(entity) = entity { closure.wanted.insert(&mut closure.charge, (EntityRef::NAME, *entity.id().bytes()))?; }
+            }
+        }
+        relation_close(access, session, &mut closure, &mut data).await?;
+    }
+    Ok(data)
 }
 
 pub async fn relations(
@@ -60,39 +373,37 @@ pub async fn relations(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    use lctx_model::domain::normalized::relation_normalization::{self, RelationData};
+    use lctx_model::domain::{lexical::*, ruff::*, syntax::*, symbols::*, documents::*, types::*, value::*, flow::*, normalized::relation_normalization::{self, RelationKernel}};
     let session = access.session(runtime).await?;
-    let mut data = RelationData::new(runtime.budget());
-    let mut registered = charged::ChargedSet::default();
-    let mut registration =
-        charged::StateCharge::new(runtime.budget(), "relation-input-registration");
-    macro_rules! read_facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
-        let _permit = access.read::<$ty>()?;
-        registered.insert(&mut registration, <$ty>::NAME)?;
-        load(&session, &mut data.facts.$field).await?;
-    )* }; }
-    lctx_model::normalized_entity_inputs!(read_facts);
-    macro_rules! read_entities { ($($field:ident: $ty:ty,)*) => { $(
-        let _permit = access.read::<$ty>()?;
-        registered.insert(&mut registration, <$ty>::NAME)?;
-        load(&session, &mut data.entities.$field).await?;
-    )* }; }
-    lctx_model::normalized_entity_outputs!(read_entities);
-    macro_rules! read_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(
-        if access.contains::<$ty>() {
-            let _permit = access.read::<$ty>()?;
-            registered.insert(&mut registration, <$ty>::NAME)?;
-            load(&session, &mut data.$field).await?;
+    macro_rules! declare { ($($field:ident: $ty:ty,)*) => { $(output.declare::<$ty>()?;)* }; }
+    lctx_model::normalized_relation_outputs!(declare);
+    let roots = [
+        (ReferenceObservation::NAME, RelationKernel::Reference),
+        (RuffDefinitionObservation::NAME, RelationKernel::NativeDefinition),
+        (ImportAliasObservation::NAME, RelationKernel::Import),
+        (ClassAncestryObservation::NAME, RelationKernel::Ancestry),
+        (DocumentMentionObservation::NAME, RelationKernel::Mention),
+        (TypeTerm::NAME, RelationKernel::Type),
+        (TypeVariable::NAME, RelationKernel::Binder),
+        (Place::NAME, RelationKernel::Place),
+        (FlowTestLeafObservation::NAME, RelationKernel::TestOperand),
+    ];
+    for (relation, kernel) in roots {
+        if relation == FlowTestLeafObservation::NAME && !access.contains::<FlowTestLeafObservation>() { continue; }
+        let mut stream = crate::sql::query(&session, &format!("SELECT id FROM {relation} ORDER BY id")).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+            let keys = batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema("relation scope keys"))?;
+            for index in 0..keys.len() {
+                let key = key_literal(&keys.value(index).try_into().map_err(ModelError::codec)?);
+                let data = relation_scope(&access, &session, runtime.budget(), relation, &key, kernel).await?;
+                let rows = relation_normalization::normalize_scope(&data, kernel, runtime.budget())?;
+                drop(data);
+                macro_rules! write { ($($field:ident: $ty:ty,)*) => { $(for row in rows.$field.iter() { output.push(row.clone()).await?; })* }; }
+                lctx_model::normalized_relation_outputs!(write);
+            }
         }
-    )* }; }
-    lctx_model::normalized_relation_inputs!(read_inputs);
+    }
     drop(session);
-    let rows = compute(data, runtime.budget(), relation_normalization::normalize).await?;
-    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
-        output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
-    )* }; }
-    lctx_model::normalized_relation_outputs!(write_outputs);
-    drop(rows);
     output.finish(ProviderOutcome::Complete).await
 }
 

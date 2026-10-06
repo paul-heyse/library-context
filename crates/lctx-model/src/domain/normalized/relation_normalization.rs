@@ -80,7 +80,7 @@ fn context(
 ) -> Result<Id<AnalysisContext>, ModelError> {
     Ok(need(&data.facts.qualifications, qualification)?.context)
 }
-fn input(
+pub fn captured_input(
     data: &RelationData,
     qualification: Id<assertion::AssertionQualification>,
 ) -> Result<Id<input::InputRevision>, ModelError> {
@@ -201,6 +201,29 @@ pub fn normalize(
     test_operands(data, &mut output, budget)?;
     Ok(output)
 }
+/// Root observation grains; callers supply all competing candidates and referenced premises.
+#[derive(Clone, Copy)]
+pub enum RelationKernel { Reference, NativeDefinition, Import, Ancestry, Mention, Type, Binder, Place, TestOperand }
+pub fn normalize_scope(data: &RelationData, kernel: RelationKernel, budget: &ResourceBudget) -> Result<RelationOutput, ModelError> {
+    let mut output = RelationOutput::new(budget);
+    let index = Index::new(data, budget)?;
+    match kernel {
+        RelationKernel::Reference => {
+            references(data, &mut output, budget)?;
+            super::native_lexical::characterize(data, &mut output, budget)?;
+        }
+        RelationKernel::NativeDefinition => super::native_lexical::characterize(data, &mut output, budget)?,
+        RelationKernel::Import => imports(data, &index, &mut output, budget)?,
+        RelationKernel::Ancestry => ancestry(data, &index, &mut output, budget)?,
+        RelationKernel::Mention => mentions(data, &index, &mut output, budget)?,
+        RelationKernel::Type => types(data, &index, &mut output)?,
+        RelationKernel::Binder => binders(data, &mut output, budget)?,
+        RelationKernel::Place => places(data, &mut output)?,
+        RelationKernel::TestOperand => test_operands(data, &mut output, budget)?,
+    }
+    Ok(output)
+}
+
 fn references(
     data: &RelationData,
     output: &mut RelationOutput,
@@ -294,7 +317,7 @@ fn imports(
                 &mut charge,
                 (
                     context(data, row.qualification)?,
-                    input(data, row.qualification)?,
+                    captured_input(data, row.qualification)?,
                     alias,
                 ),
                 |rows| rows.push(row),
@@ -305,7 +328,7 @@ fn imports(
         let mut unique: ChargedSet<Id<ProviderModule>> = Default::default();
         let mut held = StateCharge::new(budget, "import-candidates");
         let context = context(data, import.qualification)?;
-        let input = input(data, import.qualification)?;
+        let input = captured_input(data, import.qualification)?;
         let matches = resolutions.get(&(context, input, import.alias));
         let mut unresolved = false;
         for candidate in matches.into_iter().flatten() {
@@ -471,7 +494,7 @@ fn mentions(
         qualified.update(
             &mut charge,
             (
-                input(data, row.qualification)?,
+                captured_input(data, row.qualification)?,
                 format!("{module}.{}", names.join(".")),
             ),
             |rows| rows.push(row),
@@ -481,7 +504,7 @@ fn mentions(
         let mut held = StateCharge::new(budget, "mention-candidates");
         let mut candidates: ChargedMap<Id<PublicExposure>, &PublicExposure> = Default::default();
         let context = context(data, mention.qualification)?;
-        let input = input(data, mention.qualification)?;
+        let input = captured_input(data, mention.qualification)?;
         for spelling in [&mention.access_path, &mention.qualified_name]
             .into_iter()
             .flatten()
