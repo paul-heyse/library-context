@@ -282,7 +282,7 @@ fn validate_request(request: &Request, limits: &ResourceLimits) -> Result<(), Wi
                     "comparison section requires explicit variants and context".into(),
                 ));
             }
-            if r.sections.len() > 9 {
+            if r.sections.len() > 10 {
                 return Err(WireError::Invalid("operation sections".into()));
             }
         }

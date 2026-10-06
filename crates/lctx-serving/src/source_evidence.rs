@@ -42,8 +42,8 @@ pub async fn sections(source:&CanonicalBatches,range:&OriginalRange,request:&Req
     let characterizations=packets.source_characterization(range,usize::MAX).await.map_err(ModelError::from)?;
     let flow_keys=flows.items.into_iter().map(|p|Ok((key(derivation::RowRef::of(p.inventory))?,p))).collect::<Result<Vec<_>,ModelError>>()?;
     let characterization_keys=characterizations.items.into_iter().map(|p|Ok((key(derivation::RowRef::of(p.characterization))?,p))).collect::<Result<Vec<_>,ModelError>>()?;
-    let flow=crate::pagination::page(flow_keys,request,snapshot,channels,"evidence","flow_inventory",None,flows.availability).map_err(crate::records::wire)?;
-    let characterization=crate::pagination::page(characterization_keys,request,snapshot,channels,"evidence","source_characterization",None,characterizations.availability).map_err(crate::records::wire)?;
+    let flow=crate::pagination::page(flow_keys,request,snapshot,channels,request.tool().name(),"flow_inventory",None,flows.availability).map_err(crate::records::wire)?;
+    let characterization=crate::pagination::page(characterization_keys,request,snapshot,channels,request.tool().name(),"source_characterization",None,characterizations.availability).map_err(crate::records::wire)?;
     Ok((flow,characterization))
 }
 

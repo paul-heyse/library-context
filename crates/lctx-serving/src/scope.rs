@@ -14,6 +14,11 @@ pub const OWNED_FIELDS: &[&str] = &[
 
 pub async fn hydrate(reader:&NativeReader, roots:Vec<RecordId>, inputs:&[ValidationInput],
     budget:&ResourceBudget)->Result<CanonicalBatches,ModelError> {
+    hydrate_with(reader,roots,inputs,OWNED_FIELDS,budget).await
+}
+/// Each component chooses its semantic ownership closure; shared identities are never owners.
+pub async fn hydrate_with(reader:&NativeReader, roots:Vec<RecordId>, inputs:&[ValidationInput],
+    owned_fields:&[&str],budget:&ResourceBudget)->Result<CanonicalBatches,ModelError> {
     let types: BTreeSet<_> = inputs.iter().map(|i|i.name().to_owned()).collect();
     let mut seen=BTreeSet::new();
     let mut frontier:Vec<_>=roots.into_iter().filter(|id|seen.insert(id.clone())).collect();
@@ -22,7 +27,7 @@ pub async fn hydrate(reader:&NativeReader, roots:Vec<RecordId>, inputs:&[Validat
         let mut vars=Variables::new();
         vars.insert("frontier",frontier);
         vars.insert("types",types.iter().cloned().collect::<Vec<_>>());
-        vars.insert("fields",OWNED_FIELDS.to_vec());
+        vars.insert("fields",owned_fields.to_vec());
         // No prefix replay: every node enters the frontier exactly once. The four adjacency
         // selections use the physical incoming/outgoing indexes on graph relation endpoints.
         let next:Vec<RecordId>=reader.query("RETURN array::distinct(array::concat(\
