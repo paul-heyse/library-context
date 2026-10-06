@@ -290,7 +290,6 @@ impl PacketBinding {
     pub fn permits<R: Record>(&self) -> bool {
         (self.prepared.contains(&PreparedDependency::CanonicalProof)
             && canonical_declarations()
-                .relations()
                 .iter()
                 .any(|r| r.type_id() == std::any::TypeId::of::<R>()))
             || self
@@ -303,7 +302,6 @@ impl PacketBinding {
     pub fn permits_relation(&self, name: &str) -> bool {
         (self.prepared.contains(&PreparedDependency::CanonicalProof)
             && canonical_declarations()
-                .relations()
                 .iter()
                 .any(|r| r.name() == name))
             || self.mapping.sources.iter().any(|r| r.name() == name)
@@ -317,7 +315,7 @@ impl PacketBinding {
         if self.prepared.contains(&PreparedDependency::CanonicalProof) {
             mapping
                 .sources
-                .extend(canonical_declarations().relations().iter().cloned());
+                .extend(canonical_declarations().iter().cloned());
         }
         for child in self.children {
             mapping.sources.extend(child.binding().lowered().sources);
@@ -328,9 +326,17 @@ impl PacketBinding {
     }
 }
 /// Immutable finite schema metadata is shared process-wide; no per-read model construction.
-fn canonical_declarations() -> &'static domain::ValidatedModel {
-    static MODEL: std::sync::OnceLock<domain::ValidatedModel> = std::sync::OnceLock::new();
-    MODEL.get_or_init(|| domain::model().expect("valid canonical packet source declarations"))
+fn canonical_declarations() -> &'static Vec<Relation> {
+    static GRAPH: std::sync::OnceLock<Vec<Relation>> = std::sync::OnceLock::new();
+    GRAPH.get_or_init(|| {
+        let mut relations = Vec::new();
+        macro_rules! selected {($($variant:ident:$ty:ty,)*)=>{relations.extend(vec![$(Relation::of::<$ty>(),)*]);};}
+        crate::graph_entity_records!(selected);
+        crate::graph_assertion_records!(selected);
+        relations.sort_by_key(Relation::name);
+        relations.dedup_by_key(|relation| relation.name());
+        relations
+    })
 }
 fn dependency_sources(dependencies: &[PreparedDependency]) -> Vec<Relation> {
     let mut inputs = Vec::new();
@@ -374,7 +380,6 @@ fn dependency_sources(dependencies: &[PreparedDependency]) -> Vec<Relation> {
     }
     let model = canonical_declarations();
     model
-        .relations()
         .iter()
         .filter(|r| inputs.iter().any(|i| i.type_id() == r.type_id()))
         .cloned()
