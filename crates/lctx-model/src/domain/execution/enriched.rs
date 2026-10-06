@@ -218,14 +218,24 @@ pub fn with_frame<T>(
     budget: &ResourceBudget,
     visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
 ) -> Result<(T, super::source_call_records::SourceCallRecords), ModelError> {
+    let verified = normalized::binding_normalization::prepare(&data.bindings, &data.output, budget)?;
+    with_frame_prepared(data, invocation, definition, budget, &verified, visit)
+}
+pub fn with_frame_prepared<T>(
+    data: &SourceCallData, invocation: &analysis::source_call::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, budget: &ResourceBudget,
+    verified: &normalized::binding_normalization::VerifiedBindings,
+    visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
+) -> Result<(T, super::source_call_records::SourceCallRecords), ModelError> {
     let mut visit = Some(visit);
     let mut result = None;
-    let records = super::source_call_records::prepare_all_with(
+    let records = super::source_call_records::prepare_with_application(
         data,
         invocation,
         definition,
         stages::Profile::Behavioral,
         budget,
+        Some(verified),
         &mut |headers, calls| {
             let mut frame = EnrichedFrame {
                 data,

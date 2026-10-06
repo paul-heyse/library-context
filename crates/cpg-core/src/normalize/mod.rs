@@ -489,6 +489,12 @@ pub async fn bindings(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
+    bindings_prepared(access, output, runtime, _model).await.map(|_| ())
+}
+pub(crate) async fn bindings_prepared(
+    access: CompletedInputs, output: ProducerOutput, runtime: &Workspace,
+    _model: &Arc<ValidatedModel>,
+) -> Result<normalized::binding_normalization::VerifiedBindings, ModelError> {
     use lctx_model::domain::normalized::binding_normalization::{self, BindingData};
     let session = access.session(runtime).await?;
     let mut data = BindingData::new(runtime.budget());
@@ -500,13 +506,14 @@ pub async fn bindings(
     )* }; }
     lctx_model::normalized_binding_inputs!(read_inputs);
     drop(session);
-    let rows = compute(data, runtime.budget(), binding_normalization::normalize).await?;
+    let (rows, application) = compute(data, runtime.budget(), binding_normalization::normalize_prepared).await?;
     macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
         output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
     )* }; }
     lctx_model::normalized_binding_outputs!(write_outputs);
     drop(rows);
-    output.finish(ProviderOutcome::Complete).await
+    output.finish(ProviderOutcome::Complete).await?;
+    Ok(application)
 }
 
 /// Generation-local computational snapshots are built once, after their canonical inputs finish.

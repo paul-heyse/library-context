@@ -1,6 +1,7 @@
 //! Store-free semantic graph compilation; publication and serving are separate consumers.
 
 pub mod analysis_graphs;
+pub mod analysis_bindings;
 pub mod analysis_prepare;
 pub mod analytic;
 pub mod analytic_embedding;

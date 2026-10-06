@@ -280,6 +280,28 @@ pub(crate) fn prepare_all_with(
         )],
     ) -> Result<(), ModelError>,
 ) -> Result<SourceCallRecords, ModelError> {
+    let verified = if profile == stages::Profile::Behavioral {
+        Some(normalized::binding_normalization::prepare(&data.bindings, &data.output, budget)?)
+    } else { None };
+    prepare_with_application(data, invocation, definition, profile, budget, verified.as_ref(), on_complete)
+}
+/// Consume the binding owner's private application authority; no predecessor preparation runs.
+pub fn prepare_all_prepared(
+    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+) -> Result<SourceCallRecords, ModelError> {
+    prepare_with_application(data, invocation, definition, profile, budget, verified, &mut |_, _| Ok(()))
+}
+pub(crate) fn prepare_with_application(
+    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    on_complete: &mut impl FnMut(
+        &[(CheckedSourceBinding, SourceCallHeader)],
+        &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)],
+    ) -> Result<(), ModelError>,
+) -> Result<SourceCallRecords, ModelError> {
     let invalid = |s: &str| ModelError::Invalid(s.into());
     if *definition != super::configuration::source_calls().1
         || invocation.definition != definition.id()
@@ -315,7 +337,7 @@ pub(crate) fn prepare_all_with(
     }
     let mut headers = Vec::new();
     let mut header_charge = charged::StateCharge::new(budget, "source_call_private_headers");
-    let verified = normalized::binding_normalization::prepare(&data.bindings, &data.output, budget)?;
+    let verified = verified.ok_or_else(|| invalid("requested SourceCall application authority absent"))?;
     let mut charge = charged::StateCharge::new(budget, "source_call_root_inventory");
     let bytes = data
         .evaluation

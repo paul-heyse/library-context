@@ -30,7 +30,11 @@ pub async fn produce(
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     graphs: Option<&PreparedGraphs>,
+    bindings: Option<&crate::analysis_bindings::PreparedBindings>,
 ) -> Result<(), ModelError> {
+    let application = if access.profile() == Profile::Behavioral {
+        Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
+    } else { None };
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut coverage = CoverageAdmission::new(&sources, budget)?;
@@ -96,13 +100,14 @@ pub async fn produce(
             budget,
         )?;
         let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
-            execution::summary_production::produce(
+            execution::summary_production::produce_prepared(
                 &data,
                 &invocation,
                 definition,
                 access.profile(),
                 graph,
                 budget,
+                application,
             )
         })?;
         tokio::task::yield_now().await;

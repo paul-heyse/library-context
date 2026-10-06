@@ -468,6 +468,7 @@ pub async fn prepare_source_calls(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
+    bindings: Option<&crate::analysis_bindings::PreparedBindings>,
 ) -> Result<(), ModelError> {
     use analysis::source_call as owner;
     use execution::source_call_records::*;
@@ -476,6 +477,9 @@ pub async fn prepare_source_calls(
             "source call definition is unbound".into(),
         ));
     }
+    let application = if access.profile() == Profile::Behavioral {
+        Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
+    } else { None };
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
@@ -609,7 +613,7 @@ pub async fn prepare_source_calls(
             &admission,
             budget,
         )?;
-        let records = prepare_all(&data, &invocation, definition, profile, budget)?;
+        let records = prepare_all_prepared(&data, &invocation, definition, profile, budget, application)?;
         for row in records.headers.iter() {
             output.push(row.clone()).await?;
         }
@@ -684,6 +688,7 @@ pub async fn enrich(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
+    bindings: Option<&crate::analysis_bindings::PreparedBindings>,
 ) -> Result<(), ModelError> {
     use analysis::enriched_execution as owner;
     use execution::{
@@ -707,6 +712,9 @@ pub async fn enrich(
             "enriched execution definition is unbound".into(),
         ));
     }
+    let application = if access.profile() == Profile::Behavioral {
+        Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
+    } else { None };
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
@@ -888,7 +896,7 @@ pub async fn enrich(
             &admission,
             budget,
         )?;
-        let records = enrich_all(&data, &invocation, definition, profile, budget)?;
+        let records = enrich_all_prepared(&data, &invocation, definition, profile, budget, application)?;
         macro_rules! write{($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,fresh_arguments:SourceExecutionArgument,captured_entries:lctx_model::domain::execution::capture_bridge::CapturedEntryBinding,captured_values:lctx_model::domain::execution::capture_bridge::CapturedValueSource,definition_evaluations:DefinitionEvaluation,definition_sources:DefinitionSource,definition_members:DefinitionMember,contexts:ContextExecution,context_items:ContextItem,context_sources:ContextSource,context_members:ContextMember,context_bindings:ContextEntryBinding,context_binding_sources:ContextBindingSource,context_binding_members:ContextBindingMember,executions:StatementExecution,outcomes:ExecutionOutcome,sources:ExecutionSource,members:ExecutionMember,entered:EnteredStatement,boundaries:ExecutionBoundary,bodies:BodyExecution,body_sources:BodySource,body_members:BodyMember,releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
         for scope in coverage.scopes() {

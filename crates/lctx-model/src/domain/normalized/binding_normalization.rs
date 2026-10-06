@@ -367,6 +367,24 @@ fn attempt(
 pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingOutput, ModelError> {
     let receivers = receiver_proofs(data, budget)?;
     let events = event_proofs(data, budget)?;
+    normalize_with(data, &receivers, &events, budget)
+}
+/// Produce bindings and their private application authority in the same owner operation.
+/// Only the compact authority survives after the scoped premises and emitted rows are dropped.
+pub fn normalize_prepared(data: &BindingData, budget: &ResourceBudget)
+    -> Result<(BindingOutput, VerifiedBindings), ModelError>
+{
+    let receivers = receiver_proofs(data, budget)?;
+    let events = event_proofs(data, budget)?;
+    let output = normalize_with(data, &receivers, &events, budget)?;
+    verify_enumerations(data, budget)?;
+    let verified = admit(data, &output, &receivers, &events, budget)?;
+    Ok((output, verified))
+}
+fn normalize_with(
+    data: &BindingData, receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents, budget: &ResourceBudget,
+) -> Result<BindingOutput, ModelError> {
     let index = Index::new(data, budget)?;
     let mut output = BindingOutput::new(budget);
     let mut charge = StateCharge::new(budget, "binding-set-index");
@@ -393,8 +411,8 @@ pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingO
                     variants.and_then(|vs| vs.get(v).copied()),
                     syntax.and_then(|ss| ss.get(s).copied()),
                     &mut output,
-                    &receivers,
-                    &events,
+                    receivers,
+                    events,
                     budget,
                 )?;
                 sets.update(&mut charge, key, |ids| ids.push(id))?;

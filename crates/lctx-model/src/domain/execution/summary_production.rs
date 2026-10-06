@@ -1582,6 +1582,24 @@ pub fn produce(
     graph: Option<&MaterializedGraph>,
     budget: &ResourceBudget,
 ) -> Result<SummaryRecords, ModelError> {
+    let verified = if profile == stages::Profile::Behavioral {
+        Some(normalized::binding_normalization::prepare(&data.bindings, &data.binding_output, budget)?)
+    } else { None };
+    produce_with_application(data, invocation, definition, profile, graph, budget, verified.as_ref())
+}
+/// Borrow the binding owner's admitted application index across Summary invocations.
+pub fn produce_prepared(
+    data: &SummaryData, invocation: &analysis::summary::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    graph: Option<&MaterializedGraph>, budget: &ResourceBudget, verified: Option<&VerifiedBindings>,
+) -> Result<SummaryRecords, ModelError> {
+    produce_with_application(data, invocation, definition, profile, graph, budget, verified)
+}
+fn produce_with_application(
+    data: &SummaryData, invocation: &analysis::summary::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    graph: Option<&MaterializedGraph>, budget: &ResourceBudget, verified: Option<&VerifiedBindings>,
+) -> Result<SummaryRecords, ModelError> {
     let limits = summary_proof::limits(need(&data.parameters, definition.parameters)?, definition)?;
     if invocation.definition != definition.id()
         || invocation.subject.is_some()
@@ -1613,10 +1631,9 @@ pub fn produce(
     }
     run.work +=
         super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
-    let verified =
-        normalized::binding_normalization::prepare(&data.bindings, &data.binding_output, budget)?;
+    let verified = verified.ok_or_else(|| invalid("requested Summary application authority absent"))?;
     let schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
-    let (calls, _calls) = call_infos(data, &verified, invocation, &mut out, budget)?;
+    let (calls, _calls) = call_infos(data, verified, invocation, &mut out, budget)?;
     let (seeds, _seeds) = data.seeds(invocation, &mut out, budget)?;
     let (guards, _guards) = data.guards(budget)?;
     let mut vocabulary = data.vocabulary.copy(budget)?;

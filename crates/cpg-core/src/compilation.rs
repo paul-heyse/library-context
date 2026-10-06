@@ -550,6 +550,7 @@ pub async fn compile(
         .collect();
     let mut frozen = Default::default();
     freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
+    let mut binding_application = None;
     for declaration in schedule.stages() {
         let Some(normalization) = Normalization::ALL
             .into_iter()
@@ -560,7 +561,11 @@ pub async fn compile(
         let selected = completed_input_declaration(&schedule, declaration);
         let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
         let output = workspace.producer(declaration, profile, access.clone());
-        normalization.run(access, output, workspace, model).await?;
+        if matches!(normalization, Normalization::Bindings) {
+            binding_application = Some(crate::normalize::bindings_prepared(access, output, workspace, model).await?);
+        } else {
+            normalization.run(access, output, workspace, model).await?;
+        }
         completed.insert(declaration.name);
         freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
     }
@@ -569,6 +574,10 @@ pub async fn compile(
     let normalized_authority = if prepared.is_some() {
         Some(workspace.admit_semantics(profile).await?)
     } else { None };
+    let bindings = match (binding_application, normalized_authority.as_ref()) {
+        (Some(application), Some(authority)) if profile == Profile::Behavioral => Some(crate::analysis_bindings::PreparedBindings::new(application, authority)?),
+        _ => None,
+    };
     let graph_needs = schedule
         .stages()
         .iter()
@@ -686,6 +695,7 @@ pub async fn compile(
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::SourceCalls)?,
+                    bindings.as_ref(),
                 )
                 .await?
             }
@@ -696,6 +706,7 @@ pub async fn compile(
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::EnrichedExecution)?,
+                    bindings.as_ref(),
                 )
                 .await?
             }
@@ -717,6 +728,7 @@ pub async fn compile(
                     model,
                     prepared.definition(AnalysisMethod::Summaries)?,
                     graphs.as_ref(),
+                    bindings.as_ref(),
                 )
                 .await?
             }

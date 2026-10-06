@@ -110,6 +110,24 @@ pub fn enrich_all(
     profile: stages::Profile,
     budget: &ResourceBudget,
 ) -> Result<ExecutionRecords, ModelError> {
+    let verified = if profile == stages::Profile::Behavioral {
+        Some(normalized::binding_normalization::prepare(&data.source.bindings, &data.source.output, budget)?)
+    } else { None };
+    enrich_with_application(data, invocation, definition, profile, budget, verified.as_ref())
+}
+/// Consume one normalized application authority across SourceCall and modeled-call consumers.
+pub fn enrich_all_prepared(
+    data: &EnrichedData, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+) -> Result<ExecutionRecords, ModelError> {
+    enrich_with_application(data, invocation, definition, profile, budget, verified)
+}
+fn enrich_with_application(
+    data: &EnrichedData, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+) -> Result<ExecutionRecords, ModelError> {
     let invalid = |message: &str| ModelError::Invalid(message.into());
     if !super::configuration::enriched_kernel(definition)
         || invocation.definition != definition.id()
@@ -191,7 +209,8 @@ pub fn enrich_all(
     let catalog = models::Catalog::parse(&catalog.source_name, &catalog.source)
         .map_err(ModelError::Invalid)?;
     let (_, expected) =
-        super::enriched::with_frame(&data.source, source, source_definition, budget, |frame| {
+        super::enriched::with_frame_prepared(&data.source, source, source_definition, budget,
+            verified.ok_or_else(|| invalid("requested Enriched application authority absent"))?, |frame| {
             let mut work = 0usize;
             let mut step = || -> Result<(), ModelError> {
                 work = work
@@ -207,11 +226,7 @@ pub fn enrich_all(
                 }
                 Ok(())
             };
-            let verified = normalized::binding_normalization::prepare(
-                &data.application.bindings,
-                &data.source.output,
-                budget,
-            )?;
+            let verified = verified.ok_or_else(|| invalid("requested Enriched application authority absent"))?;
             for attempt in data.source.output.attempts.iter() {
                 step()?;
                 let Some(shape) = verified.shape(attempt.id()) else {
