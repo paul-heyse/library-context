@@ -5,7 +5,7 @@ use crate::domain::{
     attribution::AnalysisContext,
     catalog::CatalogMember,
     resources::{Reservation, ResourceBudget},
-    retrieval::{Family, Fragment, OriginalAnchor, Unit},
+    retrieval::{Family, SearchWindow, OriginalAnchor, Unit},
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -131,7 +131,7 @@ pub enum Target {
 pub struct Occurrence {
     pub target: Target,
     pub unit: Id<Unit>,
-    pub fragment: Id<Fragment>,
+    pub fragment: Id<SearchWindow>,
     pub context: Id<AnalysisContext>,
     pub anchor: Option<Id<OriginalAnchor>>,
     pub family: Family,

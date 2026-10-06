@@ -1,6 +1,6 @@
 //! Deterministic contextual evidence closure, shared by publication and independent controls.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION: i64 = 1;
+const SEMANTIC_RULE_REVISION: i64 = 2;
 use super::*;
 use crate::domain::{
     assertion::Evidence,
@@ -496,6 +496,8 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
         }
     }
     for (artifact, context) in scopes.iter() {
+        let source = need(&data.core.artifacts, *artifact)?;
+        root(&mut out, source.input, *context, RootSubject::Source { artifact: *artifact })?;
         for usage in data.facts.uses.iter().filter(|r| {
             r.artifact == *artifact
                 && data

@@ -933,7 +933,7 @@ pub fn prepared_binding(dependency: PreparedDependency) -> &'static PacketBindin
 
 #[macro_export]
 macro_rules! serving_retrieval_inputs {($m:ident)=>{$m!{
- units:$crate::domain::retrieval::Unit,fragments:$crate::domain::retrieval::Fragment,subjects:$crate::domain::retrieval::Subject,unit_subjects:$crate::domain::retrieval::UnitSubject,anchors:$crate::domain::retrieval::OriginalAnchor,origins:$crate::domain::retrieval::Origin,uses:$crate::domain::retrieval::consumption::RetrievalEmbeddingUse,parents:$crate::domain::input::CorpusLibrary,
+ units:$crate::domain::retrieval::Unit,fragments:$crate::domain::retrieval::SearchWindow,parts:$crate::domain::retrieval::ContentPart,part_maps:$crate::domain::retrieval::PartSourceMap,window_parts:$crate::domain::retrieval::WindowPart,window_maps:$crate::domain::retrieval::WindowSourceMap,window_bindings:$crate::domain::retrieval::WindowBinding,subjects:$crate::domain::retrieval::Subject,unit_subjects:$crate::domain::retrieval::UnitSubject,anchors:$crate::domain::retrieval::OriginalAnchor,origins:$crate::domain::retrieval::Origin,uses:$crate::domain::retrieval::consumption::RetrievalEmbeddingUse,parents:$crate::domain::input::CorpusLibrary,
 }};}
 
 binding!(
