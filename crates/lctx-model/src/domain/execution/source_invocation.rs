@@ -13,7 +13,7 @@ use crate::domain::{
     resources::ResourceBudget,
     *,
 };
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum InvocationOutcome {
     Normal,
     Raised {
@@ -21,7 +21,7 @@ pub enum InvocationOutcome {
         exception: super::ExactRuntimeException,
     },
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct InvocationArgument {
     pub formal: Id<calls::SignatureParameter>,
     pub actual: Id<source::Occurrence>,
@@ -37,7 +37,25 @@ pub struct CheckedSourceInvocation {
     release: ReleaseSafety,
     _charge: charged::StateCharge,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(super) struct ProducedInvocationPayload {
+    event:Id<normalized::events::NormalizedCallEvent>,callee:Id<normalized::entities::EntityRef>,
+    qualification:Id<assertion::AssertionQualification>,outcome:InvocationOutcome,
+    status:EvidenceStatus,arguments:Vec<InvocationArgument>,release:ReleaseSafety,
+}
+impl ProducedInvocationPayload {
+    pub(super) fn hydrate(self,budget:&ResourceBudget)->Result<CheckedSourceInvocation,ModelError> {
+        let mut charge=charged::StateCharge::new(budget,"actual-source-invocation");
+        charge.grow(size_of::<CheckedSourceInvocation>()+self.arguments.capacity()*size_of::<InvocationArgument>())?;
+        Ok(CheckedSourceInvocation {event:self.event,callee:self.callee,qualification:self.qualification,
+            outcome:self.outcome,status:self.status,arguments:self.arguments,release:self.release,_charge:charge})
+    }
+}
 impl CheckedSourceInvocation {
+    pub(super) fn produced(self)->ProducedInvocationPayload {
+        ProducedInvocationPayload {event:self.event,callee:self.callee,qualification:self.qualification,
+            outcome:self.outcome,status:self.status,arguments:self.arguments,release:self.release}
+    }
     pub fn event(&self) -> Id<normalized::events::NormalizedCallEvent> {
         self.event
     }
@@ -275,7 +293,7 @@ impl CheckedSourceInvocation {
         }))
     }
 }
-fn checked_value(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
+pub(super) fn checked_value(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
     values: Option<&super::production::ProducedEvaluations>,
 ) -> Result<std::sync::Arc<super::evaluation::CheckedEvaluation>, ModelError> {
     match values {
@@ -284,7 +302,7 @@ fn checked_value(base: &super::records::BaseCheck, row: &super::records::Express
         None => base.replay(row).map(std::sync::Arc::new),
     }
 }
-fn held_formal(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
+pub(super) fn held_formal(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
     values: Option<&super::production::ProducedEvaluations>,
 ) -> Result<Option<Id<calls::SignatureParameter>>, ModelError> {
     match values {

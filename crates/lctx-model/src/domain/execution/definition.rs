@@ -89,6 +89,25 @@ impl CheckedDefinition {
         invocation: &publication::AnalysisInvocation,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, obligation::ObligationKind>, ModelError> {
+        Self::derive_with_values(data,request,invocation,budget,None)
+    }
+    /// Borrow the actual Base owner; ordered argument evidence is hydrated without evaluator replay.
+    pub fn derive_produced(
+        data: &SourceCallData,
+        request: CompletionRequest,
+        invocation: &publication::AnalysisInvocation,
+        budget: &ResourceBudget,
+        values:&super::production::ProducedEvaluations,
+    ) -> Result<Result<Self, obligation::ObligationKind>, ModelError> {
+        Self::derive_with_values(data,request,invocation,budget,Some(values))
+    }
+    pub(super) fn derive_with_values(
+        data: &SourceCallData,
+        request: CompletionRequest,
+        invocation: &publication::AnalysisInvocation,
+        budget: &ResourceBudget,
+        values:Option<&super::production::ProducedEvaluations>,
+    ) -> Result<Result<Self, obligation::ObligationKind>, ModelError> {
         use obligation::ObligationKind as K;
         if invocation.subject.is_some()
             || (invocation.input, invocation.context) != (request.input, request.context)
@@ -279,7 +298,7 @@ impl CheckedDefinition {
                     if rows.next().is_some() {
                         return Err(boundary(K::AmbiguousBinding));
                     }
-                    let checked = base.replay(row)?;
+                    let checked = super::source_invocation::checked_value(base,row,values)?;
                     if checked.release() != ReleaseSafety::Closed || checked.exception().is_some() {
                         return Err(boundary(K::DefaultUnavailable));
                     }

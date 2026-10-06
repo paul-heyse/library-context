@@ -97,6 +97,29 @@ impl CheckedModeledEvaluation {
         definition: &analysis::AnalysisDefinition,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_values(data,application,earlier,invocation,definition,budget,None)
+    }
+    /// Borrow the actual Base owner; ordered argument evidence is hydrated without evaluator replay.
+    pub fn derive_produced(
+        data: &super::evaluation::EvaluationData,
+        application: &CheckedModelApplication<'_>,
+        earlier: &CompletedEvaluations,
+        invocation: &publication::AnalysisInvocation,
+        definition: &analysis::AnalysisDefinition,
+        budget: &ResourceBudget,
+        values:&super::production::ProducedEvaluations,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_values(data,application,earlier,invocation,definition,budget,Some(values))
+    }
+    pub(super) fn derive_with_values(
+        data: &super::evaluation::EvaluationData,
+        application: &CheckedModelApplication<'_>,
+        earlier: &CompletedEvaluations,
+        invocation: &publication::AnalysisInvocation,
+        definition: &analysis::AnalysisDefinition,
+        budget: &ResourceBudget,
+        values:Option<&super::production::ProducedEvaluations>,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
         if *definition != super::configuration::enriched_execution(application.catalog()).1
             || invocation.definition != definition.id()
             || invocation.subject.is_some()
@@ -185,7 +208,7 @@ impl CheckedModeledEvaluation {
             if rows.next().is_some() {
                 return Ok(Err(ObligationKind::AmbiguousBinding));
             }
-            let checked = earlier.earlier().replay(row)?;
+            let checked = super::source_invocation::checked_value(earlier.earlier(),row,values)?;
             if checked.release() != ReleaseSafety::Closed {
                 // Builtin lookup separately proves that the exact returned object remains externally held;
                 // a parameter-read witness cannot substitute for this disposal premise.
@@ -195,7 +218,7 @@ impl CheckedModeledEvaluation {
                     budget,
                 )?
                 .is_ok()
-                    && !earlier.earlier().caller_holds_argument(row)?
+                    && super::source_invocation::held_formal(earlier.earlier(),row,values)?.is_none()
                 {
                     return Ok(Err(ObligationKind::FrameExitCleanup));
                 }

@@ -63,7 +63,30 @@ pub(super) struct CheckedCaptureOrigin {
     pub qualification: Id<AssertionQualification>,
     _charge: charged::StateCharge,
 }
+// Private temporary transport for an actual issuer value. Only the SourceCall owner can
+// authenticate these bytes and return a checked value; this is not a graph record codec.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(super) struct ProducedCaptureOrigin {
+    read: Id<Occurrence>, caller: Id<EntityRef>, callee: Id<EntityRef>,
+    source: CapturedValueSource, origin: Id<FlowDefinitionObservation>,
+    capture: Id<CaptureObservation>, timing: Id<FlowCaptureTimingObservation>,
+    qualification: Id<AssertionQualification>,
+}
+impl ProducedCaptureOrigin {
+    pub(super) fn hydrate(self, budget: &ResourceBudget) -> Result<CheckedCaptureOrigin, ModelError> {
+        let mut charge=charged::StateCharge::new(budget,"actual-capture-origin");
+        charge.grow(size_of::<CheckedCaptureOrigin>())?;
+        Ok(CheckedCaptureOrigin {read:self.read,caller:self.caller,callee:self.callee,
+            source:self.source,origin:self.origin,capture:self.capture,timing:self.timing,
+            qualification:self.qualification,_charge:charge})
+    }
+}
 impl CheckedCaptureOrigin {
+    pub(super) fn produced(self) -> ProducedCaptureOrigin {
+        ProducedCaptureOrigin {read:self.read,caller:self.caller,callee:self.callee,
+            source:self.source,origin:self.origin,capture:self.capture,timing:self.timing,
+            qualification:self.qualification}
+    }
     #[allow(
         clippy::too_many_arguments,
         reason = "Independent source, native origin and scope inputs stay explicit."

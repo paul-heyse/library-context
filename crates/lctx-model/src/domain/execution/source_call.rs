@@ -19,7 +19,7 @@ use crate::domain::{
     syntax::DeclarationKind,
     *,
 };
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SourceCallRequest {
     pub input: Id<input::InputRevision>,
     pub context: Id<attribution::AnalysisContext>,
@@ -39,7 +39,34 @@ pub struct CheckedSourceBinding {
     captures: Vec<super::capture_bridge::CheckedCaptureOrigin>,
     _charge: charged::StateCharge,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(super) struct ProducedBindingPayload {
+    request: SourceCallRequest, attempt: Id<normalized::bindings::CallBindingAttempt>,
+    caller: Id<EntityRef>, callee: Id<EntityRef>, declaration: Id<Occurrence>,
+    qualification: Id<AssertionQualification>, status: EvidenceStatus,
+    premises: Vec<NativeAssertionPremise>,
+    arguments: Vec<(Id<calls::SignatureParameter>,Id<Occurrence>)>,
+    captures: Vec<super::capture_bridge::ProducedCaptureOrigin>,
+}
+impl ProducedBindingPayload {
+    pub(super) fn hydrate(self,budget:&ResourceBudget)->Result<CheckedSourceBinding,ModelError> {
+        let mut charge=charged::StateCharge::new(budget,"actual-source-binding");
+        charge.grow(size_of::<CheckedSourceBinding>()+self.arguments.capacity()*size_of::<(Id<calls::SignatureParameter>,Id<Occurrence>)>()+self.captures.capacity()*size_of::<super::capture_bridge::CheckedCaptureOrigin>())?;
+        let mut premises=Rows::new(budget);
+        for row in self.premises {premises.insert(row)?;}
+        let captures=self.captures.into_iter().map(|capture|capture.hydrate(budget)).collect::<Result<Vec<_>,_>>()?;
+        Ok(CheckedSourceBinding {request:self.request,attempt:self.attempt,caller:self.caller,
+            callee:self.callee,declaration:self.declaration,qualification:self.qualification,
+            status:self.status,premises,arguments:self.arguments,captures,_charge:charge})
+    }
+}
 impl CheckedSourceBinding {
+    pub(super) fn produced(self) -> ProducedBindingPayload {
+        ProducedBindingPayload {request:self.request,attempt:self.attempt,caller:self.caller,
+            callee:self.callee,declaration:self.declaration,qualification:self.qualification,
+            status:self.status,premises:self.premises.iter().cloned().collect(),
+            arguments:self.arguments,captures:self.captures.into_iter().map(|capture|capture.produced()).collect()}
+    }
     pub(super) fn captures(&self) -> &[super::capture_bridge::CheckedCaptureOrigin] {
         &self.captures
     }

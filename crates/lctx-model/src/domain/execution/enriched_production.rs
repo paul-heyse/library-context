@@ -103,6 +103,22 @@ macro_rules! records{($($field:ident:$ty:ty,)*)=>{
  impl ExecutionRecords{fn new(invocation:Id<publication::AnalysisInvocation>,budget:&ResourceBudget)->Self{Self{run:ExecutionRun{invocation,requested:false,executed:0,refused:0,bodied:0,body_refused:0},outcome:publication::AnalysisOutcome{invocation,status:analysis::AnalysisStatus::Completed,reason:None},$($field:Rows::new(budget),)*}}}
 };}
 outputs!(records);
+/// One actual Enriched invocation shares its finite-work allowance across owner grains.
+/// The frame and budget binding prevents a caller from lending another attempt's meter.
+pub struct EnrichedWork {invocation:publication::AnalysisInvocation,work:usize,charge:charged::StateCharge}
+impl EnrichedWork {
+    pub fn new(invocation:&publication::AnalysisInvocation,budget:&ResourceBudget)->Result<Self,ModelError> {
+        let mut charge=charged::StateCharge::new(budget,"enriched-work");charge.grow(size_of::<Self>())?;
+        Ok(Self {invocation:invocation.clone(),work:0,charge})
+    }
+    fn require(&self,invocation:&publication::AnalysisInvocation,budget:&ResourceBudget)->Result<(),ModelError> {
+        if self.invocation!=*invocation || !self.charge.budget().expect("bound Enriched work").shares_pool(budget) {return Err(ModelError::Conflict("enriched work frame/budget"));}Ok(())
+    }
+    fn step(&mut self)->Result<(),ModelError> {
+        self.work=self.work.checked_add(1).ok_or(ModelError::Conflict("enriched work overflow"))?;
+        if self.work>super::enriched::ENRICHED_WORK_LIMIT {return Err(ModelError::Resource {owner:"enriched_finite_work",requested:1,used:self.work-1,limit:super::enriched::ENRICHED_WORK_LIMIT});}Ok(())
+    }
+}
 pub fn enrich_all(
     data: &EnrichedData,
     invocation: &publication::AnalysisInvocation,
@@ -113,7 +129,7 @@ pub fn enrich_all(
     let verified = if profile == stages::Profile::Behavioral {
         Some(normalized::binding_normalization::prepare(&data.source.bindings, &data.source.output, budget)?)
     } else { None };
-    enrich_with_application(data, invocation, definition, profile, budget, verified.as_ref(), None, None)
+    enrich_with_application(data, invocation, definition, profile, budget, verified.as_ref(), None, None,None,None,None)
 }
 /// Consume one normalized application authority across SourceCall and modeled-call consumers.
 pub fn enrich_all_prepared(
@@ -121,7 +137,7 @@ pub fn enrich_all_prepared(
     definition: &analysis::AnalysisDefinition, profile: stages::Profile,
     budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
 ) -> Result<ExecutionRecords, ModelError> {
-    enrich_with_application(data, invocation, definition, profile, budget, verified, None, None)
+    enrich_with_application(data, invocation, definition, profile, budget, verified, None, None,None,None,None)
 }
 /// Actual production consumes predecessor values retained by their own owners.
 pub fn enrich_all_produced(
@@ -134,7 +150,47 @@ pub fn enrich_all_produced(
     if profile == stages::Profile::Behavioral && (evaluations.is_none() || source_calls.is_none()) {
         return Err(ModelError::Conflict("requested Enriched predecessor owner absent"));
     }
-    enrich_with_application(data, invocation, definition, profile, budget, verified, evaluations, source_calls)
+    enrich_with_application(data, invocation, definition, profile, budget, verified, evaluations, source_calls,None,None,None)
+}
+/// Publish one actual owner against its complete scoped call/context/capture dependencies.
+/// Intermediate operand results retain their native owner; final statement/body roots select
+/// this owner explicitly so referenced declarations cannot become new publication roots.
+pub fn enrich_owner_produced(data:&EnrichedData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,verified:Option<&normalized::binding_normalization::VerifiedBindings>,evaluations:Option<&super::production::ProducedEvaluations>,source_calls:Option<&source_call_records::HydratedSourceCalls>,owner:Id<normalized::entities::EntityRef>,work:&mut EnrichedWork)->Result<ExecutionRecords,ModelError> {
+    work.require(invocation,budget)?;
+    if profile==stages::Profile::Behavioral && (evaluations.is_none() || source_calls.is_none()) {return Err(ModelError::Conflict("requested Enriched selected predecessor absent"));}
+    if profile==stages::Profile::Behavioral && data.source.evaluation.refs.get(owner).is_none() {return Err(ModelError::Conflict("selected Enriched owner absent"));}
+    enrich_with_application(data,invocation,definition,profile,budget,verified,evaluations,None,source_calls,Some(owner),Some(work))
+}
+/// The ordinary final statement kernel refuses both absent and ambiguous owners with the
+/// same explicit MissingEvidence boundary. Preserve that actual root even with no owner grain.
+pub fn enrich_unowned_statement(data:&EnrichedData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,statement:Id<Occurrence>,work:&mut EnrichedWork)->Result<ExecutionRecords,ModelError> {
+    work.require(invocation,budget)?;enriched_configuration(data,invocation,definition)?;
+    let mut output=ExecutionRecords::new(invocation.id(),budget);
+    if profile!=stages::Profile::Behavioral {output.outcome.status=analysis::AnalysisStatus::NotRequested;output.outcome.reason=Some(obligation::ObligationKind::NotRequested);return Ok(output);}
+    let mut parents=data.source_invocations.iter().filter(|row|(row.input,row.context)==(invocation.input,invocation.context));
+    let parent=parents.next().ok_or(ModelError::Conflict("unowned Enriched SourceCall frame absent"))?;
+    if parents.next().is_some() || data.source.definitions.get(parent.definition).is_none() {return Err(ModelError::Conflict("unowned Enriched SourceCall frame/definition"));}
+    let facts=&data.source.evaluation;
+    let row=facts.occurrences.get(statement).ok_or(ModelError::Conflict("selected unowned Enriched statement absent"))?;
+    let artifact=facts.artifacts.get(row.source).ok_or(ModelError::Conflict("selected unowned Enriched artifact absent"))?;
+    if !super::completion_production::is_statement(row.syntax_kind) || artifact.input!=invocation.input || admission::ArtifactClass::of(&artifact.path)!=Some(admission::ArtifactClass::PythonSource)
+        || facts.owners.iter().filter(|owner|owner.occurrence==statement).count()==1 {
+        return Err(ModelError::Conflict("selected unowned Enriched root is inapplicable"));
+    }
+    let size=facts.artifacts.iter().try_fold(0usize,|n,row|n.checked_add(size_of::<SourceArtifact>()+row.heap_bytes()+128))
+        .and_then(|n|n.checked_add(facts.uses.len().checked_mul(size_of::<ArtifactUse>())?)).and_then(|n|n.checked_mul(2)).ok_or(ModelError::Conflict("selected Enriched root allowance"))?;
+    let _roots=budget.reserve("enriched-unowned-roots",size)?;
+    if !admission::analysis_roots(&facts.artifacts.iter().cloned().collect::<Vec<_>>(),&facts.uses.iter().cloned().collect::<Vec<_>>())?.contains(&row.source) {return Err(ModelError::Conflict("selected unowned Enriched source is not an analysis root"));}
+    work.step()?;output.run.requested=true;output.run.refused=1;
+    output.boundaries.insert(ExecutionBoundary {invocation:invocation.id(),statement,owner:None,reason:obligation::ObligationKind::MissingEvidence})?;
+    output.outcome.status=analysis::AnalysisStatus::Partial;output.outcome.reason=Some(obligation::ObligationKind::UnsupportedControlFlow);Ok(output)
+}
+fn enriched_configuration<'a>(data:&'a EnrichedData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition)->Result<&'a models::ModelCatalog,ModelError> {
+    let invalid=|message:&str|ModelError::Invalid(message.into());
+    if !super::configuration::enriched_kernel(definition) || invocation.definition!=definition.id() || invocation.subject.is_some() {return Err(invalid("enriched execution requires its whole-frame definition"));}
+    let parameters=data.parameters.get(definition.parameters).ok_or_else(||invalid("enriched parameters absent"))?;
+    let catalog=parameters.model_catalog.and_then(|id|data.catalogs.get(id)).ok_or_else(||invalid("enriched selected catalog absent"))?;
+    if super::configuration::enriched_execution(catalog.id())!=(parameters.clone(),definition.clone()) {return Err(invalid("enriched selected configuration differs from canonical factory"));}Ok(catalog)
 }
 fn enrich_with_application(
     data: &EnrichedData, invocation: &publication::AnalysisInvocation,
@@ -142,31 +198,12 @@ fn enrich_with_application(
     budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
     evaluations: Option<&super::production::ProducedEvaluations>,
     source_calls: Option<&source_call_records::ProducedSourceCalls>,
+    hydrated:Option<&source_call_records::HydratedSourceCalls>,
+    selected_owner:Option<Id<normalized::entities::EntityRef>>,
+    shared_work:Option<&mut EnrichedWork>,
 ) -> Result<ExecutionRecords, ModelError> {
     let invalid = |message: &str| ModelError::Invalid(message.into());
-    if !super::configuration::enriched_kernel(definition)
-        || invocation.definition != definition.id()
-        || invocation.subject.is_some()
-    {
-        return Err(invalid(
-            "enriched execution requires its whole-frame definition",
-        ));
-    }
-    let parameters = data
-        .parameters
-        .get(definition.parameters)
-        .ok_or_else(|| invalid("enriched parameters absent"))?;
-    let catalog = parameters
-        .model_catalog
-        .and_then(|id| data.catalogs.get(id))
-        .ok_or_else(|| invalid("enriched selected catalog absent"))?;
-    if super::configuration::enriched_execution(catalog.id())
-        != (parameters.clone(), definition.clone())
-    {
-        return Err(invalid(
-            "enriched selected configuration differs from canonical factory",
-        ));
-    }
+    let catalog=enriched_configuration(data,invocation,definition)?;
     let mut output = ExecutionRecords::new(invocation.id(), budget);
     if profile != stages::Profile::Behavioral {
         output.outcome.status = analysis::AnalysisStatus::NotRequested;
@@ -223,21 +260,12 @@ fn enrich_with_application(
     )?;
     let catalog = models::Catalog::parse(&catalog.source_name, &catalog.source)
         .map_err(ModelError::Invalid)?;
+    let mut local_work=if shared_work.is_none() {Some(EnrichedWork::new(invocation,budget)?)}else{None};
+    let work=shared_work.unwrap_or_else(||local_work.as_mut().expect("ordinary frame work"));
+    work.require(invocation,budget)?;
     let visit = |frame: &mut super::enriched::EnrichedFrame<'_>| {
-            let mut work = 0usize;
             let mut step = || -> Result<(), ModelError> {
-                work = work
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("enriched work overflow"))?;
-                if work > super::enriched::ENRICHED_WORK_LIMIT {
-                    return Err(ModelError::Resource {
-                        owner: "enriched_finite_work",
-                        requested: 1,
-                        used: work - 1,
-                        limit: super::enriched::ENRICHED_WORK_LIMIT,
-                    });
-                }
-                Ok(())
+                work.step()
             };
             let verified = verified.ok_or_else(|| invalid("requested Enriched application authority absent"))?;
             for attempt in data.source.output.attempts.iter() {
@@ -274,13 +302,14 @@ fn enrich_with_application(
                 if frame.has_call(shape.event()) {
                     continue;
                 }
-                let checked = CheckedModeledEvaluation::derive(
+                let checked = CheckedModeledEvaluation::derive_with_values(
                     facts,
                     &application,
                     &data.source.completed,
                     invocation,
                     definition,
                     budget,
+                    evaluations,
                 )?;
                 let Ok(checked) = checked else { continue };
                 output.modeled_calls.insert(checked.record().clone())?;
@@ -308,7 +337,7 @@ fn enrich_with_application(
                         statement: occurrence.id(),
                     };
                     if let Ok(proof) =
-                        CheckedDefinition::derive(&data.source, request, invocation, budget)?
+                        CheckedDefinition::derive_with_values(&data.source, request, invocation, budget,evaluations)?
                     {
                         output
                             .definition_evaluations
@@ -338,13 +367,14 @@ fn enrich_with_application(
                         owner: owner.entity,
                         expression: occurrence.id(),
                     };
-                    if let Ok(proof) = CheckedContextBinding::derive(
+                    if let Ok(proof) = CheckedContextBinding::derive_with_values(
                         &catalog,
                         &data.application,
                         &data.source,
                         invocation,
                         request,
                         budget,
+                        evaluations,
                     )? {
                         output.context_bindings.insert(proof.record().clone())?;
                         for row in proof.sources().iter() {
@@ -427,7 +457,7 @@ fn enrich_with_application(
                             let row = emit_statement(frame, proof, invocation, definition, budget)?;
                             body.push((proof, row.execution.id()));
                         }
-                        if let Ok(proof) = CheckedContextExecution::derive(
+                        if let Ok(proof) = CheckedContextExecution::derive_with_values(
                             &catalog,
                             &data.application,
                             &data.source,
@@ -435,6 +465,7 @@ fn enrich_with_application(
                             request,
                             &body,
                             budget,
+                            evaluations,
                         )? {
                             for body in &proofs {
                                 insert_statement(
@@ -598,6 +629,7 @@ fn enrich_with_application(
             let mut charge = charged::StateCharge::new(budget, "enriched_retained_completions");
             for row in facts.occurrences.iter().filter(|row| {
                 super::completion_production::is_statement(row.syntax_kind) && selected(row.source)
+                    && selected_owner.is_none_or(|owner|facts.owners.iter().any(|membership|membership.occurrence==row.id() && membership.entity==owner))
             }) {
                 step()?;
                 let mut owners = facts
@@ -673,6 +705,7 @@ fn enrich_with_application(
                     callable: callable.id(),
                 }
                 .id();
+                if selected_owner.is_some_and(|selected|selected!=owner) {continue;}
                 match super::body::complete_body(
                     facts,
                     super::body::SourceBodyRequest {
@@ -709,7 +742,14 @@ fn enrich_with_application(
             }
             Ok(())
         };
-    if let (Some(evaluations), Some(source_calls)) = (evaluations, source_calls) {
+    if let (Some(evaluations),Some(hydrated))=(evaluations,hydrated) {
+        hydrated.require(source,budget)?;
+        for (_,row) in &hydrated.headers {if data.source_headers.get(row.id())!=Some(row) {return Err(invalid("actual Enriched source header changed"));}}
+        for (_,row) in &hydrated.calls {if data.source_calls.get(row.id())!=Some(row) {return Err(invalid("actual Enriched source invocation changed"));}}
+        for row in data.source_headers.iter().filter(|row|row.invocation==source.id()) {if !hydrated.headers.iter().any(|(_,actual)|actual==row) {return Err(invalid("actual Enriched source header scope omitted"));}}
+        for row in data.source_calls.iter().filter(|row|row.invocation==source.id()) {if !hydrated.calls.iter().any(|(_,actual)|actual==row) {return Err(invalid("actual Enriched source invocation scope omitted"));}}
+        super::enriched::with_frame_hydrated(&data.source,source,budget,hydrated,evaluations,visit)?;
+    } else if let (Some(evaluations), Some(source_calls)) = (evaluations, source_calls) {
         super::enriched::with_frame_produced(&data.source, source, budget, source_calls, evaluations, visit)?;
     } else {
         let (_, expected) = super::enriched::with_frame_prepared(&data.source, source, source_definition, budget,
@@ -1006,4 +1046,48 @@ pub(crate) fn statement_invariants_refs() -> Vec<&'static str> {
 }
 pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
     vec!["enriched_execution_profile"]
+}
+
+#[cfg(test)]
+mod selected_enriched_controls {
+    use super::*;
+    fn id<R>(n:u8)->Id<R> {serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+    #[test]
+    fn unowned_statement_preserves_boundary_without_replaying_predecessor_and_shares_work() {
+        let budget=ResourceBudget::fixed(8<<20).unwrap();
+        let catalog=models::Catalog::parse("empty.toml","version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
+        let (parameters,definition)=super::super::configuration::enriched_execution(catalog.declaration().id());
+        let (frame,_)=publication::AnalysisInvocation::new(id(1),id(2),definition.id(),None,[]);
+        let source_definition=super::super::configuration::source_calls().1;
+        let (parent,_)=analysis::source_call::AnalysisInvocation::new(frame.input,frame.context,source_definition.id(),None,[]);
+        let mut data=EnrichedData::new(&budget);data.parameters.insert(parameters).unwrap();data.catalogs.insert(catalog.declaration().clone()).unwrap();
+        data.source_invocations.insert(parent).unwrap();data.source.definitions.insert(source_definition).unwrap();
+        let artifact=SourceArtifact::from_bytes(frame.input,"unit.py".into(),b"pass").unwrap();
+        let statement=Occurrence {source:artifact.id(),start:0,end:4,syntax_kind:source::SyntaxKind::StmtPass,role:source::OccurrenceRole::Syntax,structural_path:vec![0]};
+        data.source.evaluation.uses.insert(ArtifactUse {artifact:artifact.id(),input:frame.input,role:input::SourceRole::Release}).unwrap();
+        data.source.evaluation.artifacts.insert(artifact).unwrap();data.source.evaluation.occurrences.insert(statement.clone()).unwrap();
+        // No Base or SourceCall values are available. An owner-absence boundary needs neither.
+        let mut work=EnrichedWork::new(&frame,&budget).unwrap();work.work=super::super::enriched::ENRICHED_WORK_LIMIT-1;
+        let output=enrich_unowned_statement(&data,&frame,&definition,stages::Profile::Behavioral,&budget,statement.id(),&mut work).unwrap();
+        assert_eq!(output.boundaries.iter().next().unwrap(),&ExecutionBoundary {invocation:frame.id(),statement:statement.id(),owner:None,reason:obligation::ObligationKind::MissingEvidence});
+        assert_eq!(output.outcome.status,analysis::AnalysisStatus::Partial);assert_eq!(output.run.refused,1);
+        assert!(matches!(enrich_unowned_statement(&data,&frame,&definition,stages::Profile::Behavioral,&budget,statement.id(),&mut work),Err(ModelError::Resource {owner:"enriched_finite_work",..})));
+        let foreign=ResourceBudget::fixed(8<<20).unwrap();assert!(work.require(&frame,&foreign).is_err());
+        let mut changed=frame.clone();changed.context=id(9);assert!(work.require(&changed,&budget).is_err());
+        data.source.evaluation.owners.insert(normalized::entities::OccurrenceOwnership {occurrence:statement.id(),owner:statement.id(),entity:id(10)}).unwrap();
+        let mut fresh=EnrichedWork::new(&frame,&budget).unwrap();
+        assert!(enrich_unowned_statement(&data,&frame,&definition,stages::Profile::Behavioral,&budget,statement.id(),&mut fresh).is_err());
+    }
+    #[test]
+    fn catalog_owner_scope_does_not_request_missing_value_or_owner_premises() {
+        let budget=ResourceBudget::fixed(1<<20).unwrap();
+        let catalog=models::Catalog::parse("empty.toml","version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
+        let (parameters,definition)=super::super::configuration::enriched_execution(catalog.declaration().id());
+        let (frame,_)=publication::AnalysisInvocation::new(id(1),id(2),definition.id(),None,[]);
+        let mut data=EnrichedData::new(&budget);data.parameters.insert(parameters).unwrap();data.catalogs.insert(catalog.declaration().clone()).unwrap();
+        let mut work=EnrichedWork::new(&frame,&budget).unwrap();
+        let output=enrich_owner_produced(&data,&frame,&definition,stages::Profile::Catalog,&budget,None,None,None,id(3),&mut work).unwrap();
+        assert_eq!(output.outcome.status,analysis::AnalysisStatus::NotRequested);assert!(output.executions.is_empty());
+        assert!(enrich_owner_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,None,None,None,id(3),&mut work).is_err());
+    }
 }

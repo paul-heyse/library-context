@@ -257,6 +257,17 @@ pub fn with_frame_produced<T>(
 ) -> Result<T, ModelError> {
     source.visit_frame(invocation, |headers, calls| build_frame(data, invocation, budget, headers, calls, Some(evaluations), visit))
 }
+/// Build one selected dependency region from authenticated actual SourceCall payloads.
+/// No global owner payload is resident and no predecessor producer is replayed.
+pub fn with_frame_hydrated<T>(
+    data:&SourceCallData,invocation:&analysis::source_call::AnalysisInvocation,
+    budget:&ResourceBudget,source:&super::source_call_records::HydratedSourceCalls,
+    evaluations:&super::production::ProducedEvaluations,
+    visit:impl FnOnce(&mut EnrichedFrame<'_>)->Result<T,ModelError>,
+)->Result<T,ModelError> {
+    source.require(invocation,budget)?;
+    build_frame(data,invocation,budget,&source.headers,&source.calls,Some(evaluations),visit)
+}
 fn build_frame<T>(
     data: &SourceCallData, invocation: &analysis::source_call::AnalysisInvocation,
     budget: &ResourceBudget,

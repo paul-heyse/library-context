@@ -146,6 +146,37 @@ impl CheckedContextExecution {
         )],
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_values(catalog,application,data,invocation,request,body,budget,None)
+    }
+    /// Borrow the actual Base owner; ordered argument evidence is hydrated without evaluator replay.
+    pub fn derive_produced(
+        catalog: &models::Catalog,
+        application: &ModelApplicationData,
+        data: &SourceCallData,
+        invocation: &publication::AnalysisInvocation,
+        request: CompletionRequest,
+        body: &[(
+            &CheckedCompletion,
+            Id<super::enriched_records::StatementExecution>,
+        )],
+        budget: &ResourceBudget,
+        values:&super::production::ProducedEvaluations,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_values(catalog,application,data,invocation,request,body,budget,Some(values))
+    }
+    pub(super) fn derive_with_values(
+        catalog: &models::Catalog,
+        application: &ModelApplicationData,
+        data: &SourceCallData,
+        invocation: &publication::AnalysisInvocation,
+        request: CompletionRequest,
+        body: &[(
+            &CheckedCompletion,
+            Id<super::enriched_records::StatementExecution>,
+        )],
+        budget: &ResourceBudget,
+        values:Option<&super::production::ProducedEvaluations>,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
         use ObligationKind as K;
         let facts = &data.evaluation;
         if invocation.subject.is_some()
@@ -352,12 +383,12 @@ impl CheckedContextExecution {
                         if evaluations.next().is_some() {
                             return Err(boundary(K::AmbiguousBinding));
                         }
-                        let checked = base.replay(row)?;
+                        let checked = super::source_invocation::checked_value(base,row,values)?;
                         if checked.exception().is_some() {
                             return Err(boundary(K::UnsupportedControlFlow));
                         }
                         if checked.release() != ReleaseSafety::Closed
-                            && !base.caller_holds_argument(row)?
+                            && super::source_invocation::held_formal(base,row,values)?.is_none()
                             && !super::builtin_read::CheckedBuiltinRead::derive(
                                 facts,
                                 checked.request(),
