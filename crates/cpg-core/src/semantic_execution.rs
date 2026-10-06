@@ -35,18 +35,36 @@ async fn load<R: Record>(
     }
     Ok(())
 }
+/// Compiler lifetime bound around an opaque value minted by the actual model producer.
+pub struct Produced<T> {
+    premises: CompletedInputs,
+    outputs: CompletedInputs,
+    value: T,
+}
+impl<T> Produced<T> {
+    fn borrow(&self, access: &CompletedInputs, runtime: &Workspace) -> Result<&T, ModelError> {
+        self.premises.require_subset(runtime, access)?;
+        self.outputs.require_subset(runtime, access)?;
+        Ok(&self.value)
+    }
+}
+fn produced_premises(access: &CompletedInputs, inputs: Vec<ValidationInput>) -> Result<CompletedInputs, ModelError> {
+    access.select(&inputs.into_iter().filter(|input| access.table_for(input).is_ok()).collect::<Vec<_>>())
+}
 pub async fn evaluate_base(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-) -> Result<(), ModelError> {
+) -> Result<Option<Produced<production::ProducedEvaluations>>, ModelError> {
     if *definition != execution::configuration::base_evaluation().1 {
         return Err(ModelError::Invalid(
             "base execution definition is not bound".into(),
         ));
     }
+    let mut produced: Option<production::ProducedEvaluations> = None;
+    let premises = produced_premises(&access, execution::records::base_invariants().remove(0).inputs)?;
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
@@ -170,7 +188,7 @@ pub async fn evaluate_base(
             &admission,
             budget,
         )?;
-        let records = production::evaluate_all(
+        let (records, owner) = production::evaluate_all_produced(
             &data,
             &entry,
             &entries,
@@ -180,6 +198,7 @@ pub async fn evaluate_base(
             profile,
             budget,
         )?;
+        match produced.as_mut() { Some(value) => value.append(owner)?, None => produced = Some(owner) };
         macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(evaluations:ExpressionEvaluation,sources:EvaluationSource,members:EvaluationMember,operands:EvaluationOperand,boundaries:EvaluationBoundary,);
         for row in records.reads.fields.locations.iter() {
@@ -254,7 +273,10 @@ pub async fn evaluate_base(
     drop(entries);
     drop(entry_sources);
     drop(local);
-    output.finish(ProviderOutcome::Complete).await
+    output.finish(ProviderOutcome::Complete).await?;
+    if profile != Profile::Behavioral { return Ok(None); }
+    let outputs = runtime.inputs("actual-produced-values", profile, [publication::AnalysisInvocation::NAME, ExpressionEvaluation::NAME, EvaluationSource::NAME, EvaluationMember::NAME, EvaluationOperand::NAME])?;
+    Ok(produced.map(|value| Produced { premises, outputs, value }))
 }
 
 use lctx_model::domain::{
@@ -271,12 +293,16 @@ pub async fn complete_base(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-) -> Result<(), ModelError> {
+    evaluations: Option<&Produced<production::ProducedEvaluations>>,
+) -> Result<Option<Produced<execution::completion_production::ProducedBodies>>, ModelError> {
     if *definition != execution::configuration::base_completion().1 {
         return Err(ModelError::Invalid(
             "base completion definition is not bound".into(),
         ));
     }
+    let evaluations = evaluations.map(|owner| owner.borrow(&access, runtime)).transpose()?;
+    let mut produced: Option<execution::completion_production::ProducedBodies> = None;
+    let premises = produced_premises(&access, execution::records::base_invariants().remove(0).inputs)?;
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
@@ -410,13 +436,15 @@ pub async fn complete_base(
             &admission,
             budget,
         )?;
-        let records = execution::completion_production::complete_all(
+        let (records, owner) = execution::completion_production::complete_all_produced(
             &data,
             &invocation,
             definition,
             profile,
             budget,
+            evaluations,
         )?;
+        match produced.as_mut() { Some(value) => value.append(owner)?, None => produced = Some(owner) };
         macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(completions:StatementCompletion,outcomes:CompletionOutcome,sources:CompletionSource,members:CompletionMember,entered:EnteredStatement,boundaries:CompletionBoundary,bodies:SourceBodyCompletion,body_sources:BodySource,body_members:BodyMember,body_releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
         for scope in coverage.scopes() {
@@ -458,7 +486,10 @@ pub async fn complete_base(
     }
     drop(data);
     drop(base);
-    output.finish(ProviderOutcome::Complete).await
+    output.finish(ProviderOutcome::Complete).await?;
+    if profile != Profile::Behavioral { return Ok(None); }
+    let outputs = runtime.inputs("actual-produced-values", profile, [completion_publication::AnalysisInvocation::NAME, SourceBodyCompletion::NAME])?;
+    Ok(produced.map(|value| Produced { premises, outputs, value }))
 }
 
 /// Fresh source binding consumes acknowledged normalized shapes and earlier completion frames.
@@ -469,7 +500,9 @@ pub async fn prepare_source_calls(
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     bindings: Option<&crate::analysis_bindings::PreparedBindings>,
-) -> Result<(), ModelError> {
+    evaluations: Option<&Produced<production::ProducedEvaluations>>,
+    bodies: Option<&Produced<execution::completion_production::ProducedBodies>>,
+) -> Result<Option<Produced<execution::source_call_records::ProducedSourceCalls>>, ModelError> {
     use analysis::source_call as owner;
     use execution::source_call_records::*;
     if *definition != execution::configuration::source_calls().1 {
@@ -477,9 +510,13 @@ pub async fn prepare_source_calls(
             "source call definition is unbound".into(),
         ));
     }
+    let evaluations = evaluations.map(|owner| owner.borrow(&access, runtime)).transpose()?;
+    let bodies = bodies.map(|owner| owner.borrow(&access, runtime)).transpose()?;
     let application = if access.profile() == Profile::Behavioral {
         Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
     } else { None };
+    let mut produced: Option<execution::source_call_records::ProducedSourceCalls> = None;
+    let premises = produced_premises(&access, execution::source_call_records::SourceCallData::inputs())?;
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
@@ -613,7 +650,8 @@ pub async fn prepare_source_calls(
             &admission,
             budget,
         )?;
-        let records = prepare_all_prepared(&data, &invocation, definition, profile, budget, application)?;
+        let (records, owner) = prepare_all_produced(&data, &invocation, definition, profile, budget, application, evaluations, bodies)?;
+        match produced.as_mut() { Some(value) => value.append(owner)?, None => produced = Some(owner) };
         for row in records.headers.iter() {
             output.push(row.clone()).await?;
         }
@@ -678,7 +716,10 @@ pub async fn prepare_source_calls(
     drop(data);
     drop(base);
     drop(definitions);
-    output.finish(ProviderOutcome::Complete).await
+    output.finish(ProviderOutcome::Complete).await?;
+    if profile != Profile::Behavioral { return Ok(None); }
+    let outputs = runtime.inputs("actual-produced-values", profile, [analysis::source_call::AnalysisInvocation::NAME, analysis::source_call::AnalysisOutcome::NAME, execution::source_call_records::SourceCallRun::NAME, execution::source_call_records::SourceCallHeader::NAME, execution::source_call_records::HeaderMember::NAME, execution::source_call_records::SourceCallBoundary::NAME, execution::source_call_records::SourceInvocation::NAME, execution::source_call_records::SourceFrameRelease::NAME, execution::source_call_records::SourceFrameArgument::NAME, execution::source_call_records::SourceCallOutcome::NAME, execution::source_call_records::InvocationBoundary::NAME])?;
+    Ok(produced.map(|value| Produced { premises, outputs, value }))
 }
 
 /// Fresh source binding consumes acknowledged normalized shapes and earlier completion frames.
@@ -689,6 +730,8 @@ pub async fn enrich(
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     bindings: Option<&crate::analysis_bindings::PreparedBindings>,
+    evaluations: Option<&Produced<production::ProducedEvaluations>>,
+    source_calls: Option<&Produced<execution::source_call_records::ProducedSourceCalls>>,
 ) -> Result<(), ModelError> {
     use analysis::enriched_execution as owner;
     use execution::{
@@ -712,6 +755,8 @@ pub async fn enrich(
             "enriched execution definition is unbound".into(),
         ));
     }
+    let evaluations = evaluations.map(|owner| owner.borrow(&access, runtime)).transpose()?;
+    let source_calls = source_calls.map(|owner| owner.borrow(&access, runtime)).transpose()?;
     let application = if access.profile() == Profile::Behavioral {
         Some(bindings.ok_or_else(|| ModelError::Invalid("normalized application authority absent".into()))?.application(&access, runtime)?)
     } else { None };
@@ -896,7 +941,7 @@ pub async fn enrich(
             &admission,
             budget,
         )?;
-        let records = enrich_all_prepared(&data, &invocation, definition, profile, budget, application)?;
+        let records = enrich_all_produced(&data, &invocation, definition, profile, budget, application, evaluations, source_calls)?;
         macro_rules! write{($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
         write!(modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,fresh_arguments:SourceExecutionArgument,captured_entries:lctx_model::domain::execution::capture_bridge::CapturedEntryBinding,captured_values:lctx_model::domain::execution::capture_bridge::CapturedValueSource,definition_evaluations:DefinitionEvaluation,definition_sources:DefinitionSource,definition_members:DefinitionMember,contexts:ContextExecution,context_items:ContextItem,context_sources:ContextSource,context_members:ContextMember,context_bindings:ContextEntryBinding,context_binding_sources:ContextBindingSource,context_binding_members:ContextBindingMember,executions:StatementExecution,outcomes:ExecutionOutcome,sources:ExecutionSource,members:ExecutionMember,entered:EnteredStatement,boundaries:ExecutionBoundary,bodies:BodyExecution,body_sources:BodySource,body_members:BodyMember,releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
         for scope in coverage.scopes() {
@@ -940,4 +985,68 @@ pub async fn enrich(
     drop(base);
     drop(definitions);
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod produced_authority_controls {
+    use super::*;
+    use crate::workspace::WorkspaceOptions;
+    use lctx_model::domain::source::SourceArtifact;
+    fn nominal<R>(value: u8) -> Id<R> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([value;16].into_iter())).unwrap()
+    }
+    async fn publish(runtime: &Workspace, name: &'static str, artifact: SourceArtifact) {
+        let output = runtime.output(name, Profile::Catalog, ContentHash::of(name.as_bytes()),
+            runtime.inputs(name, Profile::Catalog, []).unwrap());
+        output.declare::<SourceArtifact>().unwrap();
+        output.push(artifact).await.unwrap();
+        output.finish(ProviderOutcome::Complete).await.unwrap();
+    }
+    #[tokio::test]
+    async fn producer_borrow_refuses_foreign_attempt_profile_and_changed_descriptor() {
+        let model = Arc::new(model().unwrap());
+        let runtime = Workspace::new(model.clone(), WorkspaceOptions::default()).unwrap();
+        let artifact = SourceArtifact::from_bytes(nominal(1), "source.py".into(), b"x").unwrap();
+        publish(&runtime, "first", artifact.clone()).await;
+        let selected = runtime.inputs("consumer", Profile::Catalog, [SourceArtifact::NAME]).unwrap();
+        let produced = Produced {premises:selected.clone(), outputs:selected.clone(), value:7u8};
+        assert_eq!(*produced.borrow(&selected, &runtime).unwrap(), 7);
+        let other = Workspace::new(model, WorkspaceOptions::default()).unwrap();
+        publish(&other, "same-content", artifact).await;
+        let foreign = other.inputs("consumer", Profile::Catalog, [SourceArtifact::NAME]).unwrap();
+        assert!(matches!(produced.borrow(&foreign, &other), Err(ModelError::Conflict(_))));
+        let changed_profile = runtime.inputs("consumer", Profile::Behavioral, [SourceArtifact::NAME]).unwrap();
+        assert!(matches!(produced.borrow(&changed_profile, &runtime), Err(ModelError::Conflict(_))));
+        publish(&runtime, "second", SourceArtifact::from_bytes(nominal(1), "second.py".into(), b"y").unwrap()).await;
+        let changed = runtime.inputs("consumer", Profile::Catalog, [SourceArtifact::NAME]).unwrap();
+        assert!(matches!(produced.borrow(&changed, &runtime), Err(ModelError::Conflict(_))));
+        assert_eq!(*produced.borrow(&selected, &runtime).unwrap(), 7);
+    }
+    #[test]
+    fn requested_production_refuses_absent_predecessor_owners() {
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let invocation = analysis::base_completion::AnalysisInvocation::new(nominal(1), nominal(2),
+            execution::configuration::base_completion().1.id(), None, []).0;
+        assert!(matches!(execution::completion_production::complete_all_produced(
+            &execution::completion_production::CompletedEvaluations::new(&budget), &invocation,
+            &execution::configuration::base_completion().1, Profile::Behavioral, &budget, None,
+        ), Err(ModelError::Conflict(_))));
+        let (records, _) = execution::completion_production::complete_all_produced(
+            &execution::completion_production::CompletedEvaluations::new(&budget), &invocation,
+            &execution::configuration::base_completion().1, Profile::Catalog, &budget, None,
+        ).unwrap();
+        assert_eq!(records.outcome.status, analysis::AnalysisStatus::NotRequested);
+        let invocation = analysis::source_call::AnalysisInvocation::new(nominal(1), nominal(2),
+            execution::configuration::source_calls().1.id(), None, []).0;
+        assert!(matches!(execution::source_call_records::prepare_all_produced(
+            &execution::source_call_records::SourceCallData::new(&budget), &invocation,
+            &execution::configuration::source_calls().1, Profile::Behavioral, &budget, None, None, None,
+        ), Err(ModelError::Conflict(_))));
+        let (records, _) = execution::source_call_records::prepare_all_produced(
+            &execution::source_call_records::SourceCallData::new(&budget), &invocation,
+            &execution::configuration::source_calls().1, Profile::Catalog, &budget, None, None, None,
+        ).unwrap();
+        assert_eq!(records.outcome.status, analysis::AnalysisStatus::NotRequested);
+
+    }
 }

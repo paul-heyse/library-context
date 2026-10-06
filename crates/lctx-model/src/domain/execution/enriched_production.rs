@@ -113,7 +113,7 @@ pub fn enrich_all(
     let verified = if profile == stages::Profile::Behavioral {
         Some(normalized::binding_normalization::prepare(&data.source.bindings, &data.source.output, budget)?)
     } else { None };
-    enrich_with_application(data, invocation, definition, profile, budget, verified.as_ref())
+    enrich_with_application(data, invocation, definition, profile, budget, verified.as_ref(), None, None)
 }
 /// Consume one normalized application authority across SourceCall and modeled-call consumers.
 pub fn enrich_all_prepared(
@@ -121,12 +121,27 @@ pub fn enrich_all_prepared(
     definition: &analysis::AnalysisDefinition, profile: stages::Profile,
     budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
 ) -> Result<ExecutionRecords, ModelError> {
-    enrich_with_application(data, invocation, definition, profile, budget, verified)
+    enrich_with_application(data, invocation, definition, profile, budget, verified, None, None)
+}
+/// Actual production consumes predecessor values retained by their own owners.
+pub fn enrich_all_produced(
+    data: &EnrichedData, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    evaluations: Option<&super::production::ProducedEvaluations>,
+    source_calls: Option<&source_call_records::ProducedSourceCalls>,
+) -> Result<ExecutionRecords, ModelError> {
+    if profile == stages::Profile::Behavioral && (evaluations.is_none() || source_calls.is_none()) {
+        return Err(ModelError::Conflict("requested Enriched predecessor owner absent"));
+    }
+    enrich_with_application(data, invocation, definition, profile, budget, verified, evaluations, source_calls)
 }
 fn enrich_with_application(
     data: &EnrichedData, invocation: &publication::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition, profile: stages::Profile,
     budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    evaluations: Option<&super::production::ProducedEvaluations>,
+    source_calls: Option<&source_call_records::ProducedSourceCalls>,
 ) -> Result<ExecutionRecords, ModelError> {
     let invalid = |message: &str| ModelError::Invalid(message.into());
     if !super::configuration::enriched_kernel(definition)
@@ -208,9 +223,7 @@ fn enrich_with_application(
     )?;
     let catalog = models::Catalog::parse(&catalog.source_name, &catalog.source)
         .map_err(ModelError::Invalid)?;
-    let (_, expected) =
-        super::enriched::with_frame_prepared(&data.source, source, source_definition, budget,
-            verified.ok_or_else(|| invalid("requested Enriched application authority absent"))?, |frame| {
+    let visit = |frame: &mut super::enriched::EnrichedFrame<'_>| {
             let mut work = 0usize;
             let mut step = || -> Result<(), ModelError> {
                 work = work
@@ -515,13 +528,14 @@ fn enrich_with_application(
                     )?;
                     let Ok(body) = body else { continue };
                     let call =
-                        super::source_invocation::CheckedSourceInvocation::derive_with_captures(
+                        super::source_invocation::CheckedSourceInvocation::derive_with_values(
                             facts,
                             header,
                             &body,
                             &data.source.completed,
                             &captures,
                             budget,
+                            evaluations,
                         )?;
                     let Ok(call) = call else { continue };
                     for capture in captures {
@@ -694,8 +708,15 @@ fn enrich_with_application(
                 }
             }
             Ok(())
-        })?;
-    data.check_source(&expected)?;
+        };
+    if let (Some(evaluations), Some(source_calls)) = (evaluations, source_calls) {
+        super::enriched::with_frame_produced(&data.source, source, budget, source_calls, evaluations, visit)?;
+    } else {
+        let (_, expected) = super::enriched::with_frame_prepared(&data.source, source, source_definition, budget,
+            verified.ok_or_else(|| invalid("requested Enriched application authority absent"))?, visit)?;
+        data.check_source(&expected)?;
+    }
+
     output.run.executed = output
         .executions
         .len()

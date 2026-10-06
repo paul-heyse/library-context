@@ -63,6 +63,42 @@ impl EvaluationRecords {
         }
     }
 }
+/// Compact private values produced by this owner, associated with their exact emitted rows.
+/// No stored stream or source snapshot can construct an evaluation in this index.
+pub struct ProducedEvaluations {
+    values: Vec<(ExpressionEvaluation, std::sync::Arc<CheckedEvaluation>, Option<Id<calls::SignatureParameter>>)>,
+    frames: Rows<publication::AnalysisInvocation>,
+    charge: charged::StateCharge,
+}
+impl ProducedEvaluations {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self { values: Vec::new(), frames: Rows::new(budget), charge: charged::StateCharge::new(budget, "produced-base-evaluations") }
+    }
+    pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
+        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {
+            return Err(ModelError::Conflict("produced evaluations budget"));
+        }
+        for row in other.frames.iter() { self.frames.insert(row.clone())?; }
+        self.charge.grow(other.values.len().saturating_mul(size_of::<(ExpressionEvaluation, std::sync::Arc<CheckedEvaluation>, Option<Id<calls::SignatureParameter>>)>() * 2))?;
+        self.values.append(&mut other.values);
+        Ok(())
+    }
+    pub fn get(&self, row: &ExpressionEvaluation, frame: &publication::AnalysisInvocation)
+        -> Result<std::sync::Arc<CheckedEvaluation>, ModelError>
+    {
+        if row.invocation != frame.id() || self.frames.get(frame.id()) != Some(frame) { return Err(ModelError::Conflict("produced evaluation frame")); }
+        let mut matching = self.values.iter().filter(|(actual, _, _)| actual.id() == row.id());
+        let (actual, checked, _) = matching.next().ok_or(ModelError::Conflict("produced evaluation absent"))?;
+        if matching.next().is_some() || actual != row { return Err(ModelError::Conflict("produced evaluation changed")); }
+        Ok(checked.clone())
+    }
+    pub(crate) fn held_formal(&self, row: &ExpressionEvaluation, frame: &publication::AnalysisInvocation)
+        -> Result<Option<Id<calls::SignatureParameter>>, ModelError>
+    {
+        self.get(row, frame)?;
+        Ok(self.values.iter().find(|(actual, _, _)| actual.id() == row.id()).expect("checked above").2)
+    }
+}
 fn is_expression(kind: SyntaxKind) -> bool {
     use SyntaxKind::*;
     matches!(
@@ -118,6 +154,13 @@ pub fn evaluate_all(
     profile: stages::Profile,
     budget: &ResourceBudget,
 ) -> Result<EvaluationRecords, ModelError> {
+    evaluate_all_produced(data, entry, stored_entries, entry_sources, invocation, definition, profile, budget).map(|(records, _)| records)
+}
+pub fn evaluate_all_produced(
+    data: &EvaluationData, entry: &EntryData, stored_entries: &Rows<EntryValueWitness>,
+    entry_sources: &Rows<EntryAccessSource>, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile, budget: &ResourceBudget,
+) -> Result<(EvaluationRecords, ProducedEvaluations), ModelError> {
     if *definition != super::configuration::base_evaluation().1
         || invocation.definition != definition.id()
         || invocation.subject.is_some()
@@ -127,10 +170,12 @@ pub fn evaluate_all(
         ));
     }
     let mut records = EvaluationRecords::new(invocation.id(), budget);
+    let mut produced = ProducedEvaluations::new(budget);
+    produced.frames.insert(invocation.clone())?;
     if profile != stages::Profile::Behavioral {
         records.outcome.status = analysis::AnalysisStatus::NotRequested;
         records.outcome.reason = Some(obligation::ObligationKind::NotRequested);
-        return Ok(records);
+        return Ok((records, produced));
     }
     records.run.requested = true;
     let bytes = data
@@ -217,6 +262,18 @@ pub fn evaluate_all(
         match result {
             Ok(proof) => {
                 let output = proof.emit_base(invocation, definition, budget)?;
+                let held = if proof.release() == ReleaseSafety::CallerRetained
+                    && row.syntax_kind == SyntaxKind::ExprName && proof.entry_premises().len() == 1
+                {
+                    entry_proofs.iter().find(|entry| entry.witness().id() == proof.entry_premises()[0])
+                        .filter(|entry| entry.witness().owner == proof.request().owner
+                            && entry.witness().context == proof.request().context
+                            && entry.witness().access == proof.request().expression
+                            && entry.qualification().id() == output.evaluation.qualification)
+                        .map(|entry| entry.parameter())
+                } else { None };
+                produced.charge.grow(size_of::<(ExpressionEvaluation, std::sync::Arc<CheckedEvaluation>, Option<Id<calls::SignatureParameter>>)>() * 2)?;
+                produced.values.push((output.evaluation.clone(), std::sync::Arc::new(proof), held));
                 records.evaluations.insert(output.evaluation)?;
                 for row in output.sources {
                     records.sources.insert(row)?;
@@ -252,7 +309,7 @@ pub fn evaluate_all(
         records.outcome.status = analysis::AnalysisStatus::Partial;
         records.outcome.reason = Some(obligation::ObligationKind::UnsupportedControlFlow);
     }
-    Ok(records)
+    Ok((records, produced))
 }
 
 /// Exact inventory is independently recomputed from admitted source roots, including refusals.

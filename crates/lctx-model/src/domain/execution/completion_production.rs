@@ -82,6 +82,33 @@ pub struct CompletedEvaluations {
     base: BaseCheck,
     budget: ResourceBudget,
 }
+/// Actual body owner outputs retain compact private outcome, membership and release values.
+pub struct ProducedBodies {
+    frames: Rows<publication::AnalysisInvocation>,
+    values: Vec<(SourceBodyCompletion, super::body::CheckedSourceBody)>,
+    charge: charged::StateCharge,
+}
+impl ProducedBodies {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self { frames: Rows::new(budget), values: Vec::new(), charge: charged::StateCharge::new(budget, "produced-source-bodies") }
+    }
+    pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
+        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {
+            return Err(ModelError::Conflict("produced bodies budget"));
+        }
+        for row in other.frames.iter() { self.frames.insert(row.clone())?; }
+        self.charge.grow(other.values.len().saturating_mul(size_of::<(SourceBodyCompletion, super::body::CheckedSourceBody)>() * 2))?;
+        self.values.append(&mut other.values);
+        Ok(())
+    }
+    pub(crate) fn visit_frame(&self, frame: &publication::AnalysisInvocation,
+        mut visit: impl FnMut(&super::body::CheckedSourceBody, &SourceBodyCompletion) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
+        if self.frames.get(frame.id()) != Some(frame) { return Err(ModelError::Conflict("produced body frame")); }
+        for (row, proof) in self.values.iter().filter(|(row, _)| row.invocation == frame.id()) { visit(proof, row)?; }
+        Ok(())
+    }
+}
 impl CompletedEvaluations {
     pub(crate) fn earlier(&self) -> &BaseCheck {
         &self.base
@@ -175,6 +202,25 @@ pub(crate) fn complete_all_with_bodies(
         &SourceBodyCompletion,
     ) -> Result<(), ModelError>,
 ) -> Result<CompletionRecords, ModelError> {
+    complete_with_values(data, invocation, definition, profile, budget, None, on_body).map(|(records, _)| records)
+}
+/// The compiler passes values minted by the actual base producer; this path does not replay it.
+pub fn complete_all_produced(
+    data: &CompletedEvaluations, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile, budget: &ResourceBudget,
+    evaluations: Option<&super::production::ProducedEvaluations>,
+) -> Result<(CompletionRecords, ProducedBodies), ModelError> {
+    if profile == stages::Profile::Behavioral && evaluations.is_none() {
+        return Err(ModelError::Conflict("base evaluation owner authority absent"));
+    }
+    complete_with_values(data, invocation, definition, profile, budget, evaluations, &mut |_, _| Ok(()))
+}
+fn complete_with_values(
+    data: &CompletedEvaluations, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile, budget: &ResourceBudget,
+    evaluations: Option<&super::production::ProducedEvaluations>,
+    on_body: &mut impl FnMut(&super::body::CheckedSourceBody, &SourceBodyCompletion) -> Result<(), ModelError>,
+) -> Result<(CompletionRecords, ProducedBodies), ModelError> {
     let invalid = |message: &str| ModelError::Invalid(message.into());
     if *definition != super::configuration::base_completion().1
         || invocation.definition != definition.id()
@@ -190,10 +236,12 @@ pub(crate) fn complete_all_with_bodies(
         ));
     }
     let mut output = CompletionRecords::new(invocation.id(), budget);
+    let mut produced = ProducedBodies::new(budget);
+    produced.frames.insert(invocation.clone())?;
     if profile != stages::Profile::Behavioral {
         output.outcome.status = analysis::AnalysisStatus::NotRequested;
         output.outcome.reason = Some(obligation::ObligationKind::NotRequested);
-        return Ok(output);
+        return Ok((output, produced));
     }
     output.run.requested = true;
     let earlier = &data.base;
@@ -230,7 +278,10 @@ pub(crate) fn complete_all_with_bodies(
                 + size_of::<CompletionEvaluation<'_>>() * 2
                 + size_of::<&super::evaluation::CheckedEvaluation>() * 2,
         )?;
-        checked.push(earlier.replay(row)?);
+        checked.push(match evaluations {
+            Some(evaluations) => evaluations.get(row, parent)?,
+            None => std::sync::Arc::new(earlier.replay(row)?),
+        });
         rows.push(CompletionEvaluation {
             evaluation: row,
             invocation: parent,
@@ -270,6 +321,7 @@ pub(crate) fn complete_all_with_bodies(
         let refs = checked
             .iter()
             .filter(|proof| Some(proof.request().owner) == owner)
+            .map(std::sync::Arc::as_ref)
             .collect::<Vec<_>>();
         let result = if let Some(owner) = owner {
             complete(
@@ -384,6 +436,8 @@ pub(crate) fn complete_all_with_bodies(
                 let rows =
                     super::body_records::emit(&proof, invocation, &output.completions, budget)?;
                 on_body(&proof, &rows.body)?;
+                produced.charge.grow(size_of::<(SourceBodyCompletion, super::body::CheckedSourceBody)>() * 2)?;
+                produced.values.push((rows.body.clone(), proof));
                 output.bodies.insert(rows.body)?;
                 output.outcomes.insert(rows.outcome)?;
                 for row in rows.sources {
@@ -422,7 +476,7 @@ pub(crate) fn complete_all_with_bodies(
         output.outcome.status = analysis::AnalysisStatus::Partial;
         output.outcome.reason = Some(obligation::ObligationKind::UnsupportedControlFlow);
     }
-    Ok(output)
+    Ok((output, produced))
 }
 pub fn relations() -> Vec<Relation> {
     vec![

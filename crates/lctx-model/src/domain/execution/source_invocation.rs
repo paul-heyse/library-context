@@ -76,6 +76,20 @@ impl CheckedSourceInvocation {
         captures: &[super::capture_bridge::CheckedCapturedEntry],
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_values(data, header, body, earlier, captures, budget, None)
+    }
+    pub fn derive_produced(
+        data: &EvaluationData, header: &CheckedSourceBinding, body: &CheckedSourceBody,
+        earlier: &CompletedEvaluations, budget: &ResourceBudget,
+        evaluations: &super::production::ProducedEvaluations,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::derive_with_values(data, header, body, earlier, &[], budget, Some(evaluations))
+    }
+    pub(super) fn derive_with_values(
+        data: &EvaluationData, header: &CheckedSourceBinding, body: &CheckedSourceBody,
+        earlier: &CompletedEvaluations, captures: &[super::capture_bridge::CheckedCapturedEntry],
+        budget: &ResourceBudget, evaluations: Option<&super::production::ProducedEvaluations>,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let h = header.request();
         if captures.iter().any(|c| {
             c.row.caller != header.caller()
@@ -129,12 +143,12 @@ impl CheckedSourceInvocation {
             if rows.next().is_some() {
                 return Ok(Err(ObligationKind::AmbiguousBinding));
             }
-            let checked = base.replay(row)?;
+            let checked = checked_value(base, row, evaluations)?;
             if checked.exception().is_some() {
                 return Ok(Err(ObligationKind::CallTransfer));
             }
             if checked.release() != ReleaseSafety::Closed
-                && !base.caller_holds_argument(row)?
+                && held_formal(base, row, evaluations)?.is_none()
                 && !super::builtin_read::CheckedBuiltinRead::derive(
                     data,
                     checked.request(),
@@ -178,7 +192,7 @@ impl CheckedSourceInvocation {
             if rows.next().is_some() {
                 return Ok(Err(ObligationKind::AmbiguousBinding));
             }
-            let Some(formal) = base.held_formal(row)? else {
+            let Some(formal) = held_formal(base, row, evaluations)? else {
                 return Ok(Err(ObligationKind::FrameExitCleanup));
             };
             if arguments
@@ -233,7 +247,7 @@ impl CheckedSourceInvocation {
                         .ok_or_else(|| {
                             ModelError::Invalid("returned formal evaluation absent".into())
                         })?;
-                    let formal = base.held_formal(row)?.ok_or_else(|| {
+                    let formal = held_formal(base, row, evaluations)?.ok_or_else(|| {
                         ModelError::Invalid("returned formal holder absent".into())
                     })?;
                     let argument = arguments
@@ -245,7 +259,7 @@ impl CheckedSourceInvocation {
                     let row = base.evaluations.get(argument.evaluation).ok_or_else(|| {
                         ModelError::Invalid("returned actual proof absent".into())
                     })?;
-                    release = base.replay(row)?.release();
+                    release = checked_value(base, row, evaluations)?.release();
                 }
             }
         }
@@ -259,5 +273,23 @@ impl CheckedSourceInvocation {
             release,
             _charge: charge,
         }))
+    }
+}
+fn checked_value(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
+    values: Option<&super::production::ProducedEvaluations>,
+) -> Result<std::sync::Arc<super::evaluation::CheckedEvaluation>, ModelError> {
+    match values {
+        Some(values) => values.get(row, base.invocations.get(row.invocation)
+            .ok_or(ModelError::Conflict("produced argument frame absent"))?),
+        None => base.replay(row).map(std::sync::Arc::new),
+    }
+}
+fn held_formal(base: &super::records::BaseCheck, row: &super::records::ExpressionEvaluation,
+    values: Option<&super::production::ProducedEvaluations>,
+) -> Result<Option<Id<calls::SignatureParameter>>, ModelError> {
+    match values {
+        Some(values) => values.held_formal(row, base.invocations.get(row.invocation)
+            .ok_or(ModelError::Conflict("produced holder frame absent"))?),
+        None => base.held_formal(row),
     }
 }

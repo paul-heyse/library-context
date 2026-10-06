@@ -22,7 +22,7 @@ pub struct EnrichedFrame<'a> {
     data: &'a SourceCallData,
     input: Id<input::InputRevision>,
     context: Id<attribution::AnalysisContext>,
-    evaluations: Vec<(CheckedEvaluation, EvaluationPremise)>,
+    evaluations: Vec<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>,
     headers: Vec<(&'a CheckedSourceBinding, &'a SourceCallHeader)>,
     definitions: Vec<super::definition::CheckedDefinition>,
     contexts: Vec<super::context_execution::CheckedContextExecution>,
@@ -49,9 +49,9 @@ impl<'a> EnrichedFrame<'a> {
             self.budget,
         )?;
         self._charge
-            .grow(size_of::<(CheckedEvaluation, EvaluationPremise)>() * 2)?;
+            .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
         self.evaluations
-            .push((evaluation, EvaluationPremise::CapturedEntry(proof.row.id())));
+            .push((std::sync::Arc::new(evaluation), EvaluationPremise::CapturedEntry(proof.row.id())));
         Ok(())
     }
     pub(crate) fn push_binding(
@@ -60,9 +60,9 @@ impl<'a> EnrichedFrame<'a> {
     ) -> Result<(), ModelError> {
         let id = proof.record().id();
         self._charge
-            .grow(size_of::<(CheckedEvaluation, EvaluationPremise)>() * 2)?;
+            .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
         self.evaluations.push((
-            proof.into_evaluation(),
+            std::sync::Arc::new(proof.into_evaluation()),
             EvaluationPremise::ContextBinding(id),
         ));
         Ok(())
@@ -108,9 +108,9 @@ impl<'a> EnrichedFrame<'a> {
     ) -> Result<(), ModelError> {
         let id = proof.record().id();
         self._charge
-            .grow(size_of::<(CheckedEvaluation, EvaluationPremise)>() * 2)?;
+            .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
         self.evaluations
-            .push((proof.into_evaluation(), EvaluationPremise::Modeled(id)));
+            .push((std::sync::Arc::new(proof.into_evaluation()), EvaluationPremise::Modeled(id)));
         Ok(())
     }
     pub(crate) fn push_fresh(
@@ -151,9 +151,9 @@ impl<'a> EnrichedFrame<'a> {
         )?
         .map_err(|_| ModelError::Invalid("enriched fresh call evaluation refused".into()))?;
         self._charge
-            .grow(size_of::<(CheckedEvaluation, EvaluationPremise)>() * 2)?;
+            .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
         self.evaluations
-            .push((checked, EvaluationPremise::Fresh(row.id())));
+            .push((std::sync::Arc::new(checked), EvaluationPremise::Fresh(row.id())));
         Ok(())
     }
     pub fn complete(
@@ -174,7 +174,7 @@ impl<'a> EnrichedFrame<'a> {
             .evaluations
             .iter()
             .filter(|(proof, _)| proof.request().owner == request.owner)
-            .map(|(proof, _)| proof)
+            .map(|(proof, _)| proof.as_ref())
             .collect::<Vec<_>>();
         super::completion::complete_prepared_with_contexts(
             &self.prepared,
@@ -237,6 +237,34 @@ pub fn with_frame_prepared<T>(
         budget,
         Some(verified),
         &mut |headers, calls| {
+            result = Some(build_frame(data, invocation, budget, headers, calls, None,
+                visit.take().ok_or_else(|| ModelError::Invalid("enriched frame callback repeated".into()))?)?);
+            Ok(())
+        },
+    )?;
+    Ok((
+        result.ok_or_else(|| ModelError::Invalid("enriched frame callback absent".into()))?,
+        records,
+    ))
+}
+
+/// Borrow the actual SourceCall and Base owner values; no predecessor producer runs.
+pub fn with_frame_produced<T>(
+    data: &SourceCallData, invocation: &analysis::source_call::AnalysisInvocation,
+    budget: &ResourceBudget, source: &super::source_call_records::ProducedSourceCalls,
+    evaluations: &super::production::ProducedEvaluations,
+    visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
+) -> Result<T, ModelError> {
+    source.visit_frame(invocation, |headers, calls| build_frame(data, invocation, budget, headers, calls, Some(evaluations), visit))
+}
+fn build_frame<T>(
+    data: &SourceCallData, invocation: &analysis::source_call::AnalysisInvocation,
+    budget: &ResourceBudget,
+    headers: &[(CheckedSourceBinding, SourceCallHeader)],
+    calls: &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)],
+    evaluations: Option<&super::production::ProducedEvaluations>,
+    visit: impl FnOnce(&mut EnrichedFrame<'_>) -> Result<T, ModelError>,
+) -> Result<T, ModelError> {
             let mut frame = EnrichedFrame {
                 data,
                 input: invocation.input,
@@ -265,10 +293,10 @@ pub fn with_frame_prepared<T>(
                 }
                 frame
                     ._charge
-                    .grow(size_of::<(CheckedEvaluation, EvaluationPremise)>() * 2)?;
+                    .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
                 frame
                     .evaluations
-                    .push((earlier.replay(row)?, EvaluationPremise::Base(row.id())));
+                    .push((match evaluations { Some(values) => values.get(row, parent)?, None => std::sync::Arc::new(earlier.replay(row)?) }, EvaluationPremise::Base(row.id())));
             }
             for (header, row) in headers {
                 frame
@@ -307,19 +335,10 @@ pub fn with_frame_prepared<T>(
                 .map_err(|_| ModelError::Invalid("enriched source evaluation refused".into()))?;
                 frame
                     ._charge
-                    .grow(size_of::<(CheckedEvaluation, EvaluationPremise)>() * 2)?;
+                    .grow(size_of::<(std::sync::Arc<CheckedEvaluation>, EvaluationPremise)>() * 2)?;
                 frame
                     .evaluations
-                    .push((evaluation, EvaluationPremise::Source(row.id())));
+                    .push((std::sync::Arc::new(evaluation), EvaluationPremise::Source(row.id())));
             }
-            result = Some(visit.take().ok_or_else(|| {
-                ModelError::Invalid("enriched frame callback repeated".into())
-            })?(&mut frame)?);
-            Ok(())
-        },
-    )?;
-    Ok((
-        result.ok_or_else(|| ModelError::Invalid("enriched frame callback absent".into()))?,
-        records,
-    ))
+    visit(&mut frame)
 }

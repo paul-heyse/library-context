@@ -250,6 +250,35 @@ pub struct SourceCallRecords {
     pub call_outcomes: Rows<SourceCallOutcome>,
     pub invocation_boundaries: Rows<InvocationBoundary>,
 }
+/// Actual SourceCall owner values, held by immutable frame and never reconstructed from rows.
+pub struct ProducedSourceCalls {
+    frames: Vec<ProducedSourceFrame>,
+    charge: charged::StateCharge,
+}
+struct ProducedSourceFrame {
+    invocation: publication::AnalysisInvocation,
+    headers: Vec<(CheckedSourceBinding, SourceCallHeader)>,
+    calls: Vec<(super::source_invocation::CheckedSourceInvocation, SourceInvocation)>,
+    _charge: charged::StateCharge,
+}
+impl ProducedSourceCalls {
+    pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
+        if !self.charge.budget().expect("bound owner").shares_pool(other.charge.budget().expect("bound owner")) {
+            return Err(ModelError::Conflict("produced SourceCall budget"));
+        }
+        self.charge.grow(other.frames.len().saturating_mul(size_of::<ProducedSourceFrame>() * 2))?;
+        self.frames.append(&mut other.frames);
+        Ok(())
+    }
+    pub(crate) fn visit_frame<T>(&self, invocation: &publication::AnalysisInvocation,
+        visit: impl FnOnce(&[(CheckedSourceBinding, SourceCallHeader)], &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)]) -> Result<T, ModelError>,
+    ) -> Result<T, ModelError> {
+        let mut matching = self.frames.iter().filter(|frame| frame.invocation.id() == invocation.id());
+        let frame = matching.next().ok_or(ModelError::Conflict("produced SourceCall frame absent"))?;
+        if matching.next().is_some() || frame.invocation != *invocation { return Err(ModelError::Conflict("produced SourceCall frame changed")); }
+        visit(&frame.headers, &frame.calls)
+    }
+}
 pub fn prepare_all(
     data: &SourceCallData,
     invocation: &publication::AnalysisInvocation,
@@ -302,6 +331,29 @@ pub(crate) fn prepare_with_application(
         &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)],
     ) -> Result<(), ModelError>,
 ) -> Result<SourceCallRecords, ModelError> {
+    prepare_with_values(data, invocation, definition, profile, budget, verified, None, None, on_complete).map(|(records, _)| records)
+}
+/// Fresh production requires the actual predecessor owners, rather than replaying stored outputs.
+pub fn prepare_all_produced(
+    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    evaluations: Option<&super::production::ProducedEvaluations>,
+    bodies: Option<&super::completion_production::ProducedBodies>,
+) -> Result<(SourceCallRecords, ProducedSourceCalls), ModelError> {
+    if profile == stages::Profile::Behavioral && (evaluations.is_none() || bodies.is_none()) {
+        return Err(ModelError::Conflict("requested SourceCall predecessor owner absent"));
+    }
+    prepare_with_values(data, invocation, definition, profile, budget, verified, evaluations, bodies, &mut |_, _| Ok(()))
+}
+fn prepare_with_values(
+    data: &SourceCallData, invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition, profile: stages::Profile,
+    budget: &ResourceBudget, verified: Option<&normalized::binding_normalization::VerifiedBindings>,
+    evaluations: Option<&super::production::ProducedEvaluations>,
+    bodies: Option<&super::completion_production::ProducedBodies>,
+    on_complete: &mut impl FnMut(&[(CheckedSourceBinding, SourceCallHeader)], &[(super::source_invocation::CheckedSourceInvocation, SourceInvocation)]) -> Result<(), ModelError>,
+) -> Result<(SourceCallRecords, ProducedSourceCalls), ModelError> {
     let invalid = |s: &str| ModelError::Invalid(s.into());
     if *definition != super::configuration::source_calls().1
         || invocation.definition != definition.id()
@@ -333,7 +385,7 @@ pub(crate) fn prepare_with_application(
     if profile == stages::Profile::Catalog {
         records.outcome.status = analysis::AnalysisStatus::NotRequested;
         records.outcome.reason = Some(obligation::ObligationKind::NotRequested);
-        return Ok(records);
+        return Ok((records, ProducedSourceCalls { frames: Vec::new(), charge: charged::StateCharge::new(budget, "produced-source-calls") }));
     }
     let mut headers = Vec::new();
     let mut header_charge = charged::StateCharge::new(budget, "source_call_private_headers");
@@ -468,13 +520,7 @@ pub(crate) fn prepare_with_application(
             .definitions
             .get(base.definition)
             .ok_or_else(|| invalid("source call completion definition absent"))?;
-        let expected = super::completion_production::complete_all_with_bodies(
-            &data.completed,
-            base,
-            definition,
-            profile,
-            budget,
-            &mut |body, row| {
+        let mut visit_body = |body: &super::body::CheckedSourceBody, row: &super::body_records::SourceBodyCompletion| -> Result<(), ModelError> {
                 if data.bodies.get(row.id()) != Some(row) {
                     return Err(invalid(
                         "source invocation body differs from earlier immutable completion",
@@ -487,12 +533,14 @@ pub(crate) fn prepare_with_application(
                     if !resolved.insert(&mut resolved_charge, record.id())? {
                         return Err(invalid("source invocation body mapping is ambiguous"));
                     }
-                    match super::source_invocation::CheckedSourceInvocation::derive(
+                    match super::source_invocation::CheckedSourceInvocation::derive_with_values(
                         &data.evaluation,
                         header,
                         body,
                         &data.completed,
+                        &[],
                         budget,
+                        evaluations,
                     )? {
                         Err(reason) => {
                             records.invocation_boundaries.insert(InvocationBoundary {
@@ -552,11 +600,17 @@ pub(crate) fn prepare_with_application(
                     }
                 }
                 Ok(())
-            },
-        )?;
-        for body in expected.bodies.iter() {
-            if data.bodies.get(body.id()) != Some(body) {
-                return Err(invalid("source invocation omitted earlier body membership"));
+            };
+        if let Some(bodies) = bodies {
+            bodies.visit_frame(base, &mut visit_body)?;
+        } else {
+            let expected = super::completion_production::complete_all_with_bodies(
+                &data.completed, base, definition, profile, budget, &mut visit_body,
+            )?;
+            for body in expected.bodies.iter() {
+                if data.bodies.get(body.id()) != Some(body) {
+                    return Err(invalid("source invocation omitted earlier body membership"));
+                }
             }
         }
     }
@@ -583,7 +637,11 @@ pub(crate) fn prepare_with_application(
         records.outcome.status = analysis::AnalysisStatus::Partial;
         records.outcome.reason = Some(obligation::ObligationKind::UnresolvedTarget);
     }
-    Ok(records)
+    let mut charge = charged::StateCharge::new(budget, "produced-source-calls");
+    charge.grow(size_of::<ProducedSourceFrame>() * 2)?;
+    Ok((records, ProducedSourceCalls { frames: vec![ProducedSourceFrame {
+        invocation: invocation.clone(), headers, calls, _charge: header_charge,
+    }], charge }))
 }
 fn invariant_inputs() -> Vec<ValidationInput> {
     let mut inputs = SourceCallData::inputs();

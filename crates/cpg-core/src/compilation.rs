@@ -585,6 +585,9 @@ pub async fn compile(
         .flat_map(|s| s.graphs(profile).iter().copied())
         .collect();
     let mut graphs = None;
+    let mut evaluations = None;
+    let mut completed_bodies = None;
+    let mut source_calls = None;
     for declaration in schedule.stages() {
         if fact_names.contains(declaration.name) {
             continue;
@@ -669,35 +672,39 @@ pub async fn compile(
                 .await?
             }
             UpperStage::Base => {
-                crate::semantic_execution::evaluate_base(
+                evaluations = crate::semantic_execution::evaluate_base(
                     access,
                     output,
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::Execution)?,
                 )
-                .await?
+                .await?;
             }
             UpperStage::Completion => {
-                crate::semantic_execution::complete_base(
+                completed_bodies = crate::semantic_execution::complete_base(
                     access,
                     output,
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::Completion)?,
+                    evaluations.as_ref(),
                 )
-                .await?
+                .await?;
             }
             UpperStage::SourceCalls => {
-                crate::semantic_execution::prepare_source_calls(
+                source_calls = crate::semantic_execution::prepare_source_calls(
                     access,
                     output,
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::SourceCalls)?,
                     bindings.as_ref(),
+                    evaluations.as_ref(),
+                    completed_bodies.as_ref(),
                 )
-                .await?
+                .await?;
+                completed_bodies = None;
             }
             UpperStage::Enriched => {
                 crate::semantic_execution::enrich(
@@ -707,8 +714,12 @@ pub async fn compile(
                     model,
                     prepared.definition(AnalysisMethod::EnrichedExecution)?,
                     bindings.as_ref(),
+                    evaluations.as_ref(),
+                    source_calls.as_ref(),
                 )
-                .await?
+                .await?;
+                source_calls = None;
+                evaluations = None;
             }
             UpperStage::Models => {
                 crate::semantic_models::apply(
