@@ -102,7 +102,7 @@ impl OccurrenceIndex {
         }
     }
     pub fn columns() -> &'static str {
-        "id,source,start,end,syntax_kind,role"
+        r#"id,source,start,"end",syntax_kind,role"#
     }
     pub fn visit(
         &mut self,

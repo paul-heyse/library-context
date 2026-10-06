@@ -531,6 +531,7 @@ mod selected_catalog_controls {
             ContentHash::of(b"catalog-selection-control"),
             access,
         );
+        output.declare::<models::ModelCatalog>().unwrap();
         output.push(catalog.clone()).await.unwrap();
         output.push(unrelated).await.unwrap();
         output.finish(ProviderOutcome::Complete).await.unwrap();
