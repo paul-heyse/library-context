@@ -183,7 +183,7 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
             &invocation,
             &d,
             Profile::Behavioral,
-            &graph,
+            Some(&graph),
             budget,
         )
         .unwrap();
