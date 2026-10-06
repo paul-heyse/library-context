@@ -42,6 +42,7 @@ pub fn validate(request:&Request,snapshot:&SnapshotHandle,channels:&ChannelState
             "contextual_typing"=>r.sections.contains(&OperationSection::ContextualTyping),
             "incoming_references"=>r.sections.contains(&OperationSection::IncomingReferences),
             "scenarios"=>r.sections.contains(&OperationSection::Scenarios),
+            section if section.strip_prefix("scenario_diagnostics_").is_some_and(|key|key.len()==32 && key.bytes().all(|byte|byte.is_ascii_hexdigit()))=>r.sections.contains(&OperationSection::Scenarios),
             "deployment"=>r.sections.contains(&OperationSection::Deployment),
             "relationships"=>r.sections.contains(&OperationSection::Relationships),
             "conflicts"=>r.sections.contains(&OperationSection::Conflicts),
