@@ -1,12 +1,13 @@
 //! Mechanical query fields alongside the unchanged canonical graph payload.
 use arrow_array::{Array,ArrayRef,BooleanArray,Int16Array,Int32Array,Int64Array,Float64Array,StringArray,FixedSizeBinaryArray,BinaryArray,ListArray};
-use lctx_model::domain::{graph::{Entity,Assertion,AssertionValue},Record,ModelError};
+use lctx_model::domain::{graph::{Entity,Assertion,AssertionValue},SemanticReference,Record,ModelError,Scalar};
 use serde::{Serialize,de::DeserializeOwned};
 use serde_json::{Value,Map};
 
 pub struct RecordView {pub semantic_type:String,pub semantic_key:String,pub body:Value}
 macro_rules! entity_view {
     ($($variant:ident:$ty:ty,)*)=>{
+        pub fn entity_references(entity:&Entity)->Vec<SemanticReference>{match entity{$(Entity::$variant(row)=>row.references(),)*}}
         pub fn entity_view(entity:&Entity)->Result<RecordView,ModelError>{match entity{$(Entity::$variant(row)=>view(row),)*}}
         pub fn entity_record<R:Record+DeserializeOwned>(entity:&Entity)->Result<R,ModelError>{match entity{$(Entity::$variant(row) if R::NAME==<$ty>::NAME=>serde_json::from_value(serde_json::to_value(row).map_err(ModelError::codec)?).map_err(ModelError::codec),)*_=>Err(ModelError::Conflict("canonical graph record type"))}}
     }
@@ -44,7 +45,7 @@ fn view<R:Record+Serialize>(row:&R)->Result<RecordView,ModelError>{
     let batch=R::encode(std::slice::from_ref(row))?;
     let mut body=Map::new();body.insert("__type".into(),Value::String(R::NAME.into()));
     for (field,array) in batch.schema().fields().iter().zip(batch.columns()){
-        if field.name()!="id"{body.insert(field.name().clone(),arrow_value(array,0)?);}
+        if field.name()!="id" && R::fields().iter().find(|f|f.name()==field.name()).is_some_and(|f|f.scalar()!=Scalar::Binary){body.insert(field.name().clone(),arrow_value(array,0)?);}
     }
     Ok(RecordView{semantic_type:R::NAME.into(),semantic_key:hex::encode(row.id().bytes()),body:Value::Object(body)})
 }

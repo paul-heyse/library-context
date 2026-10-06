@@ -9,7 +9,7 @@ fn scalar(field:&Field)->String{
     if field.nullable(){format!("{ty} | null")}else{ty}
 }
 fn declaration<R:Record>()->String{
-    let fields=R::fields();
+    let fields=R::fields().into_iter().filter(|f|f.scalar()!=Scalar::Binary).collect::<Vec<_>>();
     if let Some(sum)=R::sum(){
         sum.arms.into_iter().map(|arm|{
             let mut parts=vec![format!("__type: '{}'",R::NAME)];
@@ -31,10 +31,15 @@ pub fn canonical_schema()->String{
         let mut shapes: BTreeSet<String>=shapes.into_iter().collect();if table=="assertion"{shapes.insert("{__type:'__graph_assertion'}".into());}
         sql.push_str(&format!("DEFINE TABLE {table} TYPE NORMAL SCHEMAFULL; DEFINE FIELD semantic_type ON {table} TYPE string; DEFINE FIELD semantic_key ON {table} TYPE string; DEFINE FIELD kind ON {table} TYPE int; DEFINE FIELD subtype ON {table} TYPE int | null; DEFINE FIELD content ON {table} TYPE string; DEFINE FIELD canonical ON {table} TYPE bytes; DEFINE FIELD body ON {table} TYPE {}; DEFINE INDEX semantic_key ON {table} FIELDS semantic_type,semantic_key UNIQUE;",shapes.into_iter().collect::<Vec<_>>().join(" | ")));
     }
+    for table in ["entity","assertion"] {
+        for field in ["member","exposure","candidate","callable","variant","invocation","domain","unit","corpus","fragment","specification","input","origin","package","access","context","root","source","target","qualification","slot","parent"] {
+            sql.push_str(&format!("DEFINE INDEX by_{field} ON {table} FIELDS semantic_type,body.`{field}`,semantic_key;"));
+        }
+    }
     for (table,input) in [("participant","assertion"),("reference","entity")]{
         sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity | assertion | external ENFORCED SCHEMAFULL; DEFINE FIELD field ON {table} TYPE string; DEFINE FIELD role ON {table} TYPE int; DEFINE FIELD position ON {table} TYPE int | null; DEFINE INDEX incoming ON {table} FIELDS out,field,in; DEFINE INDEX outgoing ON {table} FIELDS in,field,out,position;"));
     }
-    sql.push_str("DEFINE TABLE external TYPE NORMAL SCHEMAFULL; DEFINE FIELD canonical ON external TYPE bytes; DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE FIELD bytes ON original TYPE bytes; DEFINE TABLE publication TYPE NORMAL SCHEMAFULL; DEFINE FIELD handle ON publication TYPE string; DEFINE FIELD manifest ON publication TYPE bytes;");sql
+    sql.push_str("DEFINE TABLE external TYPE NORMAL SCHEMAFULL; DEFINE FIELD canonical ON external TYPE bytes; DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD source ON original_chunk TYPE record<original>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS source,start UNIQUE; DEFINE TABLE publication TYPE NORMAL SCHEMAFULL; DEFINE FIELD handle ON publication TYPE string; DEFINE FIELD manifest ON publication TYPE bytes;");sql
 }
 pub fn realization_identity(native_definitions:&str)->ContentHash{
     let mut bytes=canonical_schema().into_bytes();bytes.extend_from_slice(native_definitions.as_bytes());ContentHash::of(&bytes)

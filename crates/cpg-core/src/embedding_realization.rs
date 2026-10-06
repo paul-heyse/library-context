@@ -15,7 +15,9 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     *,
 };
-use lctx_model::domain::embedding::cache::{CacheValue,CacheFuture,EmbeddingCache};
+use lctx_model::domain::embedding::cache::{CacheValue,EmbeddingCache};
+#[cfg(test)]
+use lctx_model::domain::embedding::cache::CacheFuture;
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Resource and corruption failures remain distinct from optional service availability.

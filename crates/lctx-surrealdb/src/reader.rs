@@ -61,7 +61,7 @@ impl NativeReader {
 }
 pub fn target_id(target:Target)->RecordId {match target{Target::Entity(id)=>RecordId::new("entity",id.0.hex()),Target::Assertion(id)=>RecordId::new("assertion",id.0.hex()),external@Target::External{..}=>{let mut sink=KeySink::new("graph-external-endpoint/v1");external.encode(&mut sink);RecordId::new("external",sink.finish().hex())}}}
 pub async fn connect(endpoint:&str,credentials:&Credentials,namespace:&str,database:&str)->Result<Arc<Surreal<Client>>,ModelError>{
-    let client=Surreal::new::<Grpc>(endpoint).await.map_err(ModelError::codec)?;
+    let client=Surreal::new::<Grpc>(endpoint.strip_prefix("grpc://").ok_or_else(||ModelError::Invalid("native gRPC endpoint required".into()))?).await.map_err(ModelError::codec)?;
     match credentials{
         Credentials::Root{username,password}=>{client.signin(Root{username:username.clone(),password:password.clone()}).await.map_err(ModelError::codec)?;},
         Credentials::Database{username,password}=>{client.signin(Database{namespace:namespace.into(),database:database.into(),username:username.clone(),password:password.clone()}).await.map_err(ModelError::codec)?;}
