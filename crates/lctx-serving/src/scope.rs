@@ -8,7 +8,7 @@ use surrealdb::types::{Variables, RecordId};
 /// Shared capture/context/provider/type identity must never pull in unrelated owners.
 pub const OWNED_FIELDS: &[&str] = &[
     "member", "occurrence", "declaration", "exposure", "candidate", "callable", "invocation", "variant", "signature",
-    "parameter", "slot", "domain", "witness", "assessment", "observation", "subject",
+    "parameter", "field_option", "parameter_option", "slot", "domain", "witness", "assessment", "observation", "subject",
     "conclusion", "proof", "assertion", "universe", "set", "sequence", "list", "field_list", "parameters",
 ];
 
@@ -36,6 +36,11 @@ pub async fn hydrate_with(reader:&NativeReader, roots:Vec<RecordId>, inputs:&[Va
             (SELECT VALUE in FROM reference WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types),\
             (SELECT VALUE in FROM participant WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types),\
             (SELECT VALUE in FROM reference WHERE out IN $frontier AND field='input' AND in.semantic_type='provider_runs' AND in.semantic_type IN $types),\
+            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field='scope' AND in.semantic_type='provider_coverage' AND in.semantic_type IN $types),\
+            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field='run' AND in.semantic_type='run_families' AND in.semantic_type IN $types),\
+            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field IN ['atom','binding'] AND in.semantic_type='guard_substitutions' AND in.semantic_type IN $types),\
+            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field='variable' AND in.semantic_type='type_binder_assessments' AND in.semantic_type IN $types),\
+            (SELECT VALUE in FROM participant WHERE out IN $frontier AND ((field='term' AND in.semantic_type='type_entity_links') OR (field='place' AND in.semantic_type='place_entity_links') OR (field='resolution' AND in.semantic_type='normalized_call_resolution_evidence')) AND in.semantic_type IN $types),\
             (SELECT VALUE id FROM assertion WHERE semantic_type='input_distributions' AND semantic_type IN $types AND scope_keys CONTAINSANY array::concat((SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','catalog_members','retrieval_units']),(SELECT VALUE <string>body.library FROM assertion WHERE semantic_type='corpus_libraries' AND scope_keys CONTAINSANY (SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','retrieval_units']).map(|$v|'corpus_libraries|corpus|'+$v))).map(|$v|'input_distributions|input|'+$v)),\
             (SELECT VALUE id FROM assertion WHERE semantic_type='corpus_libraries' AND semantic_type IN $types AND scope_keys CONTAINSANY (SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','retrieval_units']).map(|$v|'corpus_libraries|corpus|'+$v))));",vars).await?;
         frontier=next.into_iter().filter(|id|seen.insert(id.clone())).collect();

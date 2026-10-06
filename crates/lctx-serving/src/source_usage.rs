@@ -16,7 +16,7 @@ fn need<R: Record>(rows: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
         .iter()
         .find(|r| r.id() == id)
         .cloned()
-        .ok_or(Error::Contract)
+        .ok_or_else(|| Error::Model(ModelError::Invalid(format!("required native evidence row missing: {}", R::NAME))))
 }
 fn unavailable(reason: &str) -> Availability {
     Availability::Unavailable {
@@ -119,7 +119,7 @@ impl NativePackets<'_> {
                     )
                     .await?;
                 if assessments.rows().len() != 1 {
-                    return Err(Error::Contract);
+                    return Err(Error::Model(ModelError::Invalid("native overload candidate requires one variant assessment".into())));
                 }
                 let assessment = &assessments.rows()[0];
                 if assessment.context != context || assessment.policy != definition() {
@@ -350,7 +350,7 @@ impl NativePackets<'_> {
             )
             .await?;
         if rows.rows().len() != 1 {
-            return Err(Error::Contract);
+            return Err(Error::Model(ModelError::Invalid("source characterization requires one usage correspondence".into())));
         };
         let usage = &rows.rows()[0];
         let event = need(

@@ -27,7 +27,7 @@ fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
         .iter()
         .find(|r| r.id() == id)
         .cloned()
-        .ok_or(Error::Contract)
+        .ok_or_else(|| Error::Model(ModelError::Invalid(format!("required native evidence row missing: {}", R::NAME))))
 }
 fn unavailable() -> Availability {
     Availability::Unavailable {

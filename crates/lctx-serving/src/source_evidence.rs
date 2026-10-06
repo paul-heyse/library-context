@@ -24,7 +24,7 @@ impl<'a> NativePackets<'a>{
     fn selected<R:Record>(&self,rows:Vec<R>)->Result<PacketRows<R>,EvidenceError>{let bytes=rows.iter().map(HeapSize::heap_bytes).sum::<usize>().saturating_add(rows.capacity()*std::mem::size_of::<R>());Ok(PacketRows{rows,_reservation:self.budget.reserve("native-evidence-selected-rows",bytes)?})}
     pub(crate) async fn read_ids<R:Record>(&mut self,ids:&[Id<R>])->Result<PacketRows<R>,EvidenceError>{let all=self.rows::<R>()?;self.selected(all.iter().filter(|r|ids.contains(&r.id())).cloned().collect())}
     pub(crate) async fn read_for<R:Record,T:Record>(&mut self,field:&str,ids:&[Id<T>])->Result<PacketRows<R>,EvidenceError>{
-        if !R::fields().iter().any(|f|f.name()==field){return Err(EvidenceError::Contract)}
+        if !R::fields().iter().any(|f|f.name()==field){return Err(EvidenceError::Model(ModelError::Invalid(format!("native evidence field missing: {}.{field}",R::NAME))))}
         let all=self.rows::<R>()?;self.selected(all.iter().filter(|r|r.references().iter().any(|reference|reference.field==field&&reference.target==T::NAME&&ids.iter().any(|id|id.bytes()==&reference.key))).cloned().collect())
     }
     pub(crate) async fn claim_basis(&mut self,q:&assertion::AssertionQualification)->Result<ClaimBasisPacket,EvidenceError>{Ok(self.claims.basis(q.id())?)}

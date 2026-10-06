@@ -680,6 +680,7 @@ binding!(
     &[Capability::Catalog, Capability::Briefs],
     sources!(
         domain::synthesis::briefs::Brief,
+        domain::catalog::CatalogMember,
         domain::catalog::CatalogMemberInvocation,
         domain::synthesis::seeds::SelectedSeed,
         domain::synthesis::documentary::DocumentaryConclusion,
@@ -832,6 +833,10 @@ binding!(
     NativeAssessmentPacket,
     &[Capability::Catalog, Capability::Native],
     sources!(
+        domain::catalog::CatalogMember,
+        domain::catalog::CatalogCallable,
+        domain::catalog::CatalogInvocation,
+        domain::normalized::entities::ParameterEntityLink,
         domain::conditions::Condition,
         domain::conditions::EvaluationAtom
     ),

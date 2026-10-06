@@ -4,7 +4,7 @@ use lctx_surrealdb::{NativeReader,batches::{CanonicalBatches,CanonicalNode},read
 use surrealdb::types::Variables;
 use crate::records::{rows,need,wire};
 pub async fn get(reader:&NativeReader,source:&OriginalReference,request:&Request,channels:&ChannelState,limits:&ResourceLimits,b:&ResourceBudget)->Result<EvidencePacket,ModelError>{
- let mut fields=crate::scope::OWNED_FIELDS.to_vec();fields.extend(["artifact","source","use_","inventory","view","characterization","event","diagnostic","entry","trace","attempt","call","arguments"]);
+ let mut fields=crate::scope::OWNED_FIELDS.to_vec();fields.extend(["artifact","source","use_","inventory","view","characterization","event","diagnostic","entry","trace","attempt","call","arguments","site","alternative","link","access"]);
  let data=crate::scope::hydrate_with(reader,vec![target_id(crate::originals::target(source)?)],&crate::source_evidence::inputs(),&fields,b).await?;
  let original=crate::originals::range(&data,source,None,None)?;
  let body=body(reader,&data,&original,request,channels,limits,b).await?;

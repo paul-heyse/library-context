@@ -7,7 +7,8 @@ pub async fn get(reader:&NativeReader,r:&InspectValuePathsRequest,request:&Reque
  let mut fields=crate::scope::OWNED_FIELDS.to_vec();fields.extend(["owner","formal","entry","path","access","key","transfer","route"]);
  let batches=crate::scope::hydrate_with(reader,vec![target_id(graph::Target::Entity(graph::EntityId::of(r.member)))],&inputs,&fields,b).await?;
  let mut data=selection::classification::ClassificationData::new(b);let mut native=native_requests::NativeInventory::new(b);let mut rows=native_requests::PreparationRows::new(b);
- for (name,batch) in &batches.batches{data.visit(name,batch)?;native.visit(name,batch)?;rows.visit(name,batch)?;}
+ let native_inputs=native_requests::NativeInventory::inputs().into_iter().map(|input|input.name().to_owned()).collect::<std::collections::BTreeSet<_>>();
+ for (name,batch) in &batches.batches{data.visit(name,batch)?;if native_inputs.contains(*name){native.visit(name,batch)?;}rows.visit(name,batch)?;}
  let binding=if !rows.substitutions.is_empty(){let mut d=normalized::binding_normalization::BindingData::new(b);let mut o=normalized::binding_normalization::BindingOutput::new(b);for(name,batch)in &batches.batches{d.visit(name,batch)?;o.visit(name,batch)?;}Some((d,o))}else{None};
  let prepared=native_requests::PreparedNativeSemantics::prepare(native_requests::PreparationInputs{native,rows,binding},&data,b)?;
  let claims=crate::claims::Claims::new(&batches,b)?;let mut canonical=r.clone();let owner=prepared.domain().resolve(&mut canonical)?;let mut values=Vec::new();

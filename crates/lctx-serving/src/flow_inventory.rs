@@ -9,7 +9,7 @@ fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<&R, Error> {
         .rows()
         .iter()
         .find(|r| r.id() == id)
-        .ok_or(Error::Contract)
+        .ok_or_else(|| Error::Model(ModelError::Invalid(format!("required native evidence row missing: {}", R::NAME))))
 }
 fn name(value: &str) -> Result<Name, Error> {
     Name::new(value).map_err(|e| Error::Codec(e.to_string()))

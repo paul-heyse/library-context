@@ -1,5 +1,7 @@
 //! Attributed finite claims; no absence or runtime compatibility is inferred from spelling.
 use super::*;
+/// Public selector bound, also used when internal inventories evaluate independent batches.
+pub const MAX_REQUIREMENTS: usize = 16;
 use crate::domain::{
     charged::{ChargedMap, ChargedSet, StateCharge},
     conditions::{BooleanOperation, Diagram, DiagramAdmissionError, EvaluationAtom},
@@ -512,7 +514,7 @@ pub fn aggregate(
     }
 }
 pub fn selection_digest(selection: &Selection) -> Result<ContentHash, ModelError> {
-    if selection.requirements.len() > 16 {
+    if selection.requirements.len() > MAX_REQUIREMENTS {
         return Err(invalid("selection accepts at most sixteen terms"));
     }
     for r in &selection.requirements {
