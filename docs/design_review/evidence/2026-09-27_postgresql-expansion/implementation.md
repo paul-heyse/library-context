@@ -1,7 +1,7 @@
 # PG8–PG11 implementation evidence
 
 **2026-09-27.** This page records the bounded foundation slice under
-[ADR-0068](../../../adr/0078-current-design-cutover.md) and the
+[ADR-0068](../../../adr/0131-evidence-values-and-contextual-delivery.md) and the
 [PostgreSQL plan](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream).
 The forward plan §6.1 owns finding disposition. Production import/promotion, PostgreSQL MCP
 query cutover, ANN and admitted federation remain PG12–PG17.

@@ -1,6 +1,6 @@
 # Code-intelligence review additions
 
-**Version 1.4 · 2026-10-05** · What the [code-intelligence profile](principles.md) adds to
+**Version 1.5 · 2026-10-06** · What the [code-intelligence profile](principles.md) adds to
 each slot of the [core review template](../../core/design-review-template.md). The additions sit
 within the core slots; no slot is added or removed. Each applies only where the subject touches
 the behaviour concerned.
@@ -53,7 +53,7 @@ Add to each projection, analysis or synthesis stage:
 | **New release of the analysed code** | Identity across releases; what changes and what earlier answers still mean |
 | **A module full of unresolved references** | How unknowns are recorded and served; that nothing reads them as absent |
 | **Trace a served claim** | From the answer through findings/facts to spans within one pinned realization across calls, returned references, resources and continuations (CI-13) |
-| **An evaluation run** | That references stay out of inputs and parameters; criteria fixed before the run |
+| **An evaluation run** | Private truth stays out of production inputs; protected data does not tune parameters; development comparisons freeze meanings and evaluator revisions establish explicit baselines |
 | **Grow content or semantic kinds** | Same bounded request over more unrelated content; additional kinds without automatic per-kind operational expansion; complete global analysis where required |
 | **High-degree node or concurrent compile/serve** | Examined edges/bytes, intermediate state, queues and contention; complete/partial/refused remain distinct |
 | **Publish or replace a physical realization** | Drain writers, seal content/definitions before final reconciliation, publish coherently, preserve consumer pins and declared identity mappings |
@@ -78,7 +78,7 @@ stated tolerances.
 | **Claim beyond its model** | A behavioural answer stated without its model, or a refuted-under-model verdict served as absence | CI-06 · CI-G1 |
 | **Cross-snapshot citation** | A served claim whose evidence ids can resolve in a different snapshot | CI-11 · CI-G2 |
 | **Ambient analyzer input** | Configuration or environment the analyzer discovers for itself, outside the recorded context | CI-10 · G4 |
-| **Gold leakage** | An evaluation reference path, or a parameter tuned on it, reachable from the compiler | CI-12 · CI-G3 |
+| **Gold leakage** | Private expectation reachable from production, protected-data tuning, or a changed evaluator meaning silently treated as system improvement | CI-12 · CI-G3 |
 | **Reachability as dataflow** | A program-analysis question answered by plain graph reachability without transfer semantics | CI-07, CI-06 · G8, CI-G1 |
 | **Bounded answer, amplified work** | A small evidence request scans/rehashes an unchanged whole artifact or expands a high-degree frontier without appropriate work bounds | FP-07, CI-08 · A4 |
 | **Pin ends before the journey** | A returned reference or continuation can resolve under changed content or answer-affecting definitions | CI-13 · G5, G6 |

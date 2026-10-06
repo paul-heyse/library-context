@@ -75,7 +75,10 @@ Publication and selection remain distinct. A running server pins one complete re
 references, resources and cursors cannot silently resolve against a replacement. Logical content
 identity and a new physical/search realization are separate. Definitions cannot change beneath
 pinned readers. Original bytes and consumed vectors are content-authoritative; engine indexes are
-derived. The embedding owner remains [the exact Qwen specification](../../specs/embedding/qwen3-embedding-8b.json).
+derived. [The exact Qwen specification](../../specs/embedding/qwen3-embedding-8b.json) owns the
+implemented1024 baseline. The accepted product extension in §10 schedules replacement identities,
+full4096 values and deliberate1024 search/analytical projections; this does not alter this paused
+audit checkpoint or turn those values into implemented contracts.
 
 ## 3. Efficient execution by design
 
@@ -658,3 +661,33 @@ obligations are satisfied. Native querying remains selected throughout. Close F1
 bounded publisher construction/reconciliation and actual concurrent exact cache-winner controls.
 Keep Q1 adoption separately pending; no source review or focused fixture result promotes it.
 On resume, start with the remaining R-Q0 checks listed at §8.1, using the integrated compiler and native repairs. Do not restart the stopped legacy suite or introduce an additional review gate.
+
+## 10. Evidence/retrieval and primary evaluation extension — accepted design, implementation Proposed
+
+The [evidence/retrieval and evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+realizes the separate [2026-10-06 target review](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
+and owns that review's F01–F03 only. This graph-native coordinator retains its two nominated
+2026-10-05 target/capability reviews as its architectural basis, its implementation-audit source
+IDs, and the paused R-Q0 acceptance checkpoint in §8.1. The extension neither changes those
+receipts nor restarts stopped tests, native acceptance, Q1 or an evaluation campaign.
+
+The four supporting plans now develop ER1–ER4 as additional Proposed production scope: exact
+evidence roots/parts/windows/bindings, local complete-input tokenizer admission, full4096 winning
+values with split dependencies, explicit shared normalized1024 E1/search projection, native
+scoped discovery/rescoring, contextual expansion/demand-aware packing and final serialized delivery
+maps. Producers migrate their cache, transport, detached import, native materialization,
+reconciliation/restore, analytic and Rust/PyO3/MCP consumers together. They are a hard pivot;
+current1024 values cannot be promoted to4096 and no legacy reader or second authority is retained.
+
+The [programmatic evaluation plan](programmatic-evaluation-plan_2026-10-06.md) owns independent
+private finite references and the primary improvement loop. EV1 pure kernels can be implemented
+from the settled ER semantic design without waiting for a database, live model or external A/B/C
+parity. ER3/ER4 production journeys require their actual migrated contracts and relevant native
+prerequisite repair. EV3 joins delivered observations and numerical/stage diagnosis only after the
+respective producers exist. Agentic outer feedback improves both system and evaluator, under
+versioned comparison meanings; comparative confirmation and Q1 remain separate authorized work.
+
+The extension coordinator §4 owns cross-plan ER/EV dependency order and §6 finding disposition.
+The forward plan retains the product/research queue and its independent EVAL/analytical IDs.
+ADR-0130/0131 and the current architecture own approved rule changes; no implementation receipt
+or efficiency/quality claim follows from document acceptance.

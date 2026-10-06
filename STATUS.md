@@ -2,19 +2,32 @@
 
 _Updated 2026-10-06 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Retrieval/evaluation target review completed, 2026-10-06: Revise.**
-The [design review](docs/design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
-assesses the colleague's proposal against current source and versioned library capabilities.
-Programmatic evaluation is the primary loop; outer agentic evaluation feeds both system
-improvements and evaluator task models, coverage and judgments. The review owns unscheduled
-F01–F03: evaluator revision/comparison semantics, analytical full-vector/projection policy,
-and finite-first evaluation with optional status-preserving solver operations. Its RC01–RC05
-are proposed authority changes, not adopted rules. No product code or acceptance changed.
-**passed:** `UV_NO_SYNC=1 just docs-check` on 2026-10-06 (323 canonical pages;
-offline links, ADR metadata and agent instructions). Product tests/probes are **not_run**
-for this static design review; no performance or retrieval-quality result is asserted.
-Next: incorporate these corrections into a revised target and subsequent implementation plan;
-the review retains disposition until a plan explicitly takes ownership.
+**Evidence/retrieval and primary evaluation plans authored, 2026-10-06; implementation Proposed.**
+The [combined coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns
+shared ER/EV decisions, dependencies and the nominated [target review](docs/design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)'s
+F01–F03. The [programmatic evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md)
+owns the independent primary loop; grounded outer agentic feedback improves both system and evaluator.
+The four graph-native supporting plans develop production ER1–ER4. The forward product sequence,
+architecture, profile1.5 and ADR-0130/0131 incorporate approved RC01–RC05. Existing gold,
+confirmation and heldout stay protected. Full4096 winners with shared normalized1024 search/E1
+projection and all affected consumer migrations are targets, not implemented changes.
+
+The [independent revised-plan review](docs/design_review/reviews/design_review_evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+accepts the target at **Proposed** architectural strength, with no new material finding or rule
+impact. Its dependency-policy follow-up preserves that verdict; the new plans follow the operator's
+2026-10-06 exact-version instructions without changing dependencies. This does not establish runtime acceptance. Source F01–F03 remain open at
+[coordinator §6](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion);
+decided design does not establish implemented closure. **passed**, 2026-10-06:
+`UV_NO_SYNC=1 just adr-lint` (71 records) and `UV_NO_SYNC=1 just docs-check` (324 canonical pages,
+offline links, ADR and agent instructions), after repairing one stale retired-ADR link.
+Product tests, probes, inference, agent/evaluation campaigns and performance measurement are
+**not_run** for this document-authoring scope. The supplied external proposal remains unchanged
+and untracked. No extra worktree or owned runtime worker was created.
+
+**Next:** plan execution for ER1 construction and EV1 independent finite kernels from the settled
+semantic design; ER2 shared-value/consumer migration follows actual ER1 inputs. Native and live
+lanes consume their actual repaired prerequisites; external comparison parity cannot block pure EV1.
+No production work or paused native acceptance is activated by this documentation handoff.
 
 **Graph-native remediation remains paused at the user's request; it is integrated, with final native acceptance pending.**
 The authorized scope is [coordinator §9](docs/plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)

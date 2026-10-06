@@ -1,5 +1,7 @@
 # Graph-native model and store-free compiler
 
+**Product extension Proposed, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition and pause remain at its original coordinator.
+
 **Complete — implemented and user-accepted, 2026-10-05 (ADR-0128).** Supporting plan for the [replacement coordinator](graph-native-pivot-plan_2026-10-05.md).
 It develops M1, C1, C2-N and C2-U. The coordinator owns package state, cross-plan dependencies
 and finding disposition. The design basis is its two named reviews, not another model review.
@@ -372,3 +374,90 @@ Run touched-crate compile checks and explicit affected verification-family filte
 remediation validation, not the waived historical compiler-suite/parity work, a live-library
 pilot, assembled qualify or performance measurement. Completion still requires migration of the
 whole applicable binding/consumer inventory, not only the representative first fixture.
+
+## 6. ER1/ER2 — Evidence construction and actual encoder dependencies
+
+**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+owns ER package state and the new review findings; its §2 fixes shared meanings and representation
+policy. This extension does not resume or close §5's paused graph-native audit work.
+
+### 6.1 ER1 — Honest roots, parts and binding operation
+
+Extend the existing retrieval model/compiler operation, using source/catalog/association authority.
+Resolve defining-source alternatives independently of public access/import provenance. Construct
+roots for callable/non-callable/ambiguous source definitions, public invocation variants, source and
+effective options, standalone documents, scenarios and deployment/release material. Existing Member
+and Release origins alone cannot erase unsupported roots. Source unavailable/native cases keep
+qualified boundary information rather than guessing a body.
+
+Construct ordered ContentParts with primary versus interpretation-context purpose, semantic scope,
+original artifact UTF-8 ranges and synthetic-segment maps. SearchWindows bind a selected unit/view,
+part intervals, complete rendered input and render/partition policy. WindowBindings nominate exact
+or candidate targets from primary information and qualified association basis. Context-only imports,
+headings and helper mentions remain navigation/context; publisher no longer interprets broad parent
+membership as fragment applicability. Mandatory interpretation dependencies include conditions,
+signatures/variant/configuration, headings/table keys, setup and original qualifications.
+
+The owned operation receives completed source/catalog/association inputs and returns admitted
+unit/part/window/binding/map streams with explicit omissions/unknowns. Shared validators establish
+range/parent/context/association correctness without replaying every upstream producer. Diagnostic
+replay remains an independent control. Construction is per immutable documentary grain with bounded
+batches; release rich source after its final use, retaining compact shared source/association indexes.
+
+Register each new canonical record in typed declarations, nominal identities, graph kinds/roles,
+relation inventory, loaders/frontiers, admission and neutral transport before assuming derived
+codecs cover it. Pure validators and explicit omission controls protect detached import/restore.
+Source maps and qualifications are semantic content; private evaluation expectations never appear.
+
+### 6.2 Semantic partitioning and tokenizer adapter
+
+Reuse latest canonical Ruff nodes/coordinates, current Markdown hierarchy and Unicode boundaries.
+Choose semantic splits around complete signatures/options, enclosing predicates, source blocks,
+document headings/tables and scenario setup. Prefer1024 complete-input tokens, normal hard2048;
+mandatory context and synthetic headers count. No truncation or invented negative evidence.
+An indivisible oversized unit emits explicit lexical-only/partial-vector availability while full
+original expansion remains reachable. A larger-token admission policy is conditional ER5 work.
+
+Use a narrow Rust tokenizers adapter loaded once from exact acquired encoder assets/configuration.
+Disable truncation and count actual special-token/input preprocessing behavior. Rust tokenizer
+byte offsets describe rendered input; compose them with part maps to original artifacts. Synthetic
+and empty special-token ranges have no fabricated source spans. Keep endpoint tokenization for
+focused parity/admission controls, not every tentative split. Qualify service assets beyond one
+JSON file where additional configuration affects encoding.
+
+### 6.3 ER2 — Separate values from their consumers
+
+Replace the format2 all-purpose embedding spec at the model boundary. Encoder realization identifies
+actual checkpoint/tokenizer/custom-engine/pooling/precision/full-output behavior. Input identifies
+exact final encoder bytes/processing. Render/partition and query recipes have their own dependencies;
+projection identifies source full-value digest, dimension/algorithm/precision; each E0/E1 consumption
+identifies its actual value/projection and method/policy. These distinctions may be nested records,
+not a new registry or service. Identical actual input can share a winner across source occurrences.
+
+Accept immutable normalized full4096 F32 winning bytes, derive normalized1024 by F64 prefix-norm
+accumulation and one F32 rounding, reject invalid norm/components and use shared validation.
+Initial E1 analytics and ANN share that projection; full values support candidate rescoring and
+references. Both document and query clients request full output under admitted launch semantics.
+Never reconstruct missing dimensions from old1024 or infer bitwise endpoint-prefix parity.
+
+Compiler preparation, explicit cache/inference effects and analytical consumers migrate together.
+Query-only changes do not re-key unchanged document/E1 inputs. A projection change derives from
+existing admitted full bytes; changed encoder/input requires fresh inference. Canonical consumption
+binds exact winners, availability, projection recipe and compact/full bytes needed for service-free
+reconstruction. Current immutable-winner semantics survive; no live cache lookup repairs canonical
+content. Token/refusal/NotRequested cases remain distinct and do not erase original source content.
+
+### 6.4 Functional controls and changed consumers
+
+ER1 migrates retrieval/build, cpg-core retrieval preparation and source/option/document/scenario
+construction, graph admission/frontiers and typed artifact loaders. ER2 migrates embedding spec/text
+admission, cpg-core shared effect/cache consumption, lctx-embed and the Python numerical client,
+all E1 consumers and canonical transport. Native cache/schema/index/restore changes are at the
+realization plan §7 and projection plan §7, part of the same package rather than deferred cleanup.
+
+Use independent sibling/re-export/non-callable/ambiguous/option/release and setup-only cases;
+Unicode/synthetic/special-token maps; boundary splitting and indivisible refusal; canonical omission,
+wrong-context/range refusal and detached roundtrip. Numeric controls use hand-computed tiny vectors,
+zero/nonfinite norms and source/dimension/receipt mutation. Identity controls change query, rendering,
+source binding, encoder, projection and analytical policy independently to establish actual reuse.
+No live service/database is needed for pure contracts; fake vectors establish that seam only.

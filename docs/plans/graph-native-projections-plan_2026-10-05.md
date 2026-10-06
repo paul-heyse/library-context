@@ -1,5 +1,7 @@
 # Named graph projections, analytics and export
 
+**Product extension Proposed, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition and pause remain at its original coordinator.
+
 **Compiler-side A1/A2 implemented and user-accepted; published exports Implemented / focused Tested, 2026-10-05.**
 Compiler model/analytics and artifact controls provide scoped Tested evidence; the coordinator
 records the preserved compiler-stage boundary and actual native projection/export control. Supporting plan for A1/A2 in the
@@ -214,3 +216,46 @@ IDs. The canonical full-artifact import path is distinct from this diagnostic ex
 External Neo4j/GDS, relational, GraphQL, GQL and other destinations retain §4's consumer triggers.
 The capability investigation found no current reason to add them to close this audit. No legacy
 export format, old projection reader or historical runtime artifact is retained for compatibility.
+
+## 7. ER2 — Explicit analytical representation and evaluation views
+
+**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+owns F02/ER2. The new embedding owner accepts full4096 values and a deterministic normalized1024
+projection. This plan owns their deliberate analytical consumption, not query instructions or
+native ranking. Paused §6 audit acceptance remains separate.
+
+Initial E1 neighbors/pairs, centroids, passage links and community labels consume the declared1024
+projection shared with ANN. Their exact score/threshold/top-k/tie and method/input contracts remain
+explicit. The choice avoids incidentally quadrupling analytical vector arithmetic/live payload
+when service output changes; it does not establish quality parity with old rounded endpoint values.
+Rebuild E1 results fresh under the new projection/method identity. Full4096 analytical consumption
+is a named later experiment with new result identity, not a client default.
+
+Every analytical invocation records encoder/full-value and projection source/algorithm/dimension/
+precision, admitted vector universe, method settings and exact consumption. Replace monolithic
+spec equality with compatible declared consumer input. Query-template/analyzer/packing changes
+cannot invalidate unrelated E1 results. Changed encoder/input/projection/method/input membership
+invalidates the affected results. Current NotRequested/missing/failed distinctions remain.
+
+Prepare compact shared projection inputs once for compatible methods; avoid another full-vector
+resident copy, cache lookup or publish/readback before analytics. Full values remain admitted
+content authority; numerical offline references can stream blocks after publication. Exact analytical
+neighbors are not replaced with native approximate ANN. Result/provenance lineage maps to semantic
+IDs and qualified premises, never dense labels or physical cohort IDs.
+
+Migrate neighbors, vector pair/passage-link builders, centroid/community-label inputs, selected
+analytic materialization, consumer receipts and artifact/load/restore paths together. Detached
+import verifies declared projection derivation and selected consumption; restore recomputes search
+arrays without a live endpoint. A service recipe change alone cannot quietly change analytical
+method semantics.
+
+Focused controls compare tiny independently computed full/projection scores, canonical shuffled
+input/ties, method/source/projection identity mutation, query-only reuse and zero/nonfinite refusal.
+One actual chosen-policy E1 result and receipt survives canonical roundtrip/current restore.
+Fake inputs establish mechanics only; live precision/quality remains a separate activated check.
+
+Offline evaluator views may reuse existing petgraph role-aware topology, FixedBitSet factor sets,
+FCA coverage and Arrow/DataFusion joins under their own private task/experiment contracts. Connectivity,
+shared labels and corpus implications are diagnostics, never independent witness truth. Evaluation
+expected-answer fields never enter analytical production data. The [evaluation plan](programmatic-evaluation-plan_2026-10-06.md)
+owns those consumers and numerical ablations; analytical/Q1 product claims retain their existing owner.

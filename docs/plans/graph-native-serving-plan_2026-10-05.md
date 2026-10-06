@@ -1,5 +1,7 @@
 # Native graph retrieval, selection and evidence serving
 
+**Product extension Proposed, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition and pause remain at its original coordinator.
+
 **Implemented / focused Tested, 2026-10-06; operator adoption not_run.** Supporting plan for S1/S2/S3 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). It consumes one admitted
 graph and its [sealed SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
@@ -388,3 +390,96 @@ Python. During affected native controls exercise an owned delayed/long-running r
 client stream, and confirm cancellation/drain permits subsequent work; do not claim stronger
 preemption than the implementation demonstrates. This targets an audit evidence limit without
 creating a new always-on observer or restoring a broad test campaign.
+
+## 7. ER3/ER4 — Contextual discovery and actually delivered information
+
+**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+owns ER state/new findings. Its §2 replaces the baseline §2.2/§2.3 family/member collapse and single
+spec for this future extension. This is not acceptance or resumption of paused §6 audit packages.
+
+### 7.1 Discovery nomination and coherent expansion — ER3
+
+Consume admitted SearchWindows/WindowBindings and declared value/projection policy; no query-side
+attribution classifier guesses which sibling a byte fragment belongs to. Exact identifier/option
+paths, code-aware lexical matches (including BM25-zero) and1024 HNSW nominate eligible target/context
+alternatives with actual window/channel witnesses. Standalone source/document/scenario/deployment
+units have independent paths; absence of a member never erases them.
+
+Group best contributions per family/channel/applicable target/context before final result caps;
+within-family RRF K60 then equal-family ranks and canonical ties remain the initial policy. Positive
+relevance and literal-match eligibility are separate. Bounded widening128/256/512/1024 reduces raw
+crowding while retaining honest approximation/tier exhaustion. Full4096 candidate-union rescoring
+cannot recover missed nomination. Record exact route, projection, query-value digest, tier, fallback
+and ranking policy. A channel failure retains the declared whole-pool fallback or explicit error,
+not mixed incompatible scores per candidate.
+
+Use the realization plan's typed cohort/bitmap, residual-context and small eligible exact routes.
+Native model-owned restriction/expansion batches useful frontier inputs, applies qualification/
+context before growth and hydrates only retained evidence. Named paths preserve support/conditions,
+contradictions, high-degree partial frontiers and original byte access; physical adjacency is not
+proof. No per-edge network loop or engine-step accounting is introduced.
+
+Optional neural scoring requires a separate qualified checkpoint/template/realization and bounded
+pool. Initial baseline has no reranker. vLLM engine reuse does not make embedding weights a classifier
+or token-level model; model residency/acquisition and cancellation/fallback are actual obligations.
+Validity is established before and after selection, never traded for a heuristic score.
+
+### 7.2 Demand-aware packets and final observations — ER4
+
+Extend existing model-owned operation inputs with optional production EvidenceDemand: requested
+information facets/context and bounded delivery/expansion policy. It never carries evaluator expected
+answers, witness lists or task IDs that reveal private truth. Existing routes keep their mandatory
+identity/signature/qualification defaults when demand is absent. Ten public routes remain; no evaluator
+MCP tool or duplicate semantic Python model is added.
+
+Construct compatible context-closed bundles, including mandatory setup/conditions and available
+original anchors. A default expression, declared/effective option and configuration override remain
+distinct. Select alternatives using actual renderer/envelope cost, then encode once and verify the
+real final JSON-RPC/text/structured envelope. Greedy packing is heuristic. Required indivisible cores
+remain protected; optional omitted/partial/refused/expandable content is explicit.
+
+Replace unconditional demo/link counts as selection rules with bounded demand-aware alternatives
+inside existing final32KiB default/256KiB expanded envelopes. Defaults may retain concise preferred
+counts as presentation heuristics, never discard a demanded mandatory dependency solely to meet them.
+Whole responses, not hidden graph inventories or opaque IDs, establish immediate information.
+
+PacketEvidenceMap links actual delivered fields/text spans to source/window/binding/qualification
+and interpretation dependencies. Maps include synthetic fields and omission/expansion state without
+inventing original spans. Incorrect but schema-valid maps must fail independent controls. Source IDs
+without readable defaults/conditions are references, not delivered meaning. Public get_evidence and
+section expansion retain pinned originals, statuses and actual availability.
+
+### 7.3 Stable ranked-result continuation and safe effects
+
+Retain each bounded ranked ordering in NativeSession as an immutable result entry containing query
+vector digest, eligibility/request/policy, candidate ordering/witness keys, channel/fallback/tier,
+scorer and snapshot identity. Initial retention:16 entries and8MiB per session,10-minute expiry;
+remove expired then least-recently-used entries. Cursor carries session/result identity/digest and
+offset plus existing request/realization bindings. Generated outputs disclose ranked-cursor expiry.
+Expiry, eviction, foreign session or restart returns explicit continuation-unavailable, never a
+silently recomputed differently ranked page. Original/browse/section references retain their own
+existing snapshot-bound contracts. This is bounded transient pagination state, not query history
+or a persistent registry/service.
+
+Share one ranking realization across each page/expansion journey. If optional scorer availability
+changes after first page, continue the retained order or refuse; do not silently fall back. New
+search creates a new realization. Bound actual retained bytes/entries using ordinary memory/lifetime
+controls, without measuring engine work. Owned session shutdown drains workers before dropping
+result/native state; safe typed errors and actual final-envelope controls remain §6 obligations.
+
+### 7.4 Consumers and focused acceptance
+
+Migrate search_operations/search_evidence/find/get/compare packet consumers, model schemas/decoding,
+Rust dispatch, PyO3 NativeSession and thin FastMCP listing/calls/resources together. Coverage/defaults,
+classification, mandatory signatures, singleton/public access and independent evidence paths survive.
+Canonical new records and native lowerings arrive through ER1–ER3, not a second serving authority.
+
+Actual selected persistent/native and editable-extension MCP controls cover sibling/setup/variant
+bindings, zero-score identifiers, high raw-window crowding, scoped nearest vectors, mismatched query/
+projection policy, readable condition removal with ID intact, contradiction/unknown delivery,
+mandatory setup, alternate witnesses, original expansion, final32/256KiB envelopes and expiry/foreign/
+evicted/restarted continuation refusal. Channel/scorer loss never creates a different next page.
+
+The evaluator observes these unchanged public interfaces and exact final bytes, but expected logic
+is independently authored. Its delivery maps do not self-certify. No real-library/live-vector/paid
+agent campaign is run to establish local contract controls; those claims remain separately activated.

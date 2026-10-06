@@ -19,6 +19,8 @@ comparison before it can qualify replacement serving. Product evaluation remains
 
 ## §8 Validation
 
+> Decision: ADR-0130
+
 **Accepted target.** Model declarations own structural and reference checks. Targeted independent
 known-answer and invalid-row controls challenge semantic operations. Admission retains exact
 producer outcomes and declared derivation topology; it does not rerun every compiler algorithm.
@@ -133,10 +135,25 @@ regions; composed summary/coverage/serving challenges remain separately scoped S
 **Accepted** (ADR-0071) for the structured behavioral evaluation; gold scoring is
 **Implemented** as a record of brief retrieval.
 
-**The product comparison** in [§14.12](api-and-evidence-product.md#section-14-12) is the primary
-first-product usefulness/differentiation criterion (Proposed execution). It uses coding agents as
-task performers, independent checks/review as judges, and matched Context7 plus internal evidence
-baselines. Pilot usability alone is not comparative acceptance.
+**Accepted target, implementation Proposed, 2026-10-06 (ADR-0130): programmatic evaluation is
+primary.** Independent private tasks/oracles judge actually delivered information and bounded
+public expansion, compatible contextual witnesses and supported finite worlds. The primary loop
+shrinks failures, separates numerical/channel/delivery losses and optimizes development settings
+under frozen meanings. It does not use production classification as its own expected-answer engine.
+
+Outer agentic evaluation supplies independently grounded system improvements **and** evaluator
+model/coverage/observation/judgment revisions. Agent success/failure alone is not truth. Freeze each
+comparison's meanings/population; changed meanings establish an explicit revision/new baseline or
+stratum, with same-packet rejudgment where applicable. [The dedicated plan](../../plans/programmatic-evaluation-plan_2026-10-06.md)
+develops these contracts; [the combined coordinator](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+owns its findings. Pure finite/serializer work need not wait for live inference or native acceptance.
+
+Protected confirmation/gold/heldout never tune parameters and remain isolated; private truth never
+enters production compilation, embeddings, retrieval or query prompts. Authorized development
+optimization is distinct. Product usability/differentiation studies in [§14.12](api-and-evidence-product.md#section-14-12)
+remain separately admitted external claims, not the primary engineering loop or a prerequisite for it.
+
+> Decision: ADR-0130
 
 **The structured behavioral evaluation** remains a separate judgment of semantic correctness and
 research progress, with its existing unanswered targets and truth criteria.

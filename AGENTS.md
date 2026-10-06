@@ -25,12 +25,22 @@ Ordinary compile verifies native runtime readiness before acquisition and publis
 handle. MCP pins a complete read-only snapshot through NativeSession; selection is explicit. Product features pause during
 this cut; STATUS and the coordinator own its current evidence and remaining work.
 
+**Accepted next product design, implementation Proposed (2026-10-06):** the
+[evidence/retrieval and evaluation coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+and [programmatic evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md) own ER/EV
+scope and the nominated target review's F01–F03. Programmatic evaluation is primary; grounded outer
+agentic feedback improves both system and evaluator. Development optimization uses frozen
+comparison meanings; protected confirmation/gold/heldout never tune or enter production (ADR-0130).
+ADR-0131 selects exact contextual windows/delivery and full4096 values with deliberate1024 search/E1
+projection. These targets are not implemented by document approval. Graph-native remediation
+remains paused; independent finite kernels need no live model or external comparison parity.
+
 The pieces:
 - **Extraction:** the accepted code-facts target links independent latest Ruff/ty and native
   Pyrefly in-process (ADR-0117/0118). Latest Ruff owns canonical syntax; Pyrefly's embedded Ruff
   stays inside its adapter, and ty's runtime view has explicit source/role correspondence.
   Migration is in progress: current pins/acceptance are in docs/pins and the code-facts coordinator. The
-  Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0078);
+  Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0131);
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** independent native providers stream bounded typed batches into an attempt-owned,
   spillable Arrow/DataFusion workspace. Completed immutable streams feed normalization and analyses;
@@ -301,7 +311,7 @@ machinery is required for efficient design.
 
 ## Design-phase cutover
 
-After validating a change, fully pivot to the current design (ADR-0078). Rebuild project stores
+After validating a change, fully pivot to the current design (ADR-0131). Rebuild project stores
 and projections from pinned inputs; remove obsolete generations, runtime copies, rollback assets
 and compatibility-only paths. Do not add old-format readers or retain historical runtime records
 without a named current consumer. Quiesce project readers before replacing their state.

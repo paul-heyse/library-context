@@ -1,6 +1,6 @@
 # Code-intelligence design principles
 
-**Version 1.4 · 2026-10-05** · Domain profile for code-intelligence systems: static analysis
+**Version 1.5 · 2026-10-06** · Domain profile for code-intelligence systems: static analysis
 of source code into fact graphs, graph and program analyses over those facts, and
 evidence-backed answers served to people and coding agents. Refines the
 [core design principles](../../core/design-principles.md) under their layering rules (§B). It
@@ -10,7 +10,7 @@ the repository binding does that.
 Use the [Heuristics for Efficient Architecture](../../core/efficient-architecture-heuristics.md)
 with the core principles when choosing physical realizations of these domain contracts.
 
-Version 1.4 retains CI-01–CI-13 and CI-G1–CI-G3, applying core 3.3's execution-fit judgment
+Version 1.5 retains CI-01–CI-13 and CI-G1–CI-G3, applying core 3.3's execution-fit judgment
 without prescribing a storage engine or execution runtime. Bounded assessment and discretionary
 investigation remain; historical reviews retain their versions. Core FP-01–FP-07 and A1–A4
 organize architecture review; these domain rules independently constrain supported behavior.
@@ -188,12 +188,20 @@ exist? Is each claim's evidence status visible to the consumer?
 
 ### CI-12 — Evaluation is non-circular
 
-**MUST · CI-G3 · refines DP-18, DP-22.** Reference answers, gold catalogs and evaluation sets are
-never inputs to extraction, analysis or synthesis, and parameters are not tuned against them.
-Success criteria are written before the evaluation runs. An evaluation states what it covers.
+**MUST · CI-G3 · refines DP-18, DP-22.** Private reference answers, gold catalogs and evaluator
+expectations never enter production extraction, analysis, synthesis, embedding, retrieval or query
+prompts. Protected confirmation/gold/heldout populations do not tune parameters. Explicit development
+populations may guide system optimization under frozen task/oracle/observation/judgment meanings
+within each comparison; declare splits, coverage and changed variables before results.
 
-**Audit.** Can any evaluation reference reach the system's inputs or influence its parameters?
-Were the criteria fixed before the results were seen?
+Evaluator meaning changes have an explicit revision and independent basis, with a new comparison
+baseline/stratum where meanings differ. Outer user/agent observations may challenge task coverage
+and judgment as well as the system, but do not automatically become expected truth. An expected
+answer computed by the production decision under test is not an independent oracle.
+
+**Audit.** Can private truth reach production inputs, or protected data select parameters? Are
+comparison meanings fixed, supported coverage and unscorable outcomes explicit, and evaluator
+revisions distinguishable from system improvements?
 
 ### CI-13 — Serving is a pinned, rebuildable projection
 
@@ -219,7 +227,7 @@ These add to core gates G1–G8.
 |---|---|---|
 | CI-G1 — Fidelity | A relabelled relation, a heuristic stated as fact, an unknown read as absent, or a claim exceeding its stated model can reach a published result. | CI-01, CI-02, CI-04, CI-06, CI-09 |
 | CI-G2 — Evidence closure | A served claim can cite evidence missing from its snapshot, name a symbol that does not exist, or hide its evidence status. | CI-11 |
-| CI-G3 — Evaluation integrity | Evaluation references can reach the system's inputs or tune its parameters. | CI-12 |
+| CI-G3 — Evaluation integrity | Private oracle truth reaches production inputs, protected confirmation/gold/heldout tunes parameters, or changed evaluator meanings are compared as an unchanged yardstick. | CI-12 |
 
 ## Common false positives in code intelligence
 

@@ -113,7 +113,7 @@ comparison serve the same product contract rather than expanding general analysi
 
 ## §14.3 Responsibilities and representation flow
 
-> Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085, ADR-0078
+> Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085, ADR-0131
 
 The flow is pinned sources and metadata → attributed facts → normalized relations → typed
 analysis/catalog owners → admitted graph artifacts → native SurrealDB publication. Native serving
@@ -143,7 +143,7 @@ pinned bytes with a mutable current web page.
 
 ## §14.4 Public API and configuration contracts
 
-> Decision: ADR-0071, ADR-0074, ADR-0078, ADR-0106, ADR-0108
+> Decision: ADR-0071, ADR-0074, ADR-0131, ADR-0106, ADR-0108
 
 **Public identity.** A public member names the release's exposed owner/name/access path independently
 of binding interpretation. It references declarations without renaming them. Alias/inherited origins,
@@ -259,7 +259,7 @@ pinned disposable environment, without a generic shell semantics engine or manda
 
 ## §14.7 Query semantics and customizable requirements
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077, ADR-0081, ADR-0085; ADR-0114
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0131, ADR-0081, ADR-0085, ADR-0114
 
 **Accepted target (ADR-0128), 2026-10-05.** C2 owns the finite predicate and conjunction
 operations, contextual witnesses and completeness domains. The compiler prepares these from
@@ -321,7 +321,7 @@ its final limit; bounded ranking never claims exhaustiveness.
 
 ## §14.8 Retrieval units, witnesses and ranking
 
-> Decision: ADR-0077, ADR-0085, ADR-0128, ADR-0114
+> Decision: ADR-0131, ADR-0085, ADR-0128, ADR-0114
 
 **Implemented graph-native retrieval, 2026-10-06.** Fusion and winning-witness decisions remain
 one model operation over library numerical scores. Native realization derives vector indexes
@@ -352,11 +352,32 @@ quality or MCP search. Native publication admits physical indexes and query poli
 semantic capture/specification identity. Native realization is derived from admitted compiler
 content; it does not introduce another semantic authority.
 
+
+**Accepted next target, implementation Proposed (ADR-0131).** The
+[evidence/retrieval coordinator §2](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#2-shared-target-and-responsibilities)
+owns the extension beyond these implemented unit/rank contracts. Evidence roots separate defining
+source and public access; primary parts retain their context closure, semantic windows their exact
+bindings and original-coordinate maps. Non-callable roots, ambiguous associations and standalone
+release evidence remain discoverable without fabricated member identity. Token admission counts
+the complete encoder input locally against the exact tokenizer, including headers and special
+tokens. An indivisible oversized part remains original-addressable and explicitly lexical-only or
+partially vector-covered.
+
+Actual encoder/input identity admits one full normalized4096 F32 winner. Initial search **and** E1
+analytics consume the declared shared normalized1024 projection; full values also support bounded
+candidate rescoring and independent offline numerical references. Provenance, rendering, query,
+projection and analytical policy identities remain separate dependencies. This requires new values,
+fresh results and all consuming adapters; neither lost dimensions nor endpoint bitwise parity can
+be inferred from current1024 data. Native exact identifier, code-aware BM25 and scoped HNSW
+candidate paths remain selected. Contributions aggregate within compatible applicable context;
+zero-BM25 matches remain matches, while duplicate windows do not multiply votes. Candidate tiers,
+RRF and full-vector rescoring are explicit experimental policies, never completeness guarantees.
+
 <a id="section-14-9"></a>
 
 ## §14.9 Agent interface and bounded implementation packet
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081; ADR-0114
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081, ADR-0114, ADR-0131
 
 **Implemented graph-native interface, 2026-10-06 (ADR-0128).** Native serving retains pinned
 request context, one CPU admission owner, model-derived wire mappings, exact-input reconstruction
@@ -400,11 +421,30 @@ and continuation are explicit; required signatures are never silently truncated.
 to qualify, not latency measurements. Natural language nominates candidates but does not manufacture
 structured matches.
 
+
+**Accepted contextual delivery extension, implementation Proposed (ADR-0131).** A request can
+state a bounded public evidence demand; private evaluator answers/witnesses are never request
+inputs. Evidence nomination, compatible expansion and context-closed bundle packing are separate
+operations. Member grouping cannot merge incompatible release, variant, setup, control-flow or
+binding contexts. Required identity/signature/qualification remain indivisible under the existing
+32/256 KiB final envelopes. An explicitly unmet demand, omitted optional bundle or partial evidence
+coverage is visible. The actual delivered map describes the final serialized response after all
+Rust/PyO3/FastMCP transformations, including included context, snippets, original references,
+truncation, omission and byte cost. An original reference alone does not assert that its contents
+were delivered.
+
+Ranked result continuation uses the bounded NativeSession-owned immutable result cache specified
+in [serving extension §7](../../plans/graph-native-serving-plan_2026-10-05.md#7-er3er4--contextual-discovery-and-actually-delivered-information).
+Cursors bind the request/policy, pinned snapshot, ranking inputs and result ordering. Expiry,
+eviction, foreign sessions and restart return explicit continuation-unavailable; they never rerun a
+changed ranking under the old cursor. Original, browse and section cursors retain their own pins.
+This is disposable session state, not a durable historical store.
+
 <a id="section-14-10"></a>
 
 ## §14.10 Publication, optional analyses and rebuild boundaries
 
-> Decision: ADR-0071, ADR-0073, ADR-0077, ADR-0078, ADR-0081, ADR-0085
+> Decision: ADR-0071, ADR-0073, ADR-0131, ADR-0081, ADR-0085
 
 Public catalog construction is independent of optional behavioral analysis and brief seeds. Catalog
 and behavioral profiles have explicit identity. Unrequested analysis is `NotRequested`; selected
@@ -418,7 +458,7 @@ artifact cannot collapse to the same empty result. Advertised semantic closure m
 Native serving checks those capabilities before loading native execution; corrupt claimed artifacts
 cannot fall back to a different backend.
 
-Coarse dependency-aware reuse remains the accepted rebuild contract:
+The implemented coarse rebuild contract is the baseline for the accepted finer dependencies:
 
 | Change | Required invalidation |
 |---|---|
@@ -427,6 +467,17 @@ Coarse dependency-aware reuse remains the accepted rebuild contract:
 | Association policy with unchanged facts | Catalog/evidence and dependent unit/support closure |
 | Unit rendering or embedding spec | Retrieval/vector artifacts under a new admitted identity |
 | Ranking/display policy | Serving policy/cursors; unchanged source facts and units need no reinterpretation |
+
+
+**Accepted finer dependency target, implementation Proposed:** changed encoder/model/precision,
+exact tokenizer, document preprocessing or actual input bytes require new full values. Changed
+window provenance or source coordinates require fresh attributed uses even when encoder bytes can
+reuse the same winner. Projection changes rebuild their consumer arrays/indexes and E1 results;
+query instruction and ranking changes rebuild only compatible query/serving policy, not unchanged
+document inference or analytical values. Rendering changes update delivery identity; new inference
+is needed only when encoder input actually changes. Complete admission and reconstruction validate
+all these identities together. ER2 migrates producer, cache, analytical consumers, native
+materialization/reconciliation/restore and serving clients in one coherent cutover.
 
 Reuse includes scanned relations, group membership, missing lookups, roots/profile, coverage and
 policy/provider definitions. Evidence-only or moved-span changes require current attribution/source
@@ -491,7 +542,25 @@ logging models, ANN tuning and distributed deployment need a frozen product task
 
 ## §14.12 Product qualification and stopping rule
 
-**Proposed protocol; comparative qualification is not established by Phase 4 implementation.** Freeze a 24-task development
+> Decision: ADR-0130
+
+**Accepted primary loop, implementation Proposed (2026-10-06).** The
+[programmatic evaluation plan](../../plans/programmatic-evaluation-plan_2026-10-06.md) owns independent
+finite task models, compatible witness alternatives, answers across admitted worlds, and information
+actually delivered by the product. It separates source availability, admission, candidate/ranking,
+expansion and final packing ceilings. Inconsistent fixtures are unscorable; unsupported or incomplete
+reference procedures are inconclusive. Development settings may be optimized under frozen
+comparison meanings. Changes to task meaning, applicability or judgment create a new evaluator
+baseline; preserved packets may be rejudged as a separate result. Protected confirmation, behavioral
+gold and heldout remain sealed and cannot tune either system or evaluator.
+
+Agentic evaluation is the **outer** loop. It challenges real usability and supplies grounded feedback
+both to system improvement and to evaluator task models, coverage and judgments. It cannot silently
+change a scored experiment or become a production oracle. The following A/B/C differentiation study
+retains its separate claim boundary and authorization. Missing external source parity blocks that
+study, not pure finite evaluator development or programmatic controls.
+
+**Separate Proposed comparative protocol; comparative qualification is not established by Phase 4 implementation.** Freeze a 24-task development
 set before changing retrieval: eight feature-discovery, eight implementation (including at least
 two deployment/setup tasks), four API/configuration-choice and four ambiguity/unsupported cases.
 Then prepare a distinct 24-task confirmation set with the same strata, hidden from implementation
@@ -557,14 +626,18 @@ a FastMCP pilot, live embedding qualification or product differentiation.
 This is a hard ownership replacement. Remove the PostgreSQL backend, lifecycle and old serving
 paths; retain pure domain definitions, independent regression obligations and product contracts.
 No compatibility reader, old-ID bridge or historical runtime retention is required. A validated
-native replacement is rebuilt from pinned inputs under ADR-0078; operator replacement remains a
+native replacement is rebuilt from pinned inputs under ADR-0131; operator replacement remains a
 separate authorized boundary.
 
 Native publication and serving integrate pinned requests, typed hydration, native loading,
 ranking, bounded packets and thin MCP transport. The coordinator owns focused native functional
 evidence and the separate operator adoption boundary.
-Catalog/member readiness remains independent of brief availability. PR6 resumes after that
-boundary exits. The forward plan retains product sequencing and comparative tasks without
-promoting old formats or receipts to replacement qualification.
+Catalog/member readiness remains independent of brief availability. The graph-native remediation
+pause and its pending native acceptance remain intact. The accepted next product design is routed
+through the [evidence/retrieval and evaluation coordinator](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md):
+independent EV1 kernels need no live service, while affected production controls require the actual
+migrated ER contracts and native prerequisite repair. PR6 retains separately authorized usability
+and comparative work; its parity prerequisite cannot block the primary finite loop. The forward
+plan retains earlier receipts without promoting them to replacement qualification.
 
-> Decision: ADR-0071, ADR-0078, ADR-0085, ADR-0128, ADR-0073
+> Decision: ADR-0071, ADR-0131, ADR-0085, ADR-0128, ADR-0073

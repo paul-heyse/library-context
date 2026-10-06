@@ -1,5 +1,7 @@
 # SurrealDB realization and immutable publication
 
+**Product extension Proposed, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition and pause remain at its original coordinator.
+
 **Implemented / focused Tested, 2026-10-06; operator adoption not_run.** Supporting plan for P1/P2/I1 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). The coordinator owns state,
 shared decisions and disposition. This plan consumes the [admitted graph](graph-native-model-compiler-plan_2026-10-05.md)
@@ -418,3 +420,84 @@ Migration includes RuntimeConfig/ViewerConfig, CLI select/show/retire, native se
 runbook/install fixture config and affected tests. Closure replays the audit collision, failures
 before/after rename, new reader startup, active old pin and serialized select-versus-retire.
 No failed selection can create two differing authorities. Test owned files/databases only.
+
+## 7. ER2/ER3 — Full values, exact bindings and native search realization
+
+**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+owns ER state/F02 and the fixed semantic/value decisions. This physical consumer extends rather
+than reopens the paused audit packages in §6.
+
+### 7.1 Complete value/service/cache migration — ER2
+
+The current launcher and installed custom vLLM Matryoshka admission allow only1024. Update the
+actual launch/pooler recipe and both clients to admit full4096 output under the selected checkpoint's
+installed configuration. Test parameter construction/pool validation without loading weights first.
+The selected NVFP4-r2 model/custom SM120 service remain; no model/dependency upgrade or wheel-build
+campaign is part of this package. Full-output live usability is a separately activated check.
+
+Cache keys bind actual encoder/input bytes, not unrelated query instructions or source provenance.
+Read back exact first-writer full winners and freeze them per attempt with current batching/drain
+semantics. Canonical full values bind bytes/digest/dimension/encoder/input; declared1024 projections
+bind source digest and deterministic F64-norm/F32-output recipe. Both clients, admission, canonical
+consumption, graph/codecs/inventory, analytic receipts, schema/search arrays and import/export use
+these identities. Wrong-but-schema-valid winners or projections refuse/miss at the proper boundary.
+No partial service result or mutable cache lookup repairs an artifact.
+
+Store full canonical bytes once; lower a numeric1024 array only for search. Reconciliation derives
+and checks every query-visible value, field and occurrence/binding link, including zero/missing/extra
+rows. Sealed layout/index/algorithm definitions participate in realization identity. Full values
+are hydrated only for retained rescore candidates, never copied into each occurrence.
+
+### 7.2 Stream exact search lowering — ER3
+
+Consume admitted windows and bindings directly. Replace fragment × parent member × anchor loops
+with window/binding and primary/context lineage lowering. Shared text/value dedup survives with
+all exact occurrences. No publisher inference broadens applicability. Bound ordering/batches and
+bulk writes as §6.1; canonical registration precedes mechanical schema generation.
+
+Initial physical hot families are search windows/text, exact binding/context/dependency links,
+shared full/projection metadata and derived search projection cohorts. A search projection row
+is unique by projection/library-release/family, with typed scalar scope and specification fields,
+indexed scalar restrictions and the1024 array. It points to one shared full value/projection.
+The deliberate cohort copy improves selective native access; copies are not per member/window/
+anchor. Group/unique cohort construction once, not one scalar write per repeated occurrence.
+Native relation rows preserve exact target/context and witness lineage.
+
+Initial lexical analyzer uses class/camel-aware splitting and lowercasing for discovery, keeping
+exact spellings/path/option keys separately. Inspect configured token behavior; do not assume
+stemming improves identifiers. Changed analyzer/index realization rebuilds fresh and is sealed.
+Match predicates admit BM25-zero literals independently of positive relevance. Typed exact fields
+provide deterministic identifier paths without a synthetic score bonus.
+
+### 7.3 Predicate-specific native access and recovery
+
+Covered typed indexed scalar cohort predicates can supply bitmap prefilters; relational binding
+eligibility can remain an in-traversal residual. Pinned3.3 tests distinguish these shapes and show
+index hints/raw untyped fields can prevent prefiltering. Inspect representative composed EXPLAIN
+for selected scope equality/intersections and residual contexts; keep engine small-set exact
+threshold defaults initially rather than invent an application counting/planning service.
+
+If an authoritative selection yields a small eligible distinct projection set, native explicit
+cosine/distance scoring serves it exactly. Broad routes use HNSW with declared k/ef and approximation.
+Do not transfer bare KNN syntax from generic docs over pinned-source refusal. Contextual witnesses
+must satisfy the same eligibility as the nominated value, even where a shared vector has foreign
+occurrences. A global top-k followed by eligibility filtering is not the chosen semantics.
+
+Restore imports and re-admits canonical full values/window/binding/consumer content, recomputes
+projections/cohorts and installs fresh indexes/sealed definitions without inference. Current cache
+can be empty. Reader quiescence, current-only replacement and cold integrity remain mandatory;
+no old1024 format reader, dual schema, rollback runtime or inferred lost components.
+
+### 7.4 Focused native and service controls
+
+Protect full output request/response indices/dimensions/finiteness/norm, immutable exact winners,
+query-independent document reuse, source/projection recipe mismatch, binary canonical roundtrip,
+new-record companion omission and current restore. Actual persistent controls catch altered arrays,
+wrong eligible witnesses, missing/extra lowered bindings and index/definition drift. Exercise zero-BM25
+matches, scope-excluded nearest values and representative exact-small/ANN-residual routes. Planner
+inspection resolves these selected shapes; it is not a blanket adoption/performance gate.
+
+Live full4096/tokenizer/precision acceptance and quality remain separately reported. Conditional
+DISKANN needs a concrete index-residency limitation and matching scope/query contracts; initial
+HNSW has no mandatory backend bakeoff. Native server RocksDB/cache settings remain the existing
+operator mechanism, with no embedded-store fork or additional MCP server.

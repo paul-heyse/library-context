@@ -41,7 +41,7 @@ Read each owner's Decision line for rationale and rejected alternatives. The mos
 - [ADR-0105 vocabulary epochs](../adr/0105-analysis-vocabulary-epochs.md) and [ADR-0108 analysis owners](../adr/0108-immutable-analysis-owners.md): exact immutable read/publication boundaries.
 - [ADR-0117 analyzer families](../adr/0117-independent-analyzer-families.md), [ADR-0118 pins](../adr/0118-pinned-compute-and-analyzer-families.md), [ADR-0121 evidence packets](../adr/0121-analytical-evidence-packets.md): independent parsing/provider roles and current enrichment seams.
 - [ADR-0073 wire contracts](../adr/0073-catalog-wire-contracts.md), [ADR-0114 serving](../adr/0114-generation-serving-contracts.md), [ADR-0116 preparation](../adr/0116-bounded-semantic-preparation-and-consumption.md): Rust wire authority, generation pinning and bounded actual-work lifetimes.
-- [ADR-0071 product](../adr/0071-api-evidence-product.md) and [ADR-0078 cutover](../adr/0078-current-design-cutover.md): evidence discovery target, deliberate replacement and qualified current state.
+- [ADR-0071 product](../adr/0071-api-evidence-product.md) and [ADR-0131 current-only cutover](../adr/0131-evidence-values-and-contextual-delivery.md): evidence discovery target, deliberate replacement and qualified current state.
 
 ## 3. Foundation-first implementation route
 

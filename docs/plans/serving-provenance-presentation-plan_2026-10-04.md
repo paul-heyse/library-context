@@ -2,6 +2,16 @@
 
 **Implemented contracts with historical scoped receipts, 2026-10-04–05; native remediation acceptance pending, 2026-10-06.** The [target-alignment coordinator](target-implementation-alignment-plan_2026-10-04.md) retains TA-F02/F03, LL-F05 and selected LL-F09/10 dispositions. Current native implementation and acceptance belong to [graph-native coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution). IS1–IS4 transfer to the [forward product queue](behavioral-model-forward-plan_2026-09-24.md#product-operational-investigations); Q1/operator activation remains separately stopped.
 
+
+**Product extension dependency, Proposed (2026-10-06).** The accepted [ER/EV extension](evidence-retrieval-and-evaluation-plan_2026-10-06.md) and
+[primary evaluation loop](programmatic-evaluation-plan_2026-10-06.md) own future contextual demand,
+actual final delivery observations and usefulness comparisons. This plan retains its S1–S4 receipts
+and source IDs. ER1/ER2 split rendering/provenance from actual encoder-input identity: a rendering
+change updates delivery identity, while unchanged actual input bytes may reuse an admitted full
+winner. ER2's cache/spec/consumer controls establish that target rather than assuming old1024
+reuse. Applicable native acceptance uses a matching Cargo-built editable extension; development
+wheel packaging is waived. Q1 and protected comparative studies remain separate.
+
 ## 1. Foundations and product boundary
 
 Rust owns response/schema meaning, immutable process pins, bounded packet hydration, owned CPU/query lifetime and canonical assertions; FastMCP remains a thin transport. Native content and complete executable-realization identity replace PostgreSQL generations/grants. The original review's requested-input and resource-provenance gaps retain their product meaning; its historical receipt does not establish current native acceptance or retrieval quality.
@@ -87,6 +97,6 @@ authorize product confirmation, operator activation or quality/performance/RSS c
 
 S1/S2 are independent of A1 and F1/F2 but share serving/model/native/wire editing surfaces. S3 consumes finite code-label/identity slices only where needed, not whole foundation plans. S4 local mechanics and readiness inquiries can proceed alongside them with an explicit shared-file owner.
 
-Each selected change includes model producer, hydration/native/wire consumers, old-path deletion and focused tests. Graph-native §9/R-Q0 schedules matching artifact/wheel, owned persistent native/CLI/PyO3/MCP controls and applicable leaves. The user's targeted-testing instruction excludes broad `just qualify`, stopped compiler suites and historical parity. Reader pin, resource retention, original condition/support and final bytes remain acceptance constraints.
+Each selected change includes model producer, hydration/native/wire consumers, old-path deletion and focused tests. Graph-native §9/R-Q0 schedules matching source and editable native extension, owned persistent native/CLI/PyO3/MCP controls and applicable leaves. The user's targeted-testing instruction excludes broad `just qualify`, stopped compiler suites and historical parity. Reader pin, resource retention, original condition/support and final bytes remain acceptance constraints.
 
 The forward plan and analytical-enrichment owner retain Q1/product obligations; Phase 5 retains its historical stopped reconstruction/activation receipt. S1–S4 and enabled IS2 have historical bounded receipts, while current native remediation acceptance remains at graph-native §9/R-Q0. No operator selection/reset, live embeddings, PR6 evaluation or quality/speed/RSS claim is authorized by this execution.

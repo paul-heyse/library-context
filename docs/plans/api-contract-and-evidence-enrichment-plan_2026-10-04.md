@@ -8,6 +8,14 @@ model, PostgreSQL and MCP packet receipts establish their recorded scopes; they 
 Q1 or real-library activation. No selected implementation package remains unstarted here.
 Final source-stable schema/adapters and assembled validation remain open in coordinator §7.
 
+
+**Product extension dependency, Proposed (2026-10-06).** The accepted [ER/EV extension](evidence-retrieval-and-evaluation-plan_2026-10-06.md) consumes these
+attributed public access, configuration, callable and original-evidence facts in exact semantic
+windows and compatible delivery bundles. The [primary evaluation plan](programmatic-evaluation-plan_2026-10-06.md)
+assesses actual information without reusing production selection as expected answers. The extension
+owns new F01–F03; this plan retains its source IDs, independent Q1 obligations and historical
+receipts. It does not acquire a second public-access or binding authority.
+
 ## 1. Result and reusable foundations
 
 These changes answer questions currently requiring agents to reconstruct meaning from several

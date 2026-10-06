@@ -11,7 +11,7 @@ heuristics = "core/efficient-architecture-heuristics.md"
 
 [[profiles]]
 name = "code-intelligence"
-version = "1.4"
+version = "1.5"
 prefix = "CI"
 principles = "profiles/code-intelligence/principles.md"
 review = "profiles/code-intelligence/review.md"

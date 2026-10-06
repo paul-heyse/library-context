@@ -7,6 +7,14 @@ The [graph-native coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remed
 owns current compiler, native persistence, projection and serving corrections. Its four supporting
 plans replace the former generation/receipt/grant integration instructions.
 
+
+**Product extension dependency, Proposed (2026-10-06).** The accepted [evidence/retrieval and evaluation extension](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+supplies future exact evidence-window/context and final-delivery observations. Its
+[primary finite evaluation loop](programmatic-evaluation-plan_2026-10-06.md) can assess these
+packets independently when the actual producers are migrated. ER2 changes E1 to the declared
+normalized1024 projection of full4096 winners; fresh analytical results/receipts are required.
+This dependency does not move this plan's O/F IDs, activate Q1, or reinterpret its earlier checks.
+
 ## 1. Outcome and boundary
 
 Preserve role-exact callable comparisons, hydrated member/constructor and source-field packets,

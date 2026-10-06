@@ -687,7 +687,7 @@ F01–F04 close for standard adoption only. Product findings retain their existi
 
 | Repository | Adopted core/template | Domain profile | Decision |
 |---|---|---|---|
-| library-context | 3.3, FP-07/A4 | CI 1.4 | [ADR-0127](../../adr/0127-execution-fit-architecture.md), DESIGN §2 |
+| library-context | 3.3, FP-07/A4 | CI 1.4 | [ADR-0127 (retired; current successor)](../../adr/0130-programmatic-evaluation-policy.md), DESIGN §2 |
 | corpus-intelligence | 3.3, FP-07/A4 | CI 1.4 | ADR-0083, DESIGN §2 |
 | arrow-polars-duckdb | 3.3, FP-07/A4 | none | ADR-0011, DESIGN §2 |
 | thermo-knowledge | 3.3, FP-07/A4 | PS 1.4 | ADR-0070, DESIGN §2; binding owns AP/G9 crosswalk |

@@ -24,8 +24,11 @@ Catalog construction remains independent of optional analysis and briefs. Captur
 Bound/unattached formulas remain distinguishable from unavailable attachment; they do not create
 Entry proof. Exact source/effective defaults, signature variants, predicate-domain closure and
 original source/context association remain typed. Source-field location does not establish runtime
-allocation, mutation, alias or temporal identity. One exact embedding specification governs both
-analytics and retrieval; exact consumed values enter the artifact, with service-free reconstruction.
+allocation, mutation, alias or temporal identity. The implemented baseline uses one embedding spec. The accepted product extension (ADR-0131,
+implementation Proposed) separates actual dependencies and full4096 winners from explicit consumer
+projections. Initial E1 analytics and ANN use declared normalized1024; exact full/projection
+consumption enters the artifact and reconstructs without a service. Query-only changes do not
+invalidate unchanged document values.
 Native persistent cache and serving are implemented. Operator activation remains separately authorized.
 
 ADR-0128 replaces earlier persistence, grant and lifecycle mechanisms. Earlier cited decisions
@@ -34,7 +37,7 @@ receipts bound that implementation only. The coordinator records native
 runtime evidence separately; real-library acceptance and Measured performance do not follow
 from this architectural decision.
 
-> Decision: ADR-0128, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
+> Decision: ADR-0131, ADR-0128, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 

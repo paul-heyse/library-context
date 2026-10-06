@@ -41,7 +41,7 @@ Each operation retains its own declared inputs; seed replay constructs its indep
 inventory. Actual consumed relations are completed immutable inputs; sharing does not authorize an
 unfinished or different source universe. ADR-0128 replaces the earlier persisted epoch mechanism.
 
-> Decision: ADR-0049, ADR-0071, ADR-0078, ADR-0086, ADR-0106, ADR-0108, ADR-0116
+> Decision: ADR-0049, ADR-0071, ADR-0131, ADR-0086, ADR-0106, ADR-0108, ADR-0116
 
 <a id="section-10-1"></a>
 
@@ -178,7 +178,7 @@ retain separate execution status.
 
 ## §11 Serving and agent interface
 
-> Decision: ADR-0128, ADR-0078, ADR-0114, ADR-0117
+> Decision: ADR-0128, ADR-0131, ADR-0114, ADR-0117
 
 **Implemented native serving, 2026-10-06 (ADR-0128); targeted verification passed and activation is separate.** A running service pins one complete
 sealed SurrealDB realization. Rust owns operation meaning and uncertainty; native queries/functions
@@ -198,26 +198,35 @@ definition. No unrelated corpus is hydrated at startup.
 
 ### §11.1 Embedding spec and vectors
 
-> Decision: ADR-0128, ADR-0078, ADR-0080, ADR-0106
+> Decision: ADR-0128, ADR-0131, ADR-0106
 
-**Implemented semantic owner and compiler integration, 2026-10-06.** One exact hashed
-[embedding specification](../../../specs/embedding/qwen3-embedding-8b.json) governs analytics and
-retrieval. Standard vectors are 1024 float32 dimensions, MRL prefix then L2 normalization. Text
-preparation and token admission precede the explicit cache/service effect, outside transactions.
-Batch identical complete spec/text inputs and share winning values across distinct semantic uses.
+**Implemented baseline, 2026-10-06:** format2 single-spec1024 values, explicit cache/service
+effect and service-free canonical receipt replay. **Accepted replacement target, implementation
+Proposed (ADR-0131):** split actual encoder/input, rendering, query and projection dependencies.
+One admitted normalized full4096 F32 winner per actual input supplies a deterministic normalized1024
+projection, shared by initial ANN and E1 analytics. F64 prefix-norm accumulation and one F32 rounding
+are explicit policy; endpoint bitwise equivalence is not assumed. Full values serve bounded rescoring
+and offline references. Each E1 consumer carries its chosen representation and complete method/input
+identity; query-only changes do not invalidate document/E1 values.
 
-Exact consumed bytes, dimensions, input text identity and specification enter artifact content.
-Replay uses those values without a live service lookup. Unrequested and unavailable values remain
-distinct. Fake-service controls exercise the seam; they establish no live-service or retrieval-quality
-claim. Persistent cache deployment follows the native realization plan.
+Local exact tokenizer assets count complete rendered input, including headers/context/special tokens,
+with normal2048 admission and preferred1024 windows. Source/render/token coordinates remain separate.
+Explicit partial-vector/lexical-only originals remain reachable. Value sharing follows exact actual
+input/encoder, independently of provenance; semantic uses retain context and qualification.
+
+[The combined plan §2.2](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#22-full-values-and-deliberate-analytical-policy--f02)
+owns migration sequencing across launcher, both clients/cache, model consumption, E1 results, canonical
+transport, native schema/index and restore. Exact winners replay without inference or mutable cache.
+Current NVFP4/custom-service locks remain. Fake controls establish mechanics only; live checkpoint
+acceptance, numerical parity/quality and operator activation remain separate, not newly verified.
 
 <a id="section-11-2"></a>
 
 ### §11.2 Retrieval
 
-> Decision: ADR-0128, ADR-0077, ADR-0078
+> Decision: ADR-0128, ADR-0131
 
-**Implemented native retrieval, 2026-10-05; no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
+**Implemented native retrieval baseline, 2026-10-05; no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
 contextual occurrences. Native operations retain release/library eligibility, finite channels,
 exact-symbol selection, family/member ranking meaning, RRF-K60 fusion and canonical ties. Collapse
 duplicate contributions before fusion; retain the actual winning occurrence/channel witnesses.
@@ -228,6 +237,16 @@ Use native adjacency, index composition, filtered KNN and bounded coarse hydrati
 paths execute natively; variable exploration retains a frontier when continuation is meaningful.
 Do not enumerate in Rust merely to obtain examined-work counts or copy every occurrence's ANN vector.
 The query planner and metrics are optional diagnostics for concrete query-shape questions.
+
+
+**Accepted extension target, implementation Proposed (ADR-0131):** compiler-owned semantic windows,
+exact primary bindings and mandatory context replace broad fragment-parent applicability. Group
+eligible target/context alternatives, preserve zero-BM25 match eligibility and exact identifiers,
+and hydrate full values/evidence late. Evidence demands select compatible context-closed bundles;
+actual final delivery maps/readable information differ from mere IDs or expandable references.
+Ranked continuations retain a bounded session-owned immutable ordering with explicit expiry/refusal,
+not a silently recomputed page. The [serving extension](../../plans/graph-native-serving-plan_2026-10-05.md#7-er3er4--contextual-discovery-and-actually-delivered-information)
+owns ER3/ER4; native querying remains selected without an adoption/proof campaign.
 
 <a id="section-11-3"></a>
 
@@ -271,4 +290,4 @@ invent a universal engine-step counter. Qualitative first-principles/library-inf
 these choices; quantitative speed/capacity claims require measurement. Custom APIs, WASM modules,
 buckets, reactive enrichment and external exporters are activated only by a current consumer.
 
-> Decision: ADR-0128, ADR-0078
+> Decision: ADR-0128, ADR-0131

@@ -24,7 +24,7 @@ for subsequent packages. Dated earlier receipts do not establish graph-native re
 qualification or activation; both remain stopped. Acquisition
 requirements describe input verification, while typed row declarations own emission.
 
-> Decision: ADR-0078
+> Decision: ADR-0131
 
 ## §4 Pipeline
 

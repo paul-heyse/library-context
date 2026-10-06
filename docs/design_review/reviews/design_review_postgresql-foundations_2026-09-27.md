@@ -2,7 +2,7 @@
 
 **2026-09-27 · Change / conformance · Final decision: Accept scoped after correction.** This is a
 fresh bounded review of the
-implementation under [ADR-0068](../../adr/0078-current-design-cutover.md),
+implementation under [ADR-0068](../../adr/0131-evidence-values-and-contextual-delivery.md),
 at `de2343c` plus the uncommitted PG9–PG11 tree. It retains the initial findings and records their
 correction recheck below; current disposition belongs in the
 [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings).

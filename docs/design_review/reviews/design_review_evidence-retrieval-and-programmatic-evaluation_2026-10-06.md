@@ -6,6 +6,13 @@ Three corrections remain before adopting the complete proposal as the governing 
 
 The production architecture otherwise has a credible Proposed route: retain the Rust semantic graph and store-free compiler, use native indexed candidate discovery, expand named qualified relations, select context-closed bundles, and evaluate the final bytes through a separate offline process. Heavy references, countermodels and mutation campaigns remain bounded offline work. Optional neural scorers and advanced solvers must earn a named capability and an acceptable total lifecycle burden. No speed, quality, capacity or real-library acceptance follows from this static review. The appendices' unresolved `:chatgpt-content-reference` placeholders should be replaced with concrete primary links before publication; their existence is a citation repair, not independent evidence of a design defect.
 
+**Current disposition transferred, 2026-10-06:** the
+[extension coordinator §6](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion)
+owns scheduled F01–F03 and §3 records the approved RC01–RC05. This review retains its original
+Revise judgment, evidence and then-current standard1.4; document approval is not implementation
+closure. The [separate plan review](design_review_evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+accepts the revised standard1.5 target at Proposed strength; the original evidence is unchanged.
+
 ## 1. Review contract and grounding
 
 | Field | Scope |

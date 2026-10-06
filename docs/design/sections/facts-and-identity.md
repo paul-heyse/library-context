@@ -61,7 +61,7 @@ normalized, analysis, catalog or serving readiness merely because those relation
 Model declarations lower mechanically to internal Arrow and selected graph codecs. Snapshot changes are schema
 migrations; no second hand-written column contract or old-format reader is maintained.
 
-> Decision: ADR-0078, ADR-0086
+> Decision: ADR-0131, ADR-0086
 
 ### §3.4 Identity rules
 

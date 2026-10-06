@@ -1,7 +1,7 @@
 # PR4 selection and retrieval evidence
 
 **Implemented and bounded Tested, 2026-09-28; live embeddings waived.** The [forward plan](../../../plans/behavioral-model-forward-plan_2026-09-24.md#pr4-execution)
-owns execution and disposition; [ADR-0077](../../../adr/0077-contextual-selection-and-retrieval.md)
+owns execution and disposition; [ADR-0077 (retired; current successor)](../../../adr/0131-evidence-values-and-contextual-delivery.md)
 owns decisions. This evidence does not qualify the complete product.
 
 The assembled [design/target review](../../reviews/design_review_pr4-selection-retrieval_2026-09-28.md)
@@ -16,7 +16,7 @@ qualification use `--embedder none`. Deterministic fixture vectors do not qualif
 or retrieval quality. The briefly started repository launcher was stopped before qualification;
 the benchmark's service was not stopped or changed.
 
-[ADR-0078](../../../adr/0078-current-design-cutover.md) requires a complete pivot after validation.
+[ADR-0078 (retired; current successor)](../../../adr/0131-evidence-values-and-contextual-delivery.md) requires a complete pivot after validation.
 Obsolete runtime generations, compatibility paths, matching runtimes and rollback backups were
 removed after the validated current cutover. The fixed six-query lexical development comparison is diagnostic
 only; no confirmation/heldout material is read and no Context7 superiority claim is made.

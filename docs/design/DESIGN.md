@@ -50,7 +50,7 @@ All ten serving tools have targeted actual native/MCP evidence in the graph-nati
 [§14.9](sections/api-and-evidence-product.md#section-14-9) owns the proposed tool adapter.
 Fixture qualification does not establish a real-library pilot or comparative product acceptance.
 
-> Decision: ADR-0071, ADR-0078, ADR-0025
+> Decision: ADR-0071, ADR-0131, ADR-0025
 
 <a id="section-1-2"></a>
 
@@ -174,6 +174,10 @@ routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
 **Accepted target, implementation/evaluation Proposed (ADR-0071).**
 
+The primary engineering evaluation loop is programmatic; grounded outer agentic evaluation feeds
+both system changes and evaluator models/coverage/judgments ([§12](sections/validation-and-evaluation.md#section-12), ADR-0130).
+This accepted target is not implemented evaluation or comparative evidence.
+
 The first **usable pilot** has accurate supported API contracts, typed options, contextual scenarios,
 deployment evidence, field-specific uncertainty and a functioning real-embedding SurrealDB/MCP path. Valid
 APIs remain available without briefs or completed deep analysis; invalid claimed evidence still
@@ -213,8 +217,8 @@ must resolve, historical `supersedes` entries need not, and ADR ids are never re
 > Decision: ADR-0041, ADR-0042
 
 
-**Implemented policy (ADR-0040/0093/0127, 2026-10-05).** These are the load-bearing choices. The
-repository owns core 3.3 and CI profile 1.4 and declares its standard in
+**Implemented policy (ADR-0040/0093/0130, 2026-10-06).** These are the load-bearing choices. The
+repository owns core 3.3 and CI profile 1.5 and declares its standard in
 `docs/design_review/design_principles/standard.toml`. The seven foundations organize review of
 responsibilities, contracts, composition, explicit domain models and scoped semantic authority,
 constraints, local reasoning and physical execution fit. The principles and review skill own the domain-model criterion;
@@ -249,7 +253,7 @@ own their detailed contracts. ADRs record decisions and alternatives. Reviews pr
 evidence, while the active plan owns current disposition of scheduled findings. STATUS links to
 that owner. Acceptance, implementation and verification remain distinct facts.
 
-> Decision: ADR-0040, ADR-0093, ADR-0127
+> Decision: ADR-0040, ADR-0093, ADR-0130
 
 <a id="section-b1"></a>
 
@@ -443,23 +447,23 @@ declared with its scope, and no type crosses its boundary (§7).
 
 ### §B10 Exclusions
 
-**Accepted** for the exclusions. The condition-kernel allowance is **Implemented**, and ADR-0085
-accepts it as the canonical condition representation ([§15.7](sections/semantic-model.md#section-15-7)).
+**Accepted policy, 2026-10-06; optional capabilities Proposed implementation.**
+Excluded: a generic workflow engine, JSON-inferred canonical schemas, a whole-ontology petgraph
+instance, a general production composition planner/constraint solver and graph embeddings.
+SurrealDB was already selected by ADR-0128; a graph-database exclusion is obsolete.
 
-Excluded: a graph database; a generic workflow engine; JSON-inferred canonical schemas; a
-whole-ontology petgraph instance; a general composition planner or constraint solver; neural
-reranking; graph embeddings.
+Allowed: text embeddings and derived native search; the existing bounded Boolean/typed condition
+kernel with its unknown/refusal limits; optional **offline** finite/theory/optimization evaluation
+operations for a named task; optional qualified **non-generative** evidence scoring when a fixed
+programmatic comparison warrants the lifecycle burden. Finite/contextual references are the initial
+evaluator; solver installation is not a prerequisite. Preserve actual solver statuses/bounds and
+independent oracle adequacy. A scorer cannot invent support or bypass context/qualification.
 
-**Allowed:** text embeddings; a *rebuildable* search projection of the published generation
-(§B12); a bounded Boolean decision-diagram kernel and a narrow typed theory for proven stable
-primitive places, which decide compatibility and implication over evaluation atoms and return
-`unknown` at node, work, stability or type boundaries ([§3.9](sections/behavior-model.md#section-3-9)).
-A theory solver (z3) stays excluded unless a registered query needs a theory the bounded
-lowering cannot express (forward plan §5). ADR-0045 accepts the bounded BDD compatibility screen. ADR-0085 makes
-model-owned conditions, atoms and Merkle nodes canonical, with occurrence-keyed evaluations and a
-rendering-only DNF; no legacy condition catalog is a second authority.
+Production behavioral solving still uses declared bounded models/atoms/Merkle nodes and rendering-only
+DNF; general production theory solving needs its separate concrete trigger. §B11's no-generative
+compilation/query-output guarantees remain. Live optional models/tooling need their actual activation.
 
-> Decision: ADR-0106, ADR-0045, ADR-0085
+> Decision: ADR-0130, ADR-0128, ADR-0106, ADR-0045, ADR-0085
 
 <a id="section-b11"></a>
 
@@ -487,7 +491,7 @@ petgraph topology, search indexes and analytical/export views are derived, not p
 stores. Projection contracts state their universe, identity, multiplicity, roles, lineage and losses.
 No PostgreSQL runtime or canonical serving copy remains after its ownership cut.
 
-> Decision: ADR-0128, ADR-0077
+> Decision: ADR-0128, ADR-0131
 
 <a id="section-b13"></a>
 
@@ -500,31 +504,31 @@ Python stays a thin FastMCP adapter with no second classifier. Resources/cursors
 executable realization. Native deadlines/cancellation and response limits retain honest partial
 outcomes; no fictitious exact engine-work ceiling is exposed. Activation remains stopped until Q1.
 
-> Decision: ADR-0128, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0078
+> Decision: ADR-0128, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0131
 
 <a id="section-b14"></a>
 
-### §B14 One embedding spec, exact consumed-vector receipts
+### §B14 Actual embedding dependencies and exact consumed values
 
-**Implemented, qualification in progress, 2026-10-01.**
+**Accepted target, implementation Proposed, 2026-10-06 (ADR-0131).** Current code has the
+format2 all-purpose1024 spec; the [combined plan](../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+schedules wholesale replacement, not compatibility with it.
 
-- One hashed embedding spec ([§11.1](sections/synthesis-and-serving.md#section-11-1)) governs
-  every vector. Standard output is 1024 float32 dimensions, MRL prefix then L2 normalization;
-  format-2 spec identity includes launch admission and reduction. Rust and Python retain their
-  shared conformance oracle.
-- `lctx-model::domain::embedding` owns specification, exact value codec, text membership, availability
-  and analytic/retrieval consumption. Optional cache/service effects provide winning values outside
-  compilation transactions. Each artifact binds the exact consumed value, including analytics-only inputs;
-  value digests enter content identity.
-- Snapshot-local values and consumer receipts replay without a cache/provider effect. Fake-service
-  controls qualify that seam and cache behavior; live embedding and retrieval quality are unqualified.
-  Native MCP will pin a sealed realization and exact profile; publication/serving remain pending.
-- [§6.5](sections/storage-and-publication.md#section-6-5) and the
-  [native realization plan](../plans/graph-native-surrealdb-realization-plan_2026-10-05.md) own
-  subsequent cache/persistence effects. Consumed vectors and exact values enter canonical graph
-  content. Service-free seam checks do not establish live provider usability or retrieval quality.
+- The typed embedding owner separates actual encoder/input, render/partition, query and projection
+  dependencies. Query-only changes reuse unchanged document values; changed projection derives
+  without inference. Exact checkpoint/tokenizer/engine/pooling/precision and winning bytes remain.
+- Store one normalized full4096 F32 value per actual input. Initial ANN and E1 analytics share an
+  explicitly declared normalized1024 prefix projection with F64 norm accumulation and one F32
+  rounding. Full values serve candidate rescoring and offline references; full-dimensional analytics
+  is a separate policy/experiment, not a service-output side effect.
+- Both clients, launch admission, cache/value and consumer receipts, canonical graph/transport,
+  native schema/search/reconciliation, analytical results and restore migrate together. Old1024
+  values cannot recover missing components. Snapshot reconstruction uses exact canonical winners
+  without a mutable cache/provider lookup.
+- Current service/checkpoint locks remain; paths do not define values. Pure/fake controls establish
+  seams only. Actual native/live usability, precision, quality and Q1 are separate evidence boundaries.
 
-> Decision: ADR-0128, ADR-0078
+> Decision: ADR-0131, ADR-0128
 
 ---
 

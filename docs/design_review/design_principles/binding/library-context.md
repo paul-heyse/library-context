@@ -10,8 +10,8 @@ ADR-0040. Other design contracts and accepted decisions govern their domains; re
 
 | Layer | Document | Version |
 |---|---|---|
-| Core | [design principles](../core/design-principles.md), [review template](../core/design-review-template.md) | 3.3 (repository-owned edition, ADR-0040/0127) |
-| Profile | [code-intelligence principles](../profiles/code-intelligence/principles.md), [review additions](../profiles/code-intelligence/review.md) | 1.4 |
+| Core | [design principles](../core/design-principles.md), [review template](../core/design-review-template.md) | 3.3 (repository-owned edition, ADR-0040/0130) |
+| Profile | [code-intelligence principles](../profiles/code-intelligence/principles.md), [review additions](../profiles/code-intelligence/review.md) | 1.5 |
 | Binding | this page | — |
 
 The core companion, [Heuristics for Efficient Architecture](../core/efficient-architecture-heuristics.md)
@@ -21,7 +21,7 @@ implementation. It adds no gate, review cadence or proof obligation.
 
 The version/path declaration in [`standard.toml`](../standard.toml) is authoritative for loading.
 ADR-0040 establishes repository ownership; it replaces ADR-0023's unlocated shared-copy
-requirement. ADR-0127 adopts core/template 3.3 and profile guidance 1.4, retaining ADR-0093's bounded assessment policy. Other repositories are
+requirement. ADR-0130 retains core/template3.3, heuristics1.0 and bounded assessment, and adopts profile1.5 with explicit development/confirmation separation. Other repositories are
 not changed by a local revision. Preserve FP/DP/CI IDs and historical version semantics;
 FP-01–FP-07 and A1–A4 supply the architecture structure. FP-04/A2 assess whether an adequate,
 explicit domain model governs behavior, independently of other architectural and fidelity judgments.
@@ -95,7 +95,7 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 | §B11 | Insight synthesis is programmatic; no generative model in v1, and never in the query path | DP-02, DP-08, DP-11, DP-22, CI-11 · G2, G7, CI-G2 |
 | §B12 | One semantic graph realized in SurrealDB; workspace/analytical projections are derived, no parallel canonical store (ADR-0128) | DP-01, DP-19, CI-13 · G1, G5 |
 | §B13 | The FastMCP interface pins one complete realization; Rust owns meaning and native SurrealQL may own execution (ADR-0128) | DP-10, DP-14, DP-15, CI-13 · G2, G3, G7 |
-| §B14 | One hashed embedding spec, cached vectors, conformance-checked Rust and Python clients | DP-09, DP-11, DP-21, CI-13 · G6 |
+| §B14 | Actual encoder/input/query/render/projection identities, immutable full values, explicit analytical policy and conformance-checked clients | DP-09, DP-11, DP-21, CI-13 · G6 |
 
 ## 2. Recurring review questions, routed onto the gates
 
@@ -116,10 +116,10 @@ concrete change-propagation, testability or execution-fit defect can require rev
 | 9 | Does the serving generation read its canonical generation, and does a server process hold exactly one generation for its lifetime? | G5 | CI-13 |
 | 10 | Does a projection, a parallel-arc collapse or a dense index lose the facts that support it, or leak into persistent identity? | G6 | CI-03, CI-05 |
 | 11 | Do traversal, community detection and concept analysis give identical output for shuffled input, with seeds, parameters and crate versions recorded? | G6 | CI-09, DP-11 |
-| 12 | Can a query-time vector and a compile-time vector come from different embedding specs, or a cached vector be reused after the spec changed? | G6 | CI-13, DP-09 |
+| 12 | Do query/index/analytical values carry compatible actual encoder/projection policies, and does invalidation follow the inputs that affect each consumer? | G6 | CI-13, DP-09 |
 | 13 | Does an extractor, decoder or DESIGN claim cover a fact family it only partly extracts? | G7 | DP-15, CI-04 |
 | 14 | Does a read, validation or inspection path mutate, fetch, build, or read ambient state, including analyzer config discovery? | G4 | DP-18, CI-10 |
-| 15 | Can anything under `.claude/skills/` (the gold reference) reach the compiler's inputs, or can analytics parameters be tuned on the gold? | CI-G3 | CI-12 |
+| 15 | Can private/gold truth reach production inputs, protected populations tune parameters, or an evaluator meaning change silently alter a comparison? | CI-G3 | CI-12 |
 | 16 | Which phenomena and owned operations govern this feature, and do consumers reuse their meaning? Distinguish instances, bindings, compositions, policies, concepts and mechanisms when assessing change. | A1, A2, A3 | FP-01–06, DP-08, DP-16, core §E |
 | 17 | Does a complete compile or evidence request have a credible physical route as fact volume, semantic kinds or degree grow? Qualitatively assess examined work, crossings, immutable reuse, assurance and publication scope. | A4 | FP-07, DP-03, DP-10, DP-19, DP-20, DP-23 |
 | 18 | Does each added layer or technique have a named consumer in the served model (a tool's output or a brief), and does its ablation change published output (§9.8)? | — | DP-16 |

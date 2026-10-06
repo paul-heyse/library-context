@@ -134,7 +134,7 @@ text, vectors or connection strings.
 
 ## Backup, restore and upgrades
 
-This is the design-phase policy ([ADR-0078](adr/0078-current-design-cutover.md)). Generations are
+This is the design-phase policy ([ADR-0131](adr/0131-evidence-values-and-contextual-delivery.md)). Generations are
 rebuilt from pinned inputs, never restored across formats.
 
 - `scripts/postgres_backup.py backup|restore-drill` uses a format-4, retained-service-only archive
