@@ -535,8 +535,13 @@ pub(crate) async fn receivers_produced(
         }
     }
     output.finish(ProviderOutcome::Complete).await?;
-    let outputs = runtime.inputs("receiver-produced-authority", profile, receiver::relations())?;
+    let outputs = runtime.inputs("receiver-produced-authority", profile, receiver::relations().into_iter().map(|relation|relation.name()))?;
     Ok(ProducedNormalization { premises, outputs, value: verified })
+}
+
+async fn emit_event_rows(rows:&normalized::event_normalization::EventOutput,output:&ProducerOutput,emitted:&mut charged::ChargedSet<(&'static str,[u8;16])>,charge:&mut charged::StateCharge)->Result<(),ModelError>{
+    macro_rules! write {($($field:ident:$record:ty,)*)=>{$(for row in rows.$field.iter(){if emitted.insert(charge,(<$record>::NAME,*row.id().bytes()))?{output.push(row.clone()).await?;}})*};}
+    lctx_model::normalized_event_outputs!(write);Ok(())
 }
 
 pub(crate) async fn events_produced(
@@ -578,8 +583,7 @@ pub(crate) async fn events_produced(
                 let data = scopes.event_data(&access, root.id(), runtime.budget()).await?;
                 let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || event_normalization::normalize_event_produced(&data, key, receivers, runtime.budget()))?;
                 verified.append(authority)?;
-                macro_rules! write {($($field:ident:$record:ty,)*) => {$(for row in rows.$field.iter() { if emitted.insert(&mut emitted_charge, (<$record>::NAME, *row.id().bytes()))? { output.push(row.clone()).await?; } })*};}
-                lctx_model::normalized_event_outputs!(write);
+                emit_event_rows(&rows,&output,&mut emitted,&mut emitted_charge).await?;
                 tokio::task::yield_now().await;
             }
         }
@@ -600,7 +604,7 @@ pub(crate) async fn events_produced(
         }
     }
     output.finish(ProviderOutcome::Complete).await?;
-    let outputs = runtime.inputs("event-produced-authority", profile, normalized::events::relations())?;
+    let outputs = runtime.inputs("event-produced-authority", profile, normalized::events::relations().into_iter().map(|relation|relation.name()))?;
     Ok(ProducedNormalization { premises, outputs, value: verified })
 }
 pub(crate) async fn bindings_prepared(

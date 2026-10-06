@@ -231,7 +231,7 @@ fn signatures(data:&mut CallableData,budget:&ResourceBudget,symbol:&ProviderSymb
     let returns=TypeTerm::None;data.type_terms.insert(returns.clone()).unwrap();
     let term=TypeTerm::Callable {function:Some(symbol.id()),form:CallableForm::List,parameters:id(50),param_spec:None,returns:returns.id()};data.type_terms.insert(term.clone()).unwrap();
     for variant in 0..2 {
-        let shapes=[ParameterShape {name:Some(format!("native{variant}")),kind:ParameterKind::PositionalOrKeyword,required:false}];data.shapes.insert(shapes[0].clone()).unwrap();
+        let shapes=[ParameterShape {name:Some(format!("native{variant}").into()),kind:ParameterKind::PositionalOrKeyword,required:false}];data.shapes.insert(shapes[0].clone()).unwrap();
         let (signature,parameters)=Signature::new(q,SignatureRole::EffectiveTyped,Some(term.id()),symbol.id(),variant,SignatureForm::List,&shapes).unwrap();data.signatures.insert(signature.clone()).unwrap();
         for row in parameters {
             let subject=SignatureTypeSubject::Parameter {parameter:row.id()};data.signature_type_subjects.insert(subject.clone()).unwrap();data.signature_types.insert(SignatureTypeObservation {qualification:q.id(),subject:subject.id(),term:returns.id(),scope:q.scope}).unwrap();

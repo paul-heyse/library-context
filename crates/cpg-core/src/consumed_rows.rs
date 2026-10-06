@@ -250,7 +250,7 @@ impl NominalClosure {
         }
         staged.finish().map_err(ModelError::codec)?;
         drop(staged);
-        let frame = session.read_arrow(pending.to_string_lossy(), ArrowReadOptions::default().schema(schema.as_ref()))
+        let frame = session.read_arrow(pending.to_string_lossy().into_owned(), ArrowReadOptions::default().schema(schema.as_ref()))
             .await.map_err(ModelError::codec)?
             .sort(vec![col("source_kind").sort(true, false), col("source_id").sort(true, false), col("target_kind").sort(true, false), col("target_id").sort(true, false)])
             .map_err(ModelError::codec)?;

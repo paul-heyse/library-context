@@ -639,7 +639,7 @@ mod streamed_coverage_controls {
                 });
             }
         }
-        let expected = coverage.iter().map(|row| admission::Expected {
+        let expected = coverage.iter().map(|row| crate::domain::admission::Expected {
             scope:row.scope, family:row.family, provider:row.provider,
         }).collect();
         let evidence = ScopedAvailability::from_completed(Profile::Catalog, &expected, &coverage, &scopes, &budget).unwrap();

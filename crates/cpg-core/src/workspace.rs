@@ -357,9 +357,7 @@ impl Workspace {
         // Catalog explicitly leaves native flow unrequested. Empty premises come from that
         // provider declaration, never from arbitrary missing requested relations.
         let mut unrequested = std::collections::BTreeSet::new();
-        if profile == Profile::Catalog
-            && names.contains(lctx_model::domain::normalized::bindings::CallBinding::NAME)
-        {
+        if profile == Profile::Catalog {
             let declaration = crate::facts::providers(ContentHash::of(b"flow-profile-premises"))
                 .into_iter()
                 .map(|provider| provider.declaration(Profile::Behavioral))
@@ -410,10 +408,28 @@ impl Workspace {
                 while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {self.cancellation.check()?;nonempty|=batch.num_rows()!=0;}
                 if !nonempty {continue;}
             }
+            let normalization_scope=check.normalization_scope();
+            if let Some(scope)=normalization_scope {
+                let declared_roots=scope.roots();
+                // A missing requested candidate stream cannot establish an empty domain.
+                // Only actual complete-empty roots and declared unrequested flow roots do.
+                if declared_roots.iter().all(|root|names.contains(root.name())||unrequested.contains(root.name())) {
+                    let mut nonempty=false;
+                    for root in &declared_roots {
+                        let alias=if unrequested.contains(root.name()){root.name().to_owned()}
+                            else if let Some(inputs)=selected{inputs.validation_table(root)?}
+                            else{Self::validation_table(root,&frozen_tables)?.to_owned()};
+                        let mut rows=crate::sql::query(&session,&format!("SELECT id FROM {} LIMIT 1",crate::consumed_rows::identifier(&alias))).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                        while let Some(batch)=rows.try_next().await.map_err(ModelError::codec)?{self.cancellation.check()?;nonempty|=batch.num_rows()!=0;}
+                        if nonempty {break;}
+                    }
+                    if !nonempty {continue;}
+                }
+            }
             if let Some(input)=invariant.inputs.iter().find(|input|!names.contains(input.name())&&!unrequested.contains(input.name())) {
                 return Err(ModelError::Invalid(format!("{} requires validation premise {} outside scope",invariant.name,input.name())));
             }
-            if matches!(check.normalization_scope(),Some(lctx_model::domain::normalized::admission::Scope::Callables)) {
+            if let Some(scope)=normalization_scope {
                 drop(check);
                 let mut tables=Vec::with_capacity(invariant.inputs.len());
                 for input in &invariant.inputs {
@@ -422,7 +438,13 @@ impl Workspace {
                         else{Self::validation_table(input,&frozen_tables)?.to_owned()};
                     tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
                 }
-                crate::normalize::validate_callables(&invariant,tables,&session,self.budget(),&self.cancellation).await?;
+                use lctx_model::domain::normalized::admission::Scope;
+                match scope {
+                    Scope::Callables=>crate::normalize::validate_callables(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
+                    Scope::Receivers=>crate::normalize::validate_receivers(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
+                    Scope::Events=>crate::normalize::validate_events(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
+                    Scope::Bindings=>crate::normalize::validate_bindings(&invariant,tables,&session,self.budget(),&self.cancellation).await?,
+                }
                 continue;
             }
             if let Some(scope)=execution_scope {
