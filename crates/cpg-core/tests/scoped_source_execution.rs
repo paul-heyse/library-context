@@ -160,8 +160,8 @@ async fn run(profile: Profile) {
             .unwrap()
             .clone();
         for input in &mut stage.inputs {
-            if input.prefix().is_none() && is_vocabulary(input.name()) {
-                if let Some(group) = schedule.publication_groups().iter().find(|group| {
+            if input.prefix().is_none() && is_vocabulary(input.name())
+                && let Some(group) = schedule.publication_groups().iter().find(|group| {
                     schedule.stages().iter().any(|producer| {
                         group.stages.contains(&producer.name)
                             && producer
@@ -171,7 +171,6 @@ async fn run(profile: Profile) {
                     })
                 }) {
                     *input = input.at_epoch(group.epoch);
-                }
             }
         }
         let mut aliases = std::collections::BTreeSet::new();
@@ -233,7 +232,7 @@ async fn run(profile: Profile) {
     );
     if profile == Profile::Behavioral {
         assert!(
-            headers.len() > 0 && calls.len() > 0 && arguments.len() > 0,
+            !headers.is_empty() && !calls.is_empty() && !arguments.is_empty(),
             "fixture must exercise actual SourceCall argument values"
         );
         assert!(

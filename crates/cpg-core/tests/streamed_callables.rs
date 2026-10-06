@@ -625,8 +625,7 @@ async fn ordinary_owned_body_payloads_do_not_enter_tiny_callable_metadata_scopes
         .unwrap()
         .batches()
         .unwrap()
-        .map(|batch| EffectiveCallableAssessment::decode(&batch.unwrap()).unwrap())
-        .flatten()
+        .flat_map(|batch| EffectiveCallableAssessment::decode(&batch.unwrap()).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(assessments[0].generator, Some(true));
 }

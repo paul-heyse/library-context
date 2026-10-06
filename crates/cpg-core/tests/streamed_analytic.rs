@@ -255,7 +255,7 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
     let mut check = (invariant.create)(workspace.budget());
     for declaration in &invariant.inputs {
         macro_rules! facts {($($field:ident:$ty:ty,)*)=>{$(if declaration.name()==<$ty>::NAME {
-            if <$ty>::NAME!=ArtifactChunk::NAME {for row in data.$field.iter() {check.visit(<$ty>::NAME,&<$ty as Record>::encode(&[row.clone()]).unwrap()).unwrap();}}
+            if <$ty>::NAME!=ArtifactChunk::NAME {for row in data.$field.iter() {check.visit(<$ty>::NAME,&<$ty as Record>::encode(std::slice::from_ref(row)).unwrap()).unwrap();}}
         })*};}
         lctx_model::analytic_text_inputs!(facts);
         if declaration.name() == ArtifactChunk::NAME {
@@ -265,7 +265,7 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
                 check
                     .visit(
                         ArtifactChunk::NAME,
-                        &<ArtifactChunk as Record>::encode(&[row.clone()]).unwrap(),
+                        &<ArtifactChunk as Record>::encode(std::slice::from_ref(row)).unwrap(),
                     )
                     .unwrap();
             }
@@ -277,7 +277,7 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
                         check
                             .visit(
                                 <$ty>::NAME,
-                                &<$ty as Record>::encode(&[row.clone()]).unwrap(),
+                                &<$ty as Record>::encode(std::slice::from_ref(row)).unwrap(),
                             )
                             .unwrap();
                     }
@@ -294,7 +294,7 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
                 check
                     .visit(
                         TextWindow::NAME,
-                        &<TextWindow as Record>::encode(&[row.clone()]).unwrap(),
+                        &<TextWindow as Record>::encode(std::slice::from_ref(row)).unwrap(),
                     )
                     .unwrap();
             }
@@ -586,10 +586,12 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
     }
     assert_eq!(count, 280);
     assert_eq!(receipts.len(), 20);
-    let calls = provider.calls.lock().unwrap();
-    assert_eq!(calls.1, 20);
-    assert!(calls.0.values().all(|count| *count == 1));
-    assert!(calls.2.iter().all(|count| *count <= 64));
+    {
+        let calls = provider.calls.lock().unwrap();
+        assert_eq!(calls.1, 20);
+        assert!(calls.0.values().all(|count| *count == 1));
+        assert!(calls.2.iter().all(|count| *count <= 64));
+    }
     assert_eq!(
         workspace
             .completed::<analysis::analytic_embedding::AnalysisInvocation>()
@@ -597,7 +599,6 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
             .rows(),
         2
     );
-    drop(calls);
     let invariant = analytic::invariants()
         .into_iter()
         .find(|invariant| invariant.purpose == InvariantPurpose::Admission)

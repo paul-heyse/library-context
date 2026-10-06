@@ -106,8 +106,8 @@ async fn actual_summary_matches_complete_finite_whole_operation() {
         .unwrap()
         .clone();
     for input in &mut stage.inputs {
-        if input.prefix().is_none() && is_vocabulary(input.name()) {
-            if let Some(group) = schedule.publication_groups().iter().find(|group| {
+        if input.prefix().is_none() && is_vocabulary(input.name())
+            && let Some(group) = schedule.publication_groups().iter().find(|group| {
                 schedule.stages().iter().any(|producer| {
                     group.stages.contains(&producer.name)
                         && producer
@@ -117,7 +117,6 @@ async fn actual_summary_matches_complete_finite_whole_operation() {
                 })
             }) {
                 *input = input.at_epoch(group.epoch);
-            }
         }
     }
     let mut aliases = std::collections::BTreeSet::new();

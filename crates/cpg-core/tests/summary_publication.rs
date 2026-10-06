@@ -251,7 +251,7 @@ async fn assert_conditional_atom_summary(
     root: &std::path::Path,
 ) {
     let text = std::fs::read_to_string(root.join("cases.py")).unwrap();
-    let decisions:Vec<(i64,Vec<u8>,i16)>=catalog_runtime::query(&fixture, "SELECT o.start,d.leaf,d.outcome FROM local_atom_decisions d JOIN flow_test_leaf_observations l ON l.id=d.leaf JOIN occurrences o ON o.id=l.test").await;
+    let decisions:Vec<(i64,Vec<u8>,i16)>=catalog_runtime::query(fixture, "SELECT o.start,d.leaf,d.outcome FROM local_atom_decisions d JOIN flow_test_leaf_observations l ON l.id=d.leaf JOIN occurrences o ON o.id=l.test").await;
     for (function, expected) in [
         ("finite_zero", 0_i16),
         ("finite_one", 1),
@@ -278,12 +278,12 @@ async fn assert_conditional_atom_summary(
         2,
         "repeated equal source predicates remain two evaluations"
     );
-    let forbidden:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM local_atom_restrictions r JOIN local_atom_decisions d ON d.id=r.decision WHERE d.outcome IN (2,3,4)").await;
+    let forbidden:i64=catalog_runtime::one(fixture, "SELECT count(*) FROM local_atom_restrictions r JOIN local_atom_decisions d ON d.id=r.decision WHERE d.outcome IN (2,3,4)").await;
     assert_eq!(
         forbidden, 0,
         "mixed, uninhabited and refused answers never prune"
     );
-    let alternatives:Vec<(i64,i64,i16)>=catalog_runtime::query(&fixture, "SELECT o.start,b.count,n.kind FROM summary_transfer_alternatives a JOIN summary_transfer_keys k ON k.id=a.transfer JOIN entity_refs e ON e.id=k.owner JOIN callable_entities callable ON callable.id=e.callable_callable JOIN occurrences o ON o.id=callable.source_declaration JOIN assertion_qualifications q ON q.id=a.qualification JOIN assumption_sets b ON b.id=q.assumptions JOIN conditions c ON c.id=q.condition JOIN condition_nodes n ON n.id=c.root").await;
+    let alternatives:Vec<(i64,i64,i16)>=catalog_runtime::query(fixture, "SELECT o.start,b.count,n.kind FROM summary_transfer_alternatives a JOIN summary_transfer_keys k ON k.id=a.transfer JOIN entity_refs e ON e.id=k.owner JOIN callable_entities callable ON callable.id=e.callable_callable JOIN occurrences o ON o.id=callable.source_declaration JOIN assertion_qualifications q ON q.id=a.qualification JOIN assumption_sets b ON b.id=q.assumptions JOIN conditions c ON c.id=q.condition JOIN condition_nodes n ON n.id=c.root").await;
     let start = text.find("def finite_zero(").unwrap() as i64;
     let end = text.find("def finite_one(").unwrap() as i64;
     let zero = alternatives
@@ -301,7 +301,7 @@ async fn assert_conditional_atom_summary(
     );
     // Local alternatives need their own finite consequences even when no composed Summary
     // witness is emitted. Distinguish the provider typing world from the original runtime seed.
-    let consequences: Vec<(i64, i64, i16)> = catalog_runtime::query(&fixture, "SELECT o.start,b.count,c.verdict FROM summary_behavioral_conclusions c JOIN summary_claim_proofs proof ON proof.id=c.proof AND proof.kind=0 JOIN summary_transfer_premises premise ON premise.id=proof.finite_source AND premise.kind=0 JOIN local_transfer_alternatives a ON a.id=premise.local_alternative JOIN local_transfer_keys k ON k.id=a.transfer JOIN entity_refs e ON e.id=k.owner JOIN callable_entities callable ON callable.id=e.callable_callable JOIN occurrences o ON o.id=callable.source_declaration JOIN assertion_qualifications q ON q.id=c.qualification JOIN assumption_sets b ON b.id=q.assumptions").await;
+    let consequences: Vec<(i64, i64, i16)> = catalog_runtime::query(fixture, "SELECT o.start,b.count,c.verdict FROM summary_behavioral_conclusions c JOIN summary_claim_proofs proof ON proof.id=c.proof AND proof.kind=0 JOIN summary_transfer_premises premise ON premise.id=proof.finite_source AND premise.kind=0 JOIN local_transfer_alternatives a ON a.id=premise.local_alternative JOIN local_transfer_keys k ON k.id=a.transfer JOIN entity_refs e ON e.id=k.owner JOIN callable_entities callable ON callable.id=e.callable_callable JOIN occurrences o ON o.id=callable.source_declaration JOIN assertion_qualifications q ON q.id=c.qualification JOIN assumption_sets b ON b.id=q.assumptions").await;
     let zero_consequences = consequences
         .iter()
         .filter(|(at, _, _)| *at >= start && *at < end)
