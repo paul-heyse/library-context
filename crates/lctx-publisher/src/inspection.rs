@@ -180,6 +180,7 @@ pub async fn audit(
     }
     let loader = Loader::new(Arc::clone(&client));
     loader.reconcile(&manifest).await?;
+    crate::search::reconcile_search(&loader).await?;
     if crate::verify_realization(&loader, native_definitions).await? != handle.realization {
         return Err(ModelError::Conflict("audit current realization"));
     }

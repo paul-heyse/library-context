@@ -203,7 +203,7 @@ async fn load(
     })
 }
 mod search;
-pub use search::materialize_search;
+pub use search::{materialize_search, reconcile_search};
 
 pub mod backup;
 
