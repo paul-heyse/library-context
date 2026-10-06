@@ -25,7 +25,7 @@ macro_rules! entities{($($variant:ident:$ty:ty,)*)=>{fn entity_shapes()->Vec<Str
 lctx_model::graph_entity_records!(entities);
 macro_rules! assertions{($($variant:ident:$ty:ty,)*)=>{fn assertion_shapes()->Vec<String>{vec![$(declaration::<$ty>(),)*]}}}
 lctx_model::graph_assertion_records!(assertions);
-/// Atomic fields selected for indexed ownership/capture joins; other typed predicates use the type index.
+/// Active typed scope keys share one array-element index; other predicates use the type index.
 pub const SCOPE_FIELDS:&[&str]=&["member","exposure","candidate","callable","variant","invocation","domain","unit","corpus","fragment","specification","input","origin","package","access","context","root","source","target","qualification","slot","parent","inventory","characterization","event","diagnostic","entry","trace","attempt","use_","view","assessment","observation","assertion","release","distribution","module","artifact","brief","support","set","universe"];
 pub fn canonical_schema()->String{
     let mut sql=String::new();
@@ -37,8 +37,10 @@ pub fn canonical_schema()->String{
     // implement whole-ID IN selection; retain canonical typed arrays in body unchanged.
     for table in ["entity","assertion"] {
         for field in SCOPE_FIELDS {
-            sql.push_str(&format!("DEFINE FIELD `scope_{field}` ON {table} TYPE option<string> VALUE IF body.`{field}` IS NONE THEN NONE ELSE <string>body.`{field}` END; DEFINE INDEX by_{field} ON {table} FIELDS semantic_type,`scope_{field}`,semantic_key;"));
+            sql.push_str(&format!("DEFINE FIELD `scope_{field}` ON {table} TYPE option<string> VALUE IF body.`{field}` IS NONE THEN NONE ELSE <string>body.`{field}` END;"));
         }
+        let active=SCOPE_FIELDS.iter().map(|field|format!("IF body.`{field}` IS NONE OR body.`{field}` IS NULL THEN NONE ELSE semantic_type+'|{field}|'+<string>body.`{field}` END")).collect::<Vec<_>>().join(",");
+        sql.push_str(&format!("DEFINE FIELD scope_keys ON {table} TYPE array<string> VALUE [{active}].filter(|$value| $value IS NOT NONE); DEFINE INDEX by_scope ON {table} FIELDS scope_keys.*,semantic_key;"));
     }
     for (table,input) in [("participant","assertion"),("reference","entity")]{
         sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity | assertion | external ENFORCED SCHEMAFULL; DEFINE FIELD field ON {table} TYPE string; DEFINE FIELD role ON {table} TYPE int; DEFINE FIELD position ON {table} TYPE int | null; DEFINE INDEX incoming ON {table} FIELDS out,field,in; DEFINE INDEX outgoing ON {table} FIELDS in,field,out,position;"));

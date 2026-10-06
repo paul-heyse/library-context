@@ -41,7 +41,7 @@ impl NativeReader {
             RecordSelection::Scope{field,values}=>{
                 if values.is_empty(){return Ok(vec![])}
                 if !R::fields().iter().any(|f|f.name()==field){return Err(ModelError::Invalid("undeclared native scope field".into()))}
-                bindings.insert("values",crate::loader::json_value(serde_json::Value::Array(values))?);if crate::schema::SCOPE_FIELDS.contains(&field.as_str()){format!("`scope_{field}` IN $values.map(|$value| <string>$value)")}else{format!("body.`{field}` IN $values")}
+                let sparse=crate::schema::SCOPE_FIELDS.contains(&field.as_str())&&!values.iter().any(serde_json::Value::is_null);bindings.insert("values",crate::loader::json_value(serde_json::Value::Array(values))?);if sparse{bindings.insert("scope_prefix",format!("{}|{field}|",R::NAME));"scope_keys CONTAINSANY $values.map(|$value| $scope_prefix + <string>$value)".into()}else{format!("body.`{field}` IN $values")}
             },
             RecordSelection::Connected{targets,fields}=>{
                 if targets.is_empty(){return Ok(vec![])}

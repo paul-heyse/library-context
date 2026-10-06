@@ -24,7 +24,7 @@ pub(crate) async fn abandon(attempt:&PrivatePublication){let _=attempt.loader.cl
 pub(crate) async fn seal(attempt:&PrivatePublication,manifest:&lctx_model::domain::graph::Manifest,config:&RuntimeConfig,native_definitions:&str)->Result<SnapshotHandle,ModelError>{
     let client=attempt.loader.client();
     let version=client.version().await.map_err(ModelError::codec)?.to_string();
-    let mut realized=KeySink::new("native-realization/v1");realized.part(b"engine",version.as_bytes());realized.part(b"lowering",b"lctx-native-graph/v2;remote-sdk-3.3;atomic-id-scopes");lctx_surrealdb::schema::realization_identity(native_definitions).encode(&mut realized);
+    let mut realized=KeySink::new("native-realization/v1");realized.part(b"engine",version.as_bytes());realized.part(b"lowering",b"lctx-native-graph/v3;remote-sdk-3.3;sparse-atomic-id-scopes");lctx_surrealdb::schema::realization_identity(native_definitions).encode(&mut realized);
     let handle=SnapshotHandle{semantic:manifest.content(),realization:realized.finish(),database:DatabaseIdentity{namespace:config.namespace.clone(),database:attempt.database.clone()}};
     // Loader has no outstanding tasks and every statement has a successful final response.
     // A distinct database VIEWER is the only credential emitted for serving.
