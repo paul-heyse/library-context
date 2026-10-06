@@ -195,21 +195,8 @@ impl NominalClosure {
     fn table(&self, index: usize) -> Result<&ClosureTable, ModelError> {
         self.tables.get(index).ok_or_else(|| ModelError::Invalid("closure table index absent".into()))
     }
-    fn edges_sql(&self) -> String {
-        if self.pairs.is_empty() {
-            return "SELECT CAST(0 AS BIGINT) AS source_kind, arrow_cast(NULL,'FixedSizeBinary(16)') AS source_id, CAST(0 AS BIGINT) AS target_kind, arrow_cast(NULL,'FixedSizeBinary(16)') AS target_id WHERE false".into();
-        }
-        let inputs=self.pairs.iter().map(|(source, target, sql)| format!(
-            "SELECT CAST({source} AS BIGINT) AS source_kind, source_id, CAST({target} AS BIGINT) AS target_kind, target_id FROM ({sql}) AS pair_rows WHERE source_id IS NOT NULL AND target_id IS NOT NULL"
-        )).collect::<Vec<_>>();
-        // Generic typed ownership has many finite nominal edges. Balanced operands retain all
-        // pairs without giving the SQL parser/planner a left-deep chain of UNION nodes.
-        fn union(inputs:&[String])->String {
-            if inputs.len()==1{return inputs[0].clone();}
-            let middle=inputs.len()/2;
-            format!("({}) UNION ALL ({})",union(&inputs[..middle]),union(&inputs[middle..]))
-        }
-        union(&inputs)
+    fn pair_sql(source: usize, target: usize, sql: &str) -> String {
+        format!("SELECT CAST({source} AS BIGINT) AS source_kind, source_id, CAST({target} AS BIGINT) AS target_kind, target_id FROM ({sql}) AS pair_rows WHERE source_id IS NOT NULL AND target_id IS NOT NULL")
     }
     /// Project nominal edges once for an immutable dependency set into an external ordered IPC
     /// stream. All subsequent grains reuse these compact edges without rescanning rich inputs.
@@ -218,8 +205,8 @@ impl NominalClosure {
         session: &SessionContext,
         budget: &ResourceBudget,
     ) -> Result<PreparedEdges, ModelError> {
-        use datafusion::{arrow::ipc::writer::FileWriter, execution::session_state::SessionStateBuilder};
-        use std::fs::File;
+        use datafusion::{arrow::ipc::writer::FileWriter, execution::{session_state::SessionStateBuilder, options::ArrowReadOptions}, prelude::col};
+        use std::{fs::File, io::{Read, Seek, SeekFrom}};
         let state = session.state();
         let catalogs = state.catalog_list().clone();
         let config = state.config().clone()
@@ -230,16 +217,50 @@ impl NominalClosure {
         let session = SessionContext::new_with_state(SessionStateBuilder::new_from_existing(state)
             .with_config(config).with_catalog_list(catalogs).build());
         let directory = tempfile::tempdir().map_err(ModelError::codec)?;
+        let pending = directory.path().join("pending-edges.arrow");
         let path = directory.path().join("nominal-edges.arrow");
-        let sql = format!("SELECT * FROM ({}) AS projected_edges ORDER BY source_kind,source_id,target_kind,target_id", self.edges_sql());
-        let frame = crate::sql::query(&session, &sql).await.map_err(ModelError::codec)?;
-        let schema = frame.schema().as_arrow().clone();
+        let schema = std::sync::Arc::new(arrow_schema::Schema::new(vec![
+            arrow_schema::Field::new("source_kind", arrow_schema::DataType::Int64, false),
+            arrow_schema::Field::new("source_id", arrow_schema::DataType::FixedSizeBinary(16), false),
+            arrow_schema::Field::new("target_kind", arrow_schema::DataType::Int64, false),
+            arrow_schema::Field::new("target_id", arrow_schema::DataType::FixedSizeBinary(16), false),
+        ]));
+        // Materialize one pair at a time. ORDER BY over a UNION permits the optimizer to
+        // introduce one live sort/merge reservation per branch; an IPC scan is one sort input.
+        // The staging envelope covers its writer/footer block descriptors, not per-edge state.
+        let mut staging_charge = charged::StateCharge::new(budget, "semantic-edge-staging-metadata");
+        staging_charge.grow(4096)?;
+        let mut staged = FileWriter::try_new(File::create(&pending).map_err(ModelError::codec)?, &schema).map_err(ModelError::codec)?;
+        for (source, target, sql) in &self.pairs {
+            let frame = crate::sql::query(&session, &Self::pair_sql(*source, *target, sql)).await.map_err(ModelError::codec)?;
+            let mut stream = frame.execute_stream().await.map_err(ModelError::codec)?;
+            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                let _transfer = budget.reserve("semantic-edge-transfer", logical_batch_bytes(&batch)?.saturating_mul(3).saturating_add(4096))?;
+                validate_edge_batch(&batch)?;
+                for offset in (0..batch.num_rows()).step_by(resources::TRANSFER_ROWS) {
+                    let slice = batch.slice(offset, (batch.num_rows()-offset).min(resources::TRANSFER_ROWS));
+                    // Nullability from different declared pair projections can differ. Values
+                    // are non-null nominal keys; give all stages the same exact physical schema.
+                    let edge_batch = arrow_array::RecordBatch::try_new(schema.clone(), slice.columns().to_vec()).map_err(ModelError::codec)?;
+                    staging_charge.grow(128)?;
+                    staged.write(&edge_batch).map_err(ModelError::codec)?;
+                }
+                tokio::task::yield_now().await;
+            }
+        }
+        staged.finish().map_err(ModelError::codec)?;
+        drop(staged);
+        let frame = session.read_arrow(pending.to_string_lossy(), ArrowReadOptions::default().schema(schema.as_ref()))
+            .await.map_err(ModelError::codec)?
+            .sort(vec![col("source_kind").sort(true, false), col("source_id").sort(true, false), col("target_kind").sort(true, false), col("target_id").sort(true, false)])
+            .map_err(ModelError::codec)?;
         let mut stream = frame.execute_stream().await.map_err(ModelError::codec)?;
         let mut batches = charged::ChargedVec::default();
         let mut index_charge = charged::StateCharge::new(budget, "semantic-edge-batch-index");
         let mut writer = FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema).map_err(ModelError::codec)?;
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            let _transfer = budget.reserve("semantic-edge-transfer", batch.get_array_memory_size().saturating_mul(3).saturating_add(4096))?;
+            let _transfer = budget.reserve("semantic-edge-transfer", logical_batch_bytes(&batch)?.saturating_mul(3).saturating_add(4096))?;
+            validate_edge_batch(&batch)?;
             // Keep random access bounded even if an upstream physical operator coalesces batches.
             for offset in (0..batch.num_rows()).step_by(resources::TRANSFER_ROWS) {
                 let edge_batch = batch.slice(offset, (batch.num_rows()-offset).min(resources::TRANSFER_ROWS));
@@ -251,15 +272,20 @@ impl NominalClosure {
                 // Arrow's writer/footer also retains one block descriptor per batch. Its compact
                 // metadata envelope lives with the sparse index; no per-edge index is retained.
                 index_charge.grow(128)?;
-                batches.push(&mut index_charge, EdgeBatch { first, last, rows:edge_batch.num_rows() })?;
+                let before = writer.get_mut().stream_position().map_err(ModelError::codec)?;
                 writer.write(&edge_batch).map_err(ModelError::codec)?;
+                let after = writer.get_mut().stream_position().map_err(ModelError::codec)?;
+                let ipc_bytes = usize::try_from(after-before).map_err(ModelError::codec)?;
+                batches.push(&mut index_charge, EdgeBatch { first, last, rows:edge_batch.num_rows(), ipc_bytes })?;
             }
             tokio::task::yield_now().await;
         }
         writer.finish().map_err(ModelError::codec)?;
         drop(writer);
+        drop(stream);
+        drop(staging_charge);
+        std::fs::remove_file(&pending).map_err(ModelError::codec)?;
         // Reserve the reader's footer/block metadata before FileReader allocates it in a grain.
-        use std::io::{Read, Seek, SeekFrom};
         let mut file=File::open(&path).map_err(ModelError::codec)?;
         file.seek(SeekFrom::End(-10)).map_err(ModelError::codec)?;
         let mut length=[0;4];file.read_exact(&mut length).map_err(ModelError::codec)?;
@@ -277,7 +303,7 @@ fn scope_alias(kind: &str) -> String {
 type NominalKey = (i64, [u8;16]);
 /// Exactly one entry per IPC record batch. Duplicate source ranges may span arbitrarily many
 /// adjacent batches; searching by BOTH first and last includes every such batch.
-struct EdgeBatch { first:NominalKey, last:NominalKey, rows:usize }
+struct EdgeBatch { first:NominalKey, last:NominalKey, rows:usize, ipc_bytes:usize }
 impl HeapSize for EdgeBatch {}
 struct EdgeSource {
     session: SessionContext,
@@ -294,6 +320,16 @@ impl EdgeSource {
         let end=self.batches.partition_point(|batch|batch.first<=key);
         start..end
     }
+}
+/// Four fixed, non-null nominal columns are the complete edge row shape. Buffer
+/// capacities may include other arrays in the same IPC block; logical payload cannot.
+fn validate_edge_batch(batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+    use arrow_schema::DataType;
+    let fields=[("source_kind",DataType::Int64),("source_id",DataType::FixedSizeBinary(16)),("target_kind",DataType::Int64),("target_id",DataType::FixedSizeBinary(16))];
+    if batch.num_columns()!=fields.len() || fields.iter().enumerate().any(|(index,(name,kind))| batch.schema().field(index).name().as_str()!=*name || batch.column(index).data_type()!=kind || batch.column(index).null_count()!=0) || logical_batch_bytes(batch)?!=batch.num_rows().saturating_mul(48) {
+        return Err(ModelError::Schema("nominal edge batch requires four non-null fixed nominal columns"));
+    }
+    Ok(())
 }
 fn edge_key(batch:&arrow_array::RecordBatch,kind:&str,id:&str,row:usize)->Result<NominalKey,ModelError>{
     use arrow_array::{Array,Int64Array,FixedSizeBinaryArray};
@@ -320,14 +356,17 @@ impl<'a> EdgeCursor<'a> {
     fn batch(&mut self,index:usize,budget:&ResourceBudget)->Result<&arrow_array::RecordBatch,ModelError>{
         if self.current.as_ref().is_none_or(|(current,_,_)|*current!=index){
             self.current=None;
-            let rows=self.source.batches[index].rows;
-            // Four fixed columns use 48 bytes per row. The envelope also admits IPC alignment,
-            // its read buffer, decoder copies and the RecordBatch/array metadata before reading.
-            let mut charge=budget.reserve("semantic-edge-current-batch",rows.saturating_mul(48*4).saturating_add(4096))?;
+            let descriptor = &self.source.batches[index];
+            // FileReader owns one metadata+body block buffer, shared by all four arrays.
+            // get_array_memory_size counts that entire capacity once per column and is not
+            // the logical shape. The recorded serialized block includes IPC metadata/padding.
+            let retained = descriptor.ipc_bytes.saturating_add(4096);
+            let mut charge=budget.reserve("semantic-edge-current-batch",descriptor.ipc_bytes.saturating_mul(2).saturating_add(4096))?;
             self.reader.set_index(index).map_err(ModelError::codec)?;
             let batch=self.reader.next().ok_or(ModelError::Schema("nominal edge IPC batch missing"))?.map_err(ModelError::codec)?;
-            if batch.num_rows()!=rows || batch.get_array_memory_size().saturating_add(4096)>charge.size(){return Err(ModelError::Schema("nominal edge batch exceeds its admitted shape"));}
-            charge.try_resize(batch.get_array_memory_size().saturating_add(4096))?;
+            validate_edge_batch(&batch)?;
+            if batch.num_rows()!=descriptor.rows {return Err(ModelError::Schema("nominal edge batch does not match its sparse descriptor"));}
+            charge.try_resize(retained)?;
             self.current=Some((index,batch,charge));
         }
         Ok(&self.current.as_ref().expect("current edge batch").1)
@@ -545,6 +584,41 @@ mod nominal_closure_controls {
         let scope=edges.grain(0,&id_predicate(releases[0].id()),&budget).await.unwrap();
         assert_eq!(decode::<Release>(&scope,0).await,vec![releases[0].clone()]);assert_eq!(decode::<Package>(&scope,1).await,vec![package]);
         drop(scope);drop(edges);assert_eq!(budget.reserved(),0);
+    }
+
+    #[tokio::test]
+    async fn ipc_batch_allowance_accounts_for_shared_block_metadata_and_alignment() {
+        let (session,tables,_,_)=fixture();
+        let mut plan=NominalClosure::new(tables).unwrap();plan.follow(0,"package",1).unwrap();
+        let budget=ResourceBudget::fixed(1<<20).unwrap();let edges=plan.prepare(&session,&budget).await.unwrap();
+        let index_usage=budget.reserved();let descriptor=&edges.0.batches[0];
+        let mut cursor=EdgeCursor::new(&edges.0,&budget).unwrap();
+        let batch=cursor.batch(0,&budget).unwrap();validate_edge_batch(batch).unwrap();
+        assert_eq!(logical_batch_bytes(batch).unwrap(),descriptor.rows*48);
+        assert!(descriptor.ipc_bytes>logical_batch_bytes(batch).unwrap(),"the IPC block includes metadata and alignment");
+        assert!(batch.get_array_memory_size()>descriptor.ipc_bytes,"columns report the same retained block capacity separately");
+        assert_eq!(budget.reserved(),index_usage+edges.0.reader_allowance+descriptor.ipc_bytes+4096);
+        let usage=budget.reserved();cursor.batch(0,&budget).unwrap();assert_eq!(budget.reserved(),usage);
+        drop(cursor);assert_eq!(budget.reserved(),index_usage);drop(edges);assert_eq!(budget.reserved(),0);
+    }
+
+    #[tokio::test]
+    async fn many_pair_streams_share_one_external_sort_with_the_workspace_eight_mib_pool() {
+        use crate::workspace::{Workspace,WorkspaceOptions};
+        use lctx_model::domain::stages::Profile;
+        let workspace=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions {memory_bytes:8<<20,partitions:1,batch_rows:16}).unwrap();
+        let session=workspace.inputs("edge-pool-control",Profile::Catalog,std::iter::empty()).unwrap().session(&workspace).await.unwrap();
+        let package=Package {name:"bounded-owner".into()};
+        let releases=(0..400).map(|index|Release {package:package.id(),version:index.to_string()}).collect::<Vec<_>>();
+        register(&session,"bounded_packages",&[package.clone()]);register(&session,"bounded_releases",&releases);
+        let mut plan=NominalClosure::new(vec![ClosureTable {relation:Relation::of::<Release>(),alias:"bounded_releases".into()},ClosureTable {relation:Relation::of::<Package>(),alias:"bounded_packages".into()}]).unwrap();
+        for _ in 0..257 {plan.follow(0,"package",1).unwrap();}
+        let edges=plan.prepare(&session,workspace.budget()).await.unwrap();
+        assert_eq!(edges.0.batches.iter().map(|batch|batch.rows).sum::<usize>(),releases.len()*257,"all duplicate declared pair rows survive staging and ordering");
+        let index_usage=workspace.budget().reserved();
+        let scope=edges.grain(0,&id_predicate(releases[0].id()),workspace.budget()).await.unwrap();
+        assert_eq!(decode::<Release>(&scope,0).await,vec![releases[0].clone()]);assert_eq!(decode::<Package>(&scope,1).await,vec![package]);
+        drop(scope);assert_eq!(workspace.budget().reserved(),index_usage);drop(edges);assert_eq!(workspace.budget().reserved(),0);
     }
 
 }
