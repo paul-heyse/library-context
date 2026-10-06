@@ -26,6 +26,13 @@ impl Preparation {
         let frames=Data::frame_inputs();let mut declarations=frames.clone();declarations.extend(analysis::expected::inputs(analysis::AnalysisMethod::Retrieval));
         let mut consumed=crate::consumed_rows::ConsumedInputs::new(declarations,runtime.budget())?;
         macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
+            if input.type_id()==std::any::TypeId::of::<source::SourceArtifact>(){
+                let actual=access.read_at::<source::SourceArtifact>(input.prefix())?;
+                let alias=access.table_for(&input)?;
+                let selected=format!("SELECT {} FROM {}",analysis::expected::CoverageAdmission::artifact_property_columns(),crate::consumed_rows::identifier(&alias));
+                crate::consumed_rows::stream_query_at(&actual,&input,&session,&selected,|permit,batch|admission.visit_artifact_properties(permit,batch)).await?;
+                continue;
+            }
             crate::consumed_rows::stream_at(&permit,&input,access,&session,|permit,batch|{
                 admission.visit_if_expected(permit,batch)?;
                 if frames.iter().any(|frame|frame.type_id()==input.type_id() && frame.prefix()==input.prefix()){metadata.visit_input(&input,batch)?;}Ok(())

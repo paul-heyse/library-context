@@ -429,6 +429,20 @@ impl FrontierIndex {
             text: Default::default(),
         }
     }
+    fn visit_artifact_properties(&mut self,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        use arrow_array::Array;
+        let fixed=|name|batch.column_by_name(name).and_then(|column|column.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()).filter(|column|column.null_count()==0&&column.value_length()==16).ok_or(ModelError::Schema("expected artifact nominal properties"));
+        let(ids,inputs)=(fixed("id")?,fixed("input")?);
+        let suffix=batch.column_by_name("path_suffix").and_then(|column|column.as_any().downcast_ref::<arrow_array::StringArray>()).filter(|column|column.null_count()==0).ok_or(ModelError::Schema("expected artifact classifier property"))?;
+        let nominal=|bytes:&[u8]|serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(bytes.iter().copied())).map_err(ModelError::codec);
+        self.roots.take();
+        for row in 0..batch.num_rows(){
+            let id:Id<SourceArtifact>=nominal(ids.value(row))?;
+            let input:Id<InputRevision>=serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(inputs.value(row).iter().copied())).map_err(ModelError::codec)?;
+            if suffix.value(row).chars().count()>4{return Err(invalid("expected artifact classifier projection is not bounded"));}
+            if self.artifacts.insert(&mut self.charge,id,ArtifactScope{input,class:admission::ArtifactClass::of(suffix.value(row))})?.is_some(){return Err(ModelError::Conflict(SourceArtifact::NAME));}
+        }Ok(())
+    }
     pub(crate) fn visit(
         &mut self,
         relation: &str,
@@ -761,6 +775,14 @@ impl<'a> CoverageAdmission<'a> {
             VisitResult::Skipped => Err(invalid("relation is not an expected-domain input")),
         }
     }
+    /// Projection of the actual artifact owner used only by expected-scope admission. The last
+    /// four characters preserve every admitted extension (dot plus at most three characters),
+    /// while the original ArtifactClass operation remains the sole classifier. No canonical
+    /// SourceArtifact is reconstructed from these properties.
+    pub fn artifact_property_columns()->&'static str {"id,input,right(path,4) AS path_suffix"}
+    pub fn visit_artifact_properties(&mut self,permit:&CompletedInput<SourceArtifact>,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        self.sources.accepts(permit)?;self.index.visit_artifact_properties(batch)
+    }
     pub(crate) fn domain(
         &self,
         input: Id<InputRevision>,
@@ -793,6 +815,21 @@ mod tests {
         input::{ManifestEntry, SourceRole},
         normalized::coverage::EvidenceAvailability,
     };
+    #[test]
+    fn artifact_property_admission_preserves_classifier_refuses_duplicates_and_releases_state(){
+        use arrow_array::{ArrayRef,RecordBatch,StringArray};use std::sync::Arc;
+        let budget=resources::ResourceBudget::fixed(64<<10).unwrap();
+        let rows=["source.py","stub.pyi","README.md","page.mdx","api.rst","file.PY","file.py.other","unicode_λ.md","no_extension"].into_iter().map(|path|SourceArtifact::from_bytes(serde_json::from_value(serde_json::json!(vec![1u8;16])).unwrap(),path.into(),b"x").unwrap()).collect::<Vec<_>>();
+        let encoded=<SourceArtifact as Record>::encode(&rows).unwrap();
+        let suffixes=rows.iter().map(|row|row.path.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<String>()).collect::<Vec<_>>();
+        let schema=Arc::new(arrow_schema::Schema::new(vec![encoded.schema().field_with_name("id").unwrap().clone(),encoded.schema().field_with_name("input").unwrap().clone(),arrow_schema::Field::new("path_suffix",arrow_schema::DataType::Utf8,false)]));
+        let projected=RecordBatch::try_new(schema.clone(),vec![encoded.column_by_name("id").unwrap().clone(),encoded.column_by_name("input").unwrap().clone(),Arc::new(StringArray::from(suffixes)) as ArrayRef]).unwrap();
+        let mut index=FrontierIndex::new(Profile::Catalog,&budget);index.visit_artifact_properties(&projected).unwrap();
+        for row in &rows{let actual=index.artifacts.get(&row.id()).unwrap();assert_eq!(actual.input,row.input);assert_eq!(actual.class,admission::ArtifactClass::of(&row.path));}
+        assert!(index.visit_artifact_properties(&projected.slice(0,1)).is_err());drop(index);assert_eq!(budget.reserved(),0);
+        let wrong=RecordBatch::try_new(schema,vec![projected.column(0).clone(),projected.column(1).clone(),Arc::new(StringArray::from(vec!["not bounded";rows.len()])) as ArrayRef]).unwrap();
+        let mut index=FrontierIndex::new(Profile::Catalog,&budget);assert!(index.visit_artifact_properties(&wrong).is_err());drop(index);assert_eq!(budget.reserved(),0);
+    }
     struct Fixture {
         index: FrontierIndex,
         input: Id<InputRevision>,

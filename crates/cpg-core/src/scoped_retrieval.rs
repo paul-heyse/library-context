@@ -117,7 +117,7 @@ mod controls {
     use std::sync::Arc;
     fn id<R>(byte:u8)->Id<R>{nominal(&[byte;16]).unwrap()}
     fn fixture()->(SessionContext,Vec<ValidationInput>,Vec<ClosureTable>){
-        let model=lctx_model::domain::model().unwrap();let inputs=ConsumptionData::inputs();let session=SessionContext::new();
+        let model=lctx_model::domain::model().unwrap();let inputs=retrieval::consumption::invariants().into_iter().find(|invariant|invariant.name=="retrieval_embedding_consumption_and_winners").unwrap().inputs;let session=SessionContext::new();
         let tables=inputs.iter().enumerate().map(|(index,input)|{let relation=model.relation(input.name()).unwrap().clone();let alias=format!("winner_fixture_{index}");let batch=arrow_array::RecordBatch::new_empty(relation.schema().clone());session.register_table(alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();ClosureTable{relation,alias}}).collect();(session,inputs,tables)
     }
     fn install<R:Record>(session:&SessionContext,inputs:&[ValidationInput],tables:&[ClosureTable],rows:&[R]){let index=index::<R>(inputs).unwrap();let batch=R::encode(rows).unwrap();session.deregister_table(tables[index].alias.as_str()).unwrap();session.register_table(tables[index].alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();}
