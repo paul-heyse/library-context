@@ -76,7 +76,7 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
 @pytest.mark.anyio
 async def test_transport_admission_refuses_complete_oversized_results_and_errors():
     """An actual MCP exchange exercises the byte adapter, independently of graph providers."""
-    server = FastMCP("envelope control", cache_ttl=0)
+    server = FastMCP("envelope control", cache_ttl=None)
     server.add_middleware(EnvelopeAdmission(server))
 
     @server.tool
