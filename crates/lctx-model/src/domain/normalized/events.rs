@@ -107,7 +107,7 @@ pub struct NormalizedCallEvent {
     pub context: Id<AnalysisContext>,
     pub owner: Id<OccurrenceOwnership>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "normalized_call_event_sources")]
 pub struct CallEventSource {
     #[model(key)]
@@ -115,7 +115,7 @@ pub struct CallEventSource {
     #[model(key)]
     pub observation: Id<ProviderCallSite>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "normalized_call_source_evidence")]
 pub struct CallEventSourceEvidence {
     #[model(key)]

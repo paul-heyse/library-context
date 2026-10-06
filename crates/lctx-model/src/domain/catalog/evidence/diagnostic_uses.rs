@@ -18,7 +18,7 @@ pub enum DiagnosticUseStatus {
     UnavailablePrimary = 3,
     IncompleteCorrespondence = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "catalog_diagnostic_use_assessments",
     rule = "diagnostic_use_assessment"
@@ -31,7 +31,7 @@ pub struct DiagnosticUseAssessment {
     /// Exact primary syntax correspondence was unavailable or encountered a finite ancestor bound.
     pub remainder: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_diagnostic_use_links", rule = "diagnostic_use_link")]
 pub struct DiagnosticUseLink {
     #[model(key)]
@@ -43,7 +43,7 @@ pub struct DiagnosticUseLink {
     #[model(key, premise)]
     pub event_source: Id<normalized::events::CallEventSource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_diagnostic_use_paths", rule = "diagnostic_use_path")]
 pub struct DiagnosticUsePath {
     #[model(key)]
@@ -53,7 +53,7 @@ pub struct DiagnosticUsePath {
     #[model(key, premise)]
     pub placement: Id<SyntaxPlacement>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "catalog_diagnostic_use_targets",
     rule = "diagnostic_use_target"

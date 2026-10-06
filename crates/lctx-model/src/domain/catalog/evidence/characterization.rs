@@ -6,7 +6,7 @@ use super::{
 use crate::domain::{
     analysis::native::NativeAssertionPremise, assertion::*, attribution::*, source::*,
 };
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "catalog_source_characterizations",
     rule = "source_characterization"
@@ -22,7 +22,7 @@ pub struct SourceCharacterization {
     pub source: Id<OriginalSource>,
 }
 /// Containment only, never a resolved API target or an executed-test claim.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_source_characterization_scenarios")]
 pub struct SourceCharacterizationScenario {
     #[model(key)]
@@ -165,7 +165,7 @@ fn add(
     Ok(id)
 }
 /// Exact event-source correspondence; it survives unresolved targets and does not imply execution.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_source_usages", rule = "source_usage")]
 pub struct SourceUsage {
     #[model(key, premise)]

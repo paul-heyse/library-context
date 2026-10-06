@@ -669,6 +669,15 @@ pub fn reference_target(
     reference: &super::SemanticReference,
 ) -> Result<(Target, Option<EntityKind>), ModelError> {
     match reference.target {
+    <super::normalized::events::CallEventSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::CallEventSourceEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::SourceCharacterization as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::SourceCharacterizationScenario as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::SourceUsage as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::DiagnosticUseAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::DiagnosticUseLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::DiagnosticUsePath as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::DiagnosticUseTarget as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::catalog::evidence::EvidenceRoot as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Scope,reference.target,&reference.key)),Some(EntityKind::Scope))),
     <super::catalog::evidence::RootSubject as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
     <super::retrieval::Fragment as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalFragment,reference.target,&reference.key)),Some(EntityKind::RetrievalFragment))),
@@ -9872,6 +9881,15 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport {
 // Selected analytics retain their computation universe, weights, memberships, availability and
 // provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    NormalizedCallEventSource:$crate::domain::normalized::events::CallEventSource,
+    NormalizedCallEventSourceEvidence:$crate::domain::normalized::events::CallEventSourceEvidence,
+    CatalogSourceCharacterization:$crate::domain::catalog::evidence::SourceCharacterization,
+    CatalogSourceCharacterizationScenario:$crate::domain::catalog::evidence::SourceCharacterizationScenario,
+    CatalogSourceUsage:$crate::domain::catalog::evidence::SourceUsage,
+    CatalogDiagnosticUseAssessment:$crate::domain::catalog::evidence::DiagnosticUseAssessment,
+    CatalogDiagnosticUseLink:$crate::domain::catalog::evidence::DiagnosticUseLink,
+    CatalogDiagnosticUsePath:$crate::domain::catalog::evidence::DiagnosticUsePath,
+    CatalogDiagnosticUseTarget:$crate::domain::catalog::evidence::DiagnosticUseTarget,
     RetrievalEmbeddingUse:$crate::domain::retrieval::consumption::RetrievalEmbeddingUse,
     RetrievalUnitRoot:$crate::domain::retrieval::UnitRoot,
     StructuralUsageSite:$crate::domain::structural::UsageSite,
@@ -17261,4 +17279,31 @@ macro_rules! retrieval_assertions {
 retrieval_assertions! {
     RetrievalEmbeddingUse:super::retrieval::consumption::RetrievalEmbeddingUse=>EmbeddingWitness,
     RetrievalUnitRoot:super::retrieval::UnitRoot=>EvidenceAssociation,
+}
+
+// Exact native-source characterization and diagnostic correspondence survive admission.
+macro_rules! catalog_source_assertions {
+ ($($variant:ident:$ty:ty),* $(,)?)=>{$(
+  impl From<$ty> for ProvenanceValue{fn from(row:$ty)->Self{Self::$variant(row)}}
+  impl GraphAssertionRecord for $ty{
+   const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;
+   fn graph_payload(row:Self)->Assertion{
+    let qualification=row.references().into_iter().find(|r|r.target==super::assertion::AssertionQualification::NAME)
+      .map(|r|Qualification::Ref(entity_key(EntityKind::Qualification,r.target,&r.key))).unwrap_or(Qualification::Payload);
+    Assertion{source:Some(SemanticKey::of(row.id())),kind:Self::GRAPH_KIND,participants:vec![],qualification,
+      run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}
+   }
+  }
+ )*};
+}
+catalog_source_assertions! {
+ NormalizedCallEventSource:super::normalized::events::CallEventSource,
+ NormalizedCallEventSourceEvidence:super::normalized::events::CallEventSourceEvidence,
+ CatalogSourceCharacterization:super::catalog::evidence::SourceCharacterization,
+ CatalogSourceCharacterizationScenario:super::catalog::evidence::SourceCharacterizationScenario,
+ CatalogSourceUsage:super::catalog::evidence::SourceUsage,
+ CatalogDiagnosticUseAssessment:super::catalog::evidence::DiagnosticUseAssessment,
+ CatalogDiagnosticUseLink:super::catalog::evidence::DiagnosticUseLink,
+ CatalogDiagnosticUsePath:super::catalog::evidence::DiagnosticUsePath,
+ CatalogDiagnosticUseTarget:super::catalog::evidence::DiagnosticUseTarget,
 }

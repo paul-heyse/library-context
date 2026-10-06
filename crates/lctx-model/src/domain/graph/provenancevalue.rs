@@ -260,10 +260,28 @@ pub enum ProvenanceValue {
     StructuralUsageEvidence(crate::domain::structural::UsageEvidence),
     CallPolicyAssessment(crate::domain::normalized::events::CallPolicyAssessment),
     CallPolicyAdmission(crate::domain::normalized::events::CallPolicyAdmission),
+    CatalogSourceCharacterization(crate::domain::catalog::evidence::SourceCharacterization),
+    CatalogSourceCharacterizationScenario(crate::domain::catalog::evidence::SourceCharacterizationScenario),
+    CatalogSourceUsage(crate::domain::catalog::evidence::SourceUsage),
+    CatalogDiagnosticUseAssessment(crate::domain::catalog::evidence::DiagnosticUseAssessment),
+    CatalogDiagnosticUseLink(crate::domain::catalog::evidence::DiagnosticUseLink),
+    CatalogDiagnosticUsePath(crate::domain::catalog::evidence::DiagnosticUsePath),
+    CatalogDiagnosticUseTarget(crate::domain::catalog::evidence::DiagnosticUseTarget),
+    NormalizedCallEventSource(crate::domain::normalized::events::CallEventSource),
+    NormalizedCallEventSourceEvidence(crate::domain::normalized::events::CallEventSourceEvidence),
 }
 impl Key for ProvenanceValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::NormalizedCallEventSource(row)=>{sink.part(b"variant",&134u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::NormalizedCallEventSourceEvidence(row)=>{sink.part(b"variant",&135u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::CatalogSourceCharacterization(row)=>{sink.part(b"variant",&127u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::CatalogSourceCharacterizationScenario(row)=>{sink.part(b"variant",&128u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::CatalogSourceUsage(row)=>{sink.part(b"variant",&129u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::CatalogDiagnosticUseAssessment(row)=>{sink.part(b"variant",&130u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::CatalogDiagnosticUseLink(row)=>{sink.part(b"variant",&131u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::CatalogDiagnosticUsePath(row)=>{sink.part(b"variant",&132u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::CatalogDiagnosticUseTarget(row)=>{sink.part(b"variant",&133u16.to_le_bytes());row.content_digest().encode(sink);},
             Self::NativeQualification(row) => {
                 sink.part(
                     b"semantic-type",
@@ -1106,6 +1124,15 @@ impl Key for ProvenanceValue {
 impl ProvenanceValue {
     pub fn validate(&self) -> Result<(), ModelError> {
         match self {
+            Self::NormalizedCallEventSource(row)=>row.validate(),
+            Self::NormalizedCallEventSourceEvidence(row)=>row.validate(),
+            Self::CatalogSourceCharacterization(row)=>row.validate(),
+            Self::CatalogSourceCharacterizationScenario(row)=>row.validate(),
+            Self::CatalogSourceUsage(row)=>row.validate(),
+            Self::CatalogDiagnosticUseAssessment(row)=>row.validate(),
+            Self::CatalogDiagnosticUseLink(row)=>row.validate(),
+            Self::CatalogDiagnosticUsePath(row)=>row.validate(),
+            Self::CatalogDiagnosticUseTarget(row)=>row.validate(),
             Self::NativeQualification(row) => row.validate(),
             Self::LocalAnalysisObligation(row) => row.validate(),
             Self::LocalCoverageRequirement(row) => row.validate(),
@@ -1285,6 +1312,15 @@ impl ProvenanceValue {
     }
     pub fn references(&self) -> Vec<super::super::SemanticReference> {
         match self {
+            Self::NormalizedCallEventSource(row)=>row.references(),
+            Self::NormalizedCallEventSourceEvidence(row)=>row.references(),
+            Self::CatalogSourceCharacterization(row)=>row.references(),
+            Self::CatalogSourceCharacterizationScenario(row)=>row.references(),
+            Self::CatalogSourceUsage(row)=>row.references(),
+            Self::CatalogDiagnosticUseAssessment(row)=>row.references(),
+            Self::CatalogDiagnosticUseLink(row)=>row.references(),
+            Self::CatalogDiagnosticUsePath(row)=>row.references(),
+            Self::CatalogDiagnosticUseTarget(row)=>row.references(),
             Self::NativeQualification(row) => row.references(),
             Self::LocalAnalysisObligation(row) => row.references(),
             Self::LocalCoverageRequirement(row) => row.references(),
@@ -1464,6 +1500,15 @@ impl ProvenanceValue {
     }
     pub fn semantic_key(&self) -> SemanticKey {
         match self {
+            Self::NormalizedCallEventSource(row)=>SemanticKey::of(row.id()),
+            Self::NormalizedCallEventSourceEvidence(row)=>SemanticKey::of(row.id()),
+            Self::CatalogSourceCharacterization(row)=>SemanticKey::of(row.id()),
+            Self::CatalogSourceCharacterizationScenario(row)=>SemanticKey::of(row.id()),
+            Self::CatalogSourceUsage(row)=>SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUseAssessment(row)=>SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUseLink(row)=>SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUsePath(row)=>SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUseTarget(row)=>SemanticKey::of(row.id()),
             Self::NativeQualification(row) => SemanticKey::of(row.id()),
             Self::LocalAnalysisObligation(row) => SemanticKey::of(row.id()),
             Self::LocalCoverageRequirement(row) => SemanticKey::of(row.id()),
