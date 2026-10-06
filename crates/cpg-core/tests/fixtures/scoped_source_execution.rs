@@ -1,6 +1,5 @@
 //! Actual scoped producers compared with a finite independent whole-operation oracle.
-#[path = "catalog_runtime.rs"]
-mod runtime;
+use super::runtime;
 use cpg_core::{
     compilation::{self, PreparedCompilation},
     workspace::{CompletedInputs, Workspace, WorkspaceOptions},
