@@ -8,6 +8,9 @@ records the preserved compiler-stage boundary and actual native projection/expor
 consumers, the [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
 The coordinator owns package state, combined dependencies and finding disposition.
 
+**Current continuation Proposed, 2026-10-06:** §6 develops prepared analytical inputs and terminal streams.
+Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
+
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
 [coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
 owns their current disposition. Earlier stage acceptance and dated receipts below are preserved;
@@ -153,3 +156,59 @@ query diagnostics only for a concrete access-path uncertainty.
 Completion means all current analytical consumers have migrated and the first actual export has
 explicit universe/fidelity/lineage. It is not just a standalone petgraph demo. Actual package state
 and any deferred destination trigger remain at the coordinator.
+
+## 6. Remediation integration: prepared input lifetime and terminal streams
+
+**Proposed, 2026-10-06.** There is no new projection-policy defect asserted by the audit.
+This work completes the projection consumers of compiler F02/F03 and native F04/F11;
+[coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+owns those packages/disposition rather than creating a separate projection queue.
+
+### 6.1 R-C1/R-C2 analytical input slice
+
+`analysis_graphs` currently gathers assessment/header/chunk inventories before hydration.
+Consume selected completed keys and stream their encoded assembly; release that representation
+once the compact topology exists. Reuse the same prepared graph among compatible scheduling,
+Summary, Structural and selected analytical consumers under its actual completed source/policy
+identity. Keep semantic IDs/incidence/weights and necessary side lineage; hydrate rich evidence
+for output claims. Free topology after its last consumer. No universal topology cache or persistent
+shadow graph is needed.
+
+Do not apply a display selector to the universe of SCCs, global rank, communities or concepts.
+Different named projections cannot share topology merely because their endpoints look alike.
+Preserve four named projection policies (CallableInvocation, DefinitionContainment,
+ImportReference, PublicExposure), isolates, parallel assertions, self-loops, contexts, gaps and
+canonical lineage. Exact analytical kNN keeps the consumed embedding specification and exact
+contract; filtered HNSW discovery is not its substitute. Optional methods/layers remain off by
+default and should not eagerly build method-specific rich inputs.
+
+Owner/edit scope is compiler `analysis_graphs`, completed projection/coverage views, actual
+Summary/Structural/Analytic adapters and the existing pure method inputs. The compiler plan's
+checked preparation is the prerequisite, not final Catalog admission or published readback.
+Model policy/method definitions and output outcomes remain authoritative. Keep finite-condition,
+SCC, FCA/RCA and other specialized kernels in their existing Rust owners: SurrealDB has traversal
+and shortest paths, but no replacement for the selected graph algorithm family.
+
+Closure combines a small independently known graph (isolate, parallel/self arc, unresolved boundary,
+cross-context exclusion, selector subset) with actual shared consumers. Check canonical SCC/
+weighted/incidence/vector answers, shuffled/batched sources, foreign prepared inputs, and explicit
+NotRequested/partial/convergence outcomes. This adds targeted changed-consumer cases without
+restarting the stopped compiler suite or demanding broad algorithm requalification.
+
+### 6.2 R-P1a/R-P2 published stream slice
+
+Use the selected gRPC SDK's genuine `Query::stream_items()` for a scoped projection export where
+it removes full buffering. Interpret provisional rows and successful statement end explicitly;
+outer stream success is also necessary. A partial neighborhood retains its declared boundary;
+a late failure cannot finalize a supposedly complete export or admit it as a compiler artifact.
+Source files stay staged until stream and manifest closure finish, then commit without clobbering.
+
+Align source-stream handling with publisher construction and cold audit. One helper may handle
+terminal outcomes at the native reader boundary, but must not redefine projection semantics or
+hide a buffered query behind a stream interface. Validate one actual persistent projection/export
+and a deterministic late failure. Vertices/roles and lineage have independently named expected
+IDs. The canonical full-artifact import path is distinct from this diagnostic export.
+
+External Neo4j/GDS, relational, GraphQL, GQL and other destinations retain §4's consumer triggers.
+The capability investigation found no current reason to add them to close this audit. No legacy
+export format, old projection reader or historical runtime artifact is retained for compatibility.

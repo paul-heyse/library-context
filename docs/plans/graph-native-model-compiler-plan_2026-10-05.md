@@ -4,6 +4,9 @@
 It develops M1, C1, C2-N and C2-U. The coordinator owns package state, cross-plan dependencies
 and finding disposition. The design basis is its two named reviews, not another model review.
 
+**Current continuation Proposed, 2026-10-06:** §5 develops semantic admission and bounded preparation.
+Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
+
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
 [coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
 owns their current disposition. Earlier stage acceptance and dated receipts below are preserved;
@@ -197,3 +200,173 @@ live vectors and activation remain the coordinator's explicitly authorized Q1 wo
 
 Package state, actual current-tree verification and finding disposition remain at the coordinator.
 The complete compiler stage is authorized; native persistence/publication/serving are subsequent work.
+
+## 5. Audit remediation: semantic admission and bounded shared preparation
+
+**Proposed, 2026-10-06.** F01/F02/F03 are a coupled correction, not permission to restart the
+stopped compiler suite. [Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+owns execution and §7 owns disposition. The [foundation assessment](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/compiler.md)
+grounds this design in current owners and the matched DataFusion skill. The current workspace
+already owns private IPC files and spillable compute; rich normalization collectors and upper
+replay currently defeat that route. Tighten admission while removing repeated reconstruction.
+
+### 5.1 R-C0 — Necessary semantic admission, distinct from producer replay
+
+Production admission checks compilation completion, coverage, graph shapes/references and
+acyclic derivation, but it does not invoke assertion support/qualification/ownership checks.
+Calling `Workspace::validate()` wholesale would also invoke broad producer replay. Split these
+responsibilities at the existing model validation owners: required semantic admission operations
+and explicit diagnostic/differential replay. Use ordinary typed Rust functions/declarations;
+`lctx-model` remains pure and does not gain DataFusion or a validation DSL.
+
+Required checks include assertion/support total membership; context/provider/run/family/fidelity
+agreement; acquired-input and source/scope ownership of subjects, conditions and evidence; source
+bounds; canonical condition/assumption basis; nominal roles/subtypes and reference closure;
+coverage and required invocation/outcome key domains; exact vector/spec/text consumption; and
+applicable binding/receiver/event composition premises. Derive these obligations from existing
+owner declarations and input captures/profile/methods, not an orchestration-maintained duplicate
+checker list. Preserve the existing independent final-frontier obligation logic. Digest equality,
+matching counts or a successful producer return cannot replace these semantic properties.
+
+Execute relational checks using joined/ordered completed inputs and source-owned typed predicates.
+Local construction checks run when rows enter; predecessor checks finish before consumers rely
+on them; forward references and truly global closure finish when their declared domain closes.
+Avoid a new whole-resident support map per assertion family. Bulk semijoins, sorted reducers and
+attempt-private ordered membership streams carry the same owner semantics. Failure/cancellation
+leaves no completed checked view or admitted artifact.
+
+Carry established validity with a privately constructed checked completed-input view bound to
+its immutable descriptors, capture/profile/settings, applicable semantic policy and selected
+vocabulary boundary. Reuse existing content descriptors: do not rehash all unchanged input to
+authorize every consumer, mint validity from empty descriptors, persist receipts or recreate
+store grants. Mutable/pending output cannot construct it. Each consumer receives the properties
+it needs; final admission combines applicable checked views and remaining global closure.
+For a replay removed from production, preserve its genuinely necessary consumer premise through
+this owner operation and retain an independent small test of the producer. Do not remove an
+assurance merely because it currently shares a function with replay.
+
+All four frontiers and both profiles use this path. Unrequested optional operations have explicit
+NotRequested outcomes without preparing their rich inputs. Valid unresolved/conflicting provider
+observations remain admitted as their declared uncertainty; wrong support attribution refuses.
+
+### 5.2 Detached transport and restore do not inherit live checked state
+
+Distinguish live `AdmittedArtifact` export checked against its actual immutable manifest from
+`publish-artifact`/portable restore of detached bytes. The live path preserves established
+properties under exact transport equality. A detached file's self-authored manifest establishes
+neither support validity nor completeness: perform the necessary semantic re-admission before
+sealing or publishing it, without acquisition, providers, normalization replay or embedding.
+
+The canonical graph retains observations/supports, ProviderRun/RunFamily, qualification,
+conditions/assumptions, capture/source/evidence ownership and corpus associations. Share neutral
+mechanical graph-to-typed-record dispatch at the model/codec owner; existing native codec/batch
+conversion demonstrates the route but must not become a compiler dependency on SurrealDB.
+Decode bounded batches into attempt-private typed streams and execute the same admission owners.
+Expected coverage/outcome keys come from retained input/profile/method declarations, not observed
+output rows. Missing applicable inputs refuse; an omitted ephemeral workspace projection format
+is not an excuse to skip a semantic obligation. Reconstruct required projection/lineage checks
+from canonical roles, vertices and gaps, or add a specifically necessary declared semantic input
+before claiming portability of that frontier. No retired topology serialization or grant is imported.
+
+Affected consumers: artifact construction/export verification, detached CLI publication, publisher
+input types, portable backup restore and graph/projection dispatch. These share one semantic
+admission implementation with two validity lifetimes. Arbitrary partial diagnostic/projection
+exports are not complete artifact inputs. The supported boundary remains controlled compiler
+output plus semantic/transport checks; it does not authenticate dishonest producers or prove
+unrestricted Python truth. No signing/certificate service is introduced.
+
+### 5.3 R-C1 — Partitioned normalization that retains global dependencies
+
+Select DataFusion bulk projection, semijoin/join and external ORDER BY followed by model-owned
+ordered reductions and dependency-closed local kernels. Stream outputs directly into the current
+canonical stage writer. Do not collect `SELECT *` into every `Rows` field or collect all outputs
+before writing them. The lock matches DataFusion 55.1.0 / Arrow 59.3.0 / object_store 0.13.2.
+`execute_stream` bounds neither operators nor consumer collections; spill is operator-specific.
+Use actual spillable sorts/appropriate merge joins and the current pool/disk manager. Do not use
+`DataFrame::cache()` as a blanket replacement: it materializes memory. Partition streams do not
+promise global order, and IPC scans do not automatically inherit Parquet repartitioning behavior.
+
+The physical partition grain follows the semantic dependency closure, not file size alone:
+
+| Binding | Selected processing grain and required closure |
+|---|---|
+| Entities | Ordered source/span ownership sweep plus joined module/provider/context; retain complete external-symbol correspondence and entity universe |
+| Relations | Separate source-reference/import/type/mention joins; obtain cross-module target candidates and corpus-library association before typed reduction |
+| Callables | Complete callable/declaration/signature family, including all overload/provider candidates and ordered parameter slots; imported targets remain joined |
+| Receivers | Call target/evaluation occurrence plus applicable complete callable inputs; preserve expression-relative ClassOf and source/context admission |
+| CallableAspects | Assessment/declaration/class-field group with decorator/default/trait and ancestry/accessor links; metadata is not body/signature proof |
+| Events | Qualified call/evaluation occurrence and complete alternatives/phase/dispatch; retain native correspondence, conditions and unfollowed boundaries |
+| Bindings | Event/invocation alternative with complete signature/receiver candidate closure; emit bound/shape/effective/composition products once |
+| Projections | Independent vertices, ordered typed arcs/gaps and lineage per named context/universe; global methods retain their actual full universe |
+| Coverage | Ordered join of independently derived capture/profile obligations, native evidence and completed outputs; exact key domains and all declared outcome states |
+
+Cross-module/candidate dictionaries remain compact or file-backed, not copied into every partition.
+Use a bulk semijoin or indexed range fetch for each required dependency closure. Absence claims
+require the closed universe of alternatives, not the rows present in the current chunk.
+One source, signature family or highly connected target can be skewed: use incremental ordered
+membership/enumeration, tiled joins for genuine many-to-many output and finer independent semantic
+groups. Keep only irreducible compact state for a truly whole-group kernel and stream surrounding
+rich evidence. A page count or refusing every large ordinary partition does not satisfy F02.
+
+Execute coherent chains: Entities/Relations and their consumers; Callables/Receivers/Aspects;
+Events/Bindings and their consumers; projection/coverage reductions. No old-resident fallback
+is accepted as completion. Introduce reusable secondary orderings only for actual repeated
+consumers; otherwise a streamed join is simpler. A built-in-composed provider/plan is preferred;
+any necessary custom reducer must accurately expose ordering/partition/boundedness rather than
+claiming automatic spill. No universal optimizer or accounting service is added.
+
+### 5.4 R-C2 — Prepare authority once and migrate every upper consumer
+
+Build receiver/event/binding admissions during their owning normalization operations from checked
+predecessors and actual new outputs. Separate this authority construction from
+`binding_normalization::verify`/`verify_upstream`, receiver/callable reruns and event replay.
+Expose a borrowed/indexed immutable view of bound calls, shapes, source forms, effective
+invocations and composition admissions. Large indexes reuse normalized attempt files; do not
+add a second global resident `VerifiedBindings` map. Scope use to the actual consumer's closure.
+
+Migrate SourceCalls, Models and Summary together with this constructor. Models also currently
+reruns `enriched_production::enrich_all`; consume completed checked Enriched context/argument/
+native-call inputs instead, keeping the narrowly necessary Model applicability checks. Inspect
+nested verifier calls as part of these concrete consumers. A named wrapper that still normalizes
+upstream is not migration. Prepared views reject foreign attempt/content/profile/policy/vocabulary.
+Do not cache across an input lifetime merely to avoid constructing this view.
+
+The complete upper inventory remains the 21 `UpperStage` variants. Configuration/Native/
+EmbeddingConfiguration use small definitions; Text/Embedding group exact requests/spec/winners;
+CatalogCore/CatalogEvidence/Selection/Synthesis/Retrieval consume scoped joined inputs; Local/
+Base/Completion/SourceCalls/Enriched/Models use exact source/evaluation/call closures; Summary
+uses completed Local/Model/Enriched/SourceCalls and shared invocation topology; Structural/Analytic
+borrow their required projections; AnalysisFrontier/CatalogFrontier reduce independent expected
+method/frame/coverage domains. Default Catalog must not prepare unrequested behavioral inputs.
+
+Actual loader/edit scope includes `normalize/mod.rs`, model normalized admission functions,
+`catalog_core::aspects`, `consumed_rows`, `local_semantics`, `semantic_execution`, `semantic_models`,
+`semantic_summaries`, `structural`, `analytic`, catalog adapters, synthesis, retrieval preparation/
+retrieval, final coverage and `analysis_graphs`. Scope these consumers alongside producer migration:
+a streaming normalization followed by recollection of the whole rich fact graph is incomplete.
+Global algorithms may legitimately need a compact complete topology; that is separate from
+unrelated native facts/original payloads. The projection plan owns that consumer slice.
+
+### 5.5 Focused acceptance and execution boundary
+
+R-C0 starts with small hand-authored invalid supports: absent support, wrong context/input/provider/
+family/fidelity and out-of-scope evidence with otherwise existing referents. Also replace a required
+outcome key with another at equal count and preserve valid provider disagreement. Exercise both
+fresh admission and detached import with internally consistent hashes; invalid semantics still
+refuse. Valid transport/restore retains exact originals/vectors and invokes no providers.
+
+R-C1/R-C2 use cross-partition imports, ambiguous overloads, receiver/default/keyword/vararg cases,
+native Bound/unattached inventory, shuffled batches and a skewed source/target. Independently
+specify known identities, roles and uncertainty, then compare canonical outputs for two memory/
+partition configurations on a synthetic workload that forces external ordering. Both must finish
+successfully; honest refusal alone is insufficient. Test prepared validity mismatch and cancellation/
+late-output failure, and inspect that SourceCalls/Models/Summary/Enriched no longer replay unrelated
+predecessors. Do not introduce runtime invocation counters solely to demonstrate removed replay.
+
+Cover four-frontier/two-profile routing with targeted tiny fixtures. Select positive behavioral
+and optional method cases needed by changed consumers, preserving explicit partial/NotRequested/
+unavailable outcomes and method/vector settings. Reuse independent model/analytics known answers.
+Run touched-crate compile checks and explicit affected verification-family filters. This is new
+remediation validation, not the waived historical compiler-suite/parity work, a live-library
+pilot, assembled qualify or performance measurement. Completion still requires migration of the
+whole applicable binding/consumer inventory, not only the representative first fixture.

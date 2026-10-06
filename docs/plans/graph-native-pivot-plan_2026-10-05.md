@@ -1,6 +1,6 @@
 # Graph-native replacement — implementation coordinator
 
-**Implemented with open audit findings, 2026-10-06 (ADR-0128); operator adoption remains not_run.** Replace the PostgreSQL-centered compilation and serving architecture
+**Remediation target Proposed, 2026-10-06; implemented baseline has open audit findings (ADR-0128).** Replace the PostgreSQL-centered compilation and serving architecture
 directly with a Rust-admitted graph and SurrealDB-native persistence, querying and search. This
 coordinator owns the combined execution sequence, shared decisions, finding disposition and
 completion boundary. Supporting plans develop their respective designs; they do not create
@@ -9,7 +9,9 @@ another task ledger. Package evidence below distinguishes implementation from fu
 The [independent implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) concludes that the runtime migration is
 substantially present but the complete target is not fully realized. §7 owns the twelve open
 findings; existing §8 receipts and the user-accepted compiler checkpoint remain historical evidence.
-This audit performed no remediation and does not authorize Q1 activation.
+The executable continuation is [§9](#9-remediation-and-improvement-execution). It addresses the
+audit without reopening store selection, retaining legacy mechanisms or restarting the stopped
+compiler suite. Plan authoring performs no production remediation or Q1 activation.
 
 ## 1. Basis, baseline and intended outcome
 
@@ -20,11 +22,18 @@ Current architectural owners and code supply product meaning and the implemented
 Use core 3.3 / code-intelligence 1.4 from [standard.toml](../design_review/design_principles/standard.toml),
 including FP-07/A4, rather than retroactively relabelling the source reviews' earlier standards.
 
-Baseline inspected at `6f1a7e98`, clean `main`, 2026-10-05. Native acquisition, the pure typed
+Initial baseline inspected at `6f1a7e98`, clean `main`, 2026-10-05. Native acquisition, the pure typed
 domain operations, analytics kernels and FastMCP transport exist. Compilation, admission effects,
 embedding cache, source bytes and serving still depend on PostgreSQL. Previous fixture receipts
 bound that implementation only. The interrupted FastMCP attempt described by STATUS is disposable;
 neither its rows nor its timings are a replacement baseline to reproduce.
+
+**Current authoring baseline, Interface-checked 2026-10-06:** clean `e52e6312`; production is
+unchanged from the audit's `b90cb611`. The audit is the defect/evidence source for this continuation;
+the two nominated reviews above remain the architectural basis. The four supporting plans now
+develop the concrete remediation contracts. [Capability research](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md)
+records the deep skill review, targeted current documentation/source follow-up, version limits
+and selected/rejected tooling. Source-backed choices below are Proposed, not tested improvements.
 
 The resulting product lets an agent discover a release-scoped API, select compatible invocation
 and configuration contexts, obtain an implementation packet, and reach exact original evidence.
@@ -108,7 +117,7 @@ concurrency if needed. A refusal at realistic size is not the performance object
 
 ## 4. Coherent packages and dependency order
 
-The complete compiler stage is **complete / user-accepted, 2026-10-05**, with partial verification
+The initial compiler stage is **complete / user-accepted, 2026-10-05**, with partial verification
 and the user-directed stop recorded in §8. M1/C1/C2-N/C2-U and compiler-side A1/A2 are implemented,
 including their G0/S1 interfaces. G0 adopts ADR-0128; S1 supplies the agreed native operation contracts;
 P1/P2/S2/S3, published exports and I1 are implementation-closed; targeted native acceptance
@@ -223,25 +232,25 @@ does not establish a passed journey.
 ### Implementation audit disposition — 2026-10-06
 
 The [dated audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) owns diagnosis/evidence; this table is the sole current disposition
-owner. Every row is **open**: correction is required for complete target realization, but no
-remediation was executed or authorized by the audit. The report supplies priority and compatible
-correction directions; it does not create a second execution ledger. Existing accepted compiler
+owner. Every row is **open**: correction is required for complete target realization. The current
+authoring work schedules the correction in §9; it implements no production remediation. The audit
+supplies evidence and candidate directions, not another execution ledger. Existing accepted compiler
 completion and stopped-test boundaries remain intact.
 
 | Source finding | Disposition / cause | Responsible component | Required closure evidence |
 |---|---|---|---|
-| [Audit F01](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F01) | **Open** — Source-owned semantic support checks absent at actual admission | M1/C1/C2 admission | Independent unsupported/wrong-context support refuses; focused checks without blanket replay |
-| [Audit F02](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F02) | **Open** — Whole-resident normalization lacks promised spill route | C2-N/preparation | Bulk/partitioned preparation preserves canonical output under smaller memory envelope |
-| [Audit F03](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F03) | **Open** — Upper consumers replay completed upstream normalization | C2-U preparation | SourceCalls/Models/Summary consume shared checked immutable preparation |
-| [Audit F04](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F04) | **Open** — Cold audit omits derived serving integrity | P2/realization | Read-only canonical-to-derived checks reject altered/deleted/extra query-visible rows |
-| [Audit F05](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F05) | **Open** — Selection publishes two authorities separately | P2/S3 configuration | Atomic selection agrees across CLI/MCP launch/retirement under failure |
-| [Audit F06](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F06) | **Open** — Executable guard misses answer-affecting helper | P2/S3 identity | Schema-preserving helper change changes guard and refuses old realization |
-| [Audit F07](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F07) | **Open** — HTTP backup EOF lacks engine terminal success | P2 backup | Late export failure leaves no completed destination; normal fresh restore succeeds |
-| [Audit F08](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F08) | **Open** — Scoped vocabulary uses whole-library members | S3 browsing | Two-module/class native scoped vocabulary excludes foreign values/counts |
-| [Audit F09](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F09) | **Open** — Nested diagnostic cursor loses parent page | S3 continuations | Second scenario child continuation returns its remaining diagnostics |
-| [Audit F10](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F10) | **Open** — Native failures bypass typed safe envelope | S3 Rust/PyO3/MCP | Recognized causes and safe messages survive actual MCP tool/resource envelopes |
-| [Audit F11](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F11) | **Open** — Native expansion/crossings escape bulk boundary | P1 cache/P2 search | Bounded streamed search lowering and exact reconciled batch cache writes |
-| [Audit F12](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F12) | **Open** — Current assurance routes retain removed PG owners | G0/I1 documentation | Current task routes point to consistent native owners/controls |
+| [Audit F01](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F01) | **Open** — Source-owned semantic support checks absent at actual admission | R-C0 — model/compiler admission and detached import | Independent unsupported/wrong-context support refuses; focused checks without blanket replay |
+| [Audit F02](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F02) | **Open** — Whole-resident normalization lacks promised spill route | R-C1 — normalization and affected upper/projection consumers | Bulk/partitioned preparation preserves canonical output under smaller memory envelope |
+| [Audit F03](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F03) | **Open** — Upper consumers replay completed upstream normalization | R-C2 — normalized/Enriched authority and upper consumers | SourceCalls/Models/Summary consume shared checked immutable preparation |
+| [Audit F04](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F04) | **Open** — Cold audit omits derived serving integrity | R-P2 — publisher/native derived reconciliation | Read-only canonical-to-derived checks reject altered/deleted/extra query-visible rows |
+| [Audit F05](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F05) | **Open** — Selection publishes two authorities separately | R-P4 — native config/CLI/session/retirement | Atomic selection agrees across CLI/MCP launch/retirement under failure |
+| [Audit F06](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F06) | **Open** — Executable guard misses answer-affecting helper | R-I1 — complete model/serving executable capture | Schema-preserving helper change changes guard and refuses old realization |
+| [Audit F07](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F07) | **Open** — HTTP backup EOF lacks engine terminal success | R-P3 — publisher gRPC backup | Late export failure leaves no completed destination; normal fresh restore succeeds |
+| [Audit F08](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F08) | **Open** — Scoped vocabulary uses whole-library members | R-S1 — native browse owner and all views | Two-module/class native scoped vocabulary excludes foreign values/counts |
+| [Audit F09](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F09) | **Open** — Nested diagnostic cursor loses parent page | R-S2 — model cursor/native packet/Python schema | Second scenario child continuation returns its remaining diagnostics |
+| [Audit F10](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F10) | **Open** — Native failures bypass typed safe envelope | R-S3 — model/Rust/PyO3/MCP failure transport | Recognized causes and safe messages survive actual MCP tool/resource envelopes |
+| [Audit F11](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F11) | **Open** — Native expansion/crossings escape bulk boundary | R-P1a AND R-P1b — streamed publisher and batched cache | Bounded streamed search lowering and exact reconciled batch cache writes |
+| [Audit F12](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F12) | **Open** — Current assurance routes retain removed PG owners | R-D1 — current task/design/assurance/runbook owners | Current task routes point to consistent native owners/controls |
 
 The compiler-stage F01–F03 rows refer to the dated [implementation reassessment](../design_review/reviews/design_review_graph-native-compiler-stage_2026-10-05.md),
 not an additional architectural basis. Its static judgment accepts those source repairs; the user
@@ -445,3 +454,163 @@ removed. Unrelated worktrees and shared Cargo caches are preserved.
 Owned persistent Docker databases exercised actual authentication and query paths. Live Qwen inference, real FastMCP acquisition/compilation,
 operator activation, broad `just qualify`, legacy suite parity and performance measurement are
 **not_run** under this user-selected execution scope. Compiler-stage tests remain stopped.
+
+## 9. Remediation and improvement execution
+
+**Proposed, 2026-10-06.** This is the current executable continuation; §4 describes the initial
+pivot and §8 preserves its scoped receipts. Start from the audit/current source, not the old
+PostgreSQL implementation. The four supporting documents retain coherent responsibility boundaries
+and now supply the concrete corrections. Findings remain open until their required evidence lands.
+The user authorized this plan-authoring scope, not production corrections or operator activation.
+
+### 9.1 Combined target and foundation choices
+
+Necessary semantic checks become part of actual fresh admission and detached semantic import.
+Immutable checked predecessor state supplies upper consumers without repeated producer replay.
+DataFusion bulk preparation and ordered local kernels replace whole-rich-input collectors; named
+analytical topology has its own justified compact lifetime. The native publisher streams complete
+search/witness lowering and external reconciliation, while the mutable embedding cache accepts
+real bound-value batches and returns exact committed winners. Read-only cold audit covers every
+query-visible derivation. gRPC backup consumes terminal engine success. One selection authority
+serves CLI/new MCP launches/retirement, while active readers retain their pins. Complete executable
+source membership and typed consumer boundaries govern continuations, scoped counts and failures.
+
+These choices combine integrity with less incidental work. Enabling blanket workspace validation,
+adding a filename to a manual helper list, splitting a finished occurrence Vec into small inserts,
+or exposing raw exception text would each leave the cause unresolved. A digest verifies bytes,
+not semantics; a repeated producer is not an independent oracle. Use already-supported library
+capabilities before adding generic frameworks. No legacy reader, dual authority, historical artifact
+archive, global audit service, cost estimator or detailed runtime accounting is part of the target.
+
+A new assertion family changes its model declarations/admission and mechanical transport; a new
+operation helper is captured by source membership. Larger/skewed inputs use the same semantic
+closure with external ordering and incremental expansion. A different engine or optional frontend
+would change the native integration and its concrete guarantees, rather than reviving a portable
+store framework. The exact existing embedding spec/model/text/token/value contracts remain fixed.
+Benefits are qualitative hypotheses about removed work and clearer authority, not Measured claims.
+
+### 9.2 Coherent packages and actual prerequisites
+
+Core compiler work is the leading lane. Establish R-C0's owner checks/checked predecessor contract,
+then implement R-C1 and R-C2 together by dependency chain, moving real upper consumers with each
+chain. R-C0 may immediately correct facts/native support while the other applicable owners are
+migrated; that slice does not close F01 for all frontiers/imports. Identity/lifecycle and consumer
+repairs can proceed on their independent inputs. No entire supporting document is a prerequisite.
+
+| Package / detail owner | Delivered behavior and affected consumers | Actual prerequisite / readiness |
+|---|---|---|
+| R-C0 — [compiler §5.1–§5.2](graph-native-model-compiler-plan_2026-10-05.md#5-audit-remediation-semantic-admission-and-bounded-shared-preparation) | Required semantic checks separate from diagnostic replay; immutable checked views; fresh admission, detached publish-artifact and restore share pure owner checks | Existing completed streams/model declarations; the facts/support slice starts now. Import readiness requires actual neutral typed decoding and retained applicable semantic inputs, not just an agreed type |
+| R-C1 — compiler §5.3 + [projection §6](graph-native-projections-plan_2026-10-05.md#6-remediation-integration-prepared-input-lifetime-and-terminal-streams) | All nine normalization bindings use bulk/ordered dependency-closed processing; upper/projection consumers stop recollecting unrelated rich state | R-C0 property split and actual checked predecessors for each chain. No final Catalog or published store prerequisite |
+| R-C2 — compiler §5.4 | Receiver/event/binding and Enriched authority is prepared once; SourceCalls/Models/Summary and remaining upper inventory consume it | Actual R-C1 owning normalization outputs and R-C0 checks. Integrate each upper consumer alongside its authority constructor |
+| R-I1 — [serving §6.1](graph-native-serving-plan_2026-10-05.md#R-I1) | Model/serving source membership and linked guard cover helper changes; publisher, CLI, service and wheel agree | Existing model implementation digest/capture pattern; independent of compiler bulk completion |
+| R-P1a — [realization §6.1](graph-native-surrealdb-realization-plan_2026-10-05.md#R-P1a) | Scoped native source streams, shared document/vector preparation, incremental complete witnesses and bounded write/reconcile runs | Current canonical layout/search meaning and retained values. R-I1 needed for fresh end-to-end sealed consumer acceptance, not for lowering design |
+| R-P1b — realization §6.2 | Typed batch first-writer cache admission with exact committed winners and bounded conflict policy | Existing embedding definitions/admission and persistent fixture; independent of publisher search and R-C1. Compiler consumption uses winners immediately |
+| R-P2 — realization §6.3 | Canonical-to-derived cold audit and restored publication detect missing/extra/altered scope/search/vector/witness fields without mutation | Working R-P1a deterministic lowering/streamed reconciliation; R-C0 semantic import for detached restore; R-I1 current executable identity |
+| R-P3 — realization §6.4 | gRPC terminally checked canonical backup, no-clobber completion and fresh unselected restore | Existing SDK gRPC export/config; backup correction can land independently. Full restore journey requires R-C0/R-P1a/R-P2/R-I1 |
+| R-P4 — realization §6.5 | One atomic selection authority plus serialized select/retire; new CLI/MCP reader launch agrees, active pins persist | Current read-only candidate validation; shared config/startup contract migrated together. Fresh native acceptance consumes R-I1 |
+| R-S1 — serving §6.2 | All browse views/vocabulary/counts reuse one scoped eligible-member set | Current selection/ownership semantics; independent of full compiler migration |
+| R-S2 — serving §6.3 | Nested scenario continuation addresses its owning parent and child position | Deliberate model cursor/wire change integrated with native packet validation and Python schema consumption; R-I1 for matching fresh realization |
+| R-S3 — serving §6.4 | Typed safe cause crosses Rust/PyO3 and exact MCP tool/resource error envelopes | Owned PublicFailure + exact installed FastMCP/MCP route; shared error mapping precedes its concrete bridge consumers |
+| R-D1 — §9.4 | Current authority/task/acceptance/runbook routes describe actual native owners; old prescriptions retire with transferred obligations | Start owner classification now; runnable instructions follow each migrated package. No final cleanup that postpones needed consumer updates |
+| R-Q0 — §9.5 | Integrated focused native/CLI/PyO3/MCP controls and applicable leaves establish this remediation boundary | Required corrected implementations, rebuilt matching wheel and fresh owned fixture; F11 requires BOTH R-P1a and R-P1b |
+
+Table order is a useful route, not a barrier after each row. Keep logical dependencies separate
+from edits: root owns shared model validation/wire/cursor declarations, manifests, canonical mapping
+and integrated decisions. Compiler, native publisher and Python consumers may be delegated with
+bounded files once their inputs are concrete. Native siblings both touch reader/reconciliation;
+R-P4 and R-S3 both touch session startup/lifetime; serialize those shared changes. The single
+plan writer/coordinator remains disposition owner. No new ledger or orchestration service.
+
+### 9.3 Capability choices and deployment fit
+
+Deep SurrealDB skill review included all 18 briefs, catalog/route/topic breadth and selected exact
+source/probes. Context7 followed the skill for query/bulk and uncovered tooling; official GitHub
+source settled version-specific gaps. [Research evidence](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md)
+records what was examined, conflicting documentation and actual support limits.
+
+Adopt existing SurrealQL set/graph/projection/aggregation/bulk intent, gRPC incremental query and
+file export, and selective EXPLAIN diagnostics. Keep Rust exact codecs/semantic kernels and current
+petgraph/analytics. Do not switch to ISO GQL: its supported subset/frontends and absent SDK method
+do not improve these consumers. Generic database MCP is optional operator exploration, not the
+product's immutable operation/evidence contract. DEFINE API/GraphQL/Postgres wire/modules/buckets/
+LIVE/connectors/distributed deployment require their existing named consumer triggers.
+
+SurrealKit beta.6 at examined immutable source targets 3.3 and provides real sync/rollout/typegen
+library tooling. Fresh immutable snapshots already have generated definitions and sealing; adding
+its mutation/history/rollback lifecycle would add another authority. Do not adopt it here. Revisit
+only for an actual schema-evolution requirement in the separate mutable cache database, checking
+its metadata/permissions and complete winner semantics. No schema/version tooling rejection rests
+on licensing or a stale cached beta.3 description.
+
+Managed RocksDB uses actual 3.3 server exposure, not arbitrary underlying-library knobs. R-D1
+updates deployment/fixture recipes for explicit allocation-sensitive block cache/write-buffer and
+memory-threshold policy using source-confirmed `SURREAL_ROCKSDB_*` names. Host-derived defaults can
+consume more than an intended server allocation; threshold is a guard, not an RSS cap. Leave
+room beyond cache and preserve durability plus background maintenance/compaction. Do not add a
+RocksDB dependency, universal tuner or numerical capacity campaign. Existing server/request
+query deadlines and gRPC stream-drop cancellation complement suitable operation shape; actual
+cancellation/drain is a focused acceptance case, not a fictitious exact work ceiling.
+
+No dependency upgrade is selected. Match Cargo.lock and installed Python contracts before execution;
+current documentation is discovery, exact selected source decides transfer. A newer capability
+would need its actual integration/validation consequence, not an automatic upgrade or new query
+adoption decision. Local function/file/batch organization remains implementer discretion.
+
+### 9.4 Current-document migration and rule impacts
+
+R-D1 transfers durable obligations from current assurance/enrichment plans, design/task routes,
+AGENTS, verification recipes and runbook to the actual native compiler/model/publisher/serving
+owners. The source audit identifies stale validation execution and analytical enrichment, but
+inspect their live consumers before deletion. Preserve independent semantic/oracle and selected
+product obligations; explicitly keep Q1/product work at their existing owner. Replace PG receipt/
+grant/lifecycle prescriptions with necessary admission, private attempt lifetime, native fixture
+and terminal stream semantics. Do not globally ban PostgreSQL words: dated receipts and deliberately
+external relational exports have different meanings.
+
+Update each affected instruction with its implementation; remove an obsolete plan after its last
+current obligation/consumer transfers. Git supplies history; no archive/compatibility runtime is
+required. Current task routing already points to this continuation. Historical evidence is retained
+only while bounding a current claim. Do not claim F12 closed merely because navigation changed;
+current architectural and agent/assurance instructions must also be consistent and runnable.
+
+The audit has no RCnn changes; these remedies preserve the approved hard pivot and semantic
+assurance. **No rule changes are proposed by this authoring.** The user's focused-testing/stop
+instructions continue to govern over general assembled-qualification prescriptions. A later actual
+rule change must use create-plan's explicit operator decision route; routine correction inside
+accepted meaning needs no new approval. During execution use the existing ADR/design route if a
+material architectural decision changes, and the binding's bounded review cadence; do not create
+an extra blanket review/qualification gate merely to author or execute the continuation.
+
+### 9.5 Completion and deliberate verification scope
+
+Each supporting plan specifies independent adverse cases and actual consumer migration. During
+execution compile affected crates and run focused family/filter controls, adding targeted tests
+where they expose the defect. Use pure fixtures for model/compiler kernels and owned disposable
+persistent RocksDB for effects. Inject deterministic faults where necessary and label them as
+such. Real in-process and stdio MCP exercise final transport behavior. A fixture pass is not
+live-Qwen usability, real-library benefit or operator adoption.
+
+R-Q0 ties the corrected boundaries together on one identified final source/wheel/definition
+revision: small Catalog/Behavioral fixture admission and detached invalid-import refusal; bounded
+search lowering; canonical backup/fresh unselected restore and derived corruption refusal;
+selection failure/new launch/old pin; scoped vocabulary; second-parent nested diagnostics; typed
+safe tool/resource failures; overlapping cache winners; and changed-consumer projection/optional
+outcome cases. Share setup/data where useful, but keep expectations independent. Run actual native
+cancellation/drain for the changed route and preserve a failure's distinction from empty absence.
+Repeat affected controls only after relevant changes/failures; source-byte changes require matching
+fresh realization and wheel for any final served claim. No old realization is revived to save work.
+
+Applicable docs/lint/types/dependency/ADR leaves follow changed files; root runs `just turn-end`
+last. Record exact commands/revisions/outcomes and limits at the coordinator, with one handoff.
+The stopped compiler suite, broad `just qualify`, legacy CLI snapshots/parity, sealed evaluation,
+real-library/live-Qwen/operator work and quantitative performance measurement remain not_run unless
+separately authorized. No per-query planner capture or instrumentation/accounting framework is
+required for acceptance.
+
+Complete this remediation only when all F01–F12 closure evidence and applicable migration/deletion
+obligations are satisfied. Native querying remains selected throughout. Close F11 only after both
+bounded publisher construction/reconciliation and actual concurrent exact cache-winner controls.
+Keep Q1 adoption separately pending; no source review or focused fixture result promotes it.
+The next executable work is R-C0's production-versus-diagnostic split and invalid-support control,
+then the first R-C1/R-C2 dependency chain and consumers; independent R-I1/R-P3 repairs can proceed
+on their current inputs. No material adoption choice blocks that start.

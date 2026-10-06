@@ -6,6 +6,9 @@ shared decisions and disposition. This plan consumes the [admitted graph](graph-
 and the [native serving operations](graph-native-serving-plan_2026-10-05.md); it owns their
 physical realization, not their meaning.
 
+**Current continuation Proposed, 2026-10-06:** §6 develops native construction and lifecycle.
+Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
+
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
 [coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
 owns their current disposition. Earlier stage acceptance and dated receipts below are preserved;
@@ -230,3 +233,186 @@ Source anchors for library-specific decisions: [bulk relations/table contracts](
 [gRPC/export implementation](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/src/engine/remote/grpc.rs)
 and the capability review's detailed versioned evidence map. Current web documentation can be
 newer than the inspected runtime; source/tests at the selected family decide applicability.
+
+## 6. Audit remediation: bounded native construction and lifecycle
+
+**Proposed, 2026-10-06.** The audit F04/F05/F07/F11 continuation uses the
+[capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
+[Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+owns readiness and §7 owns dispositions. New contracts below correct remaining differences
+between §1–§5 target and production; old successful lifecycle controls do not close them.
+
+<a id="R-P1a"></a>
+
+### 6.1 R-P1a — Stream complete search lowering into real bulk writes
+
+Current `publisher::search` fetches whole fragment/anchor/use inventories and accumulates expanded
+occurrences before chunking INSERT. A unit-page limit is insufficient for skewed corpora.
+Replace this with one deterministic lowering shared by construction and explicit reconciliation.
+Its inputs are canonical unit, fragment, anchor, member/context and consumed-vector relationships;
+its outputs are the four document families, shared vector records, lexical/vector occurrences and
+query-visible scope fields. It owns physical mapping, not eligibility/ranking meaning.
+
+Project only required columns, apply unit/context/member restrictions before expansion, and use
+set joins or indexed native graph paths rather than repeated whole-corpus lookups. Preserve every
+eligible witness and duplicate policy. Ordered SDK `Query::stream_items()` supplies incremental
+rows over the selected gRPC route; ordinary awaited query buffers its complete result. A
+`StreamItem::Row` is provisional until successful statement end and outer terminal completion.
+Private construction can consume rows immediately but must abandon its entire private target on
+late failure; no provisional realization becomes published. Do not invent a raw protocol client.
+
+Feed outputs directly into batches bounded by encoded bytes as well as rows, flushing before the
+next expansion would exceed the batch. An individually oversized value has an explicit refusal;
+do not retain the complete emitted occurrence inventory behind small write chunks. Process
+high-degree associations incrementally. Keep one shared vector per exact vector identity and
+write witness links separately. Already-consumed canonical values define numeric ANN data;
+no embedding provider runs during publication, cold audit or restore.
+
+This chooses streamed materialized occurrences over a new factorized occurrence schema for this
+correction. Their indexed existence checks provide eligible document/vector admission before
+channel caps and deterministic witness selection without rebuilding the same joins on every
+request. Shared documents/vectors are prepared once; only required contextual witness combinations
+expand. Factorization could reduce persistent fanout, but requires coordinated eligibility,
+tie/witness queries and reconciliation, rather than a loader-only change. Reconsider it at this
+same search owner if a supported high-degree case shows materialized witnesses remain an unsuitable
+physical route; change the layout and all native consumers together, with fresh realization
+identity. No compatibility or current physical key is an architectural requirement.
+
+For reconciliation, externally order expected derived rows in attempt-owned temporary segments
+and merge against ordered native rows, or use an equivalent scoped sorted route without a
+whole-load expected-ID set. External spill is preferable to a new persistent index of expectations.
+Check complete owned query-visible fields and detect extra/missing/conflicting rows, not just
+counts. Release temporary runs after the consumer finishes. Insert batches use bound typed values,
+checked statement results and the existing private-target failure/acknowledgement rules.
+
+Owner/edit scope: `lctx-publisher::search`, `lctx-surrealdb` reader/loader/reconciliation and
+mechanical mapping; serving consumes unchanged declared search semantics. Rebuild fresh snapshots
+if physical field/index identity changes. No dual search representation or compatibility branch.
+
+Closure: a known graph with shared vectors, duplicate text, multiple eligible contexts, empty
+fragments and high-degree anchors yields independently specified documents/witnesses. Exercise
+small byte batches and a sufficiently skewed corpus to force multiple flushes and external runs;
+canonical search representation is unchanged by batching. An injected late stream error leaves
+no public handle. Construction/reconciliation source inspection confirms no whole expanded vector
+or expected-ID inventory remains. Timing/allocation accounting is not a completion requirement.
+
+### 6.2 R-P1b — Batch first-writer cache admission and reconcile exact winners
+
+Keep complete spec/text keys and exact vector values. Prevalidate the whole candidate batch using
+the existing embedding owner: dimensions, finite values and digest/spec. `EmbeddingCache` currently
+receives hashes, not text: `cpg-core::embedding_realization` owns exact request construction and
+text/hash agreement before creating candidates. Preserve that division and the existing interface;
+do not make the cache reconstruct text or call a tokenizer/service for cache hits. Bind
+one bounded array of typed candidates per native INSERT, then one set read for all requested keys;
+remove the per-vector awaited request loop. Explicit same-key candidates within a batch must
+collapse identical proposals; reject conflicting admission metadata, and for differing valid
+vectors with identical key/token admission choose the first supplied proposal before insertion.
+An already committed winner always wins. Batch order may choose a fresh winner; consumed exact
+bytes make that choice explicit in content identity rather than promising provider determinism.
+
+For this mutable first-writer cache only, `INSERT IGNORE` is a suitable conflict-tolerant insertion
+primitive when followed by full-key winner reconciliation. In 3.3 it can swallow nonduplicate row
+errors too: never infer success from IGNORE or an empty response. Inspect statement/transport
+outcomes and read every key's winner; missing, invalid or wrongly keyed winners fail. Return the
+exact stored winner to every successful caller, even if its own candidate differs. Canonical
+publication continues to use checked ordinary INSERT; IGNORE is not its validity mechanism.
+The winner retains its exact definition/token/vector bytes. On candidate admission, require its
+token receipt to agree with the compiler's supplied admitted count for that same key/spec. On a
+cache-only lookup preserve the existing checked receipt/max-token contract without retokenizing
+or calling the provider. A caller cannot substitute its losing vector or token receipt for the
+committed winner. Include these distinctions in the native cache/consumer controls.
+
+The SDK does not transparently retry transaction conflicts. A bounded retry belongs to this
+idempotent batch operation, only for source-confirmed transient conflict cases. Backend conflicts
+may arrive as generic `Internal` with backend-specific diagnostics: isolate exact classification
+in the native owner and test it against the selected persistent backend; unknown errors fail.
+On an uncertain acknowledgement, reconcile present winners and retry only missing idempotent
+keys when the error policy permits. Do not retry arbitrary model/schema/permission errors or
+re-run embedding. Keep a short database transaction, never one spanning provider work.
+
+Cache callers, compiler embedding consumption and publication retain the exact existing Qwen
+specification and consumed winners. Closure uses actual concurrent same-key overlapping batches
+against persistent RocksDB: all successful callers receive identical stored winners; disjoint
+keys remain present. Include different valid candidate bytes for the same key, mixed preexisting
+keys, invalid candidates, lost acknowledgement and a row failure with no winner. A race failure
+is not currently established; this control verifies the selected correction rather than claiming
+that the previous sequential control demonstrated concurrency.
+
+### 6.3 R-P2 — Pure cold verification of every query-visible derivation
+
+`inspection::audit` currently reconciles canonical payloads and definitions but omits search rows
+and sparse scope fields. Reuse R-P1a's deterministic lowering to compare scope keys/values,
+search text, eligibility/member/context/witness links, numeric vectors and occurrence records with
+canonical graph content and consumed values. Enumerate every derived table and both node families;
+check actual excess as well as absent rows. External ordering and full-row merge avoid the old
+whole-load expected-ID set. Treat native stream end errors as failed audit.
+
+Ordinary requests retain their read-only pinned handle and installed-definition guard. They do
+not rehash the artifact or rerun extraction/normalization. Explicit cold audit is a trusted-local
+recovery/anomaly operation: it does not repair data, call embeddings, reinstall definitions or
+change selection. Imported self-authored metadata is not a semantic validity certificate.
+Portable restore validates transported canonical content through the compiler/model import
+boundary, rebuilds current derived data in a fresh database and uses this same reconciliation
+before publication. Keep credentials/live/STRICT metadata exclusions truthful; no root-adversary
+protection or direct certification of engine-internal HNSW pages is claimed.
+
+Closure mutates/deletes/adds each derived family and independently alters text, scope,
+eligibility, member/context/witness and numerical vector fields while retaining canonical bytes.
+Each explicit audit refuses and makes no writes; a clean current realization passes. The original
+seven-text mutation diagnostic becomes a focused regression case. Include equivalent corruption
+after fresh restore. Family coverage is required; no single text case closes all mapping integrity.
+
+### 6.4 R-P3 — Terminally checked gRPC portable backup
+
+Replace `publisher::backup`'s HTTP export with the existing gRPC SDK file-export route on the
+managed authority. Pinned 3.3 `export_chunks` requires a terminal trailer and matching byte count;
+the server emits it only after successful export task completion and emits errors on engine
+failure/panic. The SDK file path awaits the drained copy. Use that existing complete capability,
+not a bespoke export protocol, EOF validator or separately exposed HTTP client.
+
+Keep canonical-only table selection, excluded credentials/definitions/history, staged local file,
+no-clobber publication, file and parent-directory synchronization. A successful SDK export,
+terminal result and client drain must precede committing the destination. Clean provisional files
+on engine/transport/trailer/copy failure. The optional trailer BLAKE3 is not checked by the SDK;
+do not describe it as checked. Exact canonical content remains validated during fresh restore.
+Destination publication is the filesystem commit point: if opening/synchronizing the parent fails
+after `persist_noclobber`, report durability uncertainty and that the completed dump may already
+exist. Do not pretend rollback, delete that committed file or blindly retry over its name.
+
+Closure injects an engine/task failure after some data has streamed, plus missing trailer,
+byte-count mismatch, transport and destination-write failures. The application reports failure
+and leaves no completed destination; preexisting destinations remain unchanged. A successful
+canonical backup restores into a fresh unselected realization and passes canonical/derived audit.
+Inject a post-publication parent-sync failure separately: the verified dump may exist, the command
+reports its uncertain durability, and an existing destination is never overwritten.
+Prefer an owned protocol fault fixture for deterministic trailer cases and one actual persistent
+backup/restore journey. No operator store, old-format import or broad export harness is required.
+
+### 6.5 R-P4 — One atomic selection authority for CLI and new readers
+
+Keep the complete selected handle in one atomically replaced selection file. Make viewer launch
+configuration static endpoint/read-only credentials plus the selection-file path, rather than a
+second embedded snapshot. CLI selected lookup, new NativeSession/MCP launch and retirement read
+that same authoritative handle. Explicitly pinned readers keep their existing handle. Never
+copy administrator/cache credentials into viewer configuration.
+
+Validate the candidate through the current read-only realization/identity check before selection.
+Stage the handle with restrictive permissions, synchronize it, rename once and synchronize its
+parent. Installation of static credentials is separate from selecting a snapshot. Remove the
+second rename/write from `RuntimeConfig::select` and remove every consumer of the embedded viewer
+snapshot format; no legacy config fallback. Serialize select/retire under one owned local lifecycle
+lock so selected lookup and retirement are not a check-then-drop race. This lock coordinates
+operator mutations, not all read requests; the single operator still needs interruption safety.
+Hold that lock from candidate validation through commit, or revalidate the candidate after acquiring
+it, so retirement cannot invalidate an earlier check before the handle becomes selected.
+
+A failure before the authoritative rename leaves the old selection. If rename commits but later
+durability synchronization fails, report that state may have changed and reread the authority;
+do not report transactional rollback that the filesystem cannot promise. New launches and CLI
+always agree on the visible handle. Quiescence/reader attestation remains necessary before DROP;
+selection alone does not establish that old pinned readers have closed.
+
+Migration includes RuntimeConfig/ViewerConfig, CLI select/show/retire, native session startup,
+runbook/install fixture config and affected tests. Closure replays the audit collision, failures
+before/after rename, new reader startup, active old pin and serialized select-versus-retire.
+No failed selection can create two differing authorities. Test owned files/databases only.

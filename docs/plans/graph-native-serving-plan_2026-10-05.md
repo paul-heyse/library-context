@@ -6,6 +6,9 @@ graph and its [sealed SurrealDB realization](graph-native-surrealdb-realization-
 The coordinator owns current state/disposition. Native querying is a selected part of the target,
 not a capability awaiting a benchmark, accounting proof or adoption verdict.
 
+**Current continuation Proposed, 2026-10-06:** §6 develops executable identity and consumer corrections.
+Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
+
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
 [coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
 owns their current disposition. Earlier stage acceptance and dated receipts below are preserved;
@@ -241,3 +244,145 @@ journeys on the assembled replacement. Q1 owns separately authorized real FastMC
 adoption; task usefulness, confirmation and comparative superiority remain distinct product work.
 The tables describe intended coverage. Actual focused execution outcomes, including their Tested
 boundaries and omissions, are recorded in coordinator §8; no Measured claim follows.
+
+## 6. Audit remediation: executable identity and composed consumers
+
+**Proposed, 2026-10-06.** This continuation is grounded in audit F06/F08/F09/F10 and the
+[capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
+The [coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+owns sequence and completion; §7 owns finding state. Existing §1–§5 contracts remain, with the
+specific corrections below taking precedence over an implementation label. No producer, query
+adoption or legacy ranking-parity gate is added.
+
+<a id="R-I1"></a>
+
+### 6.1 R-I1 — Complete executable dependency capture
+
+Current `lctx-serving::operation_definition` manually lists model helper files and omits
+`domain/serving/packets.rs`, although `core.rs` consumes its default-value interpretation.
+Replace that knowledge with the existing `lctx-model::domain::implementation_digest()` and an
+automatically captured, sorted serving-source membership digest. Reuse the model build-script
+pattern: frame relative filenames and raw bytes, include additions/deletions, relevant manifests,
+resolved dependencies and build feature configuration. Include generated wire/mapping and native
+operation policy identities as today. Do not merely add the one missing filename to another
+manual list. Keep query/schema/analyzer/module/engine identities in the realization owner.
+
+This conservative executable scope may re-key after comments or unrelated model edits; that is
+acceptable here and does not redefine semantic compatibility, logical IDs or graph content.
+Do not normalize source bytes or replace identity with handwritten revision bumps. The linked
+service, publisher-installed operation function and Python wheel must agree. Rebuild fresh
+realizations/wheels; no fallback acceptance of older executable identities.
+
+Affected owners are `lctx-serving` source capture/definition and service startup, model build
+capture, publisher sealing/restoration, CLI operation-definition installation and the linked PyO3
+session. An operation helper extension is captured by membership automatically; an engine/layout
+change remains in native realization identity. Preserve those independent scopes.
+
+Closure: a schema-preserving change to default interpretation in the previously omitted helper
+changes the executable guard while semantic contract and wire schema stay unchanged. A newly
+built service refuses the old sealed realization; a fresh one works. An independently specified
+source-membership control includes an added helper and deletion. Run this as a small isolated
+build/control, not the stopped compiler suite or source-format parity campaign.
+
+### 6.2 R-S1 — One scoped member set for every browse view
+
+`operations::browse` currently applies scope to ordinary entries, then independently iterates
+all selected eligible candidates for vocabulary. Prepare one set of eligible member/context
+candidates narrowed by the owned library/module/class ownership policy. All entry views,
+vocabulary classification and member counts consume it. Count unique members as the public
+contract requires; do not count supporting contexts as extra members. Retain unknown ownership
+and selector-domain outcomes rather than silently treating them as empty successful ownership.
+
+Reuse prepared selection and ownership indexes for the request. Avoid rebuilding the same class
+path/exposure joins for each member; batch the necessary relationships, preserving ambiguity.
+An invalid/foreign scope is checked against the pinned library, not authorized because its key
+has valid syntax. Vocabulary availability and its result page remain independently represented.
+
+Actual consumer scope: every `BrowseView`, library/module/class scope, Rust dispatch, CLI and
+MCP `browse_library`. Other selector/ranking policies remain owned by the model. A disjoint
+two-module/two-class fixture specifies expected predicates and unique counts independently.
+Exercise native whole-library, each module/class, selected subset, unknown ownership and an
+empty supported scope; foreign predicates must disappear only from the narrowed answers.
+
+### 6.3 R-S2 — Address the owning scenario in a nested continuation
+
+Choose an explicitly addressed nested continuation: its position carries the scenario
+association key and last diagnostic key. Keep the complete snapshot, request, policy, wire,
+channel, member, ordering, group and section binding. Decode/check the association as belonging
+to the requested member and admitted scenario inventory. When resumed, return that owning
+scenario with its remaining diagnostic page; do not independently restart and truncate the parent
+scenario list. Ordinary parent continuation still pages parent scenarios by canonical key.
+
+This is a deliberate cursor/wire migration. Add the nominal nested-position alternative at the
+model owner; update schema identity, native validation, packet assembly and Python schema
+consumption together. Reject incompatible old cursors; no old-format reader. Avoid re-encoding a
+whole parent packet into the cursor. The association key supplies the necessary parent address;
+rich parent content is hydrated from the same pin. Preserve diagnostic multiplicity, correlation,
+originals, availability and omission meanings.
+
+Construct the parent page before hydrating child pages where semantics allow. For a nested
+request hydrate its addressed parent, not every sibling's diagnostics. This removes both the
+composition error and irrelevant child preparation. Unknown/foreign parents or a cursor from a
+changed request/realization fail with the typed incompatible cause.
+
+Closure uses the audit's exact trigger: page size one, two scenarios, multiple diagnostics on the
+second. Follow the parent token to scenario two, then its nested token; scenario two and its
+remaining diagnostics survive. Also cover a further child page, exhaustion, shuffled input,
+wrong member/association and changed pin. Expectations name the authored diagnostic IDs rather
+than replaying the pagination implementation.
+
+### 6.4 R-S3 — Typed safe failures through Rust, PyO3 and MCP
+
+The model's `FailureKind`/`PublicFailure` already owns five coarse causes and fixed safe messages.
+Keep internal diagnostic detail separate. Introduce a typed native service failure that carries a
+recognized public cause plus private diagnostic context, or extend the existing owned error
+representation equivalently. Classify at the owner where the cause is known: missing admitted
+library, incompatible handle/cursor/contract, corrupt evidence/shape, unavailable transport/read,
+and refused resource/deadline. Do not infer these causes later by parsing driver/error strings.
+Malformed requests and unknown tools retain the appropriate protocol validation error. Unexpected
+internal exceptions become a fixed safe unavailable failure and private structured diagnostics.
+No new public retryability promise follows from these coarse causes.
+
+Expose one PyO3 exception carrying the serialized owned `PublicFailure` as a checked attribute,
+with a fixed safe exception message. The session's slots/closing/deadline failures use the same
+cause boundary. Python transports the attribute; it does not reinterpret database diagnostics or
+construct independent semantic messages. Pure wire helpers remain model-derived.
+
+At the exact installed FastMCP 4.0.5 / MCP 2.2.0 route, tool errors return a `CallToolResult` with
+`isError` and `_meta.lctx_failure`, wrapped using `ToolResult.from_mcp_result`; that wrapper
+preserves the raw result. Resource failures raise the preserved `MCPError` carrying the declared
+`INTERNAL_ERROR` (-32603) code, fixed message and `data.lctx_failure`; generic `ResourceError`
+loses structured data. Implement the advertised model-owned failure envelope, exposing its fixed
+code/message/DTO through the pure wire bridge rather than a Python semantic mapping, and validate
+final serialized JSON-RPC bytes, including
+request ID and newline. Keep a fixed fallback once if the full error envelope exceeds its cap;
+never recursively encode an error or release admission before worker drainage.
+
+Migration includes `WireError`/failure definitions, `service::failure` and source read owners,
+PyO3 `session.rs`, `lib.rs` wire exports, MCP executor and `wire.py` tool/resource/middleware
+paths, generated schemas and affected controls. Keep root ownership of the shared wire declaration;
+Rust and Python edits can be divided only after that concrete contract is settled.
+
+Closure: actual in-process and stdio MCP tool/resource requests for unknown library, incompatible
+cursor/pin, unavailable read and corrupted evidence have their correct fixed cause/envelope.
+Inject an unexpected diagnostic containing a sentinel secret/path and assert it appears in neither
+public text nor metadata. Cover resource/slot/deadline refusal and complete-byte admission with a
+large ID; workers remain owned and drain. A transport-shim fault can deterministically supply a
+late/unavailable read, but report it as an injected failure case, not live service qualification.
+
+### 6.5 Query improvements and native cancellation boundary
+
+Apply native indexed restrictions and bulk field projections wherever the sufficient input is
+known, retaining complex model kernels. `EXPLAIN` identifies a concrete access path; selectively
+use `EXPLAIN ANALYZE` on owned read-only cases when an actual plan question remains. Neither is
+request accounting or a universal performance acceptance requirement. Keep filtered ANN witness
+semantics, shared vectors and existing approximate pre-collapse candidate limits unchanged.
+
+The pinned gRPC server has cooperative cancellation on stream drop and requested/server timeout.
+Use the SDK route and existing end-to-end remaining deadline; do not add an embedded core solely
+for cancellation. Local synchronous kernels need their existing cooperative checks at meaningful
+boundaries; an async timeout cannot forcibly interrupt them. Preserve shielding/drain ownership in
+Python. During affected native controls exercise an owned delayed/long-running read, release the
+client stream, and confirm cancellation/drain permits subsequent work; do not claim stronger
+preemption than the implementation demonstrates. This targets an audit evidence limit without
+creating a new always-on observer or restoring a broad test campaign.

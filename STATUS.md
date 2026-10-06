@@ -2,65 +2,71 @@
 
 _Updated 2026-10-06 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Graph-native implementation audit complete: the full pivot is not yet fully realized.**
-The [independent audit](docs/design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md)
-examined clean production `b90cb611` across the complete coordinator scope. Three fresh reviewers
-inspected compiler/projections, native realization/lifecycle and consumers/retirement; the principal
-reviewer reconciled decisive cross-boundary evidence. The audit records twelve findings.
+**Graph-native remediation and improvement plan authored; production corrections remain pending.**
+The [coordinator §9](docs/plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
+is the current executable continuation from the
+[implementation audit](docs/design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md).
+Its four supporting plans develop semantic admission/partitioned compiler preparation, native
+bulk and lifecycle correction, scoped/cursor/failure consumers and projection input/stream lifetime.
 [Coordinator §7](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
-is the sole current disposition owner; all twelve are open. No production remediation was performed.
+remains the sole finding-disposition owner. All twelve audit findings remain open; authoring a
+correction does not close it. Plan targets are Proposed, not repaired/Tested product behavior.
 
-Runtime PostgreSQL, generation readers/commands and Python product retrieval are retired in the
-inspected reachable closure. Typed graph transport, store-free compilation, native persistence,
-search, named projections and all ten native/CLI/PyO3/MCP tool routes are present. Current
-documentation retirement remains incomplete. ADR-0128 and the two nominated target/capabilities
-reviews remain the selected architecture; native querying is not awaiting an adoption decision.
+Authoring started from clean `e52e6312`; production remains the audit's unchanged `b90cb611`.
+The original graph-native target and SurrealDB-capabilities reviews remain the architectural
+basis; the implementation audit supplies current defects/evidence. No other review was made an
+additional architecture or qualification prerequisite. Native querying stays selected by ADR-0128.
+This remains a hard design-phase pivot with no legacy reader, dual store or historical runtime
+artifact retention requirement. Exact existing embedding specifications/values remain authoritative.
 
-The remaining gaps concern semantic admission, executable dependency identity, explicit cold audit,
-backup finality, coherent selection, scoped vocabulary, nested continuations, typed safe errors,
-resident/replayed compiler preparation and native bulk boundaries. The report separates concrete
-correctness failures from qualitative execution-fit findings and unresolved evidence.
+The [capability investigation](docs/design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md)
+records comprehensive SurrealDB skill coverage, targeted Context7/official GitHub/web follow-up,
+matched DataFusion foundation advice and exact installed FastMCP/MCP source feasibility. Root
+integrated bounded research and independent focused advice, then inspected decisive source. Final
+independent plan assessment found no material blocker to the compiler-first start; cache ownership,
+backup post-commit uncertainty and selection revalidation clarifications are incorporated.
+No new capability probes, dependency upgrades, tooling installation or shared-skill edits occurred.
 
-**Current audit evidence, 2026-10-06:**
+Material proposed choices: necessary semantic admission separate from producer replay; detached
+semantic re-admission; ordered dependency-closed compiler preparation and immutable normalized/
+Enriched reuse; complete executable source membership; streamed witness construction/reconciliation;
+real cache batch insertion with exact committed winners; gRPC terminally checked backup; one
+atomic selection authority; scoped vocabulary, parent-addressed nested cursors and typed safe
+MCP failures. SurrealKit/GQL/generic database frontends retain actual consumer triggers rather than
+adding a second schema/product authority. Performance reasoning is qualitative, without detailed
+accounting, proofs, per-query plan capture or a query-adoption gate.
 
-- Normalized-environment `cargo build --release --locked -p lctx-publisher -p lctx-serving
-  --message-format=json`: **passed** on unchanged audited production sources.
-- `UV_NO_SYNC=1 uv run --no-sync python
-  docs/design_review/evidence/2026-10-06_graph-native-pivot-audit/run_probes.py`: **passed** as
-  diagnostic reproduction. Failed selection still published the new serving pin; cold audit
-  accepted after seven actual Catalog search-document texts were altered. Both intended product
-  guarantees **failed** in those cases. Setup attempts failed before execution; the corrected
-  runner supplies the pinned nightly's separate metadata/code artifacts.
-- [Evidence README](docs/design_review/evidence/2026-10-06_graph-native-pivot-audit/README.md)
-  records sources, commands, observations and limits. Owned disposable persistent server,
-  credentials, binaries and scratch were removed. No operator state was inspected or activated.
+**Authoring checks, 2026-10-06:** initial `UV_NO_SYNC=1 just docs-check` **failed** solely on two
+new subsection fragments. Explicit package anchors repaired those links; `UV_NO_SYNC=1 just docs-check`
+then **passed** (322 canonical pages, zero link errors). `git diff --check` **passed**. Root
+`UV_NO_SYNC=1 just turn-end` is the final scope-end bookkeeping step.
+These are documentation checks, not production remediation or functional qualification.
 
-**Audit publication checks, 2026-10-06:** `UV_NO_SYNC=1 just docs-check` **passed**
-(321 canonical pages, zero link errors). Explicit Ruff checking of the otherwise excluded
-probe runner **passed** after import/style repairs; the initial empty selection was not counted
-as verification. `UV_NO_SYNC=1 just turn-end` **passed** with no generated/production-source
-changes. These checks validate documentation/probe hygiene, not product correctness.
+**Preserved audit evidence, 2026-10-06:** the normalized-environment publisher/serving release
+build passed. The
+[owned diagnostic](docs/design_review/evidence/2026-10-06_graph-native-pivot-audit/README.md)
+reproduced failed selection publishing a different serving pin and cold audit accepting seven
+changed search texts. Those intended product guarantees failed. The audit removed its disposable
+persistent fixture/credentials/scratch and inspected no operator state. No authoring result repairs
+or reclassifies those failures.
 
 **Prior implementation receipts remain historical:**
-[Coordinator §8](docs/plans/graph-native-pivot-plan_2026-10-05.md#8-current-checkpoint) owns the
-2026-10-05–06 native SDK/projection, publication, eligible search, ten-tool Catalog and in-process/
-stdio MCP successes and exact exercised revisions. Scope-end leaves passed there; the final
-NativeSession wheel on production `599010a0` was built, installed and import-checked. These do not
-close the newly identified findings or demonstrate every optional behavioral branch. The earlier
-cache control exercised sequential winner reuse; actual concurrent conflict behavior is unresolved.
+[Coordinator §8](docs/plans/graph-native-pivot-plan_2026-10-05.md#8-current-checkpoint) preserves
+actual native/projection/publication/search/ten-tool Catalog and in-process/stdio MCP results with
+exercised revisions and limits. The final wheel build/install/import on production `599010a0`
+does not demonstrate every optional behavioral branch or final-source runtime journey. The prior
+cache case was sequential winner reuse, not an executed simultaneous same-key race.
 
-**Compiler stage remains complete / user-accepted, 2026-10-05.** Its interrupted-test limits are
-preserved in coordinator §8. Static audit includes that source and identifies additional unmet
-obligations; the stopped suite was not restarted. The isolated Catalog diagnostic compiled a small
-first-party fixture for the specific cold-audit question, not compiler-suite qualification.
+**Compiler stage remains complete / user-accepted, 2026-10-05.** Its stopped-test boundary is
+preserved. Planned focused remediation counterexamples do not reopen the historical compiler
+suite, legacy CLI snapshot/parity or old receipt/grant tests. Current audit findings still prevent
+claiming that the full graph-native target is realized.
 
-Broad `just qualify`, legacy snapshots/parity, real-library/live-Qwen journeys, operator adoption
-and performance measurement remain **not_run** under the agreed audit scope. Heldout/gold data,
-operator services/client registrations, unrelated worktrees and shared Cargo caches are preserved.
-Efficient design follows first principles and library capabilities; no cost proofs, detailed work
-accounting, query-adoption gates or new permanent audit gate were added.
+Production compile/tests, broad `just qualify`, real-library/live-Qwen/operator adoption and
+performance measurement: **not_run** in this documentation scope. Heldout/gold inputs, operator
+services/client registrations, unrelated worktrees and shared Cargo caches remain untouched.
 
-**Next:** remediate the open coordinator findings in the report's order: semantic/executable
-integrity; backup/selection/audit; scoped consumer/error/continuation behavior; compiler/native
-bulk execution and current documentation retirement. Remediation and Q1 activation are separate
-work, with targeted functional validation; neither was performed by this audit.
+**Next:** execute R-C0's necessary-versus-diagnostic validation split and invalid-support control,
+then coherent R-C1/R-C2 normalization/upper-consumer chains. R-I1 executable capture and R-P3 gRPC
+backup can proceed independently on existing inputs. Follow §9's actual prerequisites for the
+native/consumer lanes and R-Q0 targeted integrated acceptance. Q1 activation remains separate.
