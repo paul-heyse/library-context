@@ -128,9 +128,12 @@ async fn native_codec_graph_search_and_immutable_winners() {
         admitted_tokens: 4,
         ..first.clone()
     };
-    let winner = cache.admit(&spec, &[later]).await.unwrap();
+    assert!(cache.admit(&spec, std::slice::from_ref(&later)).await.is_err());
+    let winner = cache.cached(&spec, &[first.input_hash]).await.unwrap();
     assert_eq!(winner[&first.input_hash].vector, first.vector);
     assert_eq!(winner[&first.input_hash].admitted_tokens, 3);
+    let winner = cache.admit(&spec, &[CacheValue { admitted_tokens: 3, ..later }]).await.unwrap();
+    assert_eq!(winner[&first.input_hash].vector, first.vector);
     client
         .query(format!("REMOVE DATABASE {db}"))
         .await
