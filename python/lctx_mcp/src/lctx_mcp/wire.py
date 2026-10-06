@@ -257,9 +257,9 @@ class CapabilityResource(Resource):
         from lctx_semantics import wire_capability_resource
 
         try:
-            capability = list(bytes.fromhex(self._capability))
-            if len(capability) != 16:
+            if len(self._capability) != 32:
                 raise ValueError("capability key must contain 16 bytes")
+            capability = list(bytes.fromhex(self._capability))
             raw = await self._executor.execute("get_capability", {"capability": capability, "page": {"expanded": True}})
             return ResourceResult([ResourceContent(wire_capability_resource(raw), mime_type=self.mime_type)])
         except (ValueError, RuntimeError) as exc:

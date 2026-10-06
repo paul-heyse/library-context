@@ -40,7 +40,8 @@ def create_server(serving_config: Path, embedding_url: str | None = None) -> Fas
             with anyio.CancelScope(shield=True):
                 await native.close()
 
-    server = FastMCP("library-context", lifespan=lifespan, cache_ttl=0, mask_error_details=True)
+    server = FastMCP("library-context", lifespan=lifespan, cache_ttl=0,
+                     mask_error_details=True, dereference_schemas=False)
     server.add_middleware(EnvelopeAdmission(server))
     register(server, executor)
     return server
