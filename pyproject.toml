@@ -23,6 +23,8 @@ dev = [
     # Exact: the version the python-oracles library skill indexes (docs/pins.md, Serving).
     "hypothesis==6.168.1",
     "fastmcp>=4.0.5",
+    # Independent original-evidence comparison baseline only; product search is native.
+    "bm25s>=0.3.12",
 ]
 
 [tool.uv]
