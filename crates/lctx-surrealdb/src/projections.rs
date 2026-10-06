@@ -16,7 +16,7 @@ use surrealdb::types::{Bytes, RecordId, Variables};
 // These fields connect a source owner to its own projection records. They are traversed
 // only during ownership selection; resolved foreign endpoints get forward closure alone.
 const OWNED_FIELDS: &[&str] = &[
-    "artifact", "module", "occurrence", "declaration", "source", "scope", "qualification",
+    "input", "artifact", "module", "occurrence", "declaration", "source", "scope", "qualification",
     "symbol", "callable", "class", "parameter", "field", "owner", "site", "event",
     "alternative", "assessment", "observation", "reference", "access", "exposure",
     "statement", "alias", "read", "parent",
@@ -110,15 +110,20 @@ async fn hydrate(reader: &NativeReader, key: ProjectionKey, budget: &ResourceBud
     let types: BTreeSet<_> = ProjectionData::stage_inputs().iter().map(|r| r.name().to_owned()).collect();
     let mut bindings = Variables::new();
     bindings.insert("types", types.iter().cloned().collect::<Vec<_>>());
-    bindings.insert("input", key.input.bytes().to_vec());
-    bindings.insert("context", key.context.bytes().to_vec());
+    bindings.insert("input", crate::loader::json_value(serde_json::to_value(key.input).map_err(ModelError::codec)?)?);
+    bindings.insert("context", crate::loader::json_value(serde_json::to_value(key.context).map_err(ModelError::codec)?)?);
     bindings.insert("symbols", <lctx_model::domain::calls::ProviderSymbol as Record>::NAME);
     let roots: Vec<RecordId> = reader.query("RETURN array::concat(\
         (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND scope_input=<string>$input AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
         (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND scope_input=<string>$input AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
         (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND scope_context=<string>$context));", bindings).await?;
+    // Input sum records (for example CoverageScope::Input) use arm-prefixed physical
+    // columns. Their logical input reference is authoritative native adjacency, so include
+    // the exact capture as an ownership anchor rather than guessing those columns.
+    let capture = crate::reader::target_id(lctx_model::domain::graph::Target::Entity(
+        lctx_model::domain::graph::EntityId::of(key.input)));
     let mut seen = BTreeSet::new();
-    let mut frontier: Vec<_> = roots.into_iter().filter(|id| seen.insert(id.clone())).collect();
+    let mut frontier: Vec<_> = std::iter::once(capture).chain(roots).filter(|id| seen.insert(id.clone())).collect();
     let mut charge = budget.reserve("native-projection-selection", seen.len().saturating_mul(128))?;
     // Ownership first: input isolates and every owned relationship are selected before following
     // resolved endpoints. Context/provider identities cannot pull in unrelated input owners.
@@ -127,7 +132,7 @@ async fn hydrate(reader: &NativeReader, key: ProjectionKey, budget: &ResourceBud
         vars.insert("frontier", frontier);
         vars.insert("types", types.iter().cloned().collect::<Vec<_>>());
         vars.insert("fields", OWNED_FIELDS.to_vec());
-        vars.insert("context", key.context.bytes().to_vec());
+        vars.insert("context", crate::loader::json_value(serde_json::to_value(key.context).map_err(ModelError::codec)?)?);
         let next: Vec<RecordId> = reader.query("RETURN array::distinct(array::concat(\
             (SELECT VALUE in FROM reference WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context)),\
             (SELECT VALUE in FROM participant WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context))));", vars).await?;
