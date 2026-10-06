@@ -353,7 +353,7 @@ mod selected_catalog_controls {
         let declaration=ValidationInput::of::<models::ModelCatalog>(&["id"]);
         let mut consumed=crate::consumed_rows::ConsumedInputs::new(vec![declaration.clone()],&budget).unwrap();let mut data=ModelData::new(&budget);
         load_selected_catalog(&access,&session,&mut consumed,&mut data,catalog.id()).await.unwrap();consumed.finish("catalog-consumer").unwrap();
-        assert_eq!(data.catalogs.len(),1);assert_eq!(data.catalogs.get(catalog.id()),Some(&catalog));drop(data);assert_eq!(budget.reserved(),0);
+        assert_eq!(data.catalogs.len(),1);assert_eq!(data.catalogs.get(catalog.id()),Some(catalog));drop(data);assert_eq!(budget.reserved(),0);
         let permit=access.read::<models::ModelCatalog>().unwrap();let mut whole=Rows::<models::ModelCatalog>::new(&budget);
         assert!(crate::consumed_rows::stream_at(&permit,&declaration,&access,&session,|_,batch|whole.decode(batch)).await.is_err(),"unused rich catalog would exceed the selected consumer budget");
         drop(whole);assert_eq!(budget.reserved(),0);

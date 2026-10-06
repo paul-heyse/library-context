@@ -162,7 +162,7 @@ mod model_scope_controls{
   let grain=scopes.selected(ProductionScope::Target(cast.declaration().id()),run.id(),&tiny).await.unwrap();
   let catalog_table=inputs.iter().position(|input|input.type_id()==TypeId::of::<models::ModelCatalog>()).unwrap();let mut catalogs=Rows::<models::ModelCatalog>::new(&tiny);
   let mut stream=crate::sql::query(grain.session(),&scopes.select(&grain,catalog_table,&inputs[catalog_table]).unwrap()).await.unwrap().execute_stream().await.unwrap();while let Some(batch)=stream.try_next().await.unwrap(){catalogs.decode(&batch).unwrap();}
-  assert_eq!(catalogs.len(),1);assert_eq!(catalogs.get(selected_catalog.id()),Some(&selected_catalog));drop(catalogs);drop(stream);
+  assert_eq!(catalogs.len(),1);assert_eq!(catalogs.get(selected_catalog.id()),Some(selected_catalog));drop(catalogs);drop(stream);
   let mut selected_symbols=Rows::<calls::ProviderSymbol>::new(&tiny);let table=inputs.iter().position(|input|input.type_id()==TypeId::of::<calls::ProviderSymbol>()).unwrap();
   let mut stream=crate::sql::query(grain.session(),&grain.select(table).unwrap()).await.unwrap().execute_stream().await.unwrap();use futures::TryStreamExt;while let Some(batch)=stream.try_next().await.unwrap(){selected_symbols.decode(&batch).unwrap();}
   assert_eq!(selected_symbols.len(),1);assert_eq!(selected_symbols.get(symbol.id()),Some(&symbol));drop(selected_symbols);drop(stream);drop(grain);

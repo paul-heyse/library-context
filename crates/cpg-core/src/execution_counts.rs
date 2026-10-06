@@ -1,6 +1,6 @@
 //! Canonical counts over external primitive output IDs; rich result rows never stay here.
 use lctx_model::domain::*;
-use datafusion::{arrow::ipc::writer::FileWriter,prelude::{SessionContext,ArrowReadOptions}};
+use datafusion::{arrow::ipc::writer::FileWriter,prelude::SessionContext,execution::options::ArrowReadOptions};
 use arrow_array::{RecordBatch,Int64Array,FixedSizeBinaryArray};
 use arrow_schema::{Schema,Field,DataType};
 use std::{fs::File,sync::Arc};
