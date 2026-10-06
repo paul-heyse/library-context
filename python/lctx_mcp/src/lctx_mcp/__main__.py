@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from contextlib import asynccontextmanager
 from pathlib import Path
+from functools import partial
 
 import anyio
 from fastmcp import FastMCP
@@ -12,7 +13,7 @@ from lctx_semantics import NativeSession
 
 from lctx_mcp.embedder import HttpEmbedder
 from lctx_mcp.native import NativeExecutor
-from lctx_mcp.wire import EnvelopeAdmission, register
+from lctx_mcp.wire import BoundedStdioWriter, EnvelopeAdmission, register
 
 
 def create_server(serving_config: Path, embedding_url: str | None = None) -> FastMCP:
@@ -45,12 +46,37 @@ def create_server(serving_config: Path, embedding_url: str | None = None) -> Fas
     return server
 
 
+async def run_stdio(server: FastMCP) -> None:
+    """Pinned SDK stdio entry with byte admission immediately before its stdout writer."""
+    from fastmcp.server.context import reset_transport, set_transport
+    from mcp.server.lowlevel.server import NotificationOptions
+    from mcp.server.stdio import stdio_server
+
+    admission = next(m for m in server.middleware if isinstance(m, EnvelopeAdmission))
+    token = set_transport("stdio")
+    try:
+        # FastMCP 4.0.5 owns the lifespan and low-level SDK registry at these seams;
+        # no handlers or transport implementations are replaced at runtime.
+        async with server._lifespan_manager():
+            async with stdio_server() as (read_stream, write_stream):
+                await server._mcp_server.run(
+                    read_stream,
+                    BoundedStdioWriter(write_stream, admission),
+                    server._mcp_server.create_initialization_options(
+                        notification_options=NotificationOptions(tools_changed=True),
+                    ),
+                )
+    finally:
+        reset_transport(token)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serving-config", type=Path, default=Path("build/native/selected.serving.json"))
     parser.add_argument("--embedding-url", help="Existing Qwen embedding service; omit to disable vector search")
     options = parser.parse_args(argv)
-    create_server(options.serving_config, options.embedding_url).run(transport="stdio")
+    server = create_server(options.serving_config, options.embedding_url)
+    anyio.run(partial(run_stdio, server))
 
 
 if __name__ == "__main__":

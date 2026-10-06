@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+
+import anyio
 from typing import Any
 
 from fastmcp.exceptions import (
@@ -89,6 +91,19 @@ class EnvelopeAdmission(Middleware):
 
     def __init__(self, server) -> None:
         self.server = server
+        self._requests: dict[tuple[type, int | str], bool] = {}
+
+    def _request_id(self, context):
+        current = context.fastmcp_context
+        request = current.request_context if current is not None else None
+        return request._srctx.request_id if request is not None else None
+
+    async def on_request(self, context, call_next):
+        if context.method in {"tools/call", "resources/read"}:
+            request_id = self._request_id(context)
+            if request_id is not None:
+                self._requests[(type(request_id), request_id)] = context.method == "resources/read"
+        return await call_next(context)
 
     def _admit(self, context, result, expanded: bool) -> None:
         from lctx_semantics import admit_envelope
@@ -103,6 +118,7 @@ class EnvelopeAdmission(Middleware):
         request_id = request._srctx.request_id
         if request_id is None:
             return
+        self._requests[(type(request_id), request_id)] = expanded
         for encoded in negotiated_encodings(
             result, request_id, request.protocol_version, self.server
         ):
@@ -154,6 +170,47 @@ class EnvelopeAdmission(Middleware):
             self._admit(context, error.error, expanded)
             raise error from exc
         return result
+
+
+class BoundedStdioWriter:
+    """SDK stream adapter; refuse a complete oversized packet before it reaches stdout."""
+
+    def __init__(self, stream, admission: EnvelopeAdmission) -> None:
+        self.stream = stream
+        self.admission = admission
+        self.closed = False
+
+    async def send(self, message) -> None:
+        from lctx_semantics import admit_envelope
+
+        if self.closed:
+            raise anyio.BrokenResourceError
+        packet = message.message
+        request_id = getattr(packet, "id", None)
+        key = (type(request_id), request_id)
+        expanded = self.admission._requests.get(key)
+        if expanded is not None:
+            encoded = packet.model_dump_json(by_alias=True, exclude_unset=True) + "\n"
+            try:
+                admit_envelope(encoded, expanded)
+            except ValueError as exc:
+                # A huge ID cannot be answered within its cap: close the transport.
+                # Lifecycle teardown still drains every owned native call.
+                await self.aclose()
+                raise anyio.BrokenResourceError from exc
+        await self.stream.send(message)
+        self.admission._requests.pop(key, None)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback) -> None:
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        self.closed = True
+        self.admission._requests.clear()
+        await self.stream.aclose()
 
 
 class SchemaTool(Tool):

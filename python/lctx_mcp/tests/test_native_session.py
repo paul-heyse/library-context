@@ -7,15 +7,17 @@ import threading
 from pathlib import Path
 
 import pytest
+import anyio
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 from lctx_semantics import NativeSession
-from mcp_types import CallToolResult, TextContent
+from mcp_types import CallToolResult, TextContent, JSONRPCResponse
+from mcp.shared.message import SessionMessage
 from fastmcp.tools import ToolResult
 
 from lctx_mcp.__main__ import create_server
 from lctx_mcp.native import NativeExecutor
-from lctx_mcp.wire import EnvelopeAdmission
+from lctx_mcp.wire import BoundedStdioWriter, EnvelopeAdmission
 
 
 @pytest.mark.anyio
@@ -110,3 +112,42 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
     assert executor._slots._value == 2
     with pytest.raises(RuntimeError, match="closed"):
         await executor.execute("list_domains", {"library": "control"})
+
+
+@pytest.mark.anyio
+async def test_stdio_writer_checks_final_bytes_and_keeps_numeric_ids_distinct():
+    """Writer control measures the exact SDK model, including newline, before any send."""
+    send, receive = anyio.create_memory_object_stream(2)
+    admission = EnvelopeAdmission(FastMCP("writer control"))
+    writer = BoundedStdioWriter(send, admission)
+    admission._requests[(str, "7")] = True
+    admission._requests[(int, 7)] = False
+    result = {"content": [{"type": "text", "text": "x" * 40_000}], "isError": False}
+    accepted = SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id="7", result=result))
+    await writer.send(accepted)
+    assert await receive.receive() is accepted
+    assert (str, "7") not in admission._requests
+    refused = SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=7, result=result))
+    with pytest.raises(anyio.BrokenResourceError):
+        await writer.send(refused)
+    assert writer.closed
+    with pytest.raises(anyio.EndOfStream):
+        await receive.receive()
+    with pytest.raises(anyio.BrokenResourceError):
+        await writer.send(accepted)
+    await receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_stdio_writer_refuses_a_huge_id_without_emitting_its_error():
+    send, receive = anyio.create_memory_object_stream(1)
+    admission = EnvelopeAdmission(FastMCP("ID refusal control"))
+    writer = BoundedStdioWriter(send, admission)
+    request_id = "x" * 40_000
+    admission._requests[(str, request_id)] = False
+    packet = SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={}))
+    with pytest.raises(anyio.BrokenResourceError):
+        await writer.send(packet)
+    with pytest.raises(anyio.EndOfStream):
+        await receive.receive()
+    await receive.aclose()
