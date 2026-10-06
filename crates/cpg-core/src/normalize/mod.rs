@@ -13,7 +13,7 @@ use std::sync::Arc;
 use arrow_array::Array;
 mod receiver_scope;
 mod callable_scope;
-mod call_scope;
+pub(crate) mod call_scope;
 mod admission;
 mod projection_admission;
 pub use projection_admission::validate_projections;

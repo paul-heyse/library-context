@@ -3,7 +3,7 @@ use crate::{consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, Prepare
 use lctx_model::domain::{*, normalized::{event_normalization::EventData, binding_normalization::BindingData}};
 use std::{any::TypeId, sync::Arc};
 
-pub(super) struct CallScopes {
+pub(crate) struct CallScopes {
     inputs: Vec<ValidationInput>,
     event_roots: Vec<(TypeId, usize)>,
     edges: PreparedEdges,
@@ -21,10 +21,16 @@ impl CallScopes {
         })).collect::<Result<_, ModelError>>()?;
         Self::from_tables(inputs, tables, session, budget, binding, false).await
     }
-    pub(super) async fn from_tables(inputs: Vec<ValidationInput>, mut tables: Vec<ClosureTable>,
+    pub(super) async fn from_tables(inputs: Vec<ValidationInput>, tables: Vec<ClosureTable>,
         session: &datafusion::prelude::SessionContext, budget: &resources::ResourceBudget,
         binding: bool, admission: bool,
     ) -> Result<Self, ModelError> {
+        Self::from_tables_with(inputs,tables,session,budget,binding,admission,|_,_|Ok(())).await
+    }
+    pub(crate) async fn from_tables_with(inputs:Vec<ValidationInput>,mut tables:Vec<ClosureTable>,
+        session:&datafusion::prelude::SessionContext,budget:&resources::ResourceBudget,binding:bool,admission:bool,
+        extra:impl FnOnce(&mut NominalClosure,&[ClosureTable])->Result<(),ModelError>,
+    )->Result<Self,ModelError>{
         let mut roots = if binding { vec![TypeId::of::<normalized::events::NormalizedCallEvent>()] }
             else { vec![TypeId::of::<calls::ProviderCallSite>(), TypeId::of::<calls::CallTarget>(), TypeId::of::<calls::CallResolution>()] };
         if !binding && tables.iter().any(|table| table.relation.type_id() == TypeId::of::<flow::FlowValuePathObservation>()) {
@@ -183,18 +189,20 @@ impl CallScopes {
                 }
             }
         }
+        extra(&mut plan,&tables)?;
         let edges = plan.prepare(session, budget).await?;
         let mut charge = charged::StateCharge::new(budget, "call-scope-descriptors");
         charge.grow(inputs.capacity()*size_of::<ValidationInput>() + tables.capacity()*size_of::<ClosureTable>())?;
         Ok(Self { inputs, event_roots, edges, _charge: charge })
     }
-    pub(super) fn inputs(&self) -> &[ValidationInput] { &self.inputs }
+    pub(crate) fn edges(&self)->&PreparedEdges{&self.edges}
+    pub(crate) fn inputs(&self) -> &[ValidationInput] { &self.inputs }
     pub(super) async fn root_grain(&self, kind: TypeId, bytes: &[u8], budget: &resources::ResourceBudget) -> Result<PreparedClosure, ModelError> {
         let root = self.event_roots.iter().find(|(candidate, _)| *candidate == kind).ok_or_else(|| ModelError::Invalid("call admission root absent".into()))?.1;
         let hex = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         self.edges.grain(root, &format!("id=X'{hex}'"), budget).await
     }
-    pub(super) async fn grain<R: Record>(&self, id: Id<R>, budget: &resources::ResourceBudget) -> Result<PreparedClosure, ModelError> {
+    pub(crate) async fn grain<R: Record>(&self, id: Id<R>, budget: &resources::ResourceBudget) -> Result<PreparedClosure, ModelError> {
         let root = self.event_roots.iter().find(|(kind, _)| *kind == TypeId::of::<R>()).ok_or(ModelError::Schema(R::NAME))?.1;
         let hex = id.bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         self.edges.grain(root, &format!("id=X'{hex}'"), budget).await
