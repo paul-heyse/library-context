@@ -205,6 +205,14 @@ impl CompletionScopes {
             format!("SELECT id AS source_id,id AS target_id FROM {callables}"),
         )?;
         plan.pairs(body,owner,format!("SELECT c.id AS source_id,r.id AS target_id FROM {callables} c JOIN {refs} r ON r.callable_callable=c.id"))?;
+        // complete_body observes every immediate declaration placement before selecting its
+        // Body suite. Keep that complete native metadata domain in the ordinary namespace;
+        // only Body placements below enter recursive dependency traversal.
+        plan.pairs(
+            body,
+            index(TypeId::of::<SyntaxPlacement>())?,
+            format!("SELECT c.id AS source_id,p.id AS target_id FROM {callables} c JOIN {placements} p ON p.parent=c.source_declaration"),
+        )?;
         plan.pairs(body,child_placement,format!("SELECT c.id AS source_id,p.id AS target_id FROM {callables} c JOIN {placements} p ON p.parent=c.source_declaration WHERE p.field={}",lexical::SyntaxField::Body.code()))?;
         // Generator uncertainty is a complete owner predicate, independent of entered syntax.
         plan.pairs(owner,index(TypeId::of::<OccurrenceOwnership>())?,format!("SELECT r.id AS source_id,m.id AS target_id FROM {refs} r JOIN {ownership} m ON m.entity=r.id JOIN {occurrences} o ON o.id=m.occurrence WHERE o.syntax_kind IN ({},{})",SyntaxKind::ExprYield.code(),SyntaxKind::ExprYieldFrom.code()))?;
@@ -441,6 +449,14 @@ mod controls {
                 owner: declaration.id(),
                 entity: reference.id(),
             });
+            // An immediate non-Body child is observed by the body owner as metadata.
+            placements.push(SyntaxPlacement {
+                qualification: q.id(),
+                occurrence: name.id(),
+                parent: Some(declaration.id()),
+                field: lexical::SyntaxField::Child,
+                ordinal: 0,
+            });
             placements.push(SyntaxPlacement {
                 qualification: q.id(),
                 occurrence: statement.id(),
@@ -570,8 +586,10 @@ mod controls {
                         _ => unreachable!(),
                     }))
                 .count(),
-            1
+            2
         );
+        assert!(placements.iter().any(|row| row.field == lexical::SyntaxField::Child));
+        assert!(placements.iter().any(|row| row.field == lexical::SyntaxField::Body));
         drop(placements);
         drop(occurrences);
         drop(scope);
