@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("requested library is not admitted to this generation")]
+#[error("requested library is not admitted to this snapshot")]
 pub struct LibraryAdmissionError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -81,7 +81,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
 };}
 crate::serving_library_inputs!(data);
 
-/// Borrowed request resolution; one exact domain or the generation's complete admitted union.
+/// Borrowed request resolution; one exact domain or the snapshot's complete admitted union.
 #[derive(Clone, Copy)]
 pub struct ResolvedLibraryDomain<'a> {
     domains: &'a [LibraryDomainPacket],

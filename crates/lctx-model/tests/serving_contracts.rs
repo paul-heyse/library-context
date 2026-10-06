@@ -1,4 +1,12 @@
 //! Independent finite serving declaration controls; no mocked store admission is claimed.
+fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
+    use lctx_model::domain::serving::{SnapshotHandle, DatabaseIdentity, Name};
+    SnapshotHandle {
+        semantic: lctx_model::domain::ContentHash([byte; 32]),
+        realization: lctx_model::domain::ContentHash([byte; 32]),
+        database: DatabaseIdentity {namespace: Name::new("lctx").unwrap(), database: Name::new(format!("snapshot_{byte}")).unwrap()},
+    }
+}
 use lctx_model::{
     Domain,
     domain::{
@@ -187,7 +195,7 @@ fn canonical_identity_uses_decoded_selection_and_excludes_page_budgets() {
 }
 fn binding() -> CursorBinding {
     CursorBinding {
-        generation: GenerationKey([1; 16]),
+        snapshot: snapshot_for(1),
         request: RequestIdentity(ContentHash::of(b"request")),
         policy: PolicyIdentity(ContentHash::of(b"policy")),
         wire: WireIdentity(ContentHash::of(b"wire")),
@@ -207,7 +215,7 @@ fn continuation_rejects_each_invalidated_boundary() {
     let original = binding();
     let cursor = Cursor {
         binding: original.clone(),
-        offset: 20,
+        after: CursorPosition::Key { key: ContentHash([20; 32]) },
     };
     let token = cursor.encode().unwrap();
     assert_eq!(Cursor::decode(&token, &original).unwrap(), cursor);
@@ -217,8 +225,17 @@ fn continuation_rejects_each_invalidated_boundary() {
         "signed byte pairs cannot encode cursor whitespace"
     );
     let mut changed = original.clone();
-    changed.generation = GenerationKey([2; 16]);
+    changed.snapshot = snapshot_for(2);
     assert!(Cursor::decode(&token, &changed).is_err());
+    for snapshot in [
+        SnapshotHandle { semantic: ContentHash::of(b"other content"), ..original.snapshot.clone() },
+        SnapshotHandle { realization: ContentHash::of(b"other operations"), ..original.snapshot.clone() },
+        SnapshotHandle { database: DatabaseIdentity { namespace: Name::new("other namespace").unwrap(), ..original.snapshot.database.clone() }, ..original.snapshot.clone() },
+        SnapshotHandle { database: DatabaseIdentity { database: Name::new("other database").unwrap(), ..original.snapshot.database.clone() }, ..original.snapshot.clone() },
+    ] {
+        let changed = CursorBinding { snapshot, ..original.clone() };
+        assert!(Cursor::decode(&token, &changed).is_err());
+    }
     let mut changed = original.clone();
     changed.request = RequestIdentity(ContentHash::of(b"changed"));
     assert!(Cursor::decode(&token, &changed).is_err());
@@ -320,19 +337,18 @@ fn policy_wire_and_consumer_change_without_reextracting_canonical_facts() {
     let policy_b = policy_identity(&limits).unwrap();
     assert_ne!(policy_a, policy_b);
     assert_eq!(canonical.content_digest(), before);
-    let consumed = vec![ConsumedRelation {
-        relation: "catalog_members".into(),
-        epoch: ContentHash::of(b"epoch"),
-        content: ContentHash::of(b"content"),
+    let consumed = vec![OperationDependency {
+        operation: Name::new("catalog_members").unwrap(),
+        definition: ContentHash::of(b"content"),
     }];
-    let generation = GenerationKey([1; 16]);
+    let snapshot = snapshot_for(1);
     let mapping = mappings::identity();
     let wire = wire_identity();
-    let a = consumer_identity(generation, &consumed, mapping, policy_a, wire, None).unwrap();
-    let b = consumer_identity(generation, &consumed, mapping, policy_b, wire, None).unwrap();
+    let a = consumer_identity(&snapshot, &consumed, mapping, policy_a, wire, None).unwrap();
+    let b = consumer_identity(&snapshot, &consumed, mapping, policy_b, wire, None).unwrap();
     assert_ne!(a, b);
     let c = consumer_identity(
-        generation,
+        &snapshot,
         &consumed,
         mapping,
         policy_a,
@@ -342,8 +358,8 @@ fn policy_wire_and_consumer_change_without_reextracting_canonical_facts() {
     .unwrap();
     assert_ne!(a, c);
     let mut changed = consumed.clone();
-    changed[0].content = ContentHash::of(b"changed");
-    let d = consumer_identity(generation, &changed, mapping, policy_a, wire, None).unwrap();
+    changed[0].definition = ContentHash::of(b"changed");
+    let d = consumer_identity(&snapshot, &changed, mapping, policy_a, wire, None).unwrap();
     assert_ne!(a, d);
     assert_eq!(canonical.content_digest(), before);
 }
@@ -387,11 +403,11 @@ fn resource_refusals_and_exact_scalar_boundaries() {
     decode("inspect_value_paths", original).unwrap();
 }
 fn operation_response(parameters: usize) -> Value {
-    let id = json!(vec![1u8; 16]);
+    let id = json!(snapshot_for(1));
     let absent =
         json!({"availability":{"status":"not_requested"},"items":[],"omitted":0,"truncated":false});
     let parameter = json!({"parameter":id,"slot":null,"formals":[],"ordinal":0,"name":"x".repeat(500),"kind":1,"required":true,"types":[],"type_evidence":[],"default":{"kind":"absent"}});
-    json!({"generation":vec![1u8;16],"domains":[],"operation":{"resolution":"unique","packet":{
+    json!({"snapshot":snapshot_for(1),"domains":[],"operation":{"resolution":"unique","packet":{
         "core":{"member":id,"name":"FastMCP.run",
             "release":{"input":id,"release":id,"distribution":"fastmcp","version":"4.0.5"},
             "access":{"module":id,"path":["FastMCP","run"],"exposures":[id],"candidates":[id],"basis":null},
@@ -483,7 +499,7 @@ fn signature_is_mandatory_and_optional_sections_have_explicit_status() {
     );
 }
 #[test]
-fn packet_mapping_and_generation_schema_have_current_nominal_owners() {
+fn packet_mapping_and_snapshot_schema_have_current_nominal_owners() {
     let declared = domain::catalog_frontier_relations();
     for mapping in mappings::packet_inventory() {
         assert_eq!(mapping.minimum_frontier, admission::Frontier::Catalog);
@@ -495,9 +511,9 @@ fn packet_mapping_and_generation_schema_have_current_nominal_owners() {
             );
         }
     }
-    let generation = schema_for::<GenerationKey>(true);
-    assert_eq!(generation["minItems"], 16);
-    assert_eq!(generation["maxItems"], 16);
+    let snapshot = schema_for::<SnapshotHandle>(true);
+    assert_eq!(snapshot["additionalProperties"], false);
+    assert_eq!(snapshot["required"], json!(["semantic", "realization", "database"]));
     let packet = operation_response(1);
     let raw = decode_response(
         "get_operation",
@@ -509,8 +525,8 @@ fn packet_mapping_and_generation_schema_have_current_nominal_owners() {
     .to_json()
     .unwrap();
     assert_eq!(
-        serde_json::from_str::<Value>(&raw).unwrap()["generation"],
-        json!(vec![1u8; 16])
+        serde_json::from_str::<Value>(&raw).unwrap()["snapshot"],
+        json!(snapshot_for(1))
     );
 }
 
@@ -618,7 +634,7 @@ fn final_transport_admission_counts_actual_utf8_envelope_and_metadata_bytes() {
     assert_eq!(rpc.len(), limit);
     admit_envelope(&rpc, false).unwrap();
     assert!(admit_envelope(&(rpc + "\n"), false).is_err());
-    let prefix = r#"{"generation":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"capability":{"capability":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"title":"x","rendered":""#;
+    let prefix = format!(r#"{{"snapshot":{},"capability":{{"capability":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"title":"x","rendered":""#, serde_json::to_string(&snapshot_for(0)).unwrap());
     let suffix = r#"","assertions":[],"originals":[],"availability":{"status":"available"},"unreviewed":true,"documentation_only":true}}"#;
     let raw = format!(
         "{prefix}{}{suffix}",
@@ -761,7 +777,7 @@ fn capability_assertion_status_is_structured_and_visible_without_rewriting_autho
     observed["text"] = json!("Observed access.");
     let capability:CapabilityPacket=serde_json::from_value(json!({"capability":vec![6u8;16],"title":"API","rendered":"Original authored body.\n","assertions":[claim,observed],"originals":[],"availability":{"status":"available"},"unreviewed":true,"documentation_only":true})).unwrap();
     let response = GetCapabilityResponse {
-        generation: GenerationKey([7; 16]),
+        snapshot: snapshot_for(7),
         capability,
     };
     let resource = response.resource_text().unwrap();
@@ -778,11 +794,11 @@ fn capability_assertion_status_is_structured_and_visible_without_rewriting_autho
         .next()
         .unwrap();
     let snapshot: serde_json::Value = serde_json::from_str(snapshot_text).unwrap();
-    assert_eq!(snapshot["generation"], json!(vec![7u8; 16]));
+    assert_eq!(snapshot["snapshot"], json!(snapshot_for(7)));
     assert_eq!(snapshot["capability"], json!(vec![6u8; 16]));
     assert_eq!(snapshot["uri_scope"], "process");
     let mut other = response.clone();
-    other.generation = GenerationKey([8; 16]);
+    other.snapshot = snapshot_for(8);
     assert_ne!(other.resource_text().unwrap(), resource);
     assert_eq!(other.capability.rendered, response.capability.rendered);
     assert!(resource.contains("\"status_name\":\"Documented\""));

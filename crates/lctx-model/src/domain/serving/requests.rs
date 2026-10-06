@@ -10,7 +10,7 @@ pub struct PageRequest {
     /// Maximum requested page rows, default 20; values must remain within the declared resource limits.
     pub size: u32,
     #[serde(default, skip_serializing_if = "Optional::is_absent")]
-    /// Opaque continuation bound to generation, request and wire identity; reuse only with the original request.
+    /// Opaque continuation bound to snapshot, request and wire identity; reuse only with the original request.
     pub cursor: Optional<CursorToken>,
     #[serde(default)]
     /// Request the declared expanded response envelope; it remains bounded and does not imply completeness.
@@ -81,7 +81,7 @@ macro_rules! request {($name:ident {$($(#[$attr:meta])* $field:ident:$ty:ty),*$(
 #[serde(deny_unknown_fields)]
 pub struct SearchOperationsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_absent")]
-    /// Omit to search the finite union of admitted generation captures.
+    /// Omit to search the finite union of admitted snapshot captures.
     pub library: Optional<Name>,
     /// Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof.
     pub query: QueryText,
@@ -150,7 +150,7 @@ impl Default for SelectionInput {
 request!(GetEvidenceRequest {
     source: OriginalReference
 });
-request!(SearchEvidenceRequest {#[serde(default, skip_serializing_if = "Optional::is_absent")] #[doc = "Omit to search the finite union of admitted generation captures."] library:Optional<Name>,#[doc = "Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof."] query:QueryText,#[doc = "Restrict evidence retrieval to these declared families; an empty list uses the route default."] families:Vec<retrieval::Family>});
+request!(SearchEvidenceRequest {#[serde(default, skip_serializing_if = "Optional::is_absent")] #[doc = "Omit to search the finite union of admitted snapshot captures."] library:Optional<Name>,#[doc = "Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof."] query:QueryText,#[doc = "Restrict evidence retrieval to these declared families; an empty list uses the route default."] families:Vec<retrieval::Family>});
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CompareOperationsRequest {
@@ -164,7 +164,7 @@ pub struct CompareOperationsRequest {
 }
 request!(SearchCapabilitiesRequest {
     #[serde(default, skip_serializing_if = "Optional::is_absent")]
-    #[doc = "Omit to search the finite union of admitted generation captures."]
+    #[doc = "Omit to search the finite union of admitted snapshot captures."]
     library: Optional<Name>,
     #[doc = "Lexical or vector query text; retrieval rank is navigation evidence rather than a behavioral proof."]
     query: QueryText

@@ -1,4 +1,4 @@
-//! Pure generation-qualified exact-input inspection. This module never executes Python.
+//! Pure snapshot-qualified exact-input inspection. This module never executes Python.
 //! A restricted diagram has request identity; its structural Condition ID is not a stored row.
 pub(crate) mod evaluate;
 pub(crate) mod ingress;
@@ -103,7 +103,7 @@ impl Default for Limits {
 
 /// Public member/formal resolution is a preparation prerequisite, not name matching here.
 pub struct ExactRequest<'a> {
-    pub generation: crate::domain::serving::GenerationKey,
+    pub snapshot: crate::domain::serving::SnapshotHandle,
     pub owner: Id<EntityRef>,
     pub formal: Id<ParameterEntity>,
     pub value: &'a ExactScalar,

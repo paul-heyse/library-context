@@ -1,4 +1,12 @@
 //! Pure exact-request controls over current domain identities and independently replayed Entry.
+fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
+    use lctx_model::domain::serving::{SnapshotHandle, DatabaseIdentity, Name};
+    SnapshotHandle {
+        semantic: lctx_model::domain::ContentHash([byte; 32]),
+        realization: lctx_model::domain::ContentHash([byte; 32]),
+        database: DatabaseIdentity {namespace: Name::new("lctx").unwrap(), database: Name::new(format!("snapshot_{byte}")).unwrap()},
+    }
+}
 #[path = "fixtures/stability.rs"]
 mod fixture;
 use fixture::Fixture;
@@ -154,7 +162,7 @@ fn canonical_unexamined_path_keeps_original_frame_without_admitting_default_scal
     let path = NativePath::guard(&entry, &case.f.data, &case.f.budget).unwrap();
     let value = str_("ready");
     let mut request = ExactRequest {
-        generation: serving::GenerationKey([1; 16]),
+        snapshot: snapshot_for(1),
         owner: case.f.request.owner,
         formal: case.f.request.formal,
         value: &value,
@@ -360,7 +368,7 @@ impl Case {
         }
         let result = assess(
             &ExactRequest {
-                generation: serving::GenerationKey([1; 16]),
+                snapshot: snapshot_for(1),
                 owner: self.f.request.owner,
                 formal: self.f.request.formal,
                 value,
@@ -735,7 +743,7 @@ fn finite_two_atom_refutation_keeps_valid_proof_when_minimization_budget_ends() 
     let path = NativePath::guard(&entries[0], &case.f.data, &case.f.budget).unwrap();
     let value = int("1");
     let request = ExactRequest {
-        generation: serving::GenerationKey([1; 16]),
+        snapshot: snapshot_for(1),
         owner: case.f.request.owner,
         formal: case.f.request.formal,
         value: &value,
@@ -1178,7 +1186,7 @@ fn checked_builtin_type_identity_requires_namespace_and_native_operand_bridge() 
 }
 
 #[test]
-fn generation_assumption_and_path_identity_are_independent_of_display_limits() {
+fn snapshot_assumption_and_path_identity_are_independent_of_display_limits() {
     let case = Case::new(Predicate::IsNone, vec![], None);
     let entry = case.f.guard_entry().unwrap();
     let context = case.context(&entry).unwrap();
@@ -1196,7 +1204,7 @@ fn generation_assumption_and_path_identity_are_independent_of_display_limits() {
     .unwrap();
     let value = ExactScalar::None {};
     let mut request = ExactRequest {
-        generation: serving::GenerationKey([1; 16]),
+        snapshot: snapshot_for(1),
         owner: context.owner(),
         formal: context.formal(),
         value: &value,
@@ -1225,12 +1233,12 @@ fn generation_assumption_and_path_identity_are_independent_of_display_limits() {
     );
     assert_eq!(first.restricted_result, display.restricted_result);
     assert!(!first.presentation_truncated && display.presentation_truncated);
-    request.generation = serving::GenerationKey([2; 16]);
+    request.snapshot = snapshot_for(2);
     assert_ne!(
         first.restricted_result,
         run(&request, Limits::default()).restricted_result
     );
-    request.generation = serving::GenerationKey([1; 16]);
+    request.snapshot = snapshot_for(1);
     request.assumptions.builtin_namespace = BuiltinNamespace::StandardCpython;
     assert_ne!(
         first.restricted_result,
@@ -1374,7 +1382,7 @@ fn local_value_path(kind: transfer::TransferKind) -> Assessment {
     let input = ExactScalar::None {};
     assess(
         &ExactRequest {
-            generation: serving::GenerationKey([1; 16]),
+            snapshot: snapshot_for(1),
             owner: context.owner(),
             formal: context.formal(),
             value: &input,
@@ -1426,7 +1434,7 @@ fn distinct_unexamined_causes_survive_model_packet_serialization_without_assignm
     let path = NativePath::guard(&entry, &case.f.data, &case.f.budget).unwrap();
     let value = str_("ready");
     let request = ExactRequest {
-        generation: serving::GenerationKey([1; 16]),
+        snapshot: snapshot_for(1),
         owner: case.f.request.owner,
         formal: case.f.request.formal,
         value: &value,
@@ -1555,7 +1563,7 @@ fn pure_preparation_preserves_context_causes_and_requires_coverage_before_public
         if let Some(cause) = cause {
             let value = str_("ready");
             let request = ExactRequest {
-                generation: serving::GenerationKey([1; 16]),
+                snapshot: snapshot_for(1),
                 owner: case.f.request.owner,
                 formal: case.f.request.formal,
                 value: &value,

@@ -1,32 +1,31 @@
 //! Independent invalidation boundaries; no serving change mutates canonical fact identity.
 use crate::domain::{ContentHash, Key, KeySink};
-/// The actual canonical PostgreSQL generation identifier, never a hashed alias.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-    schemars::JsonSchema,
-)]
-#[serde(transparent)]
-pub struct GenerationKey(pub [u8; 16]);
-impl GenerationKey {
-    pub fn bytes(&self) -> &[u8; 16] {
-        &self.0
-    }
-}
-impl Key for GenerationKey {
-    fn encode(&self, sink: &mut KeySink) {
-        sink.part(b"generation", &self.0);
-    }
-}
+use super::Name;
 use serde::{Deserialize, Serialize};
+/// Exact physical database names; a reader cannot silently switch either component.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseIdentity {
+    pub namespace: Name,
+    pub database: Name,
+}
+/// One immutable semantic snapshot and its executable native realization.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotHandle {
+    pub semantic: ContentHash,
+    pub realization: ContentHash,
+    pub database: DatabaseIdentity,
+}
+impl Key for SnapshotHandle {
+    fn encode(&self, sink: &mut KeySink) {
+        sink.part(b"snapshot-handle/v1", &[]);
+        self.semantic.encode(sink);
+        self.realization.encode(sink);
+        sink.part(b"namespace", self.database.namespace.as_str().as_bytes());
+        sink.part(b"database", self.database.database.as_str().as_bytes());
+    }
+}
 macro_rules! identity {
     ($($name:ident),* $(,)?) => { $(
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -54,36 +53,34 @@ pub fn policy_identity<T: Serialize>(
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ConsumedRelation {
-    pub relation: String,
-    pub epoch: ContentHash,
-    pub content: ContentHash,
+pub struct OperationDependency {
+    pub operation: Name,
+    pub definition: ContentHash,
 }
 pub fn consumer_identity(
-    generation: GenerationKey,
-    consumed: &[ConsumedRelation],
+    snapshot: &SnapshotHandle,
+    consumed: &[OperationDependency],
     mapping: MappingIdentity,
     policy: PolicyIdentity,
     wire: WireIdentity,
     spec: Option<ContentHash>,
 ) -> Result<ConsumerIdentity, crate::domain::ModelError> {
     let mut relations = consumed.to_vec();
-    relations.sort_by(|a, b| a.relation.cmp(&b.relation));
-    if relations.windows(2).any(|w| w[0].relation == w[1].relation) {
+    relations.sort_by(|a, b| a.operation.cmp(&b.operation));
+    if relations.windows(2).any(|w| w[0].operation == w[1].operation) {
         return Err(crate::domain::ModelError::Invalid(
-            "duplicate consumed relation".into(),
+            "duplicate operation dependency".into(),
         ));
     }
-    let mut sink = KeySink::new("serving-consumer/v1");
-    generation.encode(&mut sink);
+    let mut sink = KeySink::new("serving-consumer/v2");
+    snapshot.encode(&mut sink);
     mapping.0.encode(&mut sink);
     policy.0.encode(&mut sink);
     wire.0.encode(&mut sink);
     spec.encode(&mut sink);
     for r in relations {
-        r.relation.encode(&mut sink);
-        r.epoch.encode(&mut sink);
-        r.content.encode(&mut sink);
+        sink.part(b"operation", r.operation.as_str().as_bytes());
+        r.definition.encode(&mut sink);
     }
     Ok(ConsumerIdentity(sink.finish()))
 }

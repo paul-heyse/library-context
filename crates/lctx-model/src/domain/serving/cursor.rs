@@ -34,7 +34,7 @@ impl ChannelState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CursorBinding {
-    pub generation: GenerationKey,
+    pub snapshot: SnapshotHandle,
     pub request: RequestIdentity,
     pub policy: PolicyIdentity,
     pub wire: WireIdentity,
@@ -48,7 +48,15 @@ pub struct CursorBinding {
 #[serde(deny_unknown_fields)]
 pub struct Cursor {
     pub binding: CursorBinding,
-    pub offset: u64,
+    pub after: CursorPosition,
+}
+/// Resume a canonical key range or the same bounded ranking result, never an offset prefix scan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CursorPosition {
+    Key { key: ContentHash },
+    Ranked { score_bits: u64, key: ContentHash },
+    Original { source: ContentHash, byte: u64 },
 }
 impl Cursor {
     pub fn identity(&self) -> CursorIdentity {
@@ -67,7 +75,13 @@ impl Cursor {
             .map_err(|_| WireError::Invalid("cursor encoding".into()))?;
         let cursor: Self = serde_json::from_slice(&bytes)?;
         if &cursor.binding != expected {
-            return Err(WireError::Continuation("generation, request, policy, representation, group, section, member, ordering or channel changed".into()));
+            return Err(WireError::Continuation("snapshot, request, policy, representation, group, section, member, ordering or channel changed".into()));
+        }
+        if let CursorPosition::Ranked { score_bits, .. } = &cursor.after
+            && (!f64::from_bits(*score_bits).is_finite()
+                || *score_bits == (-0.0f64).to_bits())
+        {
+            return Err(WireError::Continuation("noncanonical ranking position".into()));
         }
         Ok(cursor)
     }

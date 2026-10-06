@@ -1,5 +1,5 @@
 //! Pure ranking of admitted occurrences. Scores aid discovery; they are not requirement evidence.
-use super::identity::{ChannelIdentity, GenerationKey, PolicyIdentity, policy_identity};
+use super::identity::{ChannelIdentity, SnapshotHandle, PolicyIdentity, policy_identity};
 use crate::domain::{
     ContentHash, Id, KeySink, ModelError,
     attribution::AnalysisContext,
@@ -200,7 +200,7 @@ impl PartialOrd for Occurrence {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NumericalScore {
-    pub generation: GenerationKey,
+    pub snapshot: SnapshotHandle,
     pub occurrence: Occurrence,
     pub channel: Channel,
     pub channel_identity: ChannelIdentity,
@@ -216,7 +216,7 @@ pub struct RankingWitness {
     pub numerical_score: f64,
     /// Contiguous one-based rank within this family/channel, after best-fragment selection.
     pub rank: u32,
-    pub generation: GenerationKey,
+    pub snapshot: SnapshotHandle,
     pub policy: PolicyIdentity,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -254,7 +254,7 @@ impl RankedResults {
 /// C0/E0 supplies the complete eligible universe and canonical joins. This owner never classifies.
 #[derive(Debug)]
 pub struct PreparedRanking {
-    generation: GenerationKey,
+    snapshot: SnapshotHandle,
     policy: RankingPolicy,
     policy_identity: PolicyIdentity,
     channels: BTreeMap<Channel, ChannelBinding>,
@@ -265,7 +265,7 @@ pub struct PreparedRanking {
 }
 impl PreparedRanking {
     pub fn new(
-        generation: GenerationKey,
+        snapshot: SnapshotHandle,
         policy: RankingPolicy,
         channels: &[ChannelBinding],
         eligible: &[Target],
@@ -309,7 +309,7 @@ impl PreparedRanking {
             }
         }
         Ok(Self {
-            generation,
+            snapshot,
             policy,
             policy_identity,
             channels: channel_map,
@@ -325,8 +325,8 @@ impl PreparedRanking {
     pub fn policy_identity(&self) -> PolicyIdentity {
         self.policy_identity
     }
-    pub fn generation(&self) -> GenerationKey {
-        self.generation
+    pub fn snapshot(&self) -> SnapshotHandle {
+        self.snapshot.clone()
     }
     pub fn channel(&self, channel: Channel) -> Option<ChannelBinding> {
         self.channels.get(&channel).copied()
@@ -356,8 +356,8 @@ impl PreparedRanking {
         }
         let mut numerical = BTreeMap::<(Occurrence, Channel), Option<f64>>::new();
         for row in scores {
-            if row.generation != self.generation {
-                return Err(invalid("numerical generation differs"));
+            if row.snapshot != self.snapshot {
+                return Err(invalid("numerical snapshot differs"));
             }
             if !self.occurrences.contains(&row.occurrence) {
                 return Err(invalid("numerical occurrence outside admitted closure"));
@@ -414,7 +414,7 @@ impl PreparedRanking {
                 channel_identity: self.channels[&channel].identity,
                 numerical_score: score,
                 rank: 0,
-                generation: self.generation,
+                snapshot: self.snapshot.clone(),
                 policy: self.policy_identity,
             };
             let key = (occurrence.family as i16, channel, occurrence.target);
@@ -558,7 +558,7 @@ impl QueryTokens {
 /// One numerical document per family/text, retaining every admitted contextual occurrence.
 #[derive(Debug)]
 pub struct LexicalCorpus {
-    generation: GenerationKey,
+    snapshot: SnapshotHandle,
     policy_identity: PolicyIdentity,
     eligible: BTreeSet<Target>,
     admitted: BTreeSet<Occurrence>,
@@ -642,7 +642,7 @@ impl PreparedRanking {
             self.policy.numerical.member_query_words
         };
         Ok(LexicalCorpus {
-            generation: self.generation,
+            snapshot: self.snapshot.clone(),
             policy_identity: self.policy_identity,
             eligible: self.eligible.clone(),
             admitted: covered,
@@ -736,7 +736,7 @@ impl LexicalCorpus {
                     continue;
                 }
                 rows.push(NumericalScore {
-                    generation: self.generation,
+                    snapshot: self.snapshot.clone(),
                     occurrence: *occurrence,
                     channel: Channel::Lexical,
                     channel_identity: channel.identity,
@@ -750,12 +750,12 @@ impl LexicalCorpus {
         })
     }
     fn validate_request(&self, request: &PreparedRanking) -> Result<ChannelBinding, ModelError> {
-        if request.generation != self.generation
+        if request.snapshot != self.snapshot.clone()
             || request.policy_identity != self.policy_identity
             || !request.eligible.is_subset(&self.eligible)
         {
             return Err(invalid(
-                "lexical request differs from admitted corpus generation, policy or universe",
+                "lexical request differs from admitted corpus snapshot, policy or universe",
             ));
         }
         let channel = request
@@ -786,7 +786,7 @@ impl PreparedRanking {
         &self,
         source: std::sync::Arc<LexicalCorpus>,
     ) -> Result<MemberLexicalCorpus, ModelError> {
-        if self.generation != source.generation
+        if self.snapshot != source.snapshot
             || self.policy_identity != source.policy_identity
             || self
                 .eligible
@@ -846,7 +846,7 @@ impl MemberLexicalCorpus {
         self.source.documents()
     }
     fn validate(&self, request: &PreparedRanking) -> Result<ChannelBinding, ModelError> {
-        if request.generation != self.source.generation
+        if request.snapshot != self.source.snapshot
             || request.policy_identity != self.source.policy_identity
             || !request.eligible.is_subset(&self.eligible)
             || !request.occurrences.is_subset(&self.admitted)
@@ -928,7 +928,7 @@ impl MemberLexicalCorpus {
             for occurrence in occurrences {
                 if request.occurrences.contains(occurrence) {
                     rows.push(NumericalScore {
-                        generation: request.generation,
+                        snapshot: request.snapshot.clone(),
                         occurrence: *occurrence,
                         channel: Channel::Lexical,
                         channel_identity: channel.identity,

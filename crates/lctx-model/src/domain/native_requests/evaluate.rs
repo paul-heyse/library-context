@@ -352,7 +352,7 @@ fn result_identity(
     let mut key = KeySink::new("native exact request restricted result");
     key.part(b"revision", &MODEL_REVISION.to_le_bytes());
     definition().encode(&mut key);
-    request.generation.encode(&mut key);
+    request.snapshot.encode(&mut key);
     request.owner.encode(&mut key);
     request.formal.encode(&mut key);
     context.context.encode(&mut key);

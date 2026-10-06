@@ -38,7 +38,7 @@ impl FailureKind {
             }
             Self::Corrupt => "Canonical serving evidence failed validation.",
             Self::Unavailable => "Canonical serving is unavailable.",
-            Self::UnknownLibrary => "The requested library is not admitted to this generation.",
+            Self::UnknownLibrary => "The requested library is not admitted to this snapshot.",
         }
     }
 }

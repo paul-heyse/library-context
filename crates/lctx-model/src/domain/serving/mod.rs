@@ -1,6 +1,6 @@
-//! Generation-bound serving declarations. Canonical relations retain semantic ownership.
+//! Snapshot-bound serving declarations. Canonical relations retain semantic ownership.
 pub mod identity;
-pub use identity::GenerationKey;
+pub use identity::{SnapshotHandle, DatabaseIdentity};
 pub mod mappings;
 pub mod resources;
 pub use resources::ResourceLimits;

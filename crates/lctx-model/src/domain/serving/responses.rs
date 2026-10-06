@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 macro_rules! response {($name:ident {$($(#[$attr:meta])* $field:ident:$ty:ty),*$(,)?})=>{
     #[derive(Debug,Clone,PartialEq,Serialize,Deserialize,JsonSchema)]
-    #[serde(deny_unknown_fields)] pub struct $name {pub generation:GenerationKey,$($(#[$attr])* pub $field:$ty,)*}
+    #[serde(deny_unknown_fields)] pub struct $name {pub snapshot:SnapshotHandle,$($(#[$attr])* pub $field:$ty,)*}
 };}
 response!(SearchOperationsResponse {
     #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
@@ -53,7 +53,7 @@ impl GetCapabilityResponse {
         let mut text = self.capability.rendered.as_str().to_owned();
         text.push_str("\n\n## Snapshot metadata\n\n```json\n");
         text.push_str(&serde_json::to_string(&serde_json::json!({
-            "generation": self.generation,
+            "snapshot": self.snapshot,
             "capability": self.capability.capability,
             "uri_scope": "process"
         }))?);

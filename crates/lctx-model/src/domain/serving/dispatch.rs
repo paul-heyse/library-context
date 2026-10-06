@@ -93,7 +93,7 @@ routes! {
     FindOperations:"find_operations"=>FindOperationsRequest,FindOperationsResponse,"Find public APIs by declared predicates. Discovery preserves supported, unresolved and conflicting candidates; Strict retains supported candidates.",
     GetOperation:"get_operation"=>GetOperationRequest,GetOperationResponse,"Resolve a canonical member or exact public path and inspect its signature, options and explicitly requested evidence sections. Ambiguity remains explicit.",
     BrowseLibrary:"browse_library"=>BrowseLibraryRequest,BrowseLibraryResponse,"Browse declared library, module or class members and finite vocabulary. Unknown ownership remains visible.",
-    GetEvidence:"get_evidence"=>GetEvidenceRequest,GetEvidenceResponse,"Read original attributed bytes and their canonical derivation. Continuations remain bound to the original generation and source.",
+    GetEvidence:"get_evidence"=>GetEvidenceRequest,GetEvidenceResponse,"Read original attributed bytes and their canonical derivation. Continuations remain bound to the original snapshot and source.",
     SearchEvidence:"search_evidence"=>SearchEvidenceRequest,SearchEvidenceResponse,"Search original evidence in the selected finite families; ranking does not establish API support or behavioral feasibility.",
     CompareOperations:"compare_operations"=>CompareOperationsRequest,CompareOperationsResponse,"Compare declared API requirements across selected operations while retaining each operation and context outcome.",
     SearchCapabilities:"search_capabilities"=>SearchCapabilitiesRequest,SearchCapabilitiesResponse,"Search authored capability briefs assembled from canonical assertions; optional vector navigation is disclosed.",
@@ -115,7 +115,7 @@ pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, Wire
     let limits = ResourceLimits::default();
     let response = decode_response(name, raw, expanded, &limits)?;
     let structured: Value = serde_json::from_str(&response.to_json()?)?;
-    let envelope = serde_json::json!({"content":[{"type":"text","text":format!("{}: generation-bound result",response.tool().name())}],"structuredContent":structured,"isError":false});
+    let envelope = serde_json::json!({"content":[{"type":"text","text":format!("{}: snapshot-bound result",response.tool().name())}],"structuredContent":structured,"isError":false});
     let encoded = serde_json::to_string(&envelope)?;
     admit_envelope(&encoded, expanded)?;
     Ok(encoded)
@@ -167,7 +167,7 @@ pub fn resources() -> Vec<ResourceDeclaration> {
         uri_template: CAPABILITY_RESOURCE_TEMPLATE,
         name: "capability",
         mime_type: "text/markdown",
-        description: "Canonical authored capability body with snapshot and attributed assertion evidence. The URI is relative to this process and its pinned generation.",
+        description: "Canonical authored capability body with snapshot and attributed assertion evidence. The URI is relative to this process and its pinned snapshot.",
     }]
 }
 pub fn wire_identity() -> WireIdentity {

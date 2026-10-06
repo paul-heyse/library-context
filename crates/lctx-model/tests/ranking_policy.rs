@@ -1,17 +1,25 @@
+fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
+    use lctx_model::domain::serving::{SnapshotHandle, DatabaseIdentity, Name};
+    SnapshotHandle {
+        semantic: lctx_model::domain::ContentHash([byte; 32]),
+        realization: lctx_model::domain::ContentHash([byte; 32]),
+        database: DatabaseIdentity {namespace: Name::new("lctx").unwrap(), database: Name::new(format!("snapshot_{byte}")).unwrap()},
+    }
+}
 use lctx_model::domain::{
     ContentHash, Id, ModelError,
     attribution::AnalysisContext,
     catalog::CatalogMember,
     resources::ResourceBudget,
     retrieval::{Family, Fragment, OriginalAnchor, Unit},
-    serving::{identity::GenerationKey, ranking::*},
+    serving::{identity::SnapshotHandle, ranking::*},
 };
 
 fn id<T>(byte: u8) -> Id<T> {
     serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
 }
-fn generation() -> GenerationKey {
-    GenerationKey([7; 16])
+fn snapshot() -> SnapshotHandle {
+    snapshot_for(7)
 }
 fn member(byte: u8) -> Target {
     Target::Member {
@@ -70,7 +78,7 @@ fn member_projection_shares_independent_evidence_frequencies_and_exact_occurrenc
         ["tool"]
     );
     let common = PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &bindings("common"),
         &[member(9)],
@@ -127,7 +135,7 @@ fn bindings(query: &str) -> [ChannelBinding; 2] {
 }
 fn prepare(targets: &[Target], occurrences: &[Occurrence]) -> PreparedRanking {
     PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &bindings("tool"),
         targets,
@@ -143,7 +151,7 @@ fn score(
     value: Option<f64>,
 ) -> NumericalScore {
     NumericalScore {
-        generation: generation(),
+        snapshot: snapshot(),
         occurrence,
         channel,
         channel_identity: prepared.channel(channel).unwrap().identity(),
@@ -210,7 +218,7 @@ fn family_normalization_has_hand_expected_scores_and_actual_witnesses() {
     );
     assert_ne!(aw[0].occurrence.unit, aw[1].occurrence.unit);
     assert_ne!(aw[0].occurrence.context, aw[1].occurrence.context);
-    assert!(aw.iter().all(|w| w.generation == generation()
+    assert!(aw.iter().all(|w| w.snapshot == snapshot()
         && w.policy == p.policy_identity()
         && w.channel_identity == p.channel(w.channel).unwrap().identity()));
 }
@@ -357,7 +365,7 @@ fn scorer_identity_and_exact_closure_are_checked_without_partial_output() {
     row.occurrence.target = member(99);
     assert!(p.rank(&[row], &[]).is_err());
     let mut row = good.clone();
-    row.generation = GenerationKey([8; 16]);
+    row.snapshot = snapshot_for(8);
     assert!(p.rank(&[row], &[]).is_err());
     let mut row = good.clone();
     row.channel_identity = ChannelBinding::vector(
@@ -382,7 +390,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     let o = occurrence(a, Family::Source, 1, 1);
     let channels = bindings("tool");
     let p = PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &channels[..1],
         &[a],
@@ -391,7 +399,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     )
     .unwrap();
     let row = NumericalScore {
-        generation: generation(),
+        snapshot: snapshot(),
         occurrence: o,
         channel: Channel::Vector,
         channel_identity: channels[1].identity(),
@@ -400,7 +408,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     assert!(p.rank(&[row], &[]).is_err());
     assert!(
         PreparedRanking::new(
-            generation(),
+            snapshot(),
             RankingPolicy::default(),
             &channels,
             &[a, a],
@@ -411,7 +419,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     );
     assert!(
         PreparedRanking::new(
-            generation(),
+            snapshot(),
             RankingPolicy::default(),
             &channels,
             &[a, unit(1)],
@@ -422,7 +430,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     );
     assert!(
         PreparedRanking::new(
-            generation(),
+            snapshot(),
             RankingPolicy::default(),
             &channels,
             &[],
@@ -434,7 +442,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     let foreign = occurrence(unit(1), Family::Source, 2, 2);
     assert!(
         PreparedRanking::new(
-            generation(),
+            snapshot(),
             RankingPolicy::default(),
             &channels,
             &[unit(1)],
@@ -445,7 +453,7 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     );
     assert!(
         PreparedRanking::new(
-            generation(),
+            snapshot(),
             RankingPolicy::default(),
             &[channels[0], channels[0]],
             &[a],
@@ -538,7 +546,7 @@ fn shared_vocabulary_abstention_is_member_policy_not_evidence_policy() {
     let a1 = occurrence(a, Family::ApiOptions, 1, 1);
     let b1 = occurrence(b, Family::ApiOptions, 2, 2);
     let p = PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &channels,
         &[a, b],
@@ -570,7 +578,7 @@ fn shared_vocabulary_abstention_is_member_policy_not_evidence_policy() {
     let u1 = occurrence(ua, Family::DocumentationDeployment, 1, 1);
     let u2 = occurrence(ub, Family::DocumentationDeployment, 2, 1);
     let p = PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &channels,
         &[ua, ub],
@@ -710,7 +718,7 @@ fn service_wide_corpus_is_reused_and_filters_before_contiguous_request_ranks() {
     let c1 = occurrence(c, Family::Source, 3, 3);
     // Preparation has no request/query channel. The index and DF belong to this full corpus.
     let service = PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &[],
         &[a, b, c],
@@ -788,7 +796,7 @@ fn service_wide_corpus_is_reused_and_filters_before_contiguous_request_ranks() {
             .is_err()
     );
     let other_query = PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &bindings("resource"),
         &[c],
@@ -803,8 +811,8 @@ fn service_wide_corpus_is_reused_and_filters_before_contiguous_request_ranks() {
             .tokens(),
         ["resource"]
     );
-    let foreign_generation = PreparedRanking::new(
-        GenerationKey([8; 16]),
+    let foreign_snapshot = PreparedRanking::new(
+        snapshot_for(8),
         RankingPolicy::default(),
         &bindings("tool"),
         &[b],
@@ -812,7 +820,7 @@ fn service_wide_corpus_is_reused_and_filters_before_contiguous_request_ranks() {
         &budget(),
     )
     .unwrap();
-    assert!(corpus.expand_scores(&foreign_generation, &scores).is_err());
+    assert!(corpus.expand_scores(&foreign_snapshot, &scores).is_err());
 }
 
 #[test]
@@ -847,7 +855,7 @@ fn preparation_fusion_and_conversion_reservations_refuse_and_release() {
     let tiny = ResourceBudget::fixed(1).unwrap();
     assert!(matches!(
         PreparedRanking::new(
-            generation(),
+            snapshot(),
             RankingPolicy::default(),
             &bindings("tool"),
             &[a],
@@ -859,7 +867,7 @@ fn preparation_fusion_and_conversion_reservations_refuse_and_release() {
     assert_eq!(tiny.reserved(), 0);
     let budget = budget();
     let p = PreparedRanking::new(
-        generation(),
+        snapshot(),
         RankingPolicy::default(),
         &bindings("tool"),
         &[a],
