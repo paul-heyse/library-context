@@ -598,10 +598,7 @@ fn release_declarations_require_exact_ownership_and_passed_interpretation() {
         })
         .unwrap();
     let verification = d
-        .source
-        .facts
-        .verifications
-        .insert(DistributionVerification {
+        .add_verification(&DistributionVerification {
             acquisition: id(100),
             release,
             record_digest: ContentHash::of(b"record"),
