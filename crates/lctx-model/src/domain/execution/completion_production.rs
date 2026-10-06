@@ -823,7 +823,7 @@ mod actual_body_controls {
         let supports=placements.iter().map(|row|SyntaxPlacementSupport {assertion:row.id(),run:id(3),surface:id(4),evidence:id(5),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural}).collect::<Vec<_>>();
         let declaration_support=DeclarationSupport {assertion:declaration_syntax.id(),run:id(3),surface:id(4),evidence:id(5),origin:Origin::AnalyzerAssertion,mode:ExtractionMode::NativeTraversal,fidelity:Fidelity::NativeStructural};
         let mut native=NativeInventory::new(&budget);
-        macro_rules! native {($ty:ty,$rows:expr)=>{native.visit(<$ty>::NAME,&<$ty>::encode($rows).unwrap()).unwrap()};}
+        macro_rules! native {($ty:ty,$rows:expr)=>{native.visit(<$ty>::NAME,&<$ty as Record>::encode($rows).unwrap()).unwrap()};}
         native!(AssertionQualification,std::slice::from_ref(&q));native!(SyntaxPlacement,&placements);native!(SyntaxPlacementSupport,&supports);native!(DeclarationObservation,std::slice::from_ref(&declaration_syntax));native!(DeclarationSupport,&[declaration_support]);let native=native.collect().unwrap();
         let mut facts=super::super::evaluation::EvaluationData::new(&budget);facts.native=native.qualifications;facts.premises=native.premises;
         facts.artifacts.insert(artifact.clone()).unwrap();facts.uses.insert(ArtifactUse {artifact:artifact.id(),input:artifact.input,role:SourceRole::Release}).unwrap();facts.scopes.insert(scope).unwrap();facts.qualifications.insert(q.clone()).unwrap();facts.callables.insert(callable).unwrap();facts.refs.insert(owner.clone()).unwrap();facts.declarations.insert(declaration_syntax).unwrap();
@@ -831,7 +831,7 @@ mod actual_body_controls {
         let base_definition=super::super::configuration::base_evaluation().1;let base=analysis::base_evaluation::AnalysisInvocation::new(artifact.input,q.context,base_definition.id(),None,[]).0;
         let (_,values)=super::super::production::evaluate_all_produced(&facts,&conditions::entry::EntryData::new(&budget),&Rows::new(&budget),&Rows::new(&budget),&base,&base_definition,stages::Profile::Behavioral,&budget).unwrap();
         let mut data=CompletedEvaluations::new(&budget);
-        macro_rules! visit {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty>::encode(&facts.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}crate::execution_evaluation_inputs!(visit);
+        macro_rules! visit {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&facts.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}crate::execution_evaluation_inputs!(visit);
         data.visit(analysis::base_evaluation::AnalysisInvocation::NAME,&analysis::base_evaluation::AnalysisInvocation::encode(&[base]).unwrap()).unwrap();
         let definition=super::super::configuration::base_completion().1;let frame=publication::AnalysisInvocation::new(artifact.input,q.context,definition.id(),None,[]).0;
         let (whole,bodies)=complete_all_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,Some(&values)).unwrap();assert_eq!(whole.run.bodied,1);assert_eq!(whole.run.body_refused,0);
@@ -839,7 +839,7 @@ mod actual_body_controls {
         let mut expected=Rows::new(&budget);for row in whole.completions.iter().filter(|row|row.statement==statement.id()) {expected.insert(row.clone()).unwrap();}assert!(selected.completions.same(&expected));assert!(selected.bodies.is_empty());drop(selected);
         let (selected,_)=complete_body_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,&values,owner.id()).unwrap();assert!(selected.bodies.same(&whole.bodies));assert!(selected.body_members.same(&whole.body_members));assert!(selected.body_sources.same(&whole.body_sources));assert!(selected.body_releases.same(&whole.body_releases));
         let mut stored=super::super::source_call_records::SourceCallData::new(&budget);stored.visit(publication::AnalysisInvocation::NAME,&publication::AnalysisInvocation::encode(std::slice::from_ref(&frame)).unwrap()).unwrap();
-        macro_rules! stored {($field:ident:$ty:ty)=>{stored.visit(<$ty>::NAME,&<$ty>::encode(&whole.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap()};}
+        macro_rules! stored {($field:ident:$ty:ty)=>{stored.visit(<$ty>::NAME,&<$ty as Record>::encode(&whole.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap()};}
         stored!(bodies:SourceBodyCompletion);stored!(body_sources:BodySource);stored!(body_members:BodyMember);stored!(body_releases:BodyReleaseInput);stored!(completions:StatementCompletion);
         let mut seen=0;bodies.visit_frame(&frame,&stored,|proof,row|{seen+=1;assert_eq!(proof.request().callee,owner.id());assert_eq!(proof.entered_statements(),&[statement.id()]);assert_eq!(proof.declaration(),row.declaration);Ok(())}).unwrap();assert_eq!(seen,1);
         let body=whole.bodies.iter().next().unwrap();let mut changed=body.clone();changed.status=analysis::policy::EvidenceStatus::Unresolved;stored.bodies=Rows::new(&budget);stored.bodies.insert(changed).unwrap();assert!(bodies.visit_frame(&frame,&stored,|_,_|Ok(())).is_err());

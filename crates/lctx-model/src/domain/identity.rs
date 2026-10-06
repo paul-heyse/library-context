@@ -189,52 +189,6 @@ fn framed_part(tag: &[u8], bytes: &[u8], mut emit: impl FnMut(&[u8])) {
     emit(bytes);
 }
 
-/// Opaque, already framed sequence of content hashes. No list or aggregate-hash frame is added.
-/// The invoking owner reserves capacity before construction and retains that reservation.
-pub(crate) struct PreparedContentHashes {
-    bytes: Vec<u8>,
-    limit: usize,
-}
-impl PreparedContentHashes {
-    pub(crate) fn encoded_size(count: usize) -> Option<usize> {
-        count.checked_mul(8 + b"digest".len() + 8 + 32)
-    }
-    pub(crate) fn try_new(count: usize) -> Result<Self, super::ModelError> {
-        let limit = Self::encoded_size(count).ok_or_else(|| {
-            super::ModelError::Invalid("content hash sequence size overflow".into())
-        })?;
-        let mut bytes = Vec::new();
-        bytes.try_reserve_exact(limit).map_err(|_| {
-            super::ModelError::Invalid("content hash sequence allocation failed".into())
-        })?;
-        Ok(Self { bytes, limit })
-    }
-    pub(crate) fn capacity(&self) -> usize {
-        self.bytes.capacity()
-    }
-    pub(crate) fn push(&mut self, hash: ContentHash) -> Result<(), super::ModelError> {
-        if self
-            .bytes
-            .len()
-            .checked_add(Self::encoded_size(1).expect("one frame"))
-            .is_none_or(|end| end > self.limit)
-        {
-            return Err(super::ModelError::Invalid(
-                "content hash sequence exceeds reserved size".into(),
-            ));
-        }
-        framed_part(b"digest", &hash.0, |fragment| {
-            self.bytes.extend_from_slice(fragment)
-        });
-        Ok(())
-    }
-}
-impl Key for PreparedContentHashes {
-    fn encode(&self, sink: &mut KeySink) {
-        sink.0.update(&self.bytes);
-    }
-}
-
 pub trait Key {
     fn encode(&self, sink: &mut KeySink);
 }
@@ -450,7 +404,7 @@ impl<'de> Deserialize<'de> for Utf8Text {
 mod prepared_hash_tests {
     use super::*;
     #[test]
-    fn prepared_hashes_preserve_original_framing_and_order() {
+    fn content_hashes_preserve_original_framing_and_order() {
         // Independent, explicit byte framing fixes the v3 contract, including empty sequences.
         for hashes in [
             vec![],
@@ -484,21 +438,12 @@ mod prepared_hash_tests {
             expected.extend_from_slice(b"symbol");
             let mut direct = KeySink::new("inventory-control");
             "class/context".to_owned().encode(&mut direct);
-            let mut prepared = PreparedContentHashes::try_new(hashes.len()).unwrap();
             for hash in &hashes {
                 hash.encode(&mut direct);
-                prepared.push(*hash).unwrap();
             }
             "symbol".to_owned().encode(&mut direct);
-            let mut replay = KeySink::new("inventory-control");
-            "class/context".to_owned().encode(&mut replay);
-            prepared.encode(&mut replay);
-            "symbol".to_owned().encode(&mut replay);
             let expected = ContentHash::of(&expected);
             assert_eq!(direct.finish(), expected);
-            assert_eq!(replay.finish(), expected);
-            assert!(prepared.push(ContentHash([3; 32])).is_err());
         }
-        assert!(PreparedContentHashes::encoded_size(usize::MAX).is_none());
     }
 }

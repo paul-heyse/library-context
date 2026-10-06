@@ -641,7 +641,7 @@ mod actual_value_controls {
         let (selected,_)=evaluate_expression_produced(&data,&EntryData::new(budget),&Rows::new(budget),&Rows::new(budget),&invocation,&definition,stages::Profile::Behavioral,budget,expression.id()).unwrap();
         assert!(selected.evaluations.same(&records.evaluations));assert!(selected.sources.same(&records.sources));assert!(selected.members.same(&records.members));assert!(selected.operands.same(&records.operands));assert!(selected.boundaries.same(&records.boundaries));
         let mut earlier=super::super::records::BaseCheck::new(budget);earlier.invocations.insert(invocation.clone()).unwrap();
-        macro_rules! visit {($field:ident:$ty:ty)=>{earlier.visit(<$ty>::NAME,&<$ty>::encode(&records.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap()};}
+        macro_rules! visit {($field:ident:$ty:ty)=>{earlier.visit(<$ty>::NAME,&<$ty as Record>::encode(&records.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap()};}
         visit!(evaluations:ExpressionEvaluation);visit!(sources:EvaluationSource);visit!(members:EvaluationMember);visit!(operands:EvaluationOperand);
         (values,earlier,invocation,row)
     }

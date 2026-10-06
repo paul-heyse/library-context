@@ -280,7 +280,7 @@ fn checked_value(base: &super::records::BaseCheck, row: &super::records::Express
 ) -> Result<std::sync::Arc<super::evaluation::CheckedEvaluation>, ModelError> {
     match values {
         Some(values) => values.get(row, base.invocations.get(row.invocation)
-            .ok_or(ModelError::Conflict("produced argument frame absent"))?),
+            .ok_or(ModelError::Conflict("produced argument frame absent"))?,base),
         None => base.replay(row).map(std::sync::Arc::new),
     }
 }
