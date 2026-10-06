@@ -643,3 +643,133 @@ async fn raw_original_bytes_and_half_open_span_survive_artifact_transport() {
         panic!("source evidence lost its typed span");
     }
 }
+
+#[tokio::test]
+async fn trusted_local_export_verifies_without_live_compiler_token() {
+    use datafusion::arrow::{
+        array::{BinaryArray, FixedSizeBinaryArray},
+        ipc::{reader::FileReader, writer::FileWriter},
+        record_batch::RecordBatch,
+    };
+    use lctx_model::domain::graph::{Entity, FamilyContent, FamilyHasher, Manifest};
+    use std::{fs::File, io::Read};
+    let admitted = compiled(Profile::Catalog, Frontier::Normalized, 1 << 30, 4096).await;
+    let workspace = Workspace::new(
+        Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions { memory_bytes: 1 << 30, ..Default::default() },
+    ).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("graph");
+    admitted.export(&output).unwrap();
+    admitted.verify_export(&output, &workspace).await.unwrap();
+    let manifest = admitted.manifest().clone();
+    drop(admitted);
+    let verified = artifact::verify_export(&output, &workspace).await.unwrap();
+    assert_eq!(verified.manifest(), &manifest);
+    assert_eq!(verified.entities().unwrap().collect::<Result<Vec<_>, _>>().unwrap().len() as u64,
+        manifest.families[0].rows);
+    assert_eq!(verified.assertions().unwrap().collect::<Result<Vec<_>, _>>().unwrap().len() as u64,
+        manifest.families[1].rows);
+    for original in verified.originals() {
+        let (original, mut input) = original.unwrap();
+        let mut bytes = vec![];
+        input.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes.len() as u64, original.byte_len);
+        assert_eq!(ContentHash::of(&bytes), original.content);
+    }
+    drop(verified);
+    let marker = output.join("manifest.json");
+    let write_manifest = |value: &Manifest| {
+        std::fs::write(&marker, serde_json::to_vec(value).unwrap()).unwrap();
+    };
+    let mut changed = manifest.clone();
+    changed.semantic_contract = ContentHash::of(b"another model");
+    write_manifest(&changed);
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact semantic contract"))));
+    changed = manifest.clone();
+    changed.families[0].rows += 1;
+    write_manifest(&changed);
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact graph family"))));
+    changed = manifest.clone();
+    changed.families.push(FamilyContent {
+        family: GraphFamily::Projection, rows: 0, content: ContentHash::of(b"extra"),
+    });
+    write_manifest(&changed);
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact graph families"))));
+    changed = manifest.clone();
+    changed.originals.pop().unwrap();
+    write_manifest(&changed);
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact source membership"))));
+    changed = manifest.clone();
+    assert!(!changed.projections.is_empty());
+    changed.projections[0].definition = ContentHash::of(b"another projection");
+    write_manifest(&changed);
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact projection definition"))));
+    write_manifest(&manifest);
+    let entity_file = output.join("entities.arrow");
+    let original_entities = std::fs::read(&entity_file).unwrap();
+    let batches = FileReader::try_new(File::open(&entity_file).unwrap(), None).unwrap()
+        .collect::<Result<Vec<_>, _>>().unwrap();
+    let write_batches = |batches: &[RecordBatch]| {
+        let mut writer = FileWriter::try_new(File::create(&entity_file).unwrap(), &batches[0].schema()).unwrap();
+        for batch in batches { writer.write(batch).unwrap(); }
+        writer.finish().unwrap();
+    };
+    let mut noncanonical = batches.clone();
+    let first = &batches[0];
+    let payloads = first.column(2).as_any().downcast_ref::<BinaryArray>().unwrap();
+    let altered = BinaryArray::from_iter_values((0..first.num_rows()).map(|row| {
+        let mut payload = payloads.value(row).to_vec();
+        if row == 0 { payload.insert(0, b' '); }
+        payload
+    }));
+    let mut columns = first.columns().to_vec();
+    columns[2] = Arc::new(altered);
+    noncanonical[0] = RecordBatch::try_new(first.schema(), columns).unwrap();
+    write_batches(&noncanonical);
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact canonical payload"))));
+    std::fs::write(&entity_file, &original_entities).unwrap();
+    // Alter the declared family to match a graph missing a provider. A self-consistent digest
+    // cannot hide missing semantic endpoints from the shared reference-closure validator.
+    let mut missing = vec![];
+    let mut removed = false;
+    let mut family = FamilyHasher::new(GraphFamily::Entities);
+    for batch in &batches {
+        let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap();
+        let ids = batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+        let hashes = batch.column(1).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+        for row in 0..batch.num_rows() {
+            let value: Entity = serde_json::from_slice(payloads.value(row)).unwrap();
+            if !removed && matches!(value, Entity::Provider(_)) { removed = true; continue; }
+            family.push(ContentHash(ids.value(row).try_into().unwrap()),
+                ContentHash(hashes.value(row).try_into().unwrap())).unwrap();
+            missing.push(batch.slice(row, 1));
+        }
+    }
+    assert!(removed);
+    write_batches(&missing);
+    changed = manifest.clone();
+    changed.families[0] = family.finish();
+    write_manifest(&changed);
+    let error = artifact::verify_export(&output, &workspace).await.err().unwrap();
+    assert!(error.to_string().contains("graph reference closure"), "{error}");
+    std::fs::write(&entity_file, &original_entities).unwrap();
+    write_manifest(&manifest);
+    let original = &manifest.originals[0];
+    let file = output.join(format!("original-{}.bin", original.source.0.hex()));
+    let bytes = std::fs::read(&file).unwrap();
+    std::fs::write(&file, b"tampered").unwrap();
+    assert!(matches!(artifact::verify_export(&output, &workspace).await,
+        Err(lctx_model::domain::ModelError::Conflict("artifact original bytes"))));
+    std::fs::write(&file, &bytes).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    assert!(artifact::verify_export(&output, &workspace).await.is_err());
+    std::fs::write(&file, &bytes).unwrap();
+    artifact::verify_export(&output, &workspace).await.unwrap();
+}
