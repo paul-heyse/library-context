@@ -3944,11 +3944,13 @@ name = "lctx-surrealdb"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "futures 0.3.34",
  "hex",
  "lctx-model",
  "serde",
  "serde_json",
  "surrealdb",
+ "tempfile",
  "tokio",
 ]
 

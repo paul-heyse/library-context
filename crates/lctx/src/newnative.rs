@@ -81,8 +81,9 @@ pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<
 }
 
 pub async fn select(config: &RuntimeConfig, path: &Path) -> anyhow::Result<SnapshotHandle> {
+    let guard = config.lock_selection().await?;
     let reader = pin(config, Some(path)).await?;
-    config.select(reader.handle())?;
+    config.select_locked(reader.handle(), &guard)?;
     Ok(reader.handle().clone())
 }
 

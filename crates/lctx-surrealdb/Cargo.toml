@@ -9,13 +9,14 @@ publish.workspace = true
 [dependencies]
 lctx-model = { path = "../lctx-model" }
 surrealdb = { version = "3.3", default-features = false, features = ["protocol-grpc", "protocol-http", "rustls"] }
+futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 arrow-array.workspace = true
 hex.workspace = true
-
-[dev-dependencies]
+tempfile.workspace = true
 tokio.workspace = true
+
 
 [lints]
 workspace = true

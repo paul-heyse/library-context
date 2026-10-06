@@ -13,6 +13,23 @@ use lctx_model::domain::{
 };
 use lctx_surrealdb::{NativeReader, RuntimeConfig};
 use std::sync::Arc;
+fn select_and_show_cli(binary: &std::path::Path, config: &RuntimeConfig, handle: &SnapshotHandle, root: &std::path::Path) {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::io::Write;
+    let runtime = root.join("runtime.json");
+    if !runtime.exists() {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&runtime).unwrap();
+        file.write_all(&serde_json::to_vec(config).unwrap()).unwrap();
+    }
+    let candidate = root.join("candidate.json");
+    std::fs::write(&candidate, serde_json::to_vec(handle).unwrap()).unwrap();
+    let selected = std::process::Command::new(binary).args(["snapshot", "--runtime-config"]).arg(&runtime).arg("select").arg(&candidate).output().unwrap();
+    assert!(selected.status.success(), "selection CLI: {}", String::from_utf8_lossy(&selected.stderr));
+    assert_eq!(serde_json::from_slice::<SnapshotHandle>(&selected.stdout).unwrap(), *handle);
+    let shown = std::process::Command::new(binary).args(["snapshot", "--runtime-config"]).arg(&runtime).arg("show").output().unwrap();
+    assert!(shown.status.success(), "show CLI: {}", String::from_utf8_lossy(&shown.stderr));
+    assert_eq!(serde_json::from_slice::<SnapshotHandle>(&shown.stdout).unwrap(), *handle);
+}
 #[tokio::test]
 async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
     let path =
@@ -159,13 +176,15 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
                 .unwrap();
         assert_eq!(bytes, &expected[..bytes.len()]);
     }
-    config.select(&handle).unwrap();
+    let cli = std::env::var_os("LCTX_REMEDIATION_CLI_BIN").map(std::path::PathBuf::from);
+    if let Some(binary) = &cli { select_and_show_cli(binary, &config, &handle, scratch.path()); }
+    else { config.select(&handle).unwrap(); }
     assert_eq!(config.selected().unwrap(), handle);
     let serving = lctx_surrealdb::config::ViewerConfig::read(
         &config.selection.with_extension("serving.json"),
     )
     .unwrap();
-    assert_eq!(serving.snapshot, handle);
+    assert_eq!(serving.selected().unwrap(), handle);
     let backup = scratch.path().join("snapshot.surql");
     lctx_publisher::backup::backup(&config, &handle, &backup)
         .await
@@ -215,9 +234,18 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
             .await
             .is_err()
     );
+    if let Some(binary) = &cli { select_and_show_cli(binary, &config, &restored, scratch.path()); }
+    else { config.select(&restored).unwrap(); }
+    assert_eq!(serving.selected().unwrap(), restored);
+    let new_launch = NativeReader::connect(&serving.endpoint, &serving.credentials(), serving.selected().unwrap()).await.unwrap();
+    assert_eq!(new_launch.handle(), &restored);
+    // Already pinned readers retain the original immutable realization after selection changes.
+    assert_eq!(viewer.handle(), &handle);
+    viewer.records::<source::SourceArtifact>(lctx_surrealdb::RecordSelection::Scope { field: "input".into(), values: vec![serde_json::to_value(captured.inputs()[0].captured().revision().id()).unwrap()] }).await.unwrap();
+    new_launch.client().invalidate().await.unwrap();
+    drop(new_launch);
     viewer.client().invalidate().await.unwrap();
     drop(viewer);
-    config.select(&restored).unwrap();
     lctx_publisher::backup::retire(&config, &handle, true)
         .await
         .unwrap();
