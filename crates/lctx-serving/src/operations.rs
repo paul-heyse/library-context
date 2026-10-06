@@ -34,9 +34,9 @@ pub async fn dispatch(reader:&NativeReader,request:&Request,channels:&ChannelSta
   Request::SearchCapabilities(r)=>search_capabilities(reader,r,request,channels,vector,b).await.map(Response::SearchCapabilities),
  }
 }
-async fn scores(reader:&NativeReader,query:&str,families:&[retrieval::Family],domains:&[LibraryDomainPacket],pairs:Option<&[([u8;16],[u8;16])]>,member_mode:bool,vector:Option<&QueryVector>)->Result<Vec<ranking::CandidateScore>,ModelError>{
+async fn scores(reader:&NativeReader,query:&str,families:&[retrieval::Family],domains:&[LibraryDomainPacket],pairs:Option<&[([u8;16],[u8;16])]>,member_mode:bool,units:Option<&[Id<retrieval::Unit>]>,vector:Option<&QueryVector>)->Result<Vec<ranking::CandidateScore>,ModelError>{
  let mut scores=Vec::new();let policy=RankingPolicy::default();let inputs=inputs(domains);
- for family in families{scores.extend(crate::search::lexical(reader,query,*family,&inputs,pairs,member_mode,100,&policy).await?);if let Some(v)=vector{scores.extend(crate::search::vector(reader,&v.vector,v.spec,embedding::value::value_digest(&v.vector),*family,&inputs,pairs,member_mode,100,&policy).await?);}}
+ for family in families{scores.extend(crate::search::lexical(reader,query,*family,&inputs,pairs,member_mode,units,100,&policy).await?);if let Some(v)=vector{scores.extend(crate::search::vector(reader,&v.vector,v.spec,embedding::value::value_digest(&v.vector),*family,&inputs,pairs,member_mode,units,100,&policy).await?);}}
  Ok(scores)
 }
 fn fusion(reader:&NativeReader,query:&str,vector:Option<&QueryVector>,scores:&[ranking::CandidateScore],promoted:&[Id<catalog::CatalogMember>],b:&ResourceBudget)->Result<Vec<ranking::RankedHit>,ModelError>{
@@ -49,7 +49,7 @@ async fn search_operations(reader:&NativeReader,r:&SearchOperationsRequest,reque
  let domains=crate::library::resolve(reader,r.library.0.as_ref(),b).await?;
  let members=crate::selection::members(reader,r.library.0.as_ref(),None).await?;let selected=crate::selection::classify(reader,&members,&r.selection.0,b).await?;
  let pairs=selected.selected.eligible().map(|c|(*c.member.bytes(),*c.analysis.bytes())).collect::<Vec<_>>();
- let scores=scores(reader,r.query.as_str(),&[retrieval::Family::ApiOptions,retrieval::Family::DocumentationDeployment,retrieval::Family::Scenario,retrieval::Family::Source],&domains,Some(&pairs),true,vector).await?;
+ let scores=scores(reader,r.query.as_str(),&[retrieval::Family::ApiOptions,retrieval::Family::DocumentationDeployment,retrieval::Family::Scenario,retrieval::Family::Source],&domains,Some(&pairs),true,None,vector).await?;
  let promoted=selected.selected.eligible().filter(|c|c.path.join(".")==r.query.as_str() || selected.prepared.data().source.catalog.members.get(c.member).is_some_and(|m|m.name==r.query.as_str())).map(|c|c.member).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
  let ranked=fusion(reader,r.query.as_str(),vector,&scores,&promoted,b)?;let mut values=Vec::new();
  for hit in ranked{let ranking::Target::Member{member}=hit.target else{return Err(ModelError::Schema("member ranking target"))};let matched=selected.selected.eligible().filter(|c|c.member==member && (promoted.contains(&member)||hit.witnesses.iter().any(|w|w.occurrence.context==c.analysis))).collect::<Vec<_>>();for c in matched{let p=candidates::packet(c,selected.prepared.data(),&domains)?;values.push((hit.clone(),candidates::key(&p),p));}}
@@ -58,13 +58,17 @@ async fn search_operations(reader:&NativeReader,r:&SearchOperationsRequest,reque
 }
 async fn search_evidence(reader:&NativeReader,r:&SearchEvidenceRequest,request:&Request,channels:&ChannelState,vector:Option<&QueryVector>,b:&ResourceBudget)->Result<SearchEvidenceResponse,ModelError>{
  let domains=crate::library::resolve(reader,r.library.0.as_ref(),b).await?;let families=if r.families.is_empty(){[retrieval::Family::ApiOptions,retrieval::Family::DocumentationDeployment,retrieval::Family::Scenario,retrieval::Family::Source].to_vec()}else{r.families.clone()};
- let scores=scores(reader,r.query.as_str(),&families,&domains,None,false,vector).await?;let ranked=fusion(reader,r.query.as_str(),vector,&scores,&[],b)?;let mut values=Vec::new();
+ let scores=scores(reader,r.query.as_str(),&families,&domains,None,false,None,vector).await?;let ranked=fusion(reader,r.query.as_str(),vector,&scores,&[],b)?;let mut values=Vec::new();
  for hit in ranked{let ranking::Target::Unit{unit}=hit.target else{return Err(ModelError::Schema("evidence ranking target"))};values.push((hit,crate::pagination::target_key(ranking::Target::Unit{unit}),crate::evidence::hit(reader,unit,&domains,b).await?));}
  let (results,ranking)=crate::pagination::ranked(values,request,reader.handle(),channels).map_err(wire)?;
  Ok(SearchEvidenceResponse{snapshot:reader.handle().clone(),domains,extent:SelectionExtent::Ranked{returned:results.items.len() as u64},results,channels:channels.clone(),ranking})
 }
 async fn search_capabilities(reader:&NativeReader,r:&SearchCapabilitiesRequest,request:&Request,channels:&ChannelState,vector:Option<&QueryVector>,b:&ResourceBudget)->Result<SearchCapabilitiesResponse,ModelError>{
- let domains=crate::library::resolve(reader,r.library.0.as_ref(),b).await?;let scores=scores(reader,r.query.as_str(),&[retrieval::Family::Scenario],&domains,None,false,vector).await?;let ranked=fusion(reader,r.query.as_str(),vector,&scores,&[],b)?;let mut values=Vec::new();let mut seen=std::collections::BTreeSet::new();
+ let domains=crate::library::resolve(reader,r.library.0.as_ref(),b).await?;
+ let mut vars=surrealdb::types::Variables::new();vars.insert("inputs",surrealdb::types::SerdeWrapper(inputs(&domains)));
+ let keys:Vec<String>=reader.query("RETURN { LET $origins=SELECT VALUE id FROM entity WHERE semantic_type='retrieval_origins' AND body.kind=6; RETURN SELECT VALUE semantic_key FROM entity WHERE semantic_type='retrieval_units' AND scope_input IN $inputs.map(|$v|<string>$v) AND id IN (SELECT VALUE in FROM reference WHERE field='origin' AND out IN $origins); };",vars).await?;
+ let units=keys.iter().map(|key|{let bytes=hex::decode(key).map_err(ModelError::codec)?;serde_json::from_value::<Id<retrieval::Unit>>(serde_json::to_value(bytes).map_err(ModelError::codec)?).map_err(ModelError::codec)}).collect::<Result<Vec<_>,_>>()?;
+ let scores=scores(reader,r.query.as_str(),&[retrieval::Family::Scenario],&domains,None,false,Some(&units),vector).await?;let ranked=fusion(reader,r.query.as_str(),vector,&scores,&[],b)?;let mut values=Vec::new();let mut seen=std::collections::BTreeSet::new();
  for hit in ranked{let ranking::Target::Unit{unit}=hit.target else{return Err(ModelError::Schema("capability ranking target"))};let records=reader.records::<retrieval::Unit>(RecordSelection::Keys(vec![*unit.bytes()])).await?;let u=need(&records,unit)?;let origins=reader.records::<retrieval::Origin>(RecordSelection::Keys(vec![*u.origin.bytes()])).await?;if let retrieval::Origin::Brief{brief}=need(&origins,u.origin)?{if seen.insert(*brief){values.push((hit,match graph::target_for_row(derivation::RowRef::of(*brief))?{graph::Target::Assertion(id)=>id.0,graph::Target::Entity(id)=>id.0,_=>return Err(ModelError::Schema("brief graph key"))},crate::capability::get(reader,*brief,b).await?));}}}
  let (results,ranking)=crate::pagination::ranked(values,request,reader.handle(),channels).map_err(wire)?;
  Ok(SearchCapabilitiesResponse{snapshot:reader.handle().clone(),domains,extent:SelectionExtent::Ranked{returned:results.items.len() as u64},results,channels:channels.clone(),ranking})

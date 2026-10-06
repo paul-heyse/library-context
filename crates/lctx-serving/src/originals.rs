@@ -19,11 +19,13 @@ pub fn range(data:&CanonicalBatches,source:&OriginalReference,context:Option<Id<
   original=match need(&sources,source)?{catalog::evidence::OriginalSource::Artifact{artifact}=>OriginalReference::Artifact{artifact:*artifact},catalog::evidence::OriginalSource::Occurrence{occurrence}=>OriginalReference::Occurrence{occurrence:*occurrence},catalog::evidence::OriginalSource::Span{span}=>OriginalReference::Span{span:*span}};
  }
  let prose=if let OriginalReference::Prose{slice}=original{Some(slice)}else{None};
+ let mut encoding="raw_bytes";
  let (artifact,start,end)=if let Some(id)=prose{
   let slices=rows::<synthesis::documentary::ProseSlice>(data)?;let slice=need(&slices,id)?;let sources=rows::<synthesis::documentary::ProseSource>(data)?;
   match need(&sources,slice.source)?{
-   synthesis::documentary::ProseSource::Occurrence{occurrence}|synthesis::documentary::ProseSource::Literal{occurrence,..}=>{let o=need(&occurrences,*occurrence)?;(o.source,o.start,o.end)},
-   synthesis::documentary::ProseSource::Span{span}=>match need(&evidence,span.id())?{assertion::Evidence::SourceSpan{source,start,end}=>(*source,*start,*end),_=>return Err(ModelError::Schema("prose span evidence"))}
+   synthesis::documentary::ProseSource::Occurrence{occurrence}=>{let o=need(&occurrences,*occurrence)?;if slice.end>o.end-o.start{return Err(ModelError::Schema("prose raw slice bounds"))}(o.source,o.start+slice.start,o.start+slice.end)},
+   synthesis::documentary::ProseSource::Literal{occurrence,..}=>{let o=need(&occurrences,*occurrence)?;encoding="native_literal_utf8_slice";(o.source,o.start,o.end)},
+   synthesis::documentary::ProseSource::Span{span}=>match need(&evidence,span.id())?{assertion::Evidence::SourceSpan{source,start,end}=>{if slice.end>end-start{return Err(ModelError::Schema("prose raw slice bounds"))}(*source,*start+slice.start,*start+slice.end)},_=>return Err(ModelError::Schema("prose span evidence"))}
   }
  }else{match original{
   OriginalReference::Artifact{artifact}=>{let a=need(&artifacts,artifact)?;(artifact,0,a.byte_len)},
@@ -36,7 +38,8 @@ pub fn range(data:&CanonicalBatches,source:&OriginalReference,context:Option<Id<
  let contexts=runs.iter().filter(|r|r.input==a.input).map(|r|r.context).collect::<std::collections::BTreeSet<_>>();
  let context=match chosen_context{Some(c)=>c,None=>{if contexts.len()!=1{return Err(ModelError::Conflict("original context attribution ambiguity"))}*contexts.first().expect("single context")}};
  let distributions=rows::<input::InputDistribution>(data)?;
- let releases=distributions.iter().filter(|d|d.input==a.input && d.role==input::DistributionRole::FirstParty).map(|d|d.release).collect::<std::collections::BTreeSet<_>>();
+ let corpora=rows::<input::CorpusLibrary>(data)?;
+ let releases=distributions.iter().filter(|d|(d.input==a.input || corpora.iter().any(|c|c.corpus==a.input && c.library==d.input)) && d.role==input::DistributionRole::FirstParty).map(|d|d.release).collect::<std::collections::BTreeSet<_>>();
  let release=match release{Some(r)=>r,None=>{if releases.len()!=1{return Err(ModelError::Conflict("original release attribution ambiguity"))}*releases.first().expect("single release")}};
- Ok(OriginalRange{source:source.clone(),artifact,start:start as u64,end:end as u64,digest:a.content,encoding:Name::new("raw_bytes").map_err(wire)?,release,context})
+ Ok(OriginalRange{source:source.clone(),artifact,start:start as u64,end:end as u64,digest:a.content,encoding:Name::new(encoding).map_err(wire)?,release,context})
 }

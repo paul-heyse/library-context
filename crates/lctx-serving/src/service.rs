@@ -3,15 +3,15 @@ use lctx_model::domain::{*,resources::ResourceBudget,serving::*};
 use lctx_surrealdb::{NativeReader,RecordSelection};
 use serde::{Deserialize,Serialize};
 use std::{sync::Arc,time::Duration};
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore,OnceCell};
 #[derive(Debug,Clone,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QueryVector {pub spec:ContentHash,pub input:ContentHash,pub vector:Vec<f32>}
-pub struct NativeService {reader:NativeReader,limits:ResourceLimits,shared:ResourceBudget,queries:Arc<Semaphore>,cpu:Arc<Semaphore>}
+pub struct NativeService {reader:NativeReader,limits:ResourceLimits,shared:ResourceBudget,queries:Arc<Semaphore>,cpu:Arc<Semaphore>,definition:OnceCell<()>}
 impl NativeService {
  pub fn new(reader:NativeReader,limits:ResourceLimits)->Result<Self,ModelError>{
   limits.validate()?;
-  Ok(Self{shared:ResourceBudget::fixed(limits.shared_bytes as usize)?,queries:Arc::new(Semaphore::new(limits.query_connections as usize)),cpu:Arc::new(Semaphore::new(limits.cpu_jobs as usize)),reader,limits})
+  Ok(Self{shared:ResourceBudget::fixed(limits.shared_bytes as usize)?,queries:Arc::new(Semaphore::new(limits.query_connections as usize)),cpu:Arc::new(Semaphore::new(limits.cpu_jobs as usize)),reader,limits,definition:OnceCell::new()})
  }
  pub fn handle(&self)->&SnapshotHandle{self.reader.handle()}
  pub async fn execute(&self,tool:&str,raw:&str)->Result<String,WireError>{self.run(tool,raw,None,false,self.limits.request_deadline_ms).await}
@@ -29,6 +29,11 @@ impl NativeService {
   let budget=ResourceBudget::scoped(&self.shared,self.limits.request_bytes as usize).map_err(failure)?;
   let _request_charge=budget.reserve("native-request-wire",raw.len().saturating_mul(2)).map_err(failure)?;
   let result=tokio::time::timeout_at(deadline,async{
+   self.definition.get_or_try_init(||async{
+    let actual:String=self.reader.query("RETURN fn::lctx_operation_definition();",Default::default()).await.map_err(failure)?;
+    if actual!=crate::operation_definition().hex(){return Err(WireError::Invalid("published operation executable differs from this service".into()))}
+    Ok(())
+   }).await?;
    let query=match &request{Request::SearchOperations(r)=>Some(r.query.as_str()),Request::SearchEvidence(r)=>Some(r.query.as_str()),Request::SearchCapabilities(r)=>Some(r.query.as_str()),_=>None};
    if query.is_none() && vector.is_some(){return Err(WireError::Invalid("query vector supplied to a non-search operation".into()))}
    let _vector_charge=budget.reserve("native-query-vector",vector.as_ref().map_or(0,|v|v.vector.len()*4)).map_err(failure)?;
