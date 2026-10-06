@@ -9,6 +9,7 @@ pub mod batches;
 pub mod loader;
 pub mod materialization;
 pub mod reconciliation;
+pub mod ordered_rows;
 pub use loader::Loader;
 pub mod schema;
 pub use reader::{Credentials, NativeReader, RecordSelection};
