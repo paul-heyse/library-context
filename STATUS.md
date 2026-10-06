@@ -2,72 +2,65 @@
 
 _Updated 2026-10-06 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Graph-native realization, projections and serving: implementation-closed / focused Tested.**
-ADR-0128 grounds this hard pivot in the nominated
-[target](docs/design_review/reviews/design_review_graph-native-target_2026-10-05.md) and
-[SurrealDB capabilities](docs/design_review/reviews/design_review_surrealdb-capabilities_2026-10-05.md)
-reviews. The [coordinator §8](docs/plans/graph-native-pivot-plan_2026-10-05.md#8-current-checkpoint)
-owns exact commands, outcomes and limits; §7 owns finding disposition. Q1 operator adoption is
-**not_run**, separately authorized work. No whole-suite or Measured claim is made.
+**Graph-native implementation audit complete: the full pivot is not yet fully realized.**
+The [independent audit](docs/design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md)
+examined clean production `b90cb611` across the complete coordinator scope. Three fresh reviewers
+inspected compiler/projections, native realization/lifecycle and consumers/retirement; the principal
+reviewer reconciled decisive cross-boundary evidence. The audit records twelve findings.
+[Coordinator §7](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
+is the sole current disposition owner; all twelve are open. No production remediation was performed.
 
-`cpg-core` is the store-free compiler; `lctx-model` owns finite typed graph declarations, identity,
-roles and shared validators. `lctx-surrealdb` realizes admitted content in strict compact families,
-enforced native roles, sparse typed scope keys, binary originals, exact embedding cache and native
-search. `lctx-publisher` reconciles content and seals an unselected read-only handle. Portable backup
-contains canonical graph/original families; restore constructs fresh current definitions and a new
-unselected realization. Cold audit and explicitly quiesced retirement are integrated.
+Runtime PostgreSQL, generation readers/commands and Python product retrieval are retired in the
+inspected reachable closure. Typed graph transport, store-free compilation, native persistence,
+search, named projections and all ten native/CLI/PyO3/MCP tool routes are present. Current
+documentation retirement remains incomplete. ADR-0128 and the two nominated target/capabilities
+reviews remain the selected architecture; native querying is not awaiting an adoption decision.
 
-`lctx-serving` implements all ten Rust-owned tools, contextual selection, eligible native BM25/HNSW
-candidates, scoped exact kernels, attributed packets/originals and bound continuations. Published
-projections retain isolates, parallel/self arcs, semantic lineage, input/context scope, coverage and
-gaps. NativeSession pins one viewer and owns bounded native workers/draining close; FastMCP owns
-actual serialized wire admission and stdio. Existing exact Qwen model/specification/inference is
-preserved; SurrealDB hosts cache/search. PostgreSQL runtime and Python product retrieval are retired.
+The remaining gaps concern semantic admission, executable dependency identity, explicit cold audit,
+backup finality, coherent selection, scoped vocabulary, nested continuations, typed safe errors,
+resident/replayed compiler preparation and native bulk boundaries. The report separates concrete
+correctness failures from qualitative execution-fit findings and unresolved evidence.
 
-Ordinary `lctx compile` checks explicit native configuration before acquisition, then admits and
-publishes an unselected handle. `--artifact-only --output DIR` is store-free. Native snapshot/tool/
-store commands and verification recipes use the new owners. The [runbook](docs/surrealdb.md) owns
-configuration and explicit operator actions; this execution used owned disposable servers only.
+**Current audit evidence, 2026-10-06:**
 
-**Targeted functional verification passed, 2026-10-06:**
+- Normalized-environment `cargo build --release --locked -p lctx-publisher -p lctx-serving
+  --message-format=json`: **passed** on unchanged audited production sources.
+- `UV_NO_SYNC=1 uv run --no-sync python
+  docs/design_review/evidence/2026-10-06_graph-native-pivot-audit/run_probes.py`: **passed** as
+  diagnostic reproduction. Failed selection still published the new serving pin; cold audit
+  accepted after seven actual Catalog search-document texts were altered. Both intended product
+  guarantees **failed** in those cases. Setup attempts failed before execution; the corrected
+  runner supplies the pinned nightly's separate metadata/code artifacts.
+- [Evidence README](docs/design_review/evidence/2026-10-06_graph-native-pivot-audit/README.md)
+  records sources, commands, observations and limits. Owned disposable persistent server,
+  credentials, binaries and scratch were removed. No operator state was inspected or activated.
 
-- Actual publisher lifecycle: unselected publication, viewer immutability, originals, listing,
-  audit/analyzer drift refusal, canonical backup, fresh restore and quiesced retirement.
-- Actual Catalog compile/admission/publication and ten-tool native journey: selection, browse,
-  operation sections, comparison, authored capability search/packet, exact original evidence,
-  inspection with actual source formals, cursor/foreign-realization and deadline refusal.
-- Native contextual/member search eligibility before BM25/HNSW caps, retained witnesses and
-  incompatible sealed-operation refusal; fixed vectors exercise the seam, not live Qwen quality.
-- Matching NativeSession wheel built/installed; owned persistent server restarted; actual MCP
-  in-process and stdio journeys both passed, with attributed capability resource Markdown,
-  invalid-request refusal and draining lifecycle. Fifteen isolated wire/lifecycle controls passed.
-- Exact finite graph reference closure, CLI command parser, three pure serving controls,
-  verification launcher and build-measurement script controls. No measurement campaign ran.
+**Audit publication checks, 2026-10-06:** `UV_NO_SYNC=1 just docs-check` **passed**
+(321 canonical pages, zero link errors). Explicit Ruff checking of the otherwise excluded
+probe runner **passed** after import/style repairs; the initial empty selection was not counted
+as verification. `UV_NO_SYNC=1 just turn-end` **passed** with no generated/production-source
+changes. These checks validate documentation/probe hygiene, not product correctness.
 
-Native SDK/projection controls **passed, 2026-10-05**, on the current sparse physical layout;
-subsequent semantic-owner additions preserve that layout/policy. CLI pre-acquisition refusal and
-independent original-source baseline retain their dated 2026-10-05 receipts. The coordinator
-separates these from later native/MCP evidence and preserves all failed-attempt repair boundaries.
+**Prior implementation receipts remain historical:**
+[Coordinator §8](docs/plans/graph-native-pivot-plan_2026-10-05.md#8-current-checkpoint) owns the
+2026-10-05–06 native SDK/projection, publication, eligible search, ten-tool Catalog and in-process/
+stdio MCP successes and exact exercised revisions. Scope-end leaves passed there; the final
+NativeSession wheel on production `599010a0` was built, installed and import-checked. These do not
+close the newly identified findings or demonstrate every optional behavioral branch. The earlier
+cache control exercised sequential winner reuse; actual concurrent conflict behavior is unresolved.
 
-**Scope-end checks passed, 2026-10-06:** scoped release all-target Clippy over the six native/model/
-CLI packages; `UV_NO_SYNC=1 just ruff`, `just types`, `just deps`, `just adr-lint`, `just lint-agents`,
-`just rules-scan`, `just rules-test`, `just docs-check` and readiness/generator/formatting recipes.
-The coordinator records exact commands and baselines. Shared fixture dependencies are retained;
-unused dependencies and the obsolete Python-executor rule/fixtures are retired. Native libraries
-stay outside the generated CLI feature union. Repairs preserve validators, queries and limits.
-Functional receipts retain their exercised baselines; source-byte identity naturally changes after
-formatting, so fresh realizations remain the supported route. The final wheel on production
-source `599010a0` was built, installed and import-checked after formatting; all three **passed**.
+**Compiler stage remains complete / user-accepted, 2026-10-05.** Its interrupted-test limits are
+preserved in coordinator §8. Static audit includes that source and identifies additional unmet
+obligations; the stopped suite was not restarted. The isolated Catalog diagnostic compiled a small
+first-party fixture for the specific cold-audit question, not compiler-suite qualification.
 
-**Compiler stage: complete / user-accepted, 2026-10-05.** Its preserved receipt and interrupted-test
-limits remain in coordinator §8. The user stopped that suite; this execution consumes its admitted
-artifact boundary and does not restart compiler-stage tests or legacy snapshot work. Broad
-`just qualify`, legacy suite parity, real FastMCP/live Qwen pilots and performance measurement are
-**not_run** under the selected scope. Heldout/gold data remain unchanged.
+Broad `just qualify`, legacy snapshots/parity, real-library/live-Qwen journeys, operator adoption
+and performance measurement remain **not_run** under the agreed audit scope. Heldout/gold data,
+operator services/client registrations, unrelated worktrees and shared Cargo caches are preserved.
+Efficient design follows first principles and library capabilities; no cost proofs, detailed work
+accounting, query-adoption gates or new permanent audit gate were added.
 
-**Next:** separately authorized Q1 fresh pinned-library reconstruction, live embedding checks and
-operator adoption. No required implementation package remains open. Operator databases, services
-and client registrations were untouched. Owned fixture/container, credentials, wheel scratch and
-fully integrated MCP worktree are removed; unrelated worktrees and shared Cargo caches remain.
-Efficient design follows first principles and library capabilities; detailed examined-work accounting,
-performance proofs and query-adoption gates are not required.
+**Next:** remediate the open coordinator findings in the report's order: semantic/executable
+integrity; backup/selection/audit; scoped consumer/error/continuation behavior; compiler/native
+bulk execution and current documentation retirement. Remediation and Q1 activation are separate
+work, with targeted functional validation; neither was performed by this audit.

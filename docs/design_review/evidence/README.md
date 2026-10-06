@@ -21,6 +21,7 @@ removed and recovered from Git (ADR-0042, [historical recovery](../../README.md#
 
 | Folder | Question | Current consumer |
 |---|---|---|
+| [`2026-10-06_graph-native-pivot-audit`](2026-10-06_graph-native-pivot-audit/README.md) | Does cold audit detect changed search data, and can failed selection already publish a serving pin? | [Graph-native implementation audit](../reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md), F04/F05 |
 | [`2026-09-24_bdd-pilot-survey`](2026-09-24_bdd-pilot-survey/README.md) | Can the published pilot's conditions convert to BDDs, and at what size? | ADR-0082 (kernel allowance, §3.9, §15.7) |
 | [`2026-09-24_test-leaf-proof-joins`](2026-09-24_test-leaf-proof-joins/README.md) | Do test leaves and entry values join to proof rows by source identity? | ADR-0082 (§3.9 test leaves) |
 | [`2026-09-24_entry-value-bridge`](2026-09-24_entry-value-bridge/README.md) | When is an entry formal stable up to a guard use? | ADR-0025 (proposed native executor) |

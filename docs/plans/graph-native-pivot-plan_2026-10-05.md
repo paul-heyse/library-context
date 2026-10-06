@@ -1,10 +1,15 @@
 # Graph-native replacement — implementation coordinator
 
-**Implemented / focused Tested, 2026-10-06 (ADR-0128); operator adoption remains not_run.** Replace the PostgreSQL-centered compilation and serving architecture
+**Implemented with open audit findings, 2026-10-06 (ADR-0128); operator adoption remains not_run.** Replace the PostgreSQL-centered compilation and serving architecture
 directly with a Rust-admitted graph and SurrealDB-native persistence, querying and search. This
 coordinator owns the combined execution sequence, shared decisions, finding disposition and
 completion boundary. Supporting plans develop their respective designs; they do not create
 another task ledger. Package evidence below distinguishes implementation from functional acceptance and activation.
+
+The [independent implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) concludes that the runtime migration is
+substantially present but the complete target is not fully realized. §7 owns the twelve open
+findings; existing §8 receipts and the user-accepted compiler checkpoint remain historical evidence.
+This audit performed no remediation and does not authorize Q1 activation.
 
 ## 1. Basis, baseline and intended outcome
 
@@ -198,21 +203,45 @@ performance claim follows from functional acceptance or source-level simplificat
 ## 7. Sole finding disposition and optional capabilities
 
 IDs below are qualified by their source review to avoid the distinct meanings of F01. Compiler
-portions are implementation-closed at the user-accepted stage boundary; native persistence and
-serving are implemented, with their actual focused outcomes recorded in §8. Implementation alone
+portions retain their user-accepted stage boundary; native persistence and serving are implemented,
+with their actual focused outcomes recorded in §8. The independent audit identifies additional
+unmet obligations below; package implementation does not establish complete target realization. Implementation alone
 does not establish a passed journey.
 
 | Source obligation | Owning package / completion evidence |
 |---|---|
-| Target GN01 — admission distinct from physical execution | M1/C1/C2 implemented and user-accepted: store-free compilation, bounded workspace and completed graph admission; §8 records scoped artifact controls. P2 is implementation-closed / focused Tested: reconciled unselected publication, read-only viewer, canonical backup, fresh restore and retirement; §8 records the native lifecycle control. |
-| Target GN02 — efficient connected serving | S1/S2/S3 + P1 implementation-closed / focused Tested: actual ten-tool Catalog and MCP journeys, scoped native selection/search/packets/originals, missing/NotRequested states, cursor and deadline refusal; §8. Indexed/coarse access avoids unrelated startup preparation; no Measured performance claim. |
+| Target GN01 — admission distinct from physical execution | **Audit gaps open** (F01/F02/F03/F04/F05/F07/F11 below). Prior M1/C1/C2 implemented and user-accepted: store-free compilation, bounded workspace and completed graph admission; §8 records scoped artifact controls. P2 is implementation-closed / focused Tested: reconciled unselected publication, read-only viewer, canonical backup, fresh restore and retirement; §8 records the native lifecycle control. |
+| Target GN02 — efficient connected serving | **Audit gaps open** (F02/F03/F08/F09/F10/F11 below). Prior S1/S2/S3 + P1 implementation-closed / focused Tested: actual ten-tool Catalog and MCP journeys, scoped native selection/search/packets/originals, missing/NotRequested states, cursor and deadline refusal; §8. Indexed/coarse access avoids unrelated startup preparation; no Measured performance claim. |
 | Target GN03 — explicit projections | Compiler A1/A2 implemented and user-accepted: prepared topology, semantic IDs/roles, source membership and owner-derived losses; model/analytics and selected artifact controls passed (§8). Published A1 export is implementation-closed / focused Tested: actual native scope, isolates, parallel/self arcs, lineage, coverage and gaps; §8 records the control. |
 | Capabilities F01 — fusion semantics | S2 implementation-closed / focused Tested: actual native search checks eligible contextual/member admission before BM25/HNSW caps and witness retention; the operation collapses contributions and uses canonical ties/RRF-K60. §8 records the actual native and Catalog controls; live embedding quality is not_run. |
 | Capabilities F02 — API authorization/rollback | Ordinary functions selected; custom API adoption deferred to an HTTP consumer. If triggered, owning package must enforce explicit scope and actual transactional failure, with focused endpoint controls. |
-| Capabilities F03 — executable realization identity | P2 + S3 implementation-closed / focused Tested: sealed definition inventory/cold audit, actual analyzer-drift refusal and incompatible Rust-operation refusal; fixed viewer handles survive server restart and both MCP transports. §8. This is trusted-installer integrity, not adversarial-root assurance. |
+| Capabilities F03 — executable realization identity | **Audit gaps open** (F04/F06 below). Prior P2 + S3 implementation-closed / focused Tested: sealed definition inventory/cold audit, actual analyzer-drift refusal and incompatible Rust-operation refusal; fixed viewer handles survive server restart and both MCP transports. §8. This is trusted-installer integrity, not adversarial-root assurance. |
 | Compiler-stage review F01 — shared embedding execution | Implementation-closed: shared actual winners and bounded independent request batches; embedding/retrieval controls passed within the compiler run (§8). Source repair independently accepted. |
 | Compiler-stage review F02 — duplicate retrieval replay | Implementation-closed: construction retained, narrow production completion, independent canonical replay retained in controls; retrieval controls passed (§8). Source repair independently accepted. |
 | Compiler-stage review F03 — duplicate projection policy | Implementation-closed: model-owned acceptance/exclusion policy feeds artifact losses; model and projection/artifact controls passed (§8). Source repair independently accepted. |
+
+### Implementation audit disposition — 2026-10-06
+
+The [dated audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) owns diagnosis/evidence; this table is the sole current disposition
+owner. Every row is **open**: correction is required for complete target realization, but no
+remediation was executed or authorized by the audit. The report supplies priority and compatible
+correction directions; it does not create a second execution ledger. Existing accepted compiler
+completion and stopped-test boundaries remain intact.
+
+| Source finding | Disposition / cause | Responsible component | Required closure evidence |
+|---|---|---|---|
+| [Audit F01](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F01) | **Open** — Source-owned semantic support checks absent at actual admission | M1/C1/C2 admission | Independent unsupported/wrong-context support refuses; focused checks without blanket replay |
+| [Audit F02](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F02) | **Open** — Whole-resident normalization lacks promised spill route | C2-N/preparation | Bulk/partitioned preparation preserves canonical output under smaller memory envelope |
+| [Audit F03](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F03) | **Open** — Upper consumers replay completed upstream normalization | C2-U preparation | SourceCalls/Models/Summary consume shared checked immutable preparation |
+| [Audit F04](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F04) | **Open** — Cold audit omits derived serving integrity | P2/realization | Read-only canonical-to-derived checks reject altered/deleted/extra query-visible rows |
+| [Audit F05](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F05) | **Open** — Selection publishes two authorities separately | P2/S3 configuration | Atomic selection agrees across CLI/MCP launch/retirement under failure |
+| [Audit F06](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F06) | **Open** — Executable guard misses answer-affecting helper | P2/S3 identity | Schema-preserving helper change changes guard and refuses old realization |
+| [Audit F07](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F07) | **Open** — HTTP backup EOF lacks engine terminal success | P2 backup | Late export failure leaves no completed destination; normal fresh restore succeeds |
+| [Audit F08](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F08) | **Open** — Scoped vocabulary uses whole-library members | S3 browsing | Two-module/class native scoped vocabulary excludes foreign values/counts |
+| [Audit F09](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F09) | **Open** — Nested diagnostic cursor loses parent page | S3 continuations | Second scenario child continuation returns its remaining diagnostics |
+| [Audit F10](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F10) | **Open** — Native failures bypass typed safe envelope | S3 Rust/PyO3/MCP | Recognized causes and safe messages survive actual MCP tool/resource envelopes |
+| [Audit F11](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F11) | **Open** — Native expansion/crossings escape bulk boundary | P1 cache/P2 search | Bounded streamed search lowering and exact reconciled batch cache writes |
+| [Audit F12](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F12) | **Open** — Current assurance routes retain removed PG owners | G0/I1 documentation | Current task routes point to consistent native owners/controls |
 
 The compiler-stage F01–F03 rows refer to the dated [implementation reassessment](../design_review/reviews/design_review_graph-native-compiler-stage_2026-10-05.md),
 not an additional architectural basis. Its static judgment accepts those source repairs; the user
@@ -234,7 +263,9 @@ deployment are consumer-triggered. No canonical lightweight edges replace attrib
 
 ## 8. Current checkpoint
 
-**Native realization/serving execution: implementation-closed / focused Tested, 2026-10-06.**
+**Prior native execution checkpoint: implementation-closed / focused Tested, 2026-10-06.**
+The subsequent implementation audit identifies open completeness/correctness/execution gaps in §7;
+this receipt records the earlier exercised scope, not closure of the audit findings.
 The replacement SDK, publisher, native queries/search, projection exports, CLI, PyO3 and MCP
 consumers are integrated. Targeted actual native and MCP controls passed within the boundaries below.
 Real-library/live-vector and operator activation remain separately authorized Q1 work.
@@ -349,8 +380,8 @@ Actual focused outcomes:
   not legacy ranking parity or live embedding quality.
 - `LCTX_SURREAL_TEST_CONFIG=<owned fixture> UV_NO_SYNC=1 cargo test --release -p lctx-surrealdb --test native --test projections -- --nocapture`:
   **passed, 2026-10-05**, two actual persistent-server controls on the final sparse layout.
-  SDK point/scoped/adjacency reads, strict shape refusal and concurrent exact embedding-cache
-  winners; input/context projection scope, isolates, self-loops, parallel attributed arcs,
+  SDK point/scoped/adjacency reads, strict shape refusal and sequential exact embedding-cache
+  winner reuse; input/context projection scope, isolates, self-loops, parallel attributed arcs,
   semantic lineage, coverage, gaps and foreign-input exclusion. These precede later semantic graph-owner
   additions; their tested physical layout and projection policy are unchanged by those additions.
 - `LCTX_SURREAL_TEST_CONFIG=<owned fixture> LCTX_RETAIN_NATIVE_FIXTURE_CONFIG=<owned viewer file> UV_NO_SYNC=1 cargo test --release -p lctx-serving --test native_journey -- --nocapture`:

@@ -8,6 +8,11 @@ records the preserved compiler-stage boundary and actual native projection/expor
 consumers, the [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
 The coordinator owns package state, combined dependencies and finding disposition.
 
+The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
+[coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
+owns their current disposition. Earlier stage acceptance and dated receipts below are preserved;
+this document's implementation label does not establish closure of the audit findings.
+
 ## 1. Foundation assessment and target
 
 The current `domain::projection::{normalization,snapshot,native}` owns universe, directions,

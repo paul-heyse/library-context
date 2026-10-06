@@ -6,6 +6,11 @@ shared decisions and disposition. This plan consumes the [admitted graph](graph-
 and the [native serving operations](graph-native-serving-plan_2026-10-05.md); it owns their
 physical realization, not their meaning.
 
+The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
+[coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
+owns their current disposition. Earlier stage acceptance and dated receipts below are preserved;
+this document's implementation label does not establish closure of the audit findings.
+
 ## 1. Selected deployment and library boundary
 
 Use one managed local **SurrealDB 3.3 persistent RocksDB server**, with the stable remote Rust

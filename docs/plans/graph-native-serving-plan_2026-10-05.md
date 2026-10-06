@@ -6,6 +6,11 @@ graph and its [sealed SurrealDB realization](graph-native-surrealdb-realization-
 The coordinator owns current state/disposition. Native querying is a selected part of the target,
 not a capability awaiting a benchmark, accounting proof or adoption verdict.
 
+The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
+[coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
+owns their current disposition. Earlier stage acceptance and dated receipts below are preserved;
+this document's implementation label does not establish closure of the audit findings.
+
 ## 1. Foundation assessment and operation ownership
 
 The retired `GenerationReader::prepare_selection` loaded 95 classification inputs, followed by
