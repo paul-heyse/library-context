@@ -566,7 +566,6 @@ async fn browse(
             return Err(ModelError::Serving(FailureKind::Incompatible));
         }
     }
-    let unknown;
     let mut values = Vec::new();
     // Build direct ownership once. Candidate paths can repeat a member; all counts use member
     // identity, while classifications retain their distinct analysis contexts.
@@ -629,7 +628,7 @@ async fn browse(
         .iter()
         .map(|candidate| candidate.member)
         .collect::<std::collections::BTreeSet<_>>();
-    unknown = unknown_members.len() as u64;
+    let unknown = unknown_members.len() as u64;
     let mut emitted_groups = std::collections::BTreeSet::new();
     for c in &eligible {
         let member = data

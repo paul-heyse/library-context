@@ -267,13 +267,13 @@ async fn lower(
             "vector",
             format!("{}_{}", spec.hash().hex(), consumed.input.hex()),
         );
-        if let Some((prior, prior_digest, prior_bytes)) = &last_value {
-            if prior == &id {
-                if *prior_digest != digest || prior_bytes != bytes {
-                    return Err(ModelError::Conflict("retrieval shared vector winner"));
-                }
-                continue;
+        if let Some((prior, prior_digest, prior_bytes)) = &last_value
+            && prior == &id
+        {
+            if *prior_digest != digest || prior_bytes != bytes {
+                return Err(ModelError::Conflict("retrieval shared vector winner"));
             }
+            continue;
         }
         let vector = value::decode_vector(bytes, spec.dimensions).map_err(ModelError::Invalid)?;
         lctx_model::domain::embedding::check_vector(&vector, spec.dimensions)
