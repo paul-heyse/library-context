@@ -104,10 +104,7 @@ impl BaseData {
         }
         Ok(())
     }
-    fn roots(
-        &self,
-        budget: &resources::ResourceBudget,
-    ) -> Result<AdmittedSourceRoots, ModelError> {
+    fn roots(&self, budget: &resources::ResourceBudget) -> Result<AdmittedSourceRoots, ModelError> {
         let bytes = self
             .data
             .artifacts
@@ -1078,7 +1075,10 @@ pub(super) async fn write_reads(
     Ok(())
 }
 impl BaseScopes {
-    #[allow(clippy::too_many_arguments, reason = "Immutable inputs, query session, budget, cancellation, actual Local owner and shared read preparation have independent lifetimes.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Immutable inputs, query session, budget, cancellation, actual Local owner and shared read preparation have independent lifetimes."
+    )]
     pub(super) async fn reads(
         &self,
         access: &CompletedInputs,

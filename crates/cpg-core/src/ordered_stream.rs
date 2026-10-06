@@ -150,7 +150,10 @@ struct Coordinate {
     row: usize,
     bytes: usize,
 }
-#[allow(clippy::too_many_arguments, reason = "Bounded coordinate gathering keeps reader state, row selection, scratch arrays and budget separate without another state owner.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Bounded coordinate gathering keeps reader state, row selection, scratch arrays and budget separate without another state owner."
+)]
 fn window(
     coordinates: &mut Vec<Coordinate>,
     previous: &mut Option<Coordinate>,
@@ -272,7 +275,10 @@ fn window(
     coordinates.clear();
     Ok(())
 }
-#[allow(clippy::too_many_arguments, reason = "Relation, immutable source streams, session, memory budget, cancellation and output limits belong to separate owners.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Relation, immutable source streams, session, memory budget, cancellation and output limits belong to separate owners."
+)]
 pub(crate) async fn order(
     relation: &Relation,
     sources: Vec<Source>,

@@ -506,9 +506,10 @@ impl FrameScopes {
                 && let (Some(refs), Some(callables)) = (
                     idx(TypeId::of::<normalized::entities::EntityRef>()),
                     idx(TypeId::of::<normalized::entities::CallableEntity>()),
-                ) {
-                    plan.pairs(root,refs,format!("SELECT f.id AS source_id,r.id AS target_id FROM {frames} f JOIN {artifacts} a ON a.input=f.input JOIN {occurrences} o ON o.source=a.id JOIN {entities} c ON c.source_declaration=o.id JOIN {} r ON r.callable_callable=c.id",identifier(&tables[refs].alias)))?;
-                    let _ = callables;
+                )
+            {
+                plan.pairs(root,refs,format!("SELECT f.id AS source_id,r.id AS target_id FROM {frames} f JOIN {artifacts} a ON a.input=f.input JOIN {occurrences} o ON o.source=a.id JOIN {entities} c ON c.source_declaration=o.id JOIN {} r ON r.callable_callable=c.id",identifier(&tables[refs].alias)))?;
+                let _ = callables;
             }
             if let Some(events) = idx(TypeId::of::<normalized::events::NormalizedCallEvent>()) {
                 plan.pairs(root,events,format!("SELECT f.id AS source_id,e.id AS target_id FROM {frames} f JOIN {} e ON e.context=f.context JOIN {occurrences} o ON o.id=e.site JOIN {artifacts} a ON a.id=o.source AND a.input=f.input",identifier(&tables[events].alias)))?;
@@ -602,10 +603,11 @@ impl FrameScopes {
             && let (Some(links), Some(members)) = (
                 idx(TypeId::of::<catalog::CatalogMemberInvocation>()),
                 idx(TypeId::of::<catalog::CatalogMember>()),
-            ) {
-                let link_rows = identifier(&tables[links].alias);
-                plan.pairs(root,links,format!("SELECT f.id AS source_id,l.id AS target_id FROM {roots} f JOIN {link_rows} l ON l.invocation=f.id"))?;
-                let _ = members;
+            )
+        {
+            let link_rows = identifier(&tables[links].alias);
+            plan.pairs(root,links,format!("SELECT f.id AS source_id,l.id AS target_id FROM {roots} f JOIN {link_rows} l ON l.invocation=f.id"))?;
+            let _ = members;
         }
         if matches!(kind, Kind::Analytic) {
             // All records owned by this StructuralFrame are the complete topology/attribute universe.

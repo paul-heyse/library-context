@@ -891,7 +891,12 @@ mod tests {
             diagnostic: None,
         };
         install(&session, &tables, &inputs, std::slice::from_ref(&artifact));
-        install(&session, &tables, &inputs, std::slice::from_ref(&coverage_scope));
+        install(
+            &session,
+            &tables,
+            &inputs,
+            std::slice::from_ref(&coverage_scope),
+        );
         install(&session, &tables, &inputs, std::slice::from_ref(&coverage));
         let mut all = Data::new(&budget);
         all.source.core.artifacts.insert(artifact).unwrap();

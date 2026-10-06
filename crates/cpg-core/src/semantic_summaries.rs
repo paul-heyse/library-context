@@ -24,7 +24,10 @@ macro_rules! decoder_inputs {
         lctx_model::expected_domain_inputs!($apply);
     };
 }
-#[allow(clippy::too_many_arguments, reason = "Descriptor streams, workspace, configuration, admitted frontier and actual binding and Local owners have separate lifetimes.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Descriptor streams, workspace, configuration, admitted frontier and actual binding and Local owners have separate lifetimes."
+)]
 pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,

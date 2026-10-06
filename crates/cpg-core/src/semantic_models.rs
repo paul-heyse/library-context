@@ -56,7 +56,10 @@ async fn load_selected_catalog(
     }
     Ok(())
 }
-#[allow(clippy::too_many_arguments, reason = "Descriptor streams, workspace, selected configuration and binding, Base and Local owners are independently validated.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Descriptor streams, workspace, selected configuration and binding, Base and Local owners are independently validated."
+)]
 pub async fn apply(
     access: CompletedInputs,
     output: ProducerOutput,

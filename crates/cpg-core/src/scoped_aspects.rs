@@ -167,8 +167,9 @@ impl AspectScopes {
                     inputs
                         .iter()
                         .position(|input| input.type_id() == support.assertion.type_id()),
-                ) {
-                    plan.own(member, "assertion", owner)?;
+                )
+            {
+                plan.own(member, "assertion", owner)?;
             }
         }
         if let Ok(coverage) = typed::<attribution::ProviderCoverage>(&inputs) {

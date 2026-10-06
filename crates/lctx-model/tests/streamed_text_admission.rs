@@ -210,7 +210,10 @@ fn check(
             ($field:ident,$ty:ty) => {
                 if declaration.name() == <$ty>::NAME {
                     for row in output.$field.iter() {
-                        check.visit(<$ty>::NAME, &<$ty as Record>::encode(std::slice::from_ref(row))?)?;
+                        check.visit(
+                            <$ty>::NAME,
+                            &<$ty as Record>::encode(std::slice::from_ref(row))?,
+                        )?;
                     }
                 }
             };
