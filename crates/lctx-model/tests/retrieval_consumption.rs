@@ -454,3 +454,16 @@ fn native_frames_require_exact_synthesis_catalog_parents_even_without_any_briefs
         assert!(d.verify(&invocations, &outcomes, &uses, &b).is_err());
     }
 }
+
+#[test]
+fn unit_consumption_preserves_exact_finite_oracle_and_refuses_missing_foreign_or_request_drift(){
+    let(b,data,invocation,specification)=fixture(true);let spec=spec();let mut uses=Rows::new(&b);
+    for fragment in data.output.fragments.iter(){let value=AdmittedValue::new(&spec,&spec.document_text(fragment.text.as_str()),7,&[1.0,0.0,-0.0],&b).unwrap();RetrievalEmbeddingUse::admit_into(&mut uses,invocation.id(),fragment.id(),&specification,&value,&b).unwrap();}
+    verify_uses(&data.output,&invocation,Some(&specification),&uses,&b).unwrap();
+    let(invocations,outcomes)=frames(&data,&invocation,&uses,&b);data.verify_completion(&invocations,&outcomes,&uses,&b).unwrap();data.verify_frames(&invocations,&outcomes,&outcomes,&b).unwrap();
+    assert!(verify_uses(&data.output,&invocation,Some(&specification),&Rows::new(&b),&b).is_err());
+    let mut foreign=Rows::new(&b);for row in uses.iter(){let mut row=row.clone();row.invocation=id(88);foreign.insert(row).unwrap();}assert!(verify_uses(&data.output,&invocation,Some(&specification),&foreign,&b).is_err());drop(foreign);
+    let mut changed=Rows::new(&b);for row in uses.iter(){let mut row=row.clone();row.input=ContentHash::of(b"different exact request");changed.insert(row).unwrap();}assert!(verify_uses(&data.output,&invocation,Some(&specification),&changed,&b).is_err());
+    let mut disposition=Disposition::default();disposition.observe(&uses);assert_eq!(disposition.outcome(&invocation),data.outcome(&invocation,&uses).unwrap());
+    drop(changed);drop(uses);drop(invocations);drop(outcomes);drop(data);assert_eq!(b.reserved(),0);
+}

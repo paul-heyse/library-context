@@ -21,6 +21,15 @@ pub struct Data {
     pub evidence: EvidenceOutput,
     pub facts: Facts,
     pub synthesis: SynthesisFacts,
+    ruff_headers:charged::ChargedMap<Id<diagnostics::RuffDiagnosticObservation>,(diagnostics::DiagnosticChannel,ContentHash)>,
+    pyrefly_headers:charged::ChargedMap<Id<diagnostics::PyreflyDiagnosticObservation>,diagnostics::DiagnosticChannel>,
+    diagnostic_charge:charged::StateCharge,
+    completion_members:charged::ChargedMap<Id<catalog::CatalogMember>,(Id<input::InputRevision>,Id<crate::domain::source::Module>)>,
+    completion_modules:charged::ChargedMap<Id<crate::domain::source::Module>,Id<crate::domain::source::SourceArtifact>>,
+    completion_briefs:charged::ChargedMap<Id<crate::domain::synthesis::briefs::Brief>,Id<crate::domain::synthesis::seeds::SelectedSeed>>,
+    completion_artifacts:charged::ChargedMap<Id<crate::domain::source::SourceArtifact>,(Id<input::InputRevision>,i64)>,
+    completion_documents:charged::ChargedMap<Id<documents::DocumentObservation>,Id<crate::domain::source::SourceArtifact>>,
+    completion_charge:charged::StateCharge,
 }
 impl Data {
     pub fn new(b: &ResourceBudget) -> Self {
@@ -29,9 +38,12 @@ impl Data {
             evidence: EvidenceOutput::new(b),
             facts: Facts::new(b),
             synthesis: SynthesisFacts::new(b),
+            ruff_headers:Default::default(),pyrefly_headers:Default::default(),diagnostic_charge:charged::StateCharge::new(b,"retrieval-diagnostic-properties"),
+            completion_members:Default::default(),completion_modules:Default::default(),completion_briefs:Default::default(),completion_artifacts:Default::default(),completion_documents:Default::default(),completion_charge:charged::StateCharge::new(b,"retrieval-completion-properties"),
         }
     }
     pub fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
+        if self.visit_diagnostic(n,b)?{return Ok(true);}
         let source = self.source.visit(n, b)?;
         let evidence = self.evidence.visit(n, b)?;
         let facts = self.facts.visit(n, b)?;
@@ -44,6 +56,7 @@ impl Data {
         b: &arrow_array::RecordBatch,
     ) -> Result<bool, ModelError> {
         let n = input.name();
+        if self.visit_diagnostic(n,b)?{return Ok(true);}
         if !is_vocabulary(n) {
             return self.visit(n, b);
         }
@@ -54,28 +67,176 @@ impl Data {
         }
         self.source.visit_input(input, b)
     }
+    fn visit_diagnostic(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+        use arrow_array::Array;use diagnostics::{DiagnosticChannel as C,RuffDiagnosticObservation as R,PyreflyDiagnosticObservation as P};
+        if name!=R::NAME && name!=P::NAME{return Ok(false);}
+        let ids=batch.column_by_name("id").and_then(|array|array.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()).filter(|array|array.value_length()==16 && array.null_count()==0).ok_or(ModelError::Schema("retrieval diagnostic identity"))?;
+        let channels=batch.column_by_name("channel").and_then(|array|array.as_any().downcast_ref::<arrow_array::Int16Array>()).filter(|array|array.null_count()==0).ok_or(ModelError::Schema("retrieval diagnostic channel"))?;
+        fn nominal<T:serde::de::DeserializeOwned>(bytes:&[u8])->Result<T,ModelError>{serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(bytes.iter().copied())).map_err(ModelError::codec)}
+        let settings=if name==R::NAME{Some(batch.column_by_name("settings").and_then(|array|array.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()).filter(|array|array.value_length()==32 && array.null_count()==0).ok_or(ModelError::Schema("retrieval diagnostic settings"))?)}else{None};
+        for row in 0..batch.num_rows(){let channel=match channels.value(row){0=>C::Emitted,1=>C::RuffNoqaSuppressed,2=>C::PyreflyDirective,3=>C::PyreflySuppressed,4=>C::PyreflyDisabled,5=>C::PyreflyBaseline,_=>return Err(ModelError::Schema("retrieval diagnostic channel code"))};
+            if let Some(settings)=settings{let id=nominal(ids.value(row))?;let value=(channel,nominal(settings.value(row))?);if self.ruff_headers.get(&id).is_some_and(|old|*old!=value){return Err(ModelError::Conflict(R::NAME));}self.ruff_headers.insert(&mut self.diagnostic_charge,id,value)?;
+            }else{let id=nominal(ids.value(row))?;if self.pyrefly_headers.get(&id).is_some_and(|old|*old!=channel){return Err(ModelError::Conflict(P::NAME));}self.pyrefly_headers.insert(&mut self.diagnostic_charge,id,channel)?;}
+        }Ok(true)
+    }
+    fn ruff_header(&self,id:Id<diagnostics::RuffDiagnosticObservation>)->Result<(diagnostics::DiagnosticChannel,ContentHash),ModelError>{if let Some(row)=self.ruff_headers.get(&id){return Ok(*row);}let row=need(&self.source.facts.ruff_diagnostics,id)?;Ok((row.channel,row.settings))}
+    fn pyrefly_channel(&self,id:Id<diagnostics::PyreflyDiagnosticObservation>)->Result<diagnostics::DiagnosticChannel,ModelError>{if let Some(channel)=self.pyrefly_headers.get(&id){return Ok(*channel);}Ok(need(&self.source.facts.pyrefly_diagnostics,id)?.channel)}
+    /// Only ownership columns are retained by completed-unit admission. Rendering still uses
+    /// the actual rich records from its own physically selected root.
+    pub fn completion_visit(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+        use std::any::TypeId;use arrow_array::Array;
+        fn nominal<T:serde::de::DeserializeOwned>(batch:&arrow_array::RecordBatch,name:&str,row:usize)->Result<T,ModelError>{let array=batch.column_by_name(name).and_then(|array|array.as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()).ok_or(ModelError::Schema("retrieval ownership identity"))?;if array.is_null(row){return Err(ModelError::Schema("retrieval null ownership identity"));}serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(array.value(row).iter().copied())).map_err(ModelError::codec)}
+        let kind=input.type_id();
+        for row in 0..batch.num_rows(){
+            if kind==TypeId::of::<catalog::CatalogMember>(){self.completion_members.insert(&mut self.completion_charge,nominal(batch,"id",row)?,(nominal(batch,"input",row)?,nominal(batch,"access",row)?))?;
+            }else if kind==TypeId::of::<crate::domain::source::Module>(){self.completion_modules.insert(&mut self.completion_charge,nominal(batch,"id",row)?,nominal(batch,"source",row)?)?;
+            }else if kind==TypeId::of::<crate::domain::synthesis::briefs::Brief>(){self.completion_briefs.insert(&mut self.completion_charge,nominal(batch,"id",row)?,nominal(batch,"seed",row)?)?;
+            }else if kind==TypeId::of::<documents::DocumentObservation>(){self.completion_documents.insert(&mut self.completion_charge,nominal(batch,"id",row)?,nominal(batch,"source",row)?)?;
+            }else if kind==TypeId::of::<crate::domain::source::SourceArtifact>(){let lengths=batch.column_by_name("byte_len").and_then(|array|array.as_any().downcast_ref::<arrow_array::Int64Array>()).ok_or(ModelError::Schema("retrieval original length"))?;if lengths.is_null(row)||lengths.value(row)<0{return Err(ModelError::Schema("retrieval original length"));}self.completion_artifacts.insert(&mut self.completion_charge,nominal(batch,"id",row)?,(nominal(batch,"input",row)?,lengths.value(row)))?;
+            }else{return self.visit_input(input,batch);}
+        }Ok(true)
+    }
+    pub fn artifact_bounds(&self,id:Id<crate::domain::source::SourceArtifact>)->Result<(Id<input::InputRevision>,i64),ModelError>{if let Some(bounds)=self.completion_artifacts.get(&id){return Ok(*bounds);}let source=need(&self.source.core.artifacts,id)?;Ok((source.input,source.byte_len))}
+    fn member_access(&self,id:Id<catalog::CatalogMember>)->Result<(Id<input::InputRevision>,Id<crate::domain::source::Module>),ModelError>{if let Some(owner)=self.completion_members.get(&id){return Ok(*owner);}let member=need(&self.source.catalog.members,id)?;Ok((member.input,member.access))}
+    fn module_source(&self,id:Id<crate::domain::source::Module>)->Result<Id<crate::domain::source::SourceArtifact>,ModelError>{if let Some(source)=self.completion_modules.get(&id){return Ok(*source);}Ok(need(&self.source.core.modules,id)?.source)}
+    fn brief_seed(&self,id:Id<crate::domain::synthesis::briefs::Brief>)->Result<Id<crate::domain::synthesis::seeds::SelectedSeed>,ModelError>{if let Some(seed)=self.completion_briefs.get(&id){return Ok(*seed);}Ok(need(&self.synthesis.briefs,id)?.seed)}
+    fn document_source(&self,id:Id<documents::DocumentObservation>)->Result<Id<crate::domain::source::SourceArtifact>,ModelError>{if let Some(source)=self.completion_documents.get(&id){return Ok(*source);}Ok(need(&self.source.facts.documents,id)?.source)}
+    fn verify_origin(&self,unit:&Unit,origin:&Origin,root:&c1::EvidenceRoot)->Result<(),ModelError>{
+        use c1::RootSubject as S;
+        let subject=need(&self.evidence.subjects,root.subject)?;
+        let agrees=match(origin,subject){
+            (Origin::Api{member},S::Member{member:owner})=>unit.family==Family::ApiOptions && member==owner && self.member_access(*member)?.0==unit.input,
+            (Origin::Scenario{scenario},S::Scenario{scenario:owner})=>unit.family==Family::Scenario && scenario==owner,
+            (Origin::Document{observation},S::Document{observation:owner})=>unit.family==Family::DocumentationDeployment && observation==owner && self.artifact_bounds(self.document_source(*observation)?)?.0==unit.input,
+            (Origin::Deployment{deployment},S::Deployment{deployment:owner})=>unit.family==Family::DocumentationDeployment && deployment==owner,
+            (Origin::Passage{observation},S::Document{observation:owner})=>{
+                let passage=need(&self.source.facts.passages,*observation)?;let node=need(&self.source.facts.nodes,passage.passage.id())?;let source=super::source::coordinates(self,&AnchorSource::Span{span:node.span()})?.0;
+                unit.family==Family::DocumentationDeployment && need(&self.source.core.qualifications,passage.qualification)?.context==unit.context && source==self.document_source(*owner)? && self.artifact_bounds(source)?.0==unit.input
+            },
+            (Origin::Original{source},S::Member{member})=>{
+                let(input,module)=self.member_access(*member)?;let artifact=self.module_source(module)?;
+                unit.family==Family::Source && input==unit.input && matches!(need(&self.evidence.original_sources,*source)?,c1::OriginalSource::Artifact{artifact:owner} if *owner==artifact) && super::source::coordinates(self,&AnchorSource::Original{source:*source})?==(artifact,0,self.artifact_bounds(artifact)?.1)
+            },
+            (Origin::Brief{brief},S::Member{member})=>{
+                let seed=need(&self.synthesis.seeds,self.brief_seed(*brief)?)?;let plan=need(&self.synthesis.seed_plans,seed.plan)?;let invocation=need(&self.synthesis.synthesis_invocations,plan.invocation)?;let owner=need(&self.synthesis.member_frames,seed.member)?;let core=need(&self.source.facts.core_invocations,owner.invocation)?;
+                unit.family==Family::ApiOptions && owner.member==*member && invocation.definition==crate::domain::synthesis::build::definition().1.id() && invocation.input==unit.input && invocation.context==unit.context && core.input==invocation.input && core.context==invocation.context && self.member_access(*member)?.0==unit.input
+            },_=>false,
+        };if !agrees{return Err(invalid("retrieval unit origin differs from exact C1 subject owner"));}Ok(())
+    }
     pub fn consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
         Self::inputs()
     }
-    pub fn mandatory_consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
-        let mut r = EvidenceData::inputs();
-        r.extend(EvidenceOutput::inputs());
-        r.extend(crate::domain::normalized::facts_inputs(Facts::inputs()));
-        r.sort_by_key(|i| (i.name(), i.prefix()));
-        r.dedup_by_key(|i| (i.name(), i.prefix()));
-        r
+    /// Only actual renderer premises are decoded in a root grain. Other earlier C1 properties
+    /// remain with their own necessary admission owner.
+    pub fn root_inputs()->Vec<ValidationInput>{
+        crate::domain::normalized::facts_inputs(vec![
+            ValidationInput::of::<crate::domain::analysis::catalog_core::Invocation>(&["id"]),
+            ValidationInput::of::<crate::domain::analysis::native::NativeAssertionPremise>(&["id"]),
+            ValidationInput::of::<crate::domain::artifact::ArtifactChunk>(&["id"]),
+            ValidationInput::of::<crate::domain::assertion::AssertionQualification>(&["id"]),
+            ValidationInput::of::<crate::domain::assertion::Evidence>(&["id"]),
+            ValidationInput::of::<crate::domain::attribution::ProviderRun>(&["id"]),
+            ValidationInput::of::<crate::domain::calls::ParameterShape>(&["id"]),
+            ValidationInput::of::<crate::domain::calls::Signature>(&["id"]),
+            ValidationInput::of::<crate::domain::calls::SignatureParameter>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogCallable>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogCallableAspect>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogClass>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogConstructor>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogDefault>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogExposure>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogInvocation>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogMember>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogMemberInvocation>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogOption>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogOptionSubject>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::CatalogDeployment>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::CatalogScenario>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::DiagnosticUseAssessment>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::DiagnosticUseLink>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::DiagnosticUseTarget>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::DocumentAssociation>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::EvidenceInvocation>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::EvidenceRoot>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::OriginalSource>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::ReleaseDeployment>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::RootSubject>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::ScenarioAssociation>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::ScenarioDependency>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::ScenarioSpan>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::SetupDependency>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::evidence::SourceCharacterization>(&["id"]),
+            ValidationInput::of::<crate::domain::deployment::DeploymentObservation>(&["id"]),
+            ValidationInput::of::<crate::domain::diagnostics::PyreflyDiagnosticObservation>(&["id"]),
+            ValidationInput::of::<crate::domain::diagnostics::PyreflyDiagnosticSupport>(&["id"]),
+            ValidationInput::of::<crate::domain::diagnostics::RuffDiagnosticObservation>(&["id"]),
+            ValidationInput::of::<crate::domain::documents::DocumentMentionObservation>(&["id"]),
+            ValidationInput::of::<crate::domain::documents::DocumentNode>(&["id"]),
+            ValidationInput::of::<crate::domain::documents::DocumentObservation>(&["id"]),
+            ValidationInput::of::<crate::domain::documents::PassageObservation>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::callable_aspects::CallableAspect>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::callables::EffectiveCallableAssessment>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::callables::SignatureSlot>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::callables::SignatureVariant>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::entities::FieldEntity>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::entities::PublicExposure>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::links::MentionEntityAssessment>(&["id"]),
+            ValidationInput::of::<crate::domain::normalized::links::MentionEntityCandidate>(&["id"]),
+            ValidationInput::of::<crate::domain::source::Module>(&["id"]),
+            ValidationInput::of::<crate::domain::source::Occurrence>(&["id"]),
+            ValidationInput::of::<crate::domain::source::SourceArtifact>(&["id"]),
+            ValidationInput::of::<crate::domain::value::Literal>(&["id"]),
+        ])
+    }
+    /// Rich row membership follows the actual rendering family. Referenced public members in
+    /// a document/scenario are nominal subjects, not another API rendering grain.
+    pub fn root_types(subject:&c1::RootSubject)->Vec<std::any::TypeId>{
+        use std::any::TypeId;
+        let mut types=vec![TypeId::of::<Definition>(),TypeId::of::<c1::EvidenceRoot>(),TypeId::of::<c1::RootSubject>(),TypeId::of::<c1::EvidenceInvocation>(),TypeId::of::<analysis::catalog_evidence::Invocation>(),TypeId::of::<crate::domain::source::SourceArtifact>(),TypeId::of::<crate::domain::source::Occurrence>(),TypeId::of::<assertion::Evidence>(),TypeId::of::<c1::OriginalSource>(),TypeId::of::<assertion::AssertionQualification>()];
+        match subject {
+            c1::RootSubject::Member{..}=>{
+                macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(types.push(TypeId::of::<$ty>());)*};}
+                crate::catalog_inputs!(rows);crate::catalog_outputs!(rows);crate::retrieval_inputs!(rows);
+            },
+            c1::RootSubject::Scenario{..}=>types.extend([
+                TypeId::of::<c1::CatalogScenario>(),TypeId::of::<c1::ScenarioSpan>(),TypeId::of::<c1::ScenarioDependency>(),TypeId::of::<c1::SetupDependency>(),TypeId::of::<c1::ScenarioAssociation>(),
+                TypeId::of::<c1::DiagnosticUseTarget>(),TypeId::of::<c1::DiagnosticUseLink>(),TypeId::of::<c1::DiagnosticUseAssessment>(),TypeId::of::<c1::SourceCharacterization>(),
+                TypeId::of::<analysis::native::NativeAssertionPremise>(),TypeId::of::<diagnostics::RuffDiagnosticObservation>(),TypeId::of::<diagnostics::PyreflyDiagnosticObservation>(),TypeId::of::<diagnostics::PyreflyDiagnosticSupport>(),TypeId::of::<attribution::ProviderRun>()]),
+            c1::RootSubject::Document{..}=>types.extend([TypeId::of::<documents::DocumentObservation>(),TypeId::of::<documents::PassageObservation>(),TypeId::of::<documents::DocumentNode>(),TypeId::of::<c1::DocumentAssociation>(),TypeId::of::<normalized::links::MentionEntityCandidate>(),TypeId::of::<normalized::links::MentionEntityAssessment>(),TypeId::of::<documents::DocumentMentionObservation>()]),
+            c1::RootSubject::Deployment{..}=>types.extend([TypeId::of::<c1::CatalogDeployment>(),TypeId::of::<deployment::DeploymentObservation>(),TypeId::of::<c1::ReleaseDeployment>()]),
+            c1::RootSubject::Option{..}|c1::RootSubject::Release{..}=>{},
+        }types
+    }
+    pub fn brief_types()->Vec<std::any::TypeId>{
+        use std::any::TypeId;let mut types=vec![TypeId::of::<Definition>(),TypeId::of::<crate::domain::source::SourceArtifact>(),TypeId::of::<crate::domain::source::Occurrence>(),TypeId::of::<value::Literal>(),TypeId::of::<assertion::Evidence>(),TypeId::of::<analysis::catalog_core::Invocation>(),TypeId::of::<c1::EvidenceRoot>(),TypeId::of::<c1::RootSubject>(),TypeId::of::<catalog::CatalogMember>()];
+        macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(types.push(TypeId::of::<$ty>());)*};}crate::retrieval_synthesis_inputs!(rows);types
+    }
+    /// Necessary completed corpus/fragment/anchor properties do not decode API rendering
+    /// premises or replay the deterministic renderer.
+    pub fn completion_types()->Vec<std::any::TypeId>{
+        use std::any::TypeId;vec![TypeId::of::<Definition>(),TypeId::of::<crate::domain::source::SourceArtifact>(),TypeId::of::<crate::domain::source::Occurrence>(),TypeId::of::<value::Literal>(),TypeId::of::<assertion::Evidence>(),TypeId::of::<c1::OriginalSource>(),TypeId::of::<c1::EvidenceRoot>(),TypeId::of::<c1::RootSubject>(),TypeId::of::<crate::domain::synthesis::documentary::ProseSlice>(),TypeId::of::<crate::domain::synthesis::documentary::ProseSource>(),TypeId::of::<catalog::CatalogMember>(),TypeId::of::<crate::domain::source::Module>(),TypeId::of::<crate::domain::synthesis::briefs::Brief>(),TypeId::of::<crate::domain::synthesis::seeds::SelectedSeed>(),TypeId::of::<crate::domain::synthesis::seeds::SeedPlan>(),TypeId::of::<analysis::synthesis::Invocation>(),TypeId::of::<catalog::CatalogMemberInvocation>(),TypeId::of::<analysis::catalog_core::Invocation>(),TypeId::of::<documents::DocumentObservation>(),TypeId::of::<documents::PassageObservation>(),TypeId::of::<documents::DocumentNode>(),TypeId::of::<assertion::AssertionQualification>()]
+    }
+    /// Small fixed metadata is prepared once, including frames without any retrieval document.
+    pub fn frame_inputs()->Vec<ValidationInput>{
+        let mut inputs=crate::domain::selection::frames::Frames::inputs();
+        inputs.extend([
+            ValidationInput::of::<Definition>(&["id"]),
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+            ValidationInput::of::<analysis::catalog_evidence::AnalysisOutcome>(&["id"]),
+            ValidationInput::of::<analysis::synthesis::Invocation>(&["id"]),ValidationInput::of::<analysis::synthesis::AnalysisOutcome>(&["id"]),
+            ValidationInput::of::<crate::domain::synthesis::frames::Frame>(&["id"]),
+        ]);inputs
+    }
+    pub fn mandatory_consumed_inputs(_profile:Profile)->Vec<ValidationInput>{
+        let mut inputs=Self::root_inputs();inputs.extend(Self::frame_inputs());
+        inputs.sort_by_key(|input|(input.name(),input.prefix()));inputs.dedup_by_key(|input|(input.name(),input.prefix()));inputs
     }
     pub fn synthesis_consumed_inputs() -> Vec<ValidationInput> {
         SynthesisFacts::inputs()
     }
-    pub fn inputs() -> Vec<ValidationInput> {
-        let mut r = EvidenceData::inputs();
-        r.extend(EvidenceOutput::inputs());
-        r.extend(crate::domain::normalized::facts_inputs(Facts::inputs()));
-        r.extend(Self::synthesis_consumed_inputs());
-        r.sort_by_key(|r| (r.name(), r.prefix()));
-        r.dedup_by_key(|r| (r.name(), r.prefix()));
-        r
+    pub fn inputs()->Vec<ValidationInput>{
+        let mut inputs=Self::mandatory_consumed_inputs(Profile::Behavioral);inputs.extend(Self::synthesis_consumed_inputs());
+        inputs.sort_by_key(|input|(input.name(),input.prefix()));inputs.dedup_by_key(|input|(input.name(),input.prefix()));inputs
     }
     pub fn selected(&self) -> Result<&Definition, ModelError> {
         if self.facts.definitions.len() != 1 {
@@ -118,6 +279,7 @@ impl Output {
                     "retrieval unit differs from its exact contextual root",
                 ));
             }
+            d.verify_origin(unit,need(&self.origins,unit.origin)?,evidence)?;
             // A shared source occurrence retains each member's root; the pair is the row key.
             rooted_units.insert(root.unit);
         }
@@ -180,11 +342,11 @@ impl Output {
                 }
                 let source = need(&self.anchor_sources, anchor.original)?;
                 let (artifact, start, end) = super::source::coordinates(d, source)?;
-                let artifact = need(&d.source.core.artifacts, artifact)?;
+                let (input,byte_len)=d.artifact_bounds(artifact)?;
                 if start < 0
                     || end < start
-                    || end > artifact.byte_len
-                    || (!matches!(origin, Origin::Brief { .. }) && artifact.input != unit.input)
+                    || end > byte_len
+                    || (!matches!(origin, Origin::Brief { .. }) && input != unit.input)
                 {
                     return Err(invalid(
                         "retrieval anchor differs from captured original frame",
@@ -489,7 +651,13 @@ fn add(
     }
     Ok(())
 }
-pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
+pub fn build(d:&Data,b:&ResourceBudget)->Result<Output,ModelError>{
+    render(d,None,b)
+}
+pub fn root(d:&Data,root:Id<c1::EvidenceRoot>,b:&ResourceBudget)->Result<Output,ModelError>{
+    need(&d.evidence.roots,root)?;render(d,Some(root),b)
+}
+fn render(d: &Data, selected:Option<Id<c1::EvidenceRoot>>, b: &ResourceBudget) -> Result<Output, ModelError> {
     d.selected()?;
     let mut out = Output::new(b);
     // Bound render buffers before allocating. Input rows and retained output rows have separate charges.
@@ -515,7 +683,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
     crate::catalog_evidence_inputs!(facts);
     macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(measure!(d.evidence.$f);)*};}
     crate::catalog_evidence_outputs!(evidence);
-    macro_rules! extra {($($f:ident:$ty:ty,)*)=>{$(measure!(d.facts.$f);)*};}
+    macro_rules! extra {($($f:ident:$ty:ty,)*)=>{$(if std::any::TypeId::of::<$ty>()!=std::any::TypeId::of::<artifact::ArtifactChunk>(){measure!(d.facts.$f);} )*};}
     crate::retrieval_inputs!(extra);
     macro_rules! synthesis {($($f:ident:$ty:ty,)*)=>{$(measure!(d.synthesis.$f);)*};}
     crate::retrieval_synthesis_inputs!(synthesis);
@@ -524,7 +692,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
         .and_then(|n| count.checked_mul(4096).and_then(|c| n.checked_add(c)))
         .ok_or_else(|| invalid("retrieval render allocation overflow"))?;
     let _render = b.reserve("retrieval-render-buffers", bound)?;
-    for root in d.evidence.roots.iter() {
+    for root in d.evidence.roots.iter().filter(|root|selected.is_none_or(|selected|root.id()==selected)) {
         match need(&d.evidence.subjects, root.subject)? {
             c1::RootSubject::Member { member } => {
                 let m = need(&d.source.catalog.members, *member)?;
@@ -640,8 +808,8 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                         characterization.native,
                     )?;
                     let (channel,settings)=match native {
-                        crate::domain::analysis::native::NativeAssertionPremise::RuffDiagnosticObservation{assertion,..}=>{let row=need(&d.source.facts.ruff_diagnostics,*assertion)?;(row.channel,row.settings)},
-                        crate::domain::analysis::native::NativeAssertionPremise::PyreflyDiagnosticObservation{assertion,support}=>{let row=need(&d.source.facts.pyrefly_diagnostics,*assertion)?;let support=need(&d.source.facts.pyrefly_diagnostic_supports,*support)?;(row.channel,need(&d.source.facts.runs,support.run)?.configuration)},
+                        crate::domain::analysis::native::NativeAssertionPremise::RuffDiagnosticObservation{assertion,..}=>{d.ruff_header(*assertion)?},
+                        crate::domain::analysis::native::NativeAssertionPremise::PyreflyDiagnosticObservation{assertion,support}=>{let channel=d.pyrefly_channel(*assertion)?;let support=need(&d.source.facts.pyrefly_diagnostic_supports,*support)?;(channel,need(&d.source.facts.runs,support.run)?.configuration)},
                         _=>return Err(invalid("diagnostic relevance has a non-diagnostic native premise")),
                     };
                     text.push_str(&format!("Diagnostic source relevance: exact use; target={:?}; channel={:?}; settings={:?}; diagnostic-only, no execution claim.\n",association.basis,channel,settings));
@@ -806,8 +974,21 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
             c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {}
         }
     }
-    extend_synthesis(d, &mut out, b)?;
+    if selected.is_none(){extend_synthesis(d,&mut out,b)?;}
     Ok(out)
+}
+/// Inverse memberships the actual root/brief renderers read, not all incoming references.
+pub fn memberships()->Vec<(std::any::TypeId,&'static str)>{
+    use std::any::TypeId;use catalog::{*,evidence::*};use normalized::callables::*;use crate::domain::synthesis::{briefs::*,documentary::*};
+    vec![(TypeId::of::<CatalogExposure>(),"member"),(TypeId::of::<CatalogCallable>(),"member"),
+        (TypeId::of::<CatalogOption>(),"member"),(TypeId::of::<CatalogClass>(),"member"),
+        (TypeId::of::<CatalogInvocation>(),"callable"),(TypeId::of::<CatalogCallableAspect>(),"callable"),
+        (TypeId::of::<CatalogConstructor>(),"class"),(TypeId::of::<SignatureSlot>(),"variant"),
+        (TypeId::of::<OriginalSource>(),"artifact_artifact"),
+        (TypeId::of::<ScenarioSpan>(),"scenario"),(TypeId::of::<ScenarioDependency>(),"scenario"),
+        (TypeId::of::<ScenarioAssociation>(),"scenario"),(TypeId::of::<DiagnosticUseTarget>(),"association"),
+        (TypeId::of::<ReleaseDeployment>(),"deployment"),(TypeId::of::<EvidenceInvocation>(),"root"),
+        (TypeId::of::<BriefDocument>(),"brief"),(TypeId::of::<BriefSource>(),"brief")]
 }
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = Data::inputs();
