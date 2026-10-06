@@ -123,7 +123,7 @@ mod controls {
     use futures::TryStreamExt;
     use assertion::*;
     fn id<R>(n:u8)->Id<R> {nominal(&[n;16]).unwrap()}
-    fn register<R:Record>(session:&SessionContext,rows:&[R]) {let batch=R::encode(rows).unwrap();session.register_table(R::NAME,Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();}
+    fn register<R:Record>(session:&SessionContext,rows:&[R]) {let batch=R::encode(rows).unwrap();session.deregister_table(R::NAME).unwrap();session.register_table(R::NAME,Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();}
     async fn selected<R:Record>(scope:&PreparedClosure,prepared:&CompletionScopes)->Vec<R> {
         let table=prepared.inputs.iter().position(|input|input.type_id()==TypeId::of::<R>()).unwrap();
         let mut stream=crate::sql::query(scope.session(),&scope.select(table).unwrap()).await.unwrap().execute_stream().await.unwrap();
