@@ -107,7 +107,7 @@ pub struct PyreflyDiagnosticObservation {
     #[model(key)]
     pub details: Option<String>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "native_diagnostic_subjects")]
 pub enum DiagnosticSubject {
     #[model(code = 0)]
@@ -120,7 +120,7 @@ pub enum DiagnosticSubject {
     },
 }
 /// Secondary annotations inherit their exact native parent; they grant no additional source bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="native_diagnostic_annotations",validate=validate_annotation)]
 pub struct DiagnosticAnnotation {
     #[model(key)]

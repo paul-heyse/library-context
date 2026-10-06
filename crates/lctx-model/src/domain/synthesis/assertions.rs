@@ -71,7 +71,7 @@ pub enum AssertionTemplate {
         witness: Id<execution::summary_terminal::SummaryTerminalWitness>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "programmatic_assertion_sources")]
 pub enum AssertionSource {
     #[model(code = 0)]
@@ -133,7 +133,7 @@ impl ProgrammaticAssertion {
         self.text.as_str()
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="programmatic_assertion_supports",rule="programmatic_assertion_support",conclusion=assertion)]
 pub struct ProgrammaticAssertionSupport {
     #[model(key)]

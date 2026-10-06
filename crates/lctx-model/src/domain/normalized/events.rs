@@ -123,7 +123,7 @@ pub struct CallEventSourceEvidence {
     #[model(key)]
     pub support: Id<ProviderCallSiteSupport>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "normalized_call_event_resolutions")]
 pub struct CallEventResolution {
     #[model(key)]
@@ -131,7 +131,7 @@ pub struct CallEventResolution {
     #[model(key)]
     pub resolution: Id<CallResolution>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "normalized_call_resolution_evidence")]
 pub struct CallEventResolutionEvidence {
     #[model(key)]
@@ -172,7 +172,7 @@ impl CallAlternativeSource {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "normalized_call_alternative_evidence")]
 pub struct CallAlternativeEvidence {
     #[model(key)]
@@ -200,7 +200,7 @@ pub struct EventAssessment {
     pub disagreement: bool,
     pub reason: EventReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "call_event_phase_targets")]
 pub struct EventPhaseTarget {
     #[model(key)]
@@ -230,7 +230,7 @@ pub struct CallPolicyAdmission {
     #[model(key)]
     pub alternative: Id<NormalizedCallAlternative>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_call_event_links")]
 pub struct FlowCallEventLink {
     #[model(key)]

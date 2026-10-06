@@ -241,7 +241,7 @@ impl CheckedGuardBinding {
         self.source.id()
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="guard_substitutions",rule="witnessed_guard_substitution",conclusion=atom,invariant_refs=guard_substitution_invariants_refs)]
 pub struct GuardSubstitution {
     #[model(key)]

@@ -39,7 +39,7 @@ pub struct Brief {
     pub review: ReviewStatus,
     pub documentation_only: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "synthesis_brief_assertions")]
 pub struct BriefAssertion {
     #[model(key)]
@@ -48,7 +48,7 @@ pub struct BriefAssertion {
     pub ordinal: i64,
     pub assertion: Id<assertions::ProgrammaticAssertion>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "synthesis_brief_sources")]
 pub struct BriefSource {
     #[model(key)]
@@ -72,7 +72,7 @@ pub struct BriefCodeBoundary {
     #[model(key)]
     pub boundary: Id<super::patterns::CodeBoundary>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="synthesis_brief_documents",validate=validate_part)]
 pub struct BriefDocument {
     #[model(key)]

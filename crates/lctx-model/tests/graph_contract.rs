@@ -308,6 +308,33 @@ fn family_content_is_independent_of_transport_chunks_and_preserves_payload() {
 #[test]
 fn selected_semantic_inventory_has_nominally_closed_reference_types() {
     let mut absent = BTreeSet::new();
+    let mut selected = BTreeSet::new();
+    macro_rules! inventory {($($variant:ident:$record:ty,)*)=>{$(selected.insert(<$record>::NAME);)*};}
+    lctx_model::graph_entity_records!(inventory);
+    lctx_model::graph_assertion_records!(inventory);
+    // Check the original packet bindings, before any dependency-lowering filters can hide a loss.
+    // Original chunks have their own checked byte transport and are not semantic graph nodes.
+    for kind in d::serving::mappings::PacketKind::ALL {
+        for relation in &kind.binding().mapping.sources {
+            if relation.name() != d::artifact::ArtifactChunk::NAME
+                && !selected.contains(relation.name())
+            {
+                absent.insert(format!("packet {kind:?} requires {}", relation.name()));
+            }
+        }
+    }
+    // These are actual request-kernel inputs, excluding compiler-only invariant replay metadata.
+    let mut inputs = d::selection::classification::ClassificationData::inputs();
+    inputs.extend(d::selection::build::Output::inputs());
+    inputs.extend(d::native_requests::NativeInventory::inputs());
+    inputs.extend(d::native_requests::PreparationRows::inputs());
+    inputs.extend(d::normalized::binding_normalization::BindingData::validation_inputs());
+    inputs.extend(d::normalized::binding_normalization::BindingOutput::validation_inputs());
+    for input in inputs {
+        if !selected.contains(input.name()) {
+            absent.insert(format!("request kernel requires {}", input.name()));
+        }
+    }
     macro_rules! check {($($variant:ident:$record:ty,)*)=>{$(for field in Relation::of::<$record>().fields(){if let Some((_,target))=field.target(){let reference=SemanticReference{field:field.name(),target,key:[0;16],subtype:field.subtype()};if reference_target(&reference).is_err(){absent.insert(format!("{}::{} -> {target}",<$record>::NAME,field.name()));}}})*};}
     lctx_model::graph_entity_records!(check);
     lctx_model::graph_assertion_records!(check);

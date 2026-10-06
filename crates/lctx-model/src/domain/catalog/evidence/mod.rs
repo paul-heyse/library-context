@@ -81,7 +81,7 @@ pub enum SpanRole {
     EnclosingPassage = 2,
     ExtractedPython = 3,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_scenario_spans")]
 pub struct ScenarioSpan {
     #[model(key)]
@@ -213,7 +213,7 @@ pub struct CatalogDeployment {
     pub observation: Id<DeploymentObservation>,
 }
 /// Release association cites captured distribution ownership, never inferred distribution spelling.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_release_deployments")]
 pub struct ReleaseDeployment {
     #[model(key)]

@@ -48,7 +48,7 @@ pub struct ReferenceEntityCandidate {
     #[model(key)]
     pub target: Id<ReferenceEntityTarget>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "import_module_assessments")]
 pub struct ImportModuleAssessment {
     #[model(key)]
@@ -56,7 +56,7 @@ pub struct ImportModuleAssessment {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "import_module_candidates", projection_roles = crate::domain::projection::import_roles)]
 pub struct ImportModuleCandidate {
     #[model(key)]
@@ -99,7 +99,7 @@ pub struct MentionEntityCandidate {
     #[model(key)]
     pub exposure: Id<PublicExposure>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "type_entity_links")]
 pub struct TypeEntityLink {
     #[model(key)]
@@ -110,7 +110,7 @@ pub struct TypeEntityLink {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "type_binder_assessments")]
 pub struct TypeBinderAssessment {
     #[model(key)]
@@ -118,7 +118,7 @@ pub struct TypeBinderAssessment {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "type_binder_candidates")]
 pub struct TypeBinderCandidate {
     #[model(key)]
@@ -128,7 +128,7 @@ pub struct TypeBinderCandidate {
     #[model(key)]
     pub premise: Id<TypeBinderPremise>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "place_entity_links")]
 pub struct PlaceEntityLink {
     #[model(key)]
@@ -153,7 +153,7 @@ pub struct TestOperandTypeLink {
     #[model(key)]
     pub observation: Id<types::TypeObservation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "test_operand_coverage")]
 pub struct TestOperandCoverage {
     #[model(key)]
@@ -186,7 +186,7 @@ pub fn relations() -> Vec<Relation> {
     ]
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "type_binder_premises")]
 pub enum TypeBinderPremise {
     #[model(code = 0)]
@@ -199,7 +199,7 @@ pub enum TypeBinderPremise {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "mention_symbol_candidates")]
 pub struct MentionSymbolCandidate {
     #[model(key)]
@@ -229,7 +229,7 @@ pub struct ReferenceBindingCharacterization {
     pub status: ResolutionStatus,
     pub reason: LinkReason,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "declaration_native_characterizations")]
 pub struct DeclarationNativeCharacterization {
     #[model(key)]

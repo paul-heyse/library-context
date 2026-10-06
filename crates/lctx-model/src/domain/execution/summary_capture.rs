@@ -47,7 +47,7 @@ impl DerivedEvidence for SummaryCaptureWitness {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, crate::Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, crate::Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="summary_capture_contributions",rule="summary_capture_contribution",conclusion=alternative)]
 pub struct SummaryCaptureContribution {
     #[model(key)]

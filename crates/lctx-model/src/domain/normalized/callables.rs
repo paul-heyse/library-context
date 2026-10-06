@@ -95,7 +95,7 @@ fn validate_assessment(row: &EffectiveCallableAssessment) -> Result<(), ModelErr
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "effective_decorator_members")]
 pub struct EffectiveDecoratorMember {
     #[model(key)]
@@ -105,7 +105,7 @@ pub struct EffectiveDecoratorMember {
     pub source_ordinal: i64,
     pub application_ordinal: i64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "effective_callable_premises")]
 pub enum EffectiveCallablePremise {
     #[model(code = 0)]
@@ -135,7 +135,7 @@ pub enum EffectiveCallablePremise {
         resolution: Id<SymbolEntityResolution>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "effective_callable_evidence")]
 pub struct EffectiveCallableEvidence {
     #[model(key)]

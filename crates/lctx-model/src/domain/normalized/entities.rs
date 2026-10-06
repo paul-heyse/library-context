@@ -162,7 +162,7 @@ pub struct SymbolEntityCandidate {
     #[model(key)]
     pub entity: Id<EntityRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_entity_premises")]
 pub enum SymbolEntityPremise {
     #[model(code = 0)]
@@ -181,7 +181,7 @@ pub enum SymbolEntityPremise {
     #[model(code = 3)]
     Module { module: Id<ProviderModule> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "symbol_entity_evidence")]
 pub struct SymbolEntityEvidence {
     #[model(key)]

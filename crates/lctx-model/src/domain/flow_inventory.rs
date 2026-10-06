@@ -23,7 +23,7 @@ pub enum FlowCandidateKind {
     Nested = 3,
     LoopHeader = 4,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="flow_use_candidates", validate=validate_candidate)]
 pub struct FlowUseCandidate {
     #[model(key)]
@@ -42,7 +42,7 @@ pub struct FlowUseCandidate {
     pub reachability_lost: bool,
     pub mapped_count: i64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "flow_use_inventory_members")]
 pub struct FlowUseInventoryMember {
     #[model(key)]

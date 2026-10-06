@@ -74,7 +74,7 @@ impl ReceiverAssessment {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "receiver_premises")]
 pub enum ReceiverPremise {
     #[model(code = 0)]
@@ -86,7 +86,7 @@ pub enum ReceiverPremise {
     #[model(code = 3)]
     Coverage { coverage: Id<ProviderCoverage> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "receiver_evidence")]
 pub struct ReceiverEvidence {
     #[model(key)]

@@ -669,6 +669,44 @@ pub fn reference_target(
     reference: &super::SemanticReference,
 ) -> Result<(Target, Option<EntityKind>), ModelError> {
     match reference.target {
+    <super::catalog::evidence::ReleaseDeployment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::catalog::evidence::ScenarioSpan as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::conditions::stability::GuardSubstitution as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::diagnostics::DiagnosticAnnotation as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::diagnostics::DiagnosticSubject as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::execution::summary_capture::SummaryCaptureContribution as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::flow_inventory::FlowUseCandidate as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::flow_inventory::FlowUseInventoryMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::callables::EffectiveCallableEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::callables::EffectiveCallablePremise as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::callables::EffectiveDecoratorMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::entities::SymbolEntityEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::entities::SymbolEntityPremise as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::CallAlternativeEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::CallEventResolution as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::CallEventResolutionEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::EventPhaseTarget as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::events::FlowCallEventLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::DeclarationNativeCharacterization as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::ImportModuleAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::ImportModuleCandidate as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::MentionSymbolCandidate as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::PlaceEntityLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::TestOperandCoverage as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::TypeBinderAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::TypeBinderCandidate as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::TypeBinderPremise as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::links::TypeEntityLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::overload_association::OverloadVariantAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::overload_association::OverloadVariantCandidate as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::receiver::ReceiverEvidence as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::normalized::receiver::ReceiverPremise as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::synthesis::assertions::AssertionSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::synthesis::assertions::ProgrammaticAssertionSupport as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::synthesis::briefs::BriefAssertion as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::synthesis::briefs::BriefDocument as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::synthesis::briefs::BriefSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+
     <super::normalized::links::ReferenceBindingCharacterization as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::catalog::evidence::SourceFieldLink as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::normalized::callables::SignatureSlotType as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
@@ -9895,6 +9933,44 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport {
 // Selected analytics retain their computation universe, weights, memberships, availability and
 // provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    RetainedReleaseDeployment:$crate::domain::catalog::evidence::ReleaseDeployment,
+    RetainedScenarioSpan:$crate::domain::catalog::evidence::ScenarioSpan,
+    RetainedGuardSubstitution:$crate::domain::conditions::stability::GuardSubstitution,
+    NativeDiagnosticAnnotation:$crate::domain::diagnostics::DiagnosticAnnotation,
+    NativeDiagnosticSubject:$crate::domain::diagnostics::DiagnosticSubject,
+    RetainedSummaryCaptureContribution:$crate::domain::execution::summary_capture::SummaryCaptureContribution,
+    NativeFlowUseCandidate:$crate::domain::flow_inventory::FlowUseCandidate,
+    NativeFlowUseInventoryMember:$crate::domain::flow_inventory::FlowUseInventoryMember,
+    RetainedEffectiveCallableEvidence:$crate::domain::normalized::callables::EffectiveCallableEvidence,
+    RetainedEffectiveCallablePremise:$crate::domain::normalized::callables::EffectiveCallablePremise,
+    RetainedEffectiveDecoratorMember:$crate::domain::normalized::callables::EffectiveDecoratorMember,
+    RetainedSymbolEntityEvidence:$crate::domain::normalized::entities::SymbolEntityEvidence,
+    RetainedSymbolEntityPremise:$crate::domain::normalized::entities::SymbolEntityPremise,
+    RetainedCallAlternativeEvidence:$crate::domain::normalized::events::CallAlternativeEvidence,
+    RetainedCallEventResolution:$crate::domain::normalized::events::CallEventResolution,
+    RetainedCallEventResolutionEvidence:$crate::domain::normalized::events::CallEventResolutionEvidence,
+    RetainedEventPhaseTarget:$crate::domain::normalized::events::EventPhaseTarget,
+    RetainedFlowCallEventLink:$crate::domain::normalized::events::FlowCallEventLink,
+    RetainedDeclarationNativeCharacterization:$crate::domain::normalized::links::DeclarationNativeCharacterization,
+    RetainedImportModuleAssessment:$crate::domain::normalized::links::ImportModuleAssessment,
+    RetainedImportModuleCandidate:$crate::domain::normalized::links::ImportModuleCandidate,
+    RetainedMentionSymbolCandidate:$crate::domain::normalized::links::MentionSymbolCandidate,
+    RetainedPlaceEntityLink:$crate::domain::normalized::links::PlaceEntityLink,
+    RetainedTestOperandCoverage:$crate::domain::normalized::links::TestOperandCoverage,
+    RetainedTypeBinderAssessment:$crate::domain::normalized::links::TypeBinderAssessment,
+    RetainedTypeBinderCandidate:$crate::domain::normalized::links::TypeBinderCandidate,
+    RetainedTypeBinderPremise:$crate::domain::normalized::links::TypeBinderPremise,
+    RetainedTypeEntityLink:$crate::domain::normalized::links::TypeEntityLink,
+    RetainedOverloadVariantAssessment:$crate::domain::normalized::overload_association::OverloadVariantAssessment,
+    RetainedOverloadVariantCandidate:$crate::domain::normalized::overload_association::OverloadVariantCandidate,
+    RetainedReceiverEvidence:$crate::domain::normalized::receiver::ReceiverEvidence,
+    RetainedReceiverPremise:$crate::domain::normalized::receiver::ReceiverPremise,
+    RetainedAssertionSource:$crate::domain::synthesis::assertions::AssertionSource,
+    RetainedProgrammaticAssertionSupport:$crate::domain::synthesis::assertions::ProgrammaticAssertionSupport,
+    RetainedBriefAssertion:$crate::domain::synthesis::briefs::BriefAssertion,
+    RetainedBriefDocument:$crate::domain::synthesis::briefs::BriefDocument,
+    RetainedBriefSource:$crate::domain::synthesis::briefs::BriefSource,
+
     SelectionReferenceBindingCharacterization:$crate::domain::normalized::links::ReferenceBindingCharacterization,
     SelectionSourceFieldLink:$crate::domain::catalog::evidence::SourceFieldLink,
     SignatureSlotType:$crate::domain::normalized::callables::SignatureSlotType,
@@ -17336,9 +17412,9 @@ catalog_source_assertions! {
  CatalogDiagnosticUseTarget:super::catalog::evidence::DiagnosticUseTarget,
 }
 
-// Finite selection declarations and owned membership are part of the transported domain.
+// Finite consumer declarations and owned membership are part of the transported domain.
 // Digest-only parents cannot reconstruct their local universe without these exact children.
-macro_rules! selection_assertions {
+macro_rules! retained_consumer_assertions {
  ($($variant:ident:$ty:ty=>$payload:ident,$family:ident,$kind:ident),* $(,)?)=>{$(
   impl From<$ty> for $payload{fn from(row:$ty)->Self{Self::$variant(row)}}
   impl GraphAssertionRecord for $ty{
@@ -17352,7 +17428,7 @@ macro_rules! selection_assertions {
   }
  )*};
 }
-selection_assertions! {
+retained_consumer_assertions! {
  SelectionContext:super::selection::Context=>AnalysisValue,Analysis,PredicateDomain,
  SelectionWitness:super::selection::Witness=>AnalysisValue,Analysis,EvidenceAssociation,
  SelectionDomainContext:super::selection::DomainContext=>MembershipValue,Membership,StructuralMembership,
@@ -17367,4 +17443,57 @@ selection_assertions! {
  SignatureReturnType:super::normalized::callables::SignatureReturnType=>MembershipValue,Membership,InvocationSignature,
  SelectionSourceFieldLink:super::catalog::evidence::SourceFieldLink=>ProvenanceValue,Provenance,EvidenceAssociation,
  SelectionReferenceBindingCharacterization:super::normalized::links::ReferenceBindingCharacterization=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+}
+
+retained_consumer_assertions! {
+ RetainedReleaseDeployment:super::catalog::evidence::ReleaseDeployment=>MembershipValue,Membership,DeploymentAssociation,
+ RetainedScenarioSpan:super::catalog::evidence::ScenarioSpan=>MembershipValue,Membership,ScenarioAssociation,
+ RetainedGuardSubstitution:super::conditions::stability::GuardSubstitution=>ProvenanceValue,Provenance,ValueTransfer,
+ NativeDiagnosticAnnotation:super::diagnostics::DiagnosticAnnotation=>ProvenanceValue,Provenance,NativeObservation,
+ NativeDiagnosticSubject:super::diagnostics::DiagnosticSubject=>ProvenanceValue,Provenance,NativeObservation,
+ RetainedSummaryCaptureContribution:super::execution::summary_capture::SummaryCaptureContribution=>ProvenanceValue,Provenance,SummaryTransfer,
+ NativeFlowUseInventoryMember:super::flow_inventory::FlowUseInventoryMember=>MembershipValue,Membership,StructuralMembership,
+ RetainedEffectiveCallableEvidence:super::normalized::callables::EffectiveCallableEvidence=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedEffectiveCallablePremise:super::normalized::callables::EffectiveCallablePremise=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedEffectiveDecoratorMember:super::normalized::callables::EffectiveDecoratorMember=>MembershipValue,Membership,StructuralOrder,
+ RetainedSymbolEntityEvidence:super::normalized::entities::SymbolEntityEvidence=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedSymbolEntityPremise:super::normalized::entities::SymbolEntityPremise=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedCallAlternativeEvidence:super::normalized::events::CallAlternativeEvidence=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedCallEventResolution:super::normalized::events::CallEventResolution=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedCallEventResolutionEvidence:super::normalized::events::CallEventResolutionEvidence=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedEventPhaseTarget:super::normalized::events::EventPhaseTarget=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedFlowCallEventLink:super::normalized::events::FlowCallEventLink=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedDeclarationNativeCharacterization:super::normalized::links::DeclarationNativeCharacterization=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedImportModuleAssessment:super::normalized::links::ImportModuleAssessment=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedImportModuleCandidate:super::normalized::links::ImportModuleCandidate=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedMentionSymbolCandidate:super::normalized::links::MentionSymbolCandidate=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedPlaceEntityLink:super::normalized::links::PlaceEntityLink=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedTestOperandCoverage:super::normalized::links::TestOperandCoverage=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedTypeBinderAssessment:super::normalized::links::TypeBinderAssessment=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedTypeBinderCandidate:super::normalized::links::TypeBinderCandidate=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedTypeBinderPremise:super::normalized::links::TypeBinderPremise=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedTypeEntityLink:super::normalized::links::TypeEntityLink=>ProvenanceValue,Provenance,DeclarationCorrespondence,
+ RetainedOverloadVariantAssessment:super::normalized::overload_association::OverloadVariantAssessment=>ProvenanceValue,Provenance,InvocationSignature,
+ RetainedOverloadVariantCandidate:super::normalized::overload_association::OverloadVariantCandidate=>ProvenanceValue,Provenance,InvocationSignature,
+ RetainedReceiverEvidence:super::normalized::receiver::ReceiverEvidence=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedReceiverPremise:super::normalized::receiver::ReceiverPremise=>ProvenanceValue,Provenance,EvidenceAssociation,
+ RetainedAssertionSource:super::synthesis::assertions::AssertionSource=>ProvenanceValue,Provenance,SynthesisClaim,
+ RetainedProgrammaticAssertionSupport:super::synthesis::assertions::ProgrammaticAssertionSupport=>ProvenanceValue,Provenance,SynthesisClaim,
+ RetainedBriefAssertion:super::synthesis::briefs::BriefAssertion=>MembershipValue,Membership,SynthesisClaim,
+ RetainedBriefDocument:super::synthesis::briefs::BriefDocument=>MembershipValue,Membership,DocumentaryEvidence,
+ RetainedBriefSource:super::synthesis::briefs::BriefSource=>MembershipValue,Membership,DocumentaryEvidence,
+}
+
+// Reachability and narrowing qualify distinct candidate properties. Neither is a
+// candidate-wide qualifier; both remain exact field-labelled semantic references.
+impl From<super::flow_inventory::FlowUseCandidate> for ProvenanceValue {
+    fn from(row: super::flow_inventory::FlowUseCandidate) -> Self { Self::NativeFlowUseCandidate(row) }
+}
+impl GraphAssertionRecord for super::flow_inventory::FlowUseCandidate {
+    const GRAPH_KIND: AssertionKind = AssertionKind::NativeObservation;
+    fn graph_payload(row: Self) -> Assertion {
+        Assertion { source: Some(SemanticKey::of(row.id())), kind: Self::GRAPH_KIND,
+            participants: vec![], qualification: Qualification::Payload, run: None,
+            evidence: vec![], value: AssertionValue::Provenance(row.into()), derivation: None }
+    }
 }

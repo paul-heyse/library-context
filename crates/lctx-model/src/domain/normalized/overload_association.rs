@@ -26,7 +26,7 @@ pub enum OverloadAssociationReason {
     MultipleIdentityMatches = 5,
     NativeDeclarationIncomplete = 6,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "overload_variant_assessments")]
 pub struct OverloadVariantAssessment {
     #[model(key)]
@@ -39,7 +39,7 @@ pub struct OverloadVariantAssessment {
     pub reason: OverloadAssociationReason,
     pub variant: Option<Id<SignatureVariant>>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "overload_variant_candidates")]
 pub struct OverloadVariantCandidate {
     #[model(key)]
