@@ -192,19 +192,19 @@ pub fn explain(
         )?;
         let mut proof = vec![ProofReference::from_canonical(derivation::RowRef::of(
             subject,
-        ))];
+        ))?];
         for id in actual.iter().chain(&expected) {
-            proof.push(ProofReference::from_canonical(derivation::RowRef::of(*id)));
+            proof.push(ProofReference::from_canonical(derivation::RowRef::of(*id))?);
             for support in d.facts.type_supports.iter().filter(|s| s.assertion == *id) {
                 proof.push(ProofReference::from_canonical(derivation::RowRef::of(
                     support.id(),
-                )));
+                ))?);
             }
         }
         for p in &presentations {
             proof.push(ProofReference::from_canonical(derivation::RowRef::of(
                 p.presentation,
-            )));
+            ))?);
         }
         rows.push(ContextualType {
             subject,

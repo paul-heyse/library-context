@@ -1454,7 +1454,7 @@ fn distinct_unexamined_causes_survive_model_packet_serialization_without_assignm
                 vec![],
             )
             .unwrap(),
-        );
+        ).unwrap();
         let json = serde_json::to_value(&packet).unwrap();
         assert_eq!(json["reason"], serde_json::json!(code));
         assert_eq!(json["exact"], "unknown");

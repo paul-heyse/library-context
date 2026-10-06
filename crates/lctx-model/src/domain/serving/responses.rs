@@ -97,10 +97,10 @@ impl NativeAssessmentPacket {
     pub fn from_canonical(
         value: &native_requests::Assessment,
         claim_basis: ClaimBasisPacket,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ModelError> {
+        Ok(Self {
             claim_basis,
-            path: ProofReference::from_canonical(value.path),
+            path: ProofReference::from_canonical(value.path)?,
             original_condition: value.original_condition,
             restricted_result: Nullable(value.restricted_result.map(|id| id.0)),
             verdict: value.verdict,
@@ -112,7 +112,7 @@ impl NativeAssessmentPacket {
                 .iter()
                 .copied()
                 .map(ProofReference::from_canonical)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             work: value.work,
             reason: Nullable(value.reason),
             unexamined: value.unexamined as u64,
@@ -124,6 +124,6 @@ impl NativeAssessmentPacket {
             ),
             presentation_truncated: value.presentation_truncated,
             proof_truncated: value.proof_truncated,
-        }
+        })
     }
 }

@@ -161,7 +161,7 @@ impl RelationshipPacket {
                 [
                     target.bytes().as_slice(),
                     analysis.bytes().as_slice(),
-                    proof[0].row.as_slice(),
+                    proof[0].ordering_key().as_slice(),
                 ]
                 .concat(),
             ),
@@ -253,8 +253,8 @@ impl ClaimBasisPacket {
 packet!(AssertionPacket {assertion:Id<synthesis::assertions::ProgrammaticAssertion>,#[doc = "Finite canonical kind; the numeric codebook lists supported choices."] kind:analysis::policy::AssertionKind,#[doc = "Authored brief section to which the assertion belongs."] section:analysis::policy::BriefSection,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,qualification:Id<assertion::AssertionQualification>,claim_basis:ClaimBasisPacket,#[doc = "A scoped given-entry terminal question. Null means this assertion has no such question; it does not establish normal continuation."] terminal_question:Nullable<TerminalQuestionPacket>,text:Text<0,262144>,supports:Vec<AssertionSupportPacket>});
 packet!(TerminalQuestionPacket {witness:Id<execution::summary_terminal::SummaryTerminalWitness>,frontier:Id<execution::protocol_interpretation::ConditionalTerminalFrontier>,restriction:Id<execution::protocol_interpretation::NormalContinuationRestriction>,claim:Id<execution::summary_consequences::SummaryClaim>,target:Id<execution::closed_targets::ClosedTargetAssessment>,target_basis:execution::closed_targets::TargetBasis,original_target_qualification:Nullable<Id<assertion::AssertionQualification>>,receiver_qualification:Nullable<Id<assertion::AssertionQualification>>,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,qualification:Id<assertion::AssertionQualification>,owner:Id<normalized::entities::EntityRef>,call:Id<source::Occurrence>,statement:Id<source::Occurrence>,following:Id<source::Occurrence>,#[doc = "GivenInvocationEntered is the scope of the question, never evidence that the invocation executed."] question:execution::protocol_interpretation::InvocationQuestion,scope:Id<source::CoverageScope>,#[doc = "No effect completion certificate is implied."] effects_unknown:bool,#[doc = "No exception outcome is implied."] exceptions_unknown:bool,#[doc = "Finally and context cleanup remain outside this scoped normal edge."] cleanup_unknown:bool,proof:Vec<ProofReference>});
 impl TerminalQuestionPacket {
-    pub fn from_canonical(checked: &synthesis::terminal::Checked<'_>) -> Self {
-        Self {
+    pub fn from_canonical(checked: &synthesis::terminal::Checked<'_>) -> Result<Self, ModelError> {
+        Ok(Self {
             witness: checked.witness.id(),
             frontier: checked.frontier.id(),
             restriction: checked.restriction.id(),
@@ -279,8 +279,8 @@ impl TerminalQuestionPacket {
                 .proof()
                 .into_iter()
                 .map(ProofReference::from_canonical)
-                .collect(),
-        }
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 }
 packet!(CapabilityPacket {capability:Id<synthesis::briefs::Brief>,title:Name,rendered:Text<0,262144>,assertions:Vec<AssertionPacket>,originals:Vec<OriginalRange>,#[doc = "Section availability; unavailable or not-requested data must not be interpreted as absence."] availability:Availability,unreviewed:bool,documentation_only:bool});
@@ -370,8 +370,8 @@ impl BehavioralExceptionPacket {
                 definitions: Vec::new(),
             },
             proof: vec![
-                ProofReference::from_canonical(derivation::RowRef::of(result.id())),
-                ProofReference::from_canonical(derivation::RowRef::of(result.body)),
+                ProofReference::from_canonical(derivation::RowRef::of(result.id()))?,
+                ProofReference::from_canonical(derivation::RowRef::of(result.body))?,
             ],
         })
     }
@@ -393,18 +393,43 @@ pub enum SelectionExtent {
         analyzer_complete: bool,
     },
 }
-packet!(ProofReference {
-    relation: Name,
-    row: [u8; 16]
-});
+/// A reference into this response's pinned semantic graph, independent of physical table names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProofReference {
+    Entity { entity: [u8; 32] },
+    Assertion { assertion: [u8; 32] },
+}
 impl ProofReference {
-    pub fn from_canonical(row: domain::derivation::RowRef) -> Self {
-        Self {
-            relation: Name::new(row.relation()).expect("canonical relation name bounded"),
-            row: *row.bytes(),
+    pub fn from_canonical(row: domain::derivation::RowRef) -> Result<Self, ModelError> {
+        Self::from_target(domain::graph::target_for_row(row)?)
+    }
+    pub fn from_target(target: domain::graph::Target) -> Result<Self, ModelError> {
+        match target {
+            domain::graph::Target::Entity(entity) => Ok(Self::Entity {entity: entity.0.0}),
+            domain::graph::Target::Assertion(assertion) => Ok(Self::Assertion {assertion: assertion.0.0}),
+            domain::graph::Target::External { .. } => Err(ModelError::Invalid("external uncertainty is not an internal proof reference".into())),
+        }
+    }
+    fn ordering_key(&self) -> [u8; 33] {
+        let mut key = [0; 33];
+        match self {
+            Self::Entity { entity } => key[1..].copy_from_slice(entity),
+            Self::Assertion { assertion } => {
+                key[0] = 1;
+                key[1..].copy_from_slice(assertion);
+            }
+        }
+        key
+    }
+    pub fn target(&self) -> domain::graph::Target {
+        match self {
+            Self::Entity {entity} => domain::graph::Target::Entity(domain::graph::EntityId(ContentHash(*entity))),
+            Self::Assertion {assertion} => domain::graph::Target::Assertion(domain::graph::AssertionId(ContentHash(*assertion))),
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EvidenceBodyPage {

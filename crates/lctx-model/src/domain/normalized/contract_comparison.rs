@@ -599,7 +599,7 @@ pub fn compare(
             proof: proof
                 .into_iter()
                 .map(crate::domain::serving::ProofReference::from_canonical)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
         },
         _charge: charge,
     })

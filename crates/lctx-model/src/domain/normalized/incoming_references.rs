@@ -343,7 +343,7 @@ pub fn incoming(
                 ]
                 .into_iter()
                 .map(ProofReference::from_canonical)
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             });
         }
         if !supported {

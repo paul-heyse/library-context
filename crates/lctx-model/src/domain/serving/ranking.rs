@@ -39,7 +39,7 @@ impl Default for RankingPolicy {
             revision: 2,
             lexical: LexicalPolicy {
                 analyzer: super::Name::new("lctx_discovery").expect("bounded analyzer name"),
-                definition: ContentHash::of(b"lctx-discovery/v1:class;lowercase,ascii"),
+                definition: ContentHash::of(b"lctx-discovery/v1:class;lowercase"),
                 k1: 1.5,
                 b: 0.75,
             },

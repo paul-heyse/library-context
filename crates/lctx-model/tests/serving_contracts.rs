@@ -757,7 +757,7 @@ fn evidence_body_pages_omit_terminal_continuation_and_reject_null() {
 
 #[test]
 fn capability_assertion_status_is_structured_and_visible_without_rewriting_authored_bytes() {
-    let claim = json!({"assertion":vec![1u8;16],"kind":0,"section":0,"status":1,"qualification":vec![2u8;16],"claim_basis":{"set":lctx_model::domain::assumptions::AssumptionSet::empty_id(),"members_digest":lctx_model::domain::assumptions::AssumptionSet::empty().members,"definitions":[]},"terminal_question":null,"text":"Authored result.","supports":[{"support":vec![3u8;16],"role":0,"source":vec![4u8;16],"proof":[{"relation":"programmatic_assertion_sources","row":vec![4u8;16]}]}]});
+    let claim = json!({"assertion":vec![1u8;16],"kind":0,"section":0,"status":1,"qualification":vec![2u8;16],"claim_basis":{"set":lctx_model::domain::assumptions::AssumptionSet::empty_id(),"members_digest":lctx_model::domain::assumptions::AssumptionSet::empty().members,"definitions":[]},"terminal_question":null,"text":"Authored result.","supports":[{"support":vec![3u8;16],"role":0,"source":vec![4u8;16],"proof":[{"kind":"entity","entity":vec![4u8;32]}]}]});
     let schema = schema_for::<AssertionPacket>(true);
     let validator = jsonschema::validator_for(&schema).unwrap();
     assert!(validator.is_valid(&claim));
@@ -960,4 +960,19 @@ fn original_flow_inventory_schema_preserves_native_closure_and_value_boundary() 
     assert!(binding.permits::<lctx_model::domain::flow_inventory::FlowUseCandidate>());
     assert!(binding.permits::<lctx_model::domain::flow_inventory::FlowUseInventoryMember>());
     assert!(binding.permits::<lctx_model::domain::flow::FlowReachingSupport>());
+}
+
+#[test]
+fn packet_proofs_address_selected_graph_owners_and_refuse_old_wire_rows() {
+    let member = serde_json::from_value::<Id<catalog::CatalogMember>>(json!(vec![19;16])).unwrap();
+    let exposure = serde_json::from_value::<Id<catalog::CatalogExposure>>(json!(vec![23;16])).unwrap();
+    let entity = ProofReference::from_canonical(derivation::RowRef::of(member)).unwrap();
+    let assertion = ProofReference::from_canonical(derivation::RowRef::of(exposure)).unwrap();
+    assert_eq!(entity, ProofReference::Entity {entity: graph::EntityId::of(member).0.0});
+    assert_eq!(assertion, ProofReference::Assertion {assertion: graph::AssertionId::of(exposure).0.0});
+    assert_eq!(entity.target(), graph::Target::Entity(graph::EntityId::of(member)));
+    assert_ne!(entity, assertion);
+    assert!(serde_json::from_value::<ProofReference>(json!({"relation":"catalog_members","row":vec![19;16]})).is_err());
+    assert!(serde_json::from_value::<ProofReference>(json!({"kind":"entity","entity":vec![19;16]})).is_err());
+
 }

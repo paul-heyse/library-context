@@ -228,7 +228,7 @@ fn fixture_scope(
 fn checked_terminal_packet_preserves_given_entry_and_refuses_missing_or_changed_basis() {
     let (d, s, w, q) = fixture();
     let checked = terminal::checked(&d, &s, w.id(), &q, id(1), id(2)).unwrap();
-    let packet = TerminalQuestionPacket::from_canonical(&checked);
+    let packet = TerminalQuestionPacket::from_canonical(&checked).unwrap();
     assert_eq!(packet.scope, q.scope);
     assert_eq!(
         (
@@ -258,12 +258,12 @@ fn checked_terminal_packet_preserves_given_entry_and_refuses_missing_or_changed_
         "summary_support_sources",
     ] {
         assert!(
-            packet.proof.iter().any(|p| p.relation.as_str() == relation),
+            checked.proof().iter().any(|p| p.relation() == relation),
             "actual scoped source: {relation}"
         );
     }
-    assert!(!packet.proof.iter().any(|p| {
-        ["claim_proofs", "claim_conclusions", "body_executions"].contains(&p.relation.as_str())
+    assert!(!checked.proof().iter().any(|p| {
+        ["claim_proofs", "claim_conclusions", "body_executions"].contains(&p.relation())
     }));
     assert!(terminal::checked(&d, &s, w.id(), &q, id(20), id(2)).is_err());
     assert!(terminal::checked(&d, &s, w.id(), &q, id(1), id(20)).is_err());
@@ -306,7 +306,7 @@ fn terminal_schema_has_required_question_finite_code_and_nullable_assertion_slot
     let (d, s, w, q) = fixture();
     let packet = TerminalQuestionPacket::from_canonical(
         &terminal::checked(&d, &s, w.id(), &q, id(1), id(2)).unwrap(),
-    );
+    ).unwrap();
     let schema = schema_for::<TerminalQuestionPacket>(true);
     let validator = jsonschema::validator_for(&schema).unwrap();
     let question = serde_json::to_value(packet).unwrap();
@@ -366,7 +366,7 @@ fn terminal_scope_is_owned_artifact_or_input_and_never_rewritten() {
         let (d, s, w, q) = fixture_scope(input_scope, false);
         let packet = TerminalQuestionPacket::from_canonical(
             &terminal::checked(&d, &s, w.id(), &q, id(1), id(2)).unwrap(),
-        );
+        ).unwrap();
         assert_eq!(packet.scope, q.scope);
         if !input_scope {
             assert_ne!(
