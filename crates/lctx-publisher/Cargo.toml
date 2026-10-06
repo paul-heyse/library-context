@@ -16,6 +16,10 @@ tempfile.workspace = true
 [dev-dependencies]
 cpg-extract = { path = "../cpg-extract" }
 datafusion.workspace = true
+futures.workspace = true
+surrealdb-protocol = "0.13"
+tonic = { version = "0.14", features = ["transport"] }
+tokio-stream = { version = "0.1", features = ["net"] }
 tokio.workspace = true
 tempfile.workspace = true
 [lints]

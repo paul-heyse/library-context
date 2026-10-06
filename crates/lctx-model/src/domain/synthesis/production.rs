@@ -153,7 +153,7 @@ pub fn memberships()->Vec<(std::any::TypeId,&'static str)>{
     own!(assumptions::AssumptionSetMember,"set");
     own!(structural::handoffs::Member,"group");
     own!(catalog::evidence::ScenarioSpan,"scenario");
-    own!(structural::ControlPath,"traversal");own!(structural::ControlStep,"path");
+    own!(structural::controls::ControlPath,"traversal");own!(structural::controls::ControlStep,"path");
     own!(lexical::BindingObservation,"event");own!(lexical::LexicalResolution,"read");own!(syntax::ImportAliasObservation,"statement");
     own!(flow::FlowUse,"occurrence");own!(flow::FlowUseObservation,"use_");own!(flow::FlowReachingObservation,"use_");own!(flow_inventory::FlowUseInventoryObservation,"use_");own!(flow::FlowDefinitionObservation,"definition");
     own!(flow::FlowUseSupport,"assertion");own!(flow::FlowDefinitionSupport,"assertion");own!(flow::FlowReachingSupport,"assertion");
