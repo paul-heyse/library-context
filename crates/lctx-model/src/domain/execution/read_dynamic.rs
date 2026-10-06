@@ -96,6 +96,7 @@ struct Inspect<'a> {
     work: &'a mut Work,
     budget: &'a resources::ResourceBudget,
     premises: Rows<NativeAssertionPremise>,
+    actual:Option<super::read_channels::ReadEntries<'a>>,
 }
 struct DynamicSite {
     site: Id<Occurrence>,
@@ -239,10 +240,15 @@ impl Inspect<'_> {
                 context: self.invocation.context,
                 run,
             };
-            let Ok(proof) =
-                conditions::entry::EntryValueWitness::derive(self.entry, request, self.budget)?
-            else {
-                continue;
+            let proof=if let Some(actual)=self.actual {
+                let mut candidates=actual.witnesses.iter().filter(|w|w.owner==request.owner && w.formal==request.formal && w.access==request.access && w.context==request.context && w.run==request.run && matches!(actual.sources.get(w.access_source),Some(conditions::entry::EntryAccessSource::Use {..})));
+                let Some(witness)=candidates.next() else {continue;};
+                if candidates.next().is_some(){return Ok(None);}
+                let source=actual.sources.get(witness.access_source).ok_or_else(||ModelError::Invalid("actual dynamic entry source missing".into()))?;
+                actual.actual.entry(witness,source,self.budget)?
+            }else {
+                // Finite whole-input owner oracle. Production always supplies actual Local.
+                let Ok(proof)=conditions::entry::EntryValueWitness::derive(self.entry,request,self.budget)? else {continue;};proof
             };
             if selected.is_some() {
                 return Ok(None);
@@ -1105,7 +1111,9 @@ pub(super) fn native_name(
     Ok(selected.map(|(name, id)| (name, id, !mixed)))
 }
 
-pub(super) fn produce(
+#[derive(Clone,Copy)]
+pub(super) enum SelectedRoot {Call(Id<calls::CallSyntax>),Attribute(Id<flow::FlowAttributeLoadObservation>)}
+pub(super) fn produce_selected(
     data: &EvaluationData,
     entry: &EntryData,
     invocation: &publication::AnalysisInvocation,
@@ -1113,8 +1121,10 @@ pub(super) fn produce(
     records: &mut super::read_channels::ReadRecords,
     budget: &resources::ResourceBudget,
     work: &mut Work,
+    selected_id:Option<SelectedRoot>,
+    actual:Option<super::read_channels::ReadEntries<'_>>,
 ) -> Result<(), ModelError> {
-    for call in data.call_syntax.iter() {
+    for call in data.call_syntax.iter().filter(|row|selected_id.is_none_or(|root|matches!(root,SelectedRoot::Call(id)if row.id()==id))) {
         work.tick()?;
         if !selected(entry, invocation, call.site, roots)
             || entry
@@ -1171,6 +1181,7 @@ pub(super) fn produce(
             work,
             budget,
             premises: Rows::new(budget),
+            actual,
         };
         let native = inspect.observe(
             &data.call_syntax_supports,
@@ -1271,7 +1282,7 @@ pub(super) fn produce(
             native && builtin && receiver_kind,
         )?;
     }
-    for attribute in data.attribute_loads.iter() {
+    for attribute in data.attribute_loads.iter().filter(|row|selected_id.is_none_or(|root|matches!(root,SelectedRoot::Attribute(id)if row.id()==id))) {
         work.tick()?;
         if attribute.name != "__dict__"
             || !selected(entry, invocation, attribute.occurrence, roots)
@@ -1292,6 +1303,7 @@ pub(super) fn produce(
             work,
             budget,
             premises: Rows::new(budget),
+            actual,
         };
         let native = inspect.observe(
             &data.attribute_load_supports,
@@ -1345,6 +1357,7 @@ pub(super) fn global_candidate(
     binding: &BindingObservation,
     budget: &resources::ResourceBudget,
     work: &mut Work,
+    actual:Option<super::read_channels::ReadEntries<'_>>,
 ) -> Result<Option<(Id<ClassEntity>, ContentHash, EvidenceStatus)>, ModelError> {
     let Some(event) = data.binding_events.get(binding.event) else {
         return Ok(None);
@@ -1356,6 +1369,7 @@ pub(super) fn global_candidate(
         work,
         budget,
         premises: Rows::new(budget),
+        actual,
     };
     let Some(value) = inspect.global_value(event)? else {
         return Ok(None);

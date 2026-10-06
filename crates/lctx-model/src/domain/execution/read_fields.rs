@@ -387,20 +387,33 @@ fn receiver_sources(
     }
     Ok(Some(digest.finish()))
 }
-pub(super) fn produce(
-    data: &EvaluationData,
-    entry: &EntryData,
-    inv: &publication::AnalysisInvocation,
-    roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
-    out: &mut ReadRecords,
-    budget: &resources::ResourceBudget,
-    work: &mut Work,
-) -> Result<(), ModelError> {
-    let mut charge = charged::StateCharge::new(budget, "field-read-native-universe");
-    let mut names = charged::ChargedSet::default();
-    let mut fields = charged::ChargedSet::default();
-    let mut digest = KeySink::new("complete-native-field-read-universe");
-    let mut complete = true;
+/// Compact complete-negative state for one actual Base invocation. Rich observations and
+/// native reports stay with their selected kernel; only names, class/name keys and fixed-value
+/// dynamic/global summaries survive a kernel boundary. Every retained value is charged.
+pub struct FieldUniverse {
+    charge:charged::StateCharge,
+    names:charged::ChargedSet<String>,
+    fields:charged::ChargedSet<(Id<ClassEntity>,String)>,
+    attribute_ids:charged::ChargedSet<Id<super::read_channels::AttributeRead>>,
+    digest:Option<KeySink>,
+    universe:Option<ContentHash>,
+    complete:bool,
+    globals:Rows<GlobalClassInspection>,
+    dynamic:Rows<super::read_dynamic::DynamicAccessObservation>,
+}
+impl FieldUniverse {
+    pub fn new(budget:&resources::ResourceBudget)->Self {Self {charge:charged::StateCharge::new(budget,"field-read-native-universe"),names:Default::default(),fields:Default::default(),attribute_ids:Default::default(),digest:Some(KeySink::new("complete-native-field-read-universe")),universe:None,complete:true,globals:Rows::new(budget),dynamic:Rows::new(budget)}}
+    pub(super) fn remember_attribute(&mut self,row:&super::read_channels::AttributeRead,name:&str)->Result<(),ModelError> {
+        self.names.insert(&mut self.charge,name.to_owned())?;
+        self.attribute_ids.insert(&mut self.charge,row.id())?;
+        if row.premise.is_none(){self.complete=false;}
+        Ok(())
+    }
+    pub(super) fn remember_dynamic(&mut self,row:&super::read_dynamic::DynamicAccessObservation)->Result<(),ModelError> {self.dynamic.insert(row.clone())?;Ok(())}
+    pub(super) fn dynamic_scope(&self)->bool {self.dynamic.iter().any(|row|matches!(row.kind,super::read_dynamic::DynamicKind::Exec|super::read_dynamic::DynamicKind::Eval))}
+    pub fn keys(&self)->impl Iterator<Item=&(Id<ClassEntity>,String)> {self.fields.iter()}
+    pub fn dynamic_classes(&self)->impl Iterator<Item=Id<ClassEntity>>+'_ {self.dynamic.iter().filter_map(|row|row.declared_class)}
+    pub(super) fn roots(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,work:&mut Work)->Result<(),ModelError> {
     // Admission roots, not observed reads, define the complete source universe.
     for artifact in roots.iter().filter(|a| {
         entry.artifacts.get(**a).is_some_and(|a| {
@@ -410,26 +423,26 @@ pub(super) fn produce(
         })
     }) {
         work.tick()?;
-        artifact.encode(&mut digest);
+        artifact.encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
         let coverages = entry.coverage.iter().filter(|c| {
             c.family == FactFamily::Flow
                 && c.context == inv.context
                 && input_scope(entry, c.scope, inv.input, *artifact)
         });
         if !super::read_channels::calls_available(entry, inv, *artifact) {
-            complete = false
+            self.complete = false
         }
         for c in entry.coverage.iter().filter(|c| {
             c.family == FactFamily::Calls
                 && c.context == inv.context
                 && input_scope(entry, c.scope, inv.input, *artifact)
         }) {
-            c.id().encode(&mut digest);
+            c.id().encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
         }
         let mut found = false;
         for c in coverages {
             work.tick()?;
-            c.id().encode(&mut digest);
+            c.id().encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
             found = true;
             if c.status != CoverageStatus::CompleteUnderStatedModel
                 || c.run.is_none_or(|run| {
@@ -439,26 +452,22 @@ pub(super) fn produce(
                         .is_none_or(|r| r.input != inv.input || r.context != inv.context)
                 })
             {
-                complete = false
+                self.complete = false
             }
         }
         if !found {
-            complete = false
+            self.complete = false
         }
     }
-    for row in out.attributes.iter() {
-        work.tick()?;
-        row.id().encode(&mut digest);
-        let native = data
-            .attribute_loads
-            .get(row.observation)
-            .ok_or_else(|| ModelError::Invalid("field read observation missing".into()))?;
-        names.insert(&mut charge, native.name.clone())?;
-        if row.premise.is_none() {
-            complete = false
-        }
+        Ok(())
     }
-    for call in data.call_syntax.iter() {
+    pub(super) fn attributes(&mut self,work:&mut Work)->Result<(),ModelError> {
+        let digest=self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?;
+        for id in self.attribute_ids.iter(){work.tick()?;id.encode(digest);}
+        Ok(())
+    }
+    pub(super) fn calls(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<calls::CallSyntax>>)->Result<(),ModelError> {
+    for call in data.call_syntax.iter().filter(|row|selected_id.is_none_or(|id|row.id()==id)) {
         work.tick()?;
         if !selected(entry, inv, call.site, roots)
             || !same_context(entry, call.qualification, inv.context)
@@ -524,7 +533,7 @@ pub(super) fn produce(
         let native_builtin = named_target.is_some_and(|target| target.2);
         conflicting |= named_target.is_some_and(|target| !target.2);
         if let Some(target) = named_target {
-            target.1.encode(&mut digest);
+            target.1.encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
         }
         let arg = data.call_arguments.iter().find(|a| {
             a.call == call.id() && a.ordinal == 1 && a.kind == calls::ArgumentKind::Positional
@@ -542,9 +551,9 @@ pub(super) fn produce(
         let Some(Literal::String { value }) = data.literals.get(*literal) else {
             continue;
         };
-        names.insert(&mut charge, value.as_str().to_owned())?;
-        call.id().encode(&mut digest);
-        detail.id().encode(&mut digest);
+        self.names.insert(&mut self.charge, value.as_str().to_owned())?;
+        call.id().encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
+        detail.id().encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
         if native(
             super::read_channels::NativeContext {
                 data,
@@ -561,10 +570,13 @@ pub(super) fn produce(
             || conflicting
             || (builtin.is_none() && !native_builtin)
         {
-            complete = false
+            self.complete = false
         }
     }
-    for row in data.class_fields.iter() {
+        Ok(())
+    }
+    pub(super) fn classes(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<ClassFieldSyntaxObservation>>)->Result<(),ModelError> {
+    for row in data.class_fields.iter().filter(|row|selected_id.is_none_or(|id|row.id()==id)) {
         work.tick()?;
         if !same_context(entry, row.qualification, inv.context)
             || !selected(entry, inv, row.target, roots)
@@ -576,12 +588,12 @@ pub(super) fn produce(
         }
         .id();
         if data.classes.get(class).is_none() {
-            complete = false;
+            self.complete = false;
             continue;
         }
         let binding = data.binding_events.iter().find(|e| e.site == row.target);
         let Some(binding) = binding else {
-            complete = false;
+            self.complete = false;
             continue;
         };
         let premise = native(
@@ -598,7 +610,7 @@ pub(super) fn produce(
         )?
         .map(|p| p.0);
         if premise.is_none() {
-            complete = false
+            self.complete = false
         }
         let location = FieldLocationObservation {
             invocation: inv.id(),
@@ -610,28 +622,31 @@ pub(super) fn produce(
             qualification: row.qualification,
             sources: ContentHash::of(b"native-class-field-declaration"),
         };
-        fields.insert(&mut charge, (class, binding.name.clone()))?;
-        location.id().encode(&mut digest);
+        self.fields.insert(&mut self.charge, (class, binding.name.clone()))?;
+        location.id().encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
         out.fields.locations.insert(location)?;
     }
-    for row in entry.definition_observations.iter() {
+        Ok(())
+    }
+    pub(super) fn stores(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<flow::FlowDefinitionObservation>>)->Result<(),ModelError> {
+    for row in entry.definition_observations.iter().filter(|row|selected_id.is_none_or(|id|row.id()==id)) {
         work.tick()?;
         if !same_context(entry, row.qualification, inv.context) {
             continue;
         }
         let Some(def) = entry.definitions.get(row.definition) else {
-            complete = false;
+            self.complete = false;
             continue;
         };
         if !selected(entry, inv, def.occurrence, roots) {
             continue;
         }
         let Some(place) = entry.places.get(def.place) else {
-            complete = false;
+            self.complete = false;
             continue;
         };
         let Some(path) = entry.paths.get(place.path) else {
-            complete = false;
+            self.complete = false;
             continue;
         };
         let Some(PathSegment::Attribute { name }) = path.first.and_then(|s| data.segments.get(s))
@@ -646,7 +661,7 @@ pub(super) fn produce(
             continue;
         };
         let Some(root) = entry.roots.get(place.root) else {
-            complete = false;
+            self.complete = false;
             continue;
         };
         let receiver=match root{PlaceRoot::Receiver{callable}=>*callable==function,PlaceRoot::Formal{declaration}=>entry.links.iter().any(|l|matches!(entry.formals.get(l.entity),Some(ParameterEntity::Source{declaration:p})if p==declaration)&&entry.parameters.get(l.parameter).is_some_and(|p|p.ordinal==0&&entry.signatures.get(p.signature).is_some_and(|s|s.role.runtime_source()))),PlaceRoot::Local{scope,name}if *scope==function=>entry.signatures.iter().filter(|s|s.role.runtime_source()&&entry.symbol_declarations.iter().any(|d|d.symbol==s.symbol&&d.declaration==function)).any(|s|entry.parameters.iter().any(|p|p.signature==s.id()&&p.ordinal==0&&data.parameter_shapes.get(p.shape).is_some_and(|shape|shape.name.as_ref().is_some_and(|n|n.as_str()==name)))),_=>false};
@@ -655,7 +670,7 @@ pub(super) fn produce(
         }
         let sources = receiver_sources(data, entry, function, class, inv, work)?;
         if sources.is_none() {
-            complete = false
+            self.complete = false
         }
         let premise = native(
             super::read_channels::NativeContext {
@@ -671,7 +686,7 @@ pub(super) fn produce(
         )?
         .map(|p| p.0);
         if premise.is_none() {
-            complete = false
+            self.complete = false
         }
         let location = FieldLocationObservation {
             invocation: inv.id(),
@@ -684,11 +699,14 @@ pub(super) fn produce(
             sources: sources
                 .unwrap_or_else(|| ContentHash::of(b"unavailable-source-field-receiver")),
         };
-        fields.insert(&mut charge, (class, name.clone()))?;
-        location.id().encode(&mut digest);
+        self.fields.insert(&mut self.charge, (class, name.clone()))?;
+        location.id().encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
         out.fields.locations.insert(location)?;
     }
-    for binding in data.bindings.iter() {
+        Ok(())
+    }
+    pub(super) fn globals(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<BindingObservation>>,actual:Option<super::read_channels::ReadEntries<'_>>)->Result<(),ModelError> {
+    for binding in data.bindings.iter().filter(|row|selected_id.is_none_or(|id|row.id()==id)) {
         work.tick()?;
         if !same_context(entry, binding.qualification, inv.context) {
             continue;
@@ -700,7 +718,7 @@ pub(super) fn produce(
             continue;
         }
         if let Some((class, sources, status)) =
-            super::read_dynamic::global_candidate(data, entry, inv, binding, budget, work)?
+            super::read_dynamic::global_candidate(data, entry, inv, binding, budget, work,actual)?
         {
             let row = GlobalClassInspection {
                 invocation: inv.id(),
@@ -709,20 +727,27 @@ pub(super) fn produce(
                 status,
                 sources,
             };
-            row.id().encode(&mut digest);
+            row.id().encode(self.digest.as_mut().ok_or(ModelError::Conflict("field universe already sealed"))?);
+            self.globals.insert(row.clone())?;
             out.fields.globals.insert(row)?;
         }
     }
-    for row in out.dynamic.iter() {
-        work.tick()?;
-        row.id().encode(&mut digest)
+        Ok(())
     }
-    let universe = digest.finish();
-    for (class, name) in fields.iter() {
+    pub(super) fn seal(&mut self,work:&mut Work)->Result<(),ModelError> {
+        let mut digest=self.digest.take().ok_or(ModelError::Conflict("field universe already sealed"))?;
+        for row in self.dynamic.iter(){work.tick()?;row.id().encode(&mut digest);}
+        self.universe=Some(digest.finish());Ok(())
+    }
+    pub(super) fn assess(&self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,class:&Id<ClassEntity>,name:&String,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work)->Result<(),ModelError> {
+        let _key=budget.reserve("field-assessment-key",name.len())?;
+        if !self.fields.contains(&(*class,name.clone())) {return Err(ModelError::Conflict("field key was not produced"));}
+        let universe=self.universe.ok_or(ModelError::Conflict("field universe is not sealed"))?;
+    {
         work.tick()?;
-        let (status, reason) = if names.contains(name) {
+        let (status, reason) = if self.names.contains(name) {
             (ReadAssessment::ObservedRead, None)
-        } else if !complete {
+        } else if !self.complete {
             (
                 ReadAssessment::Unknown,
                 Some(obligation::ObligationKind::IncompleteCoverage),
@@ -730,7 +755,7 @@ pub(super) fn produce(
         } else {
             let mut dynamic = false;
             let mut missing = false;
-            for d in out.dynamic.iter() {
+            for d in self.dynamic.iter() {
                 work.tick()?;
                 if matches!(
                     d.kind,
@@ -782,7 +807,7 @@ pub(super) fn produce(
             universe,
         };
         out.fields.assessments.insert(row)?;
-        for global in out.fields.globals.iter().filter(|g| g.class == *class) {
+        for global in self.globals.iter().filter(|g| g.class == *class) {
             out.fields
                 .global_assessments
                 .insert(GlobalFieldReadAssessment {
@@ -794,5 +819,20 @@ pub(super) fn produce(
                 })?;
         }
     }
+        Ok(())
+    }
+}
+pub(super) fn produce(data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,actual:Option<super::read_channels::ReadEntries<'_>>)->Result<(),ModelError> {
+    let mut universe=FieldUniverse::new(budget);
+    for row in out.attributes.iter(){let native=data.attribute_loads.get(row.observation).ok_or_else(||ModelError::Invalid("field read observation missing".into()))?;universe.remember_attribute(row,&native.name)?;}
+    for row in out.dynamic.iter(){universe.remember_dynamic(row)?;}
+    universe.roots(data,entry,inv,roots,work)?;universe.attributes(work)?;
+    universe.calls(data,entry,inv,roots,out,budget,work,None)?;
+    universe.classes(data,entry,inv,roots,out,budget,work,None)?;
+    universe.stores(data,entry,inv,roots,out,budget,work,None)?;
+    universe.globals(data,entry,inv,roots,out,budget,work,None,actual)?;
+    universe.seal(work)?;
+    // Iterate compact field keys without retaining any rich kernel input or output.
+    for (class,name) in universe.fields.iter(){universe.assess(data,entry,inv,class,name,out,budget,work)?;}
     Ok(())
 }

@@ -215,7 +215,9 @@ fn evaluate_selected_produced(data:&EvaluationData,entry:&EntryData,stored_entri
     let artifacts = data.artifacts.iter().cloned().collect::<Vec<_>>();
     let uses = data.uses.iter().cloned().collect::<Vec<_>>();
     let roots = admission::analysis_roots(&artifacts, &uses)?;
-    if emit_reads {records.reads = super::read_channels::produce(data, entry, invocation, &roots, budget)?;}
+    if emit_reads {records.reads=if let Some(actual)=actual_local {
+        super::read_channels::produce_with_local(data,entry,invocation,&roots,budget,super::read_channels::ReadEntries {witnesses:stored_entries,sources:entry_sources,actual})?
+    }else {super::read_channels::produce(data,entry,invocation,&roots,budget)?};}
     let prepared = PreparedExecution::new(data, invocation.input, invocation.context, budget)?;
     let mut entry_proofs = Vec::new();
     let mut charge = charged::StateCharge::new(budget, "base_entry_inventory");
