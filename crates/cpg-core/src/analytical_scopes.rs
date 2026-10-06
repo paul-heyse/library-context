@@ -147,7 +147,7 @@ impl FrameScopes {
   if matches!(kind,Kind::Structural){if let(Some(links),Some(members))=(idx(TypeId::of::<catalog::CatalogMemberInvocation>()),idx(TypeId::of::<catalog::CatalogMember>())){let link_rows=identifier(&tables[links].alias);plan.pairs(root,links,format!("SELECT f.id AS source_id,l.id AS target_id FROM {roots} f JOIN {link_rows} l ON l.invocation=f.id"))?;let _=members;}}
   if matches!(kind,Kind::Analytic){
    // All records owned by this StructuralFrame are the complete topology/attribute universe.
-   for(member,table)in tables[..real].iter().enumerate(){for field in table.relation.fields().iter().filter(|field|field.target().map(|(target,_)|target)==Some(TypeId::of::<structural::StructuralFrame>()) && !field.list()){plan.own(member,field.name(),source)?;}}
+   for(member,table)in tables[..real].iter().enumerate(){for field in table.relation.fields().iter().filter(|field|field.target().map(|(target,_)|target)==Some(TypeId::of::<structural::StructuralFrame>()) && !field.list()){plan.own(member,field.name(),root)?;}}
    if let(Some(occurrences),Some(placements),Some(quals),Some(from),Some(target))=(alias(TypeId::of::<source::Occurrence>()),alias(TypeId::of::<syntax::SyntaxPlacement>()),alias(TypeId::of::<assertion::AssertionQualification>()),idx(TypeId::of::<source::Occurrence>()),idx(TypeId::of::<syntax::SyntaxPlacement>())){
     plan.pairs(from,target,format!("SELECT o.id AS source_id,p.id AS target_id FROM {occurrences} o JOIN {placements} p ON p.parent=o.id JOIN {occurrences} c ON c.id=p.occurrence JOIN {quals} q ON q.id=p.qualification WHERE o.syntax_kind={} AND c.syntax_kind={}",source::SyntaxKind::ParameterWithDefault.code(),source::SyntaxKind::Parameter.code()))?;
    }
