@@ -448,7 +448,36 @@ impl SourceCallScopes {
             own!(SourceFrameRelease, "header", SourceCallHeader);
             own!(SourceFrameArgument, "release", SourceFrameRelease);
             own!(SourceInvocation, "release", SourceFrameRelease);
+            // Enriched may finish a body that its admitted SourceCall header could not
+            // release earlier. Every direct Body statement must then enter payload
+            // traversal, including value children beyond the caller's ordinal-zero prefix.
+            let source_headers = table!(SourceCallHeader);
+            plan.pairs(
+                index(TypeId::of::<SourceCallHeader>())?,
+                payload,
+                format!("SELECT h.id AS source_id,p.occurrence AS target_id FROM {source_headers} h JOIN {placements} p ON p.parent=h.declaration WHERE p.field={}", SyntaxField::Body.code()),
+            )?;
             let owners = table!(OccurrenceOwnership);
+            let parameter_syntax = table!(ParameterSyntaxObservation);
+            // Statement completion observes every immediate declaration child before
+            // dispatch. Definition evaluation also needs the complete parameter domain.
+            // The header namespace expands non-Body syntax only; nested Body execution
+            // remains an explicit owner payload, rather than a metadata side effect.
+            plan.pairs(
+                payload,
+                header,
+                format!("SELECT id AS source_id,id AS target_id FROM {occurrences} WHERE syntax_kind={}", SyntaxKind::StmtFunctionDef.code()),
+            )?;
+            plan.pairs(
+                header,
+                index(TypeId::of::<ParameterSyntaxObservation>())?,
+                format!("SELECT d.id AS source_id,p.id AS target_id FROM {occurrences} d JOIN {parameter_syntax} p ON p.function=d.id"),
+            )?;
+            plan.pairs(
+                owner,
+                header,
+                format!("SELECT r.id AS source_id,c.source_declaration AS target_id FROM {refs} r JOIN {callables} c ON c.id=r.callable_callable WHERE c.source_declaration IS NOT NULL"),
+            )?;
             plan.pairs(
                 owner,
                 index(TypeId::of::<EntityRef>())?,
@@ -851,6 +880,7 @@ mod controls {
         Occurrence,
         [NormalizedCallAlternative; 2],
         value::Literal,
+        Occurrence,
     ) {
         let artifact =
             SourceArtifact::from_bytes(id(1), "scope.py".into(), b"def caller():\n  pass\n")
@@ -989,6 +1019,36 @@ mod controls {
                 docstring: None,
             });
         }
+        let CallableEntity::Source { declaration: callee, .. } = &entities[1] else {
+            unreachable!("source callee fixture");
+        };
+        let later_return = Occurrence {
+            start: 24,
+            end: 29,
+            syntax_kind: SyntaxKind::StmtReturn,
+            structural_path: vec![0, 1, 1],
+            ..caller.clone()
+        };
+        let returned_value = Occurrence {
+            start: 27,
+            end: 28,
+            syntax_kind: SyntaxKind::ExprName,
+            role: OccurrenceRole::Syntax,
+            structural_path: vec![0, 1, 1, 0],
+            ..caller.clone()
+        };
+        occurrences.extend([later_return.clone(), returned_value.clone()]);
+        register(session, &[execution::source_call_records::SourceCallHeader {
+            invocation: id(13),
+            event: event.id(),
+            attempt: id(14),
+            owner: owner.id(),
+            callee: callees[0].entity.unwrap(),
+            declaration: *callee,
+            qualification: q.id(),
+            status: analysis::policy::EvidenceStatus::StructurallyObserved,
+            premises: ContentHash::of(b"header-scope-control"),
+        }]);
         register(session, std::slice::from_ref(&artifact));
         register(
             session,
@@ -1031,19 +1091,33 @@ mod controls {
                     field: SyntaxField::Value,
                     ordinal: 0,
                 },
+                SyntaxPlacement {
+                    qualification: q.id(),
+                    occurrence: later_return.id(),
+                    parent: Some(*callee),
+                    field: SyntaxField::Body,
+                    ordinal: 1,
+                },
+                SyntaxPlacement {
+                    qualification: q.id(),
+                    occurrence: returned_value.id(),
+                    parent: Some(later_return.id()),
+                    field: SyntaxField::Value,
+                    ordinal: 0,
+                },
             ],
         );
         register(session, std::slice::from_ref(&literal));
         register(session, &[detail]);
         register(session, &[observation]);
-        (event, owner, rich, callees.try_into().unwrap(), literal)
+        (event, owner, rich, callees.try_into().unwrap(), literal, returned_value)
     }
     #[tokio::test]
     async fn event_and_owner_closures_keep_all_alternatives_and_project_unused_docstring() {
         let session = SessionContext::new();
         let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
         drop(prepare(&session, &budget, true).await);
-        let (event, owner, rich, alternatives, literal) = fixture(&session);
+        let (event, owner, rich, alternatives, literal, returned_value) = fixture(&session);
         drop(literal);
         let prepared = bound(&session, &budget, true).await;
         let retained = budget.reserved();
@@ -1061,6 +1135,11 @@ mod controls {
                     Some(alternative)
                 );
             }
+            assert_eq!(
+                data.source.evaluation.occurrences.get(returned_value.id()),
+                Some(&returned_value),
+                "an admitted header needs value children of every callee Body statement",
+            );
             assert!(data.source.evaluation.occurrences.get(rich.id()).is_none());
             assert!(
                 data.source.evaluation.literals.is_empty(),
