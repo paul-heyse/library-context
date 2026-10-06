@@ -115,6 +115,14 @@ impl EvidenceScopes {
                 else if table.relation.type_id()==TypeId::of::<syntax::ParameterSyntaxObservation>() { Some("function") } else { None };
             if let Some(field)=owner_field { plan.own(source,field,occurrence)?; }
         }
+        // Setup dependencies enumerate every actual source read and preceding binding, not
+        // only rows incidentally reached through a normalized call. Ordinary references to a
+        // lexical scope must not open all bindings or assessments of another source.
+        let references=typed::<lexical::ReferenceObservation>(&inputs)?;
+        let assessments=typed::<normalized::links::ReferenceEntityAssessment>(&inputs)?;
+        plan.pairs(root,assessments,format!("SELECT site.source AS source_id,a.id AS target_id FROM {} a JOIN {} r ON a.reference=r.id JOIN {} site ON r.read=site.id",identifier(&tables[assessments].alias),identifier(&tables[references].alias),identifier(&tables[occurrence].alias)))?;
+        let bindings=typed::<lexical::BindingObservation>(&inputs)?;let events=typed::<lexical::BindingEvent>(&inputs)?;
+        plan.pairs(root,bindings,format!("SELECT site.source AS source_id,b.id AS target_id FROM {} b JOIN {} e ON b.event=e.id JOIN {} site ON e.site=site.id",identifier(&tables[bindings].alias),identifier(&tables[events].alias),identifier(&tables[occurrence].alias)))?;
         let edges = plan.prepare(session, budget).await?;
         Ok(Self { inputs, edges, root })
     }
@@ -200,4 +208,27 @@ mod controls {
         assert_eq!(data.core.occurrences.len(),1);assert_eq!(data.core.occurrences.iter().next().unwrap().source,fence.id());
         drop(data);drop(scope);drop(prepared);assert_eq!(budget.reserved(),0);
     }
+    #[tokio::test]
+    async fn actual_source_reads_and_bindings_preserve_setup_without_opening_shared_scope_neighbors(){
+        use lctx_model::domain::{assertion::{Approximation,AssertionQualification},lexical::*,normalized::{entities::ResolutionStatus,links::{ReferenceEntityAssessment,LinkReason}},catalog::evidence::{build,SetupDependency}};
+        let budget=ResourceBudget::fixed(8<<20).unwrap();let(session,inputs,tables)=fixture();
+        let source=SourceArtifact::from_bytes(nominal(1),"example.py".into(),b"missing()
+").unwrap();let other=SourceArtifact::from_bytes(nominal(1),"other.py".into(),b"neighbor
+").unwrap();
+        let occurrences:Vec<_>=[&source,&other].into_iter().map(|source|Occurrence{source:source.id(),start:0,end:7,syntax_kind:SyntaxKind::ExprName,role:OccurrenceRole::Syntax,structural_path:vec![0]}).collect();
+        let lexical=LexicalScope{owner:occurrences[0].id(),kind:LexicalScopeKind::Module};
+        let qualifications:Vec<_>=[&source,&other].into_iter().map(|source|AssertionQualification{assumptions:assumptions::AssumptionSet::empty_id(),context:nominal(2),scope:CoverageScope::Artifact{artifact:source.id()}.id(),condition:conditions::Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact}).collect();
+        let references:Vec<_>=occurrences.iter().zip(&qualifications).map(|(site,q)|ReferenceObservation{qualification:q.id(),read:site.id(),scope:lexical.id(),parent:site.id(),field:SyntaxField::Callee,name:"missing".into()}).collect();
+        let assessments:Vec<_>=references.iter().map(|reference|ReferenceEntityAssessment{reference:reference.id(),status:ResolutionStatus::Unresolved,reason:LinkReason::MissingResolution}).collect();
+        let events:Vec<_>=occurrences.iter().map(|site|BindingEvent{site:site.id(),name:"bound".into()}).collect();
+        let bindings:Vec<_>=events.iter().zip(&qualifications).map(|(event,q)|BindingObservation{qualification:q.id(),event:event.id(),scope:lexical.id(),kind:BindingEventKind::Assignment,ordinal:0,value:None,static_branch:None,static_polarity:None}).collect();
+        let usage=ArtifactUse{artifact:source.id(),input:source.input,role:SourceRole::Example};let coverage_scope=CoverageScope::Artifact{artifact:source.id()};let coverage=ProviderCoverage{scope:coverage_scope.id(),provider:Some(nominal(3)),context:nominal(2),family:FactFamily::Syntax,run:Some(nominal(4)),status:CoverageStatus::Failed,reason:Some(obligation::ObligationKind::SyntaxError),diagnostic:None};
+        install(&session,&tables,&inputs,&[source.clone(),other]);install(&session,&tables,&inputs,&occurrences);install(&session,&tables,&inputs,&[lexical.clone()]);install(&session,&tables,&inputs,&qualifications);install(&session,&tables,&inputs,&references);install(&session,&tables,&inputs,&assessments);install(&session,&tables,&inputs,&events);install(&session,&tables,&inputs,&bindings);install(&session,&tables,&inputs,&[usage.clone()]);install(&session,&tables,&inputs,&[coverage_scope]);install(&session,&tables,&inputs,&[coverage.clone()]);
+        let prepared=EvidenceScopes::prepare_bound(inputs.clone(),tables,&session,&budget).await.unwrap();let scope=prepared.edges.grain(prepared.root,&predicate(source.id()),&budget).await.unwrap();let actual=load(&scope,&inputs,&budget).await;
+        assert_eq!(actual.core.reference_assessments.len(),1);assert_eq!(actual.core.reference_assessments.iter().next().unwrap().id(),assessments[0].id());assert_eq!(actual.core.bindings.len(),1);assert_eq!(actual.core.bindings.iter().next().unwrap().id(),bindings[0].id());
+        let mut expected=EvidenceData::new(&budget);expected.core.artifacts.insert(source).unwrap();expected.facts.uses.insert(usage).unwrap();expected.core.native_coverage.insert(coverage).unwrap();expected.core.lexical_scopes.insert(lexical).unwrap();expected.core.occurrences.insert(occurrences[0].clone()).unwrap();expected.core.qualifications.insert(qualifications[0].clone()).unwrap();expected.core.references.insert(references[0].clone()).unwrap();expected.core.reference_assessments.insert(assessments[0].clone()).unwrap();expected.core.binding_events.insert(events[0].clone()).unwrap();expected.core.bindings.insert(bindings[0].clone()).unwrap();
+        let oracle=build::build(&expected,&budget).unwrap();let rows=build::build(&actual,&budget).unwrap();rows.matches(&oracle).unwrap();assert!(rows.setup.iter().any(|row|*row==SetupDependency::UnresolvedReference{assessment:assessments[0].id()}));
+        drop(rows);drop(oracle);drop(actual);drop(expected);drop(scope);drop(prepared);assert_eq!(budget.reserved(),0);
+    }
+
 }
