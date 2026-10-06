@@ -15,6 +15,8 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+#[path="execution_scope.rs"]
+mod execution_scope;
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
@@ -291,7 +293,7 @@ pub async fn complete_base(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     evaluations: Option<&Produced<production::ProducedEvaluations>>,
 ) -> Result<Option<Produced<execution::completion_production::ProducedBodies>>, ModelError> {
@@ -308,19 +310,20 @@ pub async fn complete_base(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut data = execution::completion_production::CompletedEvaluations::new(budget);
+    let data = execution::completion_production::CompletedEvaluations::new(budget);
+    let scopes=if profile==Profile::Behavioral {Some(execution_scope::CompletionScopes::prepare(&access,&session,model,budget).await?)}else{None};
     let mut declarations =
         execution::completion_production::CompletedEvaluations::consumed_inputs(profile);
     declarations.extend(analysis::expected::inputs(definition.method));
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
-    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|{data.visit_input(input, batch)}).await?;})*};}
+    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|{let _=input;let _=batch;Ok(())}).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
     }
     let mut base = Rows::<analysis::base_evaluation::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
-    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input, batch)).await?;)*};}
+    macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     if profile == Profile::Behavioral {
         read!(
             EntryValueWitness,
@@ -338,7 +341,7 @@ pub async fn complete_base(
         &mut admission,
         |input, _, batch| {
             base.decode(batch)?;
-            data.visit_input(input, batch)
+            let _=input;Ok(())
         },
     )
     .await?;
@@ -349,7 +352,7 @@ pub async fn complete_base(
         &mut admission,
         |input, _, batch| {
             definitions.decode(batch)?;
-            data.visit_input(input, batch)
+            let _=input;Ok(())
         },
     )
     .await?;
@@ -360,7 +363,6 @@ pub async fn complete_base(
     }
     macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
-    drop(session);
     consumed.finish(access.name())?;
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<completion_publication::$record>()?;)*};}
@@ -445,8 +447,50 @@ pub async fn complete_base(
             evaluations,
         )?;
         match produced.as_mut() { Some(value) => value.append(owner)?, None => produced = Some(owner) };
-        macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
-        write!(completions:StatementCompletion,outcomes:CompletionOutcome,sources:CompletionSource,members:CompletionMember,entered:EnteredStatement,boundaries:CompletionBoundary,bodies:SourceBodyCompletion,body_sources:BodySource,body_members:BodyMember,body_releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
+        let mut run=records.run;
+        let mut outcome=records.outcome;
+        if let Some(scopes)=&scopes {
+            use futures::TryStreamExt;
+            let actual=evaluations.ok_or(ModelError::Conflict("base evaluation owner authority absent"))?;
+            for body in [false,true] {
+                let mut roots=crate::sql::query(&session,&scopes.roots(frame.input,body)?).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {
+                    let _root_transfer=budget.reserve("completion-root-transfer",batch.get_array_memory_size())?;
+                    for row in 0..batch.num_rows() {
+                        runtime.cancellation().check()?;
+                        let id=crate::scoped_admission::column(&batch,"id",row)?.ok_or(ModelError::Schema("completion root absent"))?;
+                        let records=if body {
+                            let callable:Id<normalized::entities::CallableEntity>=execution_scope::nominal(&id)?;
+                            let scope=scopes.body(callable,budget).await?;
+                            let selected=scopes.data(&access,&scope,budget).await?;
+                            let owner=normalized::entities::EntityRef::Callable {callable}.id();
+                            let (records,owner)=execution::completion_production::complete_body_produced(&selected,&invocation,definition,profile,budget,actual,owner)?;
+                            produced.as_mut().expect("actual frame owner").append(owner)?;
+                            records
+                        }else {
+                            let statement:Id<source::Occurrence>=execution_scope::nominal(&id)?;
+                            let scope=scopes.statement(statement,budget).await?;
+                            let selected=scopes.data(&access,&scope,budget).await?;
+                            let (records,_)=execution::completion_production::complete_statement_produced(&selected,&invocation,definition,profile,budget,actual,statement)?;
+                            records
+                        };
+                        let add=|left:i64,right:i64|left.checked_add(right).ok_or_else(||ModelError::Invalid("completion inventory count overflow".into()));
+                        macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
+                        if body {
+                            run.bodied=add(run.bodied,records.run.bodied)?;run.body_refused=add(run.body_refused,records.run.body_refused)?;
+                            write!(bodies:SourceBodyCompletion,body_sources:BodySource,body_members:BodyMember,body_releases:BodyReleaseInput,body_boundaries:BodyBoundary,);
+                            for row in records.outcomes.iter().filter(|row|records.bodies.iter().any(|body|body.outcome==row.id())) {output.push(row.clone()).await?;}
+                            if records.run.body_refused!=0 {outcome.status=analysis::AnalysisStatus::Partial;outcome.reason=Some(obligation::ObligationKind::UnsupportedControlFlow);}
+                        }else {
+                            run.completed=add(run.completed,records.run.completed)?;run.refused=add(run.refused,records.run.refused)?;
+                            write!(completions:StatementCompletion,outcomes:CompletionOutcome,sources:CompletionSource,members:CompletionMember,entered:EnteredStatement,boundaries:CompletionBoundary,);
+                            if records.run.refused!=0 {outcome.status=analysis::AnalysisStatus::Partial;outcome.reason=Some(obligation::ObligationKind::UnsupportedControlFlow);}
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                }
+            }
+        }
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;
@@ -459,8 +503,8 @@ pub async fn complete_base(
             let (row, premises) = completion_publication::coverage::assess(
                 scope.expectation(),
                 scope.observations(),
-                records.outcome.status,
-                records.outcome.reason,
+                outcome.status,
+                outcome.reason,
                 budget,
             )?;
             output.push(row).await?;
@@ -468,8 +512,8 @@ pub async fn complete_base(
                 output.push(row).await?;
             }
         }
-        output.push(records.run).await?;
-        output.push(records.outcome).await?;
+        output.push(run).await?;
+        output.push(outcome).await?;
         output.push(invocation).await?;
         for row in parents.iter() {
             output.push(row.clone()).await?;
