@@ -149,15 +149,18 @@ enum SnapshotCommand {
     Audit { handle: PathBuf },
     /// Back up a published snapshot to a new local SQL dump, excluding credentials/history.
     Backup {
-        #[arg(long)] output: PathBuf,
-        #[arg(long)] handle: Option<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        handle: Option<PathBuf>,
     },
     /// Restore a trusted current-format SQL dump into a fresh, unselected published snapshot.
     Restore { input: PathBuf },
     /// Retire an unselected snapshot after every known reader process has been stopped.
     Retire {
         handle: PathBuf,
-        #[arg(long, required = true)] readers_stopped: bool,
+        #[arg(long, required = true)]
+        readers_stopped: bool,
     },
     /// Export one complete admitted input/context topology, including its coverage and gaps.
     Export {
@@ -179,7 +182,10 @@ enum SnapshotCommand {
     /// Validate the published marker, then atomically select this handle.
     Select { handle: PathBuf },
     /// Validate and print the explicit handle, or the current selection.
-    Show { #[arg(long)] handle: Option<PathBuf> },
+    Show {
+        #[arg(long)]
+        handle: Option<PathBuf>,
+    },
     /// Execute checked SurrealQL under the database VIEWER grant.
     Query {
         sql: String,
@@ -214,21 +220,32 @@ pub struct Refused(pub String);
 
 /// Whether an error is a refusal: the store, a lease or the read contract declined the request.
 fn refused(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| cause.is::<Refused>() || cause.is::<lctx_model::domain::serving::WireError>())
+    error
+        .chain()
+        .any(|cause| cause.is::<Refused>() || cause.is::<lctx_model::domain::serving::WireError>())
 }
 
 fn nominal_id<T>(raw: &str) -> Result<lctx_model::domain::Id<T>, String> {
-    if raw.len() != 32 { return Err("nominal ID must contain 32 hexadecimal digits".into()); }
-    let bytes = raw.as_bytes().as_chunks::<2>().0.iter().map(|pair| {
-        let pair = std::str::from_utf8(pair).map_err(|_| "nominal ID must be hexadecimal")?;
-        u8::from_str_radix(pair, 16).map_err(|_| "nominal ID must be hexadecimal")
-    }).collect::<Result<Vec<_>, _>>()?;
+    if raw.len() != 32 {
+        return Err("nominal ID must contain 32 hexadecimal digits".into());
+    }
+    let bytes = raw
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let pair = std::str::from_utf8(pair).map_err(|_| "nominal ID must be hexadecimal")?;
+            u8::from_str_radix(pair, 16).map_err(|_| "nominal ID must be hexadecimal")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     serde_json::from_value(serde_json::json!(bytes)).map_err(|error| error.to_string())
 }
 
 fn public_tool(name: &str) -> Result<String, String> {
     lctx_model::domain::serving::Tool::from_name(name)
-        .map(|tool| tool.name().to_owned()).map_err(|error| error.to_string())
+        .map(|tool| tool.name().to_owned())
+        .map_err(|error| error.to_string())
 }
 
 fn absolute(p: &Path) -> anyhow::Result<PathBuf> {
@@ -716,9 +733,14 @@ fn run() -> anyhow::Result<()> {
             if artifact_only && output.as_ref().is_some_and(|output| output.exists()) {
                 return Err(Refused("artifact destination already exists".into()).into());
             }
-            let runtime_config = runtime_config.unwrap_or_else(|| PathBuf::from(newnative::DEFAULT_CONFIG));
+            let runtime_config =
+                runtime_config.unwrap_or_else(|| PathBuf::from(newnative::DEFAULT_CONFIG));
             let target = if artifact_only {
-                compile::Target::Artifact(output.as_deref().expect("clap requires an artifact destination"))
+                compile::Target::Artifact(
+                    output
+                        .as_deref()
+                        .expect("clap requires an artifact destination"),
+                )
             } else {
                 compile::Target::Native(&runtime_config)
             };
@@ -753,13 +775,21 @@ fn run() -> anyhow::Result<()> {
                 target,
             ))
         }
-        Cmd::PublishArtifact { artifact, runtime_config, memory_bytes } => {
+        Cmd::PublishArtifact {
+            artifact,
+            runtime_config,
+            memory_bytes,
+        } => {
             let config = newnative::config(&runtime_config)?;
-            let handle = runtime()?.block_on(newnative::publish(&artifact, &config, memory_bytes))?;
+            let handle =
+                runtime()?.block_on(newnative::publish(&artifact, &config, memory_bytes))?;
             println!("{}", serde_json::to_string_pretty(&handle)?);
             Ok(())
         }
-        Cmd::Snapshot { runtime_config, command } => {
+        Cmd::Snapshot {
+            runtime_config,
+            command,
+        } => {
             let config = newnative::config(&runtime_config)?;
             let runtime = runtime()?;
             match command {
@@ -769,26 +799,62 @@ fn run() -> anyhow::Result<()> {
                 }
                 SnapshotCommand::Audit { handle } => {
                     let audited = runtime.block_on(newnative::audit(&config, &handle))?;
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"handle":audited,"audit":"passed",
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &serde_json::json!({"handle":audited,"audit":"passed",
                         "checked":["publication","canonical graph","original bytes","graph adjacency","current semantic contract","definition identity"],
-                        "outside_scope":["credentials","live queries","database mode"]}))?);
+                        "outside_scope":["credentials","live queries","database mode"]})
+                        )?
+                    );
                 }
                 SnapshotCommand::Backup { output, handle } => {
                     runtime.block_on(newnative::backup(&config, handle.as_deref(), &output))?;
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"output":output}))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({"output":output}))?
+                    );
                 }
                 SnapshotCommand::Restore { input } => {
                     let handle = runtime.block_on(newnative::restore(&config, &input))?;
                     println!("{}", serde_json::to_string_pretty(&handle)?);
                 }
-                SnapshotCommand::Retire { handle, readers_stopped } => {
+                SnapshotCommand::Retire {
+                    handle,
+                    readers_stopped,
+                } => {
                     runtime.block_on(newnative::retire(&config, &handle, readers_stopped))?;
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"retired":handle}))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({"retired":handle}))?
+                    );
                 }
-                SnapshotCommand::Export { projection, input, context, output, handle, memory_bytes } => {
-                    let key = lctx_model::domain::projection::normalization::ProjectionKey { input, context, name:projection };
-                    runtime.block_on(newnative::export(&config, handle.as_deref(), key, &output, memory_bytes))?;
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"output":output,"key":key}))?);
+                SnapshotCommand::Export {
+                    projection,
+                    input,
+                    context,
+                    output,
+                    handle,
+                    memory_bytes,
+                } => {
+                    let key = lctx_model::domain::projection::normalization::ProjectionKey {
+                        input,
+                        context,
+                        name: projection,
+                    };
+                    runtime.block_on(newnative::export(
+                        &config,
+                        handle.as_deref(),
+                        key,
+                        &output,
+                        memory_bytes,
+                    ))?;
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &serde_json::json!({"output":output,"key":key})
+                        )?
+                    );
                 }
                 SnapshotCommand::Select { handle } => {
                     let selected = runtime.block_on(newnative::select(&config, &handle))?;
@@ -799,29 +865,44 @@ fn run() -> anyhow::Result<()> {
                     println!("{}", serde_json::to_string_pretty(reader.handle())?);
                 }
                 SnapshotCommand::Query { sql, handle } => {
-                    let response = runtime.block_on(newnative::query(&config, handle.as_deref(), &sql))?;
+                    let response =
+                        runtime.block_on(newnative::query(&config, handle.as_deref(), &sql))?;
                     println!("{}", serde_json::to_string_pretty(&response)?);
                 }
             }
             Ok(())
         }
-        Cmd::Tool { tool, request, handle, runtime_config } => {
+        Cmd::Tool {
+            tool,
+            request,
+            handle,
+            runtime_config,
+        } => {
             let raw = fs_err::read_to_string(&request)?;
             let config = newnative::config(&runtime_config)?;
-            let response = runtime()?.block_on(newnative::tool(&config, handle.as_deref(), &tool, &raw))?;
+            let response =
+                runtime()?.block_on(newnative::tool(&config, handle.as_deref(), &tool, &raw))?;
             println!("{response}");
             Ok(())
         }
-        Cmd::Store { runtime_config, command } => {
+        Cmd::Store {
+            runtime_config,
+            command,
+        } => {
             let config = newnative::config(&runtime_config)?;
             let runtime = runtime()?;
             match command {
                 StoreCommand::Init => runtime.block_on(newnative::install(&config))?,
-                StoreCommand::Check => { runtime.block_on(newnative::ready(&config))?; }
+                StoreCommand::Check => {
+                    runtime.block_on(newnative::ready(&config))?;
+                }
             }
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "ready":true, "namespace":config.namespace, "cache_database":config.cache_database,
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "ready":true, "namespace":config.namespace, "cache_database":config.cache_database,
+                }))?
+            );
             Ok(())
         }
         Cmd::Flow {
@@ -884,14 +965,85 @@ mod tests {
 
     #[test]
     fn native_commands_keep_artifact_and_selection_boundaries_explicit() {
-        assert!(parse(&["compile", "fastmcp", "--through", "facts", "--runtime-config", "native.json"]).is_ok());
-        assert!(parse(&["compile", "fastmcp", "--through", "facts", "--artifact-only", "--output", "graph", "--runtime-config", "native.json"]).is_err());
-        assert!(matches!(parse(&["publish-artifact", "graph"]).unwrap().command, Cmd::PublishArtifact { .. }));
-        assert!(matches!(parse(&["snapshot", "select", "handle.json"]).unwrap().command,
-            Cmd::Snapshot { command: super::SnapshotCommand::Select { .. }, .. }));
-        assert!(parse(&["snapshot", "export", "--projection", "CallableInvocation", "--output", "graph.json"]).is_err());
-        assert!(parse(&["snapshot", "export", "--projection", "CallableInvocation", "--input", "00000000000000000000000000000000", "--context", "11111111111111111111111111111111", "--output", "graph.json"]).is_ok());
-        assert!(parse(&["snapshot", "export", "--projection", "unknown", "--input", "00000000000000000000000000000000", "--context", "11111111111111111111111111111111", "--output", "graph.json"]).is_err());
+        assert!(
+            parse(&[
+                "compile",
+                "fastmcp",
+                "--through",
+                "facts",
+                "--runtime-config",
+                "native.json"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "compile",
+                "fastmcp",
+                "--through",
+                "facts",
+                "--artifact-only",
+                "--output",
+                "graph",
+                "--runtime-config",
+                "native.json"
+            ])
+            .is_err()
+        );
+        assert!(matches!(
+            parse(&["publish-artifact", "graph"]).unwrap().command,
+            Cmd::PublishArtifact { .. }
+        ));
+        assert!(matches!(
+            parse(&["snapshot", "select", "handle.json"])
+                .unwrap()
+                .command,
+            Cmd::Snapshot {
+                command: super::SnapshotCommand::Select { .. },
+                ..
+            }
+        ));
+        assert!(
+            parse(&[
+                "snapshot",
+                "export",
+                "--projection",
+                "CallableInvocation",
+                "--output",
+                "graph.json"
+            ])
+            .is_err()
+        );
+        assert!(
+            parse(&[
+                "snapshot",
+                "export",
+                "--projection",
+                "CallableInvocation",
+                "--input",
+                "00000000000000000000000000000000",
+                "--context",
+                "11111111111111111111111111111111",
+                "--output",
+                "graph.json"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "snapshot",
+                "export",
+                "--projection",
+                "unknown",
+                "--input",
+                "00000000000000000000000000000000",
+                "--context",
+                "11111111111111111111111111111111",
+                "--output",
+                "graph.json"
+            ])
+            .is_err()
+        );
         assert!(parse(&["snapshot", "select"]).is_err());
         assert!(parse(&["snapshot", "backup", "--output", "dump.sql"]).is_ok());
         assert!(parse(&["snapshot", "list"]).is_ok());
@@ -900,7 +1052,16 @@ mod tests {
         assert!(parse(&["snapshot", "restore", "dump.sql"]).is_ok());
         assert!(parse(&["snapshot", "retire", "handle.json"]).is_err());
         assert!(parse(&["snapshot", "retire", "handle.json", "--readers-stopped"]).is_ok());
-        assert!(parse(&["snapshot", "query", "SELECT * FROM entity", "--handle", "handle.json"]).is_ok());
+        assert!(
+            parse(&[
+                "snapshot",
+                "query",
+                "SELECT * FROM entity",
+                "--handle",
+                "handle.json"
+            ])
+            .is_ok()
+        );
         assert!(parse(&["tool", "search_operations", "--request", "request.json"]).is_ok());
         assert!(parse(&["tool", "search"]).is_err());
         assert!(parse(&["store", "check", "--runtime-config", "native.json"]).is_ok());

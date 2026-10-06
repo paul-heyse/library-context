@@ -1,10 +1,13 @@
 //! Independent finite serving declaration controls; no mocked store admission is claimed.
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
-    use lctx_model::domain::serving::{SnapshotHandle, DatabaseIdentity, Name};
+    use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
     SnapshotHandle {
         semantic: lctx_model::domain::ContentHash([byte; 32]),
         realization: lctx_model::domain::ContentHash([byte; 32]),
-        database: DatabaseIdentity {namespace: Name::new("lctx").unwrap(), database: Name::new(format!("snapshot_{byte}")).unwrap()},
+        database: DatabaseIdentity {
+            namespace: Name::new("lctx").unwrap(),
+            database: Name::new(format!("snapshot_{byte}")).unwrap(),
+        },
     }
 }
 use lctx_model::{
@@ -215,7 +218,9 @@ fn continuation_rejects_each_invalidated_boundary() {
     let original = binding();
     let cursor = Cursor {
         binding: original.clone(),
-        after: CursorPosition::Key { key: ContentHash([20; 32]) },
+        after: CursorPosition::Key {
+            key: ContentHash([20; 32]),
+        },
     };
     let token = cursor.encode().unwrap();
     assert_eq!(Cursor::decode(&token, &original).unwrap(), cursor);
@@ -228,12 +233,33 @@ fn continuation_rejects_each_invalidated_boundary() {
     changed.snapshot = snapshot_for(2);
     assert!(Cursor::decode(&token, &changed).is_err());
     for snapshot in [
-        SnapshotHandle { semantic: ContentHash::of(b"other content"), ..original.snapshot.clone() },
-        SnapshotHandle { realization: ContentHash::of(b"other operations"), ..original.snapshot.clone() },
-        SnapshotHandle { database: DatabaseIdentity { namespace: Name::new("other namespace").unwrap(), ..original.snapshot.database.clone() }, ..original.snapshot.clone() },
-        SnapshotHandle { database: DatabaseIdentity { database: Name::new("other database").unwrap(), ..original.snapshot.database.clone() }, ..original.snapshot.clone() },
+        SnapshotHandle {
+            semantic: ContentHash::of(b"other content"),
+            ..original.snapshot.clone()
+        },
+        SnapshotHandle {
+            realization: ContentHash::of(b"other operations"),
+            ..original.snapshot.clone()
+        },
+        SnapshotHandle {
+            database: DatabaseIdentity {
+                namespace: Name::new("other namespace").unwrap(),
+                ..original.snapshot.database.clone()
+            },
+            ..original.snapshot.clone()
+        },
+        SnapshotHandle {
+            database: DatabaseIdentity {
+                database: Name::new("other database").unwrap(),
+                ..original.snapshot.database.clone()
+            },
+            ..original.snapshot.clone()
+        },
     ] {
-        let changed = CursorBinding { snapshot, ..original.clone() };
+        let changed = CursorBinding {
+            snapshot,
+            ..original.clone()
+        };
         assert!(Cursor::decode(&token, &changed).is_err());
     }
     let mut changed = original.clone();
@@ -513,7 +539,10 @@ fn packet_mapping_and_snapshot_schema_have_current_nominal_owners() {
     }
     let snapshot = schema_for::<SnapshotHandle>(true);
     assert_eq!(snapshot["additionalProperties"], false);
-    assert_eq!(snapshot["required"], json!(["semantic", "realization", "database"]));
+    assert_eq!(
+        snapshot["required"],
+        json!(["semantic", "realization", "database"])
+    );
     let packet = operation_response(1);
     let raw = decode_response(
         "get_operation",
@@ -634,7 +663,10 @@ fn final_transport_admission_counts_actual_utf8_envelope_and_metadata_bytes() {
     assert_eq!(rpc.len(), limit);
     admit_envelope(&rpc, false).unwrap();
     assert!(admit_envelope(&(rpc + "\n"), false).is_err());
-    let prefix = format!(r#"{{"snapshot":{},"capability":{{"capability":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"title":"x","rendered":""#, serde_json::to_string(&snapshot_for(0)).unwrap());
+    let prefix = format!(
+        r#"{{"snapshot":{},"capability":{{"capability":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"title":"x","rendered":""#,
+        serde_json::to_string(&snapshot_for(0)).unwrap()
+    );
     let suffix = r#"","assertions":[],"originals":[],"availability":{"status":"available"},"unreviewed":true,"documentation_only":true}}"#;
     let raw = format!(
         "{prefix}{}{suffix}",
@@ -964,15 +996,36 @@ fn original_flow_inventory_schema_preserves_native_closure_and_value_boundary() 
 
 #[test]
 fn packet_proofs_address_selected_graph_owners_and_refuse_old_wire_rows() {
-    let member = serde_json::from_value::<Id<catalog::CatalogMember>>(json!(vec![19;16])).unwrap();
-    let exposure = serde_json::from_value::<Id<catalog::CatalogExposure>>(json!(vec![23;16])).unwrap();
+    let member = serde_json::from_value::<Id<catalog::CatalogMember>>(json!(vec![19; 16])).unwrap();
+    let exposure =
+        serde_json::from_value::<Id<catalog::CatalogExposure>>(json!(vec![23; 16])).unwrap();
     let entity = ProofReference::from_canonical(derivation::RowRef::of(member)).unwrap();
     let assertion = ProofReference::from_canonical(derivation::RowRef::of(exposure)).unwrap();
-    assert_eq!(entity, ProofReference::Entity {entity: graph::EntityId::of(member).0.0});
-    assert_eq!(assertion, ProofReference::Assertion {assertion: graph::AssertionId::of(exposure).0.0});
-    assert_eq!(entity.target(), graph::Target::Entity(graph::EntityId::of(member)));
+    assert_eq!(
+        entity,
+        ProofReference::Entity {
+            entity: graph::EntityId::of(member).0.0
+        }
+    );
+    assert_eq!(
+        assertion,
+        ProofReference::Assertion {
+            assertion: graph::AssertionId::of(exposure).0.0
+        }
+    );
+    assert_eq!(
+        entity.target(),
+        graph::Target::Entity(graph::EntityId::of(member))
+    );
     assert_ne!(entity, assertion);
-    assert!(serde_json::from_value::<ProofReference>(json!({"relation":"catalog_members","row":vec![19;16]})).is_err());
-    assert!(serde_json::from_value::<ProofReference>(json!({"kind":"entity","entity":vec![19;16]})).is_err());
-
+    assert!(
+        serde_json::from_value::<ProofReference>(
+            json!({"relation":"catalog_members","row":vec![19;16]})
+        )
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<ProofReference>(json!({"kind":"entity","entity":vec![19;16]}))
+            .is_err()
+    );
 }

@@ -394,7 +394,9 @@ pub enum SelectionExtent {
     },
 }
 /// A reference into this response's pinned semantic graph, independent of physical table names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProofReference {
     Entity { entity: [u8; 32] },
@@ -406,9 +408,13 @@ impl ProofReference {
     }
     pub fn from_target(target: domain::graph::Target) -> Result<Self, ModelError> {
         match target {
-            domain::graph::Target::Entity(entity) => Ok(Self::Entity {entity: entity.0.0}),
-            domain::graph::Target::Assertion(assertion) => Ok(Self::Assertion {assertion: assertion.0.0}),
-            domain::graph::Target::External { .. } => Err(ModelError::Invalid("external uncertainty is not an internal proof reference".into())),
+            domain::graph::Target::Entity(entity) => Ok(Self::Entity { entity: entity.0.0 }),
+            domain::graph::Target::Assertion(assertion) => Ok(Self::Assertion {
+                assertion: assertion.0.0,
+            }),
+            domain::graph::Target::External { .. } => Err(ModelError::Invalid(
+                "external uncertainty is not an internal proof reference".into(),
+            )),
         }
     }
     fn ordering_key(&self) -> [u8; 33] {
@@ -424,8 +430,12 @@ impl ProofReference {
     }
     pub fn target(&self) -> domain::graph::Target {
         match self {
-            Self::Entity {entity} => domain::graph::Target::Entity(domain::graph::EntityId(ContentHash(*entity))),
-            Self::Assertion {assertion} => domain::graph::Target::Assertion(domain::graph::AssertionId(ContentHash(*assertion))),
+            Self::Entity { entity } => {
+                domain::graph::Target::Entity(domain::graph::EntityId(ContentHash(*entity)))
+            }
+            Self::Assertion { assertion } => domain::graph::Target::Assertion(
+                domain::graph::AssertionId(ContentHash(*assertion)),
+            ),
         }
     }
 }

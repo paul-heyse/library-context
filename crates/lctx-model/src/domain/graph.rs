@@ -663,7 +663,8 @@ pub fn target_for_row(row: super::derivation::RowRef) -> Result<Target, ModelErr
         target: row.relation(),
         key: *row.bytes(),
         subtype: None,
-    }).map(|(target, _)| target)
+    })
+    .map(|(target, _)| target)
 }
 pub fn reference_target(
     reference: &super::SemanticReference,
@@ -3212,8 +3213,12 @@ pub struct SemanticKey {
     key: [u8; 16],
 }
 impl SemanticKey {
-    pub fn domain(&self) -> &str { &self.domain }
-    pub fn bytes(&self) -> &[u8; 16] { &self.key }
+    pub fn domain(&self) -> &str {
+        &self.domain
+    }
+    pub fn bytes(&self) -> &[u8; 16] {
+        &self.key
+    }
     pub fn of<R: Record>(id: Id<R>) -> Self {
         Self {
             domain: R::NAME.into(),
@@ -4601,7 +4606,7 @@ macro_rules! graph_entity_inventory_adapter {($apply:ident;$($variant:ident:$kin
 #[macro_export]
 macro_rules! graph_entity_records {
     ($apply:ident) => {
-        $crate::graph_entity_declarations!{$crate::graph_entity_inventory_adapter, $apply}
+        $crate::graph_entity_declarations! {$crate::graph_entity_inventory_adapter, $apply}
     };
 }
 
@@ -17484,13 +17489,22 @@ retained_consumer_assertions! {
 // Reachability and narrowing qualify distinct candidate properties. Neither is a
 // candidate-wide qualifier; both remain exact field-labelled semantic references.
 impl From<super::flow_inventory::FlowUseCandidate> for ProvenanceValue {
-    fn from(row: super::flow_inventory::FlowUseCandidate) -> Self { Self::NativeFlowUseCandidate(row) }
+    fn from(row: super::flow_inventory::FlowUseCandidate) -> Self {
+        Self::NativeFlowUseCandidate(row)
+    }
 }
 impl GraphAssertionRecord for super::flow_inventory::FlowUseCandidate {
     const GRAPH_KIND: AssertionKind = AssertionKind::NativeObservation;
     fn graph_payload(row: Self) -> Assertion {
-        Assertion { source: Some(SemanticKey::of(row.id())), kind: Self::GRAPH_KIND,
-            participants: vec![], qualification: Qualification::Payload, run: None,
-            evidence: vec![], value: AssertionValue::Provenance(row.into()), derivation: None }
+        Assertion {
+            source: Some(SemanticKey::of(row.id())),
+            kind: Self::GRAPH_KIND,
+            participants: vec![],
+            qualification: Qualification::Payload,
+            run: None,
+            evidence: vec![],
+            value: AssertionValue::Provenance(row.into()),
+            derivation: None,
+        }
     }
 }

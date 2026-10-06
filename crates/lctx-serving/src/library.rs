@@ -1,18 +1,34 @@
 //! Exact first-party capture admission and collection metadata, resolved per request.
-use lctx_model::domain::{ModelError, serving::{LibraryAdmissionData,PreparedLibraryDomains,Name,LibraryDomainPacket},resources::ResourceBudget};
+use lctx_model::domain::{
+    ModelError,
+    resources::ResourceBudget,
+    serving::{LibraryAdmissionData, LibraryDomainPacket, Name, PreparedLibraryDomains},
+};
 use lctx_surrealdb::NativeReader;
-use surrealdb::types::{Variables,RecordId};
-pub async fn resolve(reader:&NativeReader,name:Option<&Name>,budget:&ResourceBudget)->Result<Vec<LibraryDomainPacket>,ModelError> {
-    let mut vars=Variables::new();vars.insert("name",name.map(|n|n.as_str().to_owned()));
-    let roots:Vec<RecordId>=reader.query("RETURN fn::lctx_library_roots($name);",vars).await?;
-    let batches=crate::scope::hydrate(reader,roots,&LibraryAdmissionData::inputs(),budget).await?;
-    let mut data=LibraryAdmissionData::new(budget);
-    for (name,batch) in &batches.batches {data.visit(name,batch)?;}
-    let prepared=PreparedLibraryDomains::prepare(&data,budget)?;
-    let resolved=prepared.resolve(name).map_err(|e|ModelError::Invalid(e.to_string()))?;
+use surrealdb::types::{RecordId, Variables};
+pub async fn resolve(
+    reader: &NativeReader,
+    name: Option<&Name>,
+    budget: &ResourceBudget,
+) -> Result<Vec<LibraryDomainPacket>, ModelError> {
+    let mut vars = Variables::new();
+    vars.insert("name", name.map(|n| n.as_str().to_owned()));
+    let roots: Vec<RecordId> = reader
+        .query("RETURN fn::lctx_library_roots($name);", vars)
+        .await?;
+    let batches =
+        crate::scope::hydrate(reader, roots, &LibraryAdmissionData::inputs(), budget).await?;
+    let mut data = LibraryAdmissionData::new(budget);
+    for (name, batch) in &batches.batches {
+        data.visit(name, batch)?;
+    }
+    let prepared = PreparedLibraryDomains::prepare(&data, budget)?;
+    let resolved = prepared
+        .resolve(name)
+        .map_err(|e| ModelError::Invalid(e.to_string()))?;
     Ok(resolved.metadata(budget)?.domains)
 }
-pub fn native_definitions()-> &'static str {
+pub fn native_definitions() -> &'static str {
     r#"
 DEFINE FUNCTION fn::lctx_library_roots($name: option<string|null>) {
  LET $packages=SELECT VALUE id FROM entity WHERE semantic_type='packages' AND ($name=NONE OR $name=NULL OR body.name=$name);

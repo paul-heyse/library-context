@@ -301,9 +301,7 @@ impl PacketBinding {
     }
     pub fn permits_relation(&self, name: &str) -> bool {
         (self.prepared.contains(&PreparedDependency::CanonicalProof)
-            && canonical_declarations()
-                .iter()
-                .any(|r| r.name() == name))
+            && canonical_declarations().iter().any(|r| r.name() == name))
             || self.mapping.sources.iter().any(|r| r.name() == name)
             || self
                 .children

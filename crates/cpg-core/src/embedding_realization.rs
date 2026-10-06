@@ -5,6 +5,9 @@ use crate::{
     workspace::{CompletedInputs, Workspace},
 };
 use futures::TryStreamExt;
+#[cfg(test)]
+use lctx_model::domain::embedding::cache::CacheFuture;
+use lctx_model::domain::embedding::cache::{CacheValue, EmbeddingCache};
 use lctx_model::domain::{
     embedding::{
         EmbeddingSpec,
@@ -15,9 +18,6 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     *,
 };
-use lctx_model::domain::embedding::cache::{CacheValue,EmbeddingCache};
-#[cfg(test)]
-use lctx_model::domain::embedding::cache::CacheFuture;
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Resource and corruption failures remain distinct from optional service availability.

@@ -5,7 +5,9 @@ pub enum MembershipValue {
     RetainedReleaseDeployment(crate::domain::catalog::evidence::ReleaseDeployment),
     RetainedScenarioSpan(crate::domain::catalog::evidence::ScenarioSpan),
     NativeFlowUseInventoryMember(crate::domain::flow_inventory::FlowUseInventoryMember),
-    RetainedEffectiveDecoratorMember(crate::domain::normalized::callables::EffectiveDecoratorMember),
+    RetainedEffectiveDecoratorMember(
+        crate::domain::normalized::callables::EffectiveDecoratorMember,
+    ),
     RetainedBriefAssertion(crate::domain::synthesis::briefs::BriefAssertion),
     RetainedBriefDocument(crate::domain::synthesis::briefs::BriefDocument),
     RetainedBriefSource(crate::domain::synthesis::briefs::BriefSource),
@@ -31,19 +33,55 @@ pub enum MembershipValue {
 impl Key for MembershipValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
-            Self::RetainedReleaseDeployment(row) => { sink.part(b"variant", &17u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedScenarioSpan(row) => { sink.part(b"variant", &18u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::NativeFlowUseInventoryMember(row) => { sink.part(b"variant", &19u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedEffectiveDecoratorMember(row) => { sink.part(b"variant", &20u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedBriefAssertion(row) => { sink.part(b"variant", &21u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedBriefDocument(row) => { sink.part(b"variant", &22u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedBriefSource(row) => { sink.part(b"variant", &23u16.to_le_bytes()); row.content_digest().encode(sink); },
+            Self::RetainedReleaseDeployment(row) => {
+                sink.part(b"variant", &17u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedScenarioSpan(row) => {
+                sink.part(b"variant", &18u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::NativeFlowUseInventoryMember(row) => {
+                sink.part(b"variant", &19u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedEffectiveDecoratorMember(row) => {
+                sink.part(b"variant", &20u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedBriefAssertion(row) => {
+                sink.part(b"variant", &21u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedBriefDocument(row) => {
+                sink.part(b"variant", &22u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedBriefSource(row) => {
+                sink.part(b"variant", &23u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
 
-            Self::SignatureSlotType(row)=>{sink.part(b"variant",&15u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SignatureReturnType(row)=>{sink.part(b"variant",&16u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionDomainContext(row)=>{sink.part(b"variant",&12u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionDomainClosure(row)=>{sink.part(b"variant",&13u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionDomainEvidence(row)=>{sink.part(b"variant",&14u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SignatureSlotType(row) => {
+                sink.part(b"variant", &15u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SignatureReturnType(row) => {
+                sink.part(b"variant", &16u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionDomainContext(row) => {
+                sink.part(b"variant", &12u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionDomainClosure(row) => {
+                sink.part(b"variant", &13u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionDomainEvidence(row) => {
+                sink.part(b"variant", &14u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
             Self::TypeSequenceMember(row) => {
                 sink.part(b"variant", &(0u16).to_le_bytes());
                 row.content_digest().encode(sink);
@@ -107,11 +145,11 @@ impl MembershipValue {
             Self::RetainedBriefDocument(row) => row.validate(),
             Self::RetainedBriefSource(row) => row.validate(),
 
-            Self::SignatureSlotType(row)=>row.validate(),
-            Self::SignatureReturnType(row)=>row.validate(),
-            Self::SelectionDomainContext(row)=>row.validate(),
-            Self::SelectionDomainClosure(row)=>row.validate(),
-            Self::SelectionDomainEvidence(row)=>row.validate(),
+            Self::SignatureSlotType(row) => row.validate(),
+            Self::SignatureReturnType(row) => row.validate(),
+            Self::SelectionDomainContext(row) => row.validate(),
+            Self::SelectionDomainClosure(row) => row.validate(),
+            Self::SelectionDomainEvidence(row) => row.validate(),
             Self::TypeSequenceMember(row) => row.validate(),
             Self::SymbolSequenceMember(row) => row.validate(),
             Self::AssumptionMember(row) => row.validate(),
@@ -137,11 +175,11 @@ impl MembershipValue {
             Self::RetainedBriefDocument(row) => row.references(),
             Self::RetainedBriefSource(row) => row.references(),
 
-            Self::SignatureSlotType(row)=>row.references(),
-            Self::SignatureReturnType(row)=>row.references(),
-            Self::SelectionDomainContext(row)=>row.references(),
-            Self::SelectionDomainClosure(row)=>row.references(),
-            Self::SelectionDomainEvidence(row)=>row.references(),
+            Self::SignatureSlotType(row) => row.references(),
+            Self::SignatureReturnType(row) => row.references(),
+            Self::SelectionDomainContext(row) => row.references(),
+            Self::SelectionDomainClosure(row) => row.references(),
+            Self::SelectionDomainEvidence(row) => row.references(),
             Self::TypeSequenceMember(row) => row.references(),
             Self::SymbolSequenceMember(row) => row.references(),
             Self::AssumptionMember(row) => row.references(),
@@ -167,11 +205,11 @@ impl MembershipValue {
             Self::RetainedBriefDocument(row) => SemanticKey::of(row.id()),
             Self::RetainedBriefSource(row) => SemanticKey::of(row.id()),
 
-            Self::SignatureSlotType(row)=>SemanticKey::of(row.id()),
-            Self::SignatureReturnType(row)=>SemanticKey::of(row.id()),
-            Self::SelectionDomainContext(row)=>SemanticKey::of(row.id()),
-            Self::SelectionDomainClosure(row)=>SemanticKey::of(row.id()),
-            Self::SelectionDomainEvidence(row)=>SemanticKey::of(row.id()),
+            Self::SignatureSlotType(row) => SemanticKey::of(row.id()),
+            Self::SignatureReturnType(row) => SemanticKey::of(row.id()),
+            Self::SelectionDomainContext(row) => SemanticKey::of(row.id()),
+            Self::SelectionDomainClosure(row) => SemanticKey::of(row.id()),
+            Self::SelectionDomainEvidence(row) => SemanticKey::of(row.id()),
             Self::TypeSequenceMember(row) => SemanticKey::of(row.id()),
             Self::SymbolSequenceMember(row) => SemanticKey::of(row.id()),
             Self::AssumptionMember(row) => SemanticKey::of(row.id()),

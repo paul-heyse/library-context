@@ -450,24 +450,33 @@ impl VerifiedExport {
     }
     /// Decode one Arrow batch at a time, retaining no resident graph collection.
     pub fn entities(&self) -> Result<impl Iterator<Item = Result<Entity, ModelError>>, ModelError> {
-        Ok(records::<Entity>(self.path.join("entities.arrow"))?.map(|value| {
-            let value = value?;
-            value.validate()?;
-            Ok(value)
-        }))
+        Ok(
+            records::<Entity>(self.path.join("entities.arrow"))?.map(|value| {
+                let value = value?;
+                value.validate()?;
+                Ok(value)
+            }),
+        )
     }
-    pub fn assertions(&self) -> Result<impl Iterator<Item = Result<Assertion, ModelError>>, ModelError> {
-        Ok(records::<Assertion>(self.path.join("assertions.arrow"))?.map(|value| {
-            let value = value?;
-            value.validate()?;
-            Ok(value)
-        }))
+    pub fn assertions(
+        &self,
+    ) -> Result<impl Iterator<Item = Result<Assertion, ModelError>>, ModelError> {
+        Ok(
+            records::<Assertion>(self.path.join("assertions.arrow"))?.map(|value| {
+                let value = value?;
+                value.validate()?;
+                Ok(value)
+            }),
+        )
     }
     /// Original bytes remain binary streams; their manifest order is canonical source order.
     pub fn originals(&self) -> impl Iterator<Item = Result<(Original, File), ModelError>> + '_ {
         self.manifest.originals.iter().map(|original| {
-            let file = File::open(self.path.join(format!("original-{}.bin", original.source.0.hex())))
-                .map_err(ModelError::codec)?;
+            let file = File::open(
+                self.path
+                    .join(format!("original-{}.bin", original.source.0.hex())),
+            )
+            .map_err(ModelError::codec)?;
             Ok((original.clone(), file))
         })
     }
@@ -477,8 +486,10 @@ fn records<T: serde::de::DeserializeOwned + serde::Serialize>(
     path: PathBuf,
 ) -> Result<impl Iterator<Item = Result<T, ModelError>>, ModelError> {
     let reader = datafusion::arrow::ipc::reader::FileReader::try_new(
-        File::open(path).map_err(ModelError::codec)?, None,
-    ).map_err(ModelError::codec)?;
+        File::open(path).map_err(ModelError::codec)?,
+        None,
+    )
+    .map_err(ModelError::codec)?;
     if reader.schema() != schema() {
         return Err(ModelError::Schema("graph artifact"));
     }
@@ -489,27 +500,40 @@ fn records<T: serde::de::DeserializeOwned + serde::Serialize>(
     let mut row = 0;
     let mut failed = false;
     Ok(std::iter::from_fn(move || {
-        if failed { return None; }
+        if failed {
+            return None;
+        }
         loop {
             if let Some(current) = &batch
                 && row < current.num_rows()
             {
-                let payloads = current.column(2).as_any().downcast_ref::<BinaryArray>()
+                let payloads = current
+                    .column(2)
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
                     .expect("checked graph artifact schema");
                 let bytes = payloads.value(row);
-                let value = serde_json::from_slice::<T>(bytes).map_err(ModelError::codec).and_then(|value| {
-                    if serde_json::to_vec(&value).map_err(ModelError::codec)? != bytes {
-                        return Err(ModelError::Conflict("artifact canonical payload"));
-                    }
-                    Ok(value)
-                });
+                let value = serde_json::from_slice::<T>(bytes)
+                    .map_err(ModelError::codec)
+                    .and_then(|value| {
+                        if serde_json::to_vec(&value).map_err(ModelError::codec)? != bytes {
+                            return Err(ModelError::Conflict("artifact canonical payload"));
+                        }
+                        Ok(value)
+                    });
                 row += 1;
                 failed = value.is_err();
                 return Some(value);
             }
             match reader.next() {
-                Some(Ok(next)) => { batch = Some(next); row = 0; }
-                Some(Err(error)) => { failed = true; return Some(Err(ModelError::codec(error))); }
+                Some(Ok(next)) => {
+                    batch = Some(next);
+                    row = 0;
+                }
+                Some(Err(error)) => {
+                    failed = true;
+                    return Some(Err(ModelError::codec(error)));
+                }
                 None => return None,
             }
         }
@@ -543,33 +567,54 @@ async fn verify_transport(
     if expected.is_some_and(|expected| manifest != *expected) {
         return Err(ModelError::Conflict("artifact manifest"));
     }
-    if manifest.families.iter().map(|family| family.family).collect::<Vec<_>>()
+    if manifest
+        .families
+        .iter()
+        .map(|family| family.family)
+        .collect::<Vec<_>>()
         != [GraphFamily::Entities, GraphFamily::Assertions]
     {
         return Err(ModelError::Conflict("artifact graph families"));
     }
     let mut metadata_charge = StateCharge::new(workspace.budget(), "artifact-transport-metadata");
-    metadata_charge.grow(manifest.originals.len() * (size_of::<EntityId>() + 64)
-        + manifest.captures.len() * (size_of::<EntityId>() + 32)
-        + manifest.embeddings.len() * (size_of::<(ContentHash, ContentHash)>() + 32))?;
-    let mut originals = manifest.originals.iter().map(|o| (o.source, o)).collect::<BTreeMap<_, _>>();
+    metadata_charge.grow(
+        manifest.originals.len() * (size_of::<EntityId>() + 64)
+            + manifest.captures.len() * (size_of::<EntityId>() + 32)
+            + manifest.embeddings.len() * (size_of::<(ContentHash, ContentHash)>() + 32),
+    )?;
+    let mut originals = manifest
+        .originals
+        .iter()
+        .map(|o| (o.source, o))
+        .collect::<BTreeMap<_, _>>();
     let mut captures = manifest.captures.iter().copied().collect::<BTreeSet<_>>();
     let mut specifications = BTreeMap::new();
     let mut projections = BTreeSet::new();
-    let mut embeddings = manifest.embeddings.iter().map(|value| (value.specification, value.text))
+    let mut embeddings = manifest
+        .embeddings
+        .iter()
+        .map(|value| (value.specification, value.text))
         .collect::<BTreeSet<_>>();
     // The two model owners share one exact value recipe. Repeated uses of a winner are allowed;
     // the manifest records the complete union of consumed (specification, request) identities.
     macro_rules! consume_embedding {
         ($consumption:ident) => {{
             use lctx_model::domain::embedding::analytic::VectorAvailability;
-            let spec = specifications.get(&$consumption.specification)
+            let spec = specifications
+                .get(&$consumption.specification)
                 .ok_or(ModelError::Conflict("artifact embedding specification"))?;
             let receipt = ($consumption.availability == VectorAvailability::Available)
-                .then(|| $consumption.receipt()).transpose()?;
-            if let Some(key) = verify_embedding(spec, $consumption.input, $consumption.availability,
-                $consumption.admitted_tokens, receipt, &manifest, workspace)?
-            {
+                .then(|| $consumption.receipt())
+                .transpose()?;
+            if let Some(key) = verify_embedding(
+                spec,
+                $consumption.input,
+                $consumption.availability,
+                $consumption.admitted_tokens,
+                receipt,
+                &manifest,
+                workspace,
+            )? {
                 embeddings.remove(&key);
             }
         }};
@@ -639,8 +684,7 @@ async fn verify_transport(
                     ));
                 }
                 let (id, hash, kind, length, subtype) = if family == GraphFamily::Entities {
-                    let value: Entity =
-                        serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+                    let value: Entity = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
                     if serde_json::to_vec(&value).map_err(ModelError::codec)? != bytes {
                         return Err(ModelError::Conflict("artifact canonical payload"));
                     }
@@ -651,18 +695,26 @@ async fn verify_transport(
                             }
                         }
                         Entity::Source(source) => {
-                            let original = originals.remove(&EntityId::of(source.id()))
+                            let original = originals
+                                .remove(&EntityId::of(source.id()))
                                 .ok_or(ModelError::Conflict("artifact source membership"))?;
-                            if original.content != source.content || original.byte_len != source.byte_len as u64
-                                || manifest.captures.binary_search(&EntityId::of(source.input)).is_err()
+                            if original.content != source.content
+                                || original.byte_len != source.byte_len as u64
+                                || manifest
+                                    .captures
+                                    .binary_search(&EntityId::of(source.input))
+                                    .is_err()
                             {
                                 return Err(ModelError::Conflict("artifact source metadata"));
                             }
                         }
                         Entity::EmbeddingSpecification(specification) => {
                             let configuration = specification.configuration()?;
-                            metadata_charge.grow(size_of::<lctx_model::domain::embedding::Spec>()
-                                + configuration.heap_bytes() + 64)?;
+                            metadata_charge.grow(
+                                size_of::<lctx_model::domain::embedding::Spec>()
+                                    + configuration.heap_bytes()
+                                    + 64,
+                            )?;
                             specifications.insert(specification.id(), configuration);
                         }
                         _ => {}
@@ -688,19 +740,22 @@ async fn verify_transport(
                         return Err(ModelError::Conflict("artifact canonical payload"));
                     }
                     match &value.value {
-                        AssertionValue::Claim(ClaimValue::ProjectionSourceAssessments(assessment)) => {
+                        AssertionValue::Claim(ClaimValue::ProjectionSourceAssessments(
+                            assessment,
+                        )) => {
                             projections.insert(assessment.projection);
                         }
                         AssertionValue::Claim(ClaimValue::AnalysisEmbeddingUses(consumption)) => {
                             consume_embedding!(consumption);
                         }
-                        AssertionValue::Analysis(AnalysisValue::RetrievalEmbeddingUse(consumption)) => {
+                        AssertionValue::Analysis(AnalysisValue::RetrievalEmbeddingUse(
+                            consumption,
+                        )) => {
                             consume_embedding!(consumption);
                         }
                         _ => {}
                     }
-                    let metadata =
-                        (value.id().0, value.content(), value.kind as i16, None, None);
+                    let metadata = (value.id().0, value.content(), value.kind as i16, None, None);
                     check.assertion_references(&value)?;
                     metadata
                 };
@@ -725,7 +780,9 @@ async fn verify_transport(
         }
     }
     if !originals.is_empty() || !captures.is_empty() {
-        return Err(ModelError::Conflict("artifact source or capture membership"));
+        return Err(ModelError::Conflict(
+            "artifact source or capture membership",
+        ));
     }
     verify_projections(&projections, &manifest)?;
     if !embeddings.is_empty() {
@@ -764,9 +821,8 @@ async fn verify_transport(
         .reserve("artifact-original-verification", 65536)?;
     let mut buffer = vec![0u8; 65536];
     for original in &manifest.originals {
-        let mut input =
-            File::open(path.join(format!("original-{}.bin", original.source.0.hex())))
-                .map_err(ModelError::codec)?;
+        let mut input = File::open(path.join(format!("original-{}.bin", original.source.0.hex())))
+            .map_err(ModelError::codec)?;
         let mut content = lctx_model::domain::ContentHasher::default();
         let mut length = 0u64;
         loop {
@@ -801,9 +857,17 @@ fn verify_embedding(
         return Err(ModelError::Conflict("artifact embedding token limit"));
     }
     if let Some(receipt) = receipt {
-        let _value = value::decode(spec, receipt.bytes, receipt.digest, receipt.admitted_tokens, workspace.budget())?;
+        let _value = value::decode(
+            spec,
+            receipt.bytes,
+            receipt.digest,
+            receipt.admitted_tokens,
+            workspace.budget(),
+        )?;
         let key = (spec.hash(), input);
-        let index = manifest.embeddings.binary_search_by_key(&key, |value| (value.specification, value.text))
+        let index = manifest
+            .embeddings
+            .binary_search_by_key(&key, |value| (value.specification, value.text))
             .map_err(|_| ModelError::Conflict("artifact embedding consumption"))?;
         let expected = &manifest.embeddings[index];
         if expected.dimension != spec.dimensions || expected.values != receipt.digest {
@@ -823,17 +887,23 @@ fn verify_projections(
         return Err(ModelError::Conflict("artifact projection membership"));
     }
     for name in represented {
-        let index = manifest.projections.binary_search_by(|value| value.name.cmp(&format!("{name:?}")))
+        let index = manifest
+            .projections
+            .binary_search_by(|value| value.name.cmp(&format!("{name:?}")))
             .map_err(|_| ModelError::Conflict("artifact projection membership"))?;
         let projection = &manifest.projections[index];
         let definition = lctx_model::domain::analysis::ProjectionDefinition::builtin(*name);
-        let mut excluded = ProjectionSpec::builtin(*name).excluded_categories()
-            .map(|category| category.label()).collect::<Vec<_>>();
+        let mut excluded = ProjectionSpec::builtin(*name)
+            .excluded_categories()
+            .map(|category| category.label())
+            .collect::<Vec<_>>();
         excluded.sort_unstable();
         let mut losses = vec![format!("ProjectionSpec::accepts excludes {} entities", excluded.join(", ")),
             "topology omits conditions, provider qualifications and source evidence retained by assertions".into()];
         losses.sort();
-        if projection.definition != definition.content_digest() || projection.declared_losses != losses {
+        if projection.definition != definition.content_digest()
+            || projection.declared_losses != losses
+        {
             return Err(ModelError::Conflict("artifact projection definition"));
         }
         // source_membership binds compiler-only completed projection inputs. A trusted compiler

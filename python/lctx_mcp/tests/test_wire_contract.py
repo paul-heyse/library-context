@@ -127,8 +127,11 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
 
 def test_current_response_wraps_complete_dto_and_actual_snapshot_handle():
     response = {
-        "snapshot": {"semantic": [5] * 32, "realization": [6] * 32,
-                     "database": {"namespace": "control", "database": "snapshot"}},
+        "snapshot": {
+            "semantic": [5] * 32,
+            "realization": [6] * 32,
+            "database": {"namespace": "control", "database": "snapshot"},
+        },
         "domains": [],
         "operation": {"resolution": "ambiguous", "candidates": []},
     }

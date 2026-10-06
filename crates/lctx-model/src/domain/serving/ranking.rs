@@ -1,5 +1,5 @@
 //! Pure ranking of admitted occurrences. Scores aid discovery; they are not requirement evidence.
-use super::identity::{ChannelIdentity, SnapshotHandle, PolicyIdentity, policy_identity};
+use super::identity::{ChannelIdentity, PolicyIdentity, SnapshotHandle, policy_identity};
 use crate::domain::{
     ContentHash, Id, KeySink, ModelError,
     attribution::AnalysisContext,
@@ -49,9 +49,12 @@ impl Default for RankingPolicy {
 }
 impl RankingPolicy {
     pub fn validate(&self) -> Result<(), ModelError> {
-        if self.revision != 2 || self.rrf_k != 60
-            || !self.lexical.k1.is_finite() || self.lexical.k1 <= 0.0
-            || !self.lexical.b.is_finite() || !(0.0..=1.0).contains(&self.lexical.b)
+        if self.revision != 2
+            || self.rrf_k != 60
+            || !self.lexical.k1.is_finite()
+            || self.lexical.k1 <= 0.0
+            || !self.lexical.b.is_finite()
+            || !(0.0..=1.0).contains(&self.lexical.b)
         {
             return Err(invalid("unsupported native ranking policy"));
         }
@@ -312,7 +315,9 @@ impl CandidateFusion {
         for member in promoted {
             let target = Target::Member { member: *member };
             if !self.eligible.contains(&target) {
-                return Err(invalid("exact-path promotion outside eligible candidate set"));
+                return Err(invalid(
+                    "exact-path promotion outside eligible candidate set",
+                ));
             }
             exact.insert(target);
         }
@@ -322,7 +327,9 @@ impl CandidateFusion {
                 return Err(invalid("numerical snapshot differs"));
             }
             if !self.occurrences.contains(&row.occurrence) {
-                return Err(invalid("numerical occurrence outside admitted candidate witnesses"));
+                return Err(invalid(
+                    "numerical occurrence outside admitted candidate witnesses",
+                ));
             }
             let binding = self
                 .channels

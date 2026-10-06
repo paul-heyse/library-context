@@ -10,9 +10,7 @@ fn ordinary_compile_requires_native_configuration_before_acquisition() {
         .output()
         .unwrap();
     assert_eq!(result.status.code(), Some(1));
-    assert!(
-        String::from_utf8_lossy(&result.stderr).contains("native runtime configuration")
-    );
+    assert!(String::from_utf8_lossy(&result.stderr).contains("native runtime configuration"));
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
 #[test]
@@ -214,12 +212,15 @@ fn native_fixture_cli_exports_both_profiles_at_every_frontier() {
                                 serde_json::from_slice(payloads.value(row)).unwrap();
                             entity.validate().unwrap();
                             if let Entity::Source(source) = &entity
-                                && source.path == "demo/__init__.py" {
+                                && source.path == "demo/__init__.py"
+                            {
                                 assert_eq!(source.content, ContentHash::of(SOURCE.as_bytes()));
                                 found_original = true;
                             }
                             if let Entity::CatalogMember(member) = &entity
-                                && member.name == "api" && member.path == ["api"] {
+                                && member.name == "api"
+                                && member.path == ["api"]
+                            {
                                 found_api = true;
                             }
                             (entity.id().0, entity.content())

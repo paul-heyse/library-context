@@ -3,19 +3,19 @@
 import asyncio
 import json
 import os
-import threading
 import sys
+import threading
 from pathlib import Path
 
-import pytest
 import anyio
+import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
-from lctx_semantics import NativeSession
-from mcp_types import CallToolResult, TextContent, JSONRPCResponse, TextResourceContents
-from mcp.shared.message import SessionMessage
 from fastmcp.tools import ToolResult
+from lctx_semantics import NativeSession
+from mcp.shared.message import SessionMessage
+from mcp_types import CallToolResult, JSONRPCResponse, TextContent, TextResourceContents
 
 from lctx_mcp.__main__ import create_server
 from lctx_mcp.native import NativeExecutor
@@ -34,7 +34,9 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
     library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
     assert library, "LCTX_NATIVE_TEST_LIBRARY must name the published fixture's library"
     target = (
-        create_server(path) if transport == "inprocess" else StdioTransport(
+        create_server(path)
+        if transport == "inprocess"
+        else StdioTransport(
             command=sys.executable,
             args=["-m", "lctx_mcp", "--serving-config", str(path)],
             env=dict(os.environ),
@@ -55,13 +57,20 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         assert isinstance(first.content[0], TextContent)
         assert first.content[0].text == "browse_library: snapshot-bound result"
         assert first.structured_content["entries"]["items"]
-        found = await client.call_tool("search_capabilities", {
-            "library": library, "query": "carefully", "page": {"size": 1, "expanded": True},
-        })
+        found = await client.call_tool(
+            "search_capabilities",
+            {
+                "library": library,
+                "query": "carefully",
+                "page": {"size": 1, "expanded": True},
+            },
+        )
         assert found.structured_content is not None
         assert found.structured_content["channels"]["vector"]["status"] == "disabled"
         capability = found.structured_content["results"]["items"][0]["capability"]
-        packet = await client.call_tool("get_capability", {"capability": capability, "page": {"expanded": True}})
+        packet = await client.call_tool(
+            "get_capability", {"capability": capability, "page": {"expanded": True}}
+        )
         assert packet.structured_content is not None
         uri = "lctx://capability/" + bytes(capability).hex()
         resource = await client.read_resource(uri)
@@ -89,10 +98,12 @@ async def test_transport_admission_refuses_complete_oversized_results_and_errors
 
     @server.tool
     def oversized():
-        return ToolResult.from_mcp_result(CallToolResult(
-            content=[TextContent(type="text", text="雪" * 12_000)],
-            structured_content={"complete": "雪" * 12_000},
-        ))
+        return ToolResult.from_mcp_result(
+            CallToolResult(
+                content=[TextContent(type="text", text="雪" * 12_000)],
+                structured_content={"complete": "雪" * 12_000},
+            )
+        )
 
     @server.tool
     def oversized_error():
@@ -100,9 +111,12 @@ async def test_transport_admission_refuses_complete_oversized_results_and_errors
 
     @server.tool
     def unicode_fits_stdio():
-        return ToolResult.from_mcp_result(CallToolResult(
-            content=[TextContent(type="text", text="雪" * 6_000)], is_error=False,
-        ))
+        return ToolResult.from_mcp_result(
+            CallToolResult(
+                content=[TextContent(type="text", text="雪" * 6_000)],
+                is_error=False,
+            )
+        )
 
     async with Client(server) as client:
         complete = await client.call_tool("unicode_fits_stdio", {})

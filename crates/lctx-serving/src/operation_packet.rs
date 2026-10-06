@@ -1,70 +1,661 @@
 //! Requested sections use their existing semantic kernels and exact captured sources.
-use lctx_model::domain::{*,serving::*,serving::mappings::PacketOutput,resources::ResourceBudget};
-use lctx_surrealdb::{NativeReader,RecordSelection,reader::target_id};
-use crate::records::{rows,need,wire};
-fn key<R:Record>(id:Id<R>)->Result<ContentHash,ModelError>{match graph::target_for_row(derivation::RowRef::of(id))?{graph::Target::Entity(id)=>Ok(id.0),graph::Target::Assertion(id)=>Ok(id.0),_=>Err(ModelError::Schema("external section key"))}}
-pub async fn get(reader:&NativeReader,member:&catalog::CatalogMember,domains:&[LibraryDomainPacket],r:&GetOperationRequest,request:&Request,limits:&ResourceLimits,b:&ResourceBudget)->Result<OperationPacket,ModelError>{
- let mut input=OperationCore::binding().lowered().sources;
- for section in &r.sections{let kind=match section{OperationSection::AccessRoutes=>mappings::PacketKind::AccessRoutePacket,OperationSection::CallableComparison=>mappings::PacketKind::CallableComparisonPacket,OperationSection::ContextualTyping=>mappings::PacketKind::ContextualTypePacket,OperationSection::IncomingReferences=>mappings::PacketKind::IncomingReferencePacket,OperationSection::Scenarios=>mappings::PacketKind::ScenarioPacket,OperationSection::Deployment=>mappings::PacketKind::DeploymentPacket,OperationSection::Relationships=>mappings::PacketKind::RelationshipPacket,OperationSection::Conflicts=>mappings::PacketKind::OperationCandidate,OperationSection::Briefs=>mappings::PacketKind::CapabilityPacket,OperationSection::Behavior=>mappings::PacketKind::BehaviorPacket};input.extend(kind.binding().lowered().sources);}
- input.sort_by_key(Relation::name);input.dedup_by_key(|r|r.name());
- let inputs=input.iter().map(|r|ValidationInput::of_relation(r,&["id"])).collect::<Vec<_>>();
- let mut roots=vec![target_id(graph::Target::Entity(graph::EntityId::of(member.id())))];
- let mut fields=crate::scope::OWNED_FIELDS.to_vec();fields.extend(["parent","scenario","association","brief","characterization","reader","class","parameter_option","field_option","entity","link"]);
- if r.sections.contains(&OperationSection::ContextualTyping){fields.push("owner");}
- if r.sections.contains(&OperationSection::Behavior){fields.extend(["transfer","alternative"]);}
- if r.sections.contains(&OperationSection::AccessRoutes){fields.extend(["statement","alias"]);}
- if r.sections.contains(&OperationSection::IncomingReferences){let artifacts=reader.records::<source::SourceArtifact>(RecordSelection::Scope{field:"input".into(),values:vec![serde_json::to_value(member.input).map_err(ModelError::codec)?]}).await?;roots.extend(artifacts.iter().map(|a|target_id(graph::Target::Entity(graph::EntityId::of(a.id())))));fields.extend(["source","read","artifact"]);}
- if r.sections.contains(&OperationSection::Deployment){for capture in domains.iter().flat_map(|d|&d.captures).filter(|c|c.release.input==member.input){roots.push(target_id(graph::Target::Entity(graph::EntityId::of(capture.release.release))));}fields.push("release");}
- let source=crate::scope::hydrate_with(reader,roots,&inputs,&fields,b).await?;
- let mut core=crate::core::packet(&source,member,domains,limits,b)?;core.limits.maximum_response_bytes=limits.response_bytes(request.page().expanded);
- let mut data=selection::classification::ClassificationData::new(b);let mut output=selection::build::Output::new(b);for(name,batch)in &source.batches{data.visit(name,batch)?;output.visit(name,batch)?;}
- let quiet=ChannelState{lexical:false,vector:VectorChannel::Disabled{}};
- macro_rules! paged{($ty:ty,$name:literal,$section:ident,$values:expr)=>{{let values:Vec<(ContentHash,$ty)>=$values;if r.sections.contains(&OperationSection::$section){crate::pagination::page(values,request,reader.handle(),&quiet,request.tool().name(),$name,Some(member.id()),Availability::Available{}).map_err(wire)?}else{SectionPage{availability:Availability::NotRequested{},items:Vec::new(),continuation:Optional::default(),omitted:0,truncated:false}}}};}
- let access_routes=if r.sections.contains(&OperationSection::AccessRoutes){let mut extra=catalog::access_routes::RouteData::new(b);for(name,batch)in &source.batches{extra.visit(name,batch)?;}let result=catalog::access_routes::explain(&data,&extra,member.id(),limits.explanation_depth as usize,limits.maximum_page_rows as usize,b)?;let availability=if result.partial{Availability::Partial{reason:Name::new("access_route_frontier").map_err(wire)?}}else{Availability::Available{}};crate::pagination::page(result.routes.into_iter().map(|p|Ok((ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),p))).collect::<Result<Vec<_>,ModelError>>()?,request,reader.handle(),&quiet,request.tool().name(),"access_routes",Some(member.id()),availability).map_err(wire)?}else{paged!(AccessRoutePacket,"access_routes",AccessRoutes,Vec::new())};
- let callable_comparison=if let Some(c)=&r.comparison.0{let result=normalized::contract_comparison::compare(&data,member.id(),c.analysis,c.left,c.right,b)?;paged!(CallableComparisonPacket,"callable_comparison",CallableComparison,vec![(ContentHash::of(&serde_json::to_vec(&result.value).map_err(ModelError::codec)?),result.value)])}else{paged!(CallableComparisonPacket,"callable_comparison",CallableComparison,Vec::new())};
- let contextual_typing=if r.sections.contains(&OperationSection::ContextualTyping){let result=types::contextual::explain(&data,member.id(),b)?;paged!(ContextualTypePacket,"contextual_typing",ContextualTyping,result.value.into_iter().map(|p|Ok((ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),p))).collect::<Result<Vec<_>,ModelError>>()?)}else{paged!(ContextualTypePacket,"contextual_typing",ContextualTyping,Vec::new())};
- let (incoming_references,reference_scope)=if r.sections.contains(&OperationSection::IncomingReferences){let result=normalized::incoming_references::incoming(&data,member.id(),r.reference_parameter.0,b)?;let scope=result.value.scope;let values=result.value.references.into_iter().map(|p|Ok((key(p.reference)?,p))).collect::<Result<Vec<_>,ModelError>>()?;(paged!(IncomingReferencePacket,"incoming_references",IncomingReferences,values),Optional(Some(scope)))}else{(paged!(IncomingReferencePacket,"incoming_references",IncomingReferences,Vec::new()),Optional::default())};
- let diagnostic_targets=rows::<catalog::evidence::DiagnosticUseTarget>(&source)?;let diagnostic_links=rows::<catalog::evidence::DiagnosticUseLink>(&source)?;let diagnostic_assessments=rows::<catalog::evidence::DiagnosticUseAssessment>(&source)?;
- let associations=rows::<catalog::evidence::ScenarioAssociation>(&source)?;let scenarios=rows::<catalog::evidence::CatalogScenario>(&source)?;let spans=rows::<catalog::evidence::ScenarioSpan>(&source)?;let q=rows::<assertion::AssertionQualification>(&source)?;let mut scenario_values=Vec::new();
- if r.sections.contains(&OperationSection::Scenarios){for association in associations.iter().filter(|a|a.member==member.id()){let scenario=need(&scenarios,association.scenario)?;let context=need(&q,association.qualification)?.context;let release=core.release.release;let originals=spans.iter().filter(|s|s.scenario==scenario.id()).map(|s|crate::originals::range(&source,&OriginalReference::Catalog{source:s.source},Some(context),Some(release))).collect::<Result<Vec<_>,_>>()?;scenario_values.push((key(association.id())?,ScenarioPacket{scenario:scenario.id(),intent:association.intent,basis:association.basis,spans:originals,diagnostic_correlations:crate::pagination::page(scenario_diagnostics(association.id(),&diagnostic_targets,&diagnostic_links,&diagnostic_assessments)?,request,reader.handle(),&quiet,request.tool().name(),&format!("scenario_diagnostics_{}",association.id().hex()),Some(member.id()),Availability::Available{}).map_err(wire)?,parse:scenario.parse,binding:scenario.binding,environment:scenario.environment,execution:scenario.execution}));}}
- let scenarios=paged!(ScenarioPacket,"scenarios",Scenarios,scenario_values);
- let deployment_values=if r.sections.contains(&OperationSection::Deployment){let deployments=rows::<catalog::evidence::CatalogDeployment>(&source)?;let observations=rows::<deployment::DeploymentObservation>(&source)?;let links=rows::<catalog::evidence::ReleaseDeployment>(&source)?;let mut values=Vec::new();for link in links.iter().filter(|l|l.release==core.release.release){let d=need(&deployments,link.deployment)?;let o=need(&observations,d.observation)?;let context=need(&q,o.qualification)?.context;values.push((key(d.id())?,DeploymentPacket{deployment:d.id(),field:Name::new(o.field.clone()).map_err(wire)?,name:Name::new(o.name.clone().unwrap_or_else(||o.field.clone())).map_err(wire)?,value:Text::new(o.original.clone()).map_err(wire)?,originals:vec![crate::originals::range(&source,&OriginalReference::Span{span:o.span},Some(context),Some(link.release))?]}));}values}else{Vec::new()};let deployment=paged!(DeploymentPacket,"deployment",Deployment,deployment_values);
- let mut conflicts_values=Vec::new();if r.sections.contains(&OperationSection::Conflicts){let prepared=selection::evaluate::Prepared::from_local_rows(data,output,b)?;let requirements:Vec<_>=crate::vocabulary::questions(prepared.data()).into_iter().map(|(_,_,predicate)|selection::Requirement{predicate,quantifier:selection::Quantifier::AnyApplicable}).collect();for requirements in requirements.chunks(selection::algebra::MAX_REQUIREMENTS){let selected=prepared.select(&selection::Selection{requirements:requirements.to_vec(),mode:selection::Mode::Discovery,joint:selection::JointPolicy::IndependentRecords},b)?;for c in selected.candidates.iter().filter(|c|c.member==member.id()){let packet=crate::candidates::packet(c,prepared.data(),domains)?;for r in packet.requirements.into_iter().filter(|r|r.outcome==selection::Outcome::Conflicting){let p=ConflictPacket{requirement:r.requirement,reason:r.reason,contexts:r.contexts,positive:r.positive,negative:r.negative};conflicts_values.push((ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),p));}}}}let conflicts=paged!(ConflictPacket,"conflicts",Conflicts,conflicts_values);
- let brief_values=if r.sections.contains(&OperationSection::Briefs){let links=rows::<synthesis::briefs::BriefAssertion>(&source)?;let assertions=rows::<synthesis::assertions::ProgrammaticAssertion>(&source)?;let invocations=rows::<catalog::CatalogMemberInvocation>(&source)?;let ids=links.iter().filter(|l|assertions.iter().find(|a|a.id()==l.assertion).is_some_and(|a|invocations.iter().any(|i|i.id()==a.member && i.member==member.id()))).map(|l|l.brief).collect::<std::collections::BTreeSet<_>>();let mut values=Vec::new();for id in ids{values.push((key(id)?,crate::capability::packet(&source,id,b)?));}values}else{Vec::new()};let briefs=paged!(CapabilityPacket,"briefs",Briefs,brief_values);
- let relationship_values=relationships(&source,member.id())?;let relationships=paged!(RelationshipPacket,"relationships",Relationships,relationship_values);
- let behavior=if r.sections.contains(&OperationSection::Behavior){let (availability,values)=crate::behavior::packets(&source,member.id(),b).await?;crate::pagination::page(values.into_iter().map(|p|Ok((ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),p))).collect::<Result<Vec<_>,ModelError>>()?,request,reader.handle(),&quiet,request.tool().name(),"behavior",Some(member.id()),availability).map_err(wire)?}else{paged!(BehaviorPacket,"behavior",Behavior,Vec::new())};
- Ok(OperationPacket{core,access_routes,callable_comparison,contextual_typing,incoming_references,reference_scope,scenarios,deployment,relationships,conflicts,briefs,behavior})
+use crate::records::{need, rows, wire};
+use lctx_model::domain::{
+    resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
+};
+use lctx_surrealdb::{NativeReader, RecordSelection, reader::target_id};
+fn key<R: Record>(id: Id<R>) -> Result<ContentHash, ModelError> {
+    match graph::target_for_row(derivation::RowRef::of(id))? {
+        graph::Target::Entity(id) => Ok(id.0),
+        graph::Target::Assertion(id) => Ok(id.0),
+        _ => Err(ModelError::Schema("external section key")),
+    }
 }
-fn relationships(source:&lctx_surrealdb::batches::CanonicalBatches,member:Id<catalog::CatalogMember>)->Result<Vec<(ContentHash,RelationshipPacket)>,ModelError>{
- let callables=rows::<catalog::CatalogCallable>(source)?;let assessments=rows::<normalized::callables::EffectiveCallableAssessment>(source)?;let classes=rows::<catalog::CatalogClass>(source)?;let owned=callables.iter().filter(|c|c.member==member).filter_map(|c|assessments.iter().find(|a|a.id()==c.assessment)).map(|a|normalized::entities::EntityRef::Callable{callable:a.callable}.id()).chain(classes.iter().filter(|c|c.member==member).map(|c|normalized::entities::EntityRef::Class{class:c.class}.id())).collect::<std::collections::BTreeSet<_>>();
- let events=rows::<normalized::events::NormalizedCallEvent>(source)?;let ownership=rows::<normalized::entities::OccurrenceOwnership>(source)?;let alternatives=rows::<normalized::events::NormalizedCallAlternative>(source)?;let mut values=Vec::new();
- for event in &events{if !owned.contains(&need(&ownership,event.owner)?.entity){continue}for alternative in alternatives.iter().filter(|a|a.event==event.id()){let Some(entity)=alternative.entity else{continue};for callable in &callables{let a=need(&assessments,callable.assessment)?;if (normalized::entities::EntityRef::Callable{callable:a.callable}).id()!=entity{continue}let witnesses=rows::<selection::Witness>(source)?.into_iter().filter(|w|matches!(w,selection::Witness::Member{member} if *member==callable.member)).map(|w|w.id()).collect();let p=RelationshipPacket::Invocation{target:callable.member,analysis:event.context,role:selection::RelationRole::Invokes,fidelity:if alternative.status==normalized::entities::ResolutionStatus::Resolved{selection::Fidelity::ResolvedTarget}else{selection::Fidelity::CandidateTargets},witnesses,proof:vec![ProofReference::from_canonical(derivation::RowRef::of(alternative.id()))?]};values.push((key(alternative.id())?,p));}}}
- let links=rows::<catalog::evidence::SourceFieldLink>(source)?;let options=rows::<catalog::CatalogOption>(source)?;let associations=rows::<normalized::symbolic_fields::SourceFieldAssociation>(source)?;let readers=rows::<normalized::symbolic_fields::SourceFieldReader>(source)?;let reader_links=rows::<normalized::symbolic_fields::SourceFieldReaderLink>(source)?;let q=rows::<assertion::AssertionQualification>(source)?;
- for link in &links{if !options.iter().any(|o|o.member==member && (o.id()==link.parameter_option || o.id()==link.field_option)){continue}let a=need(&associations,link.association)?;let l=need(&reader_links,link.reader)?;let r=need(&readers,l.reader)?;values.push((key(link.id())?,RelationshipPacket::SourceField{link:link.id(),parameter_option:link.parameter_option,field_option:link.field_option,parameter:a.parameter,association:a.id(),reader_link:l.id(),reader:r.id(),access:r.access,owner:link.reader_owner,analysis:need(&q,a.qualification)?.context,source_association:link.source_association,runtime_value:link.runtime_value,proof:vec![ProofReference::from_canonical(derivation::RowRef::of(link.id()))?,ProofReference::from_canonical(derivation::RowRef::of(a.id()))?,ProofReference::from_canonical(derivation::RowRef::of(l.id()))?]}));}
- Ok(values)
+pub async fn get(
+    reader: &NativeReader,
+    member: &catalog::CatalogMember,
+    domains: &[LibraryDomainPacket],
+    r: &GetOperationRequest,
+    request: &Request,
+    limits: &ResourceLimits,
+    b: &ResourceBudget,
+) -> Result<OperationPacket, ModelError> {
+    let mut input = OperationCore::binding().lowered().sources;
+    for section in &r.sections {
+        let kind = match section {
+            OperationSection::AccessRoutes => mappings::PacketKind::AccessRoutePacket,
+            OperationSection::CallableComparison => mappings::PacketKind::CallableComparisonPacket,
+            OperationSection::ContextualTyping => mappings::PacketKind::ContextualTypePacket,
+            OperationSection::IncomingReferences => mappings::PacketKind::IncomingReferencePacket,
+            OperationSection::Scenarios => mappings::PacketKind::ScenarioPacket,
+            OperationSection::Deployment => mappings::PacketKind::DeploymentPacket,
+            OperationSection::Relationships => mappings::PacketKind::RelationshipPacket,
+            OperationSection::Conflicts => mappings::PacketKind::OperationCandidate,
+            OperationSection::Briefs => mappings::PacketKind::CapabilityPacket,
+            OperationSection::Behavior => mappings::PacketKind::BehaviorPacket,
+        };
+        input.extend(kind.binding().lowered().sources);
+    }
+    input.sort_by_key(Relation::name);
+    input.dedup_by_key(|r| r.name());
+    let inputs = input
+        .iter()
+        .map(|r| ValidationInput::of_relation(r, &["id"]))
+        .collect::<Vec<_>>();
+    let mut roots = vec![target_id(graph::Target::Entity(graph::EntityId::of(
+        member.id(),
+    )))];
+    let mut fields = crate::scope::OWNED_FIELDS.to_vec();
+    fields.extend([
+        "parent",
+        "scenario",
+        "association",
+        "brief",
+        "characterization",
+        "reader",
+        "class",
+        "parameter_option",
+        "field_option",
+        "entity",
+        "link",
+    ]);
+    if r.sections.contains(&OperationSection::ContextualTyping) {
+        fields.push("owner");
+    }
+    if r.sections.contains(&OperationSection::Behavior) {
+        fields.extend(["transfer", "alternative"]);
+    }
+    if r.sections.contains(&OperationSection::AccessRoutes) {
+        fields.extend(["statement", "alias"]);
+    }
+    if r.sections.contains(&OperationSection::IncomingReferences) {
+        let artifacts = reader
+            .records::<source::SourceArtifact>(RecordSelection::Scope {
+                field: "input".into(),
+                values: vec![serde_json::to_value(member.input).map_err(ModelError::codec)?],
+            })
+            .await?;
+        roots.extend(
+            artifacts
+                .iter()
+                .map(|a| target_id(graph::Target::Entity(graph::EntityId::of(a.id())))),
+        );
+        fields.extend(["source", "read", "artifact"]);
+    }
+    if r.sections.contains(&OperationSection::Deployment) {
+        for capture in domains
+            .iter()
+            .flat_map(|d| &d.captures)
+            .filter(|c| c.release.input == member.input)
+        {
+            roots.push(target_id(graph::Target::Entity(graph::EntityId::of(
+                capture.release.release,
+            ))));
+        }
+        fields.push("release");
+    }
+    let source = crate::scope::hydrate_with(reader, roots, &inputs, &fields, b).await?;
+    let mut core = crate::core::packet(&source, member, domains, limits, b)?;
+    core.limits.maximum_response_bytes = limits.response_bytes(request.page().expanded);
+    let mut data = selection::classification::ClassificationData::new(b);
+    let mut output = selection::build::Output::new(b);
+    for (name, batch) in &source.batches {
+        data.visit(name, batch)?;
+        output.visit(name, batch)?;
+    }
+    let quiet = ChannelState {
+        lexical: false,
+        vector: VectorChannel::Disabled {},
+    };
+    macro_rules! paged {
+        ($ty:ty,$name:literal,$section:ident,$values:expr) => {{
+            let values: Vec<(ContentHash, $ty)> = $values;
+            if r.sections.contains(&OperationSection::$section) {
+                crate::pagination::page(
+                    values,
+                    request,
+                    reader.handle(),
+                    &quiet,
+                    request.tool().name(),
+                    $name,
+                    Some(member.id()),
+                    Availability::Available {},
+                )
+                .map_err(wire)?
+            } else {
+                SectionPage {
+                    availability: Availability::NotRequested {},
+                    items: Vec::new(),
+                    continuation: Optional::default(),
+                    omitted: 0,
+                    truncated: false,
+                }
+            }
+        }};
+    }
+    let access_routes = if r.sections.contains(&OperationSection::AccessRoutes) {
+        let mut extra = catalog::access_routes::RouteData::new(b);
+        for (name, batch) in &source.batches {
+            extra.visit(name, batch)?;
+        }
+        let result = catalog::access_routes::explain(
+            &data,
+            &extra,
+            member.id(),
+            limits.explanation_depth as usize,
+            limits.maximum_page_rows as usize,
+            b,
+        )?;
+        let availability = if result.partial {
+            Availability::Partial {
+                reason: Name::new("access_route_frontier").map_err(wire)?,
+            }
+        } else {
+            Availability::Available {}
+        };
+        crate::pagination::page(
+            result
+                .routes
+                .into_iter()
+                .map(|p| {
+                    Ok((
+                        ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),
+                        p,
+                    ))
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?,
+            request,
+            reader.handle(),
+            &quiet,
+            request.tool().name(),
+            "access_routes",
+            Some(member.id()),
+            availability,
+        )
+        .map_err(wire)?
+    } else {
+        paged!(AccessRoutePacket, "access_routes", AccessRoutes, Vec::new())
+    };
+    let callable_comparison = if let Some(c) = &r.comparison.0 {
+        let result = normalized::contract_comparison::compare(
+            &data,
+            member.id(),
+            c.analysis,
+            c.left,
+            c.right,
+            b,
+        )?;
+        paged!(
+            CallableComparisonPacket,
+            "callable_comparison",
+            CallableComparison,
+            vec![(
+                ContentHash::of(&serde_json::to_vec(&result.value).map_err(ModelError::codec)?),
+                result.value
+            )]
+        )
+    } else {
+        paged!(
+            CallableComparisonPacket,
+            "callable_comparison",
+            CallableComparison,
+            Vec::new()
+        )
+    };
+    let contextual_typing = if r.sections.contains(&OperationSection::ContextualTyping) {
+        let result = types::contextual::explain(&data, member.id(), b)?;
+        paged!(
+            ContextualTypePacket,
+            "contextual_typing",
+            ContextualTyping,
+            result
+                .value
+                .into_iter()
+                .map(|p| Ok((
+                    ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),
+                    p
+                )))
+                .collect::<Result<Vec<_>, ModelError>>()?
+        )
+    } else {
+        paged!(
+            ContextualTypePacket,
+            "contextual_typing",
+            ContextualTyping,
+            Vec::new()
+        )
+    };
+    let (incoming_references, reference_scope) =
+        if r.sections.contains(&OperationSection::IncomingReferences) {
+            let result = normalized::incoming_references::incoming(
+                &data,
+                member.id(),
+                r.reference_parameter.0,
+                b,
+            )?;
+            let scope = result.value.scope;
+            let values = result
+                .value
+                .references
+                .into_iter()
+                .map(|p| Ok((key(p.reference)?, p)))
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            (
+                paged!(
+                    IncomingReferencePacket,
+                    "incoming_references",
+                    IncomingReferences,
+                    values
+                ),
+                Optional(Some(scope)),
+            )
+        } else {
+            (
+                paged!(
+                    IncomingReferencePacket,
+                    "incoming_references",
+                    IncomingReferences,
+                    Vec::new()
+                ),
+                Optional::default(),
+            )
+        };
+    let diagnostic_targets = rows::<catalog::evidence::DiagnosticUseTarget>(&source)?;
+    let diagnostic_links = rows::<catalog::evidence::DiagnosticUseLink>(&source)?;
+    let diagnostic_assessments = rows::<catalog::evidence::DiagnosticUseAssessment>(&source)?;
+    let associations = rows::<catalog::evidence::ScenarioAssociation>(&source)?;
+    let scenarios = rows::<catalog::evidence::CatalogScenario>(&source)?;
+    let spans = rows::<catalog::evidence::ScenarioSpan>(&source)?;
+    let q = rows::<assertion::AssertionQualification>(&source)?;
+    let mut scenario_values = Vec::new();
+    if r.sections.contains(&OperationSection::Scenarios) {
+        for association in associations.iter().filter(|a| a.member == member.id()) {
+            let scenario = need(&scenarios, association.scenario)?;
+            let context = need(&q, association.qualification)?.context;
+            let release = core.release.release;
+            let originals = spans
+                .iter()
+                .filter(|s| s.scenario == scenario.id())
+                .map(|s| {
+                    crate::originals::range(
+                        &source,
+                        &OriginalReference::Catalog { source: s.source },
+                        Some(context),
+                        Some(release),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            scenario_values.push((
+                key(association.id())?,
+                ScenarioPacket {
+                    scenario: scenario.id(),
+                    intent: association.intent,
+                    basis: association.basis,
+                    spans: originals,
+                    diagnostic_correlations: crate::pagination::page(
+                        scenario_diagnostics(
+                            association.id(),
+                            &diagnostic_targets,
+                            &diagnostic_links,
+                            &diagnostic_assessments,
+                        )?,
+                        request,
+                        reader.handle(),
+                        &quiet,
+                        request.tool().name(),
+                        &format!("scenario_diagnostics_{}", association.id().hex()),
+                        Some(member.id()),
+                        Availability::Available {},
+                    )
+                    .map_err(wire)?,
+                    parse: scenario.parse,
+                    binding: scenario.binding,
+                    environment: scenario.environment,
+                    execution: scenario.execution,
+                },
+            ));
+        }
+    }
+    let scenarios = paged!(ScenarioPacket, "scenarios", Scenarios, scenario_values);
+    let deployment_values = if r.sections.contains(&OperationSection::Deployment) {
+        let deployments = rows::<catalog::evidence::CatalogDeployment>(&source)?;
+        let observations = rows::<deployment::DeploymentObservation>(&source)?;
+        let links = rows::<catalog::evidence::ReleaseDeployment>(&source)?;
+        let mut values = Vec::new();
+        for link in links.iter().filter(|l| l.release == core.release.release) {
+            let d = need(&deployments, link.deployment)?;
+            let o = need(&observations, d.observation)?;
+            let context = need(&q, o.qualification)?.context;
+            values.push((
+                key(d.id())?,
+                DeploymentPacket {
+                    deployment: d.id(),
+                    field: Name::new(o.field.clone()).map_err(wire)?,
+                    name: Name::new(o.name.clone().unwrap_or_else(|| o.field.clone()))
+                        .map_err(wire)?,
+                    value: Text::new(o.original.clone()).map_err(wire)?,
+                    originals: vec![crate::originals::range(
+                        &source,
+                        &OriginalReference::Span { span: o.span },
+                        Some(context),
+                        Some(link.release),
+                    )?],
+                },
+            ));
+        }
+        values
+    } else {
+        Vec::new()
+    };
+    let deployment = paged!(
+        DeploymentPacket,
+        "deployment",
+        Deployment,
+        deployment_values
+    );
+    let mut conflicts_values = Vec::new();
+    if r.sections.contains(&OperationSection::Conflicts) {
+        let prepared = selection::evaluate::Prepared::from_local_rows(data, output, b)?;
+        let requirements: Vec<_> = crate::vocabulary::questions(prepared.data())
+            .into_iter()
+            .map(|(_, _, predicate)| selection::Requirement {
+                predicate,
+                quantifier: selection::Quantifier::AnyApplicable,
+            })
+            .collect();
+        for requirements in requirements.chunks(selection::algebra::MAX_REQUIREMENTS) {
+            let selected = prepared.select(
+                &selection::Selection {
+                    requirements: requirements.to_vec(),
+                    mode: selection::Mode::Discovery,
+                    joint: selection::JointPolicy::IndependentRecords,
+                },
+                b,
+            )?;
+            for c in selected
+                .candidates
+                .iter()
+                .filter(|c| c.member == member.id())
+            {
+                let packet = crate::candidates::packet(c, prepared.data(), domains)?;
+                for r in packet
+                    .requirements
+                    .into_iter()
+                    .filter(|r| r.outcome == selection::Outcome::Conflicting)
+                {
+                    let p = ConflictPacket {
+                        requirement: r.requirement,
+                        reason: r.reason,
+                        contexts: r.contexts,
+                        positive: r.positive,
+                        negative: r.negative,
+                    };
+                    conflicts_values.push((
+                        ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),
+                        p,
+                    ));
+                }
+            }
+        }
+    }
+    let conflicts = paged!(ConflictPacket, "conflicts", Conflicts, conflicts_values);
+    let brief_values = if r.sections.contains(&OperationSection::Briefs) {
+        let links = rows::<synthesis::briefs::BriefAssertion>(&source)?;
+        let assertions = rows::<synthesis::assertions::ProgrammaticAssertion>(&source)?;
+        let invocations = rows::<catalog::CatalogMemberInvocation>(&source)?;
+        let ids = links
+            .iter()
+            .filter(|l| {
+                assertions
+                    .iter()
+                    .find(|a| a.id() == l.assertion)
+                    .is_some_and(|a| {
+                        invocations
+                            .iter()
+                            .any(|i| i.id() == a.member && i.member == member.id())
+                    })
+            })
+            .map(|l| l.brief)
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut values = Vec::new();
+        for id in ids {
+            values.push((key(id)?, crate::capability::packet(&source, id, b)?));
+        }
+        values
+    } else {
+        Vec::new()
+    };
+    let briefs = paged!(CapabilityPacket, "briefs", Briefs, brief_values);
+    let relationship_values = relationships(&source, member.id())?;
+    let relationships = paged!(
+        RelationshipPacket,
+        "relationships",
+        Relationships,
+        relationship_values
+    );
+    let behavior = if r.sections.contains(&OperationSection::Behavior) {
+        let (availability, values) = crate::behavior::packets(&source, member.id(), b).await?;
+        crate::pagination::page(
+            values
+                .into_iter()
+                .map(|p| {
+                    Ok((
+                        ContentHash::of(&serde_json::to_vec(&p).map_err(ModelError::codec)?),
+                        p,
+                    ))
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?,
+            request,
+            reader.handle(),
+            &quiet,
+            request.tool().name(),
+            "behavior",
+            Some(member.id()),
+            availability,
+        )
+        .map_err(wire)?
+    } else {
+        paged!(BehaviorPacket, "behavior", Behavior, Vec::new())
+    };
+    Ok(OperationPacket {
+        core,
+        access_routes,
+        callable_comparison,
+        contextual_typing,
+        incoming_references,
+        reference_scope,
+        scenarios,
+        deployment,
+        relationships,
+        conflicts,
+        briefs,
+        behavior,
+    })
+}
+fn relationships(
+    source: &lctx_surrealdb::batches::CanonicalBatches,
+    member: Id<catalog::CatalogMember>,
+) -> Result<Vec<(ContentHash, RelationshipPacket)>, ModelError> {
+    let callables = rows::<catalog::CatalogCallable>(source)?;
+    let assessments = rows::<normalized::callables::EffectiveCallableAssessment>(source)?;
+    let classes = rows::<catalog::CatalogClass>(source)?;
+    let owned = callables
+        .iter()
+        .filter(|c| c.member == member)
+        .filter_map(|c| assessments.iter().find(|a| a.id() == c.assessment))
+        .map(|a| {
+            normalized::entities::EntityRef::Callable {
+                callable: a.callable,
+            }
+            .id()
+        })
+        .chain(
+            classes
+                .iter()
+                .filter(|c| c.member == member)
+                .map(|c| normalized::entities::EntityRef::Class { class: c.class }.id()),
+        )
+        .collect::<std::collections::BTreeSet<_>>();
+    let events = rows::<normalized::events::NormalizedCallEvent>(source)?;
+    let ownership = rows::<normalized::entities::OccurrenceOwnership>(source)?;
+    let alternatives = rows::<normalized::events::NormalizedCallAlternative>(source)?;
+    let mut values = Vec::new();
+    for event in &events {
+        if !owned.contains(&need(&ownership, event.owner)?.entity) {
+            continue;
+        }
+        for alternative in alternatives.iter().filter(|a| a.event == event.id()) {
+            let Some(entity) = alternative.entity else {
+                continue;
+            };
+            for callable in &callables {
+                let a = need(&assessments, callable.assessment)?;
+                if (normalized::entities::EntityRef::Callable {
+                    callable: a.callable,
+                })
+                .id()
+                    != entity
+                {
+                    continue;
+                }
+                let witnesses=rows::<selection::Witness>(source)?.into_iter().filter(|w|matches!(w,selection::Witness::Member{member} if *member==callable.member)).map(|w|w.id()).collect();
+                let p = RelationshipPacket::Invocation {
+                    target: callable.member,
+                    analysis: event.context,
+                    role: selection::RelationRole::Invokes,
+                    fidelity: if alternative.status
+                        == normalized::entities::ResolutionStatus::Resolved
+                    {
+                        selection::Fidelity::ResolvedTarget
+                    } else {
+                        selection::Fidelity::CandidateTargets
+                    },
+                    witnesses,
+                    proof: vec![ProofReference::from_canonical(derivation::RowRef::of(
+                        alternative.id(),
+                    ))?],
+                };
+                values.push((key(alternative.id())?, p));
+            }
+        }
+    }
+    let links = rows::<catalog::evidence::SourceFieldLink>(source)?;
+    let options = rows::<catalog::CatalogOption>(source)?;
+    let associations = rows::<normalized::symbolic_fields::SourceFieldAssociation>(source)?;
+    let readers = rows::<normalized::symbolic_fields::SourceFieldReader>(source)?;
+    let reader_links = rows::<normalized::symbolic_fields::SourceFieldReaderLink>(source)?;
+    let q = rows::<assertion::AssertionQualification>(source)?;
+    for link in &links {
+        if !options.iter().any(|o| {
+            o.member == member && (o.id() == link.parameter_option || o.id() == link.field_option)
+        }) {
+            continue;
+        }
+        let a = need(&associations, link.association)?;
+        let l = need(&reader_links, link.reader)?;
+        let r = need(&readers, l.reader)?;
+        values.push((
+            key(link.id())?,
+            RelationshipPacket::SourceField {
+                link: link.id(),
+                parameter_option: link.parameter_option,
+                field_option: link.field_option,
+                parameter: a.parameter,
+                association: a.id(),
+                reader_link: l.id(),
+                reader: r.id(),
+                access: r.access,
+                owner: link.reader_owner,
+                analysis: need(&q, a.qualification)?.context,
+                source_association: link.source_association,
+                runtime_value: link.runtime_value,
+                proof: vec![
+                    ProofReference::from_canonical(derivation::RowRef::of(link.id()))?,
+                    ProofReference::from_canonical(derivation::RowRef::of(a.id()))?,
+                    ProofReference::from_canonical(derivation::RowRef::of(l.id()))?,
+                ],
+            },
+        ));
+    }
+    Ok(values)
 }
 
 /// Preserve stored diagnostic correspondence; containment alone never supplies a target.
-fn scenario_diagnostics(association:Id<catalog::evidence::ScenarioAssociation>,targets:&[catalog::evidence::DiagnosticUseTarget],links:&[catalog::evidence::DiagnosticUseLink],assessments:&[catalog::evidence::DiagnosticUseAssessment])->Result<Vec<(ContentHash,Id<catalog::evidence::DiagnosticUseAssessment>)>,ModelError>{
- let mut selected=std::collections::BTreeSet::new();
- for target in targets.iter().filter(|target|target.association==association){let link=need(links,target.link)?;need(assessments,link.assessment)?;selected.insert(link.assessment);}
- selected.into_iter().map(|id|Ok((key(id)?,id))).collect()
+fn scenario_diagnostics(
+    association: Id<catalog::evidence::ScenarioAssociation>,
+    targets: &[catalog::evidence::DiagnosticUseTarget],
+    links: &[catalog::evidence::DiagnosticUseLink],
+    assessments: &[catalog::evidence::DiagnosticUseAssessment],
+) -> Result<Vec<(ContentHash, Id<catalog::evidence::DiagnosticUseAssessment>)>, ModelError> {
+    let mut selected = std::collections::BTreeSet::new();
+    for target in targets
+        .iter()
+        .filter(|target| target.association == association)
+    {
+        let link = need(links, target.link)?;
+        need(assessments, link.assessment)?;
+        selected.insert(link.assessment);
+    }
+    selected.into_iter().map(|id| Ok((key(id)?, id))).collect()
 }
 #[cfg(test)]
-mod scenario_tests{
- use super::*;
- use catalog::evidence::{DiagnosticUseAssessment,DiagnosticUseLink,DiagnosticUseTarget,DiagnosticUseStatus};
- fn id<R:Record>(byte:u8)->Id<R>{serde_json::from_value(serde_json::to_value([byte;16]).unwrap()).unwrap()}
- #[test]
- fn diagnostic_correlations_preserve_only_exact_targets_and_refuse_missing_owned_links(){
-  let association=id(1);let other=id(2);
-  let assessment=DiagnosticUseAssessment{characterization:id(3),status:DiagnosticUseStatus::AmbiguousUse,uses:2,remainder:false};
-  let unrelated=DiagnosticUseAssessment{characterization:id(4),status:DiagnosticUseStatus::UniqueUse,uses:1,remainder:false};
-  let first=DiagnosticUseLink{assessment:assessment.id(),usage:id(5),subject:id(6),event_source:id(7)};
-  let second=DiagnosticUseLink{usage:id(8),..first.clone()};let excluded=DiagnosticUseLink{assessment:unrelated.id(),..first.clone()};
-  let targets=vec![DiagnosticUseTarget{association,link:first.id()},DiagnosticUseTarget{association,link:second.id()},DiagnosticUseTarget{association:other,link:excluded.id()}];
-  let links=vec![first.clone(),second.clone(),excluded];let assessments=vec![assessment.clone(),unrelated];
-  let actual=scenario_diagnostics(association,&targets,&links,&assessments).unwrap();assert_eq!(actual.len(),1);assert_eq!(actual[0].1,assessment.id());
-  assert!(scenario_diagnostics(association,&targets,&[second],&assessments).is_err());
- }
+mod scenario_tests {
+    use super::*;
+    use catalog::evidence::{
+        DiagnosticUseAssessment, DiagnosticUseLink, DiagnosticUseStatus, DiagnosticUseTarget,
+    };
+    fn id<R: Record>(byte: u8) -> Id<R> {
+        serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
+    }
+    #[test]
+    fn diagnostic_correlations_preserve_only_exact_targets_and_refuse_missing_owned_links() {
+        let association = id(1);
+        let other = id(2);
+        let assessment = DiagnosticUseAssessment {
+            characterization: id(3),
+            status: DiagnosticUseStatus::AmbiguousUse,
+            uses: 2,
+            remainder: false,
+        };
+        let unrelated = DiagnosticUseAssessment {
+            characterization: id(4),
+            status: DiagnosticUseStatus::UniqueUse,
+            uses: 1,
+            remainder: false,
+        };
+        let first = DiagnosticUseLink {
+            assessment: assessment.id(),
+            usage: id(5),
+            subject: id(6),
+            event_source: id(7),
+        };
+        let second = DiagnosticUseLink {
+            usage: id(8),
+            ..first.clone()
+        };
+        let excluded = DiagnosticUseLink {
+            assessment: unrelated.id(),
+            ..first.clone()
+        };
+        let targets = vec![
+            DiagnosticUseTarget {
+                association,
+                link: first.id(),
+            },
+            DiagnosticUseTarget {
+                association,
+                link: second.id(),
+            },
+            DiagnosticUseTarget {
+                association: other,
+                link: excluded.id(),
+            },
+        ];
+        let links = vec![first.clone(), second.clone(), excluded];
+        let assessments = vec![assessment.clone(), unrelated];
+        let actual = scenario_diagnostics(association, &targets, &links, &assessments).unwrap();
+        assert_eq!(actual.len(), 1);
+        assert_eq!(actual[0].1, assessment.id());
+        assert!(scenario_diagnostics(association, &targets, &[second], &assessments).is_err());
+    }
 }

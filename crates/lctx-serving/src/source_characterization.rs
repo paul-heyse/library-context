@@ -27,7 +27,12 @@ fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
         .iter()
         .find(|r| r.id() == id)
         .cloned()
-        .ok_or_else(|| Error::Model(ModelError::Invalid(format!("required native evidence row missing: {}", R::NAME))))
+        .ok_or_else(|| {
+            Error::Model(ModelError::Invalid(format!(
+                "required native evidence row missing: {}",
+                R::NAME
+            )))
+        })
 }
 fn unavailable() -> Availability {
     Availability::Unavailable {
@@ -61,8 +66,7 @@ impl NativePackets<'_> {
                 &[assessment.id()],
             )
             .await?;
-        let mut charge =
-            charged::StateCharge::new(&self.budget, "diagnostic-correlation-packet");
+        let mut charge = charged::StateCharge::new(&self.budget, "diagnostic-correlation-packet");
         charge.grow(links.rows().len().saturating_mul(4096))?;
         let mut links = links.rows().to_vec();
         links.sort_by_key(Record::id);
@@ -396,10 +400,8 @@ impl NativePackets<'_> {
         grant: &OriginalRange,
         maximum: usize,
     ) -> Result<SectionPage<SourceCharacterizationPacket>, Error> {
-        let mut charge = charged::StateCharge::new(
-            &self.budget,
-            "original-source-characterization-output",
-        );
+        let mut charge =
+            charged::StateCharge::new(&self.budget, "original-source-characterization-output");
         let rows = self
             .read_for::<SourceCharacterization, SourceArtifact>("artifact", &[grant.artifact])
             .await?;
@@ -627,4 +629,3 @@ impl NativePackets<'_> {
         })
     }
 }
-

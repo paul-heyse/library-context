@@ -66,8 +66,16 @@ FAMILIES = {
         ),
         frozenset({"tools"}),
     ),
-    "store": Family((("python3", "scripts/native_controls.py", "store"),), frozenset({"tools", "native-store"})),
-    "serving": Family((("python3", "scripts/native_controls.py", "serving"), ("python3", "scripts/native_controls.py", "mcp")), frozenset({"tools", "native-serving", "native-python"})),
+    "store": Family(
+        (("python3", "scripts/native_controls.py", "store"),), frozenset({"tools", "native-store"})
+    ),
+    "serving": Family(
+        (
+            ("python3", "scripts/native_controls.py", "serving"),
+            ("python3", "scripts/native_controls.py", "mcp"),
+        ),
+        frozenset({"tools", "native-serving", "native-python"}),
+    ),
     "oracles": Family(
         (("uv", "run", "--no-sync", "pytest", "tests/scripts/test_flow_soundness.py", "-q"),),
         frozenset({"tools", "cli"}),

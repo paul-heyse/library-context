@@ -5,11 +5,12 @@ use lctx_model::domain::{
     assertion::*, attribution::*, flow::*, flow_inventory::*, serving::*, source::Occurrence, *,
 };
 fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<&R, Error> {
-    batch
-        .rows()
-        .iter()
-        .find(|r| r.id() == id)
-        .ok_or_else(|| Error::Model(ModelError::Invalid(format!("required native evidence row missing: {}", R::NAME))))
+    batch.rows().iter().find(|r| r.id() == id).ok_or_else(|| {
+        Error::Model(ModelError::Invalid(format!(
+            "required native evidence row missing: {}",
+            R::NAME
+        )))
+    })
 }
 fn name(value: &str) -> Result<Name, Error> {
     Name::new(value).map_err(|e| Error::Codec(e.to_string()))
@@ -252,7 +253,7 @@ impl NativePackets<'_> {
                     ]
                     .into_iter()
                     .map(ProofReference::from_canonical)
-                    .collect::<Result<Vec<_>,_>>()?,
+                    .collect::<Result<Vec<_>, _>>()?,
                 });
             }
             let entry_outcomes = SectionPage {
@@ -415,7 +416,7 @@ impl NativePackets<'_> {
                     .rows()
                     .iter()
                     .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
-                    .collect::<Result<Vec<_>,_>>()?,
+                    .collect::<Result<Vec<_>, _>>()?,
             );
             items.push(FlowInventoryPacket {
                 inventory: inventory.id(),
@@ -445,10 +446,14 @@ impl NativePackets<'_> {
                 proof: proof
                     .into_iter()
                     .map(ProofReference::from_canonical)
-                    .collect::<Result<Vec<_>,_>>()?,
+                    .collect::<Result<Vec<_>, _>>()?,
             });
             // Retained packet accounting outlives all hydrated batches and explanation indexes.
-            self.charge.grow(serde_json::to_vec(items.last().expect("packet inserted")).map_err(|e| Error::Codec(e.to_string()))?.len())?;
+            self.charge.grow(
+                serde_json::to_vec(items.last().expect("packet inserted"))
+                    .map_err(|e| Error::Codec(e.to_string()))?
+                    .len(),
+            )?;
         }
         let omitted = total - items.len();
         Ok(SectionPage {

@@ -5,18 +5,28 @@ pub enum ProvenanceValue {
     RetainedGuardSubstitution(crate::domain::conditions::stability::GuardSubstitution),
     NativeDiagnosticAnnotation(crate::domain::diagnostics::DiagnosticAnnotation),
     NativeDiagnosticSubject(crate::domain::diagnostics::DiagnosticSubject),
-    RetainedSummaryCaptureContribution(crate::domain::execution::summary_capture::SummaryCaptureContribution),
+    RetainedSummaryCaptureContribution(
+        crate::domain::execution::summary_capture::SummaryCaptureContribution,
+    ),
     NativeFlowUseCandidate(crate::domain::flow_inventory::FlowUseCandidate),
-    RetainedEffectiveCallableEvidence(crate::domain::normalized::callables::EffectiveCallableEvidence),
-    RetainedEffectiveCallablePremise(crate::domain::normalized::callables::EffectiveCallablePremise),
+    RetainedEffectiveCallableEvidence(
+        crate::domain::normalized::callables::EffectiveCallableEvidence,
+    ),
+    RetainedEffectiveCallablePremise(
+        crate::domain::normalized::callables::EffectiveCallablePremise,
+    ),
     RetainedSymbolEntityEvidence(crate::domain::normalized::entities::SymbolEntityEvidence),
     RetainedSymbolEntityPremise(crate::domain::normalized::entities::SymbolEntityPremise),
     RetainedCallAlternativeEvidence(crate::domain::normalized::events::CallAlternativeEvidence),
     RetainedCallEventResolution(crate::domain::normalized::events::CallEventResolution),
-    RetainedCallEventResolutionEvidence(crate::domain::normalized::events::CallEventResolutionEvidence),
+    RetainedCallEventResolutionEvidence(
+        crate::domain::normalized::events::CallEventResolutionEvidence,
+    ),
     RetainedEventPhaseTarget(crate::domain::normalized::events::EventPhaseTarget),
     RetainedFlowCallEventLink(crate::domain::normalized::events::FlowCallEventLink),
-    RetainedDeclarationNativeCharacterization(crate::domain::normalized::links::DeclarationNativeCharacterization),
+    RetainedDeclarationNativeCharacterization(
+        crate::domain::normalized::links::DeclarationNativeCharacterization,
+    ),
     RetainedImportModuleAssessment(crate::domain::normalized::links::ImportModuleAssessment),
     RetainedImportModuleCandidate(crate::domain::normalized::links::ImportModuleCandidate),
     RetainedMentionSymbolCandidate(crate::domain::normalized::links::MentionSymbolCandidate),
@@ -26,12 +36,18 @@ pub enum ProvenanceValue {
     RetainedTypeBinderCandidate(crate::domain::normalized::links::TypeBinderCandidate),
     RetainedTypeBinderPremise(crate::domain::normalized::links::TypeBinderPremise),
     RetainedTypeEntityLink(crate::domain::normalized::links::TypeEntityLink),
-    RetainedOverloadVariantAssessment(crate::domain::normalized::overload_association::OverloadVariantAssessment),
-    RetainedOverloadVariantCandidate(crate::domain::normalized::overload_association::OverloadVariantCandidate),
+    RetainedOverloadVariantAssessment(
+        crate::domain::normalized::overload_association::OverloadVariantAssessment,
+    ),
+    RetainedOverloadVariantCandidate(
+        crate::domain::normalized::overload_association::OverloadVariantCandidate,
+    ),
     RetainedReceiverEvidence(crate::domain::normalized::receiver::ReceiverEvidence),
     RetainedReceiverPremise(crate::domain::normalized::receiver::ReceiverPremise),
     RetainedAssertionSource(crate::domain::synthesis::assertions::AssertionSource),
-    RetainedProgrammaticAssertionSupport(crate::domain::synthesis::assertions::ProgrammaticAssertionSupport),
+    RetainedProgrammaticAssertionSupport(
+        crate::domain::synthesis::assertions::ProgrammaticAssertionSupport,
+    ),
 
     NativeQualification(crate::domain::analysis::native::NativeQualification),
     LocalAnalysisObligation(crate::domain::analysis::local::AnalysisObligation),
@@ -292,7 +308,9 @@ pub enum ProvenanceValue {
     CallPolicyAssessment(crate::domain::normalized::events::CallPolicyAssessment),
     CallPolicyAdmission(crate::domain::normalized::events::CallPolicyAdmission),
     CatalogSourceCharacterization(crate::domain::catalog::evidence::SourceCharacterization),
-    CatalogSourceCharacterizationScenario(crate::domain::catalog::evidence::SourceCharacterizationScenario),
+    CatalogSourceCharacterizationScenario(
+        crate::domain::catalog::evidence::SourceCharacterizationScenario,
+    ),
     CatalogSourceUsage(crate::domain::catalog::evidence::SourceUsage),
     CatalogDiagnosticUseAssessment(crate::domain::catalog::evidence::DiagnosticUseAssessment),
     CatalogDiagnosticUseLink(crate::domain::catalog::evidence::DiagnosticUseLink),
@@ -306,58 +324,198 @@ pub enum ProvenanceValue {
     SelectionFieldLocation(crate::domain::local_fields::FieldLocation),
     SelectionFieldLocationCandidate(crate::domain::local_fields::FieldLocationCandidate),
     SelectionSourceFieldLink(crate::domain::catalog::evidence::SourceFieldLink),
-    SelectionReferenceBindingCharacterization(crate::domain::normalized::links::ReferenceBindingCharacterization),
+    SelectionReferenceBindingCharacterization(
+        crate::domain::normalized::links::ReferenceBindingCharacterization,
+    ),
 }
 impl Key for ProvenanceValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
-            Self::RetainedGuardSubstitution(row) => { sink.part(b"variant", &143u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::NativeDiagnosticAnnotation(row) => { sink.part(b"variant", &144u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::NativeDiagnosticSubject(row) => { sink.part(b"variant", &145u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedSummaryCaptureContribution(row) => { sink.part(b"variant", &146u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::NativeFlowUseCandidate(row) => { sink.part(b"variant", &147u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedEffectiveCallableEvidence(row) => { sink.part(b"variant", &148u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedEffectiveCallablePremise(row) => { sink.part(b"variant", &149u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedSymbolEntityEvidence(row) => { sink.part(b"variant", &150u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedSymbolEntityPremise(row) => { sink.part(b"variant", &151u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedCallAlternativeEvidence(row) => { sink.part(b"variant", &152u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedCallEventResolution(row) => { sink.part(b"variant", &153u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedCallEventResolutionEvidence(row) => { sink.part(b"variant", &154u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedEventPhaseTarget(row) => { sink.part(b"variant", &155u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedFlowCallEventLink(row) => { sink.part(b"variant", &156u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedDeclarationNativeCharacterization(row) => { sink.part(b"variant", &157u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedImportModuleAssessment(row) => { sink.part(b"variant", &158u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedImportModuleCandidate(row) => { sink.part(b"variant", &159u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedMentionSymbolCandidate(row) => { sink.part(b"variant", &160u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedPlaceEntityLink(row) => { sink.part(b"variant", &161u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedTestOperandCoverage(row) => { sink.part(b"variant", &162u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedTypeBinderAssessment(row) => { sink.part(b"variant", &163u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedTypeBinderCandidate(row) => { sink.part(b"variant", &164u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedTypeBinderPremise(row) => { sink.part(b"variant", &165u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedTypeEntityLink(row) => { sink.part(b"variant", &166u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedOverloadVariantAssessment(row) => { sink.part(b"variant", &167u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedOverloadVariantCandidate(row) => { sink.part(b"variant", &168u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedReceiverEvidence(row) => { sink.part(b"variant", &169u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedReceiverPremise(row) => { sink.part(b"variant", &170u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedAssertionSource(row) => { sink.part(b"variant", &171u16.to_le_bytes()); row.content_digest().encode(sink); },
-            Self::RetainedProgrammaticAssertionSupport(row) => { sink.part(b"variant", &172u16.to_le_bytes()); row.content_digest().encode(sink); },
+            Self::RetainedGuardSubstitution(row) => {
+                sink.part(b"variant", &143u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::NativeDiagnosticAnnotation(row) => {
+                sink.part(b"variant", &144u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::NativeDiagnosticSubject(row) => {
+                sink.part(b"variant", &145u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedSummaryCaptureContribution(row) => {
+                sink.part(b"variant", &146u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::NativeFlowUseCandidate(row) => {
+                sink.part(b"variant", &147u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedEffectiveCallableEvidence(row) => {
+                sink.part(b"variant", &148u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedEffectiveCallablePremise(row) => {
+                sink.part(b"variant", &149u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedSymbolEntityEvidence(row) => {
+                sink.part(b"variant", &150u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedSymbolEntityPremise(row) => {
+                sink.part(b"variant", &151u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedCallAlternativeEvidence(row) => {
+                sink.part(b"variant", &152u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedCallEventResolution(row) => {
+                sink.part(b"variant", &153u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedCallEventResolutionEvidence(row) => {
+                sink.part(b"variant", &154u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedEventPhaseTarget(row) => {
+                sink.part(b"variant", &155u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedFlowCallEventLink(row) => {
+                sink.part(b"variant", &156u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedDeclarationNativeCharacterization(row) => {
+                sink.part(b"variant", &157u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedImportModuleAssessment(row) => {
+                sink.part(b"variant", &158u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedImportModuleCandidate(row) => {
+                sink.part(b"variant", &159u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedMentionSymbolCandidate(row) => {
+                sink.part(b"variant", &160u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedPlaceEntityLink(row) => {
+                sink.part(b"variant", &161u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedTestOperandCoverage(row) => {
+                sink.part(b"variant", &162u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedTypeBinderAssessment(row) => {
+                sink.part(b"variant", &163u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedTypeBinderCandidate(row) => {
+                sink.part(b"variant", &164u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedTypeBinderPremise(row) => {
+                sink.part(b"variant", &165u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedTypeEntityLink(row) => {
+                sink.part(b"variant", &166u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedOverloadVariantAssessment(row) => {
+                sink.part(b"variant", &167u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedOverloadVariantCandidate(row) => {
+                sink.part(b"variant", &168u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedReceiverEvidence(row) => {
+                sink.part(b"variant", &169u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedReceiverPremise(row) => {
+                sink.part(b"variant", &170u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedAssertionSource(row) => {
+                sink.part(b"variant", &171u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::RetainedProgrammaticAssertionSupport(row) => {
+                sink.part(b"variant", &172u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
 
-            Self::SelectionReferenceBindingCharacterization(row)=>{sink.part(b"variant",&142u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionSourceFieldLink(row)=>{sink.part(b"variant",&141u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionFieldLocationLink(row)=>{sink.part(b"variant",&136u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionConstructorCandidateLink(row)=>{sink.part(b"variant",&137u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionFieldAccessAssessment(row)=>{sink.part(b"variant",&138u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionFieldLocation(row)=>{sink.part(b"variant",&139u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::SelectionFieldLocationCandidate(row)=>{sink.part(b"variant",&140u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::NormalizedCallEventSource(row)=>{sink.part(b"variant",&134u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::NormalizedCallEventSourceEvidence(row)=>{sink.part(b"variant",&135u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::CatalogSourceCharacterization(row)=>{sink.part(b"variant",&127u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::CatalogSourceCharacterizationScenario(row)=>{sink.part(b"variant",&128u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::CatalogSourceUsage(row)=>{sink.part(b"variant",&129u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::CatalogDiagnosticUseAssessment(row)=>{sink.part(b"variant",&130u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::CatalogDiagnosticUseLink(row)=>{sink.part(b"variant",&131u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::CatalogDiagnosticUsePath(row)=>{sink.part(b"variant",&132u16.to_le_bytes());row.content_digest().encode(sink);},
-            Self::CatalogDiagnosticUseTarget(row)=>{sink.part(b"variant",&133u16.to_le_bytes());row.content_digest().encode(sink);},
+            Self::SelectionReferenceBindingCharacterization(row) => {
+                sink.part(b"variant", &142u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionSourceFieldLink(row) => {
+                sink.part(b"variant", &141u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionFieldLocationLink(row) => {
+                sink.part(b"variant", &136u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionConstructorCandidateLink(row) => {
+                sink.part(b"variant", &137u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionFieldAccessAssessment(row) => {
+                sink.part(b"variant", &138u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionFieldLocation(row) => {
+                sink.part(b"variant", &139u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionFieldLocationCandidate(row) => {
+                sink.part(b"variant", &140u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::NormalizedCallEventSource(row) => {
+                sink.part(b"variant", &134u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::NormalizedCallEventSourceEvidence(row) => {
+                sink.part(b"variant", &135u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogSourceCharacterization(row) => {
+                sink.part(b"variant", &127u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogSourceCharacterizationScenario(row) => {
+                sink.part(b"variant", &128u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogSourceUsage(row) => {
+                sink.part(b"variant", &129u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogDiagnosticUseAssessment(row) => {
+                sink.part(b"variant", &130u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogDiagnosticUseLink(row) => {
+                sink.part(b"variant", &131u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogDiagnosticUsePath(row) => {
+                sink.part(b"variant", &132u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogDiagnosticUseTarget(row) => {
+                sink.part(b"variant", &133u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
             Self::NativeQualification(row) => {
                 sink.part(
                     b"semantic-type",
@@ -1231,22 +1389,22 @@ impl ProvenanceValue {
             Self::RetainedAssertionSource(row) => row.validate(),
             Self::RetainedProgrammaticAssertionSupport(row) => row.validate(),
 
-            Self::SelectionReferenceBindingCharacterization(row)=>row.validate(),
-            Self::SelectionSourceFieldLink(row)=>row.validate(),
-            Self::SelectionFieldLocationLink(row)=>row.validate(),
-            Self::SelectionConstructorCandidateLink(row)=>row.validate(),
-            Self::SelectionFieldAccessAssessment(row)=>row.validate(),
-            Self::SelectionFieldLocation(row)=>row.validate(),
-            Self::SelectionFieldLocationCandidate(row)=>row.validate(),
-            Self::NormalizedCallEventSource(row)=>row.validate(),
-            Self::NormalizedCallEventSourceEvidence(row)=>row.validate(),
-            Self::CatalogSourceCharacterization(row)=>row.validate(),
-            Self::CatalogSourceCharacterizationScenario(row)=>row.validate(),
-            Self::CatalogSourceUsage(row)=>row.validate(),
-            Self::CatalogDiagnosticUseAssessment(row)=>row.validate(),
-            Self::CatalogDiagnosticUseLink(row)=>row.validate(),
-            Self::CatalogDiagnosticUsePath(row)=>row.validate(),
-            Self::CatalogDiagnosticUseTarget(row)=>row.validate(),
+            Self::SelectionReferenceBindingCharacterization(row) => row.validate(),
+            Self::SelectionSourceFieldLink(row) => row.validate(),
+            Self::SelectionFieldLocationLink(row) => row.validate(),
+            Self::SelectionConstructorCandidateLink(row) => row.validate(),
+            Self::SelectionFieldAccessAssessment(row) => row.validate(),
+            Self::SelectionFieldLocation(row) => row.validate(),
+            Self::SelectionFieldLocationCandidate(row) => row.validate(),
+            Self::NormalizedCallEventSource(row) => row.validate(),
+            Self::NormalizedCallEventSourceEvidence(row) => row.validate(),
+            Self::CatalogSourceCharacterization(row) => row.validate(),
+            Self::CatalogSourceCharacterizationScenario(row) => row.validate(),
+            Self::CatalogSourceUsage(row) => row.validate(),
+            Self::CatalogDiagnosticUseAssessment(row) => row.validate(),
+            Self::CatalogDiagnosticUseLink(row) => row.validate(),
+            Self::CatalogDiagnosticUsePath(row) => row.validate(),
+            Self::CatalogDiagnosticUseTarget(row) => row.validate(),
             Self::NativeQualification(row) => row.validate(),
             Self::LocalAnalysisObligation(row) => row.validate(),
             Self::LocalCoverageRequirement(row) => row.validate(),
@@ -1457,22 +1615,22 @@ impl ProvenanceValue {
             Self::RetainedAssertionSource(row) => row.references(),
             Self::RetainedProgrammaticAssertionSupport(row) => row.references(),
 
-            Self::SelectionReferenceBindingCharacterization(row)=>row.references(),
-            Self::SelectionSourceFieldLink(row)=>row.references(),
-            Self::SelectionFieldLocationLink(row)=>row.references(),
-            Self::SelectionConstructorCandidateLink(row)=>row.references(),
-            Self::SelectionFieldAccessAssessment(row)=>row.references(),
-            Self::SelectionFieldLocation(row)=>row.references(),
-            Self::SelectionFieldLocationCandidate(row)=>row.references(),
-            Self::NormalizedCallEventSource(row)=>row.references(),
-            Self::NormalizedCallEventSourceEvidence(row)=>row.references(),
-            Self::CatalogSourceCharacterization(row)=>row.references(),
-            Self::CatalogSourceCharacterizationScenario(row)=>row.references(),
-            Self::CatalogSourceUsage(row)=>row.references(),
-            Self::CatalogDiagnosticUseAssessment(row)=>row.references(),
-            Self::CatalogDiagnosticUseLink(row)=>row.references(),
-            Self::CatalogDiagnosticUsePath(row)=>row.references(),
-            Self::CatalogDiagnosticUseTarget(row)=>row.references(),
+            Self::SelectionReferenceBindingCharacterization(row) => row.references(),
+            Self::SelectionSourceFieldLink(row) => row.references(),
+            Self::SelectionFieldLocationLink(row) => row.references(),
+            Self::SelectionConstructorCandidateLink(row) => row.references(),
+            Self::SelectionFieldAccessAssessment(row) => row.references(),
+            Self::SelectionFieldLocation(row) => row.references(),
+            Self::SelectionFieldLocationCandidate(row) => row.references(),
+            Self::NormalizedCallEventSource(row) => row.references(),
+            Self::NormalizedCallEventSourceEvidence(row) => row.references(),
+            Self::CatalogSourceCharacterization(row) => row.references(),
+            Self::CatalogSourceCharacterizationScenario(row) => row.references(),
+            Self::CatalogSourceUsage(row) => row.references(),
+            Self::CatalogDiagnosticUseAssessment(row) => row.references(),
+            Self::CatalogDiagnosticUseLink(row) => row.references(),
+            Self::CatalogDiagnosticUsePath(row) => row.references(),
+            Self::CatalogDiagnosticUseTarget(row) => row.references(),
             Self::NativeQualification(row) => row.references(),
             Self::LocalAnalysisObligation(row) => row.references(),
             Self::LocalCoverageRequirement(row) => row.references(),
@@ -1683,22 +1841,22 @@ impl ProvenanceValue {
             Self::RetainedAssertionSource(row) => SemanticKey::of(row.id()),
             Self::RetainedProgrammaticAssertionSupport(row) => SemanticKey::of(row.id()),
 
-            Self::SelectionReferenceBindingCharacterization(row)=>SemanticKey::of(row.id()),
-            Self::SelectionSourceFieldLink(row)=>SemanticKey::of(row.id()),
-            Self::SelectionFieldLocationLink(row)=>SemanticKey::of(row.id()),
-            Self::SelectionConstructorCandidateLink(row)=>SemanticKey::of(row.id()),
-            Self::SelectionFieldAccessAssessment(row)=>SemanticKey::of(row.id()),
-            Self::SelectionFieldLocation(row)=>SemanticKey::of(row.id()),
-            Self::SelectionFieldLocationCandidate(row)=>SemanticKey::of(row.id()),
-            Self::NormalizedCallEventSource(row)=>SemanticKey::of(row.id()),
-            Self::NormalizedCallEventSourceEvidence(row)=>SemanticKey::of(row.id()),
-            Self::CatalogSourceCharacterization(row)=>SemanticKey::of(row.id()),
-            Self::CatalogSourceCharacterizationScenario(row)=>SemanticKey::of(row.id()),
-            Self::CatalogSourceUsage(row)=>SemanticKey::of(row.id()),
-            Self::CatalogDiagnosticUseAssessment(row)=>SemanticKey::of(row.id()),
-            Self::CatalogDiagnosticUseLink(row)=>SemanticKey::of(row.id()),
-            Self::CatalogDiagnosticUsePath(row)=>SemanticKey::of(row.id()),
-            Self::CatalogDiagnosticUseTarget(row)=>SemanticKey::of(row.id()),
+            Self::SelectionReferenceBindingCharacterization(row) => SemanticKey::of(row.id()),
+            Self::SelectionSourceFieldLink(row) => SemanticKey::of(row.id()),
+            Self::SelectionFieldLocationLink(row) => SemanticKey::of(row.id()),
+            Self::SelectionConstructorCandidateLink(row) => SemanticKey::of(row.id()),
+            Self::SelectionFieldAccessAssessment(row) => SemanticKey::of(row.id()),
+            Self::SelectionFieldLocation(row) => SemanticKey::of(row.id()),
+            Self::SelectionFieldLocationCandidate(row) => SemanticKey::of(row.id()),
+            Self::NormalizedCallEventSource(row) => SemanticKey::of(row.id()),
+            Self::NormalizedCallEventSourceEvidence(row) => SemanticKey::of(row.id()),
+            Self::CatalogSourceCharacterization(row) => SemanticKey::of(row.id()),
+            Self::CatalogSourceCharacterizationScenario(row) => SemanticKey::of(row.id()),
+            Self::CatalogSourceUsage(row) => SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUseAssessment(row) => SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUseLink(row) => SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUsePath(row) => SemanticKey::of(row.id()),
+            Self::CatalogDiagnosticUseTarget(row) => SemanticKey::of(row.id()),
             Self::NativeQualification(row) => SemanticKey::of(row.id()),
             Self::LocalAnalysisObligation(row) => SemanticKey::of(row.id()),
             Self::LocalCoverageRequirement(row) => SemanticKey::of(row.id()),

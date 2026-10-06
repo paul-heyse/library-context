@@ -4,18 +4,23 @@ from __future__ import annotations
 
 import json
 from types import TracebackType
-
-import anyio
 from typing import Any
 
+import anyio
 from fastmcp.exceptions import (
-    DisabledError, FastMCPError, NotFoundError, ResourceError, ToolError, to_mcp_error,
+    DisabledError,
+    FastMCPError,
+    NotFoundError,
+    ResourceError,
+    ToolError,
+    to_mcp_error,
 )
-from fastmcp.server.middleware import Middleware
-from mcp.shared.exceptions import MCPError
 from fastmcp.resources import Resource, ResourceContent, ResourceResult, ResourceTemplate
+from fastmcp.server.middleware import Middleware
 from fastmcp.tools import Tool, ToolResult
+from mcp.shared.exceptions import MCPError
 from mcp_types import (
+    INTERNAL_ERROR,
     SERVER_INFO_META_KEY,
     CallToolResult,
     ErrorData,
@@ -23,9 +28,8 @@ from mcp_types import (
     JSONRPCError,
     JSONRPCResponse,
     ReadResourceResult,
-    ToolAnnotations,
     TextContent,
-    INTERNAL_ERROR,
+    ToolAnnotations,
 )
 from mcp_types.methods import serialize_server_result
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
@@ -68,7 +72,10 @@ def response_encodings(
 ) -> tuple[bytes, bytes]:
     """SDK writer contract controls; product serving admits its actual stdio form."""
     envelope = _response_envelope(
-        result, request_id, protocol_version=protocol_version, server_info=server_info,
+        result,
+        request_id,
+        protocol_version=protocol_version,
+        server_info=server_info,
     )
     serialized = envelope.model_dump_json(by_alias=True, exclude_unset=True).encode("utf-8")
     stdio = serialized + b"\n"
@@ -105,7 +112,9 @@ class EnvelopeAdmission(Middleware):
 
     def __init__(self, server) -> None:
         self.server_info = Implementation(
-            name=server.name, version=server.version, website_url=server.website_url,
+            name=server.name,
+            version=server.version,
+            website_url=server.website_url,
             icons=server.icons or None,
         ).model_dump(by_alias=True, mode="json", exclude_none=True)
         self._requests: dict[tuple[type, int | str], bool] = {}
@@ -137,7 +146,9 @@ class EnvelopeAdmission(Middleware):
             return
         self._requests[(type(request_id), request_id)] = expanded
         envelope = _response_envelope(
-            result, request_id, protocol_version=request.protocol_version,
+            result,
+            request_id,
+            protocol_version=request.protocol_version,
             server_info=self.server_info,
         )
         encoded = envelope.model_dump_json(by_alias=True, exclude_unset=True) + "\n"
@@ -158,9 +169,12 @@ class EnvelopeAdmission(Middleware):
         try:
             result = await call_next(context)
         except (FastMCPError, NotFoundError, DisabledError) as exc:
-            result = ToolResult.from_mcp_result(CallToolResult(
-                content=[TextContent(type="text", text=str(exc))], is_error=True,
-            ))
+            result = ToolResult.from_mcp_result(
+                CallToolResult(
+                    content=[TextContent(type="text", text=str(exc))],
+                    is_error=True,
+                )
+            )
         try:
             self._admit(context, result.to_mcp_result(), expanded)
         except ValueError:
@@ -179,13 +193,17 @@ class EnvelopeAdmission(Middleware):
             try:
                 self._admit(context, error.error, expanded)
             except ValueError:
-                error = MCPError(code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes")
+                error = MCPError(
+                    code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes"
+                )
                 self._admit(context, error.error, expanded)
             raise error from exc
         try:
             self._admit(context, result.to_mcp_result(str(context.message.uri)), expanded)
         except ValueError as exc:
-            error = MCPError(code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes")
+            error = MCPError(
+                code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes"
+            )
             self._admit(context, error.error, expanded)
             raise error from exc
         return result
@@ -267,8 +285,12 @@ class CapabilityResource(Resource):
             if len(self._capability) != 32:
                 raise ValueError("capability key must contain 16 bytes")
             capability = list(bytes.fromhex(self._capability))
-            raw = await self._executor.execute("get_capability", {"capability": capability, "page": {"expanded": True}})
-            return ResourceResult([ResourceContent(wire_capability_resource(raw), mime_type=self.mime_type)])
+            raw = await self._executor.execute(
+                "get_capability", {"capability": capability, "page": {"expanded": True}}
+            )
+            return ResourceResult(
+                [ResourceContent(wire_capability_resource(raw), mime_type=self.mime_type)]
+            )
         except (ValueError, RuntimeError) as exc:
             raise ResourceError(str(exc)) from exc
 

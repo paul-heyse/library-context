@@ -32,14 +32,24 @@ bit-set = { version = "0.8.0" }
 bitvec = { version = "1.1.1" }
 blake3 = { version = "1.8.6", features = ["mmap", "rayon", "traits-preview"] }
 bstr = { version = "1.13.1" }
+bytes = { version = "1.12.1", features = ["serde"] }
 camino = { version = "1.2.6", default-features = false, features = ["serde1"] }
+castaway = { version = "0.2.4" }
 char_str = { version = "0.0.4", features = ["get-size", "serde"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "wasmbind"] }
 compact_str = { version = "0.10.0", features = ["serde"] }
+crossbeam-utils = { version = "0.8.23" }
 dashmap = { version = "6.2.1", default-features = false, features = ["rayon", "serde"] }
+digest = { version = "0.10.7", features = ["mac", "std"] }
 either = { version = "1.18.0", default-features = false, features = ["use_std"] }
+fastrand = { version = "2.5.0" }
+flatbuffers = { version = "25.12.19", features = ["serde"] }
 foldhash = { version = "0.2.0" }
 form_urlencoded = { version = "1.2.2" }
+futures-channel = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 futures-core = { version = "0.3.34" }
+futures-io = { version = "0.3.34" }
+futures-util = { version = "0.3.34", features = ["channel", "io", "sink"] }
 get-size2 = { version = "0.11.0", features = ["compact-str", "derive", "hashbrown", "indexmap", "ordermap", "parking_lot", "smallvec", "thin-vec"] }
 getrandom = { version = "0.3.4", default-features = false, features = ["std"] }
 globset = { version = "0.4.20" }
@@ -58,6 +68,8 @@ ordermap = { version = "1.2.2", features = ["serde"] }
 parking_lot = { version = "0.12.5", features = ["arc_lock", "send_guard"] }
 peg-runtime = { version = "0.8.6", default-features = false, features = ["std"] }
 percent-encoding = { version = "2.3.2" }
+phf = { version = "0.13.1", features = ["macros", "unicase"] }
+phf_shared-594e8ee84c453af0 = { package = "phf_shared", version = "0.13.1", default-features = false, features = ["std", "unicase"] }
 rand = { version = "0.8.8" }
 regex = { version = "1.13.1" }
 regex-automata = { version = "0.4.18", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
@@ -70,6 +82,7 @@ ruff_source_file = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a
 ruff_text_size = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["get-size", "serde"] }
 rustc-hash = { version = "2.1.3" }
 seahash = { version = "4.1.0" }
+semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.229", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.229", features = ["alloc", "rc"] }
 serde_json = { version = "1.0.151", features = ["alloc", "float_roundtrip", "preserve_order", "raw_value", "unbounded_depth"] }
@@ -77,13 +90,15 @@ serde_spanned = { version = "1.1.1" }
 similar = { version = "3.2.0", features = ["bytes", "inline", "unicode"] }
 smallvec = { version = "1.16.2", default-features = false, features = ["const_new", "union"] }
 strum = { version = "0.28.0", features = ["derive"] }
+subtle = { version = "2.6.1" }
 thin-vec = { version = "0.2.20", features = ["serde"] }
 tokio = { version = "1.53.2", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "0.7.19", features = ["compat", "io"] }
 toml = { version = "1.1.6", features = ["preserve_order"] }
 toml_datetime = { version = "1.1.1", features = ["serde"] }
 toml_parser = { version = "1.1.3" }
 toml_writer = { version = "1.1.2" }
-tracing = { version = "0.1.44", features = ["valuable"] }
+tracing = { version = "0.1.44", features = ["release_max_level_debug", "valuable"] }
 tracing-core = { version = "0.1.36", features = ["valuable"] }
 ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["serde"] }
 ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false, features = ["zstd"] }
@@ -91,30 +106,35 @@ typenum = { version = "1.20.1", default-features = false, features = ["const-gen
 unicode-normalization = { version = "0.1.25" }
 unicode-width = { version = "0.2.2" }
 unicode_names2 = { version = "1.3.0" }
-uuid = { version = "1.27.0", features = ["js", "rng-getrandom", "v4"] }
+url = { version = "2.5.8", features = ["serde"] }
+uuid = { version = "1.27.0", features = ["js", "rng-getrandom", "serde", "v4", "v7"] }
 winnow = { version = "1.0.4" }
 zerocopy = { version = "0.8.59", default-features = false, features = ["derive", "simd"] }
 zip = { version = "8.6.0", default-features = false, features = ["zstd"] }
-zstd = { version = "0.14.0" }
-zstd-safe = { version = "8.0.0", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
+zstd-582f2526e08bb6a0 = { package = "zstd", version = "0.14.0" }
+zstd-safe-181b0d20215bb231 = { package = "zstd-safe", version = "8.0.0", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
 zstd-sys = { version = "2.1.0", default-features = false, features = ["legacy", "std", "zdict_builder"] }
 
 [build-dependencies]
 aho-corasick = { version = "1.1.5", default-features = false, features = ["perf-literal", "std"] }
+anyhow = { version = "1.0.104" }
 blake3 = { version = "1.8.6" }
 cc = { version = "1.6.0", default-features = false, features = ["parallel"] }
+digest = { version = "0.10.7", features = ["std"] }
 either = { version = "1.18.0", default-features = false, features = ["use_std"] }
 indexmap = { version = "2.14.2" }
 itertools = { version = "0.15.0", default-features = false, features = ["use_std"] }
 memchr = { version = "2.8.3" }
-phf_shared = { version = "0.11.3" }
+phf_shared-594e8ee84c453af0 = { package = "phf_shared", version = "0.13.1", default-features = false, features = ["unicase"] }
+phf_shared-a6292c17cd707f01 = { package = "phf_shared", version = "0.11.3" }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = { version = "1.0.47" }
 rand = { version = "0.8.8", features = ["small_rng"] }
 regex = { version = "1.13.1" }
-regex-automata = { version = "0.4.18", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-automata = { version = "0.4.18" }
 regex-syntax = { version = "0.8.11" }
 rustc-hash = { version = "2.1.3", default-features = false, features = ["std"] }
+semver = { version = "1.0.28" }
 smallvec = { version = "1.16.2", default-features = false, features = ["const_generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3.0.6", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2.0.119", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
@@ -122,30 +142,42 @@ unicode-normalization = { version = "0.1.25", default-features = false, features
 unicode-width = { version = "0.2.2" }
 zerocopy = { version = "0.8.59", default-features = false, features = ["simd"] }
 zip = { version = "8.6.0", default-features = false, features = ["zstd"] }
-zstd = { version = "0.14.0", features = ["experimental", "zstdmt"] }
-zstd-safe = { version = "8.0.0", default-features = false, features = ["arrays", "experimental", "legacy", "std", "zdict_builder", "zstdmt"] }
+zstd-582f2526e08bb6a0 = { package = "zstd", version = "0.14.0", features = ["experimental", "zstdmt"] }
+zstd-safe-181b0d20215bb231 = { package = "zstd-safe", version = "8.0.0", default-features = false, features = ["arrays", "experimental", "legacy", "std", "zdict_builder", "zstdmt"] }
 zstd-sys = { version = "2.1.0", default-features = false, features = ["experimental", "legacy", "std", "zdict_builder", "zstdmt"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2.13.2", default-features = false, features = ["std"] }
-bytes = { version = "1.12.1", features = ["serde"] }
-futures-channel = { version = "0.3.34", features = ["sink"] }
-futures-io = { version = "0.3.34" }
-futures-sink = { version = "0.3.34" }
+crc32fast = { version = "1.5.2" }
+flate2 = { version = "1.1.10", features = ["zlib-rs"] }
+futures = { version = "0.3.34", features = ["compat"] }
+futures-channel = { version = "0.3.34" }
 futures-task = { version = "0.3.34", default-features = false, features = ["std"] }
-futures-util = { version = "0.3.34", features = ["channel", "compat", "io", "sink"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["compat"] }
+hyper = { version = "1.11.1", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1.21", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
 libc = { version = "0.2.190" }
 mio = { version = "1.2.4", features = ["net", "os-ext"] }
 once_cell = { version = "1.21.4" }
+reqwest = { version = "0.13.5", default-features = false, features = ["default-tls", "json", "multipart", "stream"] }
 rustix = { version = "1.1.5", features = ["fs", "termios"] }
+rustls = { version = "0.23.45", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "std", "tls12"] }
 slab = { version = "0.4.12" }
 tokio = { version = "1.53.2", default-features = false, features = ["full", "test-util"] }
-url = { version = "2.5.8", features = ["serde"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws-lc-rs", "logging", "tls12"] }
+tokio-stream = { version = "0.1.19", features = ["net", "sync"] }
+tokio-util = { version = "0.7.19", default-features = false, features = ["codec"] }
+tower = { version = "0.5.3", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
+zlib-rs = { version = "0.6.8", default-features = false, features = ["std"] }
+zstd-594e8ee84c453af0 = { package = "zstd", version = "0.13.3" }
+zstd-safe-15128469a54ed75a = { package = "zstd-safe", version = "7.3.0", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2.13.2", default-features = false, features = ["std"] }
+crc32fast = { version = "1.5.2" }
 libc = { version = "0.2.190" }
 once_cell = { version = "1.21.4" }
 rustix = { version = "1.1.5", default-features = false, features = ["fs", "std"] }
+zstd-safe-15128469a54ed75a = { package = "zstd-safe", version = "7.3.0", default-features = false, features = ["std"] }
 
 ### END HAKARI SECTION

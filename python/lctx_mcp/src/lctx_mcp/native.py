@@ -27,7 +27,9 @@ class NativeExecutor:
     async def execute(self, tool: str, arguments: dict) -> str:
         deadline = asyncio.get_running_loop().time() + 30.0
         # Rust validates the public request before inference, allocation or a store query.
-        request = wire_decode(tool, json.dumps(arguments, separators=(",", ":"), ensure_ascii=False))
+        request = wire_decode(
+            tool, json.dumps(arguments, separators=(",", ":"), ensure_ascii=False)
+        )
         if self._closed:
             raise RuntimeError("native session closed")
         try:
@@ -56,7 +58,10 @@ class NativeExecutor:
 
     async def _execute(self, tool: str, request: str, deadline: float) -> str:
         vector_json = None
-        if tool in {"search_operations", "search_evidence", "search_capabilities"} and self.embedder:
+        if (
+            tool in {"search_operations", "search_evidence", "search_capabilities"}
+            and self.embedder
+        ):
             query = json.loads(request).get("query")
             if isinstance(query, str):
                 text = self.embedder.spec.query_text(query)
@@ -80,7 +85,9 @@ class NativeExecutor:
         remaining_ms = int(max(0.0, deadline - asyncio.get_running_loop().time()) * 1000)
         if remaining_ms == 0:
             raise RuntimeError("resource_refused: native request deadline")
-        return await asyncio.to_thread(self.session.execute, tool, request, vector_json, remaining_ms)
+        return await asyncio.to_thread(
+            self.session.execute, tool, request, vector_json, remaining_ms
+        )
 
     async def close(self) -> None:
         self._closed = True

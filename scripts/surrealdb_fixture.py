@@ -31,8 +31,7 @@ from typing import Any
 # 238bfeb11f5725bebed370167656748df8067595. Revisit when qualifying another server
 # release; a floating image would silently transfer these functional contracts.
 IMAGE = (
-    "surrealdb/surrealdb@sha256:"
-    "681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20"
+    "surrealdb/surrealdb@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20"
 )
 VERSION = "surrealdb-3.3.0"
 
@@ -84,7 +83,7 @@ class SurrealFixture:
                     if version != VERSION:
                         raise RuntimeError(f"fixture version mismatch: {version}")
                     return
-            except (urllib.error.URLError, TimeoutError, ConnectionError):
+            except urllib.error.URLError, TimeoutError, ConnectionError:
                 time.sleep(0.1)
         raise RuntimeError("owned SurrealDB readiness timed out")
 
@@ -191,19 +190,37 @@ def fixture() -> Iterator[SurrealFixture]:
             port = listener.getsockname()[1]
         try:
             instance.container_id = _docker(
-                "run", "--detach", "--name", instance.container,
-                "--user", f"{os.getuid()}:{os.getgid()}",
-                "--publish", f"127.0.0.1:{port}:8000", "--env-file", str(env_file),
-                "--mount", f"type=bind,src={scratch / 'data'},dst=/data", IMAGE,
-                "start", "--bind", "0.0.0.0:8000", "--query-timeout", "20s",
-                "--transaction-timeout", "10s", "rocksdb:///data/store",
+                "run",
+                "--detach",
+                "--name",
+                instance.container,
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
+                "--publish",
+                f"127.0.0.1:{port}:8000",
+                "--env-file",
+                str(env_file),
+                "--mount",
+                f"type=bind,src={scratch / 'data'},dst=/data",
+                IMAGE,
+                "start",
+                "--bind",
+                "0.0.0.0:8000",
+                "--query-timeout",
+                "20s",
+                "--transaction-timeout",
+                "10s",
+                "rocksdb:///data/store",
             )
             instance.config = {
-                "scratch": str(scratch), "container": instance.container,
+                "scratch": str(scratch),
+                "container": instance.container,
                 "endpoint": f"http://127.0.0.1:{port}",
                 "grpc_endpoint": f"grpc://127.0.0.1:{port}",
-                "namespace": "fixture_" + suffix, "database": "core",
-                "admin_user": "fixture_admin", "admin_password": password,
+                "namespace": "fixture_" + suffix,
+                "database": "core",
+                "admin_user": "fixture_admin",
+                "admin_password": password,
                 "image": IMAGE,
             }
             instance.config_path.write_text(json.dumps(instance.config))

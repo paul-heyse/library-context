@@ -16,7 +16,12 @@ fn need<R: Record>(rows: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
         .iter()
         .find(|r| r.id() == id)
         .cloned()
-        .ok_or_else(|| Error::Model(ModelError::Invalid(format!("required native evidence row missing: {}", R::NAME))))
+        .ok_or_else(|| {
+            Error::Model(ModelError::Invalid(format!(
+                "required native evidence row missing: {}",
+                R::NAME
+            )))
+        })
 }
 fn unavailable(reason: &str) -> Availability {
     Availability::Unavailable {
@@ -119,7 +124,9 @@ impl NativePackets<'_> {
                     )
                     .await?;
                 if assessments.rows().len() != 1 {
-                    return Err(Error::Model(ModelError::Invalid("native overload candidate requires one variant assessment".into())));
+                    return Err(Error::Model(ModelError::Invalid(
+                        "native overload candidate requires one variant assessment".into(),
+                    )));
                 }
                 let assessment = &assessments.rows()[0];
                 if assessment.context != context || assessment.policy != definition() {
@@ -350,7 +357,9 @@ impl NativePackets<'_> {
             )
             .await?;
         if rows.rows().len() != 1 {
-            return Err(Error::Model(ModelError::Invalid("source characterization requires one usage correspondence".into())));
+            return Err(Error::Model(ModelError::Invalid(
+                "source characterization requires one usage correspondence".into(),
+            )));
         };
         let usage = &rows.rows()[0];
         let event = need(
@@ -480,7 +489,12 @@ impl NativePackets<'_> {
                 },
             };
             let claim_basis = self.claim_basis(&q).await?;
-            charge.grow(serde_json::to_vec(&claim_basis).map_err(|e| Error::Codec(e.to_string()))?.len().saturating_mul(2))?;
+            charge.grow(
+                serde_json::to_vec(&claim_basis)
+                    .map_err(|e| Error::Codec(e.to_string()))?
+                    .len()
+                    .saturating_mul(2),
+            )?;
             let destination = need(
                 &self
                     .read_ids::<CallDestination>(&[target.destination])

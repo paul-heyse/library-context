@@ -1,10 +1,13 @@
 //! Pure exact-request controls over current domain identities and independently replayed Entry.
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
-    use lctx_model::domain::serving::{SnapshotHandle, DatabaseIdentity, Name};
+    use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
     SnapshotHandle {
         semantic: lctx_model::domain::ContentHash([byte; 32]),
         realization: lctx_model::domain::ContentHash([byte; 32]),
-        database: DatabaseIdentity {namespace: Name::new("lctx").unwrap(), database: Name::new(format!("snapshot_{byte}")).unwrap()},
+        database: DatabaseIdentity {
+            namespace: Name::new("lctx").unwrap(),
+            database: Name::new(format!("snapshot_{byte}")).unwrap(),
+        },
     }
 }
 #[path = "fixtures/stability.rs"]
@@ -1454,7 +1457,8 @@ fn distinct_unexamined_causes_survive_model_packet_serialization_without_assignm
                 vec![],
             )
             .unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         let json = serde_json::to_value(&packet).unwrap();
         assert_eq!(json["reason"], serde_json::json!(code));
         assert_eq!(json["exact"], "unknown");

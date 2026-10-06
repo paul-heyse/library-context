@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run a selected native contract family on one owned disposable persistent server."""
+
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 
 from build_environment import ROOT, normalized_env
@@ -24,8 +24,23 @@ def main() -> int:
             return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
 
         if options.boundary != "mcp":
-            packages = ["-p", "lctx-surrealdb", "-p", "lctx-publisher"] if options.boundary == "store" else ["-p", "lctx-serving"]
-            return run(["cargo", "nextest", "run", "--release", "--no-fail-fast", "--no-tests=fail", *packages, *filters])
+            packages = (
+                ["-p", "lctx-surrealdb", "-p", "lctx-publisher"]
+                if options.boundary == "store"
+                else ["-p", "lctx-serving"]
+            )
+            return run(
+                [
+                    "cargo",
+                    "nextest",
+                    "run",
+                    "--release",
+                    "--no-fail-fast",
+                    "--no-tests=fail",
+                    *packages,
+                    *filters,
+                ]
+            )
         # The real bridge/MCP prerequisite is produced here, not supplied by an operator store.
         serving = owned.scratch / "serving.json"
         env["LCTX_RETAIN_NATIVE_FIXTURE_CONFIG"] = str(serving)
@@ -37,7 +52,18 @@ def main() -> int:
         owned.restart()
         env["LCTX_NATIVE_SERVING_CONFIG"] = str(serving)
         env["LCTX_NATIVE_TEST_LIBRARY"] = "synthesis-sources"
-        return run(["uv", "run", "--no-sync", "pytest", "python/lctx_mcp/tests/test_wire_contract.py", "python/lctx_mcp/tests/test_native_session.py", "-q", *filters])
+        return run(
+            [
+                "uv",
+                "run",
+                "--no-sync",
+                "pytest",
+                "python/lctx_mcp/tests/test_wire_contract.py",
+                "python/lctx_mcp/tests/test_native_session.py",
+                "-q",
+                *filters,
+            ]
+        )
 
 
 if __name__ == "__main__":

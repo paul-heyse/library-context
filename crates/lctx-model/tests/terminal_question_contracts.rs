@@ -306,7 +306,8 @@ fn terminal_schema_has_required_question_finite_code_and_nullable_assertion_slot
     let (d, s, w, q) = fixture();
     let packet = TerminalQuestionPacket::from_canonical(
         &terminal::checked(&d, &s, w.id(), &q, id(1), id(2)).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
     let schema = schema_for::<TerminalQuestionPacket>(true);
     let validator = jsonschema::validator_for(&schema).unwrap();
     let question = serde_json::to_value(packet).unwrap();
@@ -366,7 +367,8 @@ fn terminal_scope_is_owned_artifact_or_input_and_never_rewritten() {
         let (d, s, w, q) = fixture_scope(input_scope, false);
         let packet = TerminalQuestionPacket::from_canonical(
             &terminal::checked(&d, &s, w.id(), &q, id(1), id(2)).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(packet.scope, q.scope);
         if !input_scope {
             assert_ne!(

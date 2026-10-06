@@ -30,9 +30,14 @@ async fn row<R: Record>(lease: &mut NativePackets<'_>, id: Id<R>) -> Result<R, E
         .iter()
         .find(|r| r.id() == id)
         .cloned()
-        .ok_or_else(|| Error::Model(ModelError::Invalid(format!("required native capture row missing: {}", R::NAME))))
+        .ok_or_else(|| {
+            Error::Model(ModelError::Invalid(format!(
+                "required native capture row missing: {}",
+                R::NAME
+            )))
+        })
 }
-fn reference<R: Record>(id: Id<R>) -> Result<ProofReference,Error> {
+fn reference<R: Record>(id: Id<R>) -> Result<ProofReference, Error> {
     Ok(ProofReference::from_canonical(RowRef::of(id))?)
 }
 fn name(value: impl Into<String>) -> Result<Name, Error> {

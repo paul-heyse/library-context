@@ -195,7 +195,18 @@ pub enum Fidelity {
     ExplicitConfigReference = 9,
 }
 /// Declaration identities have no runtime wildcards. Runtime algebra is a separate pure value.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    DomainSum,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[model(name = "selection_contexts")]
 pub enum Context {
     #[model(code = 0)]
@@ -265,7 +276,18 @@ impl Context {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    DomainSum,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[model(name = "selection_witnesses")]
 pub enum Witness {
     #[model(code = 0)]

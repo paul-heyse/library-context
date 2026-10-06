@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 from contextlib import asynccontextmanager
-from pathlib import Path
 from functools import partial
+from pathlib import Path
 
 import anyio
 from fastmcp import FastMCP
@@ -40,8 +40,13 @@ def create_server(serving_config: Path, embedding_url: str | None = None) -> Fas
             with anyio.CancelScope(shield=True):
                 await native.close()
 
-    server = FastMCP("library-context", lifespan=lifespan, cache_ttl=None,
-                     mask_error_details=True, dereference_schemas=False)
+    server = FastMCP(
+        "library-context",
+        lifespan=lifespan,
+        cache_ttl=None,
+        mask_error_details=True,
+        dereference_schemas=False,
+    )
     server.add_middleware(EnvelopeAdmission(server))
     register(server, executor)
     return server
@@ -72,8 +77,12 @@ async def run_stdio(server: FastMCP) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--serving-config", type=Path, default=Path("build/native/selected.serving.json"))
-    parser.add_argument("--embedding-url", help="Existing Qwen embedding service; omit to disable vector search")
+    parser.add_argument(
+        "--serving-config", type=Path, default=Path("build/native/selected.serving.json")
+    )
+    parser.add_argument(
+        "--embedding-url", help="Existing Qwen embedding service; omit to disable vector search"
+    )
     options = parser.parse_args(argv)
     server = create_server(options.serving_config, options.embedding_url)
     anyio.run(partial(run_stdio, server))

@@ -1,6 +1,6 @@
 //! Snapshot-bound serving declarations. Canonical relations retain semantic ownership.
 pub mod identity;
-pub use identity::{SnapshotHandle, DatabaseIdentity};
+pub use identity::{DatabaseIdentity, SnapshotHandle};
 pub mod mappings;
 pub mod resources;
 pub use resources::ResourceLimits;

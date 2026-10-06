@@ -1,7 +1,7 @@
 //! Effect interface for immutable embedding winners; the native store owns effects.
 use super::Spec;
-use crate::domain::{ContentHash,ModelError};
-use std::{future::Future,pin::Pin,collections::BTreeMap};
+use crate::domain::{ContentHash, ModelError};
+use std::{collections::BTreeMap, future::Future, pin::Pin};
 /// Cache winners are keyed by the complete embedding specification and request identity.
 #[derive(Clone, Debug)]
 pub struct CacheValue {

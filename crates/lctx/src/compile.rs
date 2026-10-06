@@ -72,9 +72,10 @@ pub async fn compile(
         None => None,
     };
     let cache = match native_client {
-        Some(client) if upper.as_ref().is_some_and(|upper| upper.embedder.is_some()) => {
-            Some(Arc::new(lctx_surrealdb::NativeEmbeddingCache::install(client).await?) as Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>)
-        }
+        Some(client) if upper.as_ref().is_some_and(|upper| upper.embedder.is_some()) => Some(
+            Arc::new(lctx_surrealdb::NativeEmbeddingCache::install(client).await?)
+                as Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>,
+        ),
         _ => None,
     };
     let environment = envs.join(name);
@@ -105,18 +106,25 @@ pub async fn compile(
     match target {
         Target::Artifact(destination) => {
             artifact.export(destination)?;
-            println!("{}", serde_json::to_string_pretty(&serde_json::json!({
-                "artifact":destination, "frontier":frontier.name(), "profile":profile.name(),
-                "content":artifact.manifest().content().hex(), "published":false,
-            }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "artifact":destination, "frontier":frontier.name(), "profile":profile.name(),
+                    "content":artifact.manifest().content().hex(), "published":false,
+                }))?
+            );
         }
         Target::Native(_) => {
             let staged = tempfile::tempdir()?;
             let destination = staged.path().join("artifact");
             artifact.export(&destination)?;
             let exported = cpg_core::artifact::verify_export(&destination, &workspace).await?;
-            let handle = lctx_publisher::publish(&exported, runtime.as_ref().expect("native target configuration"),
-                &lctx_serving::native_definitions()).await?;
+            let handle = lctx_publisher::publish(
+                &exported,
+                runtime.as_ref().expect("native target configuration"),
+                &lctx_serving::native_definitions(),
+            )
+            .await?;
             println!("{}", serde_json::to_string_pretty(&handle)?);
         }
     }

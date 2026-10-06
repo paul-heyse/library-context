@@ -78,10 +78,11 @@ impl Cursor {
             return Err(WireError::Continuation("snapshot, request, policy, representation, group, section, member, ordering or channel changed".into()));
         }
         if let CursorPosition::Ranked { score_bits, .. } = &cursor.after
-            && (!f64::from_bits(*score_bits).is_finite()
-                || *score_bits == (-0.0f64).to_bits())
+            && (!f64::from_bits(*score_bits).is_finite() || *score_bits == (-0.0f64).to_bits())
         {
-            return Err(WireError::Continuation("noncanonical ranking position".into()));
+            return Err(WireError::Continuation(
+                "noncanonical ranking position".into(),
+            ));
         }
         Ok(cursor)
     }

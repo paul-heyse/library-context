@@ -1,16 +1,20 @@
 //! Independent invalidation boundaries; no serving change mutates canonical fact identity.
-use crate::domain::{ContentHash, Key, KeySink};
 use super::Name;
+use crate::domain::{ContentHash, Key, KeySink};
 use serde::{Deserialize, Serialize};
 /// Exact physical database names; a reader cannot silently switch either component.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(deny_unknown_fields)]
 pub struct DatabaseIdentity {
     pub namespace: Name,
     pub database: Name,
 }
 /// One immutable semantic snapshot and its executable native realization.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotHandle {
     pub semantic: ContentHash,
@@ -67,7 +71,10 @@ pub fn consumer_identity(
 ) -> Result<ConsumerIdentity, crate::domain::ModelError> {
     let mut relations = consumed.to_vec();
     relations.sort_by(|a, b| a.operation.cmp(&b.operation));
-    if relations.windows(2).any(|w| w[0].operation == w[1].operation) {
+    if relations
+        .windows(2)
+        .any(|w| w[0].operation == w[1].operation)
+    {
         return Err(crate::domain::ModelError::Invalid(
             "duplicate operation dependency".into(),
         ));

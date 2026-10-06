@@ -1,9 +1,12 @@
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
-    use lctx_model::domain::serving::{SnapshotHandle, DatabaseIdentity, Name};
+    use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
     SnapshotHandle {
         semantic: lctx_model::domain::ContentHash([byte; 32]),
         realization: lctx_model::domain::ContentHash([byte; 32]),
-        database: DatabaseIdentity {namespace: Name::new("lctx").unwrap(), database: Name::new(format!("snapshot_{byte}")).unwrap()},
+        database: DatabaseIdentity {
+            namespace: Name::new("lctx").unwrap(),
+            database: Name::new(format!("snapshot_{byte}")).unwrap(),
+        },
     }
 }
 use lctx_model::domain::{
@@ -80,8 +83,6 @@ fn score(
 fn near(actual: f64, expected: f64) {
     assert!((actual - expected).abs() < 1e-14, "{actual} != {expected}");
 }
-
-
 
 #[test]
 fn family_normalization_has_hand_expected_scores_and_actual_witnesses() {
@@ -365,14 +366,6 @@ fn inactive_channels_and_mixed_or_foreign_universes_refuse() {
     );
 }
 
-
-
-
-
-
-
-
-
 #[test]
 fn channel_identity_binds_policy_query_and_actual_query_vector() {
     let policy = RankingPolicy::default();
@@ -445,19 +438,18 @@ fn bounded_candidate_fusion_reservations_refuse_and_release() {
     assert_eq!(budget.reserved(), 0);
 }
 
-
-
 #[test]
 fn native_analyzer_identity_is_independent_of_fusion_rules() {
-    let policy=RankingPolicy::default();
-    assert_eq!(policy.rrf_k,60);
-    assert_eq!((policy.lexical.k1,policy.lexical.b),(1.5,0.75));
-    let mut changed=policy.clone();
-    changed.lexical.definition=ContentHash::of(b"another installed analyzer");
+    let policy = RankingPolicy::default();
+    assert_eq!(policy.rrf_k, 60);
+    assert_eq!((policy.lexical.k1, policy.lexical.b), (1.5, 0.75));
+    let mut changed = policy.clone();
+    changed.lexical.definition = ContentHash::of(b"another installed analyzer");
     assert!(changed.validate().is_ok());
-    assert_ne!(policy.identity().unwrap(),changed.identity().unwrap());
-    changed.rrf_k=59;
+    assert_ne!(policy.identity().unwrap(), changed.identity().unwrap());
+    changed.rrf_k = 59;
     assert!(changed.validate().is_err());
-    changed=policy.clone();changed.lexical.k1=f64::NAN;
+    changed = policy.clone();
+    changed.lexical.k1 = f64::NAN;
     assert!(changed.validate().is_err());
 }
