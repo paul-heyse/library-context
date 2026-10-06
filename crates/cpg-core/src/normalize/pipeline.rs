@@ -61,8 +61,7 @@ impl Normalization {
             Self::CallableAspects => {
                 super::aspects(access, output, runtime, model).await
             }
-            Self::Events => super::events(access, output, runtime, model).await,
-            Self::Bindings => super::bindings(access, output, runtime, model).await,
+            Self::Events | Self::Bindings => Err(ModelError::Invalid("event/binding normalization requires actual predecessor authority".into())),
             Self::Projections => super::projections(access, output, runtime, model).await,
             Self::Coverage => super::coverage(access, output, runtime, model).await,
         }

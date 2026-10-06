@@ -83,6 +83,11 @@ impl ReceiverScopes {
             relation: model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),
             alias: access.table_for(input)?,
         })).collect::<Result<_, ModelError>>()?;
+        Self::from_tables(inputs, tables, session, budget).await
+    }
+    pub(super) async fn from_tables(inputs: Vec<ValidationInput>, tables: Vec<ClosureTable>,
+        session: &datafusion::prelude::SessionContext, budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
         let mut plan = NominalClosure::new(tables.clone())?;
         let index = |kind: TypeId| tables.iter().position(|table| table.relation.type_id() == kind)
             .ok_or_else(|| ModelError::Invalid("receiver nominal premise absent".into()));
@@ -102,6 +107,12 @@ impl ReceiverScopes {
         owned!(syntax::SyntaxPlacementSupport, "assertion", syntax::SyntaxPlacement);
         owned!(normalized::callables::EffectiveCallableAssessment, "callable", normalized::entities::CallableEntity);
         owned!(normalized::callables::SignatureVariant, "assessment", normalized::callables::EffectiveCallableAssessment);
+        if let (Some(assessments), Some(evidence)) = (tables.iter().position(|table| table.relation.type_id() == TypeId::of::<normalized::receiver::ReceiverAssessment>()), tables.iter().position(|table| table.relation.type_id() == TypeId::of::<normalized::receiver::ReceiverEvidence>())) {
+            for field in tables[assessments].relation.fields().iter().filter(|field| field.target().map(|(kind,_)| kind) == Some(TypeId::of::<CallTarget>())) {
+                plan.own(assessments, field.name(), index(TypeId::of::<CallTarget>())?)?;
+            }
+            plan.own(evidence, "assessment", assessments)?;
+        }
         let table = |kind: TypeId| -> Result<String, ModelError> { Ok(identifier(&tables[index(kind)?].alias)) };
         let targets = table(TypeId::of::<CallTarget>())?;
         let qualifications = table(TypeId::of::<assertion::AssertionQualification>())?;
@@ -124,6 +135,12 @@ impl ReceiverScopes {
         charge.grow(inputs.capacity() * size_of::<ValidationInput>() + tables.capacity() * size_of::<ClosureTable>())?;
         let edges = plan.prepare(session, budget).await?;
         Ok(Self { inputs, tables, edges, _charge: charge })
+    }
+    pub(super) fn inputs(&self) -> &[ValidationInput] { &self.inputs }
+    pub(super) async fn root_grain(&self, kind: TypeId, bytes: &[u8], budget: &resources::ResourceBudget) -> Result<crate::consumed_rows::PreparedClosure, ModelError> {
+        let root = self.tables.iter().position(|table| table.relation.type_id() == kind).ok_or_else(|| ModelError::Invalid("receiver admission root absent".into()))?;
+        let hex = bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        self.edges.grain(root, &format!("id=X'{hex}'"), budget).await
     }
     pub(super) async fn data(&self, access: &CompletedInputs, target: Id<CallTarget>, budget: &resources::ResourceBudget)
         -> Result<ReceiverData, ModelError>

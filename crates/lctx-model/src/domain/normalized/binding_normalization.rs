@@ -68,7 +68,7 @@ fn event_proofs(
     macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
     crate::normalized_event_inputs!(input);
     crate::normalized_event_outputs!(output);
-    super::event_normalization::prepare(&inputs, &outputs, budget)
+    super::event_normalization::prepare_consumed(&inputs, &outputs, budget)
 }
 fn original_target<'a>(
     data: &'a BindingData,
@@ -379,6 +379,25 @@ pub fn normalize_prepared(data: &BindingData, budget: &ResourceBudget)
     let output = normalize_with(data, &receivers, &events, budget)?;
     verify_enumerations(data, budget)?;
     let verified = admit(data, &output, &receivers, &events, budget)?;
+    Ok((output, verified))
+}
+/// The owning compiler lends compact receiver/event admissions once for each complete event grain.
+/// No stored receiver or event assessment creates authority on this route.
+pub fn normalize_event_produced(data: &BindingData, selected: Id<NormalizedCallEvent>,
+    receivers: &super::receiver::VerifiedReceivers, events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
+    need(&data.event_events, selected)?;
+    if data.event_alternatives.iter().any(|alternative| alternative.event != selected) {
+        return Err(invalid("binding grain contains another event candidate domain"));
+    }
+    normalize_produced(data, receivers, events, budget)
+}
+pub fn normalize_produced(data: &BindingData,
+    receivers: &super::receiver::VerifiedReceivers, events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
+    let output = normalize_with(data, receivers, events, budget)?;
+    verify_enumerations(data, budget)?;
+    let verified = admit(data, &output, receivers, events, budget)?;
     Ok((output, verified))
 }
 fn normalize_with(
@@ -895,6 +914,21 @@ pub struct VerifiedBindings {
     _charge: StateCharge,
 }
 impl VerifiedBindings {
+    pub fn append(&mut self, mut other: Self) -> Result<(), ModelError> {
+        if !self._charge.budget().expect("owner budget").shares_pool(other._charge.budget().expect("owner budget")) {
+            return Err(ModelError::Conflict("binding authority budget"));
+        }
+        macro_rules! join {($field:ident) => {{
+            while let Some(key) = other.$field.keys().next().copied() {
+                if self.$field.contains_key(&key) { return Err(ModelError::Conflict("binding authority domain")); }
+                let value = other.$field.remove(&mut other._charge, &key).expect("selected owner entry");
+                self.$field.insert(&mut self._charge, key, value)?;
+            }
+        }}; }
+        join!(bound); join!(shape); join!(source_shape); join!(effective); join!(composition);
+        Ok(())
+    }
+
     pub fn bound(&self, attempt: Id<CallBindingAttempt>) -> Option<&ValidatedBoundCall> {
         self.bound.get(&attempt)
     }
@@ -928,6 +962,14 @@ pub fn verify(
 /// Prepare the exact bound/shape/composition consumer authority over completed inputs. This
 /// checks applicability and the actual bound members without replaying any predecessor owner.
 /// The compiler additionally carries admission of immutable predecessor streams in its attempt.
+pub fn admit_event(data: &BindingData, stored: &BindingOutput, selected: Id<NormalizedCallEvent>, budget: &ResourceBudget) -> Result<(), ModelError> {
+    need(&data.event_events, selected)?;
+    if data.event_alternatives.iter().any(|alternative| alternative.event != selected)
+        || stored.attempts.iter().any(|attempt| attempt.event != selected) {
+        return Err(invalid("binding admission grain contains another event root"));
+    }
+    prepare(data, stored, budget).map(|_| ())
+}
 pub fn prepare(
     data: &BindingData, stored: &BindingOutput, budget: &ResourceBudget,
 ) -> Result<VerifiedBindings, ModelError> {
@@ -1705,6 +1747,7 @@ struct BindingCheck {
     admission: bool,
 }
 impl InvariantCheck for BindingCheck {
+    fn normalization_scope(&self) -> Option<super::admission::Scope> { self.admission.then_some(super::admission::Scope::Bindings) }
     fn visit(
         &mut self,
         relation: &str,

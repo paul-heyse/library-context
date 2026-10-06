@@ -13,7 +13,26 @@ use std::sync::Arc;
 use arrow_array::Array;
 mod receiver_scope;
 mod callable_scope;
+mod call_scope;
+mod admission;
+pub use admission::{validate_receivers, validate_events, validate_bindings};
 
+/// Actual normalization output authority bound to the immutable attempt descriptors.
+pub(crate) struct ProducedNormalization<T> {
+    premises: CompletedInputs,
+    outputs: CompletedInputs,
+    value: T,
+}
+impl<T> ProducedNormalization<T> {
+    fn borrow(&self, access: &CompletedInputs, workspace: &Workspace) -> Result<&T, ModelError> {
+        self.premises.require_subset(workspace, access)?;
+        self.outputs.require_subset(workspace, access)?;
+        Ok(&self.value)
+    }
+}
+fn selected_premises(access: &CompletedInputs, inputs: Vec<ValidationInput>) -> Result<CompletedInputs, ModelError> {
+    access.select(&inputs.into_iter().filter(|input| access.table_for(input).is_ok()).collect::<Vec<_>>())
+}
 /// One transfer-bounded stream at a time. The typed collector admits every retained row; the
 /// source-bound session and PreparedQuery own remote scan admission and stream lifetime.
 async fn load<R: Record>(
@@ -483,7 +502,15 @@ pub async fn receivers(
     runtime: &Workspace,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
+    receivers_produced(access, output, runtime, model).await.map(|_| ())
+}
+pub(crate) async fn receivers_produced(
+    access: CompletedInputs, output: ProducerOutput, runtime: &Workspace, model: &Arc<ValidatedModel>,
+) -> Result<ProducedNormalization<normalized::receiver::VerifiedReceivers>, ModelError> {
     use lctx_model::domain::normalized::receiver;
+    let premises = selected_premises(&access, receiver::ReceiverData::validation_inputs())?;
+    let mut verified = receiver::normalize_produced(&receiver::ReceiverData::new(runtime.budget()), runtime.budget())?.1;
+    let profile = access.profile();
     let session = access.session(runtime).await?;
     let scopes = receiver_scope::ReceiverScopes::prepare(&access, &session, model, runtime.budget()).await?;
     let declaration = ValidationInput::of::<calls::CallTarget>(&["id"]);
@@ -500,70 +527,112 @@ pub async fn receivers(
         roots.decode(&batch)?;
         for target in roots.iter() {
             let data = scopes.data(&access, target.id(), runtime.budget()).await?;
-            let rows = crate::stage_runtime::borrowed_cpu(access.name(), || receiver::normalize_target(&data, target.id(), runtime.budget()))?;
+            let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || receiver::normalize_target_produced(&data, target.id(), runtime.budget()))?;
+            verified.append(authority)?;
             macro_rules! write {($($field:ident: $ty:ty,)*) => {$(for row in rows.$field.iter() {if emitted.insert(&mut emitted_charge, (<$ty>::NAME, *row.id().bytes()))? { output.push(row.clone()).await?; }})*};}
             lctx_model::normalized_receiver_outputs!(write);
             tokio::task::yield_now().await;
         }
     }
-    output.finish(ProviderOutcome::Complete).await
+    output.finish(ProviderOutcome::Complete).await?;
+    let outputs = runtime.inputs("receiver-produced-authority", profile, receiver::relations())?;
+    Ok(ProducedNormalization { premises, outputs, value: verified })
 }
 
-pub async fn events(
-    access: CompletedInputs,
-    output: ProducerOutput,
-    runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
-) -> Result<(), ModelError> {
-    use lctx_model::domain::normalized::event_normalization::{self, EventData};
+pub(crate) async fn events_produced(
+    access: CompletedInputs, output: ProducerOutput, runtime: &Workspace, model: &Arc<ValidatedModel>,
+    receivers: &ProducedNormalization<normalized::receiver::VerifiedReceivers>,
+) -> Result<ProducedNormalization<normalized::event_normalization::VerifiedEvents>, ModelError> {
+    use normalized::event_normalization::{self, EventData, EventKey};
+    let receivers = receivers.borrow(&access, runtime)?;
+    let premises = selected_premises(&access, EventData::validation_inputs())?;
+    let profile = access.profile();
     let session = access.session(runtime).await?;
-    let mut data = EventData::new(runtime.budget());
-    macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        if access.contains::<$ty>() {
-            let _permit = access.read::<$ty>()?;
-            load(&session, &mut data.$field).await?;
+    let scopes = call_scope::CallScopes::prepare(&access, &session, model, runtime.budget(), false).await?;
+    let mut verified = event_normalization::normalize_events_produced(&EventData::new(runtime.budget()), receivers, runtime.budget())?.1;
+    let mut seen: charged::ChargedSet<EventKey> = Default::default();
+    let mut charge = charged::StateCharge::new(runtime.budget(), "event-root-keys");
+    let mut emitted = charged::ChargedSet::default();
+    let mut emitted_charge = charged::StateCharge::new(runtime.budget(), "event-output-ids");
+    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    lctx_model::normalized_event_outputs!(declare);
+    // Every provider site, target and resolution is a root, including unsupported/empty sets.
+    // Compact deduplication roots the complete qualified domain exactly once.
+    macro_rules! roots {($ty:ty) => {{
+        let input = ValidationInput::of::<$ty>(&["id"]);
+        let _permit = access.read_at::<$ty>(input.prefix())?;
+        let table = access.table_for(&input)?;
+        let qualifications = access.table_for(&EventData::validation_inputs().into_iter().find(|input| input.type_id() == std::any::TypeId::of::<assertion::AssertionQualification>()).expect("event qualification declaration"))?;
+        let sql = format!("SELECT r.*,q.context AS root_context FROM {} r JOIN {} q ON q.id=r.qualification ORDER BY r.id", crate::consumed_rows::identifier(&table), crate::consumed_rows::identifier(&qualifications));
+        let mut stream = crate::sql::query(&session, &sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+            let mut rows = Rows::<$ty>::new(runtime.budget());
+            // Decode the record projection without the extra context column.
+            let projection = batch.project(&(0..batch.num_columns()-1).collect::<Vec<_>>()).map_err(ModelError::codec)?;
+            rows.decode(&projection)?;
+            let contexts = batch.column(batch.num_columns()-1).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or_else(|| ModelError::Invalid("event context key has another Arrow type".into()))?;
+            for (ordinal, root) in rows.iter().enumerate() {
+                let context: Id<attribution::AnalysisContext> = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(contexts.value(ordinal).iter().copied())).map_err(ModelError::codec)?;
+                let key = (root.site, root.origin, context);
+                if !seen.insert(&mut charge, key)? { continue; }
+                let data = scopes.event_data(&access, root.id(), runtime.budget()).await?;
+                let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || event_normalization::normalize_event_produced(&data, key, receivers, runtime.budget()))?;
+                verified.append(authority)?;
+                macro_rules! write {($($field:ident:$record:ty,)*) => {$(for row in rows.$field.iter() { if emitted.insert(&mut emitted_charge, (<$record>::NAME, *row.id().bytes()))? { output.push(row.clone()).await?; } })*};}
+                lctx_model::normalized_event_outputs!(write);
+                tokio::task::yield_now().await;
+            }
         }
-    )* }; }
-    lctx_model::normalized_event_inputs!(read_inputs);
-    drop(session);
-    let rows = compute(data, runtime.budget(), event_normalization::normalize).await?;
-    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
-        output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
-    )* }; }
-    lctx_model::normalized_event_outputs!(write_outputs);
-    drop(rows);
-    output.finish(ProviderOutcome::Complete).await
-}
-
-pub async fn bindings(
-    access: CompletedInputs,
-    output: ProducerOutput,
-    runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
-) -> Result<(), ModelError> {
-    bindings_prepared(access, output, runtime, _model).await.map(|_| ())
+    }};}
+    roots!(calls::ProviderCallSite); roots!(calls::CallTarget); roots!(calls::CallResolution);
+    if access.contains::<flow::FlowValuePathObservation>() {
+        let input = ValidationInput::of::<flow::FlowValuePathObservation>(&["id"]);
+        let _permit = access.read_at::<flow::FlowValuePathObservation>(input.prefix())?;
+        let table = access.table_for(&input)?;
+        let mut stream = crate::sql::query(&session, &format!("SELECT * FROM {} ORDER BY id", crate::consumed_rows::identifier(&table))).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+            let mut paths = Rows::<flow::FlowValuePathObservation>::new(runtime.budget()); paths.decode(&batch)?;
+            for path in paths.iter() {
+                let data = scopes.event_data(&access, path.id(), runtime.budget()).await?;
+                let rows = event_normalization::normalize_flow_path(&data, path.id(), &verified, runtime.budget())?;
+                for row in rows.flow_links.iter() { output.push(row.clone()).await?; }
+            }
+        }
+    }
+    output.finish(ProviderOutcome::Complete).await?;
+    let outputs = runtime.inputs("event-produced-authority", profile, normalized::events::relations())?;
+    Ok(ProducedNormalization { premises, outputs, value: verified })
 }
 pub(crate) async fn bindings_prepared(
-    access: CompletedInputs, output: ProducerOutput, runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    access: CompletedInputs, output: ProducerOutput, runtime: &Workspace, model: &Arc<ValidatedModel>,
+    receivers: &ProducedNormalization<normalized::receiver::VerifiedReceivers>,
+    events: &ProducedNormalization<normalized::event_normalization::VerifiedEvents>,
 ) -> Result<normalized::binding_normalization::VerifiedBindings, ModelError> {
-    use lctx_model::domain::normalized::binding_normalization::{self, BindingData};
+    use normalized::binding_normalization::{self, BindingData};
+    let receivers = receivers.borrow(&access, runtime)?;
+    let events = events.borrow(&access, runtime)?;
     let session = access.session(runtime).await?;
-    let mut data = BindingData::new(runtime.budget());
-    macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        if access.contains::<$ty>() {
-            let _permit = access.read::<$ty>()?;
-            load(&session, &mut data.$field).await?;
+    let scopes = call_scope::CallScopes::prepare(&access, &session, model, runtime.budget(), true).await?;
+    let mut application = binding_normalization::normalize_produced(&BindingData::new(runtime.budget()), receivers, events, runtime.budget())?.1;
+    let mut emitted = charged::ChargedSet::default();
+    let mut charge = charged::StateCharge::new(runtime.budget(), "binding-output-ids");
+    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    lctx_model::normalized_binding_outputs!(declare);
+    let input = ValidationInput::of::<normalized::events::NormalizedCallEvent>(&["id"]);
+    let _permit = access.read_at::<normalized::events::NormalizedCallEvent>(input.prefix())?;
+    let table = access.table_for(&input)?;
+    let mut stream = crate::sql::query(&session, &format!("SELECT * FROM {} ORDER BY id", crate::consumed_rows::identifier(&table))).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        let mut roots = Rows::<normalized::events::NormalizedCallEvent>::new(runtime.budget()); roots.decode(&batch)?;
+        for event in roots.iter() {
+            let data = scopes.binding_data(&access, event.id(), runtime.budget()).await?;
+            let (rows, verified) = crate::stage_runtime::borrowed_cpu(access.name(), || binding_normalization::normalize_event_produced(&data, event.id(), receivers, events, runtime.budget()))?;
+            application.append(verified)?;
+            macro_rules! write {($($field:ident:$ty:ty,)*) => {$(for row in rows.$field.iter() { if emitted.insert(&mut charge, (<$ty>::NAME, *row.id().bytes()))? { output.push(row.clone()).await?; } })*};}
+            lctx_model::normalized_binding_outputs!(write);
+            tokio::task::yield_now().await;
         }
-    )* }; }
-    lctx_model::normalized_binding_inputs!(read_inputs);
-    drop(session);
-    let (rows, application) = compute(data, runtime.budget(), binding_normalization::normalize_prepared).await?;
-    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
-        output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
-    )* }; }
-    lctx_model::normalized_binding_outputs!(write_outputs);
-    drop(rows);
+    }
     output.finish(ProviderOutcome::Complete).await?;
     Ok(application)
 }

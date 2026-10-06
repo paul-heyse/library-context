@@ -551,6 +551,8 @@ pub async fn compile(
     let mut frozen = Default::default();
     freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
     let mut binding_application = None;
+    let mut receiver_authority = None;
+    let mut event_authority = None;
     for declaration in schedule.stages() {
         let Some(normalization) = Normalization::ALL
             .into_iter()
@@ -561,14 +563,20 @@ pub async fn compile(
         let selected = completed_input_declaration(&schedule, declaration);
         let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
         let output = workspace.producer(declaration, profile, access.clone());
-        if matches!(normalization, Normalization::Bindings) {
-            binding_application = Some(crate::normalize::bindings_prepared(access, output, workspace, model).await?);
-        } else {
-            normalization.run(access, output, workspace, model).await?;
+        match normalization {
+            Normalization::Receivers => receiver_authority = Some(crate::normalize::receivers_produced(access, output, workspace, model).await?),
+            Normalization::Events => event_authority = Some(crate::normalize::events_produced(access, output, workspace, model,
+                receiver_authority.as_ref().ok_or_else(|| ModelError::Invalid("receiver owner authority absent".into()))?).await?),
+            Normalization::Bindings => binding_application = Some(crate::normalize::bindings_prepared(access, output, workspace, model,
+                receiver_authority.as_ref().ok_or_else(|| ModelError::Invalid("receiver owner authority absent".into()))?,
+                event_authority.as_ref().ok_or_else(|| ModelError::Invalid("event owner authority absent".into()))?).await?),
+            _ => normalization.run(access, output, workspace, model).await?,
         }
         completed.insert(declaration.name);
         freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
     }
+    drop(event_authority);
+    drop(receiver_authority);
     // Source owners are admitted once while the normalized dependency set is immutable.
     // Prepared consumer authorities project this lifetime; upper stages do not replay owners.
     let normalized_authority = if prepared.is_some() {
