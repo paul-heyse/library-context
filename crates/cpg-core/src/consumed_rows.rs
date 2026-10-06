@@ -199,9 +199,17 @@ impl NominalClosure {
         if self.pairs.is_empty() {
             return "SELECT CAST(0 AS BIGINT) AS source_kind, arrow_cast(NULL,'FixedSizeBinary(16)') AS source_id, CAST(0 AS BIGINT) AS target_kind, arrow_cast(NULL,'FixedSizeBinary(16)') AS target_id WHERE false".into();
         }
-        self.pairs.iter().map(|(source, target, sql)| format!(
+        let inputs=self.pairs.iter().map(|(source, target, sql)| format!(
             "SELECT CAST({source} AS BIGINT) AS source_kind, source_id, CAST({target} AS BIGINT) AS target_kind, target_id FROM ({sql}) AS pair_rows WHERE source_id IS NOT NULL AND target_id IS NOT NULL"
-        )).collect::<Vec<_>>().join(" UNION ALL ")
+        )).collect::<Vec<_>>();
+        // Generic typed ownership has many finite nominal edges. Balanced operands retain all
+        // pairs without giving the SQL parser/planner a left-deep chain of UNION nodes.
+        fn union(inputs:&[String])->String {
+            if inputs.len()==1{return inputs[0].clone();}
+            let middle=inputs.len()/2;
+            format!("({}) UNION ALL ({})",union(&inputs[..middle]),union(&inputs[middle..]))
+        }
+        union(&inputs)
     }
     /// Project nominal edges once for an immutable dependency set into an external ordered IPC
     /// stream. All subsequent grains reuse these compact edges without rescanning rich inputs.
@@ -210,7 +218,7 @@ impl NominalClosure {
         session: &SessionContext,
         budget: &ResourceBudget,
     ) -> Result<PreparedEdges, ModelError> {
-        use datafusion::{arrow::ipc::writer::FileWriter, execution::{options::ArrowReadOptions, session_state::SessionStateBuilder}};
+        use datafusion::{arrow::ipc::writer::FileWriter, execution::session_state::SessionStateBuilder};
         use std::fs::File;
         let state = session.state();
         let catalogs = state.catalog_list().clone();
@@ -227,18 +235,38 @@ impl NominalClosure {
         let frame = crate::sql::query(&session, &sql).await.map_err(ModelError::codec)?;
         let schema = frame.schema().as_arrow().clone();
         let mut stream = frame.execute_stream().await.map_err(ModelError::codec)?;
+        let mut batches = charged::ChargedVec::default();
+        let mut index_charge = charged::StateCharge::new(budget, "semantic-edge-batch-index");
         let mut writer = FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema).map_err(ModelError::codec)?;
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            let _transfer = budget.reserve("semantic-edge-transfer", batch.get_array_memory_size())?;
-            writer.write(&batch).map_err(ModelError::codec)?;
+            let _transfer = budget.reserve("semantic-edge-transfer", batch.get_array_memory_size().saturating_mul(3).saturating_add(4096))?;
+            // Keep random access bounded even if an upstream physical operator coalesces batches.
+            for offset in (0..batch.num_rows()).step_by(resources::TRANSFER_ROWS) {
+                let edge_batch = batch.slice(offset, (batch.num_rows()-offset).min(resources::TRANSFER_ROWS));
+                let first = edge_key(&edge_batch, "source_kind", "source_id", 0)?;
+                let last = edge_key(&edge_batch, "source_kind", "source_id", edge_batch.num_rows()-1)?;
+                if first>last || batches.last().is_some_and(|previous:&EdgeBatch|previous.last>first) {
+                    return Err(ModelError::Schema("nominal edges are not ordered by complete source key"));
+                }
+                // Arrow's writer/footer also retains one block descriptor per batch. Its compact
+                // metadata envelope lives with the sparse index; no per-edge index is retained.
+                index_charge.grow(128)?;
+                batches.push(&mut index_charge, EdgeBatch { first, last, rows:edge_batch.num_rows() })?;
+                writer.write(&edge_batch).map_err(ModelError::codec)?;
+            }
             tokio::task::yield_now().await;
         }
         writer.finish().map_err(ModelError::codec)?;
         drop(writer);
-        let alias = scope_alias("edges");
-        session.register_arrow(alias.clone(), path.to_string_lossy(), ArrowReadOptions::default().schema(&schema))
-            .await.map_err(ModelError::codec)?;
-        Ok(PreparedEdges(std::sync::Arc::new(EdgeSource { session, alias, tables: self.tables.clone(), _directory: directory })))
+        // Reserve the reader's footer/block metadata before FileReader allocates it in a grain.
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file=File::open(&path).map_err(ModelError::codec)?;
+        file.seek(SeekFrom::End(-10)).map_err(ModelError::codec)?;
+        let mut length=[0;4];file.read_exact(&mut length).map_err(ModelError::codec)?;
+        let footer=u32::from_le_bytes(length) as usize;
+        let reader_allowance=footer.saturating_mul(2).saturating_add(batches.len().saturating_mul(64)).saturating_add(4096);
+        Ok(PreparedEdges(std::sync::Arc::new(EdgeSource { session, path, batches,
+            reader_allowance, tables:self.tables.clone(), _index_charge:index_charge, _directory:directory })))
     }
 }
 fn scope_alias(kind: &str) -> String {
@@ -246,42 +274,129 @@ fn scope_alias(kind: &str) -> String {
     static NEXT_SCOPE: AtomicU64 = AtomicU64::new(0);
     format!("__semantic_{kind}_{}", NEXT_SCOPE.fetch_add(1, Ordering::Relaxed))
 }
+type NominalKey = (i64, [u8;16]);
+/// Exactly one entry per IPC record batch. Duplicate source ranges may span arbitrarily many
+/// adjacent batches; searching by BOTH first and last includes every such batch.
+struct EdgeBatch { first:NominalKey, last:NominalKey, rows:usize }
+impl HeapSize for EdgeBatch {}
 struct EdgeSource {
     session: SessionContext,
-    alias: String,
+    path: std::path::PathBuf,
+    batches: charged::ChargedVec<EdgeBatch>,
+    reader_allowance:usize,
     tables: Vec<ClosureTable>,
+    _index_charge:charged::StateCharge,
     _directory: tempfile::TempDir,
 }
-impl Drop for EdgeSource {
-    fn drop(&mut self) { let _ = self.session.deregister_table(self.alias.as_str()); }
+impl EdgeSource {
+    fn matching_batches(&self,key:NominalKey)->std::ops::Range<usize>{
+        let start=self.batches.partition_point(|batch|batch.last<key);
+        let end=self.batches.partition_point(|batch|batch.first<=key);
+        start..end
+    }
+}
+fn edge_key(batch:&arrow_array::RecordBatch,kind:&str,id:&str,row:usize)->Result<NominalKey,ModelError>{
+    use arrow_array::{Array,Int64Array,FixedSizeBinaryArray};
+    let kinds=batch.column_by_name(kind).and_then(|column|column.as_any().downcast_ref::<Int64Array>()).ok_or(ModelError::Schema("nominal edge kind must be Int64"))?;
+    let ids=batch.column_by_name(id).and_then(|column|column.as_any().downcast_ref::<FixedSizeBinaryArray>()).filter(|ids|ids.value_length()==16).ok_or(ModelError::Schema("nominal edge ID must have 16 bytes"))?;
+    if row>=batch.num_rows() || kinds.is_null(row) || ids.is_null(row) {return Err(ModelError::Schema("nominal edge key absent"));}
+    Ok((kinds.value(row),ids.value(row).try_into().map_err(ModelError::codec)?))
+}
+/// One FileReader and at most one current batch. Reader/block metadata and the decoded edge
+/// batch are charged before allocation; the cache is replaced before reading another batch.
+struct EdgeCursor<'a> {
+    source:&'a EdgeSource,
+    reader:datafusion::arrow::ipc::reader::FileReader<std::fs::File>,
+    current:Option<(usize,arrow_array::RecordBatch,Box<dyn resources::Reservation>)>,
+    _reader_charge:Box<dyn resources::Reservation>,
+}
+impl<'a> EdgeCursor<'a> {
+    fn new(source:&'a EdgeSource,budget:&ResourceBudget)->Result<Self,ModelError>{
+        let charge=budget.reserve("semantic-edge-reader",source.reader_allowance)?;
+        let reader=datafusion::arrow::ipc::reader::FileReader::try_new(std::fs::File::open(&source.path).map_err(ModelError::codec)?,None).map_err(ModelError::codec)?;
+        if reader.num_batches()!=source.batches.len(){return Err(ModelError::Schema("nominal edge sparse index does not match IPC batches"));}
+        Ok(Self {source,reader,current:None,_reader_charge:charge})
+    }
+    fn batch(&mut self,index:usize,budget:&ResourceBudget)->Result<&arrow_array::RecordBatch,ModelError>{
+        if self.current.as_ref().is_none_or(|(current,_,_)|*current!=index){
+            self.current=None;
+            let rows=self.source.batches[index].rows;
+            // Four fixed columns use 48 bytes per row. The envelope also admits IPC alignment,
+            // its read buffer, decoder copies and the RecordBatch/array metadata before reading.
+            let mut charge=budget.reserve("semantic-edge-current-batch",rows.saturating_mul(48*4).saturating_add(4096))?;
+            self.reader.set_index(index).map_err(ModelError::codec)?;
+            let batch=self.reader.next().ok_or(ModelError::Schema("nominal edge IPC batch missing"))?.map_err(ModelError::codec)?;
+            if batch.num_rows()!=rows || batch.get_array_memory_size().saturating_add(4096)>charge.size(){return Err(ModelError::Schema("nominal edge batch exceeds its admitted shape"));}
+            charge.try_resize(batch.get_array_memory_size().saturating_add(4096))?;
+            self.current=Some((index,batch,charge));
+        }
+        Ok(&self.current.as_ref().expect("current edge batch").1)
+    }
+    fn targets(&mut self,key:NominalKey,budget:&ResourceBudget,mut accept:impl FnMut(NominalKey)->Result<(),ModelError>)->Result<(),ModelError>{
+        for index in self.source.matching_batches(key){
+            let batch=self.batch(index,budget)?;
+            // Find the first matching row within this selected batch without scanning its prefix.
+            let mut left=0usize;let mut right=batch.num_rows();
+            while left<right {let middle=left+(right-left)/2;if edge_key(batch,"source_kind","source_id",middle)?<key{left=middle+1;}else{right=middle;}}
+            for row in left..batch.num_rows(){
+                if edge_key(batch,"source_kind","source_id",row)?!=key{break;}
+                accept(edge_key(batch,"target_kind","target_id",row)?)?;
+            }
+        }
+        Ok(())
+    }
 }
 /// Dependency-set preparation, reused by source/context/family grains. It selects rows only;
 /// all ordinary owner predicates and the independent global reference pass still apply.
 #[derive(Clone)]
 pub struct PreparedEdges(std::sync::Arc<EdgeSource>);
 impl PreparedEdges {
-    /// Compute compact keys for one explicitly selected grain. The root always remains in the
-    /// closure, including an assertion with no supporting rows. UNION DISTINCT terminates cycles.
+    /// Compute compact keys for one explicitly selected grain. An unsupported root remains
+    /// selected, and visited complete nominal keys terminate cycles before another edge read.
     pub async fn grain(&self, root: usize, predicate: &str, budget: &ResourceBudget) -> Result<PreparedClosure, ModelError> {
         use datafusion::datasource::MemTable;
+        use arrow_array::{RecordBatch,Int64Array,FixedSizeBinaryArray};
+        use arrow_schema::{Schema,Field,DataType};
         use std::sync::Arc;
         let table = self.0.tables.get(root).ok_or_else(|| ModelError::Invalid("closure table index absent".into()))?;
         if predicate.trim().is_empty() { return Err(ModelError::Invalid("closure root predicate absent".into())); }
-        let sql = format!("WITH RECURSIVE closure_keys AS (SELECT CAST({root} AS BIGINT) AS kind,id FROM {} WHERE ({predicate}) UNION SELECT e.target_kind AS kind,e.target_id AS id FROM closure_keys k JOIN {} e ON k.kind=e.source_kind AND k.id=e.source_id) SELECT kind,id FROM closure_keys ORDER BY kind,id", identifier(&table.alias), identifier(&self.0.alias));
-        let frame = crate::sql::query(&self.0.session, &sql).await.map_err(ModelError::codec)?;
-        let schema = frame.schema().as_arrow().clone();
-        let mut stream = frame.execute_stream().await.map_err(ModelError::codec)?;
-        let mut keys = Vec::new();
-        let mut charge = charged::StateCharge::new(budget, "semantic-grain-keys");
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            charge.grow(batch.get_array_memory_size().saturating_add(size_of::<arrow_array::RecordBatch>()))?;
-            keys.push(batch);
+        let sql = format!("SELECT CAST({root} AS BIGINT) AS kind,id FROM {} WHERE ({predicate}) ORDER BY id",identifier(&table.alias));
+        let mut roots=crate::sql::query(&self.0.session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+        let mut visited=charged::ChargedSet::default();let mut pending=charged::ChargedVec::default();
+        let mut traversal_charge=charged::StateCharge::new(budget,"semantic-grain-traversal-keys");
+        while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {
+            let _transfer=budget.reserve("semantic-grain-root-transfer",batch.get_array_memory_size())?;
+            for row in 0..batch.num_rows(){let key=edge_key(&batch,"kind","id",row)?;if visited.insert(&mut traversal_charge,key)?{pending.push(&mut traversal_charge,key)?;}}
             tokio::task::yield_now().await;
         }
-        let alias = scope_alias("keys");
-        let provider = MemTable::try_new(Arc::new(schema), vec![keys]).map_err(ModelError::codec)?;
-        self.0.session.register_table(alias.clone(), Arc::new(provider)).map_err(ModelError::codec)?;
-        Ok(PreparedClosure { edges: self.0.clone(), alias, _charge: charge })
+        drop(roots);
+        let mut cursor=EdgeCursor::new(&self.0,budget)?;
+        while let Some(key)=pending.take_last(&mut traversal_charge){
+            cursor.targets(key,budget,|target|{
+                if target.0<0 || target.0 as usize>=self.0.tables.len(){return Err(ModelError::Schema("nominal edge target namespace absent"));}
+                if visited.insert(&mut traversal_charge,target)?{pending.push(&mut traversal_charge,target)?;}Ok(())
+            })?;
+            tokio::task::yield_now().await;
+        }
+        drop(cursor);drop(pending);
+        let schema=Arc::new(Schema::new(vec![Field::new("kind",DataType::Int64,false),Field::new("id",DataType::FixedSizeBinary(16),false)]));
+        let mut keys=Vec::new();let mut charge=charged::StateCharge::new(budget,"semantic-grain-keys");
+        let mut selected=visited.iter();
+        loop {
+            let count=selected.len().min(resources::TRANSFER_ROWS);if count==0{break;}
+            let mut transfer=budget.reserve("semantic-grain-key-transfer",count.saturating_mul(64).saturating_add(4096))?;
+            let values=selected.by_ref().take(count).copied().collect::<Vec<_>>();
+            let kinds=Int64Array::from_iter_values(values.iter().map(|key|key.0));
+            let ids=FixedSizeBinaryArray::try_from_iter(values.iter().map(|key|key.1)).map_err(ModelError::codec)?;
+            let batch=RecordBatch::try_new(schema.clone(),vec![Arc::new(kinds),Arc::new(ids)]).map_err(ModelError::codec)?;
+            let additional=if keys.len()==keys.capacity(){keys.capacity().max(4)}else{0};
+            charge.grow(batch.get_array_memory_size().saturating_add(additional.saturating_mul(size_of::<RecordBatch>())))?;
+            keys.reserve_exact(additional);keys.push(batch);transfer.try_resize(0)?;
+        }
+        drop(visited);drop(traversal_charge);
+        let alias=scope_alias("keys");let provider=MemTable::try_new(schema,vec![keys]).map_err(ModelError::codec)?;
+        self.0.session.register_table(alias.clone(),Arc::new(provider)).map_err(ModelError::codec)?;
+        Ok(PreparedClosure { edges:self.0.clone(),alias,_charge:charge })
     }
 }
 /// A short-lived compact nominal key set for one owner grain. It keeps the external edge source
@@ -349,11 +464,12 @@ mod nominal_closure_controls {
         plan.follow(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
+        let index_usage=budget.reserved();assert!(index_usage>0);
         let scope = edges.grain(0, &id_predicate(releases[0].id()), &budget).await.unwrap();
         assert_eq!(decode::<Release>(&scope, 0).await, vec![releases[0].clone()]);
         assert_eq!(decode::<Package>(&scope, 1).await, vec![package]);
-        drop(scope);
-        assert_eq!(budget.reserved(), 0);
+        drop(scope);assert_eq!(budget.reserved(),index_usage);
+        drop(edges);assert_eq!(budget.reserved(),0);
     }
     #[tokio::test]
     async fn explicit_reverse_membership_closes_cycle_without_unrelated_owners() {
@@ -379,4 +495,56 @@ mod nominal_closure_controls {
         assert_eq!(decode::<Release>(&scope, 0).await, vec![releases[0].clone()]);
         assert!(decode::<Package>(&scope, 1).await.is_empty());
     }
+    #[tokio::test]
+    async fn sparse_batch_ranges_include_all_split_sources_and_exclude_unrelated_edges() {
+        let session=SessionContext::new_with_config(datafusion::prelude::SessionConfig::new().with_batch_size(16));
+        let mut packages=(0..30).map(|index|Package {name:format!("owner-{index}")}).collect::<Vec<_>>();packages.sort_by_key(Record::id);
+        let selected=packages[15].clone();
+        let releases=packages.iter().flat_map(|package|(0..80).map(move|index|Release {package:package.id(),version:index.to_string()})).collect::<Vec<_>>();
+        let expected=releases.iter().filter(|row|row.package==selected.id()).cloned().collect::<Vec<_>>();
+        register(&session,"many_packages",&packages);register(&session,"many_releases",&releases);
+        let mut plan=NominalClosure::new(vec![ClosureTable {relation:Relation::of::<Release>(),alias:"many_releases".into()},ClosureTable {relation:Relation::of::<Package>(),alias:"many_packages".into()}]).unwrap();plan.own(0,"package",1).unwrap();
+        let budget=ResourceBudget::fixed(16<<20).unwrap();let edges=plan.prepare(&session,&budget).await.unwrap();let index_usage=budget.reserved();
+        assert!(edges.0.batches.len()>32,"fixture requires many unrelated IPC batches");
+        let source=(1,*selected.id().bytes());let range=edges.0.matching_batches(source);
+        assert!(range.len()>1,"one source must cross record-batch boundaries");assert!(range.len()<edges.0.batches.len());
+        assert!(range.start>0 && range.end<edges.0.batches.len());
+        // The direct cursor exercise proves every duplicate source range contributes its keys.
+        let mut cursor=EdgeCursor::new(&edges.0,&budget).unwrap();let mut targets=std::collections::BTreeSet::new();
+        cursor.targets(source,&budget,|key|{targets.insert(key);Ok(())}).unwrap();
+        assert_eq!(targets,expected.iter().map(|row|(0,*row.id().bytes())).collect::<std::collections::BTreeSet<_>>());
+        assert_eq!(cursor.current.as_ref().unwrap().0,range.end-1);drop(cursor);assert_eq!(budget.reserved(),index_usage);
+        let scope=edges.grain(1,&id_predicate(selected.id()),&budget).await.unwrap();
+        let found=decode::<Release>(&scope,0).await;assert_eq!(found.len(),expected.len());assert!(expected.iter().all(|row|found.contains(row)));
+        assert_eq!(decode::<Package>(&scope,1).await,vec![selected]);drop(scope);assert_eq!(budget.reserved(),index_usage);
+        // Empty root selection stays empty and does not fabricate a source key.
+        let empty=edges.grain(1,"false",&budget).await.unwrap();assert!(decode::<Release>(&empty,0).await.is_empty());assert!(decode::<Package>(&empty,1).await.is_empty());drop(empty);
+        drop(edges);assert_eq!(budget.reserved(),0);
+    }
+    #[tokio::test]
+    async fn identical_ids_in_distinct_virtual_namespaces_remain_distinct_keys() {
+        let (session,_,releases,package)=fixture();register(&session,"releases_in_other_epoch",&releases);
+        let mut plan=NominalClosure::new(vec![
+            ClosureTable {relation:Relation::of::<Release>(),alias:"releases_at_attempt".into()},
+            ClosureTable {relation:Relation::of::<Release>(),alias:"releases_in_other_epoch".into()},
+            ClosureTable {relation:Relation::of::<Package>(),alias:"packages_at_attempt".into()},
+        ]).unwrap();
+        plan.pairs(0,1,"SELECT id AS source_id,id AS target_id FROM releases_at_attempt".into()).unwrap();plan.follow(1,"package",2).unwrap();
+        let budget=ResourceBudget::fixed(1<<20).unwrap();let edges=plan.prepare(&session,&budget).await.unwrap();
+        let scope=edges.grain(0,&id_predicate(releases[0].id()),&budget).await.unwrap();
+        assert_eq!(decode::<Release>(&scope,0).await,vec![releases[0].clone()]);assert_eq!(decode::<Release>(&scope,1).await,vec![releases[0].clone()]);assert_eq!(decode::<Package>(&scope,2).await,vec![package]);
+        drop(edges);assert!(budget.reserved()>0,"closure retains the charged prepared index");drop(scope);assert_eq!(budget.reserved(),0);
+    }
+
+    #[tokio::test]
+    async fn many_declared_pairs_prepare_without_a_left_deep_union_and_preserve_keys() {
+        let (session,tables,releases,package)=fixture();let mut plan=NominalClosure::new(tables).unwrap();
+        // Duplicate nominal pairs are legal declarations and must all reach external preparation.
+        for _ in 0..257 {plan.follow(0,"package",1).unwrap();}
+        let budget=ResourceBudget::fixed(16<<20).unwrap();let edges=plan.prepare(&session,&budget).await.unwrap();
+        let scope=edges.grain(0,&id_predicate(releases[0].id()),&budget).await.unwrap();
+        assert_eq!(decode::<Release>(&scope,0).await,vec![releases[0].clone()]);assert_eq!(decode::<Package>(&scope,1).await,vec![package]);
+        drop(scope);drop(edges);assert_eq!(budget.reserved(),0);
+    }
+
 }
