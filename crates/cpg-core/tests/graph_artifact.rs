@@ -1,6 +1,10 @@
 //! Actual native compilation admits graph streams without a database or a publication transaction.
 #[path = "fixtures/catalog_runtime.rs"]
 mod runtime;
+#[path = "fixtures/scoped_source_execution.rs"]
+mod scoped_source_execution;
+#[path = "fixtures/scoped_summary.rs"]
+mod scoped_summary;
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},

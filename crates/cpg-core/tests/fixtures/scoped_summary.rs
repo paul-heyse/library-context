@@ -1,5 +1,5 @@
 //! Actual property-only Summary producer compared with the complete finite ordinary kernel.
-#[path = "fixtures/catalog_runtime.rs"]
+#[path = "catalog_runtime.rs"]
 mod runtime;
 use cpg_core::{
     compilation::{self, PreparedCompilation},

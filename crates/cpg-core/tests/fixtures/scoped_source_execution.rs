@@ -1,5 +1,5 @@
 //! Actual scoped producers compared with a finite independent whole-operation oracle.
-#[path = "fixtures/catalog_runtime.rs"]
+#[path = "catalog_runtime.rs"]
 mod runtime;
 use cpg_core::{
     compilation::{self, PreparedCompilation},
