@@ -11,7 +11,9 @@ fn groups(object:&Object,expected:&[&str])->Result<(),ModelError>{
 }
 async fn info(loader:&Loader,sql:String)->Result<Object,ModelError>{
     let mut response=loader.client().query(sql).await.map_err(|_|ModelError::Schema("native definition inventory response"))?.check().map_err(|_|ModelError::Schema("native definition inventory response"))?;
-    response.take(0).map_err(|_|ModelError::Schema("native definition inventory object"))
+    let value:Value=response.take(0).map_err(|_|ModelError::Schema("native definition inventory object"))?;
+    let Value::Object(object)=value else{return Err(ModelError::Schema("native definition inventory object"))};
+    Ok(object)
 }
 /// Version-scoped effective definitions plus the current owned blueprint. INFO's plain maps
 /// preserve rendered expressions; structured INFO includes mutable physical IDs. Neither INFO

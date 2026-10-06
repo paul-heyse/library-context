@@ -1,6 +1,6 @@
 //! Publication consumes trusted verified compiler exports, without replaying producers.
 use cpg_core::artifact::VerifiedExport;
-use lctx_model::domain::{Key,KeySink,ModelError,serving::{SnapshotHandle,DatabaseIdentity,Name}};
+use lctx_model::domain::{KeySink,ModelError,serving::{SnapshotHandle,DatabaseIdentity,Name}};
 use lctx_surrealdb::{RuntimeConfig,Loader,NativeReader,reader};
 use lctx_surrealdb::surrealdb::types::{Object,Variables,Bytes,RecordId,Value,ToSql};
 pub async fn publish(export:&VerifiedExport,config:&RuntimeConfig,native_definitions:&str)->Result<SnapshotHandle,ModelError>{
