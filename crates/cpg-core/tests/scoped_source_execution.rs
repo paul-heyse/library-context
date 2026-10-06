@@ -160,7 +160,8 @@ async fn run(profile: Profile) {
             .unwrap()
             .clone();
         for input in &mut stage.inputs {
-            if input.prefix().is_none() && is_vocabulary(input.name())
+            if input.prefix().is_none()
+                && is_vocabulary(input.name())
                 && let Some(group) = schedule.publication_groups().iter().find(|group| {
                     schedule.stages().iter().any(|producer| {
                         group.stages.contains(&producer.name)
@@ -169,8 +170,9 @@ async fn run(profile: Profile) {
                                 .iter()
                                 .any(|output| output.name() == input.name())
                     })
-                }) {
-                    *input = input.at_epoch(group.epoch);
+                })
+            {
+                *input = input.at_epoch(group.epoch);
             }
         }
         let mut aliases = std::collections::BTreeSet::new();
