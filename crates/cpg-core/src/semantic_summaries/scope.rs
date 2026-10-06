@@ -81,6 +81,11 @@ impl SummaryScopes{
    own!(normalized::symbolic_fields::SourceFieldReaderLink,"reader",normalized::symbolic_fields::SourceFieldReader);
    own!(flow::FlowValuePathObservation,"value",flow::FlowValueObservation);
    own!(flow::FlowCallStep,"path",flow::FlowCallPath);
+   // Symbolic association and completed capture matching compare source span/kind across
+   // independently attributed occurrence roles. Keep every matching candidate before uniqueness.
+   if let Some(occurrence_index)=idx(TypeId::of::<source::Occurrence>()){
+    plan.pairs(occurrence_index,occurrence_index,format!("SELECT o.id AS source_id,c.id AS target_id FROM {occurrences} o JOIN {occurrences} c ON c.source=o.source AND c.start=o.start AND c.end=o.end AND c.syntax_kind=o.syntax_kind"))?;
+   }
    own!(flow::FlowUse,"occurrence",source::Occurrence);
    own!(flow::FlowUseObservation,"use_",flow::FlowUse);
    own!(flow::FlowReachingObservation,"use_",flow::FlowUse);
@@ -142,7 +147,7 @@ mod summary_scope_controls{
   let unrelated=source::SourceArtifact::from_bytes(source.input,format!("{}.py","z".repeat(256<<10)),b"y").unwrap();
   let foreign=source::SourceArtifact::from_bytes(nominal(2),"foreign.py".into(),b"x").unwrap();
   let run=attribution::ProviderRun{input:source.input,context:nominal(3),provider:nominal(4),configuration:ContentHash::of(b"run"),requested_families:ContentHash::of(b"families")};
-  let occurrence=source::Occurrence{source:source.id(),start:0,end:1,syntax_kind:source::SyntaxKind::ExprName,role:source::OccurrenceRole::Read,structural_path:vec![1],parent:None};
+  let occurrence=source::Occurrence{source:source.id(),start:0,end:1,syntax_kind:source::SyntaxKind::ExprName,role:source::OccurrenceRole::Read,structural_path:vec![1]};
   let foreign_occurrence=source::Occurrence{source:foreign.id(),structural_path:vec![2;65536],..occurrence.clone()};
   let q=assertion::AssertionQualification{context:run.context,scope:nominal(5),condition:conditions::Condition{root:conditions::ConditionNode::True.id()}.id(),modality:attribution::Modality::Definite,approximation:assertion::Approximation::Exact,assumptions:assumptions::AssumptionSet::empty().id()};
   let derived=assertion::AssertionQualification{condition:conditions::Condition{root:conditions::ConditionNode::False.id()}.id(),..q.clone()};
