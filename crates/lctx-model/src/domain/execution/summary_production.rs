@@ -264,10 +264,11 @@ impl SummaryRecords {
         invocation: &owner::AnalysisInvocation,
         definition: &analysis::AnalysisDefinition,
         profile: stages::Profile,
+        verified_bindings: Option<&VerifiedBindings>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        let rows = super::summary_consequences::derive(
-            data, self, invocation, definition, profile, budget,
+        let rows = super::summary_consequences::derive_with_verified_bindings(
+            data, self, invocation, definition, profile, verified_bindings, budget,
         )?;
         macro_rules! append{($($dst:ident:$src:ident),* $(,)?)=>{$(for row in rows.$src.iter(){self.$dst.insert(row.clone())?;})*};}
         append!(claims:claims,claim_members:members,claim_standings:standings,claim_proofs:proofs,claim_proof_members:proof_members,refutation_coverage:refutation_coverage,conclusions:conclusions,keys:keys,premises:premises,subjects:subjects,sources:sources,derivations:derivations,propositions:propositions,derivation_premises:derivation_premises,obligations:obligations);
@@ -1598,7 +1599,7 @@ pub fn produce(
         out.outcome.status = analysis::AnalysisStatus::NotRequested;
         out.outcome.reason = Some(obligation::ObligationKind::NotRequested);
         out.runs.insert(run)?;
-        out.consequences(data, invocation, definition, profile, budget)?;
+        out.consequences(data, invocation, definition, profile, None, budget)?;
         return Ok(out);
     }
     run.work +=
@@ -2150,7 +2151,7 @@ pub fn produce(
     }
     super::summary_symbolic::produce(data, invocation, &mut out, budget)?;
     super::summary_terminal::produce(data, invocation, definition, &mut out, budget)?;
-    out.consequences(data, invocation, definition, profile, budget)?;
+    out.consequences(data, invocation, definition, profile, Some(&verified), budget)?;
     Ok(out)
 }
 

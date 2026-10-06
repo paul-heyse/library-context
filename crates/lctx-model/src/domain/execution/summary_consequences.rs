@@ -12,7 +12,7 @@ use crate::domain::{
     attribution::*,
     calls::CallPhase,
     conditions::{ConditionNode, Diagram},
-    normalized::{Rows, bindings::{BindingOutcome, CallBindingAttempt}, events::NormalizedCallEvent},
+    normalized::{Rows, binding_normalization::VerifiedBindings, bindings::{BindingOutcome, CallBindingAttempt}, events::NormalizedCallEvent},
     obligation::{self, ObligationKind, Standing, Verdict},
     resources::ResourceBudget,
     transfer::{
@@ -360,6 +360,15 @@ fn facts(
 > {
     let mut rows = charged::ChargedMap::default();
     let mut charge = charged::StateCharge::new(b, "summary-consequence-finite-inventory");
+    // Preserve each assertion's canonical support order while sharing the immutable lookup.
+    let mut local_supports = charged::ChargedMap::<
+        Id<transfer::local::TransferAlternative>,
+        Vec<&transfer::local::TransferSupport>,
+    >::default();
+    let mut support_charge = charged::StateCharge::new(b, "summary-consequence-local-support-index");
+    for support in data.local_supports.iter() {
+        local_supports.update(&mut support_charge, support.assertion, |members| members.push(support))?;
+    }
     let mut add = |descriptor: TransferDescriptor,
                    qid,
                    source: SummaryPremise,
@@ -409,16 +418,12 @@ fn facts(
             &data.local_alternatives,
             &data.atom_restrictions,
         ) {
+            let matching = local_supports.get(&selected.id()).map(Vec::as_slice).unwrap_or(&[]);
             let _supports = b.reserve(
                 "summary-consequence-local-supports",
-                data.local_supports.len().saturating_mul(256),
+                matching.len().saturating_mul(256),
             )?;
-            let supports = data
-                .local_supports
-                .iter()
-                .filter(|s| s.assertion == selected.id())
-                .cloned()
-                .collect::<Vec<_>>();
+            let supports = matching.iter().map(|support| (**support).clone()).collect::<Vec<_>>();
             let evidence = transfer::summary::TransferEvidence::local(
                 selected,
                 &supports,
@@ -669,6 +674,24 @@ pub fn derive(
     profile: stages::Profile,
     b: &ResourceBudget,
 ) -> Result<ConsequenceRecords, ModelError> {
+    let verified = if profile == stages::Profile::Behavioral {
+        Some(normalized::binding_normalization::verify(&data.bindings, &data.binding_output, b)?)
+    } else {
+        None
+    };
+    derive_with_verified_bindings(data, out, invocation, definition, profile, verified.as_ref(), b)
+}
+/// Production borrows its verification of the same immutable inputs; standalone derivation and
+/// independent replay still obtain fresh verification through their respective public entries.
+pub(super) fn derive_with_verified_bindings(
+    data: &SummaryData,
+    out: &SummaryRecords,
+    invocation: &owner::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    verified_bindings: Option<&VerifiedBindings>,
+    b: &ResourceBudget,
+) -> Result<ConsequenceRecords, ModelError> {
     if invocation.definition != definition.id() || invocation.subject.is_some() {
         return Err(invalid(
             "Summary consequence changes exact whole-frame definition",
@@ -707,7 +730,10 @@ pub fn derive(
         rows.subjects.insert(subject)?;
         return Ok(rows);
     }
-    normalized::binding_normalization::verify(&data.bindings, &data.binding_output, b)?;
+    // Both entry paths provide verification of these same immutable inputs.
+    // Replay invokes production afresh, obtaining its own verification rather than trusting output.
+    let _verified = verified_bindings
+        .ok_or_else(|| invalid("Summary behavioral consequences require verified bindings"))?;
     let mut conditions=ConditionCatalog::new(data,out,b)?;
     let (finite, _inventory) = facts(data, out, invocation, &mut conditions, b)?;
     let mut conclusions = charged::ChargedMap::<Id<SummaryClaim>, ClaimConclusion>::default();
