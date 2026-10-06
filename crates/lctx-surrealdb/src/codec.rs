@@ -39,12 +39,20 @@ fn view<R: Record + Serialize>(row: &R) -> Result<RecordView, ModelError> {
     body.insert("__type".into(), Value::String(R::NAME.into()));
     for (field, array) in batch.schema().fields().iter().zip(batch.columns()) {
         if field.name() != "id"
-            && R::fields()
+            && let Some(descriptor) = R::fields()
                 .iter()
                 .find(|f| f.name() == field.name())
-                .is_some_and(|f| f.scalar() != Scalar::Binary)
         {
-            body.insert(field.name().clone(), arrow_value(array, 0)?);
+            if descriptor.scalar() != Scalar::Binary {
+                body.insert(field.name().clone(), arrow_value(array, 0)?);
+            } else if descriptor.textual() {
+                let bytes = array.as_any().downcast_ref::<BinaryArray>()
+                    .ok_or(ModelError::Schema("native exact text representation"))?;
+                let value = if bytes.is_null(0) { Value::Null } else {
+                    Value::String(std::str::from_utf8(bytes.value(0)).map_err(ModelError::codec)?.into())
+                };
+                body.insert(field.name().clone(), value);
+            }
         }
     }
     Ok(RecordView {
@@ -52,6 +60,28 @@ fn view<R: Record + Serialize>(row: &R) -> Result<RecordView, ModelError> {
         semantic_key: hex::encode(row.id().bytes()),
         body: Value::Object(body),
     })
+}
+
+#[cfg(test)]
+mod remediation_text_projection {
+    use super::*;
+    use lctx_model::domain::{ContentHash, retrieval::{CorpusText, Family, RENDER_VERSION}};
+    #[test]
+    fn binary_backed_text_is_projected_as_exact_unicode_text() {
+        let text = "discover 雪\nexact evidence";
+        let row = CorpusText { family:Family::Source, rendering_version:RENDER_VERSION, digest:ContentHash::of(text.as_bytes()), text:text.into() };
+        let projected = view(&row).unwrap();
+        assert_eq!(projected.body["text"], text);
+    }
+    #[test]
+    fn enum_text_is_exact_and_opaque_binary_has_no_query_text() {
+        use lctx_model::domain::{value::Literal, EvidenceBytes};
+        let text = Literal::String {value:"雪\nexact".into()};
+        assert_eq!(view(&text).unwrap().body["string_value"], "雪\nexact");
+        let bytes = Literal::Bytes {value:EvidenceBytes(b"not text".to_vec())};
+        assert!(view(&bytes).unwrap().body.get("bytes_value").is_none());
+    }
+
 }
 fn arrow_value(array: &ArrayRef, row: usize) -> Result<Value, ModelError> {
     if array.is_null(row) {

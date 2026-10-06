@@ -35,6 +35,7 @@ impl Scalar {
 pub struct Field {
     name: &'static str,
     scalar: Scalar,
+    textual: bool,
     nullable: bool,
     list: bool,
     key: bool,
@@ -47,6 +48,7 @@ impl Field {
     /// Versioned declaration bytes, independent of Arrow metadata and Rust Debug formatting.
     pub(crate) fn encode_contract(&self, sink: &mut super::KeySink) {
         sink.part(b"field", self.name.as_bytes());
+        sink.part(b"textual", &[u8::from(self.textual)]);
         sink.part(
             b"scalar",
             match self.scalar {
@@ -86,6 +88,7 @@ impl Field {
         Self {
             name,
             scalar: T::SCALAR,
+            textual: T::TEXTUAL,
             nullable: T::NULLABLE,
             list: T::LIST,
             key,
@@ -101,6 +104,8 @@ impl Field {
     pub fn scalar(&self) -> Scalar {
         self.scalar
     }
+    /// Logical text is independent of its Arrow storage representation.
+    pub fn textual(&self) -> bool { self.textual }
     pub fn nullable(&self) -> bool {
         self.nullable
     }
@@ -245,6 +250,7 @@ pub trait FieldValue: HeapSize {
         None
     }
     const SCALAR: Scalar;
+    const TEXTUAL: bool = matches!(Self::SCALAR, Scalar::Text);
     const NULLABLE: bool = false;
     const LIST: bool = false;
     fn codes() -> &'static [(i16, &'static str)] {
@@ -269,7 +275,11 @@ scalar!(i32, Int32);
 scalar!(i64, Int64);
 scalar!(ContentHash, Digest);
 scalar!(super::EvidenceBytes, Binary);
-scalar!(super::Utf8Text, Binary);
+impl FlatValue for super::Utf8Text {}
+impl FieldValue for super::Utf8Text {
+    const SCALAR: Scalar = Scalar::Binary;
+    const TEXTUAL: bool = true;
+}
 impl<T: Record> FlatValue for Id<T> {}
 impl<T: Record> FieldValue for Id<T> {
     fn semantic_reference(&self, field: &'static str) -> Option<SemanticReference> {
@@ -291,6 +301,7 @@ impl<T: FlatValue> FieldValue for Option<T> {
             .and_then(|value| value.semantic_reference(field))
     }
     const SCALAR: Scalar = T::SCALAR;
+    const TEXTUAL: bool = T::TEXTUAL;
     const NULLABLE: bool = true;
     fn subtype() -> Option<i16> {
         T::subtype()
