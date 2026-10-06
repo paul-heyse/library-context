@@ -19,6 +19,7 @@ fn scalar(field: &Field) -> String {
         }
         Scalar::Id => "array<int,16>".into(),
         Scalar::Digest => "array<int,32>".into(),
+        Scalar::Binary if field.textual() => "string".into(),
         Scalar::Binary => "array<int>".into(),
         Scalar::FiniteF64 => "float".into(),
     };
@@ -36,7 +37,7 @@ fn scalar(field: &Field) -> String {
 fn declaration<R: Record>() -> String {
     let fields = R::fields()
         .into_iter()
-        .filter(|f| f.scalar() != Scalar::Binary)
+        .filter(|f| f.scalar() != Scalar::Binary || f.textual())
         .collect::<Vec<_>>();
     if let Some(sum) = R::sum() {
         sum.arms
