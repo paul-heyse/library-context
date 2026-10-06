@@ -2,13 +2,15 @@
 use cpg_core::artifact::VerifiedExport;
 use lctx_model::domain::{Key,KeySink,ModelError,serving::{SnapshotHandle,DatabaseIdentity,Name}};
 use lctx_surrealdb::{RuntimeConfig,Loader,NativeReader,reader};
-use lctx_surrealdb::surrealdb::types::{Object,Variables,Bytes,RecordId};
+use lctx_surrealdb::surrealdb::types::{Object,Variables,Bytes,RecordId,Value,ToSql};
 pub async fn publish(export:&VerifiedExport,config:&RuntimeConfig,native_definitions:&str)->Result<SnapshotHandle,ModelError>{
     let attempt=begin(config).await?;
     if let Err(error)=load(export,&attempt.loader,native_definitions).await{
         abandon(&attempt).await;return Err(error)
     }
-    seal(&attempt,export.manifest(),config,native_definitions).await
+    let result=seal(&attempt,export.manifest(),config,native_definitions).await;
+    if result.is_err(){abandon(&attempt).await;}
+    result
 }
 pub(crate) struct PrivatePublication {pub(crate) loader:Loader,pub(crate) database:Name}
 pub(crate) async fn begin(config:&RuntimeConfig)->Result<PrivatePublication,ModelError>{
@@ -23,13 +25,16 @@ pub(crate) async fn begin(config:&RuntimeConfig)->Result<PrivatePublication,Mode
 pub(crate) async fn abandon(attempt:&PrivatePublication){let _=attempt.loader.client().query(format!("REMOVE DATABASE `{}`",attempt.database.as_str())).await;}
 pub(crate) async fn seal(attempt:&PrivatePublication,manifest:&lctx_model::domain::graph::Manifest,config:&RuntimeConfig,native_definitions:&str)->Result<SnapshotHandle,ModelError>{
     let client=attempt.loader.client();
-    let version=client.version().await.map_err(ModelError::codec)?.to_string();
-    let mut realized=KeySink::new("native-realization/v1");realized.part(b"engine",version.as_bytes());realized.part(b"lowering",b"lctx-native-graph/v3;remote-sdk-3.3;sparse-atomic-id-scopes");lctx_surrealdb::schema::realization_identity(native_definitions).encode(&mut realized);
-    let handle=SnapshotHandle{semantic:manifest.content(),realization:realized.finish(),database:DatabaseIdentity{namespace:config.namespace.clone(),database:attempt.database.clone()}};
+    let realization=verify_realization(&attempt.loader,native_definitions).await?;
+    let handle=SnapshotHandle{semantic:manifest.content(),realization,database:DatabaseIdentity{namespace:config.namespace.clone(),database:attempt.database.clone()}};
     // Loader has no outstanding tasks and every statement has a successful final response.
     // A distinct database VIEWER is the only credential emitted for serving.
-    let mut bindings=Variables::new();bindings.insert("password",config.viewer_password.clone());
-    client.query(format!("DEFINE USER `{}` ON DATABASE PASSWORD $password ROLES VIEWER",config.viewer_username)).bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let username=Name::new(config.viewer_username.clone()).map_err(ModelError::codec)?;
+    // DEFINE USER requires a literal strand at 3.3; use the SDK SQL string codec, never raw interpolation.
+    let password=Value::String(config.viewer_password.clone()).to_sql();
+    client.query(format!("DEFINE USER `{}` ON DATABASE PASSWORD {password} ROLES VIEWER",username.as_str())).await
+        .map_err(|_|ModelError::Invalid("native viewer definition failed".into()))?.check()
+        .map_err(|_|ModelError::Invalid("native viewer definition failed".into()))?;
     let mut marker=Object::new();marker.insert("id",RecordId::new("publication","current"));marker.insert("handle",hex::encode(serde_json::to_vec(&handle).map_err(ModelError::codec)?));marker.insert("manifest",Bytes::from(serde_json::to_vec(manifest).map_err(ModelError::codec)?));let mut bindings=Variables::new();bindings.insert("marker",marker);
     client.query("INSERT INTO publication $marker RETURN NONE").bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
     client.invalidate().await.map_err(ModelError::codec)?;
@@ -52,3 +57,6 @@ mod search;
 pub use search::materialize_search;
 
 pub mod backup;
+
+mod definitions;
+pub(crate) use definitions::verify_realization;
