@@ -90,7 +90,16 @@ async def test_transport_admission_refuses_complete_oversized_results_and_errors
     def oversized_error():
         raise ToolError("雪" * 12_000)
 
+    @server.tool
+    def unicode_fits_stdio():
+        return ToolResult.from_mcp_result(CallToolResult(
+            content=[TextContent(type="text", text="雪" * 6_000)], is_error=False,
+        ))
+
     async with Client(server) as client:
+        complete = await client.call_tool("unicode_fits_stdio", {})
+        assert complete.is_error is False
+        assert complete.content[0].text == "雪" * 6_000
         for name in ("oversized", "oversized_error"):
             result = await client.call_tool(name, {}, raise_on_error=False)
             assert result.is_error is True
