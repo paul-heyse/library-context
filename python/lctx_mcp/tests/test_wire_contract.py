@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from fastmcp import Client, FastMCP
 from lctx_semantics import (
+    NativeFailure,
     wire_decode,
     wire_resources,
     wire_schema,
@@ -34,7 +35,7 @@ def test_closed_nested_requests_keep_nominal_ids_and_refuse_coercion():
         {**request, "page": {"cursor": None}},
     ]
     for value in invalid:
-        with pytest.raises(ValueError):
+        with pytest.raises(NativeFailure):
             wire_decode("get_operation", json.dumps(value))
 
 
@@ -62,7 +63,7 @@ def test_exact_scalars_use_current_transient_input_owner():
         {"kind": "invented"},
     ]:
         request["inputs"][0]["value"] = value
-        with pytest.raises(ValueError):
+        with pytest.raises(NativeFailure):
             wire_decode("inspect_value_paths", json.dumps(request))
 
 
@@ -76,7 +77,7 @@ def test_enrichment_sections_keep_native_variant_selection_and_scope_schema():
     decoded = json.loads(wire_decode("get_operation", json.dumps(request)))
     assert decoded["comparison"] == request["comparison"]
     del request["comparison"]
-    with pytest.raises(ValueError):
+    with pytest.raises(NativeFailure):
         wire_decode("get_operation", json.dumps(request))
     response_schema = wire_schema("GetOperationResponse", True)
     assert "external_consumers_unknown" in response_schema
@@ -150,7 +151,7 @@ def test_current_response_wraps_complete_dto_and_actual_snapshot_handle():
         {**response, "legacy_snapshot": "05" * 16},
         {"snapshot": response["snapshot"]},
     ]:
-        with pytest.raises(ValueError):
+        with pytest.raises(NativeFailure):
             wire_tool_result("get_operation", json.dumps(invalid), False)
     schema = json.loads(wire_schema("get_operation", True))
     assert schema["additionalProperties"] is False

@@ -7,12 +7,19 @@ import hashlib
 import json
 from typing import TYPE_CHECKING
 
-from lctx_semantics import NativeSession, wire_decode
+from lctx_semantics import NativeFailure, NativeSession, wire_decode, wire_failure
 
 from lctx_mcp.embedder import EmbedderError
 
 if TYPE_CHECKING:
     from lctx_mcp.embedder import Embedder
+
+
+def _failure(kind: str) -> NativeFailure:
+    raw = wire_failure(kind)
+    error = NativeFailure(json.loads(raw)["message"])
+    error.lctx_failure_json = raw
+    return error
 
 
 class NativeExecutor:
@@ -31,14 +38,14 @@ class NativeExecutor:
             tool, json.dumps(arguments, separators=(",", ":"), ensure_ascii=False)
         )
         if self._closed:
-            raise RuntimeError("native session closed")
+            raise _failure("unavailable")
         try:
             await asyncio.wait_for(self._slots.acquire(), timeout=1.0)
         except TimeoutError as exc:
-            raise RuntimeError("resource_refused: native request slots") from exc
+            raise _failure("resource_refused") from exc
         if self._closed:
             self._slots.release()
-            raise RuntimeError("native session closed")
+            raise _failure("unavailable")
         # This task owns its admission slot even when the client cancels or times out.
         worker = asyncio.create_task(self._execute(tool, request, deadline))
         self._pending.add(worker)
@@ -47,7 +54,7 @@ class NativeExecutor:
             remaining = max(0.0, deadline - asyncio.get_running_loop().time())
             return await asyncio.wait_for(asyncio.shield(worker), timeout=remaining)
         except TimeoutError as exc:
-            raise RuntimeError("resource_refused: native request deadline") from exc
+            raise _failure("resource_refused") from exc
 
     def _finished(self, worker: asyncio.Task[str]) -> None:
         self._pending.discard(worker)
@@ -84,7 +91,7 @@ class NativeExecutor:
                     )
         remaining_ms = int(max(0.0, deadline - asyncio.get_running_loop().time()) * 1000)
         if remaining_ms == 0:
-            raise RuntimeError("resource_refused: native request deadline")
+            raise _failure("resource_refused")
         return await asyncio.to_thread(
             self.session.execute, tool, request, vector_json, remaining_ms
         )

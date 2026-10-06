@@ -13,6 +13,7 @@ from surrealdb_fixture import fixture
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("boundary", choices=("store", "serving", "mcp"))
+    parser.add_argument("--cli", action="store_true", help="Build and exercise the native selection CLI in the publication journey")
     options, filters = parser.parse_known_args()
     if filters[:1] == ["--"]:
         filters = filters[1:]
@@ -22,6 +23,12 @@ def main() -> int:
 
         def run(command: list[str]) -> int:
             return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
+
+        if options.cli:
+            code = run(["cargo", "build", "--release", "--locked", "-p", "lctx", "--bin", "lctx"])
+            if code:
+                return code
+            env["LCTX_REMEDIATION_CLI_BIN"] = str(ROOT / "target" / "release" / "lctx")
 
         if options.boundary != "mcp":
             packages = (
@@ -60,6 +67,7 @@ def main() -> int:
                 "pytest",
                 "python/lctx_mcp/tests/test_wire_contract.py",
                 "python/lctx_mcp/tests/test_native_session.py",
+                "python/lctx_mcp/tests/test_safe_failure.py",
                 "-q",
                 *filters,
             ]

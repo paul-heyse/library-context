@@ -11,9 +11,6 @@ from fastmcp.exceptions import (
     DisabledError,
     FastMCPError,
     NotFoundError,
-    ResourceError,
-    ToolError,
-    to_mcp_error,
 )
 from fastmcp.resources import Resource, ResourceContent, ResourceResult, ResourceTemplate
 from fastmcp.server.middleware import Middleware
@@ -34,6 +31,43 @@ from mcp_types import (
 from mcp_types.methods import serialize_server_result
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
 from pydantic import PrivateAttr
+
+
+def _failure(kind: str) -> dict:
+    from lctx_semantics import wire_failure
+    return json.loads(wire_failure(kind))
+
+def native_failure(exc: Exception) -> dict:
+    from lctx_semantics import NativeFailure
+    if isinstance(exc, NativeFailure):
+        try:
+            value = json.loads(exc.lctx_failure_json)
+            expected = _failure(value["kind"])
+            if value == expected:
+                return expected
+        except (AttributeError, KeyError, TypeError, ValueError):
+            pass
+    return _failure("unavailable")
+
+def failure_result(failure: dict) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=failure["message"])],
+        is_error=True, meta={"lctx_failure": failure},
+    )
+
+def failure_error(failure: dict) -> MCPError:
+    return MCPError(code=INTERNAL_ERROR, message=failure["message"], data={"lctx_failure": failure})
+
+def checked_resource_error(exc: MCPError) -> MCPError:
+    """Only exact model-owned failure data may cross the resource error boundary."""
+    try:
+        failure = exc.error.data["lctx_failure"]
+        expected = _failure(failure["kind"])
+        if exc.error.data == {"lctx_failure": expected} and failure == expected:
+            return failure_error(expected)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        pass
+    return failure_error(_failure("unavailable"))
 
 
 def _response_envelope(
@@ -156,10 +190,7 @@ class EnvelopeAdmission(Middleware):
 
     @staticmethod
     def _refusal() -> CallToolResult:
-        return CallToolResult(
-            content=[TextContent(type="text", text="resource_refused: final MCP envelope bytes")],
-            is_error=True,
-        )
+        return failure_result(_failure("resource_refused"))
 
     async def on_call_tool(self, context, call_next):
         page = (context.message.arguments or {}).get("page")
@@ -170,14 +201,11 @@ class EnvelopeAdmission(Middleware):
             result = await call_next(context)
         except (FastMCPError, NotFoundError, DisabledError) as exc:
             result = ToolResult.from_mcp_result(
-                CallToolResult(
-                    content=[TextContent(type="text", text=str(exc))],
-                    is_error=True,
-                )
+                failure_result(native_failure(exc))
             )
         try:
             self._admit(context, result.to_mcp_result(), expanded)
-        except ValueError:
+        except (ValueError, RuntimeError):
             refusal = self._refusal()
             self._admit(context, refusal, expanded)
             return ToolResult.from_mcp_result(refusal)
@@ -185,25 +213,21 @@ class EnvelopeAdmission(Middleware):
 
     async def on_read_resource(self, context, call_next):
         expanded = True
-        self._admit(context, ErrorData(code=INTERNAL_ERROR, message="resource_refused"), expanded)
+        self._admit(context, failure_error(_failure("resource_refused")).error, expanded)
         try:
             result = await call_next(context)
         except (FastMCPError, NotFoundError, DisabledError, MCPError) as exc:
-            error = to_mcp_error(exc)
+            error = checked_resource_error(exc) if isinstance(exc, MCPError) else failure_error(_failure("unavailable"))
             try:
                 self._admit(context, error.error, expanded)
-            except ValueError:
-                error = MCPError(
-                    code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes"
-                )
+            except (ValueError, RuntimeError):
+                error = failure_error(_failure("resource_refused"))
                 self._admit(context, error.error, expanded)
             raise error from exc
         try:
             self._admit(context, result.to_mcp_result(str(context.message.uri)), expanded)
-        except ValueError as exc:
-            error = MCPError(
-                code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes"
-            )
+        except (ValueError, RuntimeError) as exc:
+            error = failure_error(_failure("resource_refused"))
             self._admit(context, error.error, expanded)
             raise error from exc
         return result
@@ -230,7 +254,7 @@ class BoundedStdioWriter:
             encoded = packet.model_dump_json(by_alias=True, exclude_unset=True) + "\n"
             try:
                 admit_envelope(encoded, expanded)
-            except ValueError as exc:
+            except (ValueError, RuntimeError) as exc:
                 # A huge ID cannot be answered within its cap: close the transport.
                 # Lifecycle teardown still drains every owned native call.
                 await self.aclose()
@@ -269,8 +293,8 @@ class SchemaTool(Tool):
             raw = await self._executor.execute(self.name, arguments)
             result = CallToolResult.model_validate_json(wire_tool_result(self.name, raw, expanded))
             return ToolResult.from_mcp_result(result)
-        except (ValueError, RuntimeError) as exc:
-            raise ToolError(str(exc)) from exc
+        except Exception as exc:
+            return ToolResult.from_mcp_result(failure_result(native_failure(exc)))
 
 
 class CapabilityResource(Resource):
@@ -283,16 +307,21 @@ class CapabilityResource(Resource):
 
         try:
             if len(self._capability) != 32:
-                raise ValueError("capability key must contain 16 bytes")
-            capability = list(bytes.fromhex(self._capability))
+                raise failure_error(_failure("incompatible"))
+            try:
+                capability = list(bytes.fromhex(self._capability))
+            except ValueError as exc:
+                raise failure_error(_failure("incompatible")) from exc
             raw = await self._executor.execute(
                 "get_capability", {"capability": capability, "page": {"expanded": True}}
             )
             return ResourceResult(
                 [ResourceContent(wire_capability_resource(raw), mime_type=self.mime_type)]
             )
-        except (ValueError, RuntimeError) as exc:
-            raise ResourceError(str(exc)) from exc
+        except MCPError:
+            raise
+        except Exception as exc:
+            raise failure_error(native_failure(exc)) from exc
 
 
 class CapabilityTemplate(ResourceTemplate):

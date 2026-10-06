@@ -3,7 +3,6 @@ use lctx_model::domain::serving::ResourceLimits;
 use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader, config::ViewerConfig};
 use pyo3::{
-    exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
 use std::sync::{Arc, Condvar, Mutex};
@@ -28,24 +27,24 @@ impl NativeSession {
     fn new(py: Python<'_>, serving_config: String) -> PyResult<Self> {
         py.detach(move || {
             let config = ViewerConfig::read(std::path::Path::new(&serving_config))
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(crate::model_error)?;
             let runtime = Arc::new(
                 tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(2)
                     .enable_all()
                     .build()
-                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
+                    .map_err(|_| crate::unavailable())?,
             );
             let reader = runtime
                 .block_on(NativeReader::connect(
                     &config.endpoint,
                     &config.credentials(),
-                    config.snapshot,
+                    config.selected().map_err(crate::model_error)?,
                 ))
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+                .map_err(crate::model_error)?;
             let service = Arc::new(
                 NativeService::new(reader.clone(), ResourceLimits::default())
-                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?,
+                    .map_err(crate::model_error)?,
             );
             Ok(Self {
                 runtime,
@@ -76,19 +75,17 @@ impl NativeSession {
                     .shared
                     .state
                     .lock()
-                    .map_err(|_| PyRuntimeError::new_err("native session state"))?;
+                    .map_err(|_| crate::unavailable())?;
                 if state.closing {
-                    return Err(PyRuntimeError::new_err("native session closed"));
+                    return Err(crate::unavailable());
                 }
                 if state.active >= 2 {
-                    return Err(PyValueError::new_err(
-                        "resource_refused: native request slots",
-                    ));
+                    return Err(crate::public_error(lctx_model::domain::serving::PublicFailure::new(lctx_model::domain::serving::FailureKind::ResourceRefused)));
                 }
                 let service = state
                     .service
                     .as_ref()
-                    .ok_or_else(|| PyRuntimeError::new_err("native session closed"))?
+                    .ok_or_else(|| crate::unavailable())?
                     .clone();
                 state.active += 1;
                 service
@@ -101,18 +98,18 @@ impl NativeSession {
                 query_vector_json
                     .map(|raw| serde_json::from_str(&raw))
                     .transpose()
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?
+                    .map_err(|_| crate::public_error(lctx_model::domain::serving::PublicFailure::new(lctx_model::domain::serving::FailureKind::Incompatible)))?
             };
             let remaining =
                 remaining_deadline_ms.unwrap_or(ResourceLimits::default().request_deadline_ms);
             self.runtime
                 .block_on(service.execute_for(&tool, &request_json, vector, unavailable, remaining))
-                .map_err(|e| PyValueError::new_err(e.to_string()))
+                .map_err(crate::error)
         })
     }
     fn handle_json(&self) -> PyResult<String> {
         serde_json::to_string(self.reader.handle())
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|_| crate::unavailable())
     }
     /// Drain admitted calls before invalidating the one server session.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
@@ -121,20 +118,20 @@ impl NativeSession {
                 .shared
                 .state
                 .lock()
-                .map_err(|_| PyRuntimeError::new_err("native session state"))?;
+                .map_err(|_| crate::unavailable())?;
             state.closing = true;
             while state.active > 0 {
                 state = self
                     .shared
                     .drained
                     .wait(state)
-                    .map_err(|_| PyRuntimeError::new_err("native session drain"))?;
+                    .map_err(|_| crate::unavailable())?;
             }
             if state.service.take().is_some() {
                 drop(state);
                 self.runtime
                     .block_on(async { self.reader.client().invalidate().await })
-                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+                    .map_err(|_| crate::unavailable())?;
             }
             Ok(())
         })

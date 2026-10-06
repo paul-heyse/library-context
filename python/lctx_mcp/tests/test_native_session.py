@@ -13,8 +13,9 @@ from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
 from fastmcp.tools import ToolResult
-from lctx_semantics import NativeSession
+from lctx_semantics import NativeSession, wire_failure
 from mcp.shared.message import SessionMessage
+from mcp.shared.exceptions import MCPError
 from mcp_types import CallToolResult, JSONRPCResponse, TextContent, TextResourceContents
 
 from lctx_mcp.__main__ import create_server
@@ -30,7 +31,8 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
     assert configured, "LCTX_NATIVE_SERVING_CONFIG must name an owned published native fixture"
     path = Path(configured)
     config = json.loads(path.read_text())
-    assert set(config) == {"endpoint", "username", "password", "snapshot"}
+    assert set(config) == {"endpoint", "username", "password", "selection"}
+    selected = json.loads(Path(config["selection"]).read_text())
     library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
     assert library, "LCTX_NATIVE_TEST_LIBRARY must name the published fixture's library"
     target = (
@@ -50,7 +52,7 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         second = await client.call_tool("browse_library", request)
         assert first.structured_content is not None
         assert second.structured_content is not None
-        assert first.structured_content["snapshot"] == config["snapshot"]
+        assert first.structured_content["snapshot"] == selected
         assert second.structured_content == first.structured_content
         assert first.is_error is False
         assert len(first.content) == 1
@@ -80,14 +82,69 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         assert resource[0].text.startswith(packet.structured_content["capability"]["rendered"])
         assert "## Snapshot metadata" in resource[0].text
         assert "## Assertion evidence" in resource[0].text
-        with pytest.raises(ToolError):
-            await client.call_tool("browse_library", {**request, "ignored": True})
+        for arguments, kind in [({**request, "ignored": True}, "incompatible"), ({"library":"missing-private-name"}, "unknown_library")]:
+            failure = await client.call_tool("browse_library", arguments, raise_on_error=False)
+            expected = json.loads(wire_failure(kind))
+            assert failure.is_error is True
+            assert failure.meta["lctx_failure"] == expected
+            assert failure.content[0].text == expected["message"]
+        with pytest.raises(MCPError) as missing:
+            await client.read_resource("lctx://capability/" + "00" * 16)
+        expected = json.loads(wire_failure("corrupt"))
+        assert missing.value.error.data == {"lctx_failure":expected}
+        assert missing.value.error.message == expected["message"]
     # A fresh viewer can be opened after the MCP-owned session drained and invalidated.
     session = await asyncio.to_thread(NativeSession, str(path))
-    assert json.loads(session.handle_json()) == config["snapshot"]
+    assert json.loads(session.handle_json()) == selected
     await asyncio.to_thread(session.close)
-    with pytest.raises(RuntimeError, match="closed"):
+    with pytest.raises(RuntimeError, match="Canonical serving is unavailable"):
         await asyncio.to_thread(session.execute, "browse_library", json.dumps(request))
+
+
+@pytest.mark.anyio
+async def test_actual_native_cancelled_request_drains_before_session_close():
+    """A dispatch latch makes cancellation deterministic; the request uses the real native session."""
+    configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
+    library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
+    assert configured and library, "owned published native fixture required"
+    native = await asyncio.to_thread(NativeSession, configured)
+    entered = threading.Event()
+    released = threading.Event()
+    closed = threading.Event()
+    results = []
+
+    class LatchedNative:
+        def execute(self, tool, request, vector, remaining_ms):
+            entered.set()
+            assert released.wait(5), "test did not release native dispatch"
+            result = native.execute(tool, request, vector, remaining_ms)
+            results.append(json.loads(result))
+            return result
+
+        def close(self):
+            native.close()
+            closed.set()
+
+    executor = NativeExecutor(LatchedNative())
+    request = asyncio.create_task(executor.execute("browse_library", {"library": library}))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        assert len(executor._pending) == 1
+        shutdown = asyncio.create_task(executor.close())
+        await asyncio.sleep(0)
+        assert not shutdown.done() and not closed.is_set()
+        released.set()
+        await shutdown
+        assert results[0]["entries"]["items"]
+        assert closed.is_set() and executor._slots._value == 2
+        with pytest.raises(RuntimeError, match="Canonical serving is unavailable"):
+            await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library":library}))
+    finally:
+        released.set()
+        await executor.close()
 
 
 @pytest.mark.anyio
@@ -123,12 +180,14 @@ async def test_transport_admission_refuses_complete_oversized_results_and_errors
         assert complete.is_error is False
         assert isinstance(complete.content[0], TextContent)
         assert complete.content[0].text == "雪" * 6_000
-        for name in ("oversized", "oversized_error"):
+        for name, kind in [("oversized", "resource_refused"), ("oversized_error", "unavailable")]:
             result = await client.call_tool(name, {}, raise_on_error=False)
             assert result.is_error is True
             assert result.structured_content is None
             assert isinstance(result.content[0], TextContent)
-            assert result.content[0].text == "resource_refused: final MCP envelope bytes"
+            expected = json.loads(wire_failure(kind))
+            assert result.content[0].text == expected["message"]
+            assert result.meta["lctx_failure"] == expected
 
 
 @pytest.mark.anyio
@@ -165,7 +224,7 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
     await shutdown
     assert closed.is_set()
     assert executor._slots._value == 2
-    with pytest.raises(RuntimeError, match="closed"):
+    with pytest.raises(RuntimeError, match="Canonical serving is unavailable"):
         await executor.execute("browse_library", {"library": "control"})
 
 

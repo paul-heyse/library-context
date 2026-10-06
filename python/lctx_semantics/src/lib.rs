@@ -2,14 +2,38 @@
 mod session;
 use lctx_model::domain::{embedding::Spec, serving};
 use pyo3::{exceptions::PyValueError, prelude::*};
-fn error(e: serving::WireError) -> PyErr {
-    PyValueError::new_err(e.to_string())
+pyo3::create_exception!(lctx_semantics, NativeFailure, pyo3::exceptions::PyRuntimeError);
+pub(crate) fn public_error(failure: serving::PublicFailure) -> PyErr {
+    let error = NativeFailure::new_err(failure.kind.message());
+    Python::attach(|py| {
+        // Payload is entirely model-owned and has a fixed message.
+        let payload = serde_json::to_string(&failure).expect("fixed public failure encoding");
+        if let Err(attribute) = error.value(py).setattr("lctx_failure_json", payload) { return attribute; }
+        error
+    })
 }
+fn error(e: serving::WireError) -> PyErr { public_error(e.public_failure()) }
+fn response_error(e: serving::WireError) -> PyErr {
+    let kind = if matches!(e, serving::WireError::ResourceRefused(_)) { serving::FailureKind::ResourceRefused } else { serving::FailureKind::Corrupt };
+    public_error(serving::PublicFailure::new(kind))
+}
+pub(crate) fn model_error(e: lctx_model::domain::ModelError) -> PyErr {
+    use lctx_model::domain::{ModelError, Infrastructure};
+    let kind = match e {
+        ModelError::Serving(kind) => kind,
+        ModelError::Resource { .. } | ModelError::Limit { .. } => serving::FailureKind::ResourceRefused,
+        ModelError::Infrastructure { class: Infrastructure::Contract, .. } => serving::FailureKind::Incompatible,
+        ModelError::Schema(_) | ModelError::Identity(_) | ModelError::Conflict(_) | ModelError::Invalid(_) | ModelError::Frontier(_) => serving::FailureKind::Corrupt,
+        _ => serving::FailureKind::Unavailable,
+    };
+    public_error(serving::PublicFailure::new(kind))
+}
+pub(crate) fn unavailable() -> PyErr { public_error(serving::PublicFailure::new(serving::FailureKind::Unavailable)) }
 #[pyfunction]
 fn canonical_embedding_spec(text: &str) -> PyResult<String> {
     Spec::parse(text)
         .map(|s| s.canonical_json())
-        .map_err(PyValueError::new_err)
+        .map_err(|_| PyValueError::new_err("invalid canonical embedding specification"))
 }
 #[pyfunction]
 fn wire_schema(name: &str, output: bool) -> PyResult<String> {
@@ -39,7 +63,7 @@ fn wire_resources() -> PyResult<String> {
 #[pyo3(signature=(name,raw,expanded=false))]
 fn wire_tool_result(py: Python<'_>, name: &str, raw: &str, expanded: bool) -> PyResult<String> {
     py.detach(|| serving::tool_result(name, raw, expanded))
-        .map_err(error)
+        .map_err(response_error)
 }
 #[pyfunction]
 #[pyo3(signature=(encoded,expanded=false))]
@@ -63,20 +87,19 @@ fn wire_capability_resource(py: Python<'_>, raw: &str) -> PyResult<String> {
             true,
             &serving::ResourceLimits::default(),
         )
-        .map_err(error)?;
+        .map_err(response_error)?;
         let response: serving::GetCapabilityResponse =
-            serde_json::from_str(raw).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            serde_json::from_str(raw).map_err(|_| public_error(serving::PublicFailure::new(serving::FailureKind::Corrupt)))?;
         let text = response.resource_text().map_err(error)?;
         if text.len() as u64 > serving::ResourceLimits::default().response_bytes(true) {
-            return Err(PyValueError::new_err(
-                "resource_refused: capability resource bytes",
-            ));
+            return Err(public_error(serving::PublicFailure::new(serving::FailureKind::ResourceRefused)));
         }
         Ok(text)
     })
 }
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("NativeFailure", m.py().get_type::<NativeFailure>())?;
     m.add_class::<session::NativeSession>()?;
     m.add_function(wrap_pyfunction!(wire_capability_resource, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_embedding_spec, m)?)?;
