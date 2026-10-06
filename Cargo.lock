@@ -3932,12 +3932,17 @@ dependencies = [
 name = "lctx-serving"
 version = "0.1.0"
 dependencies = [
+ "cpg-core",
+ "cpg-extract",
+ "datafusion",
  "hex",
  "lctx-model",
+ "lctx-publisher",
  "lctx-surrealdb",
  "serde",
  "serde_json",
  "surrealdb",
+ "tempfile",
  "tokio",
 ]
 

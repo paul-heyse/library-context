@@ -42,7 +42,7 @@ impl NativeSession {
         let mut state=self.shared.state.lock().map_err(|_|PyRuntimeError::new_err("native session state"))?;
         state.closing=true;
         while state.active>0{state=self.shared.drained.wait(state).map_err(|_|PyRuntimeError::new_err("native session drain"))?;}
-        if state.service.take().is_some(){drop(state);self.runtime.block_on(self.reader.client().invalidate()).map_err(|e|PyRuntimeError::new_err(e.to_string()))?;}
+        if state.service.take().is_some(){drop(state);self.runtime.block_on(async{self.reader.client().invalidate().await}).map_err(|e|PyRuntimeError::new_err(e.to_string()))?;}
         Ok(())
     })}
 }
