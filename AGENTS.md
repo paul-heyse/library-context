@@ -7,9 +7,10 @@ behavioral analyses are enrichment; general semantic completion no longer gates 
 The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
 remain Proposed until implemented. FastMCP operation/brief contracts remain Rust-owned; native serving is implemented; STATUS owns its functional evidence.
 
-**Current work: the graph-native hard pivot** (ADR-0128, accepted 2026-10-05).
+**Current work: graph-native audit remediation** (ADR-0128; coordinator §9, 2026-10-06).
 The [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md) owns dependencies,
-acceptance and finding disposition. The completed first execution scope is the
+acceptance and finding disposition. Its §9 and four supporting remediation sections own current
+execution; §7 owns F01–F12. The completed first execution scope is the
 [model/compiler stage](docs/plans/graph-native-model-compiler-plan_2026-10-05.md), including
 compiler-side projections and selected analysis effects. Rust owns the semantic graph;
 `cpg-core` is the sole store-free compiler. SurrealDB native persistence, querying and serving
@@ -33,7 +34,10 @@ The pieces:
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** independent native providers stream bounded typed batches into an attempt-owned,
   spillable Arrow/DataFusion workspace. Completed immutable streams feed normalization and analyses;
-  graph admission and export are separate from native publication (ADR-0128). The model owns
+  necessary semantic admission is distinct from diagnostic producer replay. Detached imports
+  establish the same owner properties without providers; immutable checked descriptors retain
+  attempt/profile/policy and vocabulary identity. Graph export is separate from native publication
+  (ADR-0128). The model owns
   identities, roles, qualifications, coverage and graph meaning. Internal typed record views do
   not dictate the published physical schema.
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
@@ -216,6 +220,15 @@ against the locked version (`uv.lock`/`Cargo.lock`) before transferring a claim.
 capability is absent.
 
 ## Testing rules
+
+**Current authorized remediation boundary:** the user selected targeted functional testing for
+coordinator §9, superseding the general assembled-qualification prescription for this scope.
+Use R-Q0's small native/compiler/CLI/PyO3/MCP controls and applicable leaves on the matching final
+source/wheel/realization. Do not restart the stopped compiler suite, legacy CLI snapshots/parity
+or `just qualify`. Real-library/live-Qwen/operator work and quantitative performance measurement
+remain separately pending. Necessary semantic checks are production admission; differential
+replay remains an explicitly selected diagnostic control. No work-budget accounting or proof
+machinery is required for efficient design.
 
 - **During implementation, compile checks and focused contract controls.** Select the affected
   verification families and ordinary filters explicitly; validate each new piece with meaningful

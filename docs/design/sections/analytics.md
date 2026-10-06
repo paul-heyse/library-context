@@ -113,7 +113,8 @@ stored handoff/setup lineage is retained; this does not add a serving explanatio
 Seven admission and three qualification/resource controls, plus actual PostgreSQL Catalog/Behavioral
 positives and paired condition-erasure refusal passed. The
 [coordinator checkpoint](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md#7-current-disposition-and-checkpoint)
-bounds those receipts; the assurance coordinator records the current schema/artifact and composite fixture qualification. Q1 packet-benefit evidence remains separate.
+bounds those historical receipts. The graph-native coordinator §9/R-Q0 owns current schema/artifact
+and native remediation acceptance. Q1 packet-benefit evidence remains separate.
 
 > Decision: ADR-0122
 
@@ -206,7 +207,8 @@ or terminal typing alone does not prove runtime value stability or completion. B
 deduplicates membership while retaining its multiple supports. The sparse type layer still ranges
 over release-defined classes, excluding builtin/dependency classes; richer observations do not
 silently expand its universe. The [code-facts coordinator](../../plans/code-facts-expansion-plan_2026-10-03.md#7-current-checkpoint-and-next-action)
-owns the focused native/real-PG P0/P1 receipts and pending assembled Q0 qualification.
+owns the historical focused native/real-PG P0/P1 receipts. Current native acceptance belongs to
+the graph-native coordinator §9/R-Q0; product Q1 remains separate.
 
 RCA performs one declared relational scaling step over admitted calls/handoffs and the same FCA
 context, followed by bounded concept enumeration. It requires FCA and preserves relation roles,

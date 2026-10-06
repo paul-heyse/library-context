@@ -233,7 +233,7 @@ traversal or composition planner is exposed.
 
 > Decision: ADR-0076
 
-Deployment evidence concerns the analyzed library, not our PostgreSQL runbook. Preserve exact
+Deployment evidence concerns the analyzed library, not our database runbook. Preserve exact
 `Requires-Python`, conditional `Requires-Dist`, extras, entry points, environment/lock identity and
 pinned configuration/docs. Verify acquired metadata bytes against distribution provenance before
 parsing. Retain duplicate fields and interpretation failures. A declared extra is different from a
@@ -526,8 +526,8 @@ tool calls, input/output tokens, p50/p95 latency, compile/index cost and live-se
 Two distinct milestones prevent an attractive demo from being called differentiation:
 
 1. **Usable pilot:** the entire selected core API set is discoverable; required contracts and
-   evidence round-trip through production PG/MCP; unknowns remain local; end-to-end invocation and
-   deployment tasks work with real embeddings; corruption, contradiction, stale-generation,
+   evidence round-trip through native SurrealDB/MCP; unknowns remain local; end-to-end invocation and
+   deployment tasks work with real embeddings; corruption, contradiction, stale-realization,
    cancellation and optional-capability controls pass. No prescribed reduction in semantic unknowns.
 2. **Differentiated pilot:** on confirmation, C achieves task-majority success (at least two of
    three runs) on at least 20 of 24 tasks, including at least six of eight implementation tasks and

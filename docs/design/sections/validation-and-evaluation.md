@@ -11,7 +11,8 @@ independent oracles; **§12** covers usefulness and correctness on registered qu
 checks consume completed typed Arrow streams and typed graph records. Native publication and
 serving enforce the same declarations against selected admitted content. Neither validation
 nor evaluation writes facts. Shared semantic validators live in `lctx-model::domain`; `cpg-core`
-invokes the applicable structural, reference, outcome and derivation checks. Independent generated
+invokes the applicable necessary support/qualification/ownership, structural, reference, outcome
+and derivation checks. Diagnostic producer replay is explicitly separate from production admission. Independent generated
 runtime controls live in `tests/scripts/test_flow_soundness.py` and
 `tests/scripts/test_semantic_soundness.py`; the latter observation bundle needs a native served
 comparison before it can qualify replacement serving. Product evaluation remains separate work.
@@ -46,7 +47,10 @@ finite floats and unit-norm vectors.
 **Compiler artifact admission** checks typed graph records, canonical identity/content,
 reference namespace/kind/subtype closure, source bounds, required scoped outcomes, declared
 acyclic derivations and exact consumed vector values. Captured originals remain byte-exact.
-IPC is transport rather than semantic identity. Pending or cancelled output cannot become admitted.
+IPC is transport rather than semantic identity. Pending or cancelled output cannot become admitted. Checked completed-input views are private
+attempt-scoped authorities over immutable descriptors/profile/policy and exact selected vocabulary.
+A detached artifact or restored dump receives fresh pure semantic admission from neutral typed
+graph records; its authored hashes or publication marker cannot establish validity.
 
 **Native publication** (Implemented, 2026-10-06) derives schema and indexes from
 the model and enforces the artifact's contract before readiness or selection. No PostgreSQL path,
@@ -61,7 +65,7 @@ cannot establish absence. Independent hand-known expectations are separate from 
 compiler and analytics controls, then applicable leaves at functional completion. Assembled
 `just qualify` remains the assembled assurance route. For this execution, the user selected
 targeted actual native functional controls and stopped further compiler-stage tests; coordinator
-§6/§8 records that acceptance boundary. The old PostgreSQL/MCP receipt is not replacement
+§9/R-Q0 records the current remediation boundary; §8 preserves historical scoped receipts. The old PostgreSQL/MCP receipt is not replacement
 acceptance. Quantitative performance claims require measurements.
 Efficient design uses qualitative judgment, bounded streams, shared preparation and library
 capabilities; runtime accounting or proof machinery is not an admission prerequisite.

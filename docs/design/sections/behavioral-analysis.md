@@ -33,7 +33,8 @@ source origin, target, action phase, supporting invocation and condition. A reac
 can support an invocation-phase action without a normal-return proof. Normal, exceptional and
 finally actions require their corresponding outcome witnesses. Unknown argument completion or
 an unproved source/default binding remains an explicit boundary. Stored validators replay these
-operations, rather than reclassifying rendered action text.
+operations in diagnostic controls. Actual admission uses the necessary owner properties and
+completed checked predecessors; rendered action text is not a semantic authority.
 
 > Decision: ADR-0060, ADR-0106
 
@@ -152,11 +153,19 @@ silently reported as complete.
 
 ## Transfer summaries
 
-`execution::summary_replay` is the final finite Summary producer/replay boundary. It consumes
-completed native/Local/execution/model evidence and normalized dispatch topology. The borrowed
-petgraph invocation projection supplies a canonical callee-first SCC schedule; graph indices
-never become semantic IDs. Incomplete topology withholds completeness without erasing finite
-positive evidence.
+**Implemented in the remediation source, 2026-10-06; focused acceptance pending.**
+`execution::summary_production` consumes actual completed native/Local/execution/model owners
+and normalized dispatch topology. `summary_replay` remains the ordinary finite diagnostic oracle.
+The compiler selects dependency-closed frames before decoding semantic operands. Model-owned
+completed occurrence properties retain stored nominal IDs, spans and call kinds; symbol identities
+and artifact/input associations do not require rich names, structural paths or unused normalizer
+payloads. These views do not fabricate canonical rows.
+
+The borrowed petgraph invocation projection supplies a canonical callee-first SCC schedule;
+graph indices never become semantic IDs. The complete immutable topology, finite worklist and
+needed diagram/path/literal operands retain their explicit frame lifetime. This is not a claim of
+per-SCC output streaming or measured memory improvement. Incomplete topology withholds
+completeness without erasing finite positive evidence.
 
 The SCC-local worklist distinguishes owner, origin, ports, channel, phase, transfer kind,
 modality, approximation and canonical condition. It excludes proof ancestry, arrival order and
@@ -223,11 +232,12 @@ runtime class/value authority remain unchanged; no recognizer fills a missing na
 
 ## Native serving boundary
 
-**Pure model contracts retained; native serving pending, 2026-10-05.** Model preparation owns
+**Implemented native serving, 2026-10-06; remediation acceptance pending.** Model preparation owns
 conditions, proofs, obligations, required inputs and bounded derivation witnesses. SurrealDB-backed
-input acquisition and operation dispatch are subsequent accepted targets. Private/nested callable
+input acquisition and operation dispatch use the same model owners. Private/nested callable
 evidence may support a public operation's proof without entering public lookup. PostgreSQL readers
-and generation guards are retired; retained schemas and pure preparation are not operational serving.
+and generation guards are retired. The graph-native coordinator §9/R-Q0 owns current remediation
+acceptance; its §8 bounds the earlier native serving receipts. Operator activation remains separate.
 
 Path-local exact-input inspection is distinct from operation-wide completeness. A query cannot
 upgrade Unknown, truncate an established conclusion away or prove a negative from unvisited
@@ -278,8 +288,10 @@ they do not establish divergence, runtime suppression or completed execution. A 
 frontier concerns the exact following statement of a direct sequential call **given invocation
 entered**. Effects, exceptions and cleanup remain unknown. SummaryTerminalWitness retains
 that question, frontier, restriction and qualification as StructurallyObserved, without a
-finite ClaimConclusion or body execution proof. Scoped composite controls are **Tested** in
-the code-facts coordinator §7; terminal serving is Implemented with qualification pending. The behavioral profile requests Model/Summary; default Catalog retains NotRequested. Final assembled qualification remains open.
+finite ClaimConclusion or body execution proof. Native target and terminal serving are
+Implemented; focused graph-native remediation acceptance remains pending at the coordinator.
+The behavioral profile requests Model/Summary; default Catalog retains NotRequested.
+Real-library serving adoption remains separately pending.
 
 DeclaredClassInspection may use genuine report-projected function, symbol and parameter
 declarations with exact native question/support identity. This describes a reachable source

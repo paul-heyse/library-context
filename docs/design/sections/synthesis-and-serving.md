@@ -20,9 +20,15 @@ is not fabricated as successful completion.
 
 Model-owned pure operations prepare documentary conclusions, retain Summary facets, translate
 qualified Structural/Analytic conclusions, emit findings/assertions, select configured and finite
-automatic seeds, and render canonical briefs. `cpg-core::synthesis` acquires and publishes that
-closure once. Replay reconstructs the same inputs and outputs; the source digest includes the
-actual templates, original-code/setup operations and all deterministic emitters.
+automatic seeds, and render canonical briefs. `cpg-core::synthesis` prepares compact frame,
+member and ranking properties, then releases each member's documentary grain after publication.
+A second selected-member pass renders mandatory and chosen consequences from the same immutable
+inputs. Revisiting this small documentary operation avoids retaining rich conclusions across
+members; it does not replay upstream normalization or evaluation. Structural, Analytic and Summary
+conclusions without a member link have their own explicit scopes. Diagnostic replay reconstructs
+the same semantic outputs; the source digest includes actual templates, original-code/setup
+operations and deterministic emitters. This physical migration is implemented in source;
+integrated targeted acceptance remains at the coordinator.
 
 Mandatory catalog and retrieval construction covers public/evidence units independently of
 brief selection. A seed without an admissible documentary Outcome produces `NoDocumentedOutcome`

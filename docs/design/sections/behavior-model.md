@@ -165,8 +165,9 @@ origin without inventing a nested formal or caller-entry read. Actual completed 
 execution feeds the existing finite Summary transfer; mutation, global/nonlocal, loop, delayed,
 unbound and escaped cases retain their refusal. Native enclosing snapshots, including lazy
 candidate and unavailable states, characterize timing and supply no value authority. Arbitrary
-captured-cell or heap analysis remains outside this lane. Scoped native/PG/replay receipts and
-the remaining capture packet journey are owned by the code-facts coordinator.
+captured-cell or heap analysis remains outside this lane. Historical scoped native/PG/replay
+receipts and the remaining product capture packet journey are owned by the code-facts coordinator.
+Current compiler/native remediation acceptance belongs to graph-native coordinator §9/R-Q0.
 
 **Implemented / focused-Tested, 2026-10-03:** bounded builtin exception values retain ordered
 handler, reraising and finalizer behavior. Summary exception outcomes require actual completed

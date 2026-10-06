@@ -12,7 +12,12 @@ Use the reviewed SurrealDB 3.3 server, with persistent RocksDB storage and authe
 owned control fixture selects image
 `surrealdb/surrealdb@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20`.
 Bind its port to loopback; gRPC and HTTP use that same port. Configure a 20-second query timeout
-and 10-second transaction timeout. See `scripts/surrealdb_fixture.py` for the exercised launch
+and 10-second transaction timeout. Choose block-cache and write-buffer sizes for the server
+allocation using the actual 3.3 variables `SURREAL_ROCKSDB_BLOCK_CACHE_SIZE`,
+`SURREAL_ROCKSDB_WRITE_BUFFER_SIZE` and `SURREAL_ROCKSDB_MAX_WRITE_BUFFER_NUMBER`.
+Leave allocation room for requests, other engine state and background compaction. The server
+memory threshold is a guard rather than an RSS cap; retain synchronous durability and background
+maintenance. Host-derived defaults can exceed an intended container allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a 512 MiB tracked-memory threshold and a 1 GiB container limit. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
 options, persistent restart and readiness checks. It never inspects the operator store.
 
 Keep `build/native/runtime.json` outside Git and mode 0600. Its closed fields are:
@@ -32,7 +37,8 @@ Keep `build/native/runtime.json` outside Git and mode 0600. Its closed fields ar
 
 The root installer creates private databases and their database-scoped VIEWER user. Product
 serving receives only the emitted `selected.serving.json`: endpoint, database VIEWER credentials
-and complete snapshot handle. Never pass runtime configuration to MCP, log secrets, or share a
+and the absolute path of the single atomic selection file. New sessions read that handle once;
+running sessions retain their pin. Never pass runtime configuration to MCP, log secrets, or share a
 mutable SDK database-selection context between readers. The current SDK runtime accepts reviewed
 3.3 engines; another server family requires checking its protocol and physical contracts first.
 
@@ -72,7 +78,8 @@ installed wheel may represent an earlier Rust operation definition.
 
 `lctx snapshot list` inspects complete publications in the configured namespace. An explicit
 `lctx snapshot audit build/native/handle.json` reconciles canonical content and checks current
-database/table definition inventory against the sealed realization. This is a cold operator
+database/table definition inventory against the sealed realization, and compares every derived
+query-visible search/scope/vector/witness row with the shared canonical lowering without writes. This is a cold operator
 action, not per-request corpus accounting. Users/access definitions and live subscriptions are
 outside that fingerprint; SurrealDB 3.3 metadata does not expose the database's STRICT mode.
 Audit therefore does not certify credentials, live subscriptions or database mode. Publication
@@ -103,11 +110,12 @@ lctx snapshot restore snapshot.surql
 lctx snapshot retire build/native/handle.json --readers-stopped
 ```
 
-Portable backup uses the server's checked HTTP logical export on the same local authority,
+Portable backup uses the SDK's terminally checked gRPC file export on the same local authority,
 restricted to canonical entities/assertions, native role arcs, originals and the manifest.
 Derived search tables and executable definitions are reconstructed rather than transported;
 this also avoids SurrealDB 3.3's export/import mismatch for nullable fixed-array search fields.
-Restore imports into a fresh private staging database, reconciles canonical content, reconstructs
+Restore imports through the checked HTTP import response into a fresh private staging database,
+reconciles canonical content and performs pure semantic re-admission without providers, reconstructs
 current definitions and derived indexes in a fresh final database, then issues a newly reconciled
 handle. It does not select that handle or inherit imported users and executable authority.
 Never treat imported historical handles as current trust. Before retiring a snapshot, stop and
@@ -122,3 +130,8 @@ server, supplies `LCTX_SURREAL_TEST_CONFIG`, and removes only its own container 
 Use the current `verify-store` / `verify-serving` routes and explicit filters. Compiler-stage tests
 stopped by the user are not prerequisites to restart. Real FastMCP compilation, live Qwen inference
 and operator selection remain separately authorized Q1 work.
+
+Logical text is declared by the model field type independently of Arrow storage. Native query
+projections preserve exact `Utf8Text`, including enum fields, and exclude opaque byte/vector
+payloads. The 2026-10-06 field-contract migration changes model schema identity; rebuild artifacts
+and realizations from current inputs rather than retaining an old-format reader.

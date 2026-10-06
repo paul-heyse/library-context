@@ -259,7 +259,8 @@ Reachability and narrowing use distinct formulas; precision loss remains explici
 coverage. Scoped narrowing/source-view/protocol/capture-timing controls are **Tested**,
 2026-10-03, in coordinator §7. Capture timing characterizes native index snapshots; the
 bounded stable-capture interpretation has its own caller-frame/value certificate and scoped
-native/PG/replay receipts. Capture packet acceptance remains pending in that coordinator.
+historical native/PG/replay receipts. Product capture packet acceptance remains pending in that
+coordinator; current native implementation acceptance belongs to graph-native remediation §9/R-Q0.
 
 **Implemented selected source characterization**, 2026-10-03. The independent Ruff parse
 also supplies configured F821/F401/F841 observations, including retained `noqa` suppression.
@@ -274,7 +275,8 @@ and separate chosen/candidate traces. Higher-order targets remain potential call
 characterization, without invocation/effect authority. Source grants do not expand to reveal
 foreign or outside locations. Scoped native and actual disposable-PG diagnostic/usage
 original-evidence controls are **Tested**, 2026-10-03, as a composite receipt in the code-facts
-coordinator §7; current-tree assembled qualification remains open. The typed
+coordinator §7. Current native admission and original-evidence remediation acceptance belong to
+the graph-native coordinator §9/R-Q0. The typed
 model owns payloads and attachments.
 
 

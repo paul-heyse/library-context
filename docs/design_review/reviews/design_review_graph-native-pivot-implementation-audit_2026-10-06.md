@@ -285,7 +285,7 @@ claimed. A universal accounting service or per-query work counter is unnecessary
 
 **Low · G0/I1 documentation retirement · FP-02/FP-06, G7.**
 [docs task routing](../../README.md):17 calls the assurance plans current/implemented.
-[validation execution](../../plans/validation-execution-pivot-plan_2026-10-04.md):16–31 assigns
+`validation-execution-pivot-plan_2026-10-04.md`:16–31 (audited revision; retired after R-D1 obligation transfer) assigns
 authority to deleted `lctx-postgres` validation sessions and retains PostgreSQL as its target.
 [analytical enrichment](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md):25,221
 also gives current PostgreSQL mechanisms/acceptance instructions. These are reachable present-tense
