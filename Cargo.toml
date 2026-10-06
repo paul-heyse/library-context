@@ -41,6 +41,7 @@ bitvec = "=1.1.1"
 # Stage F's lead sentences (DESIGN §10.3): UAX #29 sentence boundaries with byte offsets, already
 # in the graph at this version (arrow-cast -> comfy-table).
 unicode-segmentation = "=1.13.3"
+tokenizers = { version = "=0.23.2", default-features = false, features = ["onig"] }
 # The compile-time embedding client (ADR-0010): plain HTTP to a local vLLM service, so no TLS
 # feature; the version object_store already locks, and no package is added.
 reqwest = { version = "=0.12.28", default-features = false }

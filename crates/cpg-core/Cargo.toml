@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+tokenizers.workspace = true
 lctx-model = { path = "../lctx-model" }
 cpg-extract = { path = "../cpg-extract" }
 arrow-array.workspace = true
@@ -27,4 +28,3 @@ tempfile.workspace = true
 
 [lints]
 workspace = true
-
