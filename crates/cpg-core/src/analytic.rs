@@ -40,6 +40,7 @@ pub async fn produce(
         runtime.budget(),
     )?;
     macro_rules! read{($($t:ty),*)=>{$(while let Some((input,permit))=consumed.next::<$t>(&access)? {
+        if crate::consumed_rows::stream_artifact_admission(&access,&input,&session,&mut admission).await? {continue;}
         crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch| {
             if [std::any::TypeId::of::<analysis::settings::AnalyticsConfiguration>(),std::any::TypeId::of::<analysis::AnalysisDefinition>(),std::any::TypeId::of::<analysis::MethodParameters>(),std::any::TypeId::of::<structural::StructuralFrame>(),std::any::TypeId::of::<analysis::structural::Invocation>()].contains(&input.type_id()){
                 data.visit_input(&input,batch)?;

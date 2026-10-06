@@ -4,6 +4,7 @@ use futures::TryStreamExt;
 use lctx_model::domain::{analysis::{self,analytic_embedding::*},embedding::{analytic::{self,AnalysisEmbeddingUse,ConsumptionData,VectorAvailability,FrameOutcome},text::{TextWindow,TextAssessment,TextAvailability},value},normalized::Rows,stages::*,*};
 use std::sync::Arc;
 async fn scan<R:Record>(access:&CompletedInputs,session:&datafusion::prelude::SessionContext,admission:&mut analysis::expected::CoverageAdmission<'_>,mut consume:impl FnMut(&arrow_array::RecordBatch)->Result<(),ModelError>) -> Result<(),ModelError> {
+    if crate::consumed_rows::stream_artifact_admission(access,&ValidationInput::of::<R>(&["id"]),session,admission).await? {return Ok(());}
     let permit=access.read::<R>()?;
     let table=access.table_for(&ValidationInput::of::<R>(&["id"]))?;
     let mut stream=crate::sql::query(session,&format!("SELECT * FROM \"{table}\"")).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;

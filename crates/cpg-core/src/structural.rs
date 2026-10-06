@@ -62,6 +62,7 @@ async fn load<R: Record>(
     consumed: &mut crate::consumed_rows::ConsumedInputs,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
+        if crate::consumed_rows::stream_artifact_admission(access,&input,session,admission).await? {continue;}
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             if [std::any::TypeId::of::<attribution::ProviderRun>(),std::any::TypeId::of::<analysis::catalog_core::Invocation>(),std::any::TypeId::of::<analysis::settings::AnalyticsConfiguration>(),std::any::TypeId::of::<analysis::AnalysisDefinition>(),std::any::TypeId::of::<analysis::MethodParameters>()].contains(&input.type_id()){
                 data.visit_input(&input, batch)?;

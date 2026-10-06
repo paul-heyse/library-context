@@ -51,6 +51,7 @@ async fn load<R: Record>(
     mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     while let Some((input, permit)) = consumed.next::<R>(access)? {
+        if crate::consumed_rows::stream_artifact_admission(access,&input,session,admission).await? {continue;}
         crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
             admission.visit_if_expected(permit, batch)?;
             visit(&input, batch)

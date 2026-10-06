@@ -6,6 +6,21 @@ use lctx_model::domain::{
     analysis::sources::CompletedInput, charged, resources::ResourceBudget, *,
 };
 use std::{any::TypeId, collections::BTreeSet};
+/// Expected coverage needs artifact identity, input ownership and the model's bounded
+/// classifier property. Ordinary selected algorithm reads still receive canonical rows.
+pub(crate) async fn stream_artifact_admission(
+    access:&CompletedInputs,
+    input:&ValidationInput,
+    session:&SessionContext,
+    admission:&mut analysis::expected::CoverageAdmission<'_>,
+) -> Result<bool,ModelError> {
+    if input.type_id()!=TypeId::of::<source::SourceArtifact>() {return Ok(false);}
+    let permit=access.read_at::<source::SourceArtifact>(input.prefix())?;
+    let table=access.table_for(input)?;
+    let selected=format!("SELECT {} FROM {}",analysis::expected::CoverageAdmission::artifact_property_columns(),identifier(&table));
+    stream_query_at(&permit,input,session,&selected,|permit,batch|admission.visit_artifact_properties(permit,batch)).await?;
+    Ok(true)
+}
 pub struct ConsumedInputs {
     declarations: Vec<ValidationInput>,
     dispatched: BTreeSet<usize>,

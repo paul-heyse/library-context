@@ -48,6 +48,7 @@ pub async fn produce(
         budget,
     )?;
     macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
+        if crate::consumed_rows::stream_artifact_admission(&access,&input,&session,&mut coverage).await? {continue;}
         crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
             coverage.visit_if_expected(permit,batch)?;
             if [attribution::ProviderRun::NAME,analysis::MethodParameters::NAME,analysis::AnalysisDefinition::NAME,analysis::local::AnalysisInvocation::NAME,analysis::model::AnalysisInvocation::NAME,analysis::enriched_execution::AnalysisInvocation::NAME,analysis::source_call::AnalysisInvocation::NAME,analysis::local::AnalysisOutcome::NAME,analysis::model::AnalysisOutcome::NAME,analysis::enriched_execution::AnalysisOutcome::NAME,analysis::source_call::AnalysisOutcome::NAME].contains(&input.name()){data.visit_input(&input,batch)?;}

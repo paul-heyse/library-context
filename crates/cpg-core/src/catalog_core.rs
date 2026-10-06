@@ -15,6 +15,7 @@ use lctx_model::domain::{
 use std::sync::Arc;
 async fn inventory<R:Record>(access:&CompletedInputs,session:&SessionContext,consumed:&mut crate::consumed_rows::ConsumedInputs,admission:&mut analysis::expected::CoverageAdmission<'_>,mut visit:impl FnMut(&arrow_array::RecordBatch)->Result<(),ModelError>)->Result<(),ModelError>{
     while let Some((input,permit))=consumed.next::<R>(access)? {
+        if crate::consumed_rows::stream_artifact_admission(access,&input,session,admission).await? {continue;}
         crate::consumed_rows::stream_at(&permit,&input,access,session,|permit,batch|{admission.visit_if_expected(permit,batch)?;visit(batch)}).await?;
     }
     Ok(())

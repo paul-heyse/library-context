@@ -47,6 +47,7 @@ pub async fn run(
     let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
     macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
+        if crate::consumed_rows::stream_artifact_admission(&access,&input,&session,&mut admission).await? {continue;}
         crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
             admission.visit_if_expected(permit,batch)?;
             if <$ty>::NAME==attribution::ProviderRun::NAME || <$ty>::NAME==attribution::Provider::NAME{data.entry.visit(<$ty>::NAME,batch)?;}
