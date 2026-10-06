@@ -105,11 +105,12 @@ macro_rules! records{($($field:ident:$ty:ty,)*)=>{
 outputs!(records);
 /// One actual Enriched invocation shares its finite-work allowance across owner grains.
 /// The frame and budget binding prevents a caller from lending another attempt's meter.
-pub struct EnrichedWork {invocation:publication::AnalysisInvocation,work:usize,charge:charged::StateCharge}
+pub struct EnrichedWork {invocation:publication::AnalysisInvocation,work:usize,catalog:Option<PreparedEnrichedCatalog>,charge:charged::StateCharge}
+struct PreparedEnrichedCatalog {catalog:std::sync::Arc<models::Catalog>,_reservation:Box<dyn resources::Reservation>}
 impl EnrichedWork {
     pub fn new(invocation:&publication::AnalysisInvocation,budget:&ResourceBudget)->Result<Self,ModelError> {
         let mut charge=charged::StateCharge::new(budget,"enriched-work");charge.grow(size_of::<Self>())?;
-        Ok(Self {invocation:invocation.clone(),work:0,charge})
+        Ok(Self {invocation:invocation.clone(),work:0,catalog:None,charge})
     }
     fn require(&self,invocation:&publication::AnalysisInvocation,budget:&ResourceBudget)->Result<(),ModelError> {
         if self.invocation!=*invocation || !self.charge.budget().expect("bound Enriched work").shares_pool(budget) {return Err(ModelError::Conflict("enriched work frame/budget"));}Ok(())
@@ -117,6 +118,17 @@ impl EnrichedWork {
     fn step(&mut self)->Result<(),ModelError> {
         self.work=self.work.checked_add(1).ok_or(ModelError::Conflict("enriched work overflow"))?;
         if self.work>super::enriched::ENRICHED_WORK_LIMIT {return Err(ModelError::Resource {owner:"enriched_finite_work",requested:1,used:self.work-1,limit:super::enriched::ENRICHED_WORK_LIMIT});}Ok(())
+    }
+    fn catalog(&mut self,row:&models::ModelCatalog)->Result<std::sync::Arc<models::Catalog>,ModelError> {
+        if let Some(prepared)=&self.catalog {
+            if prepared.catalog.declaration()!=row {return Err(ModelError::Conflict("Enriched selected catalog changed"));}
+            return Ok(prepared.catalog.clone());
+        }
+        let bytes=row.source.len().checked_mul(32).and_then(|n|n.checked_add(65536)).ok_or(ModelError::Conflict("Enriched catalog allowance"))?;
+        let reservation=self.charge.budget().expect("bound Enriched work").reserve("enriched_selected_catalog",bytes)?;
+        let catalog=std::sync::Arc::new(models::Catalog::parse(&row.source_name,&row.source).map_err(ModelError::Invalid)?);
+        if catalog.declaration()!=row {return Err(ModelError::Conflict("Enriched selected catalog is not its canonical declaration"));}
+        self.catalog=Some(PreparedEnrichedCatalog {catalog:catalog.clone(),_reservation:reservation});Ok(catalog)
     }
 }
 pub fn enrich_all(
@@ -160,6 +172,49 @@ pub fn enrich_owner_produced(data:&EnrichedData,invocation:&publication::Analysi
     if profile==stages::Profile::Behavioral && (evaluations.is_none() || source_calls.is_none()) {return Err(ModelError::Conflict("requested Enriched selected predecessor absent"));}
     if profile==stages::Profile::Behavioral && data.source.evaluation.refs.get(owner).is_none() {return Err(ModelError::Conflict("selected Enriched owner absent"));}
     enrich_with_application(data,invocation,definition,profile,budget,verified,evaluations,None,source_calls,Some(owner),Some(work))
+}
+/// Complete an actual empty selected publication domain without invoking any predecessor
+/// producer. The compiler owns the full empty-root stream; visible primary roots refuse.
+pub fn enrich_empty_produced(data:&EnrichedData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget,source_calls:Option<&source_call_records::HydratedSourceCalls>,work:&mut EnrichedWork)->Result<ExecutionRecords,ModelError> {
+    work.require(invocation,budget)?;enriched_configuration(data,invocation,definition)?;
+    let mut output=ExecutionRecords::new(invocation.id(),budget);
+    if profile!=stages::Profile::Behavioral {output.outcome.status=analysis::AnalysisStatus::NotRequested;output.outcome.reason=Some(obligation::ObligationKind::NotRequested);return Ok(output);}
+    let mut parents=data.source_invocations.iter().filter(|row|(row.input,row.context)==(invocation.input,invocation.context));
+    let parent=parents.next().ok_or(ModelError::Conflict("empty Enriched SourceCall frame absent"))?;
+    if parents.next().is_some() || data.source.definitions.get(parent.definition).is_none() {return Err(ModelError::Conflict("empty Enriched SourceCall frame/definition"));}
+    let source_calls=source_calls.ok_or(ModelError::Conflict("empty Enriched actual SourceCall owner absent"))?;source_calls.require(parent,budget)?;
+    if !source_calls.headers.is_empty() || !source_calls.calls.is_empty()
+        || data.source_headers.iter().any(|row|row.invocation==parent.id()) || data.source_calls.iter().any(|row|row.invocation==parent.id()) {
+        return Err(ModelError::Conflict("empty Enriched source scope contains values"));
+    }
+    let facts=&data.source.evaluation;
+    let root_bytes=facts.artifacts.iter().try_fold(0usize,|n,row|n.checked_add(size_of::<SourceArtifact>()+row.heap_bytes()+128)).and_then(|n|n.checked_add(facts.uses.len().checked_mul(size_of::<ArtifactUse>())?)).and_then(|n|n.checked_mul(2)).ok_or(ModelError::Conflict("empty Enriched root allowance"))?;
+    let _roots=budget.reserve("enriched-empty-roots",root_bytes)?;
+    let roots=admission::analysis_roots(&facts.artifacts.iter().cloned().collect::<Vec<_>>(),&facts.uses.iter().cloned().collect::<Vec<_>>())?;
+    let selected=|occurrence:&Occurrence|->Result<bool,ModelError> {
+        let source=facts.artifacts.get(occurrence.source).ok_or(ModelError::Conflict("empty Enriched source absent"))?;
+        Ok(source.input==invocation.input && roots.contains(&source.id()) && admission::ArtifactClass::of(&source.path)==Some(admission::ArtifactClass::PythonSource))
+    };
+    for row in facts.occurrences.iter().filter(|row|super::completion_production::is_statement(row.syntax_kind)) {
+        if selected(row)? {return Err(ModelError::Conflict("empty Enriched scope contains statement"));}
+    }
+    for row in facts.occurrences.iter().filter(|row|row.syntax_kind==source::SyntaxKind::ExprName && facts.owners.iter().any(|owner|owner.occurrence==row.id())) {
+        if selected(row)? {return Err(ModelError::Conflict("empty Enriched scope contains context binding candidate"));}
+    }
+    for attempt in data.source.output.attempts.iter() {
+        let event=data.source.bindings.event_events.get(attempt.event).ok_or(ModelError::Conflict("empty Enriched call event absent"))?;
+        if event.context==invocation.context {
+            let site=facts.occurrences.get(event.site).ok_or(ModelError::Conflict("empty Enriched call site absent"))?;
+            if selected(site)? {return Err(ModelError::Conflict("empty Enriched scope contains modeled call candidate"));}
+        }
+    }
+    for callable in facts.callables.iter() {
+        if let normalized::entities::CallableEntity::Source {declaration,..}=callable {
+            let declaration=facts.occurrences.get(*declaration).ok_or(ModelError::Conflict("empty Enriched callable declaration absent"))?;
+            if selected(declaration)? {return Err(ModelError::Conflict("empty Enriched scope contains callable"));}
+        }
+    }
+    output.run.requested=true;Ok(output)
 }
 /// The ordinary final statement kernel refuses both absent and ambiguous owners with the
 /// same explicit MissingEvidence boundary. Preserve that actual root even with no owner grain.
@@ -249,20 +304,10 @@ fn enrich_with_application(
                         == Some(admission::ArtifactClass::PythonSource)
             })
     };
-    let _parse = budget.reserve(
-        "enriched_selected_catalog",
-        catalog
-            .source
-            .len()
-            .checked_mul(32)
-            .and_then(|n| n.checked_add(65536))
-            .ok_or_else(|| invalid("enriched catalog allowance overflow"))?,
-    )?;
-    let catalog = models::Catalog::parse(&catalog.source_name, &catalog.source)
-        .map_err(ModelError::Invalid)?;
     let mut local_work=if shared_work.is_none() {Some(EnrichedWork::new(invocation,budget)?)}else{None};
     let work=shared_work.unwrap_or_else(||local_work.as_mut().expect("ordinary frame work"));
     work.require(invocation,budget)?;
+    let catalog=work.catalog(catalog)?;
     let visit = |frame: &mut super::enriched::EnrichedFrame<'_>| {
             let mut step = || -> Result<(), ModelError> {
                 work.step()
@@ -1089,5 +1134,28 @@ mod selected_enriched_controls {
         let output=enrich_owner_produced(&data,&frame,&definition,stages::Profile::Catalog,&budget,None,None,None,id(3),&mut work).unwrap();
         assert_eq!(output.outcome.status,analysis::AnalysisStatus::NotRequested);assert!(output.executions.is_empty());
         assert!(enrich_owner_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,None,None,None,id(3),&mut work).is_err());
+    }
+    #[test]
+    fn empty_actual_frame_uses_source_issuer_and_catalog_is_prepared_once() {
+        let budget=ResourceBudget::fixed(1<<20).unwrap();
+        let catalog=models::Catalog::parse("empty.toml","version=7\nmodels=[]\ncontext_protocols=[]\n").unwrap();
+        let (parameters,definition)=super::super::configuration::enriched_execution(catalog.declaration().id());
+        let (frame,_)=publication::AnalysisInvocation::new(id(1),id(2),definition.id(),None,[]);
+        let source_definition=super::super::configuration::source_calls().1;
+        let (parent,_)=analysis::source_call::AnalysisInvocation::new(frame.input,frame.context,source_definition.id(),None,[]);
+        let mut data=EnrichedData::new(&budget);data.parameters.insert(parameters).unwrap();data.catalogs.insert(catalog.declaration().clone()).unwrap();
+        data.source_invocations.insert(parent.clone()).unwrap();data.source.definitions.insert(source_definition.clone()).unwrap();
+        let (_,source)=source_call_records::prepare_empty_produced(&data.source,&parent,&source_definition,stages::Profile::Behavioral,&budget).unwrap();
+        let hydrated=source.hydrate_empty(&parent,&budget).unwrap();
+        let mut work=EnrichedWork::new(&frame,&budget).unwrap();
+        let output=enrich_empty_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,Some(&hydrated),&mut work).unwrap();
+        assert!(output.run.requested && output.executions.is_empty());assert_eq!(output.outcome.status,analysis::AnalysisStatus::Completed);
+        assert!(enrich_empty_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,None,&mut work).is_err());
+        let first=work.catalog(catalog.declaration()).unwrap();let second=work.catalog(catalog.declaration()).unwrap();assert!(std::sync::Arc::ptr_eq(&first,&second));
+        let mut changed=catalog.declaration().clone();changed.source.push_str("\n");assert!(work.catalog(&changed).is_err());
+        let artifact=SourceArtifact::from_bytes(frame.input,"unit.py".into(),b"pass").unwrap();
+        data.source.evaluation.uses.insert(ArtifactUse {artifact:artifact.id(),input:frame.input,role:input::SourceRole::Release}).unwrap();
+        data.source.evaluation.occurrences.insert(Occurrence {source:artifact.id(),start:0,end:4,syntax_kind:source::SyntaxKind::StmtPass,role:source::OccurrenceRole::Syntax,structural_path:vec![0]}).unwrap();data.source.evaluation.artifacts.insert(artifact).unwrap();
+        assert!(enrich_empty_produced(&data,&frame,&definition,stages::Profile::Behavioral,&budget,Some(&hydrated),&mut work).is_err());
     }
 }
