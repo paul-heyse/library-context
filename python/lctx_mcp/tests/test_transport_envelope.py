@@ -14,7 +14,7 @@ def test_actual_rpc_id_and_complete_tool_result_survive_both_writers(request_id)
     result = CallToolResult.model_validate(
         {
             "content": [{"type": "text", "text": "Original evidence: λ"}],
-            "structuredContent": {"generation": [3] * 16, "original": "λ\n雪", "score": 0.0},
+            "structuredContent": {"snapshot": {"semantic": [3] * 32, "realization": [4] * 32, "database": {"namespace": "fixture", "database": "snapshot"}}, "original": "λ\n雪", "score": 0.0},
             "isError": False,
             "_meta": {"trace": "transport metadata"},
         }
@@ -29,7 +29,7 @@ def test_actual_rpc_id_and_complete_tool_result_survive_both_writers(request_id)
         "id": request_id,
         "result": {
             "content": [{"type": "text", "text": "Original evidence: λ"}],
-            "structuredContent": {"generation": [3] * 16, "original": "λ\n雪", "score": 0.0},
+            "structuredContent": {"snapshot": {"semantic": [3] * 32, "realization": [4] * 32, "database": {"namespace": "fixture", "database": "snapshot"}}, "original": "λ\n雪", "score": 0.0},
             "isError": False,
             "_meta": {"trace": "transport metadata"},
             "resultType": "complete",
