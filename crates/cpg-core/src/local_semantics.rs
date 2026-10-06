@@ -8,6 +8,9 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+use futures::TryStreamExt;
+use arrow_array::Array;
+mod scope;
 /// Actual Local receipts retain exact source and output descriptors across downstream borrows.
 pub struct PreparedLocal {premises:CompletedInputs,entries:CompletedInputs,guards:CompletedInputs,values:local_semantics::ProducedLocal}
 impl PreparedLocal {
@@ -39,14 +42,14 @@ pub async fn run(
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
     let mut consumed =
-        crate::consumed_rows::ConsumedInputs::new(LocalData::consumed_inputs(profile), budget)?;
+        crate::consumed_rows::ConsumedInputs::new({let mut inputs=vec![ValidationInput::of::<attribution::ProviderRun>(&["id"]),ValidationInput::of::<attribution::Provider>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])];inputs.extend(analysis::expected::inputs(definition.method));inputs}, budget)?;
     let mut data = LocalData::new(budget);
     let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
     macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
         crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
             admission.visit_if_expected(permit,batch)?;
-            data.visit_consumed(profile,<$ty>::NAME,batch)?;
+            if <$ty>::NAME==attribution::ProviderRun::NAME || <$ty>::NAME==attribution::Provider::NAME{data.entry.visit(<$ty>::NAME,batch)?;}
             if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(batch)?;}
             if <$ty>::NAME==analysis::AnalysisDefinition::NAME{definitions.decode(batch)?;}
             Ok(())
@@ -60,6 +63,7 @@ pub async fn run(
         ));
     }
     drop(definitions);
+    let scopes=if profile==Profile::Behavioral{Some(scope::LocalScopes::prepare(&access,&session,_model,budget).await?)}else{None};
     macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
@@ -108,18 +112,21 @@ pub async fn run(
             &admission,
             budget,
         )?;
-        let rows = if profile == Profile::Behavioral {
-            local_semantics::produce(&data, &invocation, definition, budget)?
-        } else {
-            local_semantics::LocalRecords::new(budget)
-        };
-        macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
-        lctx_model::local_semantic_outputs!(write);
-        macro_rules! theory_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.theory.$field.iter(){output.push(row.clone()).await?;})*};}
-        lctx_model::local_theory_outputs!(theory_write);
-        macro_rules! fields_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.fields.$field.iter(){output.push(row.clone()).await?;})*};}
-        lctx_model::local_field_outputs!(fields_write);
-        actual.append(rows.actual)?;
+        if let Some(scopes)=&scopes{
+            let mut composition=local_semantics::composition::Composition::new(budget);
+            let mut roots=crate::sql::query(&session,&scopes.root_sql(&access,run.input,run.context)?).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+            while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)?{
+                let ids=batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema(source::SourceArtifact::NAME))?;
+                for i in 0..ids.len(){
+                    let source:Id<source::SourceArtifact>=serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(ids.value(i).iter().copied())).map_err(ModelError::codec)?;
+                    let grain=scopes.source(source,budget).await?;let selected=scopes.load(&access,&grain,budget).await?;
+                    let rows=local_semantics::produce_source(&selected,&invocation,definition,source,budget)?;
+                    composition.observe(&selected,&rows,budget)?;
+                    publish_records(&output,&rows).await?;actual.append(rows.actual)?;
+                }
+            }
+            for selection in composition.selections(){output.push(selection).await?;}
+        }
         let (status, reason) = if profile == Profile::Catalog {
             (
                 analysis::AnalysisStatus::NotRequested,
@@ -199,4 +206,14 @@ mod decoder_tests {
             );
         }
     }
+}
+
+async fn publish_records(output:&ProducerOutput,rows:&local_semantics::LocalRecords)->Result<(),ModelError>{
+    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
+    lctx_model::local_semantic_outputs!(write);
+    macro_rules! theory_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.theory.$field.iter(){output.push(row.clone()).await?;})*};}
+    lctx_model::local_theory_outputs!(theory_write);
+    macro_rules! fields_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.fields.$field.iter(){output.push(row.clone()).await?;})*};}
+    lctx_model::local_field_outputs!(fields_write);
+    Ok(())
 }

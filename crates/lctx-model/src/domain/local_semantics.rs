@@ -2,6 +2,7 @@
 //! This bounded direct operator retains unsupported paths as assessments, never false flow.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
 const SEMANTIC_RULE_REVISION: i64 = 1;
+pub mod composition;
 use crate::Domain;
 use crate::domain::{
     analysis::{
@@ -663,13 +664,24 @@ pub fn produce(
     definition: &analysis::AnalysisDefinition,
     budget: &resources::ResourceBudget,
 ) -> Result<LocalRecords, ModelError> {
+    produce_selected(data,invocation,definition,None,budget)
+}
+/// Produce only this source's actual primary Local domain; referenced sources remain premises.
+pub fn produce_source(data:&LocalData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,source:Id<SourceArtifact>,budget:&resources::ResourceBudget)->Result<LocalRecords,ModelError>{
+ if !data.entry.artifacts.get(source).is_some_and(|row|row.input==invocation.input){return Err(invalid("Local selected source absent or foreign"));}
+ produce_selected(data,invocation,definition,Some(source),budget)
+}
+fn selected_occurrence(data:&EntryData,source:Option<Id<SourceArtifact>>,occurrence:Id<Occurrence>)->bool{
+ source.is_none() || data.occurrences.get(occurrence).is_some_and(|row|Some(row.source)==source)
+}
+fn produce_selected(data:&LocalData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,source:Option<Id<SourceArtifact>>,budget:&resources::ResourceBudget)->Result<LocalRecords,ModelError>{
     check_definition(definition)?;
     check_invocation(invocation)?;
     if definition.id() != invocation.definition {
         return Err(invalid("Local producer changes definition"));
     }
     let mut records = LocalRecords::new(budget);
-    for support in data.entry.value_supports.iter() {
+    for support in data.entry.value_supports.iter().filter(|support|source.is_none() || data.entry.values.get(support.assertion).is_some_and(|row|selected_occurrence(&data.entry,source,row.sink))) {
         let Some(a) = support.attribution() else {
             continue;
         };
@@ -757,20 +769,22 @@ pub fn produce(
         };
         records.assessments.insert(assessment)?;
     }
-    records.theory = crate::domain::local_theory::produce(
+    records.theory = crate::domain::local_theory::produce_source(
         &crate::domain::local_theory::TheoryData {
             entry: &data.entry,
             inventory: &data.theory,
         },
         invocation,
+        source,
         budget,
     )?;
     emit_theory(data, invocation, definition, &mut records, budget)?;
-    produce_entry_reads(data, invocation, &mut records, budget)?;
-    produce_fields(data, invocation, &mut records, budget)?;
-    produce_symbolic_stores(data, invocation, &mut records, budget)?;
-    produce_guards(data, invocation, definition, &mut records, budget)?;
+    produce_entry_reads(data, invocation, &mut records, source, budget)?;
+    produce_fields(data, invocation, &mut records, source, budget)?;
+    produce_symbolic_stores(data, invocation, &mut records, source, budget)?;
+    produce_guards(data, invocation, definition, &mut records, source, budget)?;
     crate::domain::atom_decision::produce(data, invocation, definition, &mut records, budget)?;
+    if source.is_some(){return Ok(records);}
     // Each transfer condition is decoded once. The secondary support index serves the
     // repeated influence/alternative membership query, retaining nominal sorted atom IDs.
     let mut support_index = charged::ChargedMap::default();
@@ -1247,9 +1261,10 @@ fn produce_entry_reads(
     data: &LocalData,
     invocation: &publication::AnalysisInvocation,
     rows: &mut LocalRecords,
+    source:Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    for support in data.entry.use_supports.iter() {
+    for support in data.entry.use_supports.iter().filter(|support|source.is_none() || data.entry.use_observations.get(support.assertion).and_then(|observation|data.entry.uses.get(observation.use_)).is_some_and(|row|selected_occurrence(&data.entry,source,row.occurrence))) {
         let Some(attribution) = support.attribution() else {
             continue;
         };
@@ -1303,9 +1318,10 @@ fn produce_guards(
     invocation: &publication::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition,
     rows: &mut LocalRecords,
+    source:Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    for support in data.entry.leaf_supports.iter() {
+    for support in data.entry.leaf_supports.iter().filter(|support|source.is_none() || data.entry.leaves.get(support.assertion).is_some_and(|row|selected_occurrence(&data.entry,source,row.test))) {
         let Some(a) = support.attribution() else {
             continue;
         };
@@ -1403,6 +1419,7 @@ fn produce_symbolic_stores(
     data: &LocalData,
     invocation: &publication::AnalysisInvocation,
     records: &mut LocalRecords,
+    source:Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     let input = crate::domain::local_fields::FieldData {
@@ -1410,7 +1427,7 @@ fn produce_symbolic_stores(
         theory: &data.theory,
         inventory: &data.fields,
     };
-    for store in data.fields.symbolic_stores.iter() {
+    for store in data.fields.symbolic_stores.iter().filter(|store|selected_occurrence(&data.entry,source,store.target)) {
         for support in data.entry.value_supports.iter() {
             let Some(value) = data.entry.values.get(support.assertion) else {
                 continue;
@@ -1447,6 +1464,7 @@ fn produce_fields(
     data: &LocalData,
     invocation: &publication::AnalysisInvocation,
     records: &mut LocalRecords,
+    source:Option<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     use crate::domain::local_fields::*;
@@ -1455,7 +1473,7 @@ fn produce_fields(
         theory: &data.theory,
         inventory: &data.fields,
     };
-    for native in data.fields.load_supports.iter() {
+    for native in data.fields.load_supports.iter().filter(|support|source.is_none() || data.fields.loads.get(support.assertion).is_some_and(|row|selected_occurrence(&data.entry,source,row.occurrence))) {
         if !data
             .entry
             .runs
