@@ -9,7 +9,7 @@ pub async fn publish(export:&VerifiedExport,config:&RuntimeConfig,native_definit
     let client=reader::connect(&config.endpoint,&config.root_credentials(),config.namespace.as_str(),&database).await?;
     let version=client.version().await.map_err(ModelError::codec)?.to_string();
     if !version.starts_with("3.3."){return Err(ModelError::Invalid("native realization requires reviewed SurrealDB 3.3 engine".into()))}
-    client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`; DEFINE DATABASE `{database}` STRICT;",config.namespace.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`; DEFINE DATABASE OVERWRITE `{database}` STRICT;",config.namespace.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
     let loader=Loader::new(client.clone());
     let result=load(export,&loader,native_definitions).await;
     if let Err(error)=result{

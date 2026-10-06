@@ -25,15 +25,19 @@ macro_rules! entities{($($variant:ident:$ty:ty,)*)=>{fn entity_shapes()->Vec<Str
 lctx_model::graph_entity_records!(entities);
 macro_rules! assertions{($($variant:ident:$ty:ty,)*)=>{fn assertion_shapes()->Vec<String>{vec![$(declaration::<$ty>(),)*]}}}
 lctx_model::graph_assertion_records!(assertions);
+/// Atomic fields selected for indexed ownership/capture joins; other typed predicates use the type index.
+pub const SCOPE_FIELDS:&[&str]=&["member","exposure","candidate","callable","variant","invocation","domain","unit","corpus","fragment","specification","input","origin","package","access","context","root","source","target","qualification","slot","parent","inventory","characterization","event","diagnostic","entry","trace","attempt","use_","view","assessment","observation","assertion","release","distribution","module","artifact","brief","support","set","universe"];
 pub fn canonical_schema()->String{
     let mut sql=String::new();
     for (table,shapes) in [("entity",entity_shapes()),("assertion",assertion_shapes())]{
         let mut shapes: BTreeSet<String>=shapes.into_iter().collect();if table=="assertion"{shapes.insert("{__type:'__graph_assertion'}".into());}
         sql.push_str(&format!("DEFINE TABLE {table} TYPE NORMAL SCHEMAFULL; DEFINE FIELD semantic_type ON {table} TYPE string; DEFINE FIELD semantic_key ON {table} TYPE string; DEFINE FIELD kind ON {table} TYPE int; DEFINE FIELD subtype ON {table} TYPE int | null; DEFINE FIELD content ON {table} TYPE string; DEFINE FIELD canonical ON {table} TYPE bytes; DEFINE FIELD body ON {table} TYPE {}; DEFINE INDEX semantic_key ON {table} FIELDS semantic_type,semantic_key UNIQUE;",shapes.into_iter().collect::<Vec<_>>().join(" | ")));
     }
+    // Whole semantic IDs are atomic index keys. Array indexes flatten each byte and cannot
+    // implement whole-ID IN selection; retain canonical typed arrays in body unchanged.
     for table in ["entity","assertion"] {
-        for field in ["member","exposure","candidate","callable","variant","invocation","domain","unit","corpus","fragment","specification","input","origin","package","access","context","root","source","target","qualification","slot","parent"] {
-            sql.push_str(&format!("DEFINE INDEX by_{field} ON {table} FIELDS semantic_type,body.`{field}`,semantic_key;"));
+        for field in SCOPE_FIELDS {
+            sql.push_str(&format!("DEFINE FIELD `scope_{field}` ON {table} TYPE option<string> VALUE IF body.`{field}` IS NONE THEN NONE ELSE <string>body.`{field}` END; DEFINE INDEX by_{field} ON {table} FIELDS semantic_type,`scope_{field}`,semantic_key;"));
         }
     }
     for (table,input) in [("participant","assertion"),("reference","entity")]{

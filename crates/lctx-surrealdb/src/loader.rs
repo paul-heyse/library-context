@@ -10,7 +10,11 @@ impl Loader {
     pub fn client(&self)->&Surreal<Client>{&self.client}
     pub fn shared_client(&self)->Arc<Surreal<Client>>{self.client.clone()}
     pub async fn install(&self,native_definitions:&str)->Result<(),ModelError>{
-        self.client.query(crate::schema::canonical_schema()+native_definitions).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok(())
+        // Canonical DDL contains only finite declarations. Coarse checked batches avoid one
+        // large setup transaction; executable function bodies remain intact in the final query.
+        let schema=crate::schema::canonical_schema();let statements=schema.split(';').filter(|s|!s.trim().is_empty()).collect::<Vec<_>>();
+        for chunk in statements.chunks(32){self.client.query(chunk.join(";")+";").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;}
+        self.client.query(native_definitions).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok(())
     }
     async fn insert(&self,table:&str,rows:Vec<Value>,relation:bool)->Result<(),ModelError>{
         if rows.is_empty(){return Ok(())}
@@ -68,15 +72,16 @@ impl Loader {
         let source_key=source.hex();let source=RecordId::new("original",source_key.clone());
         let mut header=Object::new();header.insert("id",source.clone());header.insert("content",content.hex());header.insert("byte_len",i64::try_from(length).map_err(ModelError::codec)?);
         self.insert("original",vec![Value::Object(header)],false).await?;
-        let mut hasher=lctx_model::domain::ContentHasher::default();let mut position=0u64;let mut buffer=vec![0u8;65536];
-        loop {let count=input.read(&mut buffer).map_err(ModelError::codec)?;if count==0{break}hasher.update(&buffer[..count]);
-            let mut row=Object::new();row.insert("id",RecordId::new("original_chunk",format!("{source_key}_{position}")));row.insert("source",source.clone());row.insert("start",i64::try_from(position).map_err(ModelError::codec)?);row.insert("bytes",Bytes::from(buffer[..count].to_vec()));row.insert("content",ContentHash::of(&buffer[..count]).hex());self.insert("original_chunk",vec![Value::Object(row)],false).await?;position+=count as u64;
+        let mut hasher=lctx_model::domain::ContentHasher::default();let mut position=0u64;let mut buffer=vec![0u8;65536];let mut pending=Vec::new();
+        loop {let mut count=0;while count<buffer.len(){let next=input.read(&mut buffer[count..]).map_err(ModelError::codec)?;if next==0{break}count+=next;}if count==0{break}hasher.update(&buffer[..count]);
+            let mut row=Object::new();row.insert("id",RecordId::new("original_chunk",format!("{source_key}_{position}")));row.insert("source",source.clone());row.insert("start",i64::try_from(position).map_err(ModelError::codec)?);row.insert("bytes",Bytes::from(buffer[..count].to_vec()));row.insert("content",ContentHash::of(&buffer[..count]).hex());pending.push(Value::Object(row));if pending.len()==64{self.insert("original_chunk",std::mem::take(&mut pending),false).await?;}position+=count as u64;
         }
+        self.insert("original_chunk",pending,false).await?;
         if position!=length||hasher.finish()!=content{return Err(ModelError::Conflict("original bytes"))}Ok(())
     }
 
 }
-fn edge(table:&str,source:RecordId,target:Target,field:&str,role:i64,position:Option<u32>)->Result<Value,ModelError>{
+pub(crate) fn edge(table:&str,source:RecordId,target:Target,field:&str,role:i64,position:Option<u32>)->Result<Value,ModelError>{
     let mut sink=KeySink::new("native-graph-role/v1");table.to_string().encode(&mut sink);sink.part(b"source",&serde_json::to_vec(&source).map_err(ModelError::codec)?);target.encode(&mut sink);field.to_string().encode(&mut sink);role.encode(&mut sink);position.map(i64::from).encode(&mut sink);
     let mut obj=Object::new();obj.insert("id",RecordId::new(table,sink.finish().hex()));obj.insert("in",source);obj.insert("out",target_id(target));obj.insert("field",field.to_string());obj.insert("role",role);obj.insert("position",position.map(|p|Value::from_t(p)).unwrap_or(Value::Null));Ok(Value::Object(obj))
 }

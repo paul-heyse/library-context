@@ -2,13 +2,13 @@
 use lctx_model::domain::{*,graph::{EntityId,Target},retrieval::{Unit,Fragment,UnitSubject,Subject,OriginalAnchor,Family,consumption::RetrievalEmbeddingUse},embedding::{EmbeddingSpec,analytic::VectorAvailability,value},serving::{SnapshotHandle,DatabaseIdentity,Name}};
 use lctx_surrealdb::{Loader,NativeReader,RecordSelection,reader::target_id};
 use lctx_surrealdb::surrealdb::types::{RecordId,Variables,Object,Value,Bytes};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap,BTreeSet};
 fn ids<R:Record>(values:impl Iterator<Item=Id<R>>)->Result<Vec<serde_json::Value>,ModelError>{values.map(|id|serde_json::to_value(id).map_err(ModelError::codec)).collect()}
 fn table(family:Family)->&'static str{match family{Family::ApiOptions=>"search_api_options",Family::DocumentationDeployment=>"search_documentation_deployment",Family::Scenario=>"search_scenario",Family::Source=>"search_source"}}
 pub async fn materialize_search(loader:&Loader)->Result<(),ModelError>{
     let snapshot=SnapshotHandle{semantic:ContentHash::of(b"private-loading"),realization:ContentHash::of(b"private-loading"),database:DatabaseIdentity{namespace:Name::new("private").map_err(ModelError::codec)?,database:Name::new("private").map_err(ModelError::codec)?}};
     // The private loader's already-selected session is deliberately shared through Arc, not SDK clone.
-    let reader=NativeReader::new(loader.shared_client(),snapshot);let mut after=String::new();
+    let reader=NativeReader::new(loader.shared_client(),snapshot);let mut after=String::new();let mut expected:BTreeMap<String,BTreeSet<RecordId>>=BTreeMap::new();
     loop{
         let mut bindings=Variables::new();bindings.insert("after",after.clone());bindings.insert("unit_type",Unit::NAME.to_string());
         let keys:Vec<String>=reader.query("SELECT VALUE semantic_key FROM entity WHERE semantic_type=$unit_type AND semantic_key>$after ORDER BY semantic_key LIMIT 128",bindings).await?;
@@ -45,13 +45,37 @@ pub async fn materialize_search(loader:&Loader)->Result<(),ModelError>{
                 }}
             }
         }
-        for(table,rows)in documents{insert(loader,table,rows,false).await?;}insert(loader,"vector",vectors,false).await?;insert(loader,"lex_occurs",lexical,true).await?;insert(loader,"vec_occurs",vector_occurrences,true).await?;
+        for(table,rows)in documents{insert(loader,table,rows,false,&mut expected).await?;}insert(loader,"vector",vectors,false,&mut expected).await?;insert(loader,"lex_occurs",lexical,true,&mut expected).await?;insert(loader,"vec_occurs",vector_occurrences,true,&mut expected).await?;
+    }
+    for table in ["search_api_options","search_documentation_deployment","search_scenario","search_source","vector","lex_occurs","vec_occurs"]{
+        let count=lctx_surrealdb::reconciliation::table_count(loader,table).await?;
+        if count!=expected.get(table).map_or(0,|keys|keys.len())as u64{return Err(ModelError::Conflict("native search inventory"))}
+        let required=if table.starts_with("search_"){vec!["exact_text","lexical"]}else if table=="vector"{vec!["exact_value","neighbor"]}else{vec!["occurrence","document_occurrences","target_occurrences"]};
+        let mut response=loader.client().query(format!("INFO FOR TABLE {table}")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let info:Value=response.take(0).map_err(ModelError::codec)?;
+        let Value::Object(info)=info else{return Err(ModelError::Schema("native search index information"))};
+        let Some(Value::Object(indexes))=info.get("indexes")else{return Err(ModelError::Schema("native search indexes"))};
+        if required.iter().any(|name|!indexes.contains_key(*name)){return Err(ModelError::Conflict("native search index readiness"))}
     }Ok(())
 }
 fn crate_json<T:serde::Serialize>(value:T)->Result<Value,ModelError>{lctx_surrealdb::loader::json_value(serde_json::to_value(value).map_err(ModelError::codec)?)}
 fn occurrence(table:&str,key:&str,input:RecordId,out:RecordId,unit:&Unit,fragment:&Fragment,member:Option<Id<catalog::CatalogMember>>,anchor:Option<Id<OriginalAnchor>>)->Result<Value,ModelError>{
-    let mut row=Object::new();row.insert("id",RecordId::new(table,key));row.insert("in",input);row.insert("out",out);row.insert("family",unit.family as i16);row.insert("unit",crate_json(unit.id())?);row.insert("fragment",crate_json(fragment.id())?);row.insert("context",crate_json(unit.context)?);row.insert("member",crate_json(member)?);row.insert("anchor",crate_json(anchor)?);row.insert("input",crate_json(unit.input)?);row.insert("eligible",true);row.insert("occurrence_key",key.to_string());Ok(Value::Object(row))
+    let mut row=Object::new();row.insert("id",RecordId::new(table,key));row.insert("in",input);row.insert("out",out.clone());row.insert("family",unit.family as i16);row.insert("unit",crate_json(unit.id())?);row.insert("fragment",crate_json(fragment.id())?);row.insert("context",crate_json(unit.context)?);row.insert("member",crate_json(member)?);row.insert("anchor",crate_json(anchor)?);row.insert("input",crate_json(unit.input)?);row.insert("eligible",true);row.insert("occurrence_key",format!("{}|{:02}|{}|{}|{}|{}",member.map(|id|format!("0{}",id.hex())).unwrap_or_else(||format!("1{}",unit.id().hex())),unit.family as i16,unit.id().hex(),fragment.id().hex(),unit.context.hex(),anchor.map(|id|format!("1{}",id.hex())).unwrap_or_else(||"0".into())));Ok(Value::Object(row))
 }
-async fn insert(loader:&Loader,table:&str,rows:Vec<Value>,relation:bool)->Result<(),ModelError>{
-    for chunk in rows.chunks(128){let mut bind=Variables::new();bind.insert("rows",chunk.to_vec());loader.client().query(format!("INSERT {}IGNORE INTO {table} $rows RETURN NONE",if relation{"RELATION "}else{""})).bind(bind).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;}Ok(())
+async fn insert(loader:&Loader,table:&str,rows:Vec<Value>,relation:bool,inventory:&mut BTreeMap<String,BTreeSet<RecordId>>)->Result<(),ModelError>{
+    use lctx_surrealdb::surrealdb::types::SurrealValue;
+    for chunk in rows.chunks(128){
+        let mut expected=BTreeMap::new();
+        for row in chunk{
+            let Value::Object(object)=row else{return Err(ModelError::Schema("native search row"))};
+            let id=RecordId::from_value(object.get("id").ok_or(ModelError::Schema("native search identity"))?.clone()).map_err(ModelError::codec)?;
+            if expected.insert(id.clone(),row.clone()).is_some_and(|old|old!=*row){return Err(ModelError::Conflict("native search shared row"))}
+            inventory.entry(table.into()).or_default().insert(id);
+        }
+        let mut bind=Variables::new();bind.insert("rows",expected.values().cloned().collect::<Vec<_>>());bind.insert("keys",expected.keys().cloned().collect::<Vec<_>>());
+        let mut response=loader.client().query(format!("INSERT {}IGNORE INTO {table} $rows RETURN NONE; SELECT * FROM {table} WHERE id IN $keys ORDER BY id",if relation{"RELATION "}else{""})).bind(bind).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let actual:Vec<Value>=response.take(1).map_err(ModelError::codec)?;
+        let actual=actual.into_iter().map(|row|match row{Value::Object(mut object)=>{object.retain(|key,_|!key.starts_with("scope_"));Value::Object(object)},other=>other}).collect::<Vec<_>>();
+        if actual!=expected.into_values().collect::<Vec<_>>(){return Err(ModelError::Conflict("native search content/eligibility readback"))}
+    }Ok(())
 }
