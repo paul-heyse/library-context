@@ -233,7 +233,7 @@ pub struct ScenarioCheck {
     pub environment: CheckStatus,
     pub execution: CheckStatus,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_evidence_root_subjects")]
 pub enum RootSubject {
     #[model(code = 0)]
@@ -251,7 +251,7 @@ pub enum RootSubject {
     #[model(code = 5)]
     Release { release: Id<Release> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_evidence_roots")]
 pub struct EvidenceRoot {
     #[model(key)]

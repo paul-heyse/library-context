@@ -173,6 +173,8 @@ pub trait GraphEntityRecord: Record {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum Entity {
+    CatalogEvidenceRoot(super::catalog::evidence::EvidenceRoot),
+    CatalogEvidenceRootSubject(super::catalog::evidence::RootSubject),
     RetrievalFragment(super::retrieval::Fragment),
     RetrievalDefinition(super::retrieval::RetrievalDefinition),
     AnalyticAttribute(super::analytics::Attribute),
@@ -411,6 +413,8 @@ macro_rules! graph_entities {($consumer:ident;$($variant:ident:$kind:ident=>$ty:
 #[doc(hidden)]
 #[macro_export]
 macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{$consumer;
+    CatalogEvidenceRoot:Scope=>$crate::domain::catalog::evidence::EvidenceRoot,
+    CatalogEvidenceRootSubject:Subject=>$crate::domain::catalog::evidence::RootSubject,
     RetrievalFragment:RetrievalFragment=>$crate::domain::retrieval::Fragment,
     RetrievalDefinition:RetrievalDefinition=>$crate::domain::retrieval::RetrievalDefinition,
     AnalyticAttribute:AnalyticAttribute=>$crate::domain::analytics::Attribute,
@@ -665,6 +669,8 @@ pub fn reference_target(
     reference: &super::SemanticReference,
 ) -> Result<(Target, Option<EntityKind>), ModelError> {
     match reference.target {
+    <super::catalog::evidence::EvidenceRoot as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Scope,reference.target,&reference.key)),Some(EntityKind::Scope))),
+    <super::catalog::evidence::RootSubject as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
     <super::retrieval::Fragment as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalFragment,reference.target,&reference.key)),Some(EntityKind::RetrievalFragment))),
     <super::retrieval::RetrievalDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalDefinition,reference.target,&reference.key)),Some(EntityKind::RetrievalDefinition))),
     <super::retrieval::consumption::RetrievalEmbeddingUse as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
