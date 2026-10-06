@@ -51,6 +51,18 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         assert first.is_error is False
         assert len(first.content) == 1
         assert first.content[0].text == "browse_library: snapshot-bound result"
+        assert first.structured_content["entries"]["items"]
+        found = await client.call_tool("search_capabilities", {"library": library, "query": "connect"})
+        assert found.structured_content["channels"]["vector"]["status"] == "disabled"
+        capability = found.structured_content["results"]["items"][0]["capability"]
+        packet = await client.call_tool("get_capability", {"capability": capability, "page": {"expanded": True}})
+        uri = "lctx://capability/" + bytes(capability).hex()
+        resource = await client.read_resource(uri)
+        assert len(resource) == 1
+        assert resource[0].mime_type == "text/markdown"
+        assert resource[0].text.startswith(packet.structured_content["capability"]["rendered"])
+        assert "## Snapshot metadata" in resource[0].text
+        assert "## Assertion evidence" in resource[0].text
         with pytest.raises(ToolError):
             await client.call_tool("browse_library", {**request, "ignored": True})
     # A fresh viewer can be opened after the MCP-owned session drained and invalidated.
