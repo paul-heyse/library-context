@@ -773,9 +773,13 @@ pub fn logical_batch_bytes(batch: &RecordBatch) -> Result<usize, ModelError> {
 
 pub fn decode_allowance<R: Record>(batch: &RecordBatch) -> Result<usize, ModelError> {
     let payload = logical_batch_bytes(batch)?;
+    // serde_arrow allocates the physical rows, then the generated decoder moves their
+    // variable payload into canonical rows. It does not clone that payload while
+    // checking identity. Allow growth of variable buffers and both inline vectors;
+    // borrowed Arrow storage remains owned by the reader.
     batch
         .num_rows()
-        .checked_mul(size_of::<R>())
-        .and_then(|inline| inline.checked_add(payload.checked_mul(4)?))
+        .checked_mul(size_of::<R>().saturating_add(16).saturating_mul(2))
+        .and_then(|inline| inline.checked_add(payload.checked_mul(2)?))
         .ok_or_else(|| ModelError::Invalid(format!("{} decode size overflow", R::NAME)))
 }
