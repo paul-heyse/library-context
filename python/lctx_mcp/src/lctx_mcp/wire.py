@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import TracebackType
 
 import anyio
 from typing import Any
@@ -205,8 +206,8 @@ class BoundedStdioWriter:
             raise anyio.BrokenResourceError
         packet = message.message
         request_id = getattr(packet, "id", None)
-        key = (type(request_id), request_id)
-        expanded = self.admission._requests.get(key)
+        key = (type(request_id), request_id) if isinstance(request_id, (int, str)) else None
+        expanded = self.admission._requests.get(key) if key is not None else None
         if expanded is not None:
             encoded = packet.model_dump_json(by_alias=True, exclude_unset=True) + "\n"
             try:
@@ -217,12 +218,18 @@ class BoundedStdioWriter:
                 await self.aclose()
                 raise anyio.BrokenResourceError from exc
         await self.stream.send(message)
-        self.admission._requests.pop(key, None)
+        if key is not None:
+            self.admission._requests.pop(key, None)
 
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, exc_type, exc, traceback) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
         await self.aclose()
 
     async def aclose(self) -> None:

@@ -58,15 +58,14 @@ async def run_stdio(server: FastMCP) -> None:
     try:
         # FastMCP 4.0.5 owns the lifespan and low-level SDK registry at these seams;
         # no handlers or transport implementations are replaced at runtime.
-        async with server._lifespan_manager():
-            async with stdio_server() as (read_stream, write_stream):
-                await server._mcp_server.run(
-                    read_stream,
-                    BoundedStdioWriter(write_stream, admission),
-                    server._mcp_server.create_initialization_options(
-                        notification_options=NotificationOptions(tools_changed=True),
-                    ),
-                )
+        async with server._lifespan_manager(), stdio_server() as (read_stream, write_stream):
+            await server._mcp_server.run(
+                read_stream,
+                BoundedStdioWriter(write_stream, admission),
+                server._mcp_server.create_initialization_options(
+                    notification_options=NotificationOptions(tools_changed=True),
+                ),
+            )
     finally:
         reset_transport(token)
 

@@ -1,4 +1,4 @@
-"""Native MCP journey and isolated ownership controls; the native journey requires a real fixture."""
+"""Native MCP journeys require a real fixture; ownership controls run in isolation."""
 
 import asyncio
 import json
@@ -13,7 +13,7 @@ from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
 from lctx_semantics import NativeSession
-from mcp_types import CallToolResult, TextContent, JSONRPCResponse
+from mcp_types import CallToolResult, TextContent, JSONRPCResponse, TextResourceContents
 from mcp.shared.message import SessionMessage
 from fastmcp.tools import ToolResult
 
@@ -25,7 +25,7 @@ from lctx_mcp.wire import BoundedStdioWriter, EnvelopeAdmission
 @pytest.mark.anyio
 @pytest.mark.parametrize("transport", ["inprocess", "stdio"])
 async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
-    """Actual Rust bridge, SDK, native server and MCP; no fake provider or live embedding service."""
+    """Exercise the actual Rust bridge, SDK, native server and MCP without live embedding."""
     configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
     assert configured, "LCTX_NATIVE_SERVING_CONFIG must name an owned published native fixture"
     path = Path(configured)
@@ -46,21 +46,27 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
         request = {"library": library, "page": {"size": 1}}
         first = await client.call_tool("browse_library", request)
         second = await client.call_tool("browse_library", request)
+        assert first.structured_content is not None
+        assert second.structured_content is not None
         assert first.structured_content["snapshot"] == config["snapshot"]
         assert second.structured_content == first.structured_content
         assert first.is_error is False
         assert len(first.content) == 1
+        assert isinstance(first.content[0], TextContent)
         assert first.content[0].text == "browse_library: snapshot-bound result"
         assert first.structured_content["entries"]["items"]
         found = await client.call_tool("search_capabilities", {
             "library": library, "query": "carefully", "page": {"size": 1, "expanded": True},
         })
+        assert found.structured_content is not None
         assert found.structured_content["channels"]["vector"]["status"] == "disabled"
         capability = found.structured_content["results"]["items"][0]["capability"]
         packet = await client.call_tool("get_capability", {"capability": capability, "page": {"expanded": True}})
+        assert packet.structured_content is not None
         uri = "lctx://capability/" + bytes(capability).hex()
         resource = await client.read_resource(uri)
         assert len(resource) == 1
+        assert isinstance(resource[0], TextResourceContents)
         assert resource[0].mime_type == "text/markdown"
         assert resource[0].text.startswith(packet.structured_content["capability"]["rendered"])
         assert "## Snapshot metadata" in resource[0].text
@@ -101,11 +107,13 @@ async def test_transport_admission_refuses_complete_oversized_results_and_errors
     async with Client(server) as client:
         complete = await client.call_tool("unicode_fits_stdio", {})
         assert complete.is_error is False
+        assert isinstance(complete.content[0], TextContent)
         assert complete.content[0].text == "雪" * 6_000
         for name in ("oversized", "oversized_error"):
             result = await client.call_tool(name, {}, raise_on_error=False)
             assert result.is_error is True
             assert result.structured_content is None
+            assert isinstance(result.content[0], TextContent)
             assert result.content[0].text == "resource_refused: final MCP envelope bytes"
 
 
