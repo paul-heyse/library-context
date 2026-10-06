@@ -19,7 +19,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainSum};
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="source_call_headers",rule="fresh_source_binding",invariant_refs=source_call_invariants_refs)]
+#[model(name="source_call_headers",rule="fresh_source_binding",invariant_refs=header_fidelity_refs)]
 pub struct SourceCallHeader {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -86,7 +86,8 @@ pub enum SourceCallOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "source_call_frame_releases",
-    rule = "source_call_frame_release"
+    rule = "source_call_frame_release",
+    invariant_refs = release_fidelity_refs
 )]
 pub struct SourceFrameRelease {
     #[model(key, premise)]
@@ -97,7 +98,7 @@ pub struct SourceFrameRelease {
     pub release: super::evaluation::ReleaseSafety,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name="source_frame_arguments",rule="source_frame_argument",conclusion=release)]
+#[model(name="source_frame_arguments",rule="source_frame_argument",conclusion=release,invariant_refs=release_fidelity_refs)]
 pub struct SourceFrameArgument {
     #[model(key)]
     pub release: Id<SourceFrameRelease>,
@@ -109,7 +110,7 @@ pub struct SourceFrameArgument {
     pub evaluation: Id<super::records::ExpressionEvaluation>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="source_call_invocations",rule="source_call_invocation",invariant_refs=source_call_invariants_refs)]
+#[model(name="source_call_invocations",rule="source_call_invocation",invariant_refs=invocation_fidelity_refs)]
 pub struct SourceInvocation {
     #[model(key, premise)]
     pub invocation: Id<publication::AnalysisInvocation>,
@@ -968,3 +969,7 @@ pub(crate) fn source_call_invariants_refs() -> Vec<&'static str> {
 pub(crate) fn profile_checks_refs() -> Vec<&'static str> {
     vec!["source_call_profile"]
 }
+
+pub(crate) fn header_fidelity_refs() -> Vec<&'static str> {vec!["source_call_replay", "execution_header_fidelity"]}
+pub(crate) fn release_fidelity_refs() -> Vec<&'static str> {vec!["execution_release_fidelity"]}
+pub(crate) fn invocation_fidelity_refs() -> Vec<&'static str> {vec!["source_call_replay", "execution_invocation_fidelity"]}

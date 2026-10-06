@@ -530,5 +530,5 @@ impl BaseCheck {
 }
 
 pub(crate) fn base_invariants_refs() -> Vec<&'static str> {
-    vec!["base_closed_expression_replay"]
+    vec!["base_closed_expression_replay", "execution_expression_fidelity"]
 }

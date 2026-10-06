@@ -887,6 +887,7 @@ pub trait InvariantCheck: Send {
     fn support_scope(&self) -> Option<super::assertion::SupportScope> {
         None
     }
+    fn execution_scope(&self) -> Option<super::execution::fidelity::ExecutionScope> { None }
     fn visit_input(
         &mut self,
         input: &ValidationInput,

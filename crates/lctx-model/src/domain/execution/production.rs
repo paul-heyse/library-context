@@ -99,7 +99,7 @@ impl ProducedEvaluations {
         Ok(self.values.iter().find(|(actual, _, _)| actual.id() == row.id()).expect("checked above").2)
     }
 }
-fn is_expression(kind: SyntaxKind) -> bool {
+pub(crate) fn is_expression(kind: SyntaxKind) -> bool {
     use SyntaxKind::*;
     matches!(
         kind,
