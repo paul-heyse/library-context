@@ -32,6 +32,18 @@ async fn load<R: Record>(
     }
     Ok(())
 }
+async fn load_selected_catalog(
+    access:&CompletedInputs,
+    session:&datafusion::prelude::SessionContext,
+    consumed:&mut crate::consumed_rows::ConsumedInputs,
+    data:&mut ModelData,
+    selected:Id<models::ModelCatalog>,
+)->Result<(),ModelError>{
+    while let Some((input,permit))=consumed.next::<models::ModelCatalog>(access)? {
+        crate::consumed_rows::stream_where_at(&permit,&input,access,session,Some(&format!("id={}",scope::hex(selected))),|_,batch|data.visit_input(&input,batch)).await?;
+    }
+    Ok(())
+}
 pub async fn apply(
     access: CompletedInputs,
     output: ProducerOutput,
@@ -53,7 +65,9 @@ pub async fn apply(
     declarations.extend(analysis::expected::inputs(definition.method));
     let mut consumed=crate::consumed_rows::ConsumedInputs::new(declarations,budget)?;
     macro_rules! read{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input,batch)).await?;)*};}
-    read!(models::ModelCatalog,analysis::MethodParameters,analysis::AnalysisDefinition,analysis::enriched_execution::AnalysisInvocation,analysis::source_call::AnalysisInvocation,analysis::local::AnalysisInvocation,attribution::ProviderRun);
+    read!(analysis::MethodParameters,analysis::AnalysisDefinition,analysis::enriched_execution::AnalysisInvocation,analysis::source_call::AnalysisInvocation,analysis::local::AnalysisInvocation,attribution::ProviderRun);
+    let selected=data.parameters.get(definition.parameters).and_then(|row|row.model_catalog).ok_or_else(||ModelError::Invalid("Models selected catalog absent".into()))?;
+    load_selected_catalog(&access,&session,&mut consumed,&mut data,selected).await?;
     if data.definitions.get(definition.id()) != Some(definition) {
         return Err(ModelError::Invalid(
             "Model definition absent from confirmed configuration".into(),
@@ -62,7 +76,6 @@ pub async fn apply(
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     consumed.finish(access.name())?;
-    let selected=data.parameters.get(definition.parameters).and_then(|row|row.model_catalog).ok_or_else(||ModelError::Invalid("Models selected catalog absent".into()))?;
     let parsed=SelectedCatalog::read(data.catalogs.get(selected).ok_or(ModelError::Schema(models::ModelCatalog::NAME))?,budget)?;
     let actual=if profile==Profile::Behavioral{Some(ActualInputs{
         evaluations:evaluations.ok_or_else(||ModelError::Invalid("Models actual Base values absent".into()))?.borrow(&access,runtime)?,
@@ -321,4 +334,28 @@ fn merge_run(total:&mut ModelRecords,part:&ModelRecords)->Result<(),ModelError>{
  total.run.refused=total.run.refused.checked_add(part.run.refused).ok_or_else(||ModelError::Invalid("Model refused count overflow".into()))?;
  if part.outcome.status==analysis::AnalysisStatus::Partial{total.outcome.status=part.outcome.status;total.outcome.reason=part.outcome.reason;}
  Ok(())
+}
+
+#[cfg(test)]
+mod selected_catalog_controls {
+    use super::*;
+    #[tokio::test]
+    async fn captured_catalog_is_selected_before_rich_decode() {
+        let runtime=Workspace::new(Arc::new(model().unwrap()),crate::workspace::WorkspaceOptions{memory_bytes:128<<20,partitions:1,batch_rows:16}).unwrap();
+        let catalog=models::Catalog::parse("external.toml",include_str!("../../lctx-model/models/external.toml")).unwrap().declaration();
+        let huge_source=format!("{}\n#{}",catalog.source,"x".repeat(6<<20));
+        let unrelated=models::ModelCatalog{source_name:"unrelated.toml".into(),source:huge_source.clone(),content:ContentHash::of(huge_source.as_bytes()),..catalog.clone()};
+        let access=runtime.inputs("catalog-config",Profile::Behavioral,[]).unwrap();
+        let output=runtime.output("catalog-config",Profile::Behavioral,ContentHash::of(b"catalog-selection-control"),access);
+        output.push(catalog.clone()).await.unwrap();output.push(unrelated).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
+        let access=runtime.inputs("catalog-consumer",Profile::Behavioral,[models::ModelCatalog::NAME]).unwrap();let session=access.session(&runtime).await.unwrap();
+        let budget=resources::ResourceBudget::fixed(256<<10).unwrap();
+        let declaration=ValidationInput::of::<models::ModelCatalog>(&["id"]);
+        let mut consumed=crate::consumed_rows::ConsumedInputs::new(vec![declaration.clone()],&budget).unwrap();let mut data=ModelData::new(&budget);
+        load_selected_catalog(&access,&session,&mut consumed,&mut data,catalog.id()).await.unwrap();consumed.finish("catalog-consumer").unwrap();
+        assert_eq!(data.catalogs.len(),1);assert_eq!(data.catalogs.get(catalog.id()),Some(&catalog));drop(data);assert_eq!(budget.reserved(),0);
+        let permit=access.read::<models::ModelCatalog>().unwrap();let mut whole=Rows::<models::ModelCatalog>::new(&budget);
+        assert!(crate::consumed_rows::stream_at(&permit,&declaration,&access,&session,|_,batch|whole.decode(batch)).await.is_err(),"unused rich catalog would exceed the selected consumer budget");
+        drop(whole);assert_eq!(budget.reserved(),0);
+    }
 }

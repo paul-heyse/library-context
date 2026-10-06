@@ -69,8 +69,11 @@ impl ModelScopes{
    }
    let frames=identifier(&tables[frame].alias);
    // Configurations and exact predecessor frames are compact and shared by every owner grain.
-   for kind in [TypeId::of::<models::ModelCatalog>(),TypeId::of::<analysis::MethodParameters>(),TypeId::of::<analysis::AnalysisDefinition>()]{
+   for kind in [TypeId::of::<analysis::MethodParameters>(),TypeId::of::<analysis::AnalysisDefinition>()]{
     if let Some(target)=idx(kind){plan.pairs(frame,target,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f CROSS JOIN {} t",identifier(&tables[target].alias)))?;}
+   }
+   if let Some(target)=idx(TypeId::of::<models::ModelCatalog>()){
+    plan.pairs(frame,target,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f JOIN {} t ON t.id={}",identifier(&tables[target].alias),hex(catalog.catalog().declaration().id())))?;
    }
    for kind in [TypeId::of::<attribution::ProviderRun>(),TypeId::of::<analysis::enriched_execution::AnalysisInvocation>(),TypeId::of::<analysis::source_call::AnalysisInvocation>(),TypeId::of::<analysis::local::AnalysisInvocation>()]{
     if let Some(target)=idx(kind){plan.pairs(frame,target,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f JOIN {} t ON t.input=f.input AND t.context=f.context",identifier(&tables[target].alias)))?;}
@@ -143,10 +146,16 @@ mod model_scope_controls{
   let symbol=calls::ProviderSymbol{provider:run.provider,context:run.context,module:module.id(),native_key:"cast".into(),name:"cast".into(),kind:calls::SymbolKind::Function};
   let other=calls::ProviderSymbol{context:nominal(4),native_key:"foreign".repeat(65536),..symbol.clone()};
   replace(&session,&inputs,&tables,&[selected.clone(),foreign]);replace(&session,&inputs,&tables,&[input::ArtifactUse{artifact:selected.id(),input:selected.input,role:input::SourceRole::Release}]);replace(&session,&inputs,&tables,&[run.clone()]);replace(&session,&inputs,&tables,&[module]);replace(&session,&inputs,&tables,&[symbol.clone(),other]);
+  let selected_catalog=catalog.declaration();let source=format!("{}\n#{}",selected_catalog.source,"unused".repeat(1<<20));
+  let unused_catalog=models::ModelCatalog{source_name:"unused.toml".into(),content:ContentHash::of(source.as_bytes()),source,..selected_catalog.clone()};
+  replace(&session,&inputs,&tables,&[selected_catalog.clone(),unused_catalog]);
   let scopes=ModelScopes::from_tables(inputs.clone(),tables,&session,&parsed,&budget).await.unwrap();
   let tiny=resources::ResourceBudget::fixed(96<<10).unwrap();
   let cast=parsed.catalog().models().iter().find(|compiled|matches!(&compiled.model().target,models::Target::Stdlib{callable,..}if callable=="cast")).unwrap();
   let grain=scopes.selected(ProductionScope::Target(cast.declaration().id()),run.id(),&tiny).await.unwrap();
+  let catalog_table=inputs.iter().position(|input|input.type_id()==TypeId::of::<models::ModelCatalog>()).unwrap();let mut catalogs=Rows::<models::ModelCatalog>::new(&tiny);
+  let mut stream=crate::sql::query(grain.session(),&grain.select(catalog_table).unwrap()).await.unwrap().execute_stream().await.unwrap();while let Some(batch)=stream.try_next().await.unwrap(){catalogs.decode(&batch).unwrap();}
+  assert_eq!(catalogs.len(),1);assert_eq!(catalogs.get(selected_catalog.id()),Some(&selected_catalog));drop(catalogs);drop(stream);
   let mut selected_symbols=Rows::<calls::ProviderSymbol>::new(&tiny);let table=inputs.iter().position(|input|input.type_id()==TypeId::of::<calls::ProviderSymbol>()).unwrap();
   let mut stream=crate::sql::query(grain.session(),&grain.select(table).unwrap()).await.unwrap().execute_stream().await.unwrap();use futures::TryStreamExt;while let Some(batch)=stream.try_next().await.unwrap(){selected_symbols.decode(&batch).unwrap();}
   assert_eq!(selected_symbols.len(),1);assert_eq!(selected_symbols.get(symbol.id()),Some(&symbol));drop(selected_symbols);drop(stream);drop(grain);
