@@ -5,23 +5,23 @@ correct use** (ADR-0071; DESIGN §1 and §14). Agents should find built-in APIs,
 configuration, examples and deployment evidence, and see precise support and uncertainty. Existing
 behavioral analyses are enrichment; general semantic completion no longer gates the first product.
 The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
-remain Proposed until implemented. FastMCP operation/brief contracts remain Rust-owned; native serving is pending.
+remain Proposed until implemented. FastMCP operation/brief contracts remain Rust-owned; native serving is implemented; STATUS owns its functional evidence.
 
 **Current work: the graph-native hard pivot** (ADR-0128, accepted 2026-10-05).
 The [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md) owns dependencies,
-acceptance and finding disposition. The first execution scope is the complete
+acceptance and finding disposition. The completed first execution scope is the
 [model/compiler stage](docs/plans/graph-native-model-compiler-plan_2026-10-05.md), including
 compiler-side projections and selected analysis effects. Rust owns the semantic graph;
 `cpg-core` is the sole store-free compiler. SurrealDB native persistence, querying and serving
-are selected target responsibilities scheduled after this compiler scope.
+are implemented responsibilities following this compiler scope.
 
 The PostgreSQL backend and its clients are retired. No legacy readers, old-ID bridges, dual
 stores or historical runtime retention are required. The complete compiler stage is implemented
 and user-accepted as complete on 2026-10-05, with partial verification recorded in the coordinator.
 The user stopped further tests; this acceptance does not claim all checks passed.
 `lctx compile --artifact-only --output DIR` is the implemented artifact route.
-Ordinary compile requires the future native publisher and reports unavailable before acquisition.
-MCP startup is unavailable until native serving is implemented. Product features pause during
+Ordinary compile verifies native runtime readiness before acquisition and publishes an unselected
+handle. MCP pins a complete read-only snapshot through NativeSession; selection is explicit. Product features pause during
 this cut; STATUS and the coordinator own its current evidence and remaining work.
 
 The pieces:
@@ -96,14 +96,14 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on touched crates) and focused affected contract controls through `just verify-model`, `verify-compiler`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles` or `verify-tooling`. Select the family and filters explicitly; no assembled gate after a slice or commit. |
 | At functional scope completion | Run affected family controls and applicable non-functional leaf checks once. Use `just qualify` for this assurance pivot, a changed shared model/receipt/trust/transport contract, or uncertainty that focused controls cannot resolve: all required families, representative actual native-store/native/MCP journeys, compile-fail/doc contracts, full keep-going Clippy and applicable leaves for one tree. Fix failures and rerun affected controls or the failed `just <id>`; minor unrelated docs/library changes do not automatically trigger qualification. |
-| The real library, end to end | `lctx compile fastmcp --artifact-only --output DIR --through facts|normalized|analysis|catalog --profile catalog|behavioral`; artifact path remains under integration. Run real-library qualification only when authorized. Compiler evidence is scoped in the graph-native coordinator; native serving, live vectors and real-library operator adoption remain not_run. |
-| Native publication and serving | Pending the realization/serving stages; no default operator actions are implied by compiler checks. |
+| The real library, end to end | `lctx compile fastmcp --artifact-only --output DIR --through facts|normalized|analysis|catalog --profile catalog|behavioral`; ordinary compilation admits and publishes an unselected native handle. Run real-library qualification only when authorized. Compiler evidence is scoped in the graph-native coordinator; the coordinator records native serving controls; live vectors and real-library operator adoption remain not_run. |
+| Native publication and serving | `lctx publish-artifact`, `lctx snapshot show/select/query/export/backup/restore/retire`, `lctx store init/check`, and `lctx tool`; explicit runtime configuration, immutable viewer handles and reader quiescence. See `docs/surrealdb.md`; no operator action is implied by disposable checks. |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Dependency policy | `just deps`, the dependency-policy leaf check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every exact Cargo pin or git rev has a `docs/pins.md` row, cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Move dependencies to the latest | `just upgrade` (root `uv.lock` and `Cargo.lock`) at your discretion, then the affected tests; `libraries/*` and `services/vllm` move only deliberately (above, and their pins rows) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; `just turn-end` regenerates the index; agents run `just adr-lint` for affected decision metadata at scope end |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| End of a turn that changed files | The root agent runs `just turn-end` (ADR index, `build-features`, formatting with ruff's safe auto-fixes). Subagents don't. Clippy, pyrefly, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Native disposable store checks return with the realization stage; compiler qualification implies no operator action |
+| End of a turn that changed files | The root agent runs `just turn-end` (ADR index, `build-features`, formatting with ruff's safe auto-fixes). Subagents don't. Clippy, pyrefly, lint, rules, ADR and agent lint, fixtures, gold, `docs-check` and `deps` findings are yours through applicable leaves at scope end. Store/serving controls use owned disposable native servers; verification implies no operator action |
 | After a dependency, toolchain or skill-selection change, or an environment-shaped failure | `just ready` (skills sync and tool check) |
 | Tools present? | `just doctor`, or `just ready` |
 
@@ -118,7 +118,7 @@ locking and its implied new layout; final artifacts stay in local `target/`. Nev
 Workspace dev/release builds use O2 incremental; imported dependencies O3 non-incremental,
 including path dependencies. Keep release tests and the default single frontend thread.
 
-`just` and SQLx normalize inherited default/foreign target exports. For bare Cargo/uv or an IDE
+`just` and the build-environment wrapper normalize inherited default/foreign target exports. For bare Cargo/uv or an IDE
 shell use `eval "$(python3 scripts/build_environment.py --shell)"` before building. Prefer Cargo
 config `build.target-dir`/`build.build-dir` to exported target paths; `LCTX_CARGO_TARGET_DIR` is an
 explicit override for an external target. Keep paths and rustflags stable during ordinary edits.
@@ -219,7 +219,7 @@ capability is absent.
 
 - **During implementation, compile checks and focused contract controls.** Select the affected
   verification families and ordinary filters explicitly; validate each new piece with meaningful
-  tests or probes. Pure model/analytics checks prepare no Python adapters or PostgreSQL. Provider,
+  tests or probes. Pure model/analytics checks prepare no Python adapters or database. Provider,
   store, serving and oracle families prepare their actual prerequisites once before execution.
   Tests use `--no-sync`; never synchronize the environment while native guards/workers are live.
 - **At functional scope completion, affected controls and applicable non-functional leaves.**
@@ -236,7 +236,7 @@ capability is absent.
   applicable leaves at scope end and fix findings; no non-functional checks during functional
   implementation.
 - Reuse cached release-profile Rust code for tests. Test data may be fresh, existing, or empty
-  according to the test's purpose. Store controls use owned disposable PostgreSQL 18; qualification
+  according to the test's purpose. Store controls use owned disposable persistent SurrealDB 3.3; qualification
   never implicitly inspects or resets the default operator store.
 - **Schema contracts** are insta snapshots. Verification runs with `INSTA_UPDATE=no`. To accept
   a change, read the `.snap.new` diff first, then run `cargo insta accept`. Never run
@@ -247,7 +247,7 @@ capability is absent.
   tests and publication. Don't write test-only copies.
 - **Fixtures** go under `fixtures/python/<case>/`. Intentional syntax-error cases go under
   an `_invalid/` subdirectory there.
-- **Store tests** exercise the actual native persistent realization when that implementation exists.
+- **Store tests** exercise the actual native persistent realization.
   Compiler artifact controls require no database; they do not establish persistence or serving.
 
 ## Reporting

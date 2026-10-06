@@ -1,11 +1,12 @@
 # Facts and identity
 
-**Native facts implemented; graph-native compiler acceptance in progress, 2026-10-05.**
+**Native facts implemented; graph-native compiler stage user-accepted, 2026-10-05.**
 `lctx-model::domain` owns nominal identities, provider-qualified assertions, supports and coverage.
 `cpg-core` compiles completed private streams without a store. [§15](semantic-model.md) owns the
 shared graph contract; the [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md)
-owns acceptance. Provider objects are transient. Native publication/serving and real-library/operator
-acceptance are subsequent work. Earlier PostgreSQL receipts do not establish replacement acceptance.
+owns acceptance. Provider objects are transient. Native publication/serving are implemented;
+the coordinator records their focused evidence. Real-library/operator acceptance is subsequent
+work. Earlier PostgreSQL receipts do not establish replacement acceptance.
 
 ## §3 Fact model
 

@@ -47,7 +47,7 @@ P2 also asks how the model's integrity constraints map, and whether seeded viola
 
 Built from the A3b analysis: shared content-addressed records whose snapshot membership is held as validity intervals.
 
-- **Identity record per model relation.** `<relation>:`<id hex>`` holds the key fields, which determine the content id. It is shareable across snapshots without conflict.
+- **Identity record per model relation.** `<relation>:<id hex>` holds the key fields, which determine the content id. It is shareable across snapshots without conflict.
 - **Payload record.** Relations with non-key fields (321 of 878) get `<relation>__p:[<id hex>, <payload hash>]`, holding the non-key fields and `identity_of: record<relation> REFERENCE`.
   - A payload change makes a new payload record; the identity is still shared.
   - References always target identity records, so a payload change does not propagate a new version up the graph.

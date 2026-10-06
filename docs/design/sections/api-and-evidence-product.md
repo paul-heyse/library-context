@@ -1,10 +1,10 @@
 # API and evidence product target
 
-**Accepted graph-native target, 2026-10-05 (ADR-0128); compiler integration in progress.**
+**Implemented graph-native foundations, 2026-10-06 (ADR-0128); product evaluation remains separate.**
 The [semantic model](semantic-model.md) owns catalog, association, selection, synthesis and retrieval
 meaning. `cpg-core` constructs completed store-free inputs and admitted graph artifacts. Native
 SurrealDB publication and serving follow the [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md).
-The retired PostgreSQL service is unavailable. Real-library qualification, activation and PR6 remain
+Native serving is implemented; the coordinator owns focused evidence. Real-library qualification, activation and PR6 remain
 pending; earlier receipts retain their original boundaries.
 
 <a id="section-14"></a>
@@ -32,19 +32,19 @@ are not independent semantic authorities.
 
 <a id="section-14-1"></a>
 
-**Implemented / focused Tested, 2026-10-04; assembled serving qualification pending.** Bounded model operations extend opt-in operation
+**Implemented / earlier focused Tested, 2026-10-04.** Native integration acceptance is recorded
+in the graph-native coordinator. Bounded model operations extend opt-in operation
 sections with exact callable-role comparison, source constructor/reader associations, contextual
 Expected typing, supported access routes and captured incoming name references. Exact diagnostic-use
 correlation is source evidence. Native overload origins may establish a normalized variant only through
 original member identity and required receiver/specialization correspondence; representative and
 recovery states remain unavailable for unique choice. Neither retained type differences nor source
 relationships certify compatibility or runtime behavior. Ty navigation and odis remain development-only
-oracles; current production interpretation and charged kernels remain authoritative. Implementation
-and qualification are owned by the [enrichment coordinator](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md).
+oracles; current production interpretation and charged kernels remain authoritative. The retained model operation work is owned by the [enrichment coordinator](../../plans/code-facts-analytical-enrichment-plan_2026-10-04.md).
 
 > Decision: ADR-0121
 
-**Implemented alignment contract, 2026-10-04; assembled qualification pending:** [serving alignment](../../plans/serving-provenance-presentation-plan_2026-10-04.md)
+**Implemented alignment contract, 2026-10-04; native acceptance in the graph-native coordinator:** [serving alignment](../../plans/serving-provenance-presentation-plan_2026-10-04.md)
 resolves requested names over admitted first-party release/corpus captures before filtering;
 unknown input refuses distinctly from admitted-empty results. Canonical enumeration and analyzer
 coverage remain separate. Every response carries grouped capture/provider/status/reason coverage with exact observation counts and explicitly representative scope identities. Only the three search routes accept an omitted library filter, meaning the admitted union; same-name releases remain ambiguous for exact lookup. Capability resources preserve authored bytes while carrying the process
@@ -52,7 +52,7 @@ admitted capture and capability identity; their URIs remain process-relative. Ow
 expression modes preserve exact values and unknown/factory states. The
 [target coordinator](../../plans/target-implementation-alignment-plan_2026-10-04.md)
 owns implementation and qualification; acceptance is not inferred from the decision.
-The earlier serving implementation is retired; native adapters must retain this contract. This does not execute §14.12 confirmation.
+The earlier serving implementation is retired; native adapters retain this contract. This does not execute §14.12 confirmation.
 
 > Decision: ADR-0124
 
@@ -125,8 +125,8 @@ consumes the selected admitted content for typed selection, hydration, ranking a
 | C0 catalog, C1 evidence/association, C2 selection | Public contracts, original evidence, contextual witnesses and classification | Independent of brief seed selection |
 | S0 synthesis, retrieval and embedding | Assertions/briefs/code boundaries; contextual units and explicit vector consumers | Grounded source/support closure; spec-qualified vectors |
 | `cpg-core` | Completed-input streams, bounded computation and artifact admission | Store-free compiler; no parallel semantic policy |
-| Native SurrealDB publication | Model-derived entities, assertions, indexes and publication state | Native realization pending; readiness distinct from selection |
-| Native serving and `lctx_mcp` adapters | Typed requests, bounded hydration, optional semantic loading and presentation | Native implementation pending; Python does not restate semantics |
+| Native SurrealDB publication | Model-derived entities, assertions, indexes and publication state | Implemented realization; readiness distinct from selection |
+| Native serving and `lctx_mcp` adapters | Typed requests, bounded hydration, optional semantic loading and presentation | Implemented native adapters; Python does not restate semantics |
 | Evaluation tooling | Pinned task environments, independent checks and paired runs | No task answers or skill-derived gold enter compiler inputs |
 
 The catalog is a compiled projection of canonical evidence, not an authored knowledge store.
@@ -318,12 +318,13 @@ its final limit; bounded ranking never claims exhaustiveness.
 
 ## §14.8 Retrieval units, witnesses and ranking
 
-> Decision: ADR-0077, ADR-0085, ADR-0128
+> Decision: ADR-0077, ADR-0085, ADR-0128, ADR-0114
 
-**Accepted graph-native target, 2026-10-05.** Fusion and winning-witness decisions remain
+**Implemented graph-native retrieval, 2026-10-06.** Fusion and winning-witness decisions remain
 one model operation over library numerical scores. Native realization derives vector indexes
 from canonical embedding-use bytes and specifications; units, context and evidence remain
-canonical. Physical realization and real-library retrieval journeys are pending native acceptance.
+canonical. The coordinator records focused native search acceptance; real-library and live-vector
+journeys remain separately authorized Q1 work.
 
 Phase 4 retrieval constructs addressable units with typed subjects, evidence origins, family,
 rendering/input identity and source context. The four families are API/options,
@@ -337,7 +338,7 @@ winning context. Bounded UTF-8 fragments do not discard original anchors. Embedd
 complete text keys are explicit; token refusal leaves original evidence addressable. Lexical-only
 availability must be labeled. Query instruction/spec changes cannot mix incompatible vectors.
 
-The retained P5 ranking contract uses exact-symbol priority, BM25 and exact vector ranks, with
+The retained P5 ranking contract uses exact-symbol priority, BM25 and native HNSW candidate ranks, with
 one best contribution per family/member, deterministic ties and equal-weight family-normalized
 RRF K60. Duplicate examples are not extra votes. Return winning unit/channel/rank metadata rather
 than finding an approximate explanation afterward. A ranking witness is distinct from the evidence
@@ -354,9 +355,10 @@ content; it does not introduce another semantic authority.
 
 > Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081; ADR-0114
 
-**Accepted graph-native target, 2026-10-05 (ADR-0128).** Native serving retains pinned
+**Implemented graph-native interface, 2026-10-06 (ADR-0128).** Native serving retains pinned
 request context, one CPU admission owner, model-derived wire mappings, exact-input reconstruction
-and the indivisible mandatory packet. Native implementation and qualification are pending.
+and the indivisible mandatory packet. The coordinator owns focused native/MCP acceptance and
+its explicit limits; operator activation remains separate.
 
 The ten retained routes are `search_operations`, `find_operations`, `get_operation`,
 `browse_library`, `get_evidence`, `search_evidence`, `compare_operations`, `search_capabilities`,
@@ -468,7 +470,8 @@ Conditional alternatives retain consumer triggers in the [forward plan §7](../.
 
 Salsa/Ascent comparisons must include cycles, deletion, missing lookups, source coordinates, policy,
 complete outputs/provenance and cold/reused costs. Library availability does not prove speed or
-product advantage. PostgreSQL trigram/text ranking and ANN remain conditional comparisons.
+product advantage. Native SurrealDB BM25/HNSW are selected; comparative product benefit remains
+an evaluation question, not an adoption prerequisite for native querying.
 
 Optional runtime surface inspection is isolated, bounded and explicitly attributed. Import or
 annotation inspection can execute code; neither is a pure serving operation. Observations cannot
@@ -542,7 +545,7 @@ required for a broad superiority claim. The earlier semantic suite retains its o
 
 ## §14.13 Migration and immediate implementation priority
 
-**Graph-native compiler integration in progress, 2026-10-05.** The current stage realizes typed
+**Graph-native compiler stage user-accepted; native serving implemented, 2026-10-06.** The compiler realizes typed
 Local, execution/transfer, Model, Summary, Structural, Analytic, C0/C1/C2, S0, retrieval and explicit
 embedding effects as store-free compilation and admitted graph artifacts. The graph-native
 coordinator owns current package status and commands; implementation alone is not acceptance,
@@ -554,10 +557,11 @@ No compatibility reader, old-ID bridge or historical runtime retention is requir
 native replacement is rebuilt from pinned inputs under ADR-0078; operator replacement remains a
 separate authorized boundary.
 
-Native publication and serving follow this compiler stage: pinned requests, typed hydration,
-optional native loading, ranking, bounded packets and thin MCP transport must integrate together.
+Native publication and serving integrate pinned requests, typed hydration, native loading,
+ranking, bounded packets and thin MCP transport. The coordinator owns focused native functional
+evidence and the separate operator adoption boundary.
 Catalog/member readiness remains independent of brief availability. PR6 resumes after that
 boundary exits. The forward plan retains product sequencing and comparative tasks without
 promoting old formats or receipts to replacement qualification.
 
-> Decision: ADR-0071, ADR-0078, ADR-0085, ADR-0128
+> Decision: ADR-0071, ADR-0078, ADR-0085, ADR-0128, ADR-0073

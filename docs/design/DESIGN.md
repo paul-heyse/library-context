@@ -31,7 +31,7 @@ version (skill brief, probe or source at that version), not that our code uses i
 
 ### §1.1 Objective and the promise
 
-**Accepted product target; typed catalog Implemented, qualification in progress (2026-10-01).** A pinned Python library
+**Implemented catalog and native serving, 2026-10-06; real-library product acceptance remains Proposed.** A pinned Python library
 compiles into an **API and evidence catalog for feature discovery and correct use**. A coding agent
 can identify a built-in feature, select its public invocation/configuration, inspect original examples
 and deployment details, and follow precise evidence and uncertainty. The comprehensive target is
@@ -43,10 +43,10 @@ name their supported domain and coverage; ranked discovery is not exhaustive; un
 and unresolved behavior are local, explicit states. Briefs are optional renderings. No generative
 model runs in compilation or the query path (§B11).
 
-**Implemented, qualification in progress, 2026-10-01:** model-owned catalog members and ordered
+**Implemented, 2026-10-06:** model-owned catalog members and ordered
 source/effective contracts, contextual evidence, declaration selection, optional analysis, synthesis
-and retrieval inputs publish through the cumulative generation store. Phase 5 serving remains
-unavailable. [§15](sections/semantic-model.md) owns these contracts;
+and retrieval inputs compile into admitted artifacts and publish through sealed native realizations.
+All ten serving tools have targeted actual native/MCP evidence in the graph-native coordinator. [§15](sections/semantic-model.md) owns these contracts;
 [§14.9](sections/api-and-evidence-product.md#section-14-9) owns the proposed tool adapter.
 Fixture qualification does not establish a real-library pilot or comparative product acceptance.
 
@@ -64,11 +64,13 @@ scenarios/deployment, typed retrieval, agent usability and comparative confirmat
 Earlier product receipts retain their recorded boundaries; they do not qualify the reconstructed
 pipeline. Remaining research is activated only by an exposed claim or a named product task.
 
-**Current increment: graph-native replacement (accepted target, 2026-10-05; ADR-0128).**
+**Current increment: graph-native replacement (Implemented, 2026-10-06; ADR-0128).**
 The [coordinator](../plans/graph-native-pivot-plan_2026-10-05.md) owns G0/M1/C1/C2, native realization,
-serving, projections and assembled acceptance. The first implementation scope is the complete
-store-free compiler, including query-facing contract design and compiler-side projections/analytics.
-Its output is an admitted artifact; SurrealDB publication and serving follow separately.
+serving, projections and acceptance. The store-free compiler stage is user-accepted; native
+realization, projections and serving are implemented with targeted functional evidence. Compilation
+returns an admitted artifact; publication and reader selection remain separate operations.
+This execution uses the user-selected targeted controls in coordinator §6; broad qualification
+and the stopped compiler suite are not_run.
 
 This is a hard pivot: remove replaced runtime/code at its ownership boundary, rebuild from pinned
 inputs, and retain no compatibility reader, ID bridge, intermediate PostgreSQL repair or dual write.
@@ -108,7 +110,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113
+> Decision: ADR-0128, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113
 
 <a id="section-1-3"></a>
 
@@ -173,7 +175,7 @@ routes; resource savings and broader workflow effectiveness remain **Proposed**.
 **Accepted target, implementation/evaluation Proposed (ADR-0071).**
 
 The first **usable pilot** has accurate supported API contracts, typed options, contextual scenarios,
-deployment evidence, field-specific uncertainty and a functioning real-embedding PG/MCP path. Valid
+deployment evidence, field-specific uncertainty and a functioning real-embedding SurrealDB/MCP path. Valid
 APIs remain available without briefs or completed deep analysis; invalid claimed evidence still
 fails. The product is **differentiated** only after the independent matched-condition task comparison
 in [§14.12](sections/api-and-evidence-product.md#section-14-12) demonstrates its declared material
@@ -275,7 +277,7 @@ in-process extraction/CLI parity receipts retain their original scope.
 
 ### §B2 Typed graph declarations own the data contract
 
-**Accepted target / implementation in progress, 2026-10-05.** `lctx-model` owns nominal entities,
+**Implemented, 2026-10-06; targeted evidence is in the coordinator.** `lctx-model` owns nominal entities,
 attributed assertions, participant roles, provenance, coverage, policies and shared validation.
 Typed Arrow views support computation; the old relation registry is not the published schema.
 Generate codecs and envelopes from one declaration owner. No first batch, JSON sample or embedding
@@ -283,13 +285,13 @@ response defines a schema. Codebooks remain append-only; snapshot changes are ex
 Semantic compatibility uses canonical declarations and policy/invariant revisions, separately from
 implementation provenance and physical realization. Original bytes remain authoritative.
 
-> Decision: ADR-0128, ADR-0085, ADR-0088
+> Decision: ADR-0128, ADR-0085, ADR-0088, ADR-0073
 
 <a id="section-b3"></a>
 
 ### §B3 Completed inputs and shared semantic operations
 
-**Accepted target / implementation in progress, 2026-10-05.** Pure model operations and useful
+**Implemented, 2026-10-06; targeted evidence is in the coordinator.** Pure model operations and useful
 native kernels retain their semantic ownership. The compiler consumes completed attempt-local
 streams and spillable Arrow/DataFusion views without database roles, grants or readback. Share
 ordered inputs and analytical topology; perform meaningful completion checks over their actual
@@ -396,7 +398,7 @@ rendered text and presentation limits cannot strengthen it.
 
 ### §B7 Separate admitted content from its native realization
 
-**Accepted target; runtime realization pending, 2026-10-05.** Compilation returns an immutable
+**Implemented / focused Tested, 2026-10-06.** Compilation returns an immutable
 admitted graph without a database. The publisher separately realizes it in strict per-snapshot
 SurrealDB databases on the selected managed local RocksDB server. Checked bulk writes, one complete
 stored reconciliation after writers drain, ready indexes/functions and sealed executable definitions
@@ -479,7 +481,7 @@ templates and extractive selection; the generative-model trigger remains **Propo
 
 ### §B12 One semantic graph and derived projections
 
-**Accepted target / implementation in progress, 2026-10-05.** Rust-admitted graph content is realized
+**Implemented, 2026-10-06; targeted evidence is in the coordinator.** Rust-admitted graph content is realized
 in SurrealDB; native queries operate over that content. Attempt-local Arrow segments, prepared
 petgraph topology, search indexes and analytical/export views are derived, not parallel semantic
 stores. Projection contracts state their universe, identity, multiplicity, roles, lineage and losses.
@@ -491,14 +493,14 @@ No PostgreSQL runtime or canonical serving copy remains after its ownership cut.
 
 ### §B13 FastMCP pins one complete realization
 
-**Accepted target; native serving pending, 2026-10-05.** Rust owns operation meaning and typed
+**Implemented / focused Tested, 2026-10-06.** Rust owns operation meaning and typed
 requests/responses. Native SurrealQL may be the sole executor of a model-owned operation. Use
 indexed native restriction and coarse connected hydration; retain complex kernels where simpler.
 Python stays a thin FastMCP adapter with no second classifier. Resources/cursors pin content and
 executable realization. Native deadlines/cancellation and response limits retain honest partial
 outcomes; no fictitious exact engine-work ceiling is exposed. Activation remains stopped until Q1.
 
-> Decision: ADR-0128, ADR-0114, ADR-0116
+> Decision: ADR-0128, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0078
 
 <a id="section-b14"></a>
 

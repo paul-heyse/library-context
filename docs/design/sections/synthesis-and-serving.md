@@ -1,11 +1,11 @@
 # Synthesis and serving
 
-**Compiler implementation in progress; native serving is an accepted target, 2026-10-05.**
+**Implemented compiler and native serving, 2026-10-06; targeted functional evidence is in the coordinator.**
 `lctx-model::domain::synthesis`, `selection`, `retrieval` and `embedding` own semantic meaning;
 `cpg-core` consumes explicit completed workspace inputs and constructs the admitted graph.
 The [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns acceptance.
 Canonical briefs/retrieval units do not activate serving. PostgreSQL effects are retired; native
-publication and MCP serving follow this compiler stage. No generative model runs in the pipeline
+publication and MCP serving consume its admitted artifact. No generative model runs in the pipeline
 or query path. Earlier receipts establish only their recorded implementation boundary.
 
 <a id="section-10"></a>
@@ -32,8 +32,8 @@ missing optional embeddings do not erase the public universe.
 **Implemented reuse, 2026-10-02.** S0 frame admission and automatic selection borrow one
 `AnalyticParents` inventory containing exactly analytic frames, invocations and technique results.
 Each operation retains its own declared inputs; seed replay constructs its independent parent
-inventory. Actual consumed relations retain their acknowledged epochs through separate sessions;
-sharing does not authorize an unfinished or different source universe.
+inventory. Actual consumed relations are completed immutable inputs; sharing does not authorize an
+unfinished or different source universe. ADR-0128 replaces the earlier persisted epoch mechanism.
 
 > Decision: ADR-0049, ADR-0071, ADR-0078, ADR-0086, ADR-0106, ADR-0108, ADR-0116
 
@@ -172,7 +172,9 @@ retain separate execution status.
 
 ## §11 Serving and agent interface
 
-**Accepted target / not implemented, 2026-10-05 (ADR-0128).** A running service pins one complete
+> Decision: ADR-0128, ADR-0078, ADR-0114, ADR-0117
+
+**Implemented native serving, 2026-10-06 (ADR-0128); targeted verification passed and activation is separate.** A running service pins one complete
 sealed SurrealDB realization. Rust owns operation meaning and uncertainty; native queries/functions
 implement connected access, text/vector search and coarse hydration. The
 [native serving plan](../../plans/graph-native-serving-plan_2026-10-05.md) owns S1/S2/S3. Selection
@@ -180,15 +182,19 @@ is separate from publication. Requests, references, resources and continuations 
 realizations underneath a reader. Native querying is selected, without an adoption benchmark gate.
 
 Compiler artifacts retain exact original bytes and consumed vectors. Native indexes are derived;
-changed functions/analyzers/index specs belong to physical realization identity. Current MCP
-startup/dispatch reports unavailable until this implementation exists. Pure wire/schema helpers
-remain contracts and will consume the native snapshot boundary when serving is implemented.
+changed functions/analyzers/index specs belong to physical realization identity. `lctx-serving` dispatches all ten operations from the pinned native reader. The PyO3 NativeSession
+and FastMCP adapter consume model-generated schemas and the same complete snapshot boundary.
+ADR-0128 governs the replacement runtime and lifecycle mechanisms; the cited earlier decisions
+retain their semantic, embedding and product obligations. Startup receives only database VIEWER credentials; first use checks the sealed Rust operation
+definition. No unrelated corpus is hydrated at startup.
 
 <a id="section-11-1"></a>
 
 ### §11.1 Embedding spec and vectors
 
-**Implemented semantic owner / compiler integration in progress, 2026-10-05.** One exact hashed
+> Decision: ADR-0128, ADR-0078, ADR-0080, ADR-0106
+
+**Implemented semantic owner and compiler integration, 2026-10-06.** One exact hashed
 [embedding specification](../../../specs/embedding/qwen3-embedding-8b.json) governs analytics and
 retrieval. Standard vectors are 1024 float32 dimensions, MRL prefix then L2 normalization. Text
 preparation and token admission precede the explicit cache/service effect, outside transactions.
@@ -203,7 +209,9 @@ claim. Persistent cache deployment follows the native realization plan.
 
 ### §11.2 Retrieval
 
-**Accepted native target, 2026-10-05.** Semantic text/vector identity is shared across eligible
+> Decision: ADR-0128, ADR-0077, ADR-0078
+
+**Implemented native retrieval, 2026-10-05; no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
 contextual occurrences. Native operations retain release/library eligibility, finite channels,
 exact-symbol selection, family/member ranking meaning, RRF-K60 fusion and canonical ties. Collapse
 duplicate contributions before fusion; retain the actual winning occurrence/channel witnesses.
@@ -219,7 +227,9 @@ The query planner and metrics are optional diagnostics for concrete query-shape 
 
 ### §11.3 FastMCP contract
 
-**Retained semantic/transport contracts; native adaptation pending, 2026-10-05.** Rust owns the
+> Decision: ADR-0128, ADR-0025, ADR-0049, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063, ADR-0071, ADR-0073, ADR-0116
+
+**Implemented native transport, 2026-10-06; actual journey outcomes are in the coordinator.** Rust owns the
 finite request/response inventory, strict nominal inputs, scalar policies, classification and wire
 failure meanings. Python registers model-derived schemas and serializes MCP envelopes. It does not
 own another classifier. Native realization identity replaces the retired generation service; no
@@ -229,14 +239,19 @@ Requests carry bounded parameters, result/byte controls and cancellation/deadlin
 actual serialized response envelope, including JSON-RPC ID, resource URI, metadata and protocol
 version fields. Structured recognized failures keep safe domain metadata where encoding remains
 possible; otherwise fail once without recursive encoding or leaked credentials. Pinned original
-sources/resources retain their realization and exact byte anchors. Pure serialization controls do
+sources/resources retain their realization and exact byte anchors. A 30-second overall deadline
+includes decoding, embedding and native admission. Python owns cancelled workers until completion
+and drains them before invalidating the native session. Local timeout is distinct from remote
+read cancellation: residual immutable reads are bounded by the configured server query timeout.
+The supported SDK stdio writer seam checks the actual final JSON-RPC bytes, including the newline,
+and refuses an oversized packet before stdout emission. Pure serialization controls do
 not establish persistent-store or operational MCP behavior.
 
 <a id="section-11-4"></a>
 
 ### §11.4 Native serving and conditional workflows
 
-**Accepted target / not implemented, 2026-10-05.** A managed local RocksDB SurrealDB server owns
+**Implemented native runtime and consumers, 2026-10-06; operator activation not_run.** A managed local RocksDB SurrealDB server owns
 persistent realizations; Rust SDK and ordinary native functions provide the first operation route.
 Readiness, physical installation, executable sealing, publication and selection are distinct states.
 Published exports and serving hydrate selected graph/projection inputs in coarse operations; complex
@@ -250,4 +265,4 @@ invent a universal engine-step counter. Qualitative first-principles/library-inf
 these choices; quantitative speed/capacity claims require measurement. Custom APIs, WASM modules,
 buckets, reactive enrichment and external exporters are activated only by a current consumer.
 
-> Decision: ADR-0128
+> Decision: ADR-0128, ADR-0078

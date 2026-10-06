@@ -1,6 +1,6 @@
 # Validation and evaluation
 
-**Accepted graph-native validation target, 2026-10-05 (ADR-0128); compiler integration in progress.**
+**Implemented graph-native validation, 2026-10-06 (ADR-0128); scoped evidence remains explicit.**
 The [semantic owner](semantic-model.md) supplies typed declarations and shared validators. The
 [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns current commands,
 package acceptance and native publication/serving dependencies. Earlier PostgreSQL receipts
@@ -9,7 +9,7 @@ qualify only their original tree and boundary.
 This owner states what the system checks and how answers are judged. **§8** covers admission and
 independent oracles; **§12** covers usefulness and correctness on registered questions. Compiler
 checks consume completed typed Arrow streams and typed graph records. Native publication and
-serving will enforce the same declarations against selected admitted content. Neither validation
+serving enforce the same declarations against selected admitted content. Neither validation
 nor evaluation writes facts. Shared semantic validators live in `lctx-model::domain`; `cpg-core`
 invokes the applicable structural, reference, outcome and derivation checks. Independent generated
 runtime controls live in `tests/scripts/test_flow_soundness.py` and
@@ -48,7 +48,7 @@ reference namespace/kind/subtype closure, source bounds, required scoped outcome
 acyclic derivations and exact consumed vector values. Captured originals remain byte-exact.
 IPC is transport rather than semantic identity. Pending or cancelled output cannot become admitted.
 
-**Native publication** (Accepted target, implementation pending) derives schema and indexes from
+**Native publication** (Implemented, 2026-10-06) derives schema and indexes from
 the model and enforces the artifact's contract before readiness or selection. No PostgreSQL path,
 old-format reader or independent rule registry remains.
 
@@ -59,8 +59,10 @@ cannot establish absence. Independent hand-known expectations are separate from 
 
 **Assurance policy (ADR-0126/0128).** During this stage, run focused affected model, provider,
 compiler and analytics controls, then applicable leaves at functional completion. Assembled
-`just qualify` follows native persistence/publication/serving integration; the old PostgreSQL/MCP
-receipt is not replacement acceptance. Quantitative performance claims require measurements.
+`just qualify` remains the assembled assurance route. For this execution, the user selected
+targeted actual native functional controls and stopped further compiler-stage tests; coordinator
+§6/§8 records that acceptance boundary. The old PostgreSQL/MCP receipt is not replacement
+acceptance. Quantitative performance claims require measurements.
 Efficient design uses qualitative judgment, bounded streams, shared preparation and library
 capabilities; runtime accounting or proof machinery is not an admission prerequisite.
 

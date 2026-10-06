@@ -2,7 +2,7 @@
 
 # §15 Semantic graph model
 
-**Accepted target / implementation in progress, 2026-10-05 (ADR-0128).** One Rust-owned semantic
+**Implemented graph-native architecture, 2026-10-06 (ADR-0128); scoped verification and operator activation are separate.** One Rust-owned semantic
 graph governs entities, attributed observations/assertions, roles, source correspondence, conditions,
 obligations, domain outcomes and derivations. Typed Arrow records remain useful internal views.
 Compilation uses completed inputs in a private spillable workspace and returns an admitted graph;
@@ -26,18 +26,21 @@ Entry proof. Exact source/effective defaults, signature variants, predicate-doma
 original source/context association remain typed. Source-field location does not establish runtime
 allocation, mutation, alias or temporal identity. One exact embedding specification governs both
 analytics and retrieval; exact consumed values enter the artifact, with service-free reconstruction.
-Persistent cache deployment and operator activation are subsequent work.
+Native persistent cache and serving are implemented. Operator activation remains separately authorized.
 
-Previous PostgreSQL receipts bound that implementation only. No replacement runtime, real-library
-acceptance or Measured performance claim follows from this accepted decision.
+ADR-0128 replaces earlier persistence, grant and lifecycle mechanisms. Earlier cited decisions
+retain their typed semantic, ownership, coverage and product obligations. Previous PostgreSQL
+receipts bound that implementation only. The coordinator records native
+runtime evidence separately; real-library acceptance and Measured performance do not follow
+from this architectural decision.
 
-> Decision: ADR-0128, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126
+> Decision: ADR-0128, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 
 ## §15.1 Layers, owners and mechanisms
 
-**Accepted target / implementation in progress, 2026-10-05.** `lctx-model` owns semantic
+**Implemented, 2026-10-05.** `lctx-model` owns semantic
 records, graph mappings, canonical keys, conditions, domain operations and invariants. `cpg-extract`
 and `cpg-flow` own independent native observations; `cpg-core` owns cumulative store-free
 compilation and artifact admission. `lctx-analytics` supplies pure charged kernels. `lctx-embed`
@@ -55,9 +58,10 @@ is shared where its topology and lifetime permit. Catalog availability does not 
 analytics or brief seeds.
 
 SurrealDB persistence/publication and native querying consume the admitted graph after compilation.
-Their contracts are accepted targets; their implementation and assembled Q0 acceptance are pending.
+`lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
+records targeted functional controls; broad assembled qualification is not_run by user direction.
 
-> Decision: ADR-0128, ADR-0085, ADR-0117
+> Decision: ADR-0128, ADR-0085, ADR-0117, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -610,7 +614,7 @@ stating:
 - its rule;
 - its premise columns and roles.
 
-**The graph mapping (Implemented, 2026-10-05; integrated acceptance pending).** Finite typed
+**The graph mapping (Implemented, 2026-10-06; focused evidence in the graph-native coordinator).** Finite typed
 mappings retain derivations as addressable graph assertions with rule/revision, ordered role-labelled
 premises, assumptions and outcome. Admission checks mixed entity/assertion reference closure and
 derivation topology. Native explanation and reverse-dependency querying are subsequent serving
@@ -666,7 +670,7 @@ views.
 - The SCC schedule uses `kosaraju_scc` with the canonical callee-first order.
 - Heuristic analytics remain governed and never reach a served claim as fact.
 
-**Compiler projection realization (Implemented; integrated acceptance pending, 2026-10-05).**
+**Compiler projection realization (Implemented / user-accepted, 2026-10-05).**
 Typed endpoint roles and named projection policies supply structure. Independent vertex inventories
 preserve isolates; identity-bearing arcs preserve parallel relationships, canonical order and
 unresolved side records. Dense petgraph indices stay private. Attempt-owned topology snapshots and
@@ -688,8 +692,8 @@ delegation borrows both projections, preserving canonical witness ties, open dis
 roots, ordered configured seeds, bounds and the complete resolved technique set. The pure parser
 rejects contradictory flags and missing technique dependencies before effects. Final seed selection
 belongs to S0 after optional analytics; the mandatory C0 catalog owns public path expansion.
-Structural Pass A and direct usage have **Implemented store-free compiler adapters, 2026-10-05;
-integrated acceptance pending**. C0 owns public access candidates; selected settings and release/module
+Structural Pass A and direct usage have **Implemented / user-accepted store-free compiler adapters,
+2026-10-05**, within the coordinator’s preserved compiler-stage receipt. C0 owns public access candidates; selected settings and release/module
 membership define the structural scope. Production borrows prepared graphs; focused independent
 controls challenge exact path, boundary, usage and invocation inventories over completed inputs.
 Path steps retain their own conditions and phases: structural reachability does not establish
@@ -703,7 +707,7 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 
 ## §15.11 Compilation and physical realization
 
-**Accepted target / implementation in progress, 2026-10-05.** The compiler owns bounded batches,
+**Implemented compiler / user-accepted stage, 2026-10-05.** The compiler owns bounded batches,
 immutable completed-input segments, spillable bulk operations, cancellation/drain and shared compact
 analytical topology. Producers read their actual completed predecessors. Completion validates local
 shape, canonical keys, reference closure, domain outcomes and necessary cross-element invariants.
@@ -716,19 +720,19 @@ cancelled attempts expose no complete artifact; restart from captured inputs rat
 arbitrary database stage. The library interface carries no store credentials.
 
 `lctx compile --artifact-only --output <directory>` supplies this independent compiler route.
-Ordinary compile-and-publish remains unavailable until P2 exists; it must not silently use
-PostgreSQL or reinterpret the default as artifact-only. Publication consumes the artifact without
+Ordinary compile verifies native runtime readiness before acquisition, then publishes an unselected
+handle. Artifact-only compilation remains independently store-free. Publication consumes the artifact without
 rerunning producers, installs the declared native realization, reconciles persisted content once,
 drains writers, seals definitions and publishes separately from selection. All serving handles pin
 both semantic content and executable realization.
 
-> Decision: ADR-0128
+> Decision: ADR-0128, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 
 ## §15.12 Serving
 
-**Accepted target / not implemented, 2026-10-05.** Rust owns operation meaning, predicate-specific
+**Implemented / focused Tested native serving, 2026-10-06.** Rust owns operation meaning, predicate-specific
 selection, scope and uncertainty. SurrealQL functions/native queries realize fixed evidence paths,
 eligible-occurrence retrieval and coarse hydration. A server pins one complete sealed realization;
 resources and continuations cannot silently switch it. Exact originals and consumed vectors are
@@ -736,26 +740,26 @@ content-authoritative; indexes are derived. Shared text/vector identity does not
 occurrences or channel witnesses. Complex authoritative kernels remain in Rust where appropriate.
 
 The [native serving plan](../../plans/graph-native-serving-plan_2026-10-05.md) owns implementation.
-The compiler stage removes PostgreSQL-serving effects. Ordinary compilation and MCP dispatch report
-unavailable until their native successors exist. Retained pure schemas/serialization are contracts,
-not an operational serving implementation. Native querying is selected; efficient operation design
+The pivot removes PostgreSQL-serving effects. Ordinary compilation publishes through the verified
+export boundary; MCP dispatch consumes one fixed native snapshot through NativeSession. Rust
+schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-> Decision: ADR-0128
+> Decision: ADR-0128, ADR-0114, ADR-0116
 
 <a id="section-15-13"></a>
 
 ## §15.13 Migration boundary
 
-**Accepted target / implementation in progress, 2026-10-05.** This is a direct design-phase
+**Implemented replacement, 2026-10-05; operator adoption not_run.** This is a direct design-phase
 replacement. Compiler outputs are rebuilt from captured pinned inputs. PostgreSQL backend/binding,
 old generation commands and checkpoint/grant readers are retired at their ownership boundary.
 No old-format reader, old-ID bridge, dual write or historical runtime archive is retained.
 
 The [coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns package state and surviving
 obligations. Compiler acceptance is focused store-free functional acceptance; complete native
-publication/serving plus assembled Q0 and separately authorized Q1 operator adoption remain later
-work. Historical PostgreSQL receipts establish no graph-native acceptance. Operator database/client
+publication/serving have targeted native functional controls. Broad assembled qualification is
+not_run by user direction; separately authorized Q1 operator adoption remains later work. Historical PostgreSQL receipts establish no graph-native acceptance. Operator database/client
 state is not changed merely by editing compiler code.
 
 ### Facts scope and native identity (Accepted target, 2026-09-30)

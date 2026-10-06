@@ -128,9 +128,9 @@ tests passed.
 A release-only installation document was undiscoverable in lexical-only mode even for an exact
 matching phrase. The implementation now selects ordinary matching-term scoring only for
 `unit_winners`; legacy brief/member policy retains its previous explicit default. See
-[`retrieval.py`](../../../python/lctx_mcp/src/lctx_mcp/retrieval.py), `Lexical.scores` and
+`retrieval.py` (retired source in the recorded review baseline), `Lexical.scores` and
 `UnitLexical.unit_winners`. The independent three-unit/single-text/duplicate control is in
-[`test_retrieval.py`](../../../python/lctx_mcp/tests/test_retrieval.py).
+`test_retrieval.py` (retired source in the recorded review baseline).
 **Correction source-inspected, 2026-09-29; test outcome not claimed.**
 
 <a id="F02"></a>

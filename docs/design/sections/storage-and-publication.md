@@ -1,12 +1,12 @@
 # Storage and publication
 
-**Accepted target; implementation in progress, 2026-10-05 (ADR-0128).** Rust-admitted graph content
+**Implemented, 2026-10-05 (ADR-0128); focused verification is recorded by the coordinator.** Rust-admitted graph content
 and its native physical realization are distinct. The [coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md)
-owns the compiler-first hard pivot; old PostgreSQL receipts do not establish this implementation.
+owns the core-operation-first hard pivot; old PostgreSQL receipts do not establish this implementation.
 
 ## §5 Projections
 
-**Accepted target / compiler implementation in progress.** Named projection contracts specify their
+**Implemented compiler and published native projections, 2026-10-05.** Named projection contracts specify their
 completed source, semantic roles, contexts, vertex universe, direction, multiplicity, weights,
 coverage, provenance and declared simplifications. Vertices are independent of edges; isolates and
 parallel attributed assertions survive. Dense indices are private and map back to semantic IDs.
@@ -14,14 +14,14 @@ Compatible compiler consumers share compact topology; rich evidence is hydrated 
 
 The compiler constructs these views directly from completed workspace inputs, without publication
 or database readback. Summary, Structural and optional analytical consumers wait for their actual
-semantic/vector predecessors. Published export later uses native queries and terminally successful
-streams under the same projection contract. External destinations remain consumer-triggered.
+semantic/vector predecessors. Published export uses scoped native queries and terminally successful
+responses under the same projection contract. External destinations remain consumer-triggered.
 
 > Decision: ADR-0128, ADR-0103, ADR-0044, ADR-0085
 
 ## §6 Persistence and publication
 
-**Accepted target; P1/P2 implementation pending.** A separate publisher consumes an admitted
+**Implemented P1/P2; operator activation not_run, 2026-10-05.** A separate publisher consumes an admitted
 artifact, installs its native SurrealDB realization and makes it visible. Compilation does not
 connect to a database, publish, or select. The [realization plan](../../plans/graph-native-surrealdb-realization-plan_2026-10-05.md)
 owns the managed local server, strict compact families, codecs, cache and lifecycle.
@@ -35,10 +35,21 @@ method definitions and consumed vector values. It checks local shapes during con
 reference closure, required domains and meaningful cross-element invariants over completed inputs.
 Temporary segments are not another canonical database; incomplete output remains private.
 
-The publisher performs checked bounded bulk writes, verifies stored content and query-visible
+`lctx-publisher` consumes the independently verified export. `lctx-surrealdb` mechanically lowers
+canonical typed payloads into compact entity/assertion families with enforced native role edges.
+Typed atomic keys for active scope fields share one array-element index; absent fields add no
+scope entries. This avoids both ID-byte index flattening and per-field index amplification. Originals use bounded
+binary chunks. The publisher performs checked bounded bulk writes, verifies stored content and query-visible
 mappings once after content/definition writers drain, readies indexes/functions and seals the
 executable realization. No transaction spans extraction, CPU analyses or embeddings. A short control
 transition publishes the complete realization; selection remains explicit and separate.
+
+Sealing fingerprints the effective database and table definitions returned by native metadata,
+including fields, indexes, events, functions and analyzers. An explicit cold audit reuses content
+reconciliation and that fingerprint. It excludes credentials and live subscriptions; SurrealDB
+3.3 metadata cannot certify database STRICT mode. Creation enforces STRICT directly. Portable
+backup transports only canonical graph/original families and rebuilds current derived search and
+executable definitions in a fresh realization on restore.
 
 > Decision: ADR-0128, ADR-0088, ADR-0126
 
@@ -66,19 +77,19 @@ IDs, dual writes or rollback/runtime archives. Quiesce actual readers before rep
 
 ### §6.4 Serving realizations
 
-**Accepted target; S2/S3 implementation pending.** Serving uses the pinned native realization,
+**Implemented S2/S3, 2026-10-05; scoped functional evidence remains distinct from operator activation.** Serving uses the pinned native realization,
 indexed restrictions and coarse connected queries/functions. Rust owns meaning, even where
 SurrealQL is the only executor; Python remains a thin adapter. Complex kernels consume appropriate
 batched inputs. Search eligibility precedes channel limits; exact analytical neighbors remain a
 separate contract from approximate discovery. Resources and continuations pin complete realization.
 
-> Decision: ADR-0128, ADR-0071, ADR-0077, ADR-0078
+> Decision: ADR-0128, ADR-0071, ADR-0077, ADR-0078, ADR-0049
 
 <a id="section-6-5"></a>
 
 ### §6.5 Services and capability adoption
 
-**Accepted target; service deployment pending.** A managed local SurrealDB 3.3 RocksDB server serves
+**Implemented managed runtime and disposable fixture; operator deployment not_run, 2026-10-05.** A managed local SurrealDB 3.3 RocksDB server serves
 strict snapshot databases and a small mutable control/cache database. Cache keys include complete
 embedding spec/text; exact consumed winners enter graph content. Compiler operation can use a
 supplied embedder without a persistent cache. Unrequested effects open neither service nor cache.
@@ -87,6 +98,7 @@ Native graph/documents/functions/search/bulk operations are selected. Query plan
 available for concrete uncertainties, not mandatory per-operation accounting or adoption proofs.
 Custom APIs, buckets, reactive enrichment, connectors and external exporters require a named
 consumer. Historical runs/operation records are retired rather than reconstructed as another service.
+The [operator runbook](../../surrealdb.md) documents configuration, publication and explicit selection.
 Operator reconstruction, live vectors and activation belong to separately authorized Q1 work.
 
-> Decision: ADR-0128
+> Decision: ADR-0128, ADR-0073, ADR-0078
