@@ -1136,6 +1136,29 @@ impl VerifiedBindings {
         Ok(())
     }
 
+    /// Admit a complete native symbol enumeration grain, including constructor alternatives
+    /// that have no ordinary normalized call event. The caller binds these rows to the same
+    /// immutable predecessor streams; membership/content checks remain exact when borrowed.
+    pub fn admit_enumerations(
+        &mut self,
+        data: &BindingData,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        if !self
+            ._charge
+            .budget()
+            .expect("binding owner budget")
+            .shares_pool(budget)
+        {
+            return Err(ModelError::Conflict("enumeration predecessor foreign budget"));
+        }
+        verify_enumerations(data, budget)?;
+        let mut charge = StateCharge::new(budget, "binding-native-enumeration-grain");
+        let mut admitted = EnumerationAuthority::capture(data, &mut charge)?;
+        self.enumerations
+            .append(&mut admitted, &mut self._charge, &mut charge)
+    }
+
     pub(crate) fn require_enumerations(
         &self,
         data: &BindingData,

@@ -1354,6 +1354,74 @@ pub(crate) async fn events_produced(
         value: verified,
     })
 }
+/// Complete native enumeration authority is a binding-owner premise even when a constructor
+/// initializer never becomes an ordinary call event. Decode one symbol's five native families
+/// at a time; only compact exact keys/content/counts survive in the application authority.
+async fn prepare_enumeration_authority(
+    access: &CompletedInputs,
+    session: &datafusion::prelude::SessionContext,
+    application: &mut normalized::binding_normalization::VerifiedBindings,
+    runtime: &Workspace,
+) -> Result<(), ModelError> {
+    use calls::{ProviderSymbol, Signature, SignatureEnumerationMember, SignatureEnumerationObservation};
+    use normalized::binding_normalization::BindingData;
+    let declared = BindingData::validation_inputs();
+    let input = |kind| {
+        declared.iter().find(|input| input.type_id() == kind)
+            .ok_or(ModelError::Schema("binding enumeration input"))
+    };
+    let table = |kind| {
+        access.table_for(input(kind)?)
+            .map(|name| crate::consumed_rows::identifier(&name))
+    };
+    let enumerations = table(std::any::TypeId::of::<SignatureEnumerationObservation>())?;
+    let members = table(std::any::TypeId::of::<SignatureEnumerationMember>())?;
+    let signatures = table(std::any::TypeId::of::<Signature>())?;
+    let qualifications = table(std::any::TypeId::of::<assertion::AssertionQualification>())?;
+    let symbols = table(std::any::TypeId::of::<ProviderSymbol>())?;
+    // The root scan carries only the primitive symbol key, never native record bodies.
+    let mut stream = crate::sql::query(session, &format!("SELECT DISTINCT symbol FROM {enumerations} ORDER BY symbol"))
+        .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        let _roots = runtime.budget().reserve(
+            "binding-native-enumeration-root-batch", logical_batch_bytes(&batch)?,
+        )?;
+        let roots = batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+            .ok_or(ModelError::Schema("binding enumeration symbol key"))?;
+        for index in 0..roots.len() {
+            runtime.cancellation().check()?;
+            if roots.is_null(index) { return Err(ModelError::Schema("binding enumeration symbol key")); }
+            let key: [u8; 16] = roots.value(index).try_into()
+                .map_err(|_| ModelError::Schema("binding enumeration symbol key"))?;
+            let key = crate::scoped_admission::root_predicate(&[key]);
+            let key = key.replacen("id IN", "symbol IN", 1);
+            let mut data = BindingData::new(runtime.budget());
+            macro_rules! read {
+                ($field:ident, $ty:ty, $sql:expr) => {{
+                    let input = input(std::any::TypeId::of::<$ty>())?;
+                    let permit = access.read_at::<$ty>(input.prefix())?;
+                    crate::consumed_rows::stream_query_at(&permit, input, session, &$sql,
+                        |_, batch| data.$field.decode(batch)).await?;
+                }};
+            }
+            read!(signature_enumerations, SignatureEnumerationObservation,
+                format!("SELECT * FROM {enumerations} WHERE {key}"));
+            read!(signature_enumeration_members, SignatureEnumerationMember,
+                format!("SELECT m.* FROM {members} m JOIN {enumerations} e ON e.id=m.enumeration WHERE {}", key.replacen("symbol IN", "e.symbol IN", 1)));
+            // All native signatures for this symbol are required, including an omitted member:
+            // the canonical validator compares the entire qualification/role variant domain.
+            read!(signatures, Signature, format!("SELECT * FROM {signatures} WHERE {key}"));
+            read!(qualifications, assertion::AssertionQualification,
+                format!("SELECT * FROM {qualifications} WHERE id IN (SELECT qualification FROM {enumerations} WHERE {key} UNION SELECT qualification FROM {signatures} WHERE {key})"));
+            read!(symbols, ProviderSymbol,
+                format!("SELECT * FROM {symbols} WHERE {}", key.replacen("symbol IN", "id IN", 1)));
+            application.admit_enumerations(&data, runtime.budget())?;
+            tokio::task::yield_now().await;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn bindings_prepared(
     access: CompletedInputs,
     output: ProducerOutput,
@@ -1414,6 +1482,7 @@ pub(crate) async fn bindings_prepared(
             tokio::task::yield_now().await;
         }
     }
+    prepare_enumeration_authority(&access, &session, &mut application, runtime).await?;
     output.finish(ProviderOutcome::Complete).await?;
     Ok(application)
 }

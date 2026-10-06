@@ -204,6 +204,7 @@ pub enum Entity {
     SummaryExceptionOutcomes(super::execution::summary_exceptions::SummaryExceptionOutcome),
     AnalyticsConfigurations(super::analysis::settings::AnalyticsConfiguration),
     NormalizationComputations(super::normalized::coverage::NormalizationComputation),
+    ProjectionGapSubjects(super::projection::ProjectionGapSubject),
 
     TaskReports(super::deployment::TaskReport),
     CallChannels(super::calls::CallChannel),
@@ -449,6 +450,7 @@ macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{
     SummaryExceptionOutcomes:Outcome=>$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
     AnalyticsConfigurations:MethodParameters=>$crate::domain::analysis::settings::AnalyticsConfiguration,
     NormalizationComputations:AnalysisRun=>$crate::domain::normalized::coverage::NormalizationComputation,
+    ProjectionGapSubjects:Subject=>$crate::domain::projection::ProjectionGapSubject,
 
     TaskReports:TaskReport=>$crate::domain::deployment::TaskReport,
     CallChannels:CallChannel=>$crate::domain::calls::CallChannel,
@@ -807,6 +809,9 @@ pub fn reference_target(
     <super::atom_decision::AtomDecision as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::flow::FlowCallStep as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::projection::ProjectionSourceAssessment as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::projection::ProjectionGapSubject as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
+    <super::projection::ProjectionGap as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::projection::ProjectionSourceCoverage as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::embedding::text::TextWindow as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::synthesis::seeds::SeedPlan as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::synthesis::seeds::SelectedSeedSource as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
@@ -10078,6 +10083,8 @@ macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
     LocalAtomDecisions:$crate::domain::atom_decision::AtomDecision,
     FlowCallSteps:$crate::domain::flow::FlowCallStep,
     ProjectionSourceAssessments:$crate::domain::projection::ProjectionSourceAssessment,
+    ProjectionGaps:$crate::domain::projection::ProjectionGap,
+    ProjectionSourceCoverages:$crate::domain::projection::ProjectionSourceCoverage,
     AnalyticTextWindows:$crate::domain::embedding::text::TextWindow,
     SynthesisSeedPlans:$crate::domain::synthesis::seeds::SeedPlan,
     SynthesisSelectedSeedSources:$crate::domain::synthesis::seeds::SelectedSeedSource,
@@ -17444,6 +17451,8 @@ macro_rules! retained_consumer_assertions {
  )*};
 }
 retained_consumer_assertions! {
+ ProjectionGaps:super::projection::ProjectionGap=>ClaimValue,Claim,DerivedConclusion,
+ ProjectionSourceCoverages:super::projection::ProjectionSourceCoverage=>ClaimValue,Claim,DerivedConclusion,
  SelectionContext:super::selection::Context=>AnalysisValue,Analysis,PredicateDomain,
  SelectionWitness:super::selection::Witness=>AnalysisValue,Analysis,EvidenceAssociation,
  SelectionDomainContext:super::selection::DomainContext=>MembershipValue,Membership,StructuralMembership,

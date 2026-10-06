@@ -41,6 +41,8 @@ pub enum ClaimValue {
     LocalAtomDecisions(crate::domain::atom_decision::AtomDecision),
     FlowCallSteps(crate::domain::flow::FlowCallStep),
     ProjectionSourceAssessments(crate::domain::projection::ProjectionSourceAssessment),
+    ProjectionGaps(crate::domain::projection::ProjectionGap),
+    ProjectionSourceCoverages(crate::domain::projection::ProjectionSourceCoverage),
     AnalyticTextWindows(crate::domain::embedding::text::TextWindow),
     SynthesisSeedPlans(crate::domain::synthesis::seeds::SeedPlan),
     SynthesisSelectedSeedSources(crate::domain::synthesis::seeds::SelectedSeedSource),
@@ -403,6 +405,20 @@ impl Key for ClaimValue {
                     b"semantic-type",
                     <crate::domain::projection::ProjectionSourceAssessment as Record>::NAME
                         .as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::ProjectionGaps(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::projection::ProjectionGap as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::ProjectionSourceCoverages(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::projection::ProjectionSourceCoverage as Record>::NAME.as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
@@ -1089,6 +1105,8 @@ impl ClaimValue {
             Self::LocalAtomDecisions(row) => row.validate(),
             Self::FlowCallSteps(row) => row.validate(),
             Self::ProjectionSourceAssessments(row) => row.validate(),
+            Self::ProjectionGaps(row) => row.validate(),
+            Self::ProjectionSourceCoverages(row) => row.validate(),
             Self::AnalyticTextWindows(row) => row.validate(),
             Self::SynthesisSeedPlans(row) => row.validate(),
             Self::SynthesisSelectedSeedSources(row) => row.validate(),
@@ -1227,6 +1245,8 @@ impl ClaimValue {
             Self::LocalAtomDecisions(row) => row.references(),
             Self::FlowCallSteps(row) => row.references(),
             Self::ProjectionSourceAssessments(row) => row.references(),
+            Self::ProjectionGaps(row) => row.references(),
+            Self::ProjectionSourceCoverages(row) => row.references(),
             Self::AnalyticTextWindows(row) => row.references(),
             Self::SynthesisSeedPlans(row) => row.references(),
             Self::SynthesisSelectedSeedSources(row) => row.references(),
@@ -1365,6 +1385,8 @@ impl ClaimValue {
             Self::LocalAtomDecisions(row) => SemanticKey::of(row.id()),
             Self::FlowCallSteps(row) => SemanticKey::of(row.id()),
             Self::ProjectionSourceAssessments(row) => SemanticKey::of(row.id()),
+            Self::ProjectionGaps(row) => SemanticKey::of(row.id()),
+            Self::ProjectionSourceCoverages(row) => SemanticKey::of(row.id()),
             Self::AnalyticTextWindows(row) => SemanticKey::of(row.id()),
             Self::SynthesisSeedPlans(row) => SemanticKey::of(row.id()),
             Self::SynthesisSelectedSeedSources(row) => SemanticKey::of(row.id()),

@@ -747,3 +747,52 @@ fn couse_provenance_retains_exact_usage_and_policy_support() {
     assert_eq!(changed_assertion.id(), policy_assertion.id());
     assert_ne!(changed_assertion.content(), policy_assertion.content());
 }
+
+
+#[test]
+fn canonical_projection_companions_survive_transport_and_require_their_subject() {
+    use d::projection::{
+        ProjectionGap, ProjectionGapReason, ProjectionGapSubject, ProjectionSourceCoverage,
+    };
+    let subject = ProjectionGapSubject::Event { event: id(21) };
+    let entity = Entity::from(subject.clone());
+    let restored: Entity = serde_json::from_slice(&serde_json::to_vec(&entity).unwrap()).unwrap();
+    assert_eq!(entity, restored);
+    assert_eq!(entity.kind(), EntityKind::Subject);
+    assert_eq!(record::entity_record::<ProjectionGapSubject>(&restored).unwrap(), subject);
+
+    let gap = ProjectionGap {
+        assessment: id(22),
+        subject: subject.id(),
+        reason: ProjectionGapReason::Unresolved,
+    };
+    let assertion = Assertion::from_record(gap.clone()).unwrap();
+    let restored: Assertion = serde_json::from_slice(&serde_json::to_vec(&assertion).unwrap()).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(assertion, restored);
+    assert_eq!(record::assertion_record::<ProjectionGap>(&restored).unwrap(), gap);
+    assert!(assertion.references().unwrap().contains(&(
+        Target::Entity(entity.id()), Some(EntityKind::Subject),
+    )));
+    let mut lookup = Lookup::default();
+    lookup.add(&entity);
+    lookup.assertions.insert(AssertionId::of(gap.assessment));
+    admit_assertion(&assertion, &lookup).unwrap();
+    lookup.entities.remove(&entity.id());
+    assert!(admit_assertion(&assertion, &lookup).is_err());
+
+    let coverage = ProjectionSourceCoverage { assessment: gap.assessment, coverage: id(23) };
+    let assertion = Assertion::from_record(coverage.clone()).unwrap();
+    let restored: Assertion = serde_json::from_slice(&serde_json::to_vec(&assertion).unwrap()).unwrap();
+    restored.validate().unwrap();
+    assert_eq!(assertion, restored);
+    assert_eq!(record::assertion_record::<ProjectionSourceCoverage>(&restored).unwrap(), coverage);
+
+    let mut selected = BTreeSet::new();
+    macro_rules! inventory { ($($variant:ident:$ty:ty,)*) => {$(selected.insert(<$ty>::NAME);)*}; }
+    lctx_model::graph_entity_records!(inventory);
+    lctx_model::graph_assertion_records!(inventory);
+    for name in [ProjectionGapSubject::NAME, ProjectionGap::NAME, ProjectionSourceCoverage::NAME] {
+        assert!(selected.contains(name), "projection companion omitted from import/export: {name}");
+    }
+}

@@ -547,7 +547,7 @@ impl FrameScopes {
                 TypeId::of::<normalized::callables::EffectiveCallableAssessment>(),
             ] {
                 if let Some(target) = idx(ty) {
-                    plan.pairs(root,target,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f JOIN ({candidates}) c ON c.frame=f.id JOIN {} t ON t.callable=c.callable AND t.context=f.context",identifier(&tables[target].alias)))?;
+                    plan.pairs(root,target,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f JOIN ({candidates}) c ON c.frame=f.id JOIN {} t ON t.callable=c.callable_callable AND t.context=f.context",identifier(&tables[target].alias)))?;
                 }
             }
         }
