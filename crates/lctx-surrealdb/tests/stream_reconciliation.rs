@@ -1,7 +1,7 @@
 //! Actual persistent gRPC completion and full canonical physical readback controls.
 use lctx_model::domain::{*, input::{Package, Release}, graph::{Entity, FamilyHasher, GraphFamily, Manifest}, serving::{DatabaseIdentity, Name, SnapshotHandle}};
 use lctx_surrealdb::{Credentials, Loader, NativeReader, reader};
-use lctx_surrealdb::surrealdb::types::{Variables, Value};
+use lctx_surrealdb::surrealdb::types::{RecordId, Variables, Value};
 
 async fn physical_row(reader: &NativeReader, bindings: Variables) -> Value {
     let mut rows = reader.query_stream("SELECT * FROM $id", bindings, 1).unwrap();
@@ -25,12 +25,31 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     let mut incomplete = native.query_stream("RETURN [{id:entity:first}]", Variables::new(), 2).unwrap();
     assert!(incomplete.next().await.unwrap().is_some());
     assert!(incomplete.next().await.is_err(), "missing declared terminal is refused");
-    let dropped = native.query_stream("RETURN array::range(0,10000)", Variables::new(), 1).unwrap();
-    drop(dropped);
+    // The first provisional row proves the SDK dispatched the real query. Cancellation
+    // occurs while its second statement is pending, rather than before polling the stream.
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let active_reader = native.clone();
+    let active = tokio::spawn(async move {
+        let mut rows = active_reader.query_stream(
+            "RETURN [{id:entity:entered}]; SLEEP 30s; RETURN [{id:entity:late}];",
+            Variables::new(), 3,
+        ).unwrap();
+        let row = rows.next().await.unwrap().expect("actual provisional native row");
+        assert_eq!(row.as_object().unwrap().get("id"), Some(&Value::RecordId(RecordId::new("entity", "entered"))));
+        entered.send(()).unwrap();
+        // There is no second result until the pending native statement completes.
+        let _ = rows.next().await;
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started).await.unwrap().unwrap();
+    assert!(!active.is_finished(), "native operation must still be pending at cancellation");
+    active.abort();
+    assert!(active.await.unwrap_err().is_cancelled());
     let mut fresh = native.query_stream("RETURN [{id:entity:fresh}]", Variables::new(), 1).unwrap();
-    assert!(fresh.next().await.unwrap().is_some());
-    assert!(fresh.next().await.unwrap().is_none());
-    assert!(fresh.next().await.unwrap().is_none());
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        assert!(fresh.next().await.unwrap().is_some());
+        assert!(fresh.next().await.unwrap().is_none());
+        assert!(fresh.next().await.unwrap().is_none());
+    }).await.expect("fresh checked query completes after the cancelled task drains");
     let mut oversized = native.query_stream("RETURN [{id:entity:large,value:string::repeat('x',1048576)}]", Variables::new(), 1).unwrap();
     assert!(matches!(oversized.next().await, Err(ModelError::Limit { owner: "native-stream", .. })), "oversized native values fail before source expansion");
 
@@ -61,4 +80,5 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     client.query("UPDATE $id CONTENT $saved").bind(bindings).await.unwrap().check().unwrap();
     loader.reconcile(&manifest).await.unwrap();
     client.query(format!("REMOVE DATABASE {db}")).await.unwrap().check().unwrap();
+    client.invalidate().await.unwrap();
 }

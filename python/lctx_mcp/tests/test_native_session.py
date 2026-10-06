@@ -13,7 +13,7 @@ from fastmcp import Client, FastMCP
 from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
 from fastmcp.tools import ToolResult
-from lctx_semantics import NativeSession, wire_failure
+from lctx_semantics import NativeFailure, NativeSession, wire_failure
 from mcp.shared.message import SessionMessage
 from mcp.shared.exceptions import MCPError
 from mcp_types import CallToolResult, JSONRPCResponse, TextContent, TextResourceContents
@@ -97,13 +97,35 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
     session = await asyncio.to_thread(NativeSession, str(path))
     assert json.loads(session.handle_json()) == selected
     await asyncio.to_thread(session.close)
-    with pytest.raises(RuntimeError, match="Canonical serving is unavailable"):
+    with pytest.raises(NativeFailure) as closed:
         await asyncio.to_thread(session.execute, "browse_library", json.dumps(request))
+    assert json.loads(closed.value.lctx_failure_json) == json.loads(wire_failure("unavailable"))
 
 
 @pytest.mark.anyio
-async def test_actual_native_cancelled_request_drains_before_session_close():
-    """A dispatch latch makes cancellation deterministic; the request uses the real native session."""
+async def test_actual_native_zero_deadline_returns_safe_resource_refusal():
+    configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
+    library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
+    assert configured and library, "owned published native fixture required"
+    native = await asyncio.to_thread(NativeSession, configured)
+    try:
+        with pytest.raises(NativeFailure) as refused:
+            await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library": library}), None, 0)
+        assert json.loads(refused.value.lctx_failure_json) == json.loads(wire_failure("resource_refused"))
+        # Refusal releases admission; the same actual pinned session remains usable.
+        result = await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library": library}))
+        assert json.loads(result)["entries"]["items"]
+    finally:
+        await asyncio.to_thread(native.close)
+
+
+@pytest.mark.anyio
+async def test_cancelled_worker_drains_actual_native_dispatch_before_session_close():
+    """Cancellation retains worker admission before actual dispatch and close drains it.
+
+    The latch is before NativeSession.execute; the Rust gRPC stream control separately
+    exercises cancellation after a native query has started.
+    """
     configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
     library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
     assert configured and library, "owned published native fixture required"

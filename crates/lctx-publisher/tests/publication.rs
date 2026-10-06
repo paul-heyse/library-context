@@ -29,6 +29,19 @@ fn select_and_show_cli(binary: &std::path::Path, config: &RuntimeConfig, handle:
     let shown = std::process::Command::new(binary).args(["snapshot", "--runtime-config"]).arg(&runtime).arg("show").output().unwrap();
     assert!(shown.status.success(), "show CLI: {}", String::from_utf8_lossy(&shown.stderr));
     assert_eq!(serde_json::from_slice::<SnapshotHandle>(&shown.stdout).unwrap(), *handle);
+    // A valid-shaped foreign handle must be refused by the actual CLI before the one
+    // selection authority is replaced. The configured viewer follows this same file.
+    let before = std::fs::read(&config.selection).unwrap();
+    let mut foreign = handle.clone();
+    foreign.realization = ContentHash::of(b"unpublished CLI selection candidate");
+    std::fs::write(&candidate, serde_json::to_vec(&foreign).unwrap()).unwrap();
+    let refused = std::process::Command::new(binary).args(["snapshot", "--runtime-config"]).arg(&runtime).arg("select").arg(&candidate).output().unwrap();
+    assert!(!refused.status.success(), "unpublished candidate was selected by the CLI");
+    assert_eq!(std::fs::read(&config.selection).unwrap(), before);
+    assert_eq!(config.selected().unwrap(), *handle);
+    let shown = std::process::Command::new(binary).args(["snapshot", "--runtime-config"]).arg(&runtime).arg("show").output().unwrap();
+    assert!(shown.status.success());
+    assert_eq!(serde_json::from_slice::<SnapshotHandle>(&shown.stdout).unwrap(), *handle);
 }
 #[tokio::test]
 async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {

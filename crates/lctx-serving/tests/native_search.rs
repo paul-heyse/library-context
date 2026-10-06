@@ -255,7 +255,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         .execute("find_operations", r#"{"library":"unqueried"}"#)
         .await
         .unwrap_err();
-    assert_eq!(refusal.public_failure(), PublicFailure::new(FailureKind::Corrupt));
+    assert_eq!(refusal.public_failure(), PublicFailure::new(FailureKind::Incompatible));
     client
         .query(format!("REMOVE DATABASE {db}"))
         .await

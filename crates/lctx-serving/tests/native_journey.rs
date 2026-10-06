@@ -447,7 +447,9 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     let sources = reader.records::<source::SourceArtifact>(RecordSelection::Scope { field: "input".into(), values: vec![serde_json::json!(captured.inputs()[0].captured().revision().id().bytes())] }).await.unwrap();
     let modules = reader.records::<source::Module>(RecordSelection::Scope { field: "source".into(), values: sources.iter().map(|source| serde_json::json!(source.id().bytes())).collect() }).await.unwrap();
     let module = |name: &str| modules.iter().find(|module| module.qualified_name == name).unwrap().id();
-    let service = NativeService::new(reader, ResourceLimits::default()).unwrap();
+    let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
+    let unknown_scope = service.execute("browse_library", &serde_json::json!({"library":library,"scope":{"kind":"module","module":vec![0u8;16]}}).to_string()).await.unwrap_err();
+    assert_eq!(unknown_scope.public_failure(), PublicFailure::new(FailureKind::Incompatible));
     let selection = serde_json::json!({"requirements":[{"predicate":{"DeclaresParameter":{"name":"red"}},"quantifier":0}],"mode":1,"joint":1});
     for (module_name, class_name, own, foreign) in [("alpha", "Alpha", "red", "blue"), ("beta", "Beta", "blue", "red")] {
         let scope = serde_json::json!({"kind":"module","module":module(module_name)});
@@ -476,6 +478,13 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         let selected = call(&service, "browse_library", serde_json::json!({"library":library,"scope":scope,"selection":selection})).await;
         if own == "blue" { assert!(selected["entries"]["items"].as_array().unwrap().is_empty()); }
         else { assert!(!selected["entries"]["items"].as_array().unwrap().is_empty()); }
+        let selected_vocabulary = call(&service, "browse_library", serde_json::json!({"library":library,"scope":scope,"selection":selection,"view":"vocabulary"})).await;
+        assert_eq!(selected_vocabulary["extent"]["total"], selected["extent"]["total"]);
+        if own == "blue" { assert!(selected_vocabulary["entries"]["items"].as_array().unwrap().is_empty()); }
+        else {
+            let names = selected_vocabulary["entries"]["items"].as_array().unwrap().iter().flat_map(|entry| entry["values"].as_array().unwrap()).filter_map(serde_json::Value::as_str).collect::<std::collections::BTreeSet<_>>();
+            assert!(names.contains("red")); assert!(!names.contains("blue"));
+        }
     }
     let empty = call(&service, "browse_library", serde_json::json!({"library":library,"scope":{"kind":"module","module":module("empty")},"view":"vocabulary"})).await;
     assert_eq!(empty["extent"]["total"], 0); assert!(empty["entries"]["items"].as_array().unwrap().is_empty());
@@ -493,6 +502,18 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     let child = &parent["diagnostic_correlations"];
     assert!(child["omitted"].as_u64().unwrap() >= 2, "{parent}");
     let mut seen = std::collections::BTreeSet::from([child["items"][0].to_string()]);
+    let nested_token = child["continuation"].as_str().expect("real nested continuation");
+    let nested: Cursor = serde_json::from_slice(&hex::decode(nested_token).unwrap()).unwrap();
+    let CursorPosition::ScenarioDiagnostic { association, key } = nested.after.clone() else { panic!("nested scenario diagnostic position"); };
+    // The independent oracle is the published canonical target/link witness inventory.
+    // It does not invoke pagination or derive expected IDs from a returned page.
+    let associations = reader.records::<catalog::evidence::ScenarioAssociation>(RecordSelection::Scope { field: "scenario".into(), values: vec![scenario.clone()] }).await.unwrap();
+    assert!(associations.iter().any(|row| row.id() == association));
+    let targets = reader.records::<catalog::evidence::DiagnosticUseTarget>(RecordSelection::Scope { field: "association".into(), values: vec![serde_json::json!(association)] }).await.unwrap();
+    let links = reader.records::<catalog::evidence::DiagnosticUseLink>(RecordSelection::Keys(targets.iter().map(|target| *target.link.bytes()).collect())).await.unwrap();
+    assert_eq!(links.len(), targets.iter().map(|target| target.link).collect::<std::collections::BTreeSet<_>>().len());
+    let expected = links.iter().map(|link| serde_json::to_value(link.assessment).unwrap().to_string()).collect::<std::collections::BTreeSet<_>>();
+    assert!(expected.len() >= 3);
     let mut cursor = child["continuation"].clone();
     while !cursor.is_null() {
         request["page"]["cursor"] = cursor;
@@ -504,5 +525,22 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         assert!(seen.insert(children["items"][0].to_string()), "diagnostic repeated");
         cursor = children["continuation"].clone();
     }
-    assert!(seen.len() >= 3);
+    assert_eq!(seen, expected, "all and only the selected parent's diagnostic witnesses");
+    let mut absent_parent = nested.clone();
+    absent_parent.after = CursorPosition::ScenarioDiagnostic { association: serde_json::from_value(serde_json::json!(vec![0u8;16])).unwrap(), key };
+    let mut absent_key = nested.clone();
+    absent_key.after = CursorPosition::ScenarioDiagnostic { association, key: ContentHash::of(b"absent diagnostic cursor position") };
+    let mut wrong_pin = nested.clone();
+    wrong_pin.binding.snapshot.realization = ContentHash::of(b"foreign nested cursor pin");
+    let mut wrong_member = nested.clone();
+    wrong_member.binding.member = Some(serde_json::from_value(serde_json::json!(vec![0u8;16])).unwrap());
+    for (case, adversary) in [("absent parent", absent_parent), ("absent position", absent_key), ("foreign pin", wrong_pin), ("foreign member", wrong_member)] {
+        request["page"]["cursor"] = serde_json::json!(adversary.encode().unwrap().as_str());
+        let refused = service.execute("get_operation", &request.to_string()).await.unwrap_err();
+        assert_eq!(refused.public_failure(), PublicFailure::new(FailureKind::Incompatible), "{case}");
+    }
+    request["page"]["cursor"] = serde_json::json!(nested_token);
+    request["operation"] = serde_json::json!({"kind":"public_path","path":["beta","beta"]});
+    let refused = service.execute("get_operation", &request.to_string()).await.unwrap_err();
+    assert_eq!(refused.public_failure(), PublicFailure::new(FailureKind::Incompatible), "changed operation request");
 }
