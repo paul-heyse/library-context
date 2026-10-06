@@ -36,7 +36,7 @@ def main() -> int:
             raise RuntimeError("native journey did not publish the MCP fixture")
         owned.restart()
         env["LCTX_NATIVE_SERVING_CONFIG"] = str(serving)
-        env["LCTX_NATIVE_TEST_LIBRARY"] = "synthesis_sources"
+        env["LCTX_NATIVE_TEST_LIBRARY"] = "synthesis-sources"
         return run(["uv", "run", "--no-sync", "pytest", "python/lctx_mcp/tests/test_wire_contract.py", "python/lctx_mcp/tests/test_native_session.py", "-q", *filters])
 
 

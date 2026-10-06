@@ -218,7 +218,7 @@ def main() -> int:
     requirements = set().union(*(prerequisites(name, args.command) for name in selected))
     env = normalized_env(
         dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"),
-        native_inputs=False,
+        native_inputs="native-python" in requirements,
     )
 
     def run(command: tuple[str, ...]) -> int:

@@ -480,7 +480,7 @@ def run_campaign(campaign: Path, variant: str, trial: int, phase: str) -> dict:
             record("restore-tests", tests)
             record(
                 "execute-tests",
-                ["cargo", "nextest", "run", "--workspace", "--no-tests=pass"],
+                ["python3", "scripts/surrealdb_fixture.py", "--", "cargo", "nextest", "run", "--workspace", "--no-tests=fail"],
                 cargo_json=False,
             )
             record("release-lctx", cargo_command(release=True, package="lctx"))
