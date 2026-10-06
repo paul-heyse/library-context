@@ -12,7 +12,11 @@ pub struct ExecutionScope {
 pub struct ExecutionMembership {
     pub source:ValidationInput, pub source_key:&'static str,
     pub member:ValidationInput, pub member_key:&'static str,
+    pub context:Option<ExecutionMembershipContext>,
 }
+/// A grammar member's qualification context must match the explicitly named owner route.
+#[derive(Clone, Copy)]
+pub enum ExecutionMembershipContext { EnrichedInvocation, EnrichedContextItem }
 #[derive(Clone, Copy)]
 enum Kind { Expression, Statement, Body, Header, Release, Invocation, EnrichedStatement, EnrichedBody, Fresh, Modeled, Definition, ContextBinding, Context, Capture }
 mod enriched;
@@ -179,6 +183,7 @@ impl Check {
         self.frame(frame.input, frame.context, frame.subject, row.qualification, event.site)?;
         let owner = need(&self.owners, event.owner)?;
         let attempt = need(&self.attempts, row.attempt)?;
+        if attempt.outcome!=BindingOutcome::Bound {return Err(invalid("source header binding is not Bound"));}
         let alternative = need(&self.alternatives, attempt.alternative)?;
         let syntax = need(&self.syntax, attempt.syntax.ok_or_else(|| invalid("header syntax absent"))?)?;
         if event.context != frame.context || owner.occurrence != event.site || owner.entity != row.owner
@@ -561,6 +566,15 @@ mod fidelity_controls {
         let row=m::ModeledCallEvaluation {invocation:check.enriched_frames.iter().next().unwrap().id(),expression:site.id(),owner:owner.id(),qualification,model:model.id(),catalog:id(44),attempt:attempt.id(),event:event.id(),returned_formal:parameter.id(),returned_actual:site.id(),arguments:KeySink::new("modeled-call-arguments").finish(),release:super::super::evaluation::ReleaseSafety::Closed,status:analysis::policy::EvidenceStatus::StructurallyObserved};
         check.events.insert(event).unwrap();check.syntax.insert(syntax).unwrap();check.attempts.insert(attempt).unwrap();check.parameters.insert(parameter).unwrap();check.authored_models.insert(model).unwrap();check.modeled.insert(row).unwrap();
         let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("returned parameter is not an actual member"),"{error}");
+    }
+
+    #[test]
+    fn portable_source_header_refuses_existing_non_bound_attempt() {
+        let mut check=dishonest_header(Kind::Header);
+        let mut attempt=check.attempts.iter().next().unwrap().clone();attempt.outcome=BindingOutcome::Undetermined;attempt.reason=BindingReason::MissingSignature;
+        let mut header=check.headers.iter().next().unwrap().clone();header.attempt=attempt.id();
+        check.attempts.insert(attempt).unwrap();check.headers=Rows::new(&check.budget);check.headers.insert(header).unwrap();
+        let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("binding is not Bound"),"{error}");
     }
 
 }

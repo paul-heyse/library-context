@@ -21,15 +21,15 @@ pub(super) fn scope(kind:Kind)->ExecutionScope {
     ];
     let mut joins=Vec::new();
     macro_rules! own {($member:ty,$field:literal,$owner:ty)=>{memberships.push((ValidationInput::of::<$member>(&["id"]),$field,ValidationInput::of::<$owner>(&["id"])));};}
-    macro_rules! join {($source:ty,$source_key:literal,$member:ty,$member_key:literal)=>{joins.push(ExecutionMembership {source:ValidationInput::of::<$source>(&["id"]),source_key:$source_key,member:ValidationInput::of::<$member>(&["id"]),member_key:$member_key});};}
+    macro_rules! join {($source:ty,$source_key:literal,$member:ty,$member_key:literal,$context:ident)=>{joins.push(ExecutionMembership {source:ValidationInput::of::<$source>(&["id"]),source_key:$source_key,member:ValidationInput::of::<$member>(&["id"]),member_key:$member_key,context:Some(ExecutionMembershipContext::$context)});};}
     match kind {
         Kind::EnrichedStatement=>{own!(e::ExecutionMember,"execution",e::StatementExecution);own!(e::EnteredStatement,"execution",e::StatementExecution);}
         Kind::EnrichedBody=>{own!(e::BodyMember,"body",e::BodyExecution);own!(e::BodyReleaseInput,"body",e::BodyExecution);}
         Kind::Fresh=>{own!(e::SourceExecutionArgument,"call",e::SourceExecutionInvocation);own!(CallBinding,"attempt",CallBindingAttempt);own!(CallArgument,"call",CallSyntax);}
         Kind::Modeled=>{own!(m::ModeledCallArgument,"call",m::ModeledCallEvaluation);own!(m::ModeledCallNative,"call",m::ModeledCallEvaluation);own!(CallBinding,"attempt",CallBindingAttempt);own!(CallArgument,"call",CallSyntax);}
-        Kind::Definition=>{own!(d::DefinitionMember,"definition",d::DefinitionEvaluation);join!(d::DefinitionEvaluation,"statement",syntax::ParameterSyntaxObservation,"function");}
-        Kind::ContextBinding=>{own!(b::BindingMember,"binding",b::ContextEntryBinding);join!(b::ContextEntryBinding,"item",lexical::SyntaxPlacement,"parent");}
-        Kind::Context=>{own!(c::ContextMember,"execution",c::ContextExecution);own!(c::ContextItem,"execution",c::ContextExecution);join!(c::ContextExecution,"statement",lexical::SyntaxPlacement,"parent");join!(c::ContextItem,"item",lexical::SyntaxPlacement,"parent");}
+        Kind::Definition=>{own!(d::DefinitionMember,"definition",d::DefinitionEvaluation);join!(d::DefinitionEvaluation,"statement",syntax::ParameterSyntaxObservation,"function",EnrichedInvocation);}
+        Kind::ContextBinding=>{own!(b::BindingMember,"binding",b::ContextEntryBinding);join!(b::ContextEntryBinding,"item",lexical::SyntaxPlacement,"parent",EnrichedInvocation);}
+        Kind::Context=>{own!(c::ContextMember,"execution",c::ContextExecution);own!(c::ContextItem,"execution",c::ContextExecution);join!(c::ContextExecution,"statement",lexical::SyntaxPlacement,"parent",EnrichedInvocation);join!(c::ContextItem,"item",lexical::SyntaxPlacement,"parent",EnrichedContextItem);}
         Kind::Capture=>{},_=>unreachable!(),
     }
     ExecutionScope {root:root(kind),memberships,joins}
@@ -51,6 +51,8 @@ pub(super) fn inputs(kind:Kind)->Vec<ValidationInput> {
 }
 impl Check {
     fn enriched_frame(&self,id:Id<analysis::enriched_execution::AnalysisInvocation>)->Result<(&analysis::enriched_execution::AnalysisInvocation,Id<models::ModelCatalog>),ModelError> {
+        // Exact complete SourceCall-parent membership belongs to independent invocation/expected
+        // owner admission, selected for fresh and detached artifacts; do not replay its inventory here.
         let frame=need(&self.enriched_frames,id)?;let definition=need(&self.definitions,frame.definition)?;
         let parameters=need(&self.method_parameters,definition.parameters)?;
         let catalog=parameters.model_catalog.ok_or_else(||invalid("Enriched catalog absent"))?;
@@ -81,7 +83,7 @@ impl Check {
         self.frame(frame.input,frame.context,frame.subject,row.qualification,row.declaration)?;self.declaration(row.owner,row.declaration)?;Ok(frame)
     }
     fn argument_domain(&self,attempt_id:Id<CallBindingAttempt>,event_id:Id<NormalizedCallEvent>,owner:Id<EntityRef>,site:Id<Occurrence>,frame:&analysis::enriched_execution::AnalysisInvocation,args:impl Iterator<Item=(i64,Id<SignatureParameter>,Id<Occurrence>,Id<ExpressionEvaluation>)>,digest:ContentHash)->Result<Vec<(Id<SignatureParameter>,Id<Occurrence>)>,ModelError> {
-        let attempt=need(&self.attempts,attempt_id)?;let event=need(&self.events,event_id)?;
+        let attempt=need(&self.attempts,attempt_id)?;if attempt.outcome!=BindingOutcome::Bound {return Err(invalid("Enriched argument binding is not Bound"));}let event=need(&self.events,event_id)?;
         let event_owner=need(&self.owners,event.owner)?;
         if attempt.event!=event.id() || event.site!=site || event.context!=frame.context || event_owner.occurrence!=site || event_owner.entity!=owner {return Err(invalid("Enriched argument event/owner"));}
         let syntax=need(&self.syntax,attempt.syntax.ok_or_else(||invalid("Enriched argument syntax"))?)?;
