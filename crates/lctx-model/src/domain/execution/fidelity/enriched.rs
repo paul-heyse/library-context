@@ -375,7 +375,10 @@ impl Check {
         self.declaration(row.owner, row.declaration)?;
         Ok(frame)
     }
-    #[allow(clippy::too_many_arguments, reason = "Attempt, event, owner, site, frame and ordered argument digest are independently checked portable claims.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Attempt, event, owner, site, frame and ordered argument digest are independently checked portable claims."
+    )]
     fn argument_domain(
         &self,
         attempt_id: Id<CallBindingAttempt>,

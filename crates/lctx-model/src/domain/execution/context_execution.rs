@@ -159,7 +159,10 @@ impl CheckedContextExecution {
         )
     }
     /// Borrow the actual Base owner; ordered argument evidence is hydrated without evaluator replay.
-    #[allow(clippy::too_many_arguments, reason = "Context execution requires distinct catalog, application, SourceCall, frame, statement and actual evaluation inputs.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Context execution requires distinct catalog, application, SourceCall, frame, statement and actual evaluation inputs."
+    )]
     pub fn derive_produced(
         catalog: &models::Catalog,
         application: &ModelApplicationData,
@@ -185,7 +188,10 @@ impl CheckedContextExecution {
             None,
         )
     }
-    #[allow(clippy::too_many_arguments, reason = "Context kernel retains independent source facts, actual evaluation authority and admitted construction premises.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Context kernel retains independent source facts, actual evaluation authority and admitted construction premises."
+    )]
     pub(super) fn derive_with_values(
         catalog: &models::Catalog,
         application: &ModelApplicationData,

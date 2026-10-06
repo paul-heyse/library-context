@@ -190,7 +190,10 @@ impl<'a> CheckedContextConstruction<'a> {
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         Self::derive_with_inputs(protocol, data, site, owner, input, context, budget, None)
     }
-    #[allow(clippy::too_many_arguments, reason = "Protocol, selected data, site, owner, input, context and admitted enumeration borrow are separate checked premises.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Protocol, selected data, site, owner, input, context and admitted enumeration borrow are separate checked premises."
+    )]
     pub(super) fn derive_with_inputs(
         protocol: &'a CheckedContextProtocol<'a>,
         data: &ModelApplicationData,

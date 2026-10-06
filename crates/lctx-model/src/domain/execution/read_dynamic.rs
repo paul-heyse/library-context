@@ -1137,7 +1137,10 @@ pub(super) enum SelectedRoot {
     Call(Id<calls::CallSyntax>),
     Attribute(Id<flow::FlowAttributeLoadObservation>),
 }
-#[allow(clippy::too_many_arguments, reason = "Dynamic reads keep selected observation, Entry premises, actual Local authority and frame inputs explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Dynamic reads keep selected observation, Entry premises, actual Local authority and frame inputs explicit."
+)]
 pub(super) fn produce_selected(
     data: &EvaluationData,
     entry: &EntryData,

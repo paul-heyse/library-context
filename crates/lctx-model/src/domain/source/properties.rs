@@ -296,7 +296,8 @@ mod property_controls {
             name: "unused name".repeat(1 << 20),
             kind: calls::SymbolKind::Function,
         };
-        let batch = <calls::ProviderSymbol as Record>::encode(std::slice::from_ref(&symbol)).unwrap();
+        let batch =
+            <calls::ProviderSymbol as Record>::encode(std::slice::from_ref(&symbol)).unwrap();
         let projected = batch.project(&[0]).unwrap();
         let budget = ResourceBudget::fixed(96 << 10).unwrap();
         let permit = CompletedInput::<calls::ProviderSymbol>::new(

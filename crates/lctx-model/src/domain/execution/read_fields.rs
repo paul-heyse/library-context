@@ -538,7 +538,10 @@ impl FieldUniverse {
         }
         Ok(())
     }
-    #[allow(clippy::too_many_arguments, reason = "Call field universe combines independent facts, Entry premises, frame, admission roots, output, budget and selected call.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Call field universe combines independent facts, Entry premises, frame, admission roots, output, budget and selected call."
+    )]
     pub(super) fn calls(
         &mut self,
         data: &EvaluationData,
@@ -674,7 +677,10 @@ impl FieldUniverse {
         }
         Ok(())
     }
-    #[allow(clippy::too_many_arguments, reason = "Class field universe combines independent facts, Entry premises, frame, admission roots, output, budget and selected observation.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Class field universe combines independent facts, Entry premises, frame, admission roots, output, budget and selected observation."
+    )]
     pub(super) fn classes(
         &mut self,
         data: &EvaluationData,
@@ -747,7 +753,10 @@ impl FieldUniverse {
         }
         Ok(())
     }
-    #[allow(clippy::too_many_arguments, reason = "Store field universe combines independent facts, Entry premises, frame, admission roots, output, budget and selected definition.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Store field universe combines independent facts, Entry premises, frame, admission roots, output, budget and selected definition."
+    )]
     pub(super) fn stores(
         &mut self,
         data: &EvaluationData,
@@ -846,7 +855,10 @@ impl FieldUniverse {
         }
         Ok(())
     }
-    #[allow(clippy::too_many_arguments, reason = "Global field reads retain selected binding and actual Local authority alongside separate facts, frame and universe inputs.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Global field reads retain selected binding and actual Local authority alongside separate facts, frame and universe inputs."
+    )]
     pub(super) fn globals(
         &mut self,
         data: &EvaluationData,
@@ -907,7 +919,10 @@ impl FieldUniverse {
         self.universe = Some(digest.finish());
         Ok(())
     }
-    #[allow(clippy::too_many_arguments, reason = "Field assessment requires separate facts, Entry premises, frame, admitted roots, output, budget and shared work.")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Field assessment requires separate facts, Entry premises, frame, admitted roots, output, budget and shared work."
+    )]
     pub(super) fn assess(
         &self,
         data: &EvaluationData,
@@ -1005,7 +1020,10 @@ impl FieldUniverse {
         Ok(())
     }
 }
-#[allow(clippy::too_many_arguments, reason = "Field reads keep source facts, Entry premises, frame, admitted roots, output, budget and actual Local authority explicit.")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Field reads keep source facts, Entry premises, frame, admitted roots, output, budget and actual Local authority explicit."
+)]
 pub(super) fn produce(
     data: &EvaluationData,
     entry: &EntryData,
