@@ -83,7 +83,7 @@ impl NativeSession {
                 let service = state
                     .service
                     .as_ref()
-                    .ok_or_else(|| crate::unavailable())?
+                    .ok_or_else(crate::unavailable)?
                     .clone();
                 state.active += 1;
                 service

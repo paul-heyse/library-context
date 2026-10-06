@@ -118,7 +118,7 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
             &invocation,
             &d,
             Profile::Behavioral,
-            &graph,
+            Some(&graph),
             budget,
         )
         .unwrap();

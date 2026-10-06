@@ -454,7 +454,7 @@ async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_sibli
             .is_err()
         );
         let unrequested =
-            produce(&summary, &invocation, &d, Profile::Catalog, &graph, budget).unwrap();
+            produce(&summary, &invocation, &d, Profile::Catalog, None, budget).unwrap();
         let catalog = execution::summary_consequences::derive(
             &summary,
             &unrequested,

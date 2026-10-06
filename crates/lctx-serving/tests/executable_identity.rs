@@ -45,7 +45,9 @@ fn capture_tracks_added_deleted_and_renamed_helpers_and_raw_source_bytes() {
     assert_eq!(decoded[0], b"serving-executable-sources/v1");
     assert_eq!(
         decoded[1..11]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| pair[0].as_slice())
             .collect::<Vec<_>>(),
         [
