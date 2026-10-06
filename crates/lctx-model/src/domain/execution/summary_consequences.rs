@@ -188,7 +188,7 @@ pub struct ClaimProofMember {
     #[model(premise)]
     pub member: Id<ClaimStanding>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="summary_claim_refutation_coverage",rule="summary_refutation_coverage",conclusion=proof)]
 pub struct ClaimRefutationCoverage {
     #[model(key)]

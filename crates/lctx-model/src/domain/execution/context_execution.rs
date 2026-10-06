@@ -53,7 +53,7 @@ pub struct ContextItem {
     pub exit_output: Id<super::enriched_records::ExecutionOutcome>,
     pub suppressed: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "context_execution_sources", rule = "context_execution_source")]
 pub enum ContextSource {
     #[model(code = 0)]
@@ -72,7 +72,7 @@ pub enum ContextSource {
         statement: Id<super::enriched_records::StatementExecution>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="context_execution_members",rule="context_execution_member",conclusion=execution)]
 pub struct ContextMember {
     #[model(key)]

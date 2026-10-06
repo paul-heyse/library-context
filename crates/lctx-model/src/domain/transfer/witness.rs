@@ -79,7 +79,7 @@ pub struct SummaryWitness {
     pub status: crate::domain::analysis::policy::EvidenceStatus,
     pub heuristic: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="summary_transfer_contributions",rule="summary_transfer_contribution",conclusion=alternative)]
 pub struct SummaryContribution {
     #[model(key)]

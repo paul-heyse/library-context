@@ -17,7 +17,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "base_source_body_sources", rule = "base_source_body_source")]
 pub enum BodySource {
     #[model(code = 0)]
@@ -45,7 +45,7 @@ pub struct SourceBodyCompletion {
     pub sources: ContentHash,
     pub releases: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="base_source_body_members",rule="base_source_body_member",conclusion=body)]
 pub struct BodyMember {
     #[model(key)]
@@ -55,7 +55,7 @@ pub struct BodyMember {
     #[model(premise)]
     pub source: Id<BodySource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "base_source_body_release_inputs")]
 pub struct BodyReleaseInput {
     #[model(key)]

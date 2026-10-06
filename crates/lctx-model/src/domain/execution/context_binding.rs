@@ -37,7 +37,7 @@ pub struct ContextEntryBinding {
     pub release: ReleaseSafety,
     pub sources: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "context_entry_binding_sources",
     rule = "context_entry_binding_source"
@@ -54,7 +54,7 @@ pub enum BindingSource {
         evaluation: Id<super::records::ExpressionEvaluation>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="context_entry_binding_members",rule="context_entry_binding_member",conclusion=binding)]
 pub struct BindingMember {
     #[model(key)]

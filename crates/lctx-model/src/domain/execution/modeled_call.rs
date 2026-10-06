@@ -36,7 +36,7 @@ pub struct ModeledCallEvaluation {
     pub release: ReleaseSafety,
     pub status: EvidenceStatus,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="modeled_call_arguments",rule="modeled_call_argument",conclusion=call)]
 pub struct ModeledCallArgument {
     #[model(key)]
@@ -48,7 +48,7 @@ pub struct ModeledCallArgument {
     #[model(premise)]
     pub evaluation: Id<super::records::ExpressionEvaluation>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="modeled_call_native_premises",rule="modeled_call_native_premise",conclusion=call)]
 pub struct ModeledCallNative {
     #[model(key)]

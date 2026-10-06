@@ -796,3 +796,220 @@ fn canonical_projection_companions_survive_transport_and_require_their_subject()
         assert!(selected.contains(name), "projection companion omitted from import/export: {name}");
     }
 }
+
+#[test]
+fn identity_bearing_analysis_companions_survive_transport_and_refuse_omission() {
+    let budget=d::resources::ResourceBudget::fixed(64<<20).unwrap();
+    let model=d::model().unwrap();
+    let captured=d::analysis::sources::CapturedSources::capture(d::stages::Profile::Catalog,
+        [d::analysis::sources::SourceSnapshot::of_relation(&Relation::of::<d::source::SourceArtifact>(),
+            "canonical-input-control",hash(10),hash(11),hash(12),1).unwrap()],&budget).unwrap();
+    let mut selected=BTreeSet::new();
+    macro_rules! inventory { ($($variant:ident:$ty:ty,)*) => {$(selected.insert(<$ty>::NAME);)*}; }
+    lctx_model::graph_assertion_records!(inventory);
+    lctx_model::graph_entity_records!(inventory);
+    assert!(selected.contains(d::analysis::ProjectionDefinition::NAME));
+    let projection_definition=d::analysis::ProjectionDefinition::builtin(
+        d::projection::ProjectionName::CallableInvocation);
+    for name in d::projection::ProjectionName::ALL {
+        let row=d::analysis::ProjectionDefinition::builtin(name);
+        let entity=Entity::from(row.clone());
+        assert_eq!(entity.kind(),EntityKind::Definition);
+        assert_eq!(entity.id(),EntityId::of(row.id()));
+        let restored:Entity=serde_json::from_slice(&serde_json::to_vec(&entity).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(entity,restored);
+        assert_eq!(record::entity_record::<d::analysis::ProjectionDefinition>(&restored).unwrap(),row);
+        let mut invalid=row;
+        invalid.policy=hash(99);
+        assert!(Entity::from(invalid).validate().is_err());
+    }
+    macro_rules! owner { ($family:ident) => {{
+        use d::analysis::$family as owner;
+        assert!(selected.contains(owner::SourceReceipt::NAME));
+        assert!(selected.contains(owner::ProjectionInput::NAME));
+        let (invocation,_,receipts,projections)=owner::Invocation::admitted(
+            id(1),id(2),id(3),None,[],&captured,[projection_definition.id()],&budget).unwrap();
+        assert_eq!(receipts.len(),1);
+        assert_eq!(projections.len(),1);
+        let receipt=Assertion::from_record(receipts[0].clone()).unwrap();
+        let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(&receipt).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(receipt,restored);
+        assert_eq!(record::assertion_record::<owner::SourceReceipt>(&restored).unwrap(),receipts[0]);
+        assert_eq!(receipt.kind,AssertionKind::EvidenceAssociation);
+        let projection=Assertion::from_record(projections[0].clone()).unwrap();
+        let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(&projection).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(projection,restored);
+        assert_eq!(record::assertion_record::<owner::ProjectionInput>(&restored).unwrap(),projections[0]);
+        assert_eq!(projection.kind,AssertionKind::StructuralMembership);
+        assert!(projection.references().unwrap().contains(&(
+            Target::Entity(EntityId::of(invocation.id())),Some(EntityKind::AnalysisRun))));
+        assert!(projection.references().unwrap().contains(&(
+            Target::Entity(EntityId::of(projection_definition.id())),Some(EntityKind::Definition))));
+        let mut lookup=Lookup::default();
+        lookup.add(&Entity::from(invocation.clone()));
+        let definition=Entity::from(projection_definition.clone());
+        lookup.add(&definition);
+        admit_assertion(&projection,&lookup).unwrap();
+        lookup.entities.remove(&definition.id());
+        assert!(admit_assertion(&projection,&lookup).is_err());
+
+        let name=format!("{}_analysis_invocation_inputs",stringify!($family));
+        let invariant=model.invariant(&name).unwrap();
+        assert_eq!(invariant.purpose,InvariantPurpose::Admission);
+        let check=|receipts:&[owner::SourceReceipt],projections:&[owner::ProjectionInput]| {
+            let mut check=(invariant.create)(&budget);
+            check.visit(owner::Invocation::NAME,&owner::Invocation::encode(std::slice::from_ref(&invocation))?)?;
+            check.visit(owner::SourceReceipt::NAME,&owner::SourceReceipt::encode(receipts)?)?;
+            check.visit(owner::ProjectionInput::NAME,&owner::ProjectionInput::encode(projections)?)?;
+            check.finish()
+        };
+        check(&receipts,&projections).unwrap();
+        for result in [check(&[],&projections),check(&receipts,&[])] {
+            assert!(result.unwrap_err().to_string().contains("source or projection membership"));
+        }
+        // A well-formed existing receipt redirected to another content digest cannot retain
+        // the old invocation's source membership, even after mechanical row-key reconstruction.
+        let mut value=serde_json::to_value(&receipts[0]).unwrap();
+        value["content"]=serde_json::to_value(hash(99)).unwrap();
+        let changed:owner::SourceReceipt=serde_json::from_value(value).unwrap();
+        changed.validate().unwrap();
+        assert!(check(&[changed],&projections).unwrap_err().to_string()
+            .contains("source or projection membership"));
+    }}; }
+    owner!(local); owner!(base_evaluation); owner!(base_completion); owner!(source_call);
+    owner!(enriched_execution); owner!(model); owner!(summary); owner!(structural);
+    owner!(analytic_embedding); owner!(analytic); owner!(catalog_core); owner!(catalog_evidence);
+    owner!(selection); owner!(synthesis); owner!(retrieval);
+}
+
+#[test]
+fn canonical_admission_inventory_has_all_required_premises() {
+    let model=d::model().unwrap();
+    let mut selected=BTreeSet::new();
+    macro_rules! inventory { ($($variant:ident:$ty:ty,)*) => {$(selected.insert(<$ty>::NAME);)*}; }
+    lctx_model::graph_entity_records!(inventory);
+    lctx_model::graph_assertion_records!(inventory);
+    // SemanticImport reconstructs this owner relation from validated manifest originals;
+    // chunks are byte transport, not canonical graph entities or fabricated empty premises.
+    let original_bytes=BTreeSet::from([d::artifact::ArtifactChunk::NAME]);
+    // Detached import declares the canonical records owned by the selected frontier.
+    // The finite transport also supports inactive generic records; those are not current
+    // executable owners and must not select checks outside that declaration boundary.
+    let mut absent=BTreeSet::new();
+    for (frontier,declarations) in [
+        ("facts",d::facts_relations()),
+        ("normalized",d::normalized_relations()),
+        ("analysis",d::analysis_frontier_relations()),
+        ("catalog",d::catalog_frontier_relations()),
+    ] {
+        let declared=declarations.iter().map(Relation::name).collect::<BTreeSet<_>>();
+        let referrers=declared.intersection(&selected).copied()
+            .chain(original_bytes.iter().copied()).collect();
+        for invariant in model.admission_candidates_for_scope(&referrers).unwrap() {
+            assert_eq!(invariant.purpose,InvariantPurpose::Admission);
+            for input in invariant.inputs {
+                if (!selected.contains(input.name()) || !declared.contains(input.name()))
+                    && !original_bytes.contains(input.name()) {
+                    absent.insert(format!("{frontier}: {} requires {} at {:?}",invariant.name,input.name(),input.prefix()));
+                }
+            }
+        }
+    }
+    assert!(absent.is_empty(),"canonical admission inputs without retained semantic owner or manifested bytes: {absent:#?}");
+}
+
+#[test]
+fn admission_companions_keep_nominal_sources_order_and_missing_premise_refusal() {
+    use d::execution::records::{EvaluationSource,EvaluationMember,EvaluationOperand};
+    let mut selected=BTreeSet::new();
+    macro_rules! inventory { ($($variant:ident:$ty:ty,)*) => {$(selected.insert(<$ty>::NAME);)*}; }
+    lctx_model::graph_entity_records!(inventory);
+    lctx_model::graph_assertion_records!(inventory);
+    let mut missing=BTreeSet::new();
+    macro_rules! companion {($ty:ty)=>{{
+        assert!(selected.contains(<$ty>::NAME),"omitted admission companion {}",<$ty>::NAME);
+        for field in Relation::of::<$ty>().fields() {
+            if let Some((_,target))=field.target() && !selected.contains(target) {
+                missing.insert(format!("{}::{} -> {target}",<$ty>::NAME,field.name()));
+            }
+        }
+    }};}
+    companion!(d::catalog::CatalogCallableAspect);
+    companion!(d::structural::ArcSource);
+    companion!(d::structural::StepEvidence);
+    companion!(d::structural::PathStep);
+    companion!(d::structural::controls::ArgumentFlow);
+    companion!(d::structural::controls::ControlStep);
+    companion!(d::execution::records::EvaluationSource);
+    companion!(d::execution::records::EvaluationMember);
+    companion!(d::execution::records::EvaluationOperand);
+    companion!(d::execution::completion_records::CompletionSource);
+    companion!(d::execution::completion_records::CompletionMember);
+    companion!(d::execution::completion_records::EnteredStatement);
+    companion!(d::execution::modeled_call::ModeledCallArgument);
+    companion!(d::execution::modeled_call::ModeledCallNative);
+    companion!(d::execution::body_records::BodySource);
+    companion!(d::execution::body_records::BodyMember);
+    companion!(d::execution::body_records::BodyReleaseInput);
+    companion!(d::execution::summary_consequences::ClaimRefutationCoverage);
+    companion!(d::execution::definition::DefinitionSource);
+    companion!(d::execution::definition::DefinitionMember);
+    companion!(d::execution::context_execution::ContextSource);
+    companion!(d::execution::context_execution::ContextMember);
+    companion!(d::execution::enriched_records::ExecutionSource);
+    companion!(d::execution::enriched_records::ExecutionMember);
+    companion!(d::execution::enriched_records::EnteredStatement);
+    companion!(d::execution::enriched_records::BodySource);
+    companion!(d::execution::enriched_records::BodyMember);
+    companion!(d::execution::enriched_records::BodyReleaseInput);
+    companion!(d::execution::enriched_records::SourceExecutionArgument);
+    companion!(d::execution::context_binding::BindingSource);
+    companion!(d::execution::context_binding::BindingMember);
+    companion!(d::execution::source_call_records::HeaderMember);
+    companion!(d::execution::source_call_records::SourceFrameArgument);
+    companion!(d::transfer::summary::SummaryContribution);
+    companion!(d::normalized::callable_aspects::CallableAspect);
+    companion!(d::catalog::evidence::SetupDependency);
+    companion!(d::catalog::evidence::ScenarioDependency);
+    companion!(d::catalog::evidence::EvidenceInvocation);
+    companion!(d::normalized::callable_aspects::AspectSource);
+    assert!(missing.is_empty(),"admission companion nominal dependencies omitted: {missing:#?}");
+    let source=EvaluationSource::Native {premise:id(1)};
+    let member=EvaluationMember {evaluation:id(2),ordinal:0,source:source.id()};
+    let operand=EvaluationOperand {evaluation:id(2),ordinal:0,expression:id(3)};
+    macro_rules! roundtrip {($ty:ty,$row:expr)=>{{
+        let row=$row;
+        let assertion=Assertion::from_record(row.clone()).unwrap();
+        let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(&assertion).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(assertion,restored);
+        assert_eq!(record::assertion_record::<$ty>(&restored).unwrap(),row);
+        assertion
+    }};}
+    let native=roundtrip!(EvaluationSource,source.clone());
+    let membership=roundtrip!(EvaluationMember,member.clone());
+    roundtrip!(EvaluationOperand,operand);
+    assert_eq!(native.kind,AssertionKind::EvidenceAssociation);
+    assert_eq!(membership.kind,AssertionKind::StructuralOrder);
+    let mut lookup=Lookup::default();
+    lookup.entities.insert(EntityId::of(id::<d::analysis::native::NativeAssertionPremise>(1)),EntityKind::AnalysisPremise);
+    lookup.assertions.extend([AssertionId::of(member.evaluation),native.id()]);
+    admit_assertion(&native,&lookup).unwrap();
+    admit_assertion(&membership,&lookup).unwrap();
+    lookup.assertions.remove(&native.id());
+    assert!(admit_assertion(&membership,&lookup).is_err());
+    let changed=EvaluationMember {ordinal:1,..member};
+    assert_ne!(Assertion::from_record(changed).unwrap().id(),membership.id());
+    roundtrip!(d::execution::enriched_records::ExecutionSource,
+        d::execution::enriched_records::ExecutionSource::BaseEvaluation {evaluation:id(2)});
+    roundtrip!(d::execution::enriched_records::SourceExecutionArgument,
+        d::execution::enriched_records::SourceExecutionArgument {call:id(4),ordinal:0,formal:id(5),actual:id(3),evaluation:id(2)});
+    roundtrip!(d::structural::ArcSource,d::structural::ArcSource::SourceDefinition {ownership:id(6)});
+    roundtrip!(d::catalog::evidence::SetupDependency,
+        d::catalog::evidence::SetupDependency::ModuleContext {artifact:id(7)});
+    roundtrip!(d::execution::summary_consequences::ClaimRefutationCoverage,
+        d::execution::summary_consequences::ClaimRefutationCoverage {proof:id(8),ordinal:0,coverage:id(9)});
+}

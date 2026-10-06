@@ -47,7 +47,7 @@ impl From<PendingOutcome> for CompletionOutcome {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "base_completion_sources", rule = "base_completion_source")]
 pub enum CompletionSource {
     #[model(code = 0)]
@@ -75,7 +75,7 @@ pub struct StatementCompletion {
     pub sources: ContentHash,
     pub entered: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="base_completion_members",rule="base_completion_premise",conclusion=completion)]
 pub struct CompletionMember {
     #[model(key)]
@@ -85,7 +85,7 @@ pub struct CompletionMember {
     #[model(premise)]
     pub source: Id<CompletionSource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "base_entered_statements")]
 pub struct EnteredStatement {
     #[model(key)]

@@ -71,7 +71,7 @@ pub struct CatalogInvocation {
     #[model(key)]
     pub variant: Id<SignatureVariant>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_callable_aspects")]
 pub struct CatalogCallableAspect {
     #[model(key)]

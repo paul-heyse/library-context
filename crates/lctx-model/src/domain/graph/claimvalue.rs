@@ -2,6 +2,75 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum ClaimValue {
+    CatalogCallableAspects(crate::domain::catalog::CatalogCallableAspect),
+    StructuralArcSources(crate::domain::structural::records::ArcSource),
+    StructuralStepEvidence(crate::domain::structural::records::StepEvidence),
+    StructuralPathSteps(crate::domain::structural::records::PathStep),
+    StructuralArgumentFlows(crate::domain::structural::controls::ArgumentFlow),
+    StructuralControlSteps(crate::domain::structural::controls::ControlStep),
+    BaseEvaluationSources(crate::domain::execution::records::EvaluationSource),
+    BaseEvaluationMembers(crate::domain::execution::records::EvaluationMember),
+    BaseEvaluationOperands(crate::domain::execution::records::EvaluationOperand),
+    BaseCompletionSources(crate::domain::execution::completion_records::CompletionSource),
+    BaseCompletionMembers(crate::domain::execution::completion_records::CompletionMember),
+    BaseEnteredStatements(crate::domain::execution::completion_records::EnteredStatement),
+    ModeledCallArguments(crate::domain::execution::modeled_call::ModeledCallArgument),
+    ModeledCallNativePremises(crate::domain::execution::modeled_call::ModeledCallNative),
+    BaseSourceBodySources(crate::domain::execution::body_records::BodySource),
+    BaseSourceBodyMembers(crate::domain::execution::body_records::BodyMember),
+    BaseSourceBodyReleaseInputs(crate::domain::execution::body_records::BodyReleaseInput),
+    SummaryClaimRefutationCoverage(crate::domain::execution::summary_consequences::ClaimRefutationCoverage),
+    DefinitionEvaluationSources(crate::domain::execution::definition::DefinitionSource),
+    DefinitionEvaluationMembers(crate::domain::execution::definition::DefinitionMember),
+    ContextExecutionSources(crate::domain::execution::context_execution::ContextSource),
+    ContextExecutionMembers(crate::domain::execution::context_execution::ContextMember),
+    ExecutionSources(crate::domain::execution::enriched_records::ExecutionSource),
+    ExecutionMembers(crate::domain::execution::enriched_records::ExecutionMember),
+    ExecutionEnteredStatements(crate::domain::execution::enriched_records::EnteredStatement),
+    ExecutionBodySources(crate::domain::execution::enriched_records::BodySource),
+    ExecutionBodyMembers(crate::domain::execution::enriched_records::BodyMember),
+    ExecutionBodyReleaseInputs(crate::domain::execution::enriched_records::BodyReleaseInput),
+    SourceExecutionArguments(crate::domain::execution::enriched_records::SourceExecutionArgument),
+    ContextEntryBindingSources(crate::domain::execution::context_binding::BindingSource),
+    ContextEntryBindingMembers(crate::domain::execution::context_binding::BindingMember),
+    SourceCallHeaderMembers(crate::domain::execution::source_call_records::HeaderMember),
+    SourceFrameArguments(crate::domain::execution::source_call_records::SourceFrameArgument),
+    SummaryTransferContributions(crate::domain::transfer::summary::SummaryContribution),
+    CallableAspects(crate::domain::normalized::callable_aspects::CallableAspect),
+    CatalogSetupDependencies(crate::domain::catalog::evidence::SetupDependency),
+    CatalogScenarioDependencies(crate::domain::catalog::evidence::ScenarioDependency),
+    CatalogEvidenceInvocations(crate::domain::catalog::evidence::EvidenceInvocation),
+    CallableAspectSources(crate::domain::normalized::callable_aspects::AspectSource),
+    LocalSourceReceipt(crate::domain::analysis::local::SourceReceipt),
+    LocalProjectionInput(crate::domain::analysis::local::ProjectionInput),
+    BaseEvaluationSourceReceipt(crate::domain::analysis::base_evaluation::SourceReceipt),
+    BaseEvaluationProjectionInput(crate::domain::analysis::base_evaluation::ProjectionInput),
+    BaseCompletionSourceReceipt(crate::domain::analysis::base_completion::SourceReceipt),
+    BaseCompletionProjectionInput(crate::domain::analysis::base_completion::ProjectionInput),
+    SourceCallSourceReceipt(crate::domain::analysis::source_call::SourceReceipt),
+    SourceCallProjectionInput(crate::domain::analysis::source_call::ProjectionInput),
+    EnrichedSourceReceipt(crate::domain::analysis::enriched_execution::SourceReceipt),
+    EnrichedProjectionInput(crate::domain::analysis::enriched_execution::ProjectionInput),
+    ModelSourceReceipt(crate::domain::analysis::model::SourceReceipt),
+    ModelProjectionInput(crate::domain::analysis::model::ProjectionInput),
+    SummarySourceReceipt(crate::domain::analysis::summary::SourceReceipt),
+    SummaryProjectionInput(crate::domain::analysis::summary::ProjectionInput),
+    StructuralSourceReceipt(crate::domain::analysis::structural::SourceReceipt),
+    StructuralProjectionInput(crate::domain::analysis::structural::ProjectionInput),
+    AnalyticEmbeddingSourceReceipt(crate::domain::analysis::analytic_embedding::SourceReceipt),
+    AnalyticEmbeddingProjectionInput(crate::domain::analysis::analytic_embedding::ProjectionInput),
+    AnalyticSourceReceipt(crate::domain::analysis::analytic::SourceReceipt),
+    AnalyticProjectionInput(crate::domain::analysis::analytic::ProjectionInput),
+    CatalogCoreSourceReceipt(crate::domain::analysis::catalog_core::SourceReceipt),
+    CatalogCoreProjectionInput(crate::domain::analysis::catalog_core::ProjectionInput),
+    CatalogEvidenceSourceReceipt(crate::domain::analysis::catalog_evidence::SourceReceipt),
+    CatalogEvidenceProjectionInput(crate::domain::analysis::catalog_evidence::ProjectionInput),
+    SelectionSourceReceipt(crate::domain::analysis::selection::SourceReceipt),
+    SelectionProjectionInput(crate::domain::analysis::selection::ProjectionInput),
+    SynthesisSourceReceipt(crate::domain::analysis::synthesis::SourceReceipt),
+    SynthesisProjectionInput(crate::domain::analysis::synthesis::ProjectionInput),
+    RetrievalSourceReceipt(crate::domain::analysis::retrieval::SourceReceipt),
+    RetrievalProjectionInput(crate::domain::analysis::retrieval::ProjectionInput),
     LocalControlSupports(crate::domain::transfer::local::ControlSupport),
     LocalTransferSelections(crate::domain::transfer::local::Selection),
 
@@ -152,6 +221,372 @@ pub enum ClaimValue {
 impl Key for ClaimValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::CatalogCallableAspects(row) => {
+                sink.part(b"semantic-type", <crate::domain::catalog::CatalogCallableAspect as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::StructuralArcSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::structural::records::ArcSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::StructuralStepEvidence(row) => {
+                sink.part(b"semantic-type", <crate::domain::structural::records::StepEvidence as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::StructuralPathSteps(row) => {
+                sink.part(b"semantic-type", <crate::domain::structural::records::PathStep as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::StructuralArgumentFlows(row) => {
+                sink.part(b"semantic-type", <crate::domain::structural::controls::ArgumentFlow as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::StructuralControlSteps(row) => {
+                sink.part(b"semantic-type", <crate::domain::structural::controls::ControlStep as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseEvaluationSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::records::EvaluationSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseEvaluationMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::records::EvaluationMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseEvaluationOperands(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::records::EvaluationOperand as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseCompletionSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::completion_records::CompletionSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseCompletionMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::completion_records::CompletionMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseEnteredStatements(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::completion_records::EnteredStatement as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ModeledCallArguments(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::modeled_call::ModeledCallArgument as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ModeledCallNativePremises(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::modeled_call::ModeledCallNative as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseSourceBodySources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::body_records::BodySource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseSourceBodyMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::body_records::BodyMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::BaseSourceBodyReleaseInputs(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::body_records::BodyReleaseInput as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SummaryClaimRefutationCoverage(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::summary_consequences::ClaimRefutationCoverage as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::DefinitionEvaluationSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::definition::DefinitionSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::DefinitionEvaluationMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::definition::DefinitionMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ContextExecutionSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::context_execution::ContextSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ContextExecutionMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::context_execution::ContextMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ExecutionSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::ExecutionSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ExecutionMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::ExecutionMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ExecutionEnteredStatements(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::EnteredStatement as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ExecutionBodySources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::BodySource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ExecutionBodyMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::BodyMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ExecutionBodyReleaseInputs(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::BodyReleaseInput as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SourceExecutionArguments(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::SourceExecutionArgument as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ContextEntryBindingSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::context_binding::BindingSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::ContextEntryBindingMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::context_binding::BindingMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SourceCallHeaderMembers(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::source_call_records::HeaderMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SourceFrameArguments(row) => {
+                sink.part(b"semantic-type", <crate::domain::execution::source_call_records::SourceFrameArgument as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::SummaryTransferContributions(row) => {
+                sink.part(b"semantic-type", <crate::domain::transfer::summary::SummaryContribution as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CallableAspects(row) => {
+                sink.part(b"semantic-type", <crate::domain::normalized::callable_aspects::CallableAspect as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogSetupDependencies(row) => {
+                sink.part(b"semantic-type", <crate::domain::catalog::evidence::SetupDependency as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogScenarioDependencies(row) => {
+                sink.part(b"semantic-type", <crate::domain::catalog::evidence::ScenarioDependency as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogEvidenceInvocations(row) => {
+                sink.part(b"semantic-type", <crate::domain::catalog::evidence::EvidenceInvocation as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CallableAspectSources(row) => {
+                sink.part(b"semantic-type", <crate::domain::normalized::callable_aspects::AspectSource as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::LocalSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::local::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::LocalProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::local::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::BaseEvaluationSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::base_evaluation::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::BaseEvaluationProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::base_evaluation::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::BaseCompletionSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::base_completion::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::BaseCompletionProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::base_completion::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SourceCallSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::source_call::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SourceCallProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::source_call::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::EnrichedSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::enriched_execution::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::EnrichedProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::enriched_execution::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::ModelSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::model::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::ModelProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::model::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SummarySourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::summary::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SummaryProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::summary::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::StructuralSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::structural::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::StructuralProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::structural::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::AnalyticEmbeddingSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::analytic_embedding::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::AnalyticEmbeddingProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::analytic_embedding::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::AnalyticSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::analytic::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::AnalyticProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::analytic::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogCoreSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::catalog_core::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogCoreProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::catalog_core::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogEvidenceSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::catalog_evidence::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogEvidenceProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::catalog_evidence::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::selection::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SelectionProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::selection::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SynthesisSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::synthesis::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::SynthesisProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::synthesis::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::RetrievalSourceReceipt(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::retrieval::SourceReceipt as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
+            Self::RetrievalProjectionInput(row) => {
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::retrieval::ProjectionInput as Record>::NAME.as_bytes(),
+                );
+                row.content_digest().encode(sink);
+            }
             Self::LocalControlSupports(row) => {
                 sink.part(
                     b"semantic-type",
@@ -1104,6 +1539,75 @@ impl ClaimValue {
             Self::FlowCaptureCandidates(row) => row.validate(),
             Self::LocalAtomDecisions(row) => row.validate(),
             Self::FlowCallSteps(row) => row.validate(),
+            Self::LocalSourceReceipt(row) => row.validate(),
+            Self::LocalProjectionInput(row) => row.validate(),
+            Self::BaseEvaluationSourceReceipt(row) => row.validate(),
+            Self::BaseEvaluationProjectionInput(row) => row.validate(),
+            Self::BaseCompletionSourceReceipt(row) => row.validate(),
+            Self::BaseCompletionProjectionInput(row) => row.validate(),
+            Self::SourceCallSourceReceipt(row) => row.validate(),
+            Self::SourceCallProjectionInput(row) => row.validate(),
+            Self::EnrichedSourceReceipt(row) => row.validate(),
+            Self::EnrichedProjectionInput(row) => row.validate(),
+            Self::ModelSourceReceipt(row) => row.validate(),
+            Self::ModelProjectionInput(row) => row.validate(),
+            Self::SummarySourceReceipt(row) => row.validate(),
+            Self::SummaryProjectionInput(row) => row.validate(),
+            Self::StructuralSourceReceipt(row) => row.validate(),
+            Self::StructuralProjectionInput(row) => row.validate(),
+            Self::AnalyticEmbeddingSourceReceipt(row) => row.validate(),
+            Self::AnalyticEmbeddingProjectionInput(row) => row.validate(),
+            Self::AnalyticSourceReceipt(row) => row.validate(),
+            Self::AnalyticProjectionInput(row) => row.validate(),
+            Self::CatalogCoreSourceReceipt(row) => row.validate(),
+            Self::CatalogCoreProjectionInput(row) => row.validate(),
+            Self::CatalogEvidenceSourceReceipt(row) => row.validate(),
+            Self::CatalogEvidenceProjectionInput(row) => row.validate(),
+            Self::SelectionSourceReceipt(row) => row.validate(),
+            Self::SelectionProjectionInput(row) => row.validate(),
+            Self::SynthesisSourceReceipt(row) => row.validate(),
+            Self::SynthesisProjectionInput(row) => row.validate(),
+            Self::RetrievalSourceReceipt(row) => row.validate(),
+            Self::RetrievalProjectionInput(row) => row.validate(),
+            Self::CatalogCallableAspects(row) => row.validate(),
+            Self::StructuralArcSources(row) => row.validate(),
+            Self::StructuralStepEvidence(row) => row.validate(),
+            Self::StructuralPathSteps(row) => row.validate(),
+            Self::StructuralArgumentFlows(row) => row.validate(),
+            Self::StructuralControlSteps(row) => row.validate(),
+            Self::BaseEvaluationSources(row) => row.validate(),
+            Self::BaseEvaluationMembers(row) => row.validate(),
+            Self::BaseEvaluationOperands(row) => row.validate(),
+            Self::BaseCompletionSources(row) => row.validate(),
+            Self::BaseCompletionMembers(row) => row.validate(),
+            Self::BaseEnteredStatements(row) => row.validate(),
+            Self::ModeledCallArguments(row) => row.validate(),
+            Self::ModeledCallNativePremises(row) => row.validate(),
+            Self::BaseSourceBodySources(row) => row.validate(),
+            Self::BaseSourceBodyMembers(row) => row.validate(),
+            Self::BaseSourceBodyReleaseInputs(row) => row.validate(),
+            Self::SummaryClaimRefutationCoverage(row) => row.validate(),
+            Self::DefinitionEvaluationSources(row) => row.validate(),
+            Self::DefinitionEvaluationMembers(row) => row.validate(),
+            Self::ContextExecutionSources(row) => row.validate(),
+            Self::ContextExecutionMembers(row) => row.validate(),
+            Self::ExecutionSources(row) => row.validate(),
+            Self::ExecutionMembers(row) => row.validate(),
+            Self::ExecutionEnteredStatements(row) => row.validate(),
+            Self::ExecutionBodySources(row) => row.validate(),
+            Self::ExecutionBodyMembers(row) => row.validate(),
+            Self::ExecutionBodyReleaseInputs(row) => row.validate(),
+            Self::SourceExecutionArguments(row) => row.validate(),
+            Self::ContextEntryBindingSources(row) => row.validate(),
+            Self::ContextEntryBindingMembers(row) => row.validate(),
+            Self::SourceCallHeaderMembers(row) => row.validate(),
+            Self::SourceFrameArguments(row) => row.validate(),
+            Self::SummaryTransferContributions(row) => row.validate(),
+            Self::CallableAspects(row) => row.validate(),
+            Self::CatalogSetupDependencies(row) => row.validate(),
+            Self::CatalogScenarioDependencies(row) => row.validate(),
+            Self::CatalogEvidenceInvocations(row) => row.validate(),
+            Self::CallableAspectSources(row) => row.validate(),
             Self::ProjectionSourceAssessments(row) => row.validate(),
             Self::ProjectionGaps(row) => row.validate(),
             Self::ProjectionSourceCoverages(row) => row.validate(),
@@ -1244,6 +1748,75 @@ impl ClaimValue {
             Self::FlowCaptureCandidates(row) => row.references(),
             Self::LocalAtomDecisions(row) => row.references(),
             Self::FlowCallSteps(row) => row.references(),
+            Self::LocalSourceReceipt(row) => row.references(),
+            Self::LocalProjectionInput(row) => row.references(),
+            Self::BaseEvaluationSourceReceipt(row) => row.references(),
+            Self::BaseEvaluationProjectionInput(row) => row.references(),
+            Self::BaseCompletionSourceReceipt(row) => row.references(),
+            Self::BaseCompletionProjectionInput(row) => row.references(),
+            Self::SourceCallSourceReceipt(row) => row.references(),
+            Self::SourceCallProjectionInput(row) => row.references(),
+            Self::EnrichedSourceReceipt(row) => row.references(),
+            Self::EnrichedProjectionInput(row) => row.references(),
+            Self::ModelSourceReceipt(row) => row.references(),
+            Self::ModelProjectionInput(row) => row.references(),
+            Self::SummarySourceReceipt(row) => row.references(),
+            Self::SummaryProjectionInput(row) => row.references(),
+            Self::StructuralSourceReceipt(row) => row.references(),
+            Self::StructuralProjectionInput(row) => row.references(),
+            Self::AnalyticEmbeddingSourceReceipt(row) => row.references(),
+            Self::AnalyticEmbeddingProjectionInput(row) => row.references(),
+            Self::AnalyticSourceReceipt(row) => row.references(),
+            Self::AnalyticProjectionInput(row) => row.references(),
+            Self::CatalogCoreSourceReceipt(row) => row.references(),
+            Self::CatalogCoreProjectionInput(row) => row.references(),
+            Self::CatalogEvidenceSourceReceipt(row) => row.references(),
+            Self::CatalogEvidenceProjectionInput(row) => row.references(),
+            Self::SelectionSourceReceipt(row) => row.references(),
+            Self::SelectionProjectionInput(row) => row.references(),
+            Self::SynthesisSourceReceipt(row) => row.references(),
+            Self::SynthesisProjectionInput(row) => row.references(),
+            Self::RetrievalSourceReceipt(row) => row.references(),
+            Self::RetrievalProjectionInput(row) => row.references(),
+            Self::CatalogCallableAspects(row) => row.references(),
+            Self::StructuralArcSources(row) => row.references(),
+            Self::StructuralStepEvidence(row) => row.references(),
+            Self::StructuralPathSteps(row) => row.references(),
+            Self::StructuralArgumentFlows(row) => row.references(),
+            Self::StructuralControlSteps(row) => row.references(),
+            Self::BaseEvaluationSources(row) => row.references(),
+            Self::BaseEvaluationMembers(row) => row.references(),
+            Self::BaseEvaluationOperands(row) => row.references(),
+            Self::BaseCompletionSources(row) => row.references(),
+            Self::BaseCompletionMembers(row) => row.references(),
+            Self::BaseEnteredStatements(row) => row.references(),
+            Self::ModeledCallArguments(row) => row.references(),
+            Self::ModeledCallNativePremises(row) => row.references(),
+            Self::BaseSourceBodySources(row) => row.references(),
+            Self::BaseSourceBodyMembers(row) => row.references(),
+            Self::BaseSourceBodyReleaseInputs(row) => row.references(),
+            Self::SummaryClaimRefutationCoverage(row) => row.references(),
+            Self::DefinitionEvaluationSources(row) => row.references(),
+            Self::DefinitionEvaluationMembers(row) => row.references(),
+            Self::ContextExecutionSources(row) => row.references(),
+            Self::ContextExecutionMembers(row) => row.references(),
+            Self::ExecutionSources(row) => row.references(),
+            Self::ExecutionMembers(row) => row.references(),
+            Self::ExecutionEnteredStatements(row) => row.references(),
+            Self::ExecutionBodySources(row) => row.references(),
+            Self::ExecutionBodyMembers(row) => row.references(),
+            Self::ExecutionBodyReleaseInputs(row) => row.references(),
+            Self::SourceExecutionArguments(row) => row.references(),
+            Self::ContextEntryBindingSources(row) => row.references(),
+            Self::ContextEntryBindingMembers(row) => row.references(),
+            Self::SourceCallHeaderMembers(row) => row.references(),
+            Self::SourceFrameArguments(row) => row.references(),
+            Self::SummaryTransferContributions(row) => row.references(),
+            Self::CallableAspects(row) => row.references(),
+            Self::CatalogSetupDependencies(row) => row.references(),
+            Self::CatalogScenarioDependencies(row) => row.references(),
+            Self::CatalogEvidenceInvocations(row) => row.references(),
+            Self::CallableAspectSources(row) => row.references(),
             Self::ProjectionSourceAssessments(row) => row.references(),
             Self::ProjectionGaps(row) => row.references(),
             Self::ProjectionSourceCoverages(row) => row.references(),
@@ -1384,6 +1957,75 @@ impl ClaimValue {
             Self::FlowCaptureCandidates(row) => SemanticKey::of(row.id()),
             Self::LocalAtomDecisions(row) => SemanticKey::of(row.id()),
             Self::FlowCallSteps(row) => SemanticKey::of(row.id()),
+            Self::LocalSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::LocalProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::BaseEvaluationSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::BaseEvaluationProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::BaseCompletionSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::BaseCompletionProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::SourceCallSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::SourceCallProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::EnrichedSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::EnrichedProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::ModelSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::ModelProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::SummarySourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::SummaryProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::StructuralSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::StructuralProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::AnalyticEmbeddingSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::AnalyticEmbeddingProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::AnalyticSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::AnalyticProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::CatalogCoreSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::CatalogCoreProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::CatalogEvidenceSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::CatalogEvidenceProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::SelectionSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::SelectionProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::SynthesisSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::SynthesisProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::RetrievalSourceReceipt(row) => SemanticKey::of(row.id()),
+            Self::RetrievalProjectionInput(row) => SemanticKey::of(row.id()),
+            Self::CatalogCallableAspects(row) => SemanticKey::of(row.id()),
+            Self::StructuralArcSources(row) => SemanticKey::of(row.id()),
+            Self::StructuralStepEvidence(row) => SemanticKey::of(row.id()),
+            Self::StructuralPathSteps(row) => SemanticKey::of(row.id()),
+            Self::StructuralArgumentFlows(row) => SemanticKey::of(row.id()),
+            Self::StructuralControlSteps(row) => SemanticKey::of(row.id()),
+            Self::BaseEvaluationSources(row) => SemanticKey::of(row.id()),
+            Self::BaseEvaluationMembers(row) => SemanticKey::of(row.id()),
+            Self::BaseEvaluationOperands(row) => SemanticKey::of(row.id()),
+            Self::BaseCompletionSources(row) => SemanticKey::of(row.id()),
+            Self::BaseCompletionMembers(row) => SemanticKey::of(row.id()),
+            Self::BaseEnteredStatements(row) => SemanticKey::of(row.id()),
+            Self::ModeledCallArguments(row) => SemanticKey::of(row.id()),
+            Self::ModeledCallNativePremises(row) => SemanticKey::of(row.id()),
+            Self::BaseSourceBodySources(row) => SemanticKey::of(row.id()),
+            Self::BaseSourceBodyMembers(row) => SemanticKey::of(row.id()),
+            Self::BaseSourceBodyReleaseInputs(row) => SemanticKey::of(row.id()),
+            Self::SummaryClaimRefutationCoverage(row) => SemanticKey::of(row.id()),
+            Self::DefinitionEvaluationSources(row) => SemanticKey::of(row.id()),
+            Self::DefinitionEvaluationMembers(row) => SemanticKey::of(row.id()),
+            Self::ContextExecutionSources(row) => SemanticKey::of(row.id()),
+            Self::ContextExecutionMembers(row) => SemanticKey::of(row.id()),
+            Self::ExecutionSources(row) => SemanticKey::of(row.id()),
+            Self::ExecutionMembers(row) => SemanticKey::of(row.id()),
+            Self::ExecutionEnteredStatements(row) => SemanticKey::of(row.id()),
+            Self::ExecutionBodySources(row) => SemanticKey::of(row.id()),
+            Self::ExecutionBodyMembers(row) => SemanticKey::of(row.id()),
+            Self::ExecutionBodyReleaseInputs(row) => SemanticKey::of(row.id()),
+            Self::SourceExecutionArguments(row) => SemanticKey::of(row.id()),
+            Self::ContextEntryBindingSources(row) => SemanticKey::of(row.id()),
+            Self::ContextEntryBindingMembers(row) => SemanticKey::of(row.id()),
+            Self::SourceCallHeaderMembers(row) => SemanticKey::of(row.id()),
+            Self::SourceFrameArguments(row) => SemanticKey::of(row.id()),
+            Self::SummaryTransferContributions(row) => SemanticKey::of(row.id()),
+            Self::CallableAspects(row) => SemanticKey::of(row.id()),
+            Self::CatalogSetupDependencies(row) => SemanticKey::of(row.id()),
+            Self::CatalogScenarioDependencies(row) => SemanticKey::of(row.id()),
+            Self::CatalogEvidenceInvocations(row) => SemanticKey::of(row.id()),
+            Self::CallableAspectSources(row) => SemanticKey::of(row.id()),
             Self::ProjectionSourceAssessments(row) => SemanticKey::of(row.id()),
             Self::ProjectionGaps(row) => SemanticKey::of(row.id()),
             Self::ProjectionSourceCoverages(row) => SemanticKey::of(row.id()),

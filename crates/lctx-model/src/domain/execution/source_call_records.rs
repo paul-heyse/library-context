@@ -34,7 +34,7 @@ pub struct SourceCallHeader {
     pub status: EvidenceStatus,
     pub premises: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="source_call_header_members",rule="source_call_header_premise",conclusion=header)]
 pub struct HeaderMember {
     #[model(key)]
@@ -97,7 +97,7 @@ pub struct SourceFrameRelease {
     pub arguments: ContentHash,
     pub release: super::evaluation::ReleaseSafety,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="source_frame_arguments",rule="source_frame_argument",conclusion=release,invariant_refs=release_fidelity_refs)]
 pub struct SourceFrameArgument {
     #[model(key)]

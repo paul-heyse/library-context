@@ -91,7 +91,7 @@ pub struct ScenarioSpan {
     pub role: SpanRole,
     pub source: Id<OriginalSource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_setup_dependencies")]
 pub enum SetupDependency {
     #[model(code = 0)]
@@ -115,7 +115,7 @@ pub enum SetupDependency {
     #[model(code = 6)]
     TestEnvironment { artifact: Id<SourceArtifact> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_scenario_dependencies")]
 pub struct ScenarioDependency {
     #[model(key)]
@@ -261,7 +261,7 @@ pub struct EvidenceRoot {
     #[model(key)]
     pub subject: Id<RootSubject>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_evidence_invocations",invariant_refs=build::invocation_invariants_refs)]
 pub struct EvidenceInvocation {
     #[model(key)]

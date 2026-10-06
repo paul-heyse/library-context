@@ -42,7 +42,7 @@ impl From<super::outcome::PendingOutcome> for ExecutionOutcome {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "execution_sources", rule = "execution_source")]
 pub enum ExecutionSource {
     #[model(code = 0)]
@@ -110,7 +110,7 @@ pub struct StatementExecution {
     pub sources: ContentHash,
     pub entered: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="execution_members",rule="execution_member",conclusion=execution)]
 pub struct ExecutionMember {
     #[model(key)]
@@ -120,7 +120,7 @@ pub struct ExecutionMember {
     #[model(premise)]
     pub source: Id<ExecutionSource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "execution_entered_statements")]
 pub struct EnteredStatement {
     #[model(key)]
@@ -263,7 +263,7 @@ pub(crate) fn emit_statement(
         _charge: charge,
     })
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "execution_body_sources", rule = "execution_body_source")]
 pub enum BodySource {
     #[model(code = 0)]
@@ -291,7 +291,7 @@ pub struct BodyExecution {
     pub sources: ContentHash,
     pub releases: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="execution_body_members",rule="execution_body_member",conclusion=body)]
 pub struct BodyMember {
     #[model(key)]
@@ -301,7 +301,7 @@ pub struct BodyMember {
     #[model(premise)]
     pub source: Id<BodySource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "execution_body_release_inputs")]
 pub struct BodyReleaseInput {
     #[model(key)]
@@ -476,7 +476,7 @@ impl analysis::support::DerivedEvidence for SourceExecutionInvocation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="source_execution_arguments",rule="source_execution_argument",conclusion=call)]
 pub struct SourceExecutionArgument {
     #[model(key)]

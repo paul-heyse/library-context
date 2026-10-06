@@ -105,7 +105,7 @@ pub struct Path {
     pub ordinal: i64,
     pub length: i64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_arc_sources")]
 pub enum ArcSource {
     #[model(code = 0)]
@@ -119,7 +119,7 @@ pub enum ArcSource {
     #[model(code = 2)]
     SourceDefinition { ownership: Id<OccurrenceOwnership> },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_step_evidence")]
 pub enum StepEvidence {
     #[model(code = 0)]
@@ -138,7 +138,7 @@ pub enum StepEvidence {
         callable: Id<CallableEntity>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_path_steps")]
 pub struct PathStep {
     #[model(key)]

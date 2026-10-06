@@ -25,7 +25,7 @@ pub struct DefinitionEvaluation {
     pub status: EvidenceStatus,
     pub defaults: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(
     name = "definition_evaluation_sources",
     rule = "definition_evaluation_source"
@@ -42,7 +42,7 @@ pub enum DefinitionSource {
         evaluation: Id<super::records::ExpressionEvaluation>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="definition_evaluation_members",rule="definition_evaluation_member",conclusion=definition)]
 pub struct DefinitionMember {
     #[model(key)]

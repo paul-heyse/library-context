@@ -5,7 +5,7 @@ use crate::domain::{
     stages::*,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="embedding_service_configurations",validate=validate_service)]
 pub struct ServiceConfiguration {
     #[model(key)]

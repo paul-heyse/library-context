@@ -15,7 +15,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainSum};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "base_evaluation_sources", rule = "base_evaluation_source")]
 pub enum EvaluationSource {
     #[model(code = 0)]
@@ -44,7 +44,7 @@ pub struct ExpressionEvaluation {
     pub sources: ContentHash,
     pub operands: ContentHash,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="base_evaluation_members",rule="base_evaluation_premise",conclusion=evaluation)]
 pub struct EvaluationMember {
     #[model(key)]
@@ -54,7 +54,7 @@ pub struct EvaluationMember {
     #[model(premise)]
     pub source: Id<EvaluationSource>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "base_evaluation_operands")]
 pub struct EvaluationOperand {
     #[model(key)]

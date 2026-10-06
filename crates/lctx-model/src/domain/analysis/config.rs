@@ -164,7 +164,7 @@ pub enum AnalysisChannel {
 }
 /// Early immutable reference to the existing projection owner's finite meaning. This contains no
 /// late assessment or snapshot target, so preparation can precede the normalized checkpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="analysis_projection_definitions",validate=validate_projection_definition)]
 pub struct ProjectionDefinition {
     #[model(key)]

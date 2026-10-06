@@ -30,7 +30,7 @@ pub enum AspectKind {
 pub enum AspectAdmission {
     MetadataOnly = 0,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "callable_aspect_sources")]
 pub enum AspectSource {
     #[model(code = 0)]
@@ -53,7 +53,7 @@ pub enum AspectSource {
         argument: Option<Id<CallArgument>>,
     },
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="callable_aspects",invariant_refs=invariants_refs)]
 pub struct CallableAspect {
     #[model(key)]

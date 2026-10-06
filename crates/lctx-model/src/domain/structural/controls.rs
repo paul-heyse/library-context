@@ -37,7 +37,7 @@ macro_rules! inputs {($($f:ident:$ty:ty,)*)=>{
  impl Data {pub fn new(b:&resources::ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}}
 };}
 crate::structural_control_inputs!(inputs);
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_argument_flows")]
 pub struct ArgumentFlow {
     #[model(key)]
@@ -117,7 +117,7 @@ pub struct ControlPath {
     pub may_suppress: bool,
     pub length: i64,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_control_steps")]
 pub struct ControlStep {
     #[model(key)]

@@ -1,7 +1,7 @@
 use crate::domain::analysis::sources::{CapturedSources,SourceSnapshot};
-/// Audit snapshots emitted only from actual declared R0 sources. Fields stay private; decoding
-/// arbitrary raw store rows still cannot bypass the declaration-owned publication check.
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+/// Identity-bearing snapshots of actual declared stage sources. Canonical transport is neutral;
+/// declaration-owned invocation membership checks remain required after decoding.
+#[derive(Debug,Clone,PartialEq,Eq,Domain,serde::Serialize,serde::Deserialize)]
 #[model(name=owner_table!("source_receipts"),validate=validate_source_receipt)]
 pub struct SourceReceipt {
     #[model(key)] pub invocation:Id<AnalysisInvocation>,
@@ -18,7 +18,7 @@ impl SourceReceipt {
     pub fn source(&self)->SourceSnapshot {self.snapshot()}
 }
 fn validate_source_receipt(row:&SourceReceipt)->Result<(),ModelError> {if row.relation.is_empty() || row.producer.is_empty() || row.rows<0 {return Err(invalid("source receipt has invalid metadata"));}Ok(())}
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[derive(Debug,Clone,PartialEq,Eq,Domain,serde::Serialize,serde::Deserialize)]
 #[model(name=owner_table!("projection_inputs"),rule="analysis_projection_input",conclusion=invocation)]
 pub struct ProjectionInput {#[model(key)] pub invocation:Id<AnalysisInvocation>,#[model(key,premise)] pub projection:Id<ProjectionDefinition>}
 fn projection_digest(values:&std::collections::BTreeSet<Id<ProjectionDefinition>>)->ContentHash {let mut sink=KeySink::new("analysis-projection-inputs");for value in values {value.encode(&mut sink);}sink.finish()}
