@@ -729,10 +729,22 @@ pub fn normalize(
     }
     Ok(out)
 }
+/// Canonical projection meaning and lineage are portable independently of a serialized graph.
+pub fn validate_canonical(
+    data: &ProjectionData, stored: &ProjectionOutput, budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    validate_inner(data, stored, budget, false)
+}
 pub fn validate(
     data: &ProjectionData,
     stored: &ProjectionOutput,
     budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    validate_inner(data, stored, budget, true)
+}
+fn validate_inner(
+    data: &ProjectionData, stored: &ProjectionOutput, budget: &ResourceBudget,
+    snapshots: bool,
 ) -> Result<(), ModelError> {
     let index = Index::new(data, budget)?;
     let mut expected = ProjectionOutput::new(budget);
@@ -749,6 +761,7 @@ pub fn validate(
         for row in input.coverage.iter() {
             expected.coverage.insert(row.clone())?;
         }
+        if snapshots {
         let header = stored
             .snapshots
             .iter()
@@ -757,16 +770,17 @@ pub fn validate(
         let graph = snapshot::hydrate(header, &assessment, &stored.chunks, budget)?;
         graph.matches(&input)?;
         expected.snapshots.insert(header.clone())?;
+        }
     }
     if !stored.assessments.same(&expected.assessments)
         || !stored.subjects.same(&expected.subjects)
         || !stored.gaps.same(&expected.gaps)
         || !stored.coverage.same(&expected.coverage)
-        || !stored.snapshots.same(&expected.snapshots)
+        || (snapshots && !stored.snapshots.same(&expected.snapshots))
     {
         return Err(invalid("projection source closure differs"));
     }
-    for chunk in stored.chunks.iter() {
+    for chunk in stored.chunks.iter().filter(|_| snapshots) {
         if stored.snapshots.get(chunk.snapshot).is_none() {
             return Err(invalid("orphan graph chunk"));
         }
@@ -774,23 +788,38 @@ pub fn validate(
     Ok(())
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = ProjectionData::validation_inputs();
-    inputs.extend(ProjectionOutput::validation_inputs());
+    let mut canonical = ProjectionData::validation_inputs();
+    canonical.extend(ProjectionOutput::validation_inputs().into_iter().filter(|input| {
+        input.type_id() != std::any::TypeId::of::<ProjectionSnapshot>()
+            && input.type_id() != std::any::TypeId::of::<ProjectionSnapshotChunk>()
+    }));
+    let mut all = canonical.clone();
+    all.extend([
+        ValidationInput::of::<ProjectionSnapshot>(&["id"]),
+        ValidationInput::of::<ProjectionSnapshotChunk>(&["id"]),
+    ]);
     vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
+        revision: 1,
+        name: "normalized_projection_canonical",
+        purpose: InvariantPurpose::Admission,
+        inputs: canonical,
+        create: std::sync::Arc::new(|budget| Box::new(Check {
+            data: ProjectionData::new(budget), output: ProjectionOutput::new(budget),
+            snapshots: false, budget: budget.clone(),
+        })),
+    }, Invariant {
         revision: 1,
         name: "normalized_projection_closure",
-        inputs,
-        create: std::sync::Arc::new(|budget| {
-            Box::new(Check {
-                data: ProjectionData::new(budget),
-                output: ProjectionOutput::new(budget),
-                budget: budget.clone(),
-            })
-        }),
+        purpose: InvariantPurpose::Admission,
+        inputs: all,
+        create: std::sync::Arc::new(|budget| Box::new(Check {
+            data: ProjectionData::new(budget), output: ProjectionOutput::new(budget),
+            snapshots: true, budget: budget.clone(),
+        })),
     }]
 }
 struct Check {
+    snapshots: bool,
     data: ProjectionData,
     output: ProjectionOutput,
     budget: ResourceBudget,
@@ -807,7 +836,7 @@ impl InvariantCheck for Check {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        validate(&self.data, &self.output, &self.budget)
+        validate_inner(&self.data, &self.output, &self.budget, self.snapshots)
     }
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {
@@ -1162,5 +1191,30 @@ mod tests {
             .unwrap();
         drop((input, graph, encoded, chunks));
         assert_eq!(budget.reserved(), 0);
+    }
+}
+
+/// Canonical records require their portable named meaning, without old physical graph bytes.
+pub(crate) fn canonical_invariants_refs() -> Vec<&'static str> {
+    vec!["normalized_projection_canonical"]
+}
+#[cfg(test)]
+mod canonical_admission_controls {
+    use super::*;
+    fn nominal<T>(byte: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+    }
+    #[test]
+    fn portable_metadata_has_no_serialized_graph_dependency_and_refuses_foreign_domain() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let data = ProjectionData::new(&budget);
+        let mut output = ProjectionOutput::new(&budget);
+        validate_canonical(&data, &output, &budget).unwrap();
+        let descriptor = invariants().into_iter().find(|check| check.name == "normalized_projection_canonical").unwrap();
+        assert!(!descriptor.inputs.iter().any(|input| input.type_id() == std::any::TypeId::of::<ProjectionSnapshotChunk>() || input.type_id() == std::any::TypeId::of::<ProjectionSnapshot>()));
+        output.assessments.insert(ProjectionSourceAssessment { input: nominal(1), context: nominal(2), projection: ProjectionName::CallableInvocation,
+            version: ProjectionSpec::VERSION, vertices: 0, arcs: 0, gaps: 0,
+            availability: ProjectionAvailability::CompleteUnderStatedModel }).unwrap();
+        assert!(validate_canonical(&data, &output, &budget).is_err());
     }
 }

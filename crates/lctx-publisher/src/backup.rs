@@ -2,7 +2,7 @@
 use crate::{PrivatePublication, abandon, begin, seal};
 use lctx_model::domain::{
     Infrastructure, ModelError,
-    graph::{Assertion, Entity, Manifest, semantic_contract},
+    graph::{Assertion, Entity, Manifest, Target, semantic_contract},
     serving::SnapshotHandle,
 };
 use lctx_surrealdb::surrealdb::{
@@ -238,6 +238,11 @@ async fn copy(
     native_definitions: &str,
 ) -> Result<(), ModelError> {
     fresh.loader.install(native_definitions).await?;
+    let runtime = cpg_core::workspace::Workspace::new(
+        std::sync::Arc::new(lctx_model::domain::model()?),
+        cpg_core::workspace::WorkspaceOptions::default(),
+    )?;
+    let admission = cpg_core::artifact::SemanticImport::new(&runtime, manifest)?;
     // Two passes: materialize every endpoint before constructing native role/reference arcs.
     for references in [false, true] {
         let mut after = RecordId::new("entity", "");
@@ -249,6 +254,7 @@ async fn copy(
             if references {
                 fresh.loader.entity_references(&rows).await?
             } else {
+                for row in &rows { admission.entity(row.clone())?; }
                 fresh.loader.entities(&rows).await?
             }
             after = last;
@@ -262,6 +268,7 @@ async fn copy(
             if references {
                 fresh.loader.assertion_references(&rows).await?
             } else {
+                for row in &rows { admission.assertion(row.clone())?; }
                 fresh.loader.assertions(&rows).await?
             }
             after = last;
@@ -292,6 +299,14 @@ async fn copy(
             start += length as u64;
         }
         file.rewind().map_err(ModelError::codec)?;
+        let mut bindings = Variables::new();
+        bindings.insert("source", lctx_surrealdb::reader::target_id(Target::Entity(original.source)));
+        let headers: Vec<Bytes> = source.query("SELECT VALUE canonical FROM entity WHERE id=$source", bindings).await?;
+        let entity: Entity = serde_json::from_slice(headers.first().filter(|_| headers.len() == 1)
+            .ok_or(ModelError::Schema("restored original source"))?).map_err(ModelError::codec)?;
+        let Entity::Source(header) = entity else { return Err(ModelError::Schema("restored original source")); };
+        admission.original_stream(&header, &mut file)?;
+        file.rewind().map_err(ModelError::codec)?;
         fresh
             .loader
             .original_stream(
@@ -302,6 +317,7 @@ async fn copy(
             )
             .await?;
     }
+    admission.finish(manifest).await?;
     crate::materialize_search(&fresh.loader).await?;
     fresh.loader.reconcile(manifest).await
 }
@@ -354,6 +370,7 @@ pub async fn retire(
     if handle.database.namespace != config.namespace {
         return Err(ModelError::Conflict("retirement namespace"));
     }
+    let _guard = config.lock_selection().await?;
     let database = handle.database.database.as_str();
     let suffix = database
         .strip_prefix("snapshot_")

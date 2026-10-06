@@ -12,7 +12,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 use futures::TryStreamExt;
-use lctx_model::domain::{ContentHash, HeapSize, ModelError, Record, graph::*};
+use lctx_model::domain::{ContentHash, HeapSize, ModelError, Record, Relation, graph::*};
 use lctx_model::domain::{charged::StateCharge, resources::ResourceBudget};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -850,13 +850,26 @@ pub struct SemanticImport {
     output: crate::workspace::ProducerOutput,
 }
 impl SemanticImport {
-    pub fn new(runtime: &Arc<Workspace>, profile: lctx_model::domain::stages::Profile) -> Result<Self, ModelError> {
+    pub fn new(runtime: &Arc<Workspace>, manifest: &Manifest) -> Result<Self, ModelError> {
+        use lctx_model::domain::admission::Frontier;
+        let profile = manifest.profile;
+        let declarations = match manifest.frontier {
+            Frontier::Facts => lctx_model::domain::facts_relations(),
+            Frontier::Normalized => lctx_model::domain::normalized_relations(),
+            Frontier::Analysis => lctx_model::domain::analysis_frontier_relations(),
+            Frontier::Catalog => lctx_model::domain::catalog_frontier_relations(),
+            Frontier::Conformance => return Err(ModelError::Frontier("diagnostic import is not a complete artifact".into())),
+        };
+        let names = declarations.iter().map(Relation::name).collect::<BTreeSet<_>>();
         let workspace = Workspace::with_budget(runtime.model().clone(), runtime.options(), runtime.budget().clone())?;
         let output = workspace.output("detached-semantic-import", profile,
             lctx_model::domain::implementation_digest(), workspace.inputs("detached-semantic-import", profile, [])?);
-        macro_rules! declare { ($($variant:ident:$ty:path),* $(,)?) => {$(output.declare::<$ty>()?;)*}; }
+        macro_rules! declare { ($($variant:ident:$ty:path),* $(,)?) => {$(if names.contains(<$ty>::NAME) { output.declare::<$ty>()?; })*}; }
         lctx_model::graph_entity_records!(declare);
         lctx_model::graph_assertion_records!(declare);
+        // Original bytes are retained semantic inputs. Their model chunking is reconstructed
+        // mechanically from the validated byte stream, independent of transport framing.
+        output.declare::<lctx_model::domain::artifact::ArtifactChunk>()?;
         Ok(Self { workspace, output })
     }
     pub fn entity(&self, value: Entity) -> Result<(), ModelError> {
@@ -881,6 +894,28 @@ impl SemanticImport {
     lctx_model::graph_assertion_records!(push_assertion);
         assertion(&self.output, value)
     }
+    pub fn original_stream(&self, source: &lctx_model::domain::source::SourceArtifact, input: &mut impl std::io::Read) -> Result<(), ModelError> {
+        use lctx_model::domain::artifact::{ArtifactChunk, ArtifactVerifier, ARTIFACT_CHUNK_BYTES};
+        let _buffer = self.workspace.budget().reserve("detached-original-transfer", ARTIFACT_CHUNK_BYTES.saturating_mul(3))?;
+        let mut buffer = vec![0u8; ARTIFACT_CHUNK_BYTES];
+        let mut verifier = ArtifactVerifier::new(source)?;
+        let mut ordinal = 0;
+        loop {
+            self.workspace.cancellation().check()?;
+            let mut count = 0;
+            while count < buffer.len() {
+                let next = input.read(&mut buffer[count..]).map_err(ModelError::codec)?;
+                if next == 0 { break; }
+                count += next;
+            }
+            if count == 0 { break; }
+            let chunk = ArtifactChunk { artifact: source.id(), ordinal, body: lctx_model::domain::EvidenceBytes(buffer[..count].to_vec()) };
+            verifier.push(&chunk)?;
+            self.output.push_sync(chunk)?;
+            ordinal += 1;
+        }
+        verifier.finish()
+    }
     pub async fn finish(self, manifest: &Manifest) -> Result<(), ModelError> {
         self.output.finish(lctx_model::domain::stages::ProviderOutcome::Complete).await?;
         self.workspace.facts_availability(manifest.profile)?;
@@ -891,7 +926,7 @@ impl SemanticImport {
 }
 
 async fn readmit_detached(path: &Path, manifest: &Manifest, runtime: &Arc<Workspace>) -> Result<(), ModelError> {
-    let admission = SemanticImport::new(runtime, manifest.profile)?;
+    let admission = SemanticImport::new(runtime, manifest)?;
     for (file, entities) in [("entities.arrow", true), ("assertions.arrow", false)] {
         let reader = datafusion::arrow::ipc::reader::FileReader::try_new(File::open(path.join(file)).map_err(ModelError::codec)?, None).map_err(ModelError::codec)?;
         for batch in reader {
@@ -900,7 +935,14 @@ async fn readmit_detached(path: &Path, manifest: &Manifest, runtime: &Arc<Worksp
             let _decode = runtime.budget().reserve("detached-semantic-decode", lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(4))?;
             let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().ok_or(ModelError::Schema("graph artifact"))?;
             for index in 0..batch.num_rows() {
-                if entities { admission.entity( serde_json::from_slice(payloads.value(index)).map_err(ModelError::codec)?)?; }
+                if entities {
+                    let entity: Entity = serde_json::from_slice(payloads.value(index)).map_err(ModelError::codec)?;
+                    if let Entity::Source(source) = &entity {
+                        let mut original = File::open(path.join(format!("original-{}.bin", EntityId::of(source.id()).0.hex()))).map_err(ModelError::codec)?;
+                        admission.original_stream(source, &mut original)?;
+                    }
+                    admission.entity(entity)?;
+                }
                 else { admission.assertion( serde_json::from_slice(payloads.value(index)).map_err(ModelError::codec)?)?; }
             }
         }

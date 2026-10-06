@@ -245,7 +245,7 @@ pub enum ProjectionGapReason {
     OverrideDispatch = 10,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name = "projection_source_assessments", invariant_refs = normalization::invariants_refs)]
+#[model(name = "projection_source_assessments", invariant_refs = normalization::canonical_invariants_refs)]
 pub struct ProjectionSourceAssessment {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -261,7 +261,7 @@ pub struct ProjectionSourceAssessment {
     pub availability: ProjectionAvailability,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
-#[model(name = "projection_gap_subjects")]
+#[model(name = "projection_gap_subjects", invariant_refs = normalization::canonical_invariants_refs)]
 pub enum ProjectionGapSubject {
     #[model(code = 0)]
     Event { event: Id<NormalizedCallEvent> },
@@ -290,7 +290,7 @@ pub enum ProjectionGapSubject {
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name = "projection_gaps")]
+#[model(name = "projection_gaps", invariant_refs = normalization::canonical_invariants_refs)]
 pub struct ProjectionGap {
     #[model(key)]
     pub assessment: Id<ProjectionSourceAssessment>,
@@ -300,7 +300,7 @@ pub struct ProjectionGap {
     pub reason: ProjectionGapReason,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name = "projection_source_coverage")]
+#[model(name = "projection_source_coverage", invariant_refs = normalization::canonical_invariants_refs)]
 pub struct ProjectionSourceCoverage {
     #[model(key)]
     pub assessment: Id<ProjectionSourceAssessment>,
@@ -308,7 +308,7 @@ pub struct ProjectionSourceCoverage {
     pub coverage: Id<ProviderCoverage>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "projection_snapshots", validate = snapshot::validate_header)]
+#[model(name = "projection_snapshots", validate = snapshot::validate_header, invariant_refs = normalization::invariants_refs)]
 pub struct ProjectionSnapshot {
     #[model(key)]
     pub assessment: Id<ProjectionSourceAssessment>,
@@ -319,7 +319,7 @@ pub struct ProjectionSnapshot {
     pub chunks: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "projection_snapshot_chunks", validate = snapshot::validate_chunk)]
+#[model(name = "projection_snapshot_chunks", validate = snapshot::validate_chunk, invariant_refs = normalization::invariants_refs)]
 pub struct ProjectionSnapshotChunk {
     #[model(key)]
     pub snapshot: Id<ProjectionSnapshot>,

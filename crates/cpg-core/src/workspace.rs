@@ -339,11 +339,12 @@ impl Workspace {
             .iter()
             .map(|r| r.name())
             .collect::<std::collections::BTreeSet<_>>();
-        let inputs = self.inputs(
-            "artifact-admission",
-            profile,
-            names.iter().copied(),
-        )?;
+        // A checked dependency closure retains its selected publication epochs.
+        // Reconstructing this set by name would silently substitute the latest stream.
+        let inputs = match selected {
+            Some(inputs) => inputs.clone(),
+            None => self.inputs("artifact-admission", profile, names.iter().copied())?,
+        };
         let session = inputs.session(self).await?;
         self.validate_references(&session, &relations).await?;
         // Catalog explicitly leaves native flow unrequested. Empty premises come from that
@@ -379,7 +380,12 @@ impl Workspace {
                 }
             }
         }
-        let frozen_tables = self.validation_views(&session).await?;
+        let frozen_tables = match selected {
+            Some(inputs) => inputs.relations.keys().filter_map(|(name, prefix)| {
+                prefix.map(|boundary| ((boundary, *name), CompletedInputs::table(name, Some(boundary))))
+            }).collect(),
+            None => self.validation_views(&session).await?,
+        };
         let checks = if admission {
             self.model.admission_for_scope_with_premises(&names, &unrequested)?
         } else {
@@ -394,7 +400,13 @@ impl Workspace {
                     .map(|name| format!("\"{name}\""))
                     .collect::<Vec<_>>()
                     .join(",");
-                let table = Self::validation_table(input, &frozen_tables)?;
+                let selected_table;
+                let table = if unrequested.contains(input.name()) {
+                    input.name()
+                } else if let Some(inputs) = selected {
+                    selected_table = inputs.validation_table(input)?;
+                    selected_table.as_str()
+                } else { Self::validation_table(input, &frozen_tables)? };
                 let sql = format!(
                     "SELECT * FROM \"{}\"{}",
                     table,
@@ -1193,6 +1205,15 @@ pub struct CompletedInputs {
     >,
 }
 impl CompletedInputs {
+    fn validation_table(&self, input: &lctx_model::domain::ValidationInput) -> Result<String, ModelError> {
+        let key = (input.name(), input.prefix());
+        if self.relations.contains_key(&key) { return Ok(Self::table(key.0, key.1)); }
+        if input.prefix().is_some() { return Err(ModelError::Conflict("checked admission requires a missing input epoch")); }
+        let mut choices = self.relations.iter().filter(|((name, _), _)| *name == input.name());
+        let (key, source) = choices.next().ok_or(ModelError::Conflict("checked admission input is absent"))?;
+        if choices.any(|(_, other)| !Arc::ptr_eq(source, other)) { return Err(ModelError::Conflict("checked admission input epoch is ambiguous")); }
+        Ok(Self::table(key.0, key.1))
+    }
     pub fn name(&self) -> &'static str {
         self.name
     }

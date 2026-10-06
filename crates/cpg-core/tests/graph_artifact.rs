@@ -922,3 +922,46 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     let error = match artifact::verify_export(&output, &runtime).await { Ok(_) => panic!("unsupported facts admitted"), Err(error) => error };
     assert!(error.to_string().contains("assertion has no attributed support"), "{error}");
 }
+
+#[tokio::test]
+async fn remediation_detached_admission_all_frontiers_and_profiles_without_producer_replay() {
+    for profile in Profile::ALL {
+        for frontier in [Frontier::Facts, Frontier::Normalized, Frontier::Analysis, Frontier::Catalog] {
+            let admitted = compiled(profile, frontier, 1 << 30, 128).await;
+            let directory = tempfile::tempdir().unwrap();
+            let export = directory.path().join("export");
+            admitted.export(&export).unwrap();
+            let semantic = admitted.manifest().content();
+            drop(admitted);
+            // This workspace has no providers, captured inputs, producer receipts or grants.
+            let importer = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
+                WorkspaceOptions { memory_bytes:1 << 30, batch_rows:31, ..Default::default() }).unwrap();
+            let imported = artifact::verify_export(&export, &importer).await
+                .unwrap_or_else(|error| panic!("{profile:?}/{frontier:?}: {error}"));
+            assert_eq!(imported.manifest().content(), semantic);
+        }
+    }
+}
+
+#[tokio::test]
+async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_domain() {
+    use lctx_model::domain::graph::Manifest;
+    let admitted = compiled(Profile::Catalog, Frontier::Facts, 1 << 30, 128).await;
+    let directory = tempfile::tempdir().unwrap();
+    let export = directory.path().join("export");
+    admitted.export(&export).unwrap();
+    let mut manifest: Manifest = serde_json::from_slice(&std::fs::read(export.join("manifest.json")).unwrap()).unwrap();
+    let count = manifest.outcomes.len();
+    let key = manifest.outcomes[0].key.clone();
+    manifest.outcomes[0].key.domain = ContentHash::of(b"foreign-outcome-domain");
+    let replacement = manifest.outcomes[0].key.clone();
+    *manifest.required_outcomes.iter_mut().find(|required| **required == key).unwrap() = replacement;
+    manifest.required_outcomes.sort();
+    manifest.outcomes.sort_by(|a,b| a.key.cmp(&b.key));
+    assert_eq!(manifest.outcomes.len(), count);
+    manifest.validate().unwrap();
+    std::fs::write(export.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let importer = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()), WorkspaceOptions {memory_bytes:1 << 30, ..Default::default()}).unwrap();
+    let error = match artifact::verify_export(&export, &importer).await {Ok(_)=>panic!("foreign outcome domain admitted"),Err(error)=>error};
+    assert!(error.to_string().contains("semantic outcome"), "{error}");
+}
