@@ -1,7 +1,7 @@
 //! Trusted local logical transport. Imported metadata never becomes a serving realization.
 use crate::{PrivatePublication, abandon, begin, seal};
 use lctx_model::domain::{
-    ModelError,
+    Infrastructure, ModelError,
     graph::{Assertion, Entity, Manifest, semantic_contract},
     serving::SnapshotHandle,
 };
@@ -41,8 +41,10 @@ async fn http(config: &RuntimeConfig, database: &str) -> Result<Surreal<Client>,
     Ok(client)
 }
 
-/// Write an exact logical dump only after the SDK's file export has consumed checked EOF.
+/// Write a logical dump after the gRPC file export consumes successful terminal completion.
 /// Database users/access credentials and historical versions are excluded.
+/// A parent-directory sync failure after publication leaves the dump in place and reports
+/// uncertain durability; callers must inspect the destination before retrying.
 pub async fn backup(
     config: &RuntimeConfig,
     handle: &SnapshotHandle,
@@ -51,12 +53,14 @@ pub async fn backup(
     if handle.database.namespace != config.namespace {
         return Err(ModelError::Conflict("backup namespace"));
     }
-    NativeReader::connect(
+    let viewer = NativeReader::connect(
         &config.endpoint,
         &config.viewer_credentials(),
         handle.clone(),
     )
     .await?;
+    viewer.client().invalidate().await.map_err(ModelError::codec)?;
+    drop(viewer);
     if output.exists() {
         return Err(ModelError::Conflict("backup destination already exists"));
     }
@@ -65,7 +69,13 @@ pub async fn backup(
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let staged = tempfile::NamedTempFile::new_in(parent).map_err(ModelError::codec)?;
-    let client = http(config, handle.database.database.as_str()).await?;
+    let client = lctx_surrealdb::reader::connect(
+        &config.endpoint,
+        &config.root_credentials(),
+        config.namespace.as_str(),
+        handle.database.database.as_str(),
+    )
+    .await?;
     // Transport only canonical families, originals and their native role arcs. Derived search
     // is rebuilt on restore; its optional array fields have a 3.3 export/import DDL mismatch.
     let tables = [
@@ -80,6 +90,9 @@ pub async fn backup(
     ]
     .map(str::to_owned)
     .to_vec();
+    // SDK 3.3's gRPC file route awaits the export copy and requires a terminal trailer
+    // with the received byte count. The server sends it only after engine success.
+    // Its optional BLAKE3 trailer digest is not verified by the SDK.
     let result = client
         .export(staged.path())
         .with_config()
@@ -98,16 +111,41 @@ pub async fn backup(
         .map_err(ModelError::codec);
     let drained = client.invalidate().await.map_err(ModelError::codec);
     drop(client);
+    complete_backup(staged, output, result, drained, |parent| {
+        std::fs::File::open(parent)?.sync_all()
+    })
+}
+
+fn complete_backup(
+    staged: tempfile::NamedTempFile,
+    output: &Path,
+    result: Result<(), ModelError>,
+    drained: Result<(), ModelError>,
+    sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> Result<(), ModelError> {
+    // Cleanup errors must not replace a failed export. Until persist_noclobber succeeds,
+    // the NamedTempFile owns and removes every provisional dump on any failure.
     result?;
     drained?;
     staged.as_file().sync_all().map_err(ModelError::codec)?;
     staged
         .persist_noclobber(output)
         .map_err(|error| ModelError::codec(error.error))?;
-    std::fs::File::open(parent)
-        .map_err(ModelError::codec)?
-        .sync_all()
-        .map_err(ModelError::codec)
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    // Destination publication has committed. Never remove it or claim rollback when
+    // the directory cannot be opened/synchronized: the verified dump may already exist.
+    sync_parent(parent).map_err(|error| {
+        ModelError::infrastructure(
+            Infrastructure::Unconfirmed,
+            format!(
+                "backup destination {} was published but its durability is uncertain: parent directory synchronization failed: {error}",
+                output.display()
+            ),
+        )
+    })
 }
 
 /// Import a trusted current-format local dump privately, then copy only canonical graph and
@@ -353,4 +391,167 @@ pub async fn retire(
         .map_err(ModelError::codec)?;
     client.invalidate().await.map_err(ModelError::codec)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn partial_dump(parent: &Path) -> tempfile::NamedTempFile {
+        let mut staged = tempfile::NamedTempFile::new_in(parent).unwrap();
+        staged.write_all(b"-- partial streamed dump\n").unwrap();
+        staged
+    }
+
+    #[test]
+    fn backup_export_failure_discards_partial_dump_and_preserves_primary_error() {
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = partial_dump(scratch.path());
+        let provisional = staged.path().to_owned();
+        let output = scratch.path().join("snapshot.surql");
+        let error = complete_backup(
+            staged,
+            &output,
+            Err(ModelError::Codec("late export failure".into())),
+            Err(ModelError::Codec("session cleanup failure".into())),
+            |_| panic!("failed export must not publish or sync directory"),
+        )
+        .unwrap_err();
+        assert!(matches!(error, ModelError::Codec(message) if message == "late export failure"));
+        assert!(!output.exists());
+        assert!(!provisional.exists());
+    }
+
+    #[test]
+    fn backup_session_drain_failure_discards_completed_provisional_dump() {
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = partial_dump(scratch.path());
+        let provisional = staged.path().to_owned();
+        let output = scratch.path().join("snapshot.surql");
+        assert!(complete_backup(
+            staged,
+            &output,
+            Ok(()),
+            Err(ModelError::Codec("session cleanup failure".into())),
+            |_| panic!("failed session drain must not publish or sync directory"),
+        )
+        .is_err());
+        assert!(!output.exists());
+        assert!(!provisional.exists());
+    }
+
+    #[test]
+    fn backup_publication_never_clobbers_a_destination_created_during_export() {
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = partial_dump(scratch.path());
+        let provisional = staged.path().to_owned();
+        let output = scratch.path().join("snapshot.surql");
+        std::fs::write(&output, b"preexisting backup").unwrap();
+        assert!(complete_backup(staged, &output, Ok(()), Ok(()), |_| {
+            panic!("failed publication must not sync directory")
+        })
+        .is_err());
+        assert_eq!(std::fs::read(output).unwrap(), b"preexisting backup");
+        assert!(!provisional.exists());
+    }
+
+    #[test]
+    fn backup_destination_publication_failure_discards_provisional_dump() {
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = partial_dump(scratch.path());
+        let provisional = staged.path().to_owned();
+        let output = scratch.path().join("missing-parent/snapshot.surql");
+        assert!(complete_backup(staged, &output, Ok(()), Ok(()), |_| {
+            panic!("failed publication must not sync directory")
+        })
+        .is_err());
+        assert!(!output.exists());
+        assert!(!provisional.exists());
+    }
+
+    #[test]
+    fn backup_postpublication_sync_failure_retains_dump_and_reports_uncertain_durability() {
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = partial_dump(scratch.path());
+        let provisional = staged.path().to_owned();
+        let output = scratch.path().join("snapshot.surql");
+        let error = complete_backup(staged, &output, Ok(()), Ok(()), |_| {
+            Err(std::io::Error::other("injected directory sync failure"))
+        })
+        .unwrap_err();
+        assert!(matches!(error, ModelError::Infrastructure {
+            class: Infrastructure::Unconfirmed,
+            detail,
+        } if detail.contains("was published") && detail.contains("durability is uncertain")));
+        assert_eq!(std::fs::read(&output).unwrap(), b"-- partial streamed dump\n");
+        assert!(!provisional.exists());
+        assert!(complete_backup(partial_dump(scratch.path()), &output, Ok(()), Ok(()), |_| {
+            panic!("retry must not overwrite the committed destination")
+        })
+        .is_err());
+        assert_eq!(std::fs::read(output).unwrap(), b"-- partial streamed dump\n");
+    }
+
+    #[tokio::test]
+    async fn backup_grpc_file_export_on_owned_persistent_fixture() {
+        use lctx_model::domain::{ContentHash, serving::{DatabaseIdentity, Name}};
+
+        let fixture_path = std::env::var("LCTX_SURREAL_TEST_CONFIG")
+            .expect("owned disposable native server required");
+        let fixture: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(fixture_path).unwrap()).unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        let config = RuntimeConfig {
+            endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
+            username: fixture["admin_user"].as_str().unwrap().into(),
+            password: fixture["admin_password"].as_str().unwrap().into(),
+            viewer_username: "backup_viewer".into(),
+            viewer_password: "owned-backup-fixture-password".into(),
+            namespace: Name::new(format!("backup_control_{}", std::process::id())).unwrap(),
+            cache_database: Name::new("cache").unwrap(),
+            selection: scratch.path().join("selected.json"),
+        };
+        let handle = SnapshotHandle {
+            semantic: ContentHash::of(b"backup-control-semantic"),
+            realization: ContentHash::of(b"backup-control-realization"),
+            database: DatabaseIdentity {
+                namespace: config.namespace.clone(),
+                database: Name::new("backup_fixture").unwrap(),
+            },
+        };
+        let client = lctx_surrealdb::reader::connect(
+            &config.endpoint,
+            &config.root_credentials(),
+            config.namespace.as_str(),
+            handle.database.database.as_str(),
+        )
+        .await
+        .unwrap();
+        let mut vars = Variables::new();
+        vars.insert("handle", hex::encode(serde_json::to_vec(&handle).unwrap()));
+        client
+            .query("DEFINE USER backup_viewer ON DATABASE PASSWORD 'owned-backup-fixture-password' ROLES VIEWER;
+                DEFINE TABLE publication SCHEMALESS PERMISSIONS FOR select FULL;
+                CREATE publication:current SET handle = $handle;
+                CREATE entity:example SET canonical = 'canonical-backup-sentinel';
+                CREATE discovery_document:example SET text = 'derived-search-sentinel';")
+            .bind(vars)
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let output = scratch.path().join("snapshot.surql");
+        backup(&config, &handle, &output).await.unwrap();
+        let dump = std::fs::read_to_string(&output).unwrap();
+        assert!(dump.contains("canonical-backup-sentinel"));
+        assert!(dump.contains("publication"));
+        assert!(!dump.contains("derived-search-sentinel"));
+        assert!(!dump.contains("backup_viewer"));
+        assert!(!dump.contains("owned-backup-fixture-password"));
+        assert!(!config.selection.exists());
+        assert!(backup(&config, &handle, &output).await.is_err());
+        assert_eq!(std::fs::read_to_string(output).unwrap(), dump);
+        client.query("REMOVE DATABASE backup_fixture").await.unwrap().check().unwrap();
+        client.invalidate().await.unwrap();
+    }
 }
