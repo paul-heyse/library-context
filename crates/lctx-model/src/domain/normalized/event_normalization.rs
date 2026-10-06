@@ -184,8 +184,10 @@ impl HeapSize for CompleteEvent {
         0
     }
 }
+type EventSite = (Id<Occurrence>, Id<AnalysisContext>);
+type EventsBySite = ChargedMap<EventSite, Vec<Id<NormalizedCallEvent>>>;
 pub struct VerifiedEvents {
-    flow: ChargedMap<(Id<Occurrence>, Id<AnalysisContext>), Vec<Id<NormalizedCallEvent>>>,
+    flow: EventsBySite,
     complete: ChargedMap<Id<NormalizedCallEvent>, CompleteEvent>,
     dispatch: ChargedMap<Id<NormalizedCallAlternative>, super::dispatch::ApplicableDispatch>,
     _charge: StateCharge,
@@ -1603,7 +1605,7 @@ pub fn normalize_flow_path(
 fn flow_links_with(
     data: &EventData,
     output: &mut EventOutput,
-    events: &ChargedMap<(Id<Occurrence>, Id<AnalysisContext>), Vec<Id<NormalizedCallEvent>>>,
+    events: &EventsBySite,
     selected: Option<Id<FlowValuePathObservation>>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -1810,7 +1812,7 @@ mod preparation_controls {
             target.channel,
             target.phase,
             true,
-            &[target.clone()],
+            std::slice::from_ref(&target),
         )
         .unwrap();
         data.qualifications.insert(q.clone()).unwrap();

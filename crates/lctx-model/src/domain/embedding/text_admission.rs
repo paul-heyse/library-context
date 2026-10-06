@@ -132,19 +132,11 @@ impl Utf8 {
         !self.invalid && self.remaining == 0
     }
 }
+#[derive(Default)]
 struct SpanHasher {
     next: i64,
     hash: ContentHasher,
     utf8: Utf8,
-}
-impl Default for SpanHasher {
-    fn default() -> Self {
-        Self {
-            next: 0,
-            hash: ContentHasher::default(),
-            utf8: Default::default(),
-        }
-    }
 }
 impl HeapSize for SpanHasher {
     fn heap_bytes(&self) -> usize {

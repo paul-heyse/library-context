@@ -268,6 +268,9 @@ impl ArtifactIndex {
     pub fn len(&self) -> usize {
         self.rows.len()
     }
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
     pub fn get(&self, id: Id<SourceArtifact>) -> Option<Id<input::InputRevision>> {
         self.rows.get(&id).copied()
     }
@@ -293,7 +296,7 @@ mod property_controls {
             name: "unused name".repeat(1 << 20),
             kind: calls::SymbolKind::Function,
         };
-        let batch = <calls::ProviderSymbol as Record>::encode(&[symbol.clone()]).unwrap();
+        let batch = <calls::ProviderSymbol as Record>::encode(std::slice::from_ref(&symbol)).unwrap();
         let projected = batch.project(&[0]).unwrap();
         let budget = ResourceBudget::fixed(96 << 10).unwrap();
         let permit = CompletedInput::<calls::ProviderSymbol>::new(
@@ -330,7 +333,7 @@ mod property_controls {
             role: OccurrenceRole::Call,
             structural_path: vec![7; 2 << 20],
         };
-        let batch = <Occurrence as Record>::encode(&[occurrence.clone()]).unwrap();
+        let batch = <Occurrence as Record>::encode(std::slice::from_ref(&occurrence)).unwrap();
         let projected = batch.project(&[0, 1, 2, 3, 4, 5]).unwrap();
         let budget = ResourceBudget::fixed(256 << 10).unwrap();
         let permit = CompletedInput::<Occurrence>::new(

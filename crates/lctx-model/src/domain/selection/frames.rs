@@ -409,8 +409,8 @@ mod compact_controls {
         };
         feed(check, &[run]);
         feed(check, &[core]);
-        feed(check, &[local.clone()]);
-        feed(check, &[source.clone()]);
+        feed(check, std::slice::from_ref(&local));
+        feed(check, std::slice::from_ref(&source));
         feed(
             check,
             &[analysis::local::AnalysisOutcome {
@@ -430,11 +430,11 @@ mod compact_controls {
         feed(check, &[evidence]);
         feed(check, &lower);
         feed(check, &evidence_inputs);
-        feed(check, &[invocation.clone()]);
+        feed(check, std::slice::from_ref(&invocation));
         feed(check, &[evidence_source]);
         feed(check, &inputs);
         feed(check, &[member]);
-        feed(check, &[domain.clone()]);
+        feed(check, std::slice::from_ref(&domain));
         feed(
             check,
             &[SelectionInvocation {

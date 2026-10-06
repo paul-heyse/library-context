@@ -883,6 +883,7 @@ pub fn invocation_invariants() -> Vec<Invariant> {
         }),
     }]
 }
+type CatalogInvocationFrame = (Id<input::InputRevision>, Id<attribution::AnalysisContext>);
 struct InvocationCheck {
     public: ChargedMap<Id<normalized::entities::PublicExposure>, Id<attribution::AnalysisContext>>,
     members: ChargedMap<Id<CatalogMember>, Id<input::InputRevision>>,
@@ -890,10 +891,7 @@ struct InvocationCheck {
         Id<CatalogExposure>,
         (Id<CatalogMember>, Id<normalized::entities::PublicExposure>),
     >,
-    invocations: ChargedMap<
-        (Id<input::InputRevision>, Id<attribution::AnalysisContext>),
-        Vec<Id<analysis::catalog_core::Invocation>>,
-    >,
+    invocations: ChargedMap<CatalogInvocationFrame, Vec<Id<analysis::catalog_core::Invocation>>>,
     links: crate::domain::charged::ChargedSet<(
         Id<CatalogMember>,
         Id<analysis::catalog_core::Invocation>,
@@ -1036,9 +1034,9 @@ mod compact_invocation_controls {
         let foreign = invocation(nominal(6), public.context);
         let invariant = invocation_invariants().pop().unwrap();
         let mut check = (invariant.create)(&budget);
-        feed(check.as_mut(), &[public.clone()]);
-        feed(check.as_mut(), &[member.clone()]);
-        feed(check.as_mut(), &[exposure.clone()]);
+        feed(check.as_mut(), std::slice::from_ref(&public));
+        feed(check.as_mut(), std::slice::from_ref(&member));
+        feed(check.as_mut(), std::slice::from_ref(&exposure));
         feed(check.as_mut(), &[valid.clone(), foreign.clone()]);
         feed(
             check.as_mut(),
@@ -1051,7 +1049,7 @@ mod compact_invocation_controls {
         assert_eq!(budget.reserved(), 0);
         let mut check = (invariant.create)(&budget);
         feed(check.as_mut(), &[public]);
-        feed(check.as_mut(), &[member.clone()]);
+        feed(check.as_mut(), std::slice::from_ref(&member));
         feed(check.as_mut(), &[exposure]);
         feed(check.as_mut(), &[valid, foreign.clone()]);
         feed(

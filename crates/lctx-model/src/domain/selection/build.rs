@@ -1183,7 +1183,7 @@ mod compact_ownership_controls {
             artifact_sha256: (0..100_000).map(|index| format!("{index:064x}")).collect(),
         };
         row.validate().unwrap();
-        let batch = input::DistributionVerification::encode(&[row.clone()]).unwrap();
+        let batch = input::DistributionVerification::encode(std::slice::from_ref(&row)).unwrap();
         data.visit(input::DistributionVerification::NAME, &batch)
             .unwrap();
         assert_eq!(

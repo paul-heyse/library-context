@@ -153,21 +153,19 @@ impl PublicSlots {
         Ok(out)
     }
     pub fn iter(&self) -> impl Iterator<Item = &PublicSlot> {
-        self.rows.iter().map(|(_, row)| row)
+        self.rows.values()
     }
 }
+type ConfiguredRequestFrame = (
+    Id<input::InputRevision>,
+    Id<attribution::AnalysisContext>,
+    i64,
+);
 /// Exact configured request matches are prepared while one actual public member's label
 /// is present. Rich paths and documentary source payloads are not retained in the index.
 pub struct ConfiguredRequests {
     configuration: Option<Id<AnalyticsConfiguration>>,
-    matches: charged::ChargedMap<
-        (
-            Id<input::InputRevision>,
-            Id<attribution::AnalysisContext>,
-            i64,
-        ),
-        Vec<Id<CatalogMemberInvocation>>,
-    >,
+    matches: charged::ChargedMap<ConfiguredRequestFrame, Vec<Id<CatalogMemberInvocation>>>,
     members: charged::ChargedMap<Id<CatalogMemberInvocation>, Id<catalog::CatalogMember>>,
     charge: charged::StateCharge,
 }

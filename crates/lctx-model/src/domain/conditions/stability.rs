@@ -149,10 +149,7 @@ impl ProducedStability {
             mut values,
             mut charge,
         } = other;
-        loop {
-            let Some(id) = values.keys().next().copied() else {
-                break;
-            };
+        while let Some(id) = values.keys().next().copied() {
             let value = values.remove(&mut charge, &id).expect("stability");
             if self
                 .values

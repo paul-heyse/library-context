@@ -355,7 +355,7 @@ fn symbol_entities(
         let mut candidate_charge = StateCharge::new(budget, "symbol-candidates");
         let mut unsupported = false;
         for declaration in declarations.get(&symbol.id()).into_iter().flatten() {
-            if context(&input, declaration.qualification)? != symbol.context {
+            if context(input, declaration.qualification)? != symbol.context {
                 return Err(missing("same-context declaration"));
             }
             let occurrence = input
@@ -374,7 +374,7 @@ fn symbol_entities(
             let evidence = supports
                 .get(&declaration.id())
                 .ok_or_else(|| missing("declaration support"))?;
-            if !evidence.is_empty() && certain(&input, declaration.qualification)? {
+            if !evidence.is_empty() && certain(input, declaration.qualification)? {
                 established.insert(&mut candidate_charge, entity)?;
             }
             for support in evidence {
@@ -433,7 +433,7 @@ fn symbol_entities(
                     let mut eligible = Vec::new();
                     let mut conflict = false;
                     for traits in function_traits.get(&symbol.id()).into_iter().flatten() {
-                        if context(&input, traits.qualification)? != symbol.context {
+                        if context(input, traits.qualification)? != symbol.context {
                             return Err(missing("same-context traits"));
                         }
                         if traits.origin != FunctionOrigin::Synthesized {
@@ -451,7 +451,7 @@ fn symbol_entities(
                         })?;
                         for observation in eligible {
                             if certain(
-                                &input,
+                                input,
                                 input
                                     .function_traits
                                     .get(observation)
@@ -471,7 +471,7 @@ fn symbol_entities(
                     let mut eligible = Vec::new();
                     let mut conflict = false;
                     for traits in class_traits.get(&symbol.id()).into_iter().flatten() {
-                        if context(&input, traits.qualification)? != symbol.context {
+                        if context(input, traits.qualification)? != symbol.context {
                             return Err(missing("same-context traits"));
                         }
                         if !traits.synthesized {
@@ -489,7 +489,7 @@ fn symbol_entities(
                         })?;
                         for observation in eligible {
                             if certain(
-                                &input,
+                                input,
                                 input
                                     .class_traits
                                     .get(observation)
@@ -553,7 +553,7 @@ fn symbol_entities(
             }
         }
     }
-    normalize_parameters(&input, &resolved, output, budget)?;
+    normalize_parameters(input, &resolved, output, budget)?;
     for field in input.fields.iter() {
         let resolution = output
             .resolutions
@@ -563,7 +563,7 @@ fn symbol_entities(
                     .ok_or_else(|| missing("field class resolution"))?,
             )
             .expect("indexed resolution");
-        if context(&input, field.qualification)? != resolution.context {
+        if context(input, field.qualification)? != resolution.context {
             return Err(missing("same-context field"));
         }
         if let Some(EntityRef::Class { class }) =
@@ -1089,6 +1089,7 @@ fn admission() -> Invariant {
         create: std::sync::Arc::new(|budget| Box::new(EntityAdmission::new(budget))),
     }
 }
+type PublicNameSource = (Id<AssertionQualification>, Id<Module>, Id<ExportOrigin>);
 struct EntityAdmission {
     charge: StateCharge,
     occurrences: ChargedMap<Id<Occurrence>, SyntaxKind>,
@@ -1107,10 +1108,7 @@ struct EntityAdmission {
     >,
     functions: ChargedMap<Id<ProviderSymbol>, Vec<(Id<AssertionQualification>, FunctionOrigin)>>,
     classes: ChargedMap<Id<ProviderSymbol>, Vec<(Id<AssertionQualification>, bool)>>,
-    public: ChargedMap<
-        Id<PublicNameObservation>,
-        (Id<AssertionQualification>, Id<Module>, Id<ExportOrigin>),
-    >,
+    public: ChargedMap<Id<PublicNameObservation>, PublicNameSource>,
     enumerations: ChargedMap<
         Id<ExportEnumerationObservation>,
         (Id<AssertionQualification>, Id<Module>, bool),

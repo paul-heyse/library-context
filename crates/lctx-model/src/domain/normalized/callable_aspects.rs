@@ -732,6 +732,7 @@ fn accessors(
         context,
     )
 }
+type DecoratorPolicy = (AspectKind, Option<Id<CallArgument>>, Option<Id<EntityRef>>);
 /// The admitted default classification for one actual field initializer. No output is minted by
 /// this predicate; production and import compare the same typed source ownership and policy.
 fn decorator_policy(
@@ -739,7 +740,7 @@ fn decorator_policy(
     target: &CallTarget,
     symbol: &ProviderSymbol,
     context: Id<attribution::AnalysisContext>,
-) -> Result<(AspectKind, Option<Id<CallArgument>>, Option<Id<EntityRef>>), ModelError> {
+) -> Result<DecoratorPolicy, ModelError> {
     let module = module_name(data, symbol);
     let mut argument = None;
     let mut linked = None;

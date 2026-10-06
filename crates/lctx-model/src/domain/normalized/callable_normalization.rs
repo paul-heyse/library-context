@@ -538,7 +538,7 @@ fn derive_assessments(
             }
             row.decorators = key.finish();
             let recognized = if decorators.len() == 1 && !conflicting_chain {
-                descriptor(data, &index, members[0], ctx, &mut premises, &mut held)?
+                descriptor(data, index, members[0], ctx, &mut premises, &mut held)?
             } else {
                 None
             };

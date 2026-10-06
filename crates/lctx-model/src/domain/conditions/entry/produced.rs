@@ -179,10 +179,7 @@ impl ProducedEntries {
             mut nodes,
             mut charge,
         } = other;
-        loop {
-            let Some(id) = entries.keys().next().copied() else {
-                break;
-            };
+        while let Some(id) = entries.keys().next().copied() {
             let value = entries.remove(&mut charge, &id).expect("entry");
             if self
                 .entries
@@ -193,17 +190,11 @@ impl ProducedEntries {
             }
             self.entries.insert(&mut self.charge, id, value)?;
         }
-        loop {
-            let Some(id) = conditions.keys().next().copied() else {
-                break;
-            };
+        while let Some(id) = conditions.keys().next().copied() {
             let value = conditions.remove(&mut charge, &id).expect("condition");
             self.conditions.insert(&mut self.charge, id, value)?;
         }
-        loop {
-            let Some(id) = nodes.keys().next().copied() else {
-                break;
-            };
+        while let Some(id) = nodes.keys().next().copied() {
             let value = nodes.remove(&mut charge, &id).expect("node");
             self.nodes.insert(&mut self.charge, id, value)?;
         }

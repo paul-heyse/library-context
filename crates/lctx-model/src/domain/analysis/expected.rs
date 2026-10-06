@@ -1188,7 +1188,7 @@ mod tests {
             }],
         );
         assert!(index.prepared_roots().is_err());
-        visit(&mut index, &[absent.clone()]);
+        visit(&mut index, std::slice::from_ref(&absent));
         assert!(
             index.prepared_roots().unwrap().by_grain
                 [&(input, admission::ArtifactClass::PythonSource)]

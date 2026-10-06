@@ -1,21 +1,17 @@
 //! Compact Local condition support and selection composition across independently released sources.
 use super::*;
+type AlternativeContext = (
+    Id<TransferKey>,
+    Id<AnalysisContext>,
+    Id<CoverageScope>,
+    Id<Condition>,
+);
+type InfluenceContext = (Id<EvaluationAtom>, Id<AnalysisContext>, Id<CoverageScope>);
 pub struct Composition {
     charge: charged::StateCharge,
     supports: charged::ChargedMap<Id<Condition>, Vec<Id<EvaluationAtom>>>,
-    alternatives: charged::ChargedMap<
-        Id<TransferAlternative>,
-        (
-            Id<TransferKey>,
-            Id<AnalysisContext>,
-            Id<CoverageScope>,
-            Id<Condition>,
-        ),
-    >,
-    influences: charged::ChargedMap<
-        Id<ControlInfluence>,
-        (Id<EvaluationAtom>, Id<AnalysisContext>, Id<CoverageScope>),
-    >,
+    alternatives: charged::ChargedMap<Id<TransferAlternative>, AlternativeContext>,
+    influences: charged::ChargedMap<Id<ControlInfluence>, InfluenceContext>,
 }
 impl Composition {
     pub fn new(budget: &resources::ResourceBudget) -> Self {
