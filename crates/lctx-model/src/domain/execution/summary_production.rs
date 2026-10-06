@@ -236,10 +236,40 @@ fn evidence_inputs() -> Vec<ValidationInput> {
     }
     inputs
 }
-macro_rules! data{($($field:ident:$ty:ty,)*)=>{pub struct SummaryData{pub graphs:projection::normalization::ProjectionOutput,pub entry:EntryData,pub bindings:BindingData,pub binding_output:BindingOutput,pub path:PathData,pub vocabulary:Vocabulary,pub local_evidence:analysis::local::support::EvidenceIndex,pub model_evidence:analysis::model::support::EvidenceIndex,$(pub $field:Rows<$ty>,)*}
-impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{graphs:projection::normalization::ProjectionOutput::new(b),entry:EntryData::new(b),bindings:BindingData::new(b),binding_output:BindingOutput::new(b),path:PathData::new(b),vocabulary:Vocabulary::new(b),local_evidence:analysis::local::support::EvidenceIndex::new(b),model_evidence:analysis::model::support::EvidenceIndex::new(b),$($field:Rows::new(b),)*}}
+macro_rules! data{($($field:ident:$ty:ty,)*)=>{pub struct SummaryData{pub occurrences:source::properties::OccurrenceIndex,pub symbols:source::properties::SymbolIndex,pub artifacts:source::properties::ArtifactIndex,pub graphs:projection::normalization::ProjectionOutput,pub entry:EntryData,pub bindings:BindingData,pub binding_output:BindingOutput,pub path:PathData,pub vocabulary:Vocabulary,pub local_evidence:analysis::local::support::EvidenceIndex,pub model_evidence:analysis::model::support::EvidenceIndex,$(pub $field:Rows<$ty>,)*}
+impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{occurrences:source::properties::OccurrenceIndex::new(b),symbols:source::properties::SymbolIndex::new(b),artifacts:source::properties::ArtifactIndex::new(b),graphs:projection::normalization::ProjectionOutput::new(b),entry:EntryData::new(b),bindings:BindingData::new(b),binding_output:BindingOutput::new(b),path:PathData::new(b),vocabulary:Vocabulary::new(b),local_evidence:analysis::local::support::EvidenceIndex::new(b),model_evidence:analysis::model::support::EvidenceIndex::new(b),$($field:Rows::new(b),)*}}
  pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{let n=input.name();if stages::is_vocabulary(n){return match input.prefix(){Some(stages::PublicationBoundary::Facts)=>{self.entry.visit_input(input,b)?;self.bindings.visit(n,b)?;Ok(())},Some(stages::PublicationBoundary::Model)=>{self.vocabulary.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;Ok(())},_=>Err(invalid("Summary input changes completed vocabulary view"))}}self.visit(n,b)}
  pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.graphs.visit(n,b)?;self.entry.visit(n,b)?;self.bindings.visit(n,b)?;self.binding_output.visit(n,b)?;self.path.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;$(if n==<$ty>::NAME{self.$field.decode(b)?;})*Ok(())}
+ /// Actual predecessor owners already admitted entry/binding proofs. Retain only the
+ /// properties and canonical semantic operands this Summary kernel consumes.
+ pub fn actual_inputs()->Vec<ValidationInput>{
+  let mut inputs=Vec::new();
+  macro_rules! collect{($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
+  crate::summary_owned_inputs!(collect);crate::normalized_binding_outputs!(collect);crate::summary_path_inputs!(collect);crate::summary_vocabulary!(collect);crate::summary_evidence_inputs!(collect);
+  inputs.extend(evidence_inputs());
+  macro_rules! retained{($($ty:ty),*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
+  retained!(source::Occurrence,source::SourceArtifact,normalized::events::NormalizedCallEvent,normalized::events::NormalizedCallAlternative,normalized::events::EventAssessment,normalized::events::CallAlternativeSource,calls::CallTarget,calls::Signature,calls::SignatureParameter,calls::ProviderSymbol,calls::CallArgument,calls::CallDestination,calls::Receiver,normalized::entities::OccurrenceOwnership,normalized::callables::SignatureSlot,
+   declarations::SymbolDeclaration,declarations::ParameterDeclaration,normalized::entities::EntityRef,normalized::entities::CallableEntity,flow::FlowValueObservation,flow::FlowValueSupport,flow::FlowUse,flow::FlowUseObservation,flow::FlowUseSupport,flow::FlowDefinition,flow::FlowDefinitionObservation,flow::FlowDefinitionSupport,flow::ReachingDefinition,flow::FlowReachingObservation,flow::FlowReachingSupport,lexical::LexicalScope,attribution::ProviderRun,assertion::ProviderSurface,attribution::ProviderCoverage);
+  inputs
+ }
+ pub fn consumes_actual(input:&ValidationInput)->bool{Self::actual_inputs().iter().any(|candidate|candidate.type_id()==input.type_id())}
+ pub fn visit_actual(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{
+  let n=input.name();
+  if [source::Occurrence::NAME,calls::ProviderSymbol::NAME,source::SourceArtifact::NAME].contains(&n){return Err(invalid("Summary actual source identities require completed property projection"));}
+  if !Self::consumes_actual(input){return Ok(());}
+  if stages::is_vocabulary(n){return self.visit_input(input,b);}
+  macro_rules! binding{($($ty:ty),*)=>{if [$(<$ty>::NAME,)*].contains(&n){self.bindings.visit(n,b)?;}};}
+  binding!(source::SourceArtifact,normalized::events::NormalizedCallEvent,normalized::events::NormalizedCallAlternative,normalized::events::EventAssessment,normalized::events::CallAlternativeSource,calls::CallTarget,calls::Signature,calls::SignatureParameter,calls::ProviderSymbol,calls::CallArgument,calls::CallDestination,calls::Receiver,normalized::entities::OccurrenceOwnership,normalized::callables::SignatureSlot);
+  macro_rules! entry{($($ty:ty),*)=>{if [$(<$ty>::NAME,)*].contains(&n){self.entry.visit(n,b)?;}};}
+  entry!(source::SourceArtifact,declarations::SymbolDeclaration,declarations::ParameterDeclaration,calls::Signature,calls::SignatureParameter,normalized::entities::EntityRef,normalized::entities::CallableEntity,normalized::entities::OccurrenceOwnership,flow::FlowValueObservation,flow::FlowValueSupport,flow::FlowUse,flow::FlowUseObservation,flow::FlowUseSupport,flow::FlowDefinition,flow::FlowDefinitionObservation,flow::FlowDefinitionSupport,flow::ReachingDefinition,flow::FlowReachingObservation,flow::FlowReachingSupport,lexical::LexicalScope,attribution::ProviderRun,assertion::ProviderSurface,attribution::ProviderCoverage);
+  self.binding_output.visit(n,b)?;self.path.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;
+  $(if n==<$ty>::NAME{self.$field.decode(b)?;})*Ok(())
+ }
+ pub fn symbol(&self,id:Id<calls::ProviderSymbol>)->Option<source::properties::SymbolProperties>{self.symbols.get(id).copied().or_else(||self.bindings.symbols.get(id).map(source::properties::SymbolProperties::from_row))}
+ pub fn artifact_input(&self,id:Id<source::SourceArtifact>)->Option<Id<input::InputRevision>>{self.artifacts.get(id).or_else(||self.bindings.artifacts.get(id).map(|row|row.input))}
+ pub fn occurrence(&self,id:Id<source::Occurrence>)->Option<source::properties::OccurrenceProperties>{self.occurrences.get(id).copied().or_else(||self.entry.occurrences.get(id).or_else(||self.bindings.occurrences.get(id)).map(source::properties::OccurrenceProperties::from_row))}
+ pub fn occurrence_values(&self)->impl Iterator<Item=source::properties::OccurrenceProperties>+'_ {self.occurrences.iter().copied().chain(self.entry.occurrences.iter().map(source::properties::OccurrenceProperties::from_row))}
+ pub fn same_occurrence(&self,a:Id<source::Occurrence>,b:Id<source::Occurrence>)->bool{self.occurrence(a).zip(self.occurrence(b)).is_some_and(|(a,b)|(a.source,a.start,a.end,a.syntax_kind)==(b.source,b.start,b.end,b.syntax_kind))}
  pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{let mut inputs=super::summary_replay::production_inputs(profile);inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
  pub fn inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();inputs.extend(BindingOutput::validation_inputs());inputs.extend(EntryData::facts_inputs());inputs.extend(PathData::inputs());inputs.extend(projection_inputs());inputs.extend(Vocabulary::inputs());inputs.extend(evidence_inputs());inputs.push(ValidationInput::of::<analysis::native::NativeAssertionPremise>(&["id"]));inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
 }};}
@@ -727,9 +757,9 @@ fn call_infos(
     let mut calls = Vec::new();
     for attempt in data.binding_output.attempts.iter() {
         let event = need(&data.bindings.event_events, attempt.event)?;
-        let occurrence = need(&data.bindings.occurrences, event.site)?;
+        let occurrence = data.occurrence(event.site).ok_or_else(||invalid("Summary call occurrence absent"))?;
         if event.context != invocation.context
-            || need(&data.bindings.artifacts, occurrence.source)?.input != invocation.input
+            || data.artifact_input(occurrence.source).ok_or_else(||invalid("Summary source artifact absent"))? != invocation.input
         {
             continue;
         }
@@ -802,7 +832,7 @@ fn compose(
         .bound(call.attempt)
         .ok_or_else(|| invalid("Summary bound call absent"))?;
     let signature = need(&data.bindings.signatures, bound.bound().signature())?;
-    let symbol = need(&data.bindings.symbols, signature.symbol)?;
+    let symbol = data.symbol(signature.symbol).ok_or_else(||invalid("Summary callee symbol absent"))?;
     let mut declarations = data
         .entry
         .symbol_declarations
@@ -872,8 +902,9 @@ fn compose(
         .cloned()
         .collect::<Vec<_>>();
     arguments.sort_by_key(|a| a.ordinal);
+    let site=data.occurrence(target.site).ok_or_else(||invalid("Summary call occurrence absent"))?;
     let frame = CallFrame {
-        site: need(&data.bindings.occurrences, target.site)?,
+        site: &site,
         target,
         qualification: need(&data.bindings.qualifications, target.qualification)?,
         destination: need(&data.bindings.destinations, target.destination)?,
@@ -893,7 +924,7 @@ fn compose(
             owner: call.owner,
         },
         &CalleeFrame {
-            symbol,
+            symbol:&symbol,
             declaration,
             parameters: &parameters,
             links: &links,
@@ -2355,5 +2386,21 @@ mod optional_graph_controls {
         assert!(produce(&data, &invocation, &definition, stages::Profile::Behavioral, None, &budget).is_err());
         let consumed = SummaryData::consumed_inputs(stages::Profile::Catalog);
         assert!(!consumed.iter().any(|input| input.name() == projection::ProjectionSnapshotChunk::NAME));
+    }
+}
+
+#[cfg(test)]
+mod actual_input_property_controls {
+    use super::*;
+    fn nominal<R>(n:u8)->Id<R>{serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([n;16].into_iter())).unwrap()}
+    #[test]
+    fn actual_summary_does_not_decode_unused_provider_defaults_or_decorator_normalizer_inputs(){
+        let budget=ResourceBudget::fixed(256<<10).unwrap();let mut actual=SummaryData::new(&budget);
+        let provider=attribution::Provider{tool:"provider".repeat(1<<20),revision:"unused".into(),build_digest:ContentHash::of(b"provider")};let provider_batch=<attribution::Provider as Record>::encode(&[provider]).unwrap();
+        let shape=calls::ParameterShape{name:Some("default".repeat(1<<20).into()),kind:calls::ParameterKind::PositionalOrKeyword,required:false};let shape_batch=<calls::ParameterShape as Record>::encode(&[shape]).unwrap();
+        let decorator=syntax::DeclarationDecorator{qualification:nominal(1),declaration:nominal(2),decorator:nominal(3),ordinal:0};let decorator_batch=<syntax::DeclarationDecorator as Record>::encode(&[decorator]).unwrap();
+        actual.visit_actual(&ValidationInput::of::<attribution::Provider>(&["id"]),&provider_batch).unwrap();actual.visit_actual(&ValidationInput::of::<calls::ParameterShape>(&["id"]),&shape_batch).unwrap();actual.visit_actual(&ValidationInput::of::<syntax::DeclarationDecorator>(&["id"]),&decorator_batch).unwrap();
+        assert!(actual.bindings.native_providers.is_empty()&&actual.bindings.shapes.is_empty()&&actual.bindings.decorators.is_empty());assert_eq!(budget.reserved(),0);
+        let mut ordinary=SummaryData::new(&budget);assert!(ordinary.visit(attribution::Provider::NAME,&provider_batch).is_err());assert!(ordinary.visit(calls::ParameterShape::NAME,&shape_batch).is_err());drop(ordinary);drop(actual);assert_eq!(budget.reserved(),0);
     }
 }

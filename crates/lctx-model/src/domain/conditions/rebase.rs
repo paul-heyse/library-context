@@ -4,15 +4,15 @@ use super::{Diagram, EvaluationAtom};
 use crate::domain::charged::{ChargedMap, StateCharge};
 use crate::domain::{
     attribution::{AnalysisContext, ObligationKind},
-    source::{Occurrence, OccurrenceRole, SyntaxKind},
+    source::{Occurrence, OccurrenceRole, SyntaxKind,properties::OccurrenceView},
     value::{Place, PlaceRoot, Predicate},
     *,
 };
 use std::collections::BTreeMap;
 pub const MAX_GUARD_DEPTH: usize = 32;
 // Explicit calls and provider-observed implicit call evaluations share the same role contract.
-fn is_call(site: &Occurrence) -> bool {
-    site.syntax_kind == SyntaxKind::ExprCall || site.role == OccurrenceRole::Call
+fn is_call(site: &dyn OccurrenceView) -> bool {
+    site.syntax_kind() == SyntaxKind::ExprCall || site.role() == OccurrenceRole::Call
 }
 fn local_root(root: &PlaceRoot) -> Result<(), ObligationKind> {
     if matches!(
@@ -250,7 +250,7 @@ pub enum RootBinding {
 /// and stability witness; this operation refuses it rather than inventing substitution evidence.
 pub fn rebase_local_guards(
     source: &Diagram,
-    site: &Occurrence,
+    site: &dyn OccurrenceView,
     context: Id<AnalysisContext>,
     catalog: &GuardCatalog<'_>,
     budget: &crate::domain::resources::ResourceBudget,
@@ -277,7 +277,7 @@ pub fn rebase_local_guards(
 )]
 pub fn substitute_call_guards(
     source: &Diagram,
-    site: &Occurrence,
+    site: &dyn OccurrenceView,
     context: Id<AnalysisContext>,
     catalog: &GuardCatalog<'_>,
     bindings: &BTreeMap<Id<PlaceRoot>, RootBinding>,
@@ -285,7 +285,7 @@ pub fn substitute_call_guards(
     caller: Option<&crate::domain::assertion::AssertionQualification>,
     budget: &crate::domain::resources::ResourceBudget,
 ) -> Result<RebasedGuards, ObligationKind> {
-    if site.validate().is_err() || !is_call(site) {
+    if site.validate_site().is_err() || !is_call(site) {
         return Err(ObligationKind::MissingEvidence);
     }
     let mut rows = StateCharge::new(budget, "guard_restatement");
@@ -346,7 +346,7 @@ pub fn substitute_call_guards(
                 .ok_or(ObligationKind::ConditionTransferUnsupported)?;
             if witness.root() != place.root
                 || witness.witness().atom != *id
-                || !binding.agrees(witness, site.id(), context)
+                || !binding.agrees(witness, site.occurrence_id(), context)
             {
                 return Err(ObligationKind::MissingEvidence);
             }
@@ -361,7 +361,7 @@ pub fn substitute_call_guards(
             };
             let predicate = Predicate::BoundGuard { source: *id };
             let bound = EvaluationAtom {
-                evaluation: site.id(),
+                evaluation: site.occurrence_id(),
                 context,
                 predicate: predicate.id(),
                 operand: Some(operand.id()),
@@ -380,7 +380,7 @@ pub fn substitute_call_guards(
                 qualification: caller.id(),
                 input: operand.id(),
                 atom: bound.id(),
-                evaluation: site.id(),
+                evaluation: site.occurrence_id(),
             });
             if !out.qualifications.contains(caller) {
                 out.qualifications.push(caller.clone());
@@ -424,7 +424,7 @@ pub fn substitute_call_guards(
         }
         let predicate = Predicate::InvokedGuard { source: *id };
         let invoked = EvaluationAtom {
-            evaluation: site.id(),
+            evaluation: site.occurrence_id(),
             context,
             predicate: predicate.id(),
             operand: None,

@@ -122,7 +122,7 @@ pub(super) fn filter_raise(
     let Some(value) = data.entry.values.get(value_id) else {
         return Ok(Err(obligation::ObligationKind::MissingEvidence));
     };
-    let Some(sink) = data.entry.occurrences.get(value.sink) else {
+    let Some(sink) = data.occurrence(value.sink) else {
         return Ok(Err(obligation::ObligationKind::MissingEvidence));
     };
     filter_sink(
@@ -131,7 +131,7 @@ pub(super) fn filter_raise(
         owner,
         input,
         emission.branch.key().context,
-        sink,
+        &sink,
         budget,
     )
 }
@@ -141,20 +141,18 @@ fn filter_sink(
     owner: Id<EntityRef>,
     input: Id<input::InputRevision>,
     context: Id<attribution::AnalysisContext>,
-    sink: &source::Occurrence,
+    sink: &source::properties::OccurrenceProperties,
     budget: &ResourceBudget,
 ) -> Result<Result<Option<Id<SummaryExceptionOutcome>>, obligation::ObligationKind>, ModelError> {
     use crate::domain::source::SyntaxKind;
     let reason = obligation::ObligationKind::UnsupportedControlFlow;
     let _iteration = budget.reserve(
         "summary-raise-handler-filter",
-        data.entry
-            .occurrences
-            .len()
+        data.occurrence_values().count()
             .saturating_mul(size_of::<Id<source::Occurrence>>())
             .saturating_add(outcomes.len().saturating_mul(64)),
     )?;
-    let contains = |node: &source::Occurrence| {
+    let contains = |node: &source::properties::OccurrenceProperties| {
         node.source == sink.source && node.start <= sink.start && node.end >= sink.end
     };
     let mut owned_nodes = charged::ChargedSet::default();
@@ -162,21 +160,19 @@ fn filter_sink(
     for row in data.entry.owners.iter().filter(|row| row.entity == owner) {
         owned_nodes.insert(&mut ownership_charge, row.occurrence)?;
     }
-    let owned = |node: &source::Occurrence| owned_nodes.contains(&node.id());
+    let owned = |node: &source::properties::OccurrenceProperties| owned_nodes.contains(&node.id());
     if !owned(sink) {
         return Ok(Err(obligation::ObligationKind::MissingEvidence));
     }
-    if !data.entry.occurrences.iter().any(|node| {
-        contains(node)
-            && owned(node)
+    if !data.occurrence_values().any(|node| {
+        contains(&node)
+            && owned(&node)
             && matches!(node.syntax_kind, SyntaxKind::StmtTry | SyntaxKind::StmtWith)
     }) {
         return Ok(Ok(None));
     }
     let Some(raise) = data
-        .entry
-        .occurrences
-        .iter()
+        .occurrence_values()
         .filter(|node| contains(node) && owned(node) && node.syntax_kind == SyntaxKind::StmtRaise)
         .min_by_key(|node| node.end - node.start)
     else {
@@ -195,7 +191,7 @@ fn filter_sink(
     else {
         return Ok(Err(reason));
     };
-    let Some(site) = data.entry.occurrences.get(*site) else {
+    let Some(site) = data.occurrence(*site) else {
         return Ok(Err(obligation::ObligationKind::MissingEvidence));
     };
     if (site.source, site.start, site.end, site.syntax_kind)
@@ -244,7 +240,7 @@ mod tests {
         }
         let mut outcomes = Rows::new(&b);
         let run = |data: &SummaryData, rows: &Rows<SummaryExceptionOutcome>| {
-            filter_sink(data, rows, id(3), id(4), id(5), &sink, &b).unwrap()
+            filter_sink(data, rows, id(3), id(4), id(5), &source::properties::OccurrenceProperties::from_row(&sink), &b).unwrap()
         };
         assert_eq!(
             run(&data, &outcomes),

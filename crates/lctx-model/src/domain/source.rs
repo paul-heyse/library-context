@@ -4,6 +4,7 @@ use super::input::{InputRevision, Release};
 use super::{ContentHash, Id, ModelError, Record};
 use super::{assertion::AssertionQualification, attribution::FactFamily};
 use crate::{Assertion, Domain, DomainCode, DomainSum};
+pub mod properties;
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "source_artifacts", validate = validate_source, invariant_refs = super::artifact::content_invariants_refs)]

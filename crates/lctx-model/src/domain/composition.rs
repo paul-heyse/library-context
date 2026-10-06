@@ -225,7 +225,7 @@ fn selected_signature_premises(
 }
 /// One admitted call target at a site with its complete binding.
 pub struct CallFrame<'a> {
-    pub site: &'a Occurrence,
+    pub site: &'a dyn source::properties::OccurrenceView,
     pub target: &'a CallTarget,
     pub qualification: &'a AssertionQualification,
     pub destination: &'a CallDestination,
@@ -247,7 +247,7 @@ pub struct CallerFrame<'a> {
 /// An end rooted at the `Formal` variable does not. A declared callable's receiver is the entry
 /// value of its first parameter; a `Receiver` root is refused here.
 pub struct CalleeFrame<'a> {
-    pub symbol: &'a ProviderSymbol,
+    pub symbol: &'a dyn source::properties::ProviderSymbolView,
     pub declaration: &'a SymbolDeclaration,
     /// The bound signature's parameters in ordinal order, and one declaration link for each.
     pub parameters: &'a [SignatureParameter],
@@ -590,7 +590,7 @@ enum Mapped {
 }
 
 struct Composer<'a> {
-    site: &'a Occurrence,
+    site: &'a dyn source::properties::OccurrenceView,
     ports: Ports,
     records: CompositionRecords,
 }
@@ -622,7 +622,7 @@ impl Composer<'_> {
         Ok(match root {
             PlaceRoot::Return { callable: c } if *c == callable => vec![Mapped::Root {
                 root: PlaceRoot::Occurrence {
-                    occurrence: self.site.id(),
+                    occurrence: self.site.occurrence_id(),
                 },
                 prefix: None,
             }],
@@ -691,7 +691,7 @@ pub fn compose_call(
             "the caller transfer's owner does not own the call site",
         ));
     }
-    if call.target.site != call.site.id()
+    if call.target.site != call.site.occurrence_id()
         || call.target.destination != call.destination.id()
         || call.target.qualification != call.qualification.id()
         || call.target.receiver != call.receiver.id()
@@ -717,7 +717,7 @@ pub fn compose_call(
             );
         }
         CallDestination::Resolved { symbol }
-            if *symbol != callee_frame.symbol.id()
+            if *symbol != callee_frame.symbol.symbol_id()
                 || callee_frame.declaration.symbol != *symbol =>
         {
             return Err(invalid("callee transfer's owner is not the call's target"));
@@ -741,14 +741,14 @@ pub fn compose_call(
         || binding_frame.admission.callee() != callee_key.owner
         || owner.entity != caller_key.owner
         || owner.owner != caller_frame.declaration.declaration
-        || owner.occurrence != call.site.id()
+        || owner.occurrence != call.site.occurrence_id()
     {
         return Err(invalid(
             "normalized composition owners differ from transfer owners",
         ));
     }
 
-    if bound.target() != call.target.id() || bound.site() != call.site.id() {
+    if bound.target() != call.target.id() || bound.site() != call.site.occurrence_id() {
         return Err(invalid("call frame binding belongs to another target"));
     }
     if caller_key.context != callee_key.context || call.qualification.context != caller_key.context
@@ -1036,7 +1036,7 @@ pub fn compose_call(
             modality,
             approximation,
             kind,
-            call_site: Some(call.site.id()),
+            call_site: Some(call.site.occurrence_id()),
             provenance: ProvenanceClass::Composed,
         };
         let (selected_signature_enumeration, selected_signature_enumeration_support) =
