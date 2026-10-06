@@ -1,12 +1,13 @@
 //! Total projection selection over normalized records. Store eligibility validates upstream
 //! invariants; this operation describes topology and never grants call/composition authority.
 use super::*;
+use super::compact::{Metadata,PrimitiveMetadata,CoverageFrame};
 use crate::domain::{
     assertion::AssertionQualification,
     attribution::*,
     calls::*,
     charged::{ChargedMap, ChargedSet, StateCharge},
-    normalized::{Rows, signature_applicability::ScopeCatalog},
+    normalized::Rows,
     resources::ResourceBudget,
     source::*,
 };
@@ -213,111 +214,121 @@ impl<'a> Index<'a> {
         Ok(out)
     }
 }
+impl Metadata for ProjectionData {
+    fn coverages(&self)->Box<dyn Iterator<Item=CoverageFrame>+'_>{Box::new(self.coverage.iter().map(|row|CoverageFrame{id:row.id(),scope:row.scope,context:row.context,family:row.family,status:row.status}))}
+    fn artifact_input(&self,id:Id<SourceArtifact>)->Result<Id<InputRevision>,ModelError>{Ok(need(&self.artifacts,id)?.input)}
+    fn occurrence_source(&self,id:Id<Occurrence>)->Result<Id<SourceArtifact>,ModelError>{Ok(need(&self.occurrences,id)?.source)}
+    fn module_source(&self,id:Id<Module>)->Result<Id<SourceArtifact>,ModelError>{Ok(need(&self.modules,id)?.source)}
+    fn symbol_frame(&self,id:Id<ProviderSymbol>)->Result<(Id<AnalysisContext>,Id<ProviderModule>),ModelError>{let symbol=need(&self.symbols,id)?;Ok((symbol.context,symbol.module))}
+    fn acquired_module(&self,id:Id<ProviderModule>)->Result<Option<Id<Module>>,ModelError>{Ok(match need(&self.provider_modules,id)?{ProviderModule::Acquired{module}=>Some(*module),_=>None})}
+    fn field_class(&self,id:Id<FieldEntity>)->Result<Id<ClassEntity>,ModelError>{Ok(need(&self.fields,id)?.class)}
+    fn import_frame(&self,id:Id<syntax::ImportAliasObservation>)->Result<(Id<AssertionQualification>,Id<Occurrence>),ModelError>{let row=need(&self.imports,id)?;Ok((row.qualification,row.alias))}
+    fn reference_frame(&self,id:Id<lexical::ReferenceObservation>)->Result<(Id<AssertionQualification>,Id<Occurrence>),ModelError>{let row=need(&self.references,id)?;Ok((row.qualification,row.read))}
+}
 impl ProjectionData {
-    fn scopes(&self) -> ScopeCatalog<'_> {
-        ScopeCatalog {
-            scopes: &self.scopes,
-            artifacts: &self.artifacts,
-            modules: &self.modules,
+    fn scope_input(&self,metadata:&impl Metadata,scope:Id<CoverageScope>)->Option<Id<InputRevision>> {
+        match self.scopes.get(scope)? {
+            CoverageScope::Input{input}=>Some(*input),
+            CoverageScope::Artifact{artifact}=>metadata.artifact_input(*artifact).ok(),
+            CoverageScope::Module{module}=>metadata.module_source(*module).and_then(|source|metadata.artifact_input(source)).ok(),
+            CoverageScope::Release{..}=>None,
         }
     }
-    fn occurrence_input(&self, id: Id<Occurrence>) -> Result<Id<InputRevision>, ModelError> {
-        Ok(need(&self.artifacts, need(&self.occurrences, id)?.source)?.input)
+    fn occurrence_input(&self, metadata:&impl Metadata, id: Id<Occurrence>) -> Result<Id<InputRevision>, ModelError> {
+        metadata.artifact_input(metadata.occurrence_source(id)?)
     }
-    fn symbol_in(&self, id: Id<ProviderSymbol>, key: ProjectionKey) -> Result<bool, ModelError> {
-        let symbol = need(&self.symbols, id)?;
-        Ok(symbol.context == key.context
-            && match need(&self.provider_modules, symbol.module)? {
-                ProviderModule::Acquired { module } => {
-                    need(&self.artifacts, need(&self.modules, *module)?.source)?.input == key.input
-                }
-                _ => true,
-            })
-    }
-    fn entity_in(&self, entity: &EntityRef, key: ProjectionKey) -> Result<bool, ModelError> {
-        Ok(match entity {
-            EntityRef::Module { module } => {
-                need(&self.artifacts, need(&self.modules, *module)?.source)?.input == key.input
-            }
-            EntityRef::Occurrence { occurrence } => {
-                self.occurrence_input(*occurrence)? == key.input
-            }
-            EntityRef::Callable { callable } => match need(&self.callables, *callable)? {
-                CallableEntity::Source { declaration, .. } => {
-                    self.occurrence_input(*declaration)? == key.input
-                }
-                CallableEntity::Synthetic { symbol } | CallableEntity::External { symbol } => {
-                    self.symbol_in(*symbol, key)?
-                }
-            },
-            EntityRef::Class { class } => match need(&self.classes, *class)? {
-                ClassEntity::Source { declaration } => {
-                    self.occurrence_input(*declaration)? == key.input
-                }
-                ClassEntity::Synthetic { symbol } | ClassEntity::External { symbol } => {
-                    self.symbol_in(*symbol, key)?
-                }
-            },
-            EntityRef::Parameter { parameter } => match need(&self.parameters, *parameter)? {
-                ParameterEntity::Source { declaration } => {
-                    self.occurrence_input(*declaration)? == key.input
-                }
-                ParameterEntity::NativeSlot { callable, .. } => self.entity_in(
-                    &EntityRef::Callable {
-                        callable: *callable,
-                    },
-                    key,
-                )?,
-            },
-            EntityRef::Field { field } => self.entity_in(
-                &EntityRef::Class {
-                    class: need(&self.fields, *field)?.class,
-                },
-                key,
-            )?,
-            EntityRef::Type { .. } | EntityRef::Place { .. } => false,
+    fn symbol_in(&self,metadata:&impl Metadata,id:Id<ProviderSymbol>,key:ProjectionKey)->Result<bool,ModelError>{
+        let (context,module)=metadata.symbol_frame(id)?;
+        Ok(context==key.context && match metadata.acquired_module(module)? {
+            Some(module)=>metadata.artifact_input(metadata.module_source(module)?)?==key.input,
+            None=>true,
         })
     }
-    fn qualified(
-        &self,
-        q: Id<AssertionQualification>,
-        key: ProjectionKey,
-    ) -> Result<bool, ModelError> {
-        let q = need(&self.qualifications, q)?;
-        Ok(q.context == key.context && self.scopes().input(q.scope) == Some(key.input))
+    fn entity_in(&self,metadata:&impl Metadata,entity:&EntityRef,key:ProjectionKey)->Result<bool,ModelError>{
+        Ok(match entity {
+            EntityRef::Module{module}=>metadata.artifact_input(metadata.module_source(*module)?)?==key.input,
+            EntityRef::Occurrence{occurrence}=>self.occurrence_input(metadata,*occurrence)?==key.input,
+            EntityRef::Callable{callable}=>match need(&self.callables,*callable)?{
+                CallableEntity::Source{declaration,..}=>self.occurrence_input(metadata,*declaration)?==key.input,
+                CallableEntity::Synthetic{symbol}|CallableEntity::External{symbol}=>self.symbol_in(metadata,*symbol,key)?,
+            },
+            EntityRef::Class{class}=>match need(&self.classes,*class)?{
+                ClassEntity::Source{declaration}=>self.occurrence_input(metadata,*declaration)?==key.input,
+                ClassEntity::Synthetic{symbol}|ClassEntity::External{symbol}=>self.symbol_in(metadata,*symbol,key)?,
+            },
+            EntityRef::Parameter{parameter}=>match need(&self.parameters,*parameter)?{
+                ParameterEntity::Source{declaration}=>self.occurrence_input(metadata,*declaration)?==key.input,
+                ParameterEntity::NativeSlot{callable,..}=>self.entity_in(metadata,&EntityRef::Callable{callable:*callable},key)?,
+            },
+            EntityRef::Field{field}=>self.entity_in(metadata,&EntityRef::Class{class:metadata.field_class(*field)?},key)?,
+            EntityRef::Type{..}|EntityRef::Place{..}=>false,
+        })
     }
-    pub fn keys(&self, budget: &ResourceBudget) -> Result<ProjectionKeys, ModelError> {
-        let mut out = ProjectionKeys {
-            keys: Default::default(),
-            _charge: StateCharge::new(budget, "projection-keys"),
-        };
-        for run in self.runs.iter() {
-            for name in ProjectionName::ALL {
-                out.keys.insert(
-                    &mut out._charge,
-                    ProjectionKey {
-                        input: run.input,
-                        context: run.context,
-                        name,
-                    },
-                )?;
-            }
-        }
-        for coverage in self.coverage.iter() {
-            if let Some(input) = self.scopes().input(coverage.scope) {
-                for name in ProjectionName::ALL {
-                    out.keys.insert(
-                        &mut out._charge,
-                        ProjectionKey {
-                            input,
-                            context: coverage.context,
-                            name,
-                        },
-                    )?;
-                }
-            }
-        }
+    fn qualified(&self,metadata:&impl Metadata,q:Id<AssertionQualification>,key:ProjectionKey)->Result<bool,ModelError>{
+        let q=need(&self.qualifications,q)?;
+        Ok(q.context==key.context && self.scope_input(metadata,q.scope)==Some(key.input))
+    }
+    pub fn keys(&self,budget:&ResourceBudget)->Result<ProjectionKeys,ModelError>{self.keys_with(self,budget)}
+    fn keys_with(&self,metadata:&impl Metadata,budget:&ResourceBudget)->Result<ProjectionKeys,ModelError>{
+        let mut out=ProjectionKeys{keys:Default::default(),_charge:StateCharge::new(budget,"projection-keys")};
+        for run in self.runs.iter(){for name in ProjectionName::ALL{out.keys.insert(&mut out._charge,ProjectionKey{input:run.input,context:run.context,name})?;}}
+        for coverage in metadata.coverages(){if let Some(input)=self.scope_input(metadata,coverage.scope){for name in ProjectionName::ALL{out.keys.insert(&mut out._charge,ProjectionKey{input,context:coverage.context,name})?;}}}
         Ok(out)
+    }
+}
+/// Production topology keeps primitive source correspondence, never paths, native spellings or
+/// occurrence structural paths. The ordinary rich diagnostic input is a separate API.
+pub struct CompactProjectionData { data:ProjectionData, metadata:PrimitiveMetadata }
+impl CompactProjectionData {
+    pub fn new(budget:&ResourceBudget)->Self{Self{data:ProjectionData::new(budget),metadata:PrimitiveMetadata::new(budget)}}
+    pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
+        if self.metadata.visit(name,batch)?{return Ok(true);}
+        self.data.visit(name,batch)
+    }
+    pub fn prepare(&self,budget:&ResourceBudget)->Result<PreparedProjections<'_>,ModelError>{
+        Ok(PreparedProjections{data:&self.data,metadata:&self.metadata,index:Index::new(&self.data,budget)?,keys:self.data.keys_with(&self.metadata,budget)?})
+    }
+}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum AdmissionScope {Canonical,Snapshot}
+impl AdmissionScope {
+    pub fn roots(self)->Vec<ValidationInput>{
+        match self {
+            Self::Canonical=>vec![ValidationInput::of::<ProviderRun>(&["id"]),ValidationInput::of::<ProviderCoverage>(&["id"]),ValidationInput::of::<ProjectionSourceAssessment>(&["id"]),ValidationInput::of::<ProjectionGap>(&["id"]),ValidationInput::of::<ProjectionGapSubject>(&["id"]),ValidationInput::of::<ProjectionSourceCoverage>(&["id"])],
+            Self::Snapshot=>vec![ValidationInput::of::<ProjectionSnapshot>(&["id"]),ValidationInput::of::<ProjectionSnapshotChunk>(&["id"])],
+        }
+    }
+}
+pub struct PreparedProjections<'a>{data:&'a ProjectionData,metadata:&'a PrimitiveMetadata,index:Index<'a>,keys:ProjectionKeys}
+impl PreparedProjections<'_>{
+    pub fn keys(&self)->impl Iterator<Item=ProjectionKey>+'_ {self.keys.iter()}
+    pub fn contains(&self,key:ProjectionKey)->bool{self.keys.keys.contains(&key)}
+    pub fn validate_key(&self,stored:&ProjectionOutput,key:ProjectionKey,snapshots:bool,budget:&ResourceBudget)->Result<(),ModelError>{
+        if !self.keys.keys.contains(&key){return Err(invalid("advertised projection has no actual input/context collection"));}
+        let input=describe_indexed(self.data,&self.index,self.metadata,key,budget)?;
+        let assessment=input.assessment();
+        if stored.assessments.len()!=1 || stored.assessments.get(assessment.id())!=Some(&assessment)
+            || !stored.subjects.same(&input.subjects) || !stored.gaps.same(&input.gaps) || !stored.coverage.same(&input.coverage) {
+            return Err(invalid("projection source/domain closure differs"));
+        }
+        if snapshots {
+            if stored.snapshots.len()!=1 {return Err(invalid("projection snapshot domain differs"));}
+            let header=stored.snapshots.iter().next().expect("one snapshot");
+            let graph=snapshot::hydrate(header,&assessment,&stored.chunks,budget)?;
+            graph.matches(&input)?;
+            if stored.chunks.iter().any(|chunk|chunk.snapshot!=header.id()){return Err(invalid("foreign projection chunk"));}
+        }
+        Ok(())
+    }
+    pub fn validate_graph(&self,key:ProjectionKey,graph:&snapshot::MaterializedGraph,budget:&ResourceBudget)->Result<(),ModelError>{
+        if !self.contains(key){return Err(invalid("advertised projection has no actual input/context collection"));}
+        let input=describe_indexed(self.data,&self.index,self.metadata,key,budget)?;
+        graph.matches(&input)
+    }
+    pub fn produce(&self,key:ProjectionKey,budget:&ResourceBudget)->Result<ProjectionOutput,ModelError>{
+        if !self.keys.keys.contains(&key){return Err(invalid("projection has no input/context collection"));}
+        let input=describe_indexed(self.data,&self.index,self.metadata,key,budget)?;
+        encode_input(&input,budget)
     }
 }
 pub struct ProjectionKeys {
@@ -337,11 +348,12 @@ pub fn describe(
     if !data.keys(budget)?.keys.contains(&key) {
         return Err(invalid("projection has no input/context collection"));
     }
-    describe_indexed(data, &Index::new(data, budget)?, key, budget)
+    describe_indexed(data, &Index::new(data, budget)?, data, key, budget)
 }
 fn describe_indexed(
     data: &ProjectionData,
     index: &Index<'_>,
+    metadata: &impl Metadata,
     key: ProjectionKey,
     budget: &ResourceBudget,
 ) -> Result<ProjectionInput, ModelError> {
@@ -356,7 +368,7 @@ fn describe_indexed(
         charge: StateCharge::new(budget, "projection-arcs"),
     };
     for entity in data.refs.iter() {
-        if spec.accepts(entity) && data.entity_in(entity, key)? {
+        if spec.accepts(entity) && data.entity_in(metadata, entity, key)? {
             out.vertices.insert(entity.clone())?;
         }
     }
@@ -373,7 +385,7 @@ fn describe_indexed(
     match key.name {
         ProjectionName::CallableInvocation | ProjectionName::DefinitionContainment => {
             for event in data.events.iter() {
-                if event.context == key.context && data.occurrence_input(event.site)? == key.input {
+                if event.context == key.context && data.occurrence_input(metadata, event.site)? == key.input {
                     for alternative in index.alternatives.get(&event.id()).into_iter().flatten() {
                         if let Some(entity) = alternative.entity {
                             include(entity)?;
@@ -384,22 +396,21 @@ fn describe_indexed(
         }
         ProjectionName::ImportReference => {
             for assessment in data.import_assessments.iter() {
-                if data.qualified(
-                    need(&data.imports, assessment.observation)?.qualification,
+                if data.qualified(metadata,
+                    metadata.import_frame(assessment.observation)?.0,
                     key,
                 )? {
                     for candidate in index.imports.get(&assessment.id()).into_iter().flatten() {
-                        if let ProviderModule::Acquired { module } =
-                            need(&data.provider_modules, candidate.module)?
+                        if let Some(module) = metadata.acquired_module(candidate.module)?
                         {
-                            include(EntityRef::Module { module: *module }.id())?;
+                            include(EntityRef::Module { module }.id())?;
                         }
                     }
                 }
             }
             for assessment in data.reference_assessments.iter() {
-                if data.qualified(
-                    need(&data.references, assessment.reference)?.qualification,
+                if data.qualified(metadata,
+                    metadata.reference_frame(assessment.reference)?.0,
                     key,
                 )? {
                     for candidate in index.references.get(&assessment.id()).into_iter().flatten() {
@@ -415,11 +426,7 @@ fn describe_indexed(
         ProjectionName::PublicExposure => {
             for exposure in data.exposures.iter() {
                 if exposure.context == key.context
-                    && need(
-                        &data.artifacts,
-                        need(&data.modules, exposure.access)?.source,
-                    )?
-                    .input
+                    && metadata.artifact_input(metadata.module_source(exposure.access)?)?
                         == key.input
                 {
                     for candidate in index.exposures.get(&exposure.id()).into_iter().flatten() {
@@ -434,15 +441,15 @@ fn describe_indexed(
     }
     for family in spec.families() {
         let mut found = false;
-        for row in data.coverage.iter().filter(|c| {
+        for row in metadata.coverages().filter(|c| {
             c.context == key.context
                 && c.family == *family
-                && data.scopes().input(c.scope) == Some(key.input)
+                && data.scope_input(metadata, c.scope) == Some(key.input)
         }) {
             found = true;
             out.coverage.insert(ProjectionSourceCoverage {
                 assessment: out.assessment().id(),
-                coverage: row.id(),
+                coverage: row.id,
             })?;
             if row.status != CoverageStatus::CompleteUnderStatedModel {
                 out.gap(
@@ -468,7 +475,7 @@ fn describe_indexed(
         ProjectionName::CallableInvocation | ProjectionName::DefinitionContainment
     ) {
         for event in data.events.iter() {
-            if event.context != key.context || data.occurrence_input(event.site)? != key.input {
+            if event.context != key.context || data.occurrence_input(metadata, event.site)? != key.input {
                 continue;
             }
             let owner = need(&data.owners, event.owner)?.entity;
@@ -559,7 +566,7 @@ fn describe_indexed(
     }
     if key.name == ProjectionName::DefinitionContainment {
         for owner in data.owners.iter() {
-            if data.occurrence_input(owner.occurrence)? == key.input {
+            if data.occurrence_input(metadata, owner.occurrence)? == key.input {
                 out.arc(
                     ArcId::Containment(owner.id()),
                     owner.entity,
@@ -583,8 +590,8 @@ fn describe_indexed(
     }
     if key.name == ProjectionName::ImportReference {
         for assessment in data.import_assessments.iter() {
-            let observation = need(&data.imports, assessment.observation)?;
-            if !data.qualified(observation.qualification, key)? {
+            let (qualification, alias) = metadata.import_frame(assessment.observation)?;
+            if !data.qualified(metadata, qualification, key)? {
                 continue;
             }
             let subject = ProjectionGapSubject::Import {
@@ -594,13 +601,13 @@ fn describe_indexed(
                 out.gap(subject.clone(), resolution_gap(assessment.status))?;
             }
             let source = EntityRef::Occurrence {
-                occurrence: observation.alias,
+                occurrence: alias,
             }
             .id();
             for candidate in index.imports.get(&assessment.id()).into_iter().flatten() {
-                match need(&data.provider_modules, candidate.module)? {
-                    ProviderModule::Acquired { module } => {
-                        let target = EntityRef::Module { module: *module }.id();
+                match metadata.acquired_module(candidate.module)? {
+                    Some(module) => {
+                        let target = EntityRef::Module { module }.id();
                         need(&data.refs, target)?;
                         if out.vertices.get(target).is_some() {
                             out.arc(ArcId::Import(candidate.id()), source, target)?;
@@ -613,8 +620,8 @@ fn describe_indexed(
             }
         }
         for assessment in data.reference_assessments.iter() {
-            let observation = need(&data.references, assessment.reference)?;
-            if !data.qualified(observation.qualification, key)? {
+            let (qualification, read) = metadata.reference_frame(assessment.reference)?;
+            if !data.qualified(metadata, qualification, key)? {
                 continue;
             }
             let subject = ProjectionGapSubject::Reference {
@@ -624,7 +631,7 @@ fn describe_indexed(
                 out.gap(subject.clone(), resolution_gap(assessment.status))?;
             }
             let source = EntityRef::Occurrence {
-                occurrence: observation.read,
+                occurrence: read,
             }
             .id();
             for candidate in index.references.get(&assessment.id()).into_iter().flatten() {
@@ -650,11 +657,7 @@ fn describe_indexed(
     if key.name == ProjectionName::PublicExposure {
         for exposure in data.exposures.iter() {
             if exposure.context != key.context
-                || need(
-                    &data.artifacts,
-                    need(&data.modules, exposure.access)?.source,
-                )?
-                .input
+                || metadata.artifact_input(metadata.module_source(exposure.access)?)?
                     != key.input
             {
                 continue;
@@ -704,7 +707,7 @@ pub fn normalize(
     let mut out = ProjectionOutput::new(budget);
     let index = Index::new(data, budget)?;
     for key in data.keys(budget)?.iter() {
-        let input = describe_indexed(data, &index, key, budget)?;
+        let input = describe_indexed(data, &index, data, key, budget)?;
         let graph = snapshot::MaterializedGraph::build(&input, budget)?;
         let encoded = graph.encode(budget)?;
         let assessment = out.assessments.insert(input.assessment())?;
@@ -729,6 +732,18 @@ pub fn normalize(
     }
     Ok(out)
 }
+fn encode_input(input:&ProjectionInput,budget:&ResourceBudget)->Result<ProjectionOutput,ModelError>{
+    let mut out=ProjectionOutput::new(budget);
+    let graph=snapshot::MaterializedGraph::build(input,budget)?;
+    let encoded=graph.encode(budget)?;
+    let assessment=out.assessments.insert(input.assessment())?;
+    for row in input.subjects.iter(){out.subjects.insert(row.clone())?;}
+    for row in input.gaps.iter(){out.gaps.insert(row.clone())?;}
+    for row in input.coverage.iter(){out.coverage.insert(row.clone())?;}
+    let snapshot=out.snapshots.insert(snapshot::header(assessment,encoded.bytes().len())?)?;
+    for (ordinal,bytes) in encoded.bytes().chunks(snapshot::CHUNK_BYTES).enumerate(){out.chunks.insert(ProjectionSnapshotChunk{snapshot,ordinal:ordinal as i64,payload:EvidenceBytes(bytes.to_vec())})?;}
+    Ok(out)
+}
 /// Canonical projection meaning and lineage are portable independently of a serialized graph.
 pub fn validate_canonical(
     data: &ProjectionData, stored: &ProjectionOutput, budget: &ResourceBudget,
@@ -749,7 +764,7 @@ fn validate_inner(
     let index = Index::new(data, budget)?;
     let mut expected = ProjectionOutput::new(budget);
     for key in data.keys(budget)?.iter() {
-        let input = describe_indexed(data, &index, key, budget)?;
+        let input = describe_indexed(data, &index, data, key, budget)?;
         let assessment = input.assessment();
         expected.assessments.insert(assessment.clone())?;
         for row in input.subjects.iter() {
@@ -787,6 +802,34 @@ fn validate_inner(
     }
     Ok(())
 }
+fn validate_compact(data:&CompactProjectionData,stored:&ProjectionOutput,budget:&ResourceBudget,snapshots:bool)->Result<(),ModelError>{
+    let prepared=data.prepare(budget)?;
+    let mut expected=ProjectionOutput::new(budget);
+    for key in prepared.keys(){
+        let input=describe_indexed(prepared.data,&prepared.index,prepared.metadata,key,budget)?;
+        let assessment=input.assessment();
+        expected.assessments.insert(assessment.clone())?;
+        for row in input.subjects.iter(){expected.subjects.insert(row.clone())?;}
+        for row in input.gaps.iter(){expected.gaps.insert(row.clone())?;}
+        for row in input.coverage.iter(){expected.coverage.insert(row.clone())?;}
+
+    }
+    if !stored.assessments.same(&expected.assessments)||!stored.subjects.same(&expected.subjects)||!stored.gaps.same(&expected.gaps)||!stored.coverage.same(&expected.coverage)
+{return Err(invalid("projection source closure differs"));}
+    if snapshots {
+        let mut advertised=ChargedSet::default();
+        let mut charge=StateCharge::new(budget,"projection-snapshot-keys");
+        for header in stored.snapshots.iter(){
+            let assessment=need(&stored.assessments,header.assessment)?;
+            let key=ProjectionKey{input:assessment.input,context:assessment.context,name:assessment.projection};
+            if !advertised.insert(&mut charge,key)?{return Err(invalid("ambiguous projection snapshot"));}
+            let input=describe_indexed(prepared.data,&prepared.index,prepared.metadata,key,budget)?;
+            let graph=snapshot::hydrate(header,assessment,&stored.chunks,budget)?;graph.matches(&input)?;
+        }
+    }
+    if snapshots&&stored.chunks.iter().any(|chunk|stored.snapshots.get(chunk.snapshot).is_none()){return Err(invalid("orphan graph chunk"));}
+    Ok(())
+}
 pub fn invariants() -> Vec<Invariant> {
     let mut canonical = ProjectionData::validation_inputs();
     canonical.extend(ProjectionOutput::validation_inputs().into_iter().filter(|input| {
@@ -804,7 +847,7 @@ pub fn invariants() -> Vec<Invariant> {
         purpose: InvariantPurpose::Admission,
         inputs: canonical,
         create: std::sync::Arc::new(|budget| Box::new(Check {
-            data: ProjectionData::new(budget), output: ProjectionOutput::new(budget),
+            data: CompactProjectionData::new(budget), output: ProjectionOutput::new(budget),
             snapshots: false, budget: budget.clone(),
         })),
     }, Invariant {
@@ -813,18 +856,19 @@ pub fn invariants() -> Vec<Invariant> {
         purpose: InvariantPurpose::Admission,
         inputs: all,
         create: std::sync::Arc::new(|budget| Box::new(Check {
-            data: ProjectionData::new(budget), output: ProjectionOutput::new(budget),
+            data: CompactProjectionData::new(budget), output: ProjectionOutput::new(budget),
             snapshots: true, budget: budget.clone(),
         })),
     }]
 }
 struct Check {
     snapshots: bool,
-    data: ProjectionData,
+    data: CompactProjectionData,
     output: ProjectionOutput,
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn projection_scope(&self)->Option<AdmissionScope>{Some(if self.snapshots{AdmissionScope::Snapshot}else{AdmissionScope::Canonical})}
     fn visit(
         &mut self,
         relation: &str,
@@ -836,7 +880,7 @@ impl InvariantCheck for Check {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        validate_inner(&self.data, &self.output, &self.budget, self.snapshots)
+        validate_compact(&self.data, &self.output, &self.budget, self.snapshots)
     }
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {

@@ -899,6 +899,7 @@ pub trait InvariantCheck: Send {
         None
     }
 
+    fn projection_scope(&self)->Option<super::projection::normalization::AdmissionScope>{None}
     fn normalization_scope(&self) -> Option<super::normalized::admission::Scope> { None }
 
     fn execution_scope(&self) -> Option<super::execution::fidelity::ExecutionScope> { None }

@@ -15,6 +15,8 @@ mod receiver_scope;
 mod callable_scope;
 mod call_scope;
 mod admission;
+mod projection_admission;
+pub use projection_admission::validate_projections;
 pub use admission::{validate_receivers, validate_events, validate_bindings};
 
 /// Actual normalization output authority bound to the immutable attempt descriptors.
@@ -643,26 +645,32 @@ pub(crate) async fn bindings_prepared(
 
 /// Generation-local computational snapshots are built once, after their canonical inputs finish.
 pub async fn projections(
-    access: CompletedInputs,
-    output: ProducerOutput,
-    runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    access: CompletedInputs, output: ProducerOutput, runtime: &Workspace, _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    use lctx_model::domain::projection::normalization::{self, ProjectionData};
-    let session = access.session(runtime).await?;
-    let mut data = ProjectionData::new(runtime.budget());
-    macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
-        let _permit = access.read::<$ty>()?;
-        load(&session, &mut data.$field).await?;
-    )* }; }
-    lctx_model::projection_inputs!(read_inputs);
-    drop(session);
-    let rows = compute(data, runtime.budget(), normalization::normalize).await?;
-    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
-        output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
-    )* }; }
-    lctx_model::projection_outputs!(write_outputs);
-    drop(rows);
+    use lctx_model::domain::projection::{compact::compact_columns,normalization::{CompactProjectionData,ProjectionData}};
+    let session=access.session(runtime).await?;
+    let mut data=CompactProjectionData::new(runtime.budget());
+    macro_rules! read {($($field:ident:$ty:ty,)*) => {$({
+        let input=ProjectionData::validation_inputs().into_iter().find(|input|input.type_id()==std::any::TypeId::of::<$ty>()).expect("projection declared input");
+        let permit=access.read_at::<$ty>(input.prefix())?;
+        let table=access.table_for(&input)?;
+        let columns=compact_columns(<$ty>::NAME).map(|columns|columns.iter().map(|column|crate::consumed_rows::identifier(column)).collect::<Vec<_>>().join(",")).unwrap_or_else(||"*".into());
+        let sql=format!("SELECT {columns} FROM {} ORDER BY id",crate::consumed_rows::identifier(&table));
+        crate::consumed_rows::stream_query_at(&permit,&input,&session,&sql,|_,batch|data.visit(<$ty>::NAME,batch).map(|_|())).await?;
+    })*};}
+    lctx_model::projection_inputs!(read);
+    let prepared=data.prepare(runtime.budget())?;
+    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    lctx_model::projection_outputs!(declare);
+    let mut emitted=charged::ChargedSet::default();
+    let mut charge=charged::StateCharge::new(runtime.budget(),"projection-output-ids");
+    for key in prepared.keys(){
+        let rows=crate::stage_runtime::borrowed_cpu(access.name(),||prepared.produce(key,runtime.budget()))?;
+        macro_rules! write {($($field:ident:$ty:ty,)*) => {$(for row in rows.$field.iter(){if emitted.insert(&mut charge,(<$ty>::NAME,*row.id().bytes()))?{output.push(row.clone()).await?;}})*};}
+        lctx_model::projection_outputs!(write);
+        drop(rows);
+        tokio::task::yield_now().await;
+    }
     output.finish(ProviderOutcome::Complete).await
 }
 
