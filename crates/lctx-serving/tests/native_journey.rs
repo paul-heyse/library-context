@@ -4,7 +4,7 @@ use cpg_core::{artifact,compilation::{self,PreparedCompilation},workspace::{Work
 use lctx_model::domain::{*,admission::Frontier,stages::Profile,serving::*};
 use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader,RuntimeConfig,reader,RecordSelection};
-use std::sync::Arc;
+use std::{sync::Arc,io::Write,os::unix::fs::OpenOptionsExt};
 async fn call(service:&NativeService,tool:&str,request:serde_json::Value)->serde_json::Value{
  let encoded=service.execute(tool,&serde_json::to_string(&request).unwrap()).await.unwrap_or_else(|e|panic!("{tool}: {e}"));
  serde_json::from_str(&encoded).unwrap()
@@ -50,5 +50,5 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
  let inspection=call(&service,"inspect_value_paths",serde_json::json!({"member":member,"analysis":signature["analysis"],"inputs":[{"formal":formal,"value":{"kind":"string","value":"localhost"}}],"assumptions":{"builtin_namespace":"unknown"}})).await;assert!(inspection["paths"]["items"].is_array());
  assert!(service.execute_for("find_operations",&serde_json::json!({"library":library}).to_string(),None,false,0).await.is_err());
  let retained=std::env::var("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG").ok();
- if let Some(path)=retained{let viewer=lctx_surrealdb::config::ViewerConfig{endpoint:config.endpoint.clone(),username:config.viewer_username.clone(),password:config.viewer_password.clone(),snapshot:handle.clone()};std::fs::write(path,serde_json::to_vec(&viewer).unwrap()).unwrap();}else{let admin=reader::connect(&config.endpoint,&config.root_credentials(),config.namespace.as_str(),handle.database.database.as_str()).await.unwrap();admin.query(format!("REMOVE DATABASE `{}`",handle.database.database.as_str())).await.unwrap().check().unwrap();}
+ if let Some(path)=retained{let viewer=lctx_surrealdb::config::ViewerConfig{endpoint:config.endpoint.clone(),username:config.viewer_username.clone(),password:config.viewer_password.clone(),snapshot:handle.clone()};let mut output=std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path).unwrap();output.write_all(&serde_json::to_vec(&viewer).unwrap()).unwrap();}else{let admin=reader::connect(&config.endpoint,&config.root_credentials(),config.namespace.as_str(),handle.database.database.as_str()).await.unwrap();admin.query(format!("REMOVE DATABASE `{}`",handle.database.database.as_str())).await.unwrap().check().unwrap();}
 }
