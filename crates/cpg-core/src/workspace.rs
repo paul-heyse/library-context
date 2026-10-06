@@ -330,8 +330,15 @@ impl Workspace {
     }
     pub async fn admit_semantics(&self, profile: Profile) -> Result<CheckedInputs, ModelError> {
         let relations = self.completed_relations()?;
-        let inputs = self.inputs("semantic-admission", profile, relations.iter().map(|r| r.name()))?;
-        self.checked_inputs(&inputs).await
+        let mut inputs = self.inputs("semantic-admission", profile, relations.iter().map(|r| r.name()))?;
+        // Whole-artifact admission validates actual frozen owner premises in a live attempt.
+        // A portable import has only canonical streams and uses the explicitly detached path.
+        // Consumer admission remains exact and never substitutes a missing selected epoch.
+        self.validate_scope(profile, true, None).await?;
+        for ((boundary, name), relation) in self.frozen_vocabulary.lock().map_err(|_| poisoned())?.iter() {
+            inputs.relations.insert((*name, Some(*boundary)), relation.clone());
+        }
+        Ok(CheckedInputs { inputs, attempt:self.files.clone(), policy:self.model.digest() })
     }
     async fn validate_scope(&self, profile: Profile, admission: bool, selected: Option<&CompletedInputs>) -> Result<ContentHash, ModelError> {
         let relations = selected.map(|inputs| inputs.relations().cloned().collect()).unwrap_or(self.completed_relations()?);
