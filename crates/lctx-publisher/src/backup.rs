@@ -24,7 +24,12 @@ pub async fn backup(config:&RuntimeConfig,handle:&SnapshotHandle,output:&Path)->
     let parent=output.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let staged=tempfile::NamedTempFile::new_in(parent).map_err(ModelError::codec)?;
     let client=http(config,handle.database.database.as_str()).await?;
-    let result=client.export(staged.path()).with_config().users(false).accesses(false).versions(false).await.map_err(ModelError::codec);
+    // Transport only canonical families, originals and their native role arcs. Derived search
+    // is rebuilt on restore; its optional array fields have a 3.3 export/import DDL mismatch.
+    let tables=["entity","assertion","participant","reference","external","original","original_chunk","publication"].map(str::to_owned).to_vec();
+    let result=client.export(staged.path()).with_config().users(false).accesses(false).versions(false)
+        .params(false).functions(false).analyzers(false).apis(false).buckets(false).modules(false).configs(false)
+        .tables(tables).await.map_err(ModelError::codec);
     let drained=client.invalidate().await.map_err(ModelError::codec);drop(client);
     result?;drained?;
     staged.as_file().sync_all().map_err(ModelError::codec)?;

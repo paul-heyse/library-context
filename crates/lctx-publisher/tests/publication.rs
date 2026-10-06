@@ -17,11 +17,21 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable(){
     let admitted=artifact::admit(&workspace,&captured,Frontier::Normalized,Profile::Catalog,settings).await.unwrap();
     let export=scratch.path().join("artifact");admitted.export(&export).unwrap();drop(admitted);
     let verified=artifact::verify_export(&export,&workspace).await.unwrap();
-    let config=RuntimeConfig{endpoint:fixture["grpc_endpoint"].as_str().unwrap().into(),username:fixture["admin_user"].as_str().unwrap().into(),password:fixture["admin_password"].as_str().unwrap().into(),viewer_username:"fixture_viewer".into(),viewer_password:format!("fixture-viewer-{}",std::process::id()),namespace:Name::new("gn_publication").unwrap(),cache_database:Name::new("cache").unwrap(),selection:scratch.path().join("selected.json")};
+    let config=RuntimeConfig{endpoint:fixture["grpc_endpoint"].as_str().unwrap().into(),username:fixture["admin_user"].as_str().unwrap().into(),password:fixture["admin_password"].as_str().unwrap().into(),viewer_username:"fixture_viewer".into(),viewer_password:format!("fixture-viewer-{}",std::process::id()),namespace:Name::new(format!("gn_publication_{}",std::process::id())).unwrap(),cache_database:Name::new("cache").unwrap(),selection:scratch.path().join("selected.json")};
     let definitions=lctx_surrealdb::materialization::native_definitions();
     let handle=lctx_publisher::publish(&verified,&config,&definitions).await.unwrap();
     assert!(!config.selection.exists());
     assert_eq!(handle.semantic,verified.manifest().content());
+    let listed=lctx_publisher::inspection::list(&config).await.unwrap();assert!(listed.contains(&handle));
+    lctx_publisher::inspection::audit(&config,&handle,&definitions).await.unwrap();
+    // Actual effective analyzer drift cannot hide behind the original publication marker.
+    let admin=lctx_surrealdb::reader::connect(&config.endpoint,&config.root_credentials(),config.namespace.as_str(),handle.database.database.as_str()).await.unwrap();
+    admin.query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS uppercase").await.unwrap().check().unwrap();
+    assert!(lctx_publisher::inspection::audit(&config,&handle,&definitions).await.is_err());
+    admin.query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS lowercase").await.unwrap().check().unwrap();
+    lctx_publisher::inspection::audit(&config,&handle,&definitions).await.unwrap();
+    admin.invalidate().await.unwrap();drop(admin);
+
     let viewer=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),handle.clone()).await.unwrap();
     let marker:Vec<String>=viewer.query("SELECT VALUE handle FROM publication:current",surrealdb_vars()).await.unwrap();
     assert_eq!(serde_json::from_slice::<SnapshotHandle>(&hex::decode(&marker[0]).unwrap()).unwrap(),handle);
@@ -40,6 +50,7 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable(){
     assert!(lctx_publisher::backup::backup(&config,&handle,&backup).await.is_err());
     let restored=lctx_publisher::backup::restore(&config,&backup,&definitions).await.unwrap();
     assert_eq!(restored.semantic,handle.semantic);assert_ne!(restored.database,handle.database);
+    lctx_publisher::inspection::audit(&config,&restored,&definitions).await.unwrap();
     assert_eq!(config.selected().unwrap(),handle); // Restore never selects its imported handle.
     let restored_viewer=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),restored.clone()).await.unwrap();
     for original in &verified.manifest().originals{
