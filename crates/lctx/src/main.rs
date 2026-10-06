@@ -143,6 +143,10 @@ enum Cmd {
 
 #[derive(Subcommand, Debug)]
 enum SnapshotCommand {
+    /// List complete live publications in the configured namespace.
+    List,
+    /// Stream one explicit snapshot through canonical/original and realization verification.
+    Audit { handle: PathBuf },
     /// Back up a published snapshot to a new local SQL dump, excluding credentials/history.
     Backup {
         #[arg(long)] output: PathBuf,
@@ -759,6 +763,16 @@ fn run() -> anyhow::Result<()> {
             let config = newnative::config(&runtime_config)?;
             let runtime = runtime()?;
             match command {
+                SnapshotCommand::List => {
+                    let handles = runtime.block_on(newnative::list(&config))?;
+                    println!("{}", serde_json::to_string_pretty(&handles)?);
+                }
+                SnapshotCommand::Audit { handle } => {
+                    let audited = runtime.block_on(newnative::audit(&config, &handle))?;
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"handle":audited,"audit":"passed",
+                        "checked":["publication","canonical graph","original bytes","graph adjacency","current semantic contract","definition identity"],
+                        "outside_scope":["credentials","live queries","database mode"]}))?);
+                }
                 SnapshotCommand::Backup { output, handle } => {
                     runtime.block_on(newnative::backup(&config, handle.as_deref(), &output))?;
                     println!("{}", serde_json::to_string_pretty(&serde_json::json!({"output":output}))?);
@@ -880,6 +894,9 @@ mod tests {
         assert!(parse(&["snapshot", "export", "--projection", "unknown", "--input", "00000000000000000000000000000000", "--context", "11111111111111111111111111111111", "--output", "graph.json"]).is_err());
         assert!(parse(&["snapshot", "select"]).is_err());
         assert!(parse(&["snapshot", "backup", "--output", "dump.sql"]).is_ok());
+        assert!(parse(&["snapshot", "list"]).is_ok());
+        assert!(parse(&["snapshot", "audit"]).is_err());
+        assert!(parse(&["snapshot", "audit", "handle.json"]).is_ok());
         assert!(parse(&["snapshot", "restore", "dump.sql"]).is_ok());
         assert!(parse(&["snapshot", "retire", "handle.json"]).is_err());
         assert!(parse(&["snapshot", "retire", "handle.json", "--readers-stopped"]).is_ok());

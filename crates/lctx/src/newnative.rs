@@ -134,3 +134,12 @@ pub async fn retire(config: &RuntimeConfig, path: &Path, readers_stopped: bool) 
     lctx_publisher::backup::retire(config, &snapshot, readers_stopped).await?;
     Ok(())
 }
+
+pub async fn list(config: &RuntimeConfig) -> anyhow::Result<Vec<SnapshotHandle>> {
+    Ok(lctx_publisher::inspection::list(config).await?)
+}
+pub async fn audit(config: &RuntimeConfig, path: &Path) -> anyhow::Result<SnapshotHandle> {
+    let snapshot = handle(config, Some(path))?;
+    lctx_publisher::inspection::audit(config, &snapshot, &lctx_serving::native_definitions()).await?;
+    Ok(snapshot)
+}
