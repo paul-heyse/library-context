@@ -3,7 +3,7 @@
 mod runtime;
 use cpg_core::{artifact,compilation,workspace::{Workspace,WorkspaceOptions}};
 use lctx_model::domain::{*,admission::Frontier,stages::Profile,serving::{Name,SnapshotHandle}};
-use lctx_surrealdb::{RuntimeConfig,NativeReader,reader};
+use lctx_surrealdb::{RuntimeConfig,NativeReader};
 use std::sync::Arc;
 #[tokio::test]
 async fn compiled_export_publishes_unselected_and_viewer_is_immutable(){
@@ -35,7 +35,25 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable(){
     }
     config.select(&handle).unwrap();assert_eq!(config.selected().unwrap(),handle);
     let serving=lctx_surrealdb::config::ViewerConfig::read(&config.selection.with_extension("serving.json")).unwrap();assert_eq!(serving.snapshot,handle);
-    let admin=reader::connect(&config.endpoint,&config.root_credentials(),config.namespace.as_str(),handle.database.database.as_str()).await.unwrap();
-    admin.query(format!("REMOVE DATABASE `{}`",handle.database.database.as_str())).await.unwrap().check().unwrap();
+    let backup=scratch.path().join("snapshot.surql");
+    lctx_publisher::backup::backup(&config,&handle,&backup).await.unwrap();
+    assert!(lctx_publisher::backup::backup(&config,&handle,&backup).await.is_err());
+    let restored=lctx_publisher::backup::restore(&config,&backup,&definitions).await.unwrap();
+    assert_eq!(restored.semantic,handle.semantic);assert_ne!(restored.database,handle.database);
+    assert_eq!(config.selected().unwrap(),handle); // Restore never selects its imported handle.
+    let restored_viewer=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),restored.clone()).await.unwrap();
+    for original in &verified.manifest().originals{
+        let bytes=restored_viewer.original_bytes(original.source,0,usize::try_from(original.byte_len.min(256<<10)).unwrap()).await.unwrap();
+        let expected=std::fs::read(export.join(format!("original-{}.bin",original.source.0.hex()))).unwrap();assert_eq!(bytes,&expected[..bytes.len()]);
+    }
+    assert!(lctx_publisher::backup::retire(&config,&handle,false).await.is_err());
+    assert!(lctx_publisher::backup::retire(&config,&handle,true).await.is_err());
+    viewer.client().invalidate().await.unwrap();drop(viewer);
+    config.select(&restored).unwrap();
+    lctx_publisher::backup::retire(&config,&handle,true).await.unwrap();
+    assert!(NativeReader::connect(&config.endpoint,&config.viewer_credentials(),handle).await.is_err());
+    restored_viewer.client().invalidate().await.unwrap();drop(restored_viewer);
+    std::fs::remove_file(&config.selection).unwrap();std::fs::remove_file(config.selection.with_extension("serving.json")).unwrap();
+    lctx_publisher::backup::retire(&config,&restored,true).await.unwrap();
 }
 fn surrealdb_vars()->lctx_surrealdb::surrealdb::types::Variables{Default::default()}

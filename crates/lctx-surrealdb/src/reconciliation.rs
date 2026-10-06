@@ -4,7 +4,7 @@ use lctx_model::domain::{graph::{Entity,Assertion,Target,GraphFamily,FamilyHashe
 use surrealdb::types::{SurrealValue,RecordId,Value,Bytes,Variables};
 #[derive(SurrealValue)]
 #[surreal(crate="surrealdb::types")]
-struct Node {id:RecordId,semantic_type:String,semantic_key:String,kind:i64,subtype:Option<i16>,content:String,canonical:Bytes,body:Value}
+struct Node {id:RecordId,semantic_type:String,semantic_key:String,kind:i64,subtype:Value,content:String,canonical:Bytes,body:Value}
 impl Loader{
     pub async fn reconcile(&self,manifest:&Manifest)->Result<(),ModelError>{
         manifest.validate()?;
@@ -32,7 +32,7 @@ impl Loader{
                         for(position,(target,_))in assertion.references()?.into_iter().enumerate(){if assertion.participants.iter().any(|p|p.target==target){continue}remember_external(&mut external,&target)?;expected.push(crate::loader::edge("participant",row.id.clone(),target,"__reference",-1,Some(position as u32))?);}
                         (assertion.id().0,assertion.content(),assertion.kind as i64,None,codec::assertion_view(&assertion)?,serde_json::to_vec(&assertion).map_err(ModelError::codec)?)
                     };
-                    if row.id!=RecordId::new(table,key.hex())||row.semantic_type!=view.semantic_type||row.semantic_key!=view.semantic_key||row.kind!=kind||row.subtype!=subtype||row.content!=content.hex()||row.body!=json_value(view.body)?||row.canonical.as_ref()!=canonical{
+                    if row.id!=RecordId::new(table,key.hex())||row.semantic_type!=view.semantic_type||row.semantic_key!=view.semantic_key||row.kind!=kind||!match subtype{Some(value)=>row.subtype==Value::from_t(value),None=>matches!(row.subtype,Value::Null|Value::None)}||row.content!=content.hex()||row.body!=json_value(view.body)?||row.canonical.as_ref()!=canonical{
                         return Err(ModelError::Conflict("native canonical realization readback"))
                     }
                     if !hasher.push(key,content)?{return Err(ModelError::Conflict("duplicate native canonical graph element"))}after=row.id;
