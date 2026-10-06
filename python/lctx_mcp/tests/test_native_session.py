@@ -10,6 +10,7 @@ from pathlib import Path
 import anyio
 import pytest
 from fastmcp import Client, FastMCP
+from fastmcp.client.client import CallToolResult as ClientCallToolResult
 from fastmcp.client.transports import StdioTransport
 from fastmcp.exceptions import ToolError
 from fastmcp.tools import ToolResult
@@ -89,7 +90,9 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
             failure = await client.call_tool("browse_library", arguments, raise_on_error=False)
             expected = json.loads(wire_failure(kind))
             assert failure.is_error is True
+            assert failure.meta is not None
             assert failure.meta["lctx_failure"] == expected
+            assert isinstance(failure.content[0], TextContent)
             assert failure.content[0].text == expected["message"]
         with pytest.raises(MCPError) as missing:
             await client.read_resource("lctx://capability/" + "00" * 16)
@@ -214,6 +217,7 @@ async def test_transport_admission_refuses_complete_oversized_results_and_errors
             assert isinstance(result.content[0], TextContent)
             expected = json.loads(wire_failure(kind))
             assert result.content[0].text == expected["message"]
+            assert result.meta is not None
             assert result.meta["lctx_failure"] == expected
 
 
@@ -323,6 +327,7 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
             found = await client.call_tool(
                 "search_capabilities", {"library": library, "query": "carefully"}
             )
+            assert found.structured_content is not None
             capability = found.structured_content["results"]["items"][0]["capability"]
             uri = "lctx://capability/" + bytes(capability).hex()
             key = bytes(capability).hex()
@@ -348,7 +353,10 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
                 result = await client.call_tool(
                     "get_capability", {"capability": capability}, raise_on_error=False
                 )
-                assert result.is_error and result.meta["lctx_failure"] == corrupt
+                assert result.is_error
+                assert result.meta is not None
+                assert result.meta["lctx_failure"] == corrupt
+                assert isinstance(result.content[0], TextContent)
                 assert result.content[0].text == corrupt["message"]
                 with pytest.raises(MCPError) as caught:
                     await client.read_resource(uri)
@@ -368,6 +376,7 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
             first = await client.call_tool(
                 "browse_library", {"library": library, "page": {"size": 1}}
             )
+            assert first.structured_content is not None
             cursor = first.structured_content["entries"]["continuation"]
             assert cursor
             wrong = await client.call_tool(
@@ -376,7 +385,10 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
                 raise_on_error=False,
             )
             incompatible = json.loads(wire_failure("incompatible"))
-            assert wrong.is_error and wrong.meta["lctx_failure"] == incompatible
+            assert wrong.is_error
+            assert wrong.meta is not None
+            assert wrong.meta["lctx_failure"] == incompatible
+            assert isinstance(wrong.content[0], TextContent)
             assert wrong.content[0].text == incompatible["message"]
 
             for resource in [False, True]:
@@ -402,7 +414,11 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
                         assert caught.value.error.data == {"lctx_failure": unavailable}
                     else:
                         result = await asyncio.wait_for(pending, timeout=10)
-                        assert result.is_error and result.meta["lctx_failure"] == unavailable
+                        assert isinstance(result, ClientCallToolResult)
+                        assert result.is_error
+                        assert result.meta is not None
+                        assert result.meta["lctx_failure"] == unavailable
+                        assert isinstance(result.content[0], TextContent)
                         assert result.content[0].text == unavailable["message"]
                 finally:
                     proxy.resume()

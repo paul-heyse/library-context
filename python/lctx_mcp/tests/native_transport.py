@@ -91,6 +91,7 @@ class ResponseGate:
 
     async def __aexit__(self, *exc):
         self.resume()
+        assert self.server is not None
         self.server.close()
         await self.server.wait_closed()
         for task in tuple(self.tasks):

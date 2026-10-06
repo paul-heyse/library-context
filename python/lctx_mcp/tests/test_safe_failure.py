@@ -10,6 +10,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 from lctx_semantics import NativeFailure, wire_decode, wire_failure
 from mcp.shared.exceptions import MCPError
+from mcp_types import TextContent
 
 from lctx_mcp.wire import checked_resource_error, failure_error, native_failure, response_encodings
 
@@ -46,7 +47,9 @@ async def test_actual_tool_and_resource_routes_keep_typed_fixed_failure(kind, tr
             "browse_library", {"library": "fixture"}, raise_on_error=False
         )
         assert result.is_error is True
+        assert result.meta is not None
         assert result.meta["lctx_failure"] == expected
+        assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == expected["message"]
         assert "sentinel" not in str(result) and "/private/" not in str(result)
         with pytest.raises(MCPError) as caught:
