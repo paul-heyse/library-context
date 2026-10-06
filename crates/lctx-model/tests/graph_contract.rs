@@ -908,6 +908,19 @@ fn canonical_admission_inventory_has_all_required_premises() {
         let declared=declarations.iter().map(Relation::name).collect::<BTreeSet<_>>();
         let referrers=declared.intersection(&selected).copied()
             .chain(original_bytes.iter().copied()).collect();
+        let publication: &[&str]=match frontier {
+            "analysis"=>&["complete_analysis_frontier"],
+            "catalog"=>&["complete_analysis_frontier","complete_catalog_frontier"],
+            _=>&[],
+        };
+        for id in publication {
+            for input in &model.publication_check(id).unwrap().inputs {
+                if (!selected.contains(input.name()) || !declared.contains(input.name()))
+                    && !original_bytes.contains(input.name()) {
+                    absent.insert(format!("{frontier}: publication {id} requires {} at {:?}",input.name(),input.prefix()));
+                }
+            }
+        }
         for invariant in model.admission_candidates_for_scope(&referrers).unwrap() {
             assert_eq!(invariant.purpose,InvariantPurpose::Admission);
             for input in invariant.inputs {
@@ -1012,4 +1025,56 @@ fn admission_companions_keep_nominal_sources_order_and_missing_premise_refusal()
         d::catalog::evidence::SetupDependency::ModuleContext {artifact:id(7)});
     roundtrip!(d::execution::summary_consequences::ClaimRefutationCoverage,
         d::execution::summary_consequences::ClaimRefutationCoverage {proof:id(8),ordinal:0,coverage:id(9)});
+}
+
+#[test]
+fn final_frontier_companions_roundtrip_preserve_assessment_and_predecessor_membership() {
+    use d::analysis::frontier::{AnalysisAssessment,AnalysisMember,CatalogAssessment,CatalogMember};
+    let analysis=AnalysisAssessment {input:id(1),context:id(2),capture:hash(3),members:hash(4),
+        availability:d::normalized::coverage::EvidenceAvailability::Complete,reason:None};
+    let catalog=CatalogAssessment {input:analysis.input,context:analysis.context,analysis:analysis.id(),
+        capture:hash(5),members:hash(6),availability:d::normalized::coverage::EvidenceAvailability::Complete,reason:None};
+    macro_rules! entity {($ty:ty,$row:expr)=>{{
+        let row=$row;
+        let entity=Entity::from(row.clone());
+        assert_eq!(entity.kind(),EntityKind::Outcome);
+        let restored:Entity=serde_json::from_slice(&serde_json::to_vec(&entity).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(entity,restored);
+        assert_eq!(record::entity_record::<$ty>(&restored).unwrap(),row);
+        entity
+    }};}
+    let analysis_entity=entity!(AnalysisAssessment,analysis.clone());
+    let catalog_entity=entity!(CatalogAssessment,catalog.clone());
+    let mut lookup=Lookup::default();
+    lookup.entities.insert(EntityId::of(analysis.input),EntityKind::Capture);
+    lookup.entities.insert(EntityId::of(analysis.context),EntityKind::Context);
+    lookup.add(&analysis_entity);
+    admit_entity(&catalog_entity,&lookup).unwrap();
+    lookup.entities.remove(&analysis_entity.id());
+    assert!(admit_entity(&catalog_entity,&lookup).is_err());
+    macro_rules! member {($ty:ty,$row:expr)=>{{
+        let row=$row;
+        let assertion=Assertion::from_record(row.clone()).unwrap();
+        assert_eq!(assertion.kind,AssertionKind::StructuralMembership);
+        let restored:Assertion=serde_json::from_slice(&serde_json::to_vec(&assertion).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(assertion,restored);
+        assert_eq!(record::assertion_record::<$ty>(&restored).unwrap(),row);
+    }};}
+    member!(AnalysisMember,AnalysisMember::Local {assessment:analysis.id(),method:d::analysis::AnalysisMethod::LocalTransfers,
+        invocation:id(7),outcome:id(8),coverage:id(9),payload:hash(10)});
+    member!(CatalogMember,CatalogMember::Local {assessment:catalog.id(),method:d::analysis::AnalysisMethod::LocalTransfers,
+        invocation:id(7),outcome:id(8),coverage:id(9),payload:hash(10)});
+    let mut selected=BTreeSet::new();
+    macro_rules! inventory { ($($variant:ident:$ty:ty,)*) => {$(selected.insert(<$ty>::NAME);)*}; }
+    lctx_model::graph_entity_records!(inventory);
+    lctx_model::graph_assertion_records!(inventory);
+    for relation in [Relation::of::<AnalysisAssessment>(),Relation::of::<AnalysisMember>(),
+        Relation::of::<CatalogAssessment>(),Relation::of::<CatalogMember>()] {
+        assert!(selected.contains(relation.name()));
+        for field in relation.fields() {
+            if let Some((_,target))=field.target() {assert!(selected.contains(target),"{}::{} lacks {target}",relation.name(),field.name());}
+        }
+    }
 }

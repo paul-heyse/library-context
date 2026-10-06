@@ -2,6 +2,8 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub enum ClaimValue {
+    AnalysisFrontierMember(crate::domain::analysis::frontier::AnalysisMember),
+    CatalogFrontierMember(crate::domain::analysis::frontier::CatalogMember),
     CatalogCallableAspects(crate::domain::catalog::CatalogCallableAspect),
     StructuralArcSources(crate::domain::structural::records::ArcSource),
     StructuralStepEvidence(crate::domain::structural::records::StepEvidence),
@@ -221,6 +223,14 @@ pub enum ClaimValue {
 impl Key for ClaimValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::AnalysisFrontierMember(row) => {
+                sink.part(b"semantic-type", <crate::domain::analysis::frontier::AnalysisMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
+            Self::CatalogFrontierMember(row) => {
+                sink.part(b"semantic-type", <crate::domain::analysis::frontier::CatalogMember as Record>::NAME.as_bytes());
+                row.content_digest().encode(sink);
+            }
             Self::CatalogCallableAspects(row) => {
                 sink.part(b"semantic-type", <crate::domain::catalog::CatalogCallableAspect as Record>::NAME.as_bytes());
                 row.content_digest().encode(sink);
@@ -1608,6 +1618,8 @@ impl ClaimValue {
             Self::CatalogScenarioDependencies(row) => row.validate(),
             Self::CatalogEvidenceInvocations(row) => row.validate(),
             Self::CallableAspectSources(row) => row.validate(),
+            Self::AnalysisFrontierMember(row) => row.validate(),
+            Self::CatalogFrontierMember(row) => row.validate(),
             Self::ProjectionSourceAssessments(row) => row.validate(),
             Self::ProjectionGaps(row) => row.validate(),
             Self::ProjectionSourceCoverages(row) => row.validate(),
@@ -1817,6 +1829,8 @@ impl ClaimValue {
             Self::CatalogScenarioDependencies(row) => row.references(),
             Self::CatalogEvidenceInvocations(row) => row.references(),
             Self::CallableAspectSources(row) => row.references(),
+            Self::AnalysisFrontierMember(row) => row.references(),
+            Self::CatalogFrontierMember(row) => row.references(),
             Self::ProjectionSourceAssessments(row) => row.references(),
             Self::ProjectionGaps(row) => row.references(),
             Self::ProjectionSourceCoverages(row) => row.references(),
@@ -2026,6 +2040,8 @@ impl ClaimValue {
             Self::CatalogScenarioDependencies(row) => SemanticKey::of(row.id()),
             Self::CatalogEvidenceInvocations(row) => SemanticKey::of(row.id()),
             Self::CallableAspectSources(row) => SemanticKey::of(row.id()),
+            Self::AnalysisFrontierMember(row) => SemanticKey::of(row.id()),
+            Self::CatalogFrontierMember(row) => SemanticKey::of(row.id()),
             Self::ProjectionSourceAssessments(row) => SemanticKey::of(row.id()),
             Self::ProjectionGaps(row) => SemanticKey::of(row.id()),
             Self::ProjectionSourceCoverages(row) => SemanticKey::of(row.id()),

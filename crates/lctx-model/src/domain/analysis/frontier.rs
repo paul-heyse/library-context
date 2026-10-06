@@ -20,7 +20,7 @@ pub enum Target {
     Analysis,
     Catalog,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="analysis_frontier_assessments",publication_refs=analysis_checks_refs)]
 pub struct AnalysisAssessment {
     #[model(key)]
@@ -34,7 +34,7 @@ pub struct AnalysisAssessment {
     pub availability: EvidenceAvailability,
     pub reason: Option<ObligationKind>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="catalog_frontier_assessments",rule="final_catalog_assessment",publication_refs=catalog_checks_refs)]
 pub struct CatalogAssessment {
     #[model(key)]
@@ -51,7 +51,7 @@ pub struct CatalogAssessment {
     pub reason: Option<ObligationKind>,
 }
 macro_rules! member_type{($name:ident,$table:literal,$assessment:ty;$($extra:tt)*)=>{
- #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]# [model(name=$table,rule=$table)]pub enum $name{
+ #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum,serde::Serialize,serde::Deserialize)]# [model(name=$table,rule=$table)]pub enum $name{
  #[model(code=0)]Local{assessment:Id<$assessment>,method:Method,#[model(premise)]invocation:Id<analysis::local::AnalysisInvocation>,#[model(premise)]outcome:Id<analysis::local::AnalysisOutcome>,#[model(premise)]coverage:Id<analysis::local::AnalysisCoverage>,payload:ContentHash},
  #[model(code=1)]BaseEvaluation{assessment:Id<$assessment>,method:Method,#[model(premise)]invocation:Id<analysis::base_evaluation::AnalysisInvocation>,#[model(premise)]outcome:Id<analysis::base_evaluation::AnalysisOutcome>,#[model(premise)]coverage:Id<analysis::base_evaluation::AnalysisCoverage>,payload:ContentHash},
  #[model(code=2)]BaseCompletion{assessment:Id<$assessment>,method:Method,#[model(premise)]invocation:Id<analysis::base_completion::AnalysisInvocation>,#[model(premise)]outcome:Id<analysis::base_completion::AnalysisOutcome>,#[model(premise)]coverage:Id<analysis::base_completion::AnalysisCoverage>,payload:ContentHash},

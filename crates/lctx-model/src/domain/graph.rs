@@ -333,6 +333,8 @@ pub enum Entity {
     RetrievalText(super::retrieval::CorpusText),
     RetrievalUnit(super::retrieval::Unit),
     RetrievalOrigin(super::retrieval::Origin),
+    AnalysisFrontierAssessment(super::analysis::frontier::AnalysisAssessment),
+    CatalogFrontierAssessment(super::analysis::frontier::CatalogAssessment),
     AnalysisProjectionDefinition(super::analysis::ProjectionDefinition),
     AnalysisDefinition(super::analysis::AnalysisDefinition),
     MethodParameters(super::analysis::MethodParameters),
@@ -644,6 +646,8 @@ macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{
     RetrievalText:RetrievalText=>$crate::domain::retrieval::CorpusText,
     RetrievalUnit:RetrievalUnit=>$crate::domain::retrieval::Unit,
     RetrievalOrigin:RetrievalOrigin=>$crate::domain::retrieval::Origin,
+    AnalysisFrontierAssessment:Outcome=>$crate::domain::analysis::frontier::AnalysisAssessment,
+    CatalogFrontierAssessment:Outcome=>$crate::domain::analysis::frontier::CatalogAssessment,
     AnalysisProjectionDefinition:Definition=>$crate::domain::analysis::ProjectionDefinition,
     AnalysisDefinition:AnalysisDefinition=>$crate::domain::analysis::AnalysisDefinition,
     MethodParameters:MethodParameters=>$crate::domain::analysis::MethodParameters,
@@ -1215,6 +1219,10 @@ pub fn reference_target(
     <super::retrieval::CorpusText as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalText,reference.target,&reference.key)),Some(EntityKind::RetrievalText))),
     <super::retrieval::Unit as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalUnit,reference.target,&reference.key)),Some(EntityKind::RetrievalUnit))),
     <super::retrieval::Origin as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalOrigin,reference.target,&reference.key)),Some(EntityKind::RetrievalOrigin))),
+    <super::analysis::frontier::AnalysisAssessment as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Outcome,reference.target,&reference.key)),Some(EntityKind::Outcome))),
+    <super::analysis::frontier::CatalogAssessment as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Outcome,reference.target,&reference.key)),Some(EntityKind::Outcome))),
+    <super::analysis::frontier::AnalysisMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
+    <super::analysis::frontier::CatalogMember as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::analysis::ProjectionDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Definition,reference.target,&reference.key)),Some(EntityKind::Definition))),
     <super::analysis::AnalysisDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::AnalysisDefinition,reference.target,&reference.key)),Some(EntityKind::AnalysisDefinition))),
     <super::analysis::MethodParameters as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::MethodParameters,reference.target,&reference.key)),Some(EntityKind::MethodParameters))),
@@ -10028,6 +10036,8 @@ impl GraphAssertionRecord for super::symbols::ModuleResolutionSupport {
 // Selected analytics retain their computation universe, weights, memberships, availability and
 // provenance. QualityStep iteration traces have no semantic/serving consumer and remain private.
 macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
+    AnalysisFrontierMember:$crate::domain::analysis::frontier::AnalysisMember,
+    CatalogFrontierMember:$crate::domain::analysis::frontier::CatalogMember,
     CatalogCallableAspects:$crate::domain::catalog::CatalogCallableAspect,
     StructuralArcSources:$crate::domain::structural::ArcSource,
     StructuralStepEvidence:$crate::domain::structural::StepEvidence,
@@ -17595,6 +17605,8 @@ macro_rules! retained_consumer_assertions {
  )*};
 }
 retained_consumer_assertions! {
+ AnalysisFrontierMember:super::analysis::frontier::AnalysisMember=>ClaimValue,Claim,StructuralMembership,
+ CatalogFrontierMember:super::analysis::frontier::CatalogMember=>ClaimValue,Claim,StructuralMembership,
  CatalogCallableAspects:super::catalog::CatalogCallableAspect=>ClaimValue,Claim,StructuralMembership,
  StructuralArcSources:super::structural::records::ArcSource=>ClaimValue,Claim,EvidenceAssociation,
  StructuralStepEvidence:super::structural::records::StepEvidence=>ClaimValue,Claim,EvidenceAssociation,
