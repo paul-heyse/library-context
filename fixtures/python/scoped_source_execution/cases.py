@@ -28,3 +28,13 @@ def unavailable_default():
         return item
     fresh()
     return 3
+
+
+def enriched_argument():
+    def fresh(item):
+        # Completing this allocation needs Enriched definition evidence.
+        def allocated():
+            return None
+        return item
+    fresh(13)
+    return 4

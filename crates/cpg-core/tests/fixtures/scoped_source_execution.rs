@@ -337,7 +337,10 @@ async fn run(profile: Profile) {
     if profile == Profile::Behavioral {
         assert!(
             !fresh_calls.is_empty() && !fresh_arguments.is_empty() && !executions.is_empty(),
-            "fixture must exercise actual SourceCall→Enriched values"
+            "fixture must exercise actual SourceCall→Enriched values: fresh_calls={}, fresh_arguments={}, executions={}",
+            fresh_calls.len(),
+            fresh_arguments.len(),
+            executions.len()
         );
     } else {
         assert!(fresh_calls.is_empty() && executions.is_empty());
