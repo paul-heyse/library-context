@@ -573,7 +573,7 @@ mod fidelity_controls {
         let mut check=dishonest_header(Kind::Header);
         let mut attempt=check.attempts.iter().next().unwrap().clone();attempt.outcome=BindingOutcome::Undetermined;attempt.reason=BindingReason::MissingSignature;
         let mut header=check.headers.iter().next().unwrap().clone();header.attempt=attempt.id();
-        check.attempts.insert(attempt).unwrap();check.headers=Rows::new(&check.budget);check.headers.insert(header).unwrap();
+        check.attempts=Rows::new(&check.budget);check.attempts.insert(attempt).unwrap();check.headers=Rows::new(&check.budget);check.headers.insert(header).unwrap();
         let error=Box::new(check).finish().unwrap_err();assert!(error.to_string().contains("binding is not Bound"),"{error}");
     }
 
