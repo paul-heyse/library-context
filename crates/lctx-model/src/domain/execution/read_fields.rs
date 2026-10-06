@@ -412,6 +412,7 @@ impl FieldUniverse {
     pub(super) fn remember_dynamic(&mut self,row:&super::read_dynamic::DynamicAccessObservation)->Result<(),ModelError> {self.dynamic.insert(row.clone())?;Ok(())}
     pub(super) fn dynamic_scope(&self)->bool {self.dynamic.iter().any(|row|matches!(row.kind,super::read_dynamic::DynamicKind::Exec|super::read_dynamic::DynamicKind::Eval))}
     pub fn keys(&self)->impl Iterator<Item=&(Id<ClassEntity>,String)> {self.fields.iter()}
+    pub fn next_key(&self,after:Option<&(Id<ClassEntity>,String)>)->Option<&(Id<ClassEntity>,String)> {match after {Some(after)=>self.fields.range((std::ops::Bound::Excluded(after),std::ops::Bound::Unbounded)).next(),None=>self.fields.iter().next()}}
     pub fn dynamic_classes(&self)->impl Iterator<Item=Id<ClassEntity>>+'_ {self.dynamic.iter().filter_map(|row|row.declared_class)}
     pub(super) fn roots(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,work:&mut Work)->Result<(),ModelError> {
     // Admission roots, not observed reads, define the complete source universe.

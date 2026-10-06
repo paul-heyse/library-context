@@ -17,6 +17,8 @@ use lctx_model::domain::{
 use std::sync::Arc;
 #[path="execution_scope.rs"]
 mod execution_scope;
+#[path="base_scope.rs"]
+mod base_scope;
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
@@ -57,7 +59,7 @@ pub async fn evaluate_base(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
     actual_local:Option<&crate::local_semantics::PreparedLocal>,
 ) -> Result<Option<Produced<production::ProducedEvaluations>>, ModelError> {
@@ -74,8 +76,8 @@ pub async fn evaluate_base(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut data = EvaluationData::new(budget);
-    let mut entry = EntryData::new(budget);
+    let data = EvaluationData::new(budget);
+    let entry = EntryData::new(budget);
     let mut declarations = Vec::new();
     if profile == Profile::Behavioral {
         declarations.extend(EvaluationData::consumed_inputs(profile));
@@ -91,18 +93,19 @@ pub async fn evaluate_base(
     ]);
     declarations.extend(analysis::expected::inputs(definition.method));
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
-    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|{data.visit_input(input, batch)?;entry.visit_input(input, batch)?;Ok(())}).await?;})*};}
+    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$({load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;})*};}
     if profile == Profile::Behavioral {
         lctx_model::execution_evaluation_inputs!(inputs);
         lctx_model::entry_value_inputs!(inputs);
     }
-    let mut entries = Rows::<EntryValueWitness>::new(budget);
-    let mut entry_sources = Rows::<EntryAccessSource>::new(budget);
+    let entries = Rows::<EntryValueWitness>::new(budget);
+    let entry_sources = Rows::<EntryAccessSource>::new(budget);
     let mut local = Rows::<analysis::local::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
     macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,batch|$field.decode(batch)).await?;)*};}
     if profile == Profile::Behavioral {
-        read! {entries:EntryValueWitness,entry_sources:EntryAccessSource,}
+        load::<EntryValueWitness>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;
+        load::<EntryAccessSource>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;
     }
     read! {local:analysis::local::AnalysisInvocation,definitions:analysis::AnalysisDefinition,}
     if definitions.get(definition.id()) != Some(definition) {
@@ -112,8 +115,8 @@ pub async fn evaluate_base(
     }
     macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
-    drop(session);
     consumed.finish(access.name())?;
+    let scopes=if profile==Profile::Behavioral {Some(base_scope::BaseScopes::prepare(&access,&session,model,budget).await?)}else{None};
     macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
     lctx_model::analysis_publication!(common_publication);
@@ -197,38 +200,25 @@ pub async fn evaluate_base(
         }else {
             production::evaluate_all_produced(&data,&entry,&entries,&entry_sources,&invocation,definition,profile,budget)?
         };
-        match produced.as_mut() { Some(value) => value.append(owner)?, None => produced = Some(owner) };
-        macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
-        write!(evaluations:ExpressionEvaluation,sources:EvaluationSource,members:EvaluationMember,operands:EvaluationOperand,boundaries:EvaluationBoundary,);
-        for row in records.reads.fields.locations.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.fields.assessments.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.fields.globals.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.fields.global_assessments.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.dynamic.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.dynamic_premises.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.reads.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.dependencies.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.attributes.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in records.reads.formals.iter() {
-            output.push(row.clone()).await?;
+        match produced.as_mut() {Some(value)=>value.append(owner)?,None=>produced=Some(owner)};
+        let mut run=records.run;let mut outcome=records.outcome;
+        if let Some(scopes)=&scopes {
+            use futures::TryStreamExt;
+            let actual=actual_local.ok_or(ModelError::Conflict("actual Local entry owner absent"))?;
+            let (mut reads,metadata)=scopes.metadata(&session,&invocation,budget).await?;
+            let mut roots=crate::sql::query(&session,&scopes.roots(&invocation,base_scope::Kernel::Expression)?).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+            while let Some(batch)=roots.try_next().await.map_err(ModelError::codec)? {let _transfer=budget.reserve("Base-expression-root-transfer",batch.get_array_memory_size())?;
+                for row in 0..batch.num_rows(){runtime.cancellation().check()?;let key=crate::scoped_admission::column(&batch,"id",row)?.ok_or(ModelError::Schema("Base expression root ID"))?;
+                    let scope=scopes.scope(base_scope::Kernel::Expression,key,budget).await?;let selected=scopes.data(&access,&scope,budget,true).await?;
+                    let (records,owner)=production::evaluate_expression_scoped(&selected.data,&selected.entry,&selected.witnesses,&selected.sources,&invocation,definition,profile,budget,execution_scope::nominal(&key)?,actual,&metadata)?;
+                    produced.as_mut().expect("actual Base frame owner").append(owner)?;
+                    let add=|left:i64,right:i64|left.checked_add(right).ok_or_else(||ModelError::Invalid("Base expression count overflow".into()));run.evaluated=add(run.evaluated,records.run.evaluated)?;run.refused=add(run.refused,records.run.refused)?;
+                    if records.run.refused!=0 {outcome.status=analysis::AnalysisStatus::Partial;outcome.reason=Some(obligation::ObligationKind::UnsupportedControlFlow);}
+                    macro_rules! write {($($field:ident),*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}write!(evaluations,sources,members,operands,boundaries);
+                    drop(records);drop(selected);drop(scope);tokio::task::yield_now().await;
+                }
+            }
+            scopes.reads(&access,&session,runtime,&output,&invocation,actual,&mut reads).await?;
         }
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
@@ -242,8 +232,8 @@ pub async fn evaluate_base(
             let (row, premises) = publication::coverage::assess(
                 scope.expectation(),
                 scope.observations(),
-                records.outcome.status,
-                records.outcome.reason,
+                outcome.status,
+                outcome.reason,
                 budget,
             )?;
             output.push(row).await?;
@@ -251,8 +241,8 @@ pub async fn evaluate_base(
                 output.push(row).await?;
             }
         }
-        output.push(records.run).await?;
-        output.push(records.outcome).await?;
+        output.push(run).await?;
+        output.push(outcome).await?;
         output.push(invocation).await?;
         for row in parents.iter() {
             output.push(row.clone()).await?;

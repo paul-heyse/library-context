@@ -17,10 +17,16 @@ use crate::domain::{
 use std::collections::BTreeSet;
 
 macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
-    pub struct EvaluationData {$(pub $field:Rows<$ty>,)*}
+    pub struct EvaluationData {$(pub $field:Rows<$ty>,)* opaque_literals:charged::ChargedSet<Id<Literal>>,literal_charge:charged::StateCharge}
     impl EvaluationData {
-        pub fn new(budget:&ResourceBudget)->Self {Self{$($field:Rows::new(budget),)*}}
+        pub fn new(budget:&ResourceBudget)->Self {Self{$($field:Rows::new(budget),)*opaque_literals:Default::default(),literal_charge:charged::StateCharge::new(budget,"execution-literal-kinds")}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)}
+        /// Primitive projection of an admitted String/Bytes row for a kernel that consumes
+        /// only its opaque value category. Exact-name/read kernels still load the actual row.
+        pub fn project_opaque_literal(&mut self,id:Id<Literal>,kind:i16)->Result<(),ModelError>{
+            if !matches!(kind,3|4){return Err(ModelError::Schema("opaque literal projection kind"));}
+            self.opaque_literals.insert(&mut self.literal_charge,id)?;Ok(())
+        }
         pub fn validation_inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*].into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input}).collect()}
         pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{if profile==stages::Profile::Behavioral{Self::validation_inputs()}else{Vec::new()}}
         pub fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{super::require_facts_view(input)?;self.visit(input.name(),batch)}
@@ -369,6 +375,7 @@ impl PreparedSyntax {
 }
 pub(crate) struct Evaluator<'a> {
     index: &'a PreparedSyntax,
+    metadata:Option<&'a PreparedEvaluationMetadata>,
     data: &'a EvaluationData,
     request: ExpressionRequest,
     remaining: usize,
@@ -447,7 +454,7 @@ impl Evaluator<'_> {
         }
         let declaration = need(&self.data.declarations, declarations[0]).map_err(boundary)?;
         if declaration.kind != syntax::DeclarationKind::Function
-            || self.index.lazy_owners.contains(&self.request.owner)
+            || self.index.lazy_owners.contains(&self.request.owner) || self.metadata.is_some_and(|metadata|metadata.lazy.contains(&self.request.owner))
         {
             return Err(boundary(ObligationKind::ScopeBoundary));
         }
@@ -777,7 +784,9 @@ impl Evaluator<'_> {
                     }
                     return Err(boundary(UNSUPPORTED));
                 };
-                match need(&self.data.literals, literal).map_err(boundary)? {
+                if self.data.literals.get(literal).is_none() && self.data.opaque_literals.contains(&literal) {
+                    Value::Literal
+                } else {match need(&self.data.literals, literal).map_err(boundary)? {
                     Literal::None => Value::None,
                     Literal::Bool { value } => Value::Bool(*value),
                     Literal::Integer { decimal } => decimal
@@ -786,7 +795,7 @@ impl Evaluator<'_> {
                         .unwrap_or(Value::Literal),
                     Literal::Float { bits } => Value::Float(f64::from_bits(*bits as u64)),
                     Literal::String { .. } | Literal::Bytes { .. } => Value::Literal,
-                }
+                }}
             }
             SyntaxKind::ExprEllipsisLiteral if children.is_empty() => Value::Literal,
             SyntaxKind::ExprAttribute => {
@@ -1063,11 +1072,22 @@ pub(crate) fn with_completion_syntax<T>(
 /// parameter or observing a value transfer does not establish availability or harmless disposal.
 /// Reuse the admitted syntax index for one captured frame. Result tokens retain their own
 /// charged proof state; the preparation keeps its index charged for the full producer lifetime.
+/// Complete projected owner uncertainty for one immutable execution frame. This index retains
+/// only nominal owner IDs; selected kernels need not decode unrelated Yield source payloads.
+pub struct PreparedEvaluationMetadata {
+    input:Id<input::InputRevision>,context:Id<AnalysisContext>,
+    lazy:charged::ChargedSet<Id<EntityRef>>,charge:charged::StateCharge,
+}
+impl PreparedEvaluationMetadata {
+    pub fn new(input:Id<input::InputRevision>,context:Id<AnalysisContext>,budget:&ResourceBudget)->Self {Self {input,context,lazy:Default::default(),charge:charged::StateCharge::new(budget,"execution-owner-metadata")}}
+    pub fn lazy_owner(&mut self,owner:Id<EntityRef>)->Result<(),ModelError> {self.lazy.insert(&mut self.charge,owner)?;Ok(())}
+}
 pub struct PreparedExecution<'a> {
     data: &'a EvaluationData,
     input: Id<input::InputRevision>,
     context: Id<AnalysisContext>,
     index: PreparedSyntax,
+    metadata:Option<&'a PreparedEvaluationMetadata>,
     budget: ResourceBudget,
 }
 impl<'a> PreparedExecution<'a> {
@@ -1082,8 +1102,13 @@ impl<'a> PreparedExecution<'a> {
             input,
             context,
             index: PreparedSyntax::new(data, context, budget)?,
+            metadata:None,
             budget: budget.clone(),
         })
+    }
+    pub fn with_metadata(data:&'a EvaluationData,input:Id<input::InputRevision>,context:Id<AnalysisContext>,budget:&ResourceBudget,metadata:&'a PreparedEvaluationMetadata)->Result<Self,ModelError> {
+        if (metadata.input,metadata.context)!=(input,context){return Err(ModelError::Conflict("execution metadata frame changed"));}
+        let mut prepared=Self::new(data,input,context,budget)?;prepared.metadata=Some(metadata);Ok(prepared)
     }
     pub(crate) fn data(&self) -> &EvaluationData {
         self.data
@@ -1103,6 +1128,7 @@ impl<'a> PreparedExecution<'a> {
         }
         let mut syntax = Evaluator {
             index: &self.index,
+            metadata:self.metadata,
             data: self.data,
             request,
             remaining: super::completion::COMPLETION_WORK_LIMIT,
@@ -1141,6 +1167,7 @@ fn evaluate_prepared(
     let budget = &prepared.budget;
     let mut evaluator = Evaluator {
         index: &prepared.index,
+        metadata:prepared.metadata,
         data,
         request,
         remaining: EXPRESSION_WORK_LIMIT,

@@ -430,6 +430,7 @@ impl PreparedReads {
     pub fn begin_field_candidates(&mut self)->Result<(),ModelError> {self.fields.attributes(&mut self.work)}
     pub fn seal_fields(&mut self)->Result<(),ModelError> {self.fields.seal(&mut self.work)}
     pub fn field_keys(&self)->impl Iterator<Item=&(Id<ClassEntity>,String)> {self.fields.keys()}
+    pub fn next_field_key(&self,after:Option<&(Id<ClassEntity>,String)>)->Option<&(Id<ClassEntity>,String)> {self.fields.next_key(after)}
     pub fn dynamic_classes(&self)->impl Iterator<Item=Id<ClassEntity>>+'_ {self.fields.dynamic_classes()}
 }
 pub(super) fn input_scope(
