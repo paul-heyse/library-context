@@ -323,7 +323,8 @@ impl HydratedSourceCalls {
         for event in other.events.iter() {if self.events.contains(event) {return Err(ModelError::Conflict("actual SourceCall hydration duplicated event"));}}
         self.charge.grow(other.headers.len()*size_of::<(CheckedSourceBinding,SourceCallHeader)>()*2+other.calls.len()*size_of::<(super::source_invocation::CheckedSourceInvocation,SourceInvocation)>()*2)?;
         for event in other.events.iter() {self.events.insert(&mut self.charge,*event)?;}
-        self.headers.append(&mut other.headers);self.calls.append(&mut other.calls);Ok(())
+        if self.headers.is_empty() {self.headers=std::mem::take(&mut other.headers);}else{self.headers.append(&mut other.headers);}
+        if self.calls.is_empty() {self.calls=std::mem::take(&mut other.calls);}else{self.calls.append(&mut other.calls);}Ok(())
     }
     pub(super) fn require(&self,frame:&publication::AnalysisInvocation,budget:&ResourceBudget)->Result<(),ModelError> {
         if self.frame!=*frame || !self.charge.budget().expect("bound source hydration").shares_pool(budget) {return Err(ModelError::Conflict("actual SourceCall selected frame/budget"));}Ok(())
@@ -372,7 +373,7 @@ impl ProducedSourceCalls {
         let _decode=budget.reserve("actual-source-payload-decode",bytes.len().checked_mul(8).and_then(|n|n.checked_add(1024)).ok_or(ModelError::Conflict("actual SourceCall payload allowance"))?)?;
         let payload:SourcePayload=postcard::from_bytes(bytes).map_err(ModelError::codec)?;
         if payload.frame!=frame.id() || payload.event!=event {return Err(ModelError::Conflict("actual SourceCall payload root"));}
-        let mut hydrated=HydratedSourceCalls {frame:frame.clone(),events:Default::default(),headers:Vec::new(),calls:Vec::new(),charge:charged::StateCharge::new(budget,"actual-source-scope")};
+        let mut hydrated=HydratedSourceCalls {frame:frame.clone(),events:Default::default(),headers:Vec::with_capacity(payload.headers.len()),calls:Vec::with_capacity(payload.calls.len()),charge:charged::StateCharge::new(budget,"actual-source-scope")};
         hydrated.events.insert(&mut hydrated.charge,event)?;
         hydrated.charge.grow(payload.headers.len()*size_of::<(CheckedSourceBinding,SourceCallHeader)>()*2+payload.calls.len()*size_of::<(super::source_invocation::CheckedSourceInvocation,SourceInvocation)>()*2)?;
         for (value,row) in payload.headers {hydrated.headers.push((value.hydrate(budget)?,row));}
@@ -384,7 +385,8 @@ impl ProducedSourceCalls {
         let scratch=self.frames.iter().try_fold(0usize,|n,frame|frame.headers.iter().try_fold(n,|n,(proof,_)|n.checked_add(proof.premises().len()*size_of::<NativeAssertionPremise>()*2+proof.captures().len()*512+512)))
             .ok_or(ModelError::Conflict("actual SourceCall payload scratch"))?;
         let _scratch=budget.reserve("actual-source-payload-transfer",scratch)?;
-        for frame in self.frames.drain(..) {
+        let frame_bytes=self.frames.len()*size_of::<ProducedSourceFrame>()*2;
+        for frame in std::mem::take(&mut self.frames) {
             if frame.invocation!=*invocation {return Err(ModelError::Conflict("actual SourceCall payload frame"));}
             for (proof,row) in frame.headers {if row.event!=event {return Err(ModelError::Conflict("actual SourceCall payload event"));}payload.headers.push((proof.produced(),row));}
             for (proof,row) in frame.calls {if proof.event()!=event {return Err(ModelError::Conflict("actual SourceCall payload call event"));}payload.calls.push((proof.produced(),row));}
@@ -395,7 +397,7 @@ impl ProducedSourceCalls {
         if used!=size {return Err(ModelError::Conflict("actual SourceCall payload length"));}
         self.issuers.insert(invocation.clone())?;
         self.payloads.insert(&mut self.charge,(invocation.id(),event),ContentHash::of(&bytes))?;
-        self.charge.release(size_of::<ProducedSourceFrame>()*2);
+        self.charge.release(frame_bytes);
         Ok(PrivateSourcePayload {bytes,_reservation:reservation})
     }
 }
