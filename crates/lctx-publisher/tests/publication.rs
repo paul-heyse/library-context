@@ -53,6 +53,7 @@ async fn restored_derived_excess_is_refused(config: &RuntimeConfig, handle: &Sna
     async fn query(admin: &lctx_surrealdb::surrealdb::Surreal<lctx_surrealdb::surrealdb::engine::remote::grpc::Client>, sql: &str) -> Vec<Value> {
         admin.query(sql).await.unwrap().check().unwrap().take(0).unwrap()
     }
+    let restored_loader = lctx_surrealdb::Loader::new(admin.clone());
     let canonical_entities = query(&admin, "SELECT id,canonical FROM entity ORDER BY id").await;
     let canonical_assertions = query(&admin, "SELECT id,canonical FROM assertion ORDER BY id").await;
     let selected = std::fs::read(&config.selection).unwrap();
@@ -107,9 +108,19 @@ async fn restored_derived_excess_is_refused(config: &RuntimeConfig, handle: &Sna
         }
         let persisted = query(&admin, &format!("SELECT * FROM {table} ORDER BY id")).await;
         assert_eq!(persisted.len(), 1, "injected restored {table} row must actually persist");
+        let mut corrupted_families = Vec::new();
+        for name in tables { corrupted_families.push(query(&admin, &format!("SELECT * FROM {name} ORDER BY id")).await); }
+        // Reach the derived comparator directly; another cold-audit phase cannot supply
+        // this refusal. Only search/vector endpoint nodes were injected, never entity rows.
+        for _ in 0..2 {
+            assert!(matches!(lctx_publisher::reconcile_search(&restored_loader).await, Err(ModelError::Serving(serving::FailureKind::Corrupt))), "restored derived mismatch {table}");
+        }
         assert!(lctx_publisher::inspection::audit(config, handle, definitions).await.is_err(), "restored excess {table}");
         assert!(lctx_publisher::inspection::audit(config, handle, definitions).await.is_err());
         assert_eq!(query(&admin, &format!("SELECT * FROM {table} ORDER BY id")).await, persisted, "cold refusal does not repair {table}");
+        for (name, before) in tables.into_iter().zip(&corrupted_families) {
+            assert_eq!(&query(&admin, &format!("SELECT * FROM {name} ORDER BY id")).await, before, "refusal does not repair derived family {name}");
+        }
         assert_eq!(query(&admin, "SELECT id,canonical FROM entity ORDER BY id").await, canonical_entities);
         assert_eq!(query(&admin, "SELECT id,canonical FROM assertion ORDER BY id").await, canonical_assertions);
         assert_eq!(std::fs::read(&config.selection).unwrap(), selected);
@@ -117,6 +128,7 @@ async fn restored_derived_excess_is_refused(config: &RuntimeConfig, handle: &Sna
             let mut bindings = Variables::new(); bindings.insert("id", row.as_object().unwrap().get("id").unwrap().clone());
             admin.query("DELETE $id").bind(bindings).await.unwrap().check().unwrap();
         }
+        lctx_publisher::reconcile_search(&restored_loader).await.unwrap();
         lctx_publisher::inspection::audit(config, handle, definitions).await.unwrap();
         for name in tables { assert!(query(&admin, &format!("SELECT * FROM {name} ORDER BY id")).await.is_empty()); }
     }
