@@ -1078,3 +1078,46 @@ fn final_frontier_companions_roundtrip_preserve_assessment_and_predecessor_membe
         }
     }
 }
+
+#[test]
+fn canonical_upper_place_endpoints_preserve_membership_and_refuse_missing_or_foreign_aliases() {
+    use d::{normalized::entities::EntityRef, value::Place};
+    let budget = d::resources::ResourceBudget::fixed(8 << 20).unwrap();
+    let model = d::model().unwrap();
+    let invariant = model.invariant("normalized_entity_membership").unwrap();
+    assert_eq!(invariant.purpose, InvariantPurpose::Admission);
+    let facts = Place { root: id(1), path: id(2) };
+    let upper = Place { root: id(3), path: id(4) };
+    let facts_endpoint = EntityRef::Place { place: facts.id() };
+    let check = |places: &[Place], endpoints: &[EntityRef]| -> Result<(), ModelError> {
+        let mut check = (invariant.create)(&budget);
+        check.visit(Place::NAME, &Place::encode(places)?)?;
+        check.visit(EntityRef::NAME, &<EntityRef as Record>::encode(endpoints)?)?;
+        check.finish()
+    };
+    // Fresh normalization admits the frozen Facts vocabulary. Detached admission must also
+    // cover actual upper-stage places in the final canonical vocabulary.
+    check(std::slice::from_ref(&facts), std::slice::from_ref(&facts_endpoint)).unwrap();
+    let places = [facts, upper.clone()];
+    let omitted = check(&places, std::slice::from_ref(&facts_endpoint)).unwrap_err();
+    assert!(omitted.to_string().contains("complete mechanical endpoint membership"));
+    let upper_entity = Entity::from(upper.clone());
+    let endpoint = upper_entity.canonical_place_endpoint().unwrap();
+    let expected = EntityRef::Place { place: upper.id() };
+    assert_eq!(endpoint, Entity::from(expected.clone()));
+    assert_eq!(endpoint.id(), EntityId::of(expected.id()));
+    let restored: Entity = serde_json::from_slice(&serde_json::to_vec(&endpoint).unwrap()).unwrap();
+    let decoded = record::entity_record::<EntityRef>(&restored).unwrap();
+    assert_eq!(decoded, expected);
+    check(&places, &[facts_endpoint.clone(), decoded]).unwrap();
+    let foreign = EntityRef::Place { place: id(99) };
+    assert!(check(&places, &[facts_endpoint, foreign.clone()]).unwrap_err()
+        .to_string().contains("complete mechanical endpoint membership"));
+    let mut lookup = Lookup::default();
+    lookup.add(&upper_entity);
+    admit_entity(&endpoint, &lookup).unwrap();
+    assert!(admit_entity(&Entity::from(foreign), &lookup).is_err());
+    lookup.entities.remove(&upper_entity.id());
+    assert!(admit_entity(&endpoint, &lookup).is_err());
+    assert!(endpoint.canonical_place_endpoint().is_none());
+}

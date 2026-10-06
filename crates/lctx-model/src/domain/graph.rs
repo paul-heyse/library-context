@@ -656,6 +656,20 @@ macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{
 }};}
 crate::graph_entity_declarations!(graph_entities, intrinsic);
 
+impl Entity {
+    /// The nominal endpoint for a canonical place is intrinsic to that place's identity.
+    /// Upper analyses may introduce places after normalization; this companion carries no
+    /// qualification, evidence or normalization assessment. Importers must retain and check it.
+    pub fn canonical_place_endpoint(&self) -> Option<Self> {
+        match self {
+            Self::Place(row) => Some(Self::from(super::normalized::entities::EntityRef::Place {
+                place: row.id(),
+            })),
+            _ => None,
+        }
+    }
+}
+
 /// Mechanical nominal mapping for the selected graph vocabulary. Unsupported internal compiler
 /// bookkeeping is deliberately not an entity; its producer must fold it into its semantic owner.
 /// Nominal membership and optional sum-arm requirements for a bulk closure join.

@@ -212,6 +212,23 @@ impl GraphBuilder {
         }
         Ok(())
     }
+    // Fresh lowering completes intrinsic nominal aliases where normalization owns endpoints.
+    // Facts retain their actual vocabulary without publishing undeclared normalized records.
+    // Transport verification and semantic import never repair missing aliases.
+    fn lower_entity(
+        &mut self,
+        value: &Entity,
+        frontier: lctx_model::domain::admission::Frontier,
+    ) -> Result<(), ModelError> {
+        use lctx_model::domain::admission::Frontier;
+        self.entity(value)?;
+        if matches!(frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog)
+            && let Some(endpoint) = value.canonical_place_endpoint()
+        {
+            self.entity(&endpoint)?;
+        }
+        Ok(())
+    }
     fn entity(&mut self, value: &Entity) -> Result<(), ModelError> {
         self.entity_references(value)?;
         self.entities.push(PendingRow {
@@ -1272,7 +1289,7 @@ pub async fn admit(
             if let Ok(source)=workspace.completed::<$record>() {
                 for batch in source.read::<$record>(workspace.model().clone(),workspace.budget().clone())? {
                     workspace.cancellation().check()?;
-                    for row in batch?.rows() {builder.entity(&Entity::from(row.clone()))?;}
+                    for row in batch?.rows() {builder.lower_entity(&Entity::from(row.clone()),frontier)?;}
                 }
             }
         )*};

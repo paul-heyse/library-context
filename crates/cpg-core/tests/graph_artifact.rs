@@ -1428,3 +1428,59 @@ mod enriched_graph_adversaries {
         );
     }
 }
+
+async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
+    use lctx_model::domain::{
+        Record,
+        graph::Entity,
+        normalized::entities::EntityRef,
+    };
+    use std::collections::BTreeSet;
+    let admitted = compiled(Profile::Behavioral, frontier, 1 << 30, 128).await;
+    let directory = tempfile::tempdir().unwrap();
+    let export = directory.path().join("export");
+    admitted.export(&export).unwrap();
+    let semantic = admitted.manifest().content();
+    drop(admitted);
+    let importer = Workspace::new(
+        Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions {
+            memory_bytes: 1 << 30,
+            batch_rows: 31,
+            ..Default::default()
+        },
+    ).unwrap();
+    let imported = artifact::verify_export(&export, &importer).await
+        .unwrap_or_else(|error| panic!("Behavioral/{frontier:?}: {error}"));
+    assert_eq!(imported.manifest().content(), semantic);
+    let mut places = BTreeSet::new();
+    let mut endpoints = BTreeSet::new();
+    for row in imported.entities().unwrap() {
+        match row.unwrap() {
+            Entity::Place(place) => { places.insert(place.id()); }
+            Entity::EntityReference(EntityRef::Place { place }) => { endpoints.insert(place); }
+            _ => {}
+        }
+    }
+    assert!(!places.is_empty(), "actual Behavioral frontier vocabulary must contain places");
+    if frontier == Frontier::Facts {
+        assert!(endpoints.is_empty(), "Facts must not transport undeclared normalized endpoints");
+    } else {
+        assert!(places.is_subset(&endpoints), "every final canonical place needs its exact endpoint");
+    }
+}
+
+#[tokio::test]
+async fn remediation_detached_behavioral_analysis_with_upper_place_endpoints() {
+    detached_behavioral_upper_place_endpoints(Frontier::Analysis).await;
+}
+
+#[tokio::test]
+async fn remediation_detached_behavioral_catalog_with_upper_place_endpoints() {
+    detached_behavioral_upper_place_endpoints(Frontier::Catalog).await;
+}
+
+#[tokio::test]
+async fn remediation_detached_behavioral_facts_without_normalized_place_endpoints() {
+    detached_behavioral_upper_place_endpoints(Frontier::Facts).await;
+}

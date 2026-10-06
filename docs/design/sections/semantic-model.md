@@ -85,6 +85,12 @@ assertions remain addressable. Model-owned mappings reject unknown internal targ
 Python references carry typed external uncertainty. Explicit Arrow schemas drive codecs; sample
 inference never defines a contract. Codebooks remain append-only.
 
+At Normalized and upper frontiers, fresh graph lowering includes the exact nominal
+`EntityRef::Place` companion of every canonical Place, including places introduced by upper
+analyses after normalization. The companion is an identity alias, without qualification or
+normalization evidence. Facts retain their actual vocabulary without normalized records. Detached import retains the actual
+records and requires complete endpoint membership; it never synthesizes missing companions.
+
 > Decision: ADR-0128, ADR-0085
 
 <a id="section-15-3"></a>
