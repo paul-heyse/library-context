@@ -31,14 +31,14 @@ from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSI
 from pydantic import PrivateAttr
 
 
-def response_encodings(
+def _response_envelope(
     result: CallToolResult | ReadResourceResult | ErrorData,
     request_id: int | str,
     *,
     protocol_version: str | None = None,
     server_info: dict | None = None,
-) -> tuple[bytes, bytes]:
-    """Pinned SDK stdio and modern HTTP writers, including the actual JSON-RPC ID."""
+) -> JSONRPCError | JSONRPCResponse:
+    """Shape the pinned SDK envelope with the actual ID and negotiated fields."""
     shaped = result.model_dump(by_alias=True, mode="json", exclude_none=True)
     if protocol_version is not None and not isinstance(result, ErrorData):
         method = "tools/call" if isinstance(result, CallToolResult) else "resources/read"
@@ -51,10 +51,23 @@ def response_encodings(
                 shaped["_meta"] = {SERVER_INFO_META_KEY: server_info}
             elif isinstance(meta, dict) and meta.get(SERVER_INFO_META_KEY) is None:
                 shaped["_meta"] = {**meta, SERVER_INFO_META_KEY: server_info}
-    envelope = (
+    return (
         JSONRPCError(jsonrpc="2.0", id=request_id, error=result)
         if isinstance(result, ErrorData)
         else JSONRPCResponse(jsonrpc="2.0", id=request_id, result=shaped)
+    )
+
+
+def response_encodings(
+    result: CallToolResult | ReadResourceResult | ErrorData,
+    request_id: int | str,
+    *,
+    protocol_version: str | None = None,
+    server_info: dict | None = None,
+) -> tuple[bytes, bytes]:
+    """SDK writer contract controls; product serving admits its actual stdio form."""
+    envelope = _response_envelope(
+        result, request_id, protocol_version=protocol_version, server_info=server_info,
     )
     serialized = envelope.model_dump_json(by_alias=True, exclude_unset=True).encode("utf-8")
     stdio = serialized + b"\n"
@@ -87,10 +100,13 @@ def negotiated_encodings(
 
 
 class EnvelopeAdmission(Middleware):
-    """Admit both pinned SDK writers after domain results are complete, without truncation."""
+    """Admit the pinned stdio envelope after domain results are complete, without truncation."""
 
     def __init__(self, server) -> None:
-        self.server = server
+        self.server_info = Implementation(
+            name=server.name, version=server.version, website_url=server.website_url,
+            icons=server.icons or None,
+        ).model_dump(by_alias=True, mode="json", exclude_none=True)
         self._requests: dict[tuple[type, int | str], bool] = {}
 
     def _request_id(self, context):
@@ -119,10 +135,12 @@ class EnvelopeAdmission(Middleware):
         if request_id is None:
             return
         self._requests[(type(request_id), request_id)] = expanded
-        for encoded in negotiated_encodings(
-            result, request_id, request.protocol_version, self.server
-        ):
-            admit_envelope(encoded.decode("utf-8"), expanded)
+        envelope = _response_envelope(
+            result, request_id, protocol_version=request.protocol_version,
+            server_info=self.server_info,
+        )
+        encoded = envelope.model_dump_json(by_alias=True, exclude_unset=True) + "\n"
+        admit_envelope(encoded, expanded)
 
     @staticmethod
     def _refusal() -> CallToolResult:
