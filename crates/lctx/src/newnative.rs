@@ -119,3 +119,18 @@ pub async fn install(config: &RuntimeConfig) -> anyhow::Result<()> {
         Ok(())
     }).await.context("native installation deadline exceeded")?
 }
+
+/// Explicit lifecycle operations never update the selected snapshot pointer.
+pub async fn backup(config: &RuntimeConfig, path: Option<&Path>, output: &Path) -> anyhow::Result<()> {
+    let selected = handle(config, path)?;
+    lctx_publisher::backup::backup(config, &selected, output).await?;
+    Ok(())
+}
+pub async fn restore(config: &RuntimeConfig, input: &Path) -> anyhow::Result<SnapshotHandle> {
+    Ok(lctx_publisher::backup::restore(config, input, &lctx_serving::native_definitions()).await?)
+}
+pub async fn retire(config: &RuntimeConfig, path: &Path, readers_stopped: bool) -> anyhow::Result<()> {
+    let snapshot = handle(config, Some(path))?;
+    lctx_publisher::backup::retire(config, &snapshot, readers_stopped).await?;
+    Ok(())
+}

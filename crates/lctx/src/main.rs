@@ -143,6 +143,18 @@ enum Cmd {
 
 #[derive(Subcommand, Debug)]
 enum SnapshotCommand {
+    /// Back up a published snapshot to a new local SQL dump, excluding credentials/history.
+    Backup {
+        #[arg(long)] output: PathBuf,
+        #[arg(long)] handle: Option<PathBuf>,
+    },
+    /// Restore a trusted current-format SQL dump into a fresh, unselected published snapshot.
+    Restore { input: PathBuf },
+    /// Retire an unselected snapshot after every known reader process has been stopped.
+    Retire {
+        handle: PathBuf,
+        #[arg(long, required = true)] readers_stopped: bool,
+    },
     /// Export one complete admitted input/context topology, including its coverage and gaps.
     Export {
         #[arg(long, value_parser = lctx_surrealdb::projections::name)]
@@ -747,6 +759,18 @@ fn run() -> anyhow::Result<()> {
             let config = newnative::config(&runtime_config)?;
             let runtime = runtime()?;
             match command {
+                SnapshotCommand::Backup { output, handle } => {
+                    runtime.block_on(newnative::backup(&config, handle.as_deref(), &output))?;
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"output":output}))?);
+                }
+                SnapshotCommand::Restore { input } => {
+                    let handle = runtime.block_on(newnative::restore(&config, &input))?;
+                    println!("{}", serde_json::to_string_pretty(&handle)?);
+                }
+                SnapshotCommand::Retire { handle, readers_stopped } => {
+                    runtime.block_on(newnative::retire(&config, &handle, readers_stopped))?;
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"retired":handle}))?);
+                }
                 SnapshotCommand::Export { projection, input, context, output, handle, memory_bytes } => {
                     let key = lctx_model::domain::projection::normalization::ProjectionKey { input, context, name:projection };
                     runtime.block_on(newnative::export(&config, handle.as_deref(), key, &output, memory_bytes))?;
@@ -855,6 +879,10 @@ mod tests {
         assert!(parse(&["snapshot", "export", "--projection", "CallableInvocation", "--input", "00000000000000000000000000000000", "--context", "11111111111111111111111111111111", "--output", "graph.json"]).is_ok());
         assert!(parse(&["snapshot", "export", "--projection", "unknown", "--input", "00000000000000000000000000000000", "--context", "11111111111111111111111111111111", "--output", "graph.json"]).is_err());
         assert!(parse(&["snapshot", "select"]).is_err());
+        assert!(parse(&["snapshot", "backup", "--output", "dump.sql"]).is_ok());
+        assert!(parse(&["snapshot", "restore", "dump.sql"]).is_ok());
+        assert!(parse(&["snapshot", "retire", "handle.json"]).is_err());
+        assert!(parse(&["snapshot", "retire", "handle.json", "--readers-stopped"]).is_ok());
         assert!(parse(&["snapshot", "query", "SELECT * FROM entity", "--handle", "handle.json"]).is_ok());
         assert!(parse(&["tool", "search_operations", "--request", "request.json"]).is_ok());
         assert!(parse(&["tool", "search"]).is_err());
