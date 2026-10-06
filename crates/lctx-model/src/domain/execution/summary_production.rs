@@ -240,6 +240,12 @@ macro_rules! data{($($field:ident:$ty:ty,)*)=>{pub struct SummaryData{pub occurr
 impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{occurrences:source::properties::OccurrenceIndex::new(b),symbols:source::properties::SymbolIndex::new(b),artifacts:source::properties::ArtifactIndex::new(b),graphs:projection::normalization::ProjectionOutput::new(b),entry:EntryData::new(b),bindings:BindingData::new(b),binding_output:BindingOutput::new(b),path:PathData::new(b),vocabulary:Vocabulary::new(b),local_evidence:analysis::local::support::EvidenceIndex::new(b),model_evidence:analysis::model::support::EvidenceIndex::new(b),$($field:Rows::new(b),)*}}
  pub fn visit_input(&mut self,input:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{let n=input.name();if stages::is_vocabulary(n){return match input.prefix(){Some(stages::PublicationBoundary::Facts)=>{self.entry.visit_input(input,b)?;self.bindings.visit(n,b)?;Ok(())},Some(stages::PublicationBoundary::Model)=>{self.vocabulary.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;Ok(())},_=>Err(invalid("Summary input changes completed vocabulary view"))}}self.visit(n,b)}
  pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.graphs.visit(n,b)?;self.entry.visit(n,b)?;self.bindings.visit(n,b)?;self.binding_output.visit(n,b)?;self.path.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;$(if n==<$ty>::NAME{self.$field.decode(b)?;})*Ok(())}
+ fn visit_owned(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{$(if n==<$ty>::NAME{self.$field.decode(b)?;})*Ok(())}
+ pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{let mut inputs=super::summary_replay::production_inputs(profile);inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
+ pub fn inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();inputs.extend(BindingOutput::validation_inputs());inputs.extend(EntryData::facts_inputs());inputs.extend(PathData::inputs());inputs.extend(projection_inputs());inputs.extend(Vocabulary::inputs());inputs.extend(evidence_inputs());inputs.push(ValidationInput::of::<analysis::native::NativeAssertionPremise>(&["id"]));inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
+}};}
+crate::summary_owned_inputs!(data);
+impl SummaryData {
  /// Actual predecessor owners already admitted entry/binding proofs. Retain only the
  /// properties and canonical semantic operands this Summary kernel consumes.
  pub fn actual_inputs()->Vec<ValidationInput>{
@@ -263,17 +269,15 @@ impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{occurrences:source::pr
   macro_rules! entry{($($ty:ty),*)=>{if [$(<$ty>::NAME,)*].contains(&n){self.entry.visit(n,b)?;}};}
   entry!(source::SourceArtifact,declarations::SymbolDeclaration,declarations::ParameterDeclaration,calls::Signature,calls::SignatureParameter,normalized::entities::EntityRef,normalized::entities::CallableEntity,normalized::entities::OccurrenceOwnership,flow::FlowValueObservation,flow::FlowValueSupport,flow::FlowUse,flow::FlowUseObservation,flow::FlowUseSupport,flow::FlowDefinition,flow::FlowDefinitionObservation,flow::FlowDefinitionSupport,flow::ReachingDefinition,flow::FlowReachingObservation,flow::FlowReachingSupport,lexical::LexicalScope,attribution::ProviderRun,assertion::ProviderSurface,attribution::ProviderCoverage);
   self.binding_output.visit(n,b)?;self.path.visit(n,b)?;self.local_evidence.visit(n,b)?;self.model_evidence.visit(n,b)?;
-  $(if n==<$ty>::NAME{self.$field.decode(b)?;})*Ok(())
+  self.visit_owned(n,b)
  }
  pub fn symbol(&self,id:Id<calls::ProviderSymbol>)->Option<source::properties::SymbolProperties>{self.symbols.get(id).copied().or_else(||self.bindings.symbols.get(id).map(source::properties::SymbolProperties::from_row))}
  pub fn artifact_input(&self,id:Id<source::SourceArtifact>)->Option<Id<input::InputRevision>>{self.artifacts.get(id).or_else(||self.bindings.artifacts.get(id).map(|row|row.input))}
  pub fn occurrence(&self,id:Id<source::Occurrence>)->Option<source::properties::OccurrenceProperties>{self.occurrences.get(id).copied().or_else(||self.entry.occurrences.get(id).or_else(||self.bindings.occurrences.get(id)).map(source::properties::OccurrenceProperties::from_row))}
  pub fn occurrence_values(&self)->impl Iterator<Item=source::properties::OccurrenceProperties>+'_ {self.occurrences.iter().copied().chain(self.entry.occurrences.iter().map(source::properties::OccurrenceProperties::from_row))}
  pub fn same_occurrence(&self,a:Id<source::Occurrence>,b:Id<source::Occurrence>)->bool{self.occurrence(a).zip(self.occurrence(b)).is_some_and(|(a,b)|(a.source,a.start,a.end,a.syntax_kind)==(b.source,b.start,b.end,b.syntax_kind))}
- pub fn consumed_inputs(profile:stages::Profile)->Vec<ValidationInput>{let mut inputs=super::summary_replay::production_inputs(profile);inputs.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
- pub fn inputs()->Vec<ValidationInput>{let mut inputs=BindingData::validation_inputs();inputs.extend(BindingOutput::validation_inputs());inputs.extend(EntryData::facts_inputs());inputs.extend(PathData::inputs());inputs.extend(projection_inputs());inputs.extend(Vocabulary::inputs());inputs.extend(evidence_inputs());inputs.push(ValidationInput::of::<analysis::native::NativeAssertionPremise>(&["id"]));inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
-}};}
-crate::summary_owned_inputs!(data);
+}
+
 #[macro_export]
 macro_rules! summary_outputs{($apply:ident)=>{$apply!{
  terminal_witnesses:$crate::domain::execution::summary_terminal::SummaryTerminalWitness,
