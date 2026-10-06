@@ -13,3 +13,4 @@ pub use loader::Loader;
 pub mod schema;
 pub use reader::{Credentials, NativeReader, RecordSelection};
 pub use surrealdb;
+pub mod projections;
