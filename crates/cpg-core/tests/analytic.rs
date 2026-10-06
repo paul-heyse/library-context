@@ -316,7 +316,7 @@ async fn replay_controls(fixture:&catalog_runtime::Fixture) {
         )),
         "default source/declared policy must not silently include native variants"
     );
-    // Exercise the public optional projection against actual PostgreSQL/native predecessors.
+    // Exercise the public optional projection against actual completed workspace/native predecessors.
     // The eight explicit fixture callables provide the independent entity oracle below.
     let policy = analytics::policy::AttributePolicy {
         signature_roles: analytics::policy::SignatureRoles::AllAvailable,

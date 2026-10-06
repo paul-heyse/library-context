@@ -23,7 +23,7 @@ macro_rules! inputs {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
             pub fn validation_inputs() -> Vec<ValidationInput> { super::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]) }
-            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()),*] }
+            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::completed::<$ty>()),*] }
         }
     }
 }
@@ -884,7 +884,7 @@ impl InvariantCheck for EventCheck {
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {
     let mut inputs = super::callable_normalization::stage(profile).inputs;
-    macro_rules! prior { ($($field:ident: $ty:ty,)*) => { $(inputs.push(stages::RelationUse::stored::<$ty>());)* }; }
+    macro_rules! prior { ($($field:ident: $ty:ty,)*) => { $(inputs.push(stages::RelationUse::completed::<$ty>());)* }; }
     crate::normalized_callable_outputs!(prior);
     inputs.extend(EventData::stage_inputs());
     inputs.sort_by_key(|r| r.name());

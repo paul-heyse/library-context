@@ -19,7 +19,7 @@ use crate::domain::{
     *,
 };
 fn entity_stage_inputs() -> Vec<stages::RelationUse> {
-    macro_rules! declare { ($($name:ident: $ty:ty,)*) => { vec![$(stages::RelationUse::stored::<$ty>()),*] }; }
+    macro_rules! declare { ($($name:ident: $ty:ty,)*) => { vec![$(stages::RelationUse::completed::<$ty>()),*] }; }
     crate::normalized_entity_outputs!(declare)
 }
 macro_rules! inputs {
@@ -41,10 +41,10 @@ macro_rules! inputs {
             pub fn stage_inputs() -> Vec<stages::RelationUse> {
                 let mut inputs = EntityData::stage_inputs();
                 inputs.extend(entity_stage_inputs());
-                inputs.extend([$(stages::RelationUse::stored::<$ty>().availability(FactFamily::$family, stages::AvailabilityPolicy::ObserveAvailability),)*]);
+                inputs.extend([$(stages::RelationUse::completed::<$ty>().availability(FactFamily::$family, stages::AvailabilityPolicy::ObserveAvailability),)*]);
                 // Captured links are acknowledged acquisition metadata, not provider claims.
                 inputs.retain(|row| row.name() != input::CorpusLibrary::NAME);
-                inputs.push(stages::RelationUse::stored::<input::CorpusLibrary>());
+                inputs.push(stages::RelationUse::completed::<input::CorpusLibrary>());
                 inputs
             }
         }

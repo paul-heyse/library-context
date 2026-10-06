@@ -204,7 +204,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
     impl AspectData {pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
-        fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::stored::<$ty>()),*]}
+        fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::completed::<$ty>()),*]}
     }
 };}
 crate::callable_aspect_inputs!(data);
@@ -1004,7 +1004,7 @@ impl InvariantCheck for Check {
 pub fn stage(profile: stages::Profile) -> stages::Stage {
     let mut inputs = super::event_normalization::stage(profile).inputs;
     inputs.extend(AspectData::stage_inputs());
-    macro_rules! previous {($($f:ident:$ty:ty,)*)=>{$(inputs.push(stages::RelationUse::stored::<$ty>());)*};}
+    macro_rules! previous {($($f:ident:$ty:ty,)*)=>{$(inputs.push(stages::RelationUse::completed::<$ty>());)*};}
     crate::normalized_callable_outputs!(previous);
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());

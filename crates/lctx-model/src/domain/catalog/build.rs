@@ -13,7 +13,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
         pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if relation==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         pub fn validation_inputs()->Vec<ValidationInput> {crate::domain::normalized::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*])}
-        pub fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::stored::<$ty>()),*]}
+        pub fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::completed::<$ty>()),*]}
     }
 };}
 crate::catalog_inputs!(data);
@@ -743,12 +743,12 @@ pub fn stage(
     inputs.extend(
         crate::domain::normalized::callable_aspects::relations()
             .iter()
-            .map(|r| stages::RelationUse::of_relation(r).completed_store()),
+            .map(|r| stages::RelationUse::of_relation(r).completed_input()),
     );
     inputs.extend(
         crate::domain::analysis::preparation::configuration_relations()
             .iter()
-            .map(|r| stages::RelationUse::of_relation(r).completed_store()),
+            .map(|r| stages::RelationUse::of_relation(r).completed_input()),
     );
     inputs.extend(CatalogData::stage_inputs());
     inputs.extend(metadata_inputs());
@@ -805,15 +805,15 @@ pub fn metadata_inputs() -> Vec<stages::RelationUse> {
         source::CoverageScope,
     };
     vec![
-        stages::RelationUse::stored::<InputRevision>(),
-        stages::RelationUse::stored::<ArtifactUse>(),
-        stages::RelationUse::stored::<CoverageScope>(),
-        stages::RelationUse::stored::<NormalizationComputation>(),
-        stages::RelationUse::stored::<NormalizationCoverage>(),
-        stages::RelationUse::stored::<analysis::AnalysisDefinition>(),
-        stages::RelationUse::stored::<analysis::MethodParameters>(),
-        stages::RelationUse::stored::<AnalysisContext>(),
-        stages::RelationUse::stored::<ProviderRun>(),
+        stages::RelationUse::completed::<InputRevision>(),
+        stages::RelationUse::completed::<ArtifactUse>(),
+        stages::RelationUse::completed::<CoverageScope>(),
+        stages::RelationUse::completed::<NormalizationComputation>(),
+        stages::RelationUse::completed::<NormalizationCoverage>(),
+        stages::RelationUse::completed::<analysis::AnalysisDefinition>(),
+        stages::RelationUse::completed::<analysis::MethodParameters>(),
+        stages::RelationUse::completed::<AnalysisContext>(),
+        stages::RelationUse::completed::<ProviderRun>(),
     ]
 }
 fn stage_outputs() -> Vec<stages::RelationUse> {

@@ -64,7 +64,7 @@ impl EvidenceData {
 }
 macro_rules! data {($($f:ident:$ty:ty,)*)=>{
  pub struct EvidenceFacts {$(pub $f:Rows<$ty>,)*}
- impl EvidenceFacts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$f.decode(batch)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}fn stage_inputs()->Vec<RelationUse> {vec![$(RelationUse::stored::<$ty>()),*]}}
+ impl EvidenceFacts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$f.decode(batch)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}fn stage_inputs()->Vec<RelationUse> {vec![$(RelationUse::completed::<$ty>()),*]}}
 };}
 crate::catalog_evidence_inputs!(data);
 macro_rules! output {($($f:ident:$ty:ty,)*)=>{
@@ -1051,7 +1051,7 @@ pub fn stage(
 ) -> Result<Stage, ModelError> {
     let parent = catalog::build::stage(profile, model, order)?;
     let mut inputs = parent.inputs;
-    inputs.extend(parent.outputs.into_iter().map(|r| r.completed_store()));
+    inputs.extend(parent.outputs.into_iter().map(|r| r.completed_input()));
     inputs.extend(EvidenceFacts::stage_inputs());
     inputs.extend(super::runtime::RuntimeData::stage_inputs());
     inputs.extend(analysis::preparation::native_stage(profile, model, order)?.inputs);

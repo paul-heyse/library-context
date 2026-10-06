@@ -68,7 +68,7 @@ impl Data {
         Ok(r)
     }
 }
-macro_rules! facts {($($f:ident:$ty:ty,)*)=>{pub struct Facts {$(pub $f:Rows<$ty>,)*}impl Facts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}fn uses()->Vec<RelationUse> {crate::domain::normalized::facts_stage_inputs(vec![$(RelationUse::stored::<$ty>()),*])}}};}
+macro_rules! facts {($($f:ident:$ty:ty,)*)=>{pub struct Facts {$(pub $f:Rows<$ty>,)*}impl Facts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}fn uses()->Vec<RelationUse> {crate::domain::normalized::facts_stage_inputs(vec![$(RelationUse::completed::<$ty>()),*])}}};}
 crate::retrieval_inputs!(facts);
 macro_rules! synthesis {($($f:ident:$ty:ty,)*)=>{pub struct SynthesisFacts {$(pub $f:Rows<$ty>,)*}impl SynthesisFacts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}}};}
 crate::retrieval_synthesis_inputs!(synthesis);
@@ -915,7 +915,7 @@ pub fn mandatory_inputs(
 ) -> Result<Vec<RelationUse>, ModelError> {
     let parent = c1::build::stage(profile, model, order)?;
     let mut inputs = parent.inputs;
-    inputs.extend(parent.outputs.into_iter().map(|r| r.completed_store()));
+    inputs.extend(parent.outputs.into_iter().map(|r| r.completed_input()));
     inputs.extend(Facts::uses());
     inputs.sort_by_key(|r| (r.name(),r.prefix()));
     inputs.dedup_by_key(|r| (r.name(),r.prefix()));

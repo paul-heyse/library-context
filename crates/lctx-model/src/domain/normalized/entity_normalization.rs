@@ -24,7 +24,7 @@ macro_rules! inputs {
                 Ok(false)
             }
             pub fn validation_inputs() -> Vec<ValidationInput> { super::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]) }
-            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()
+            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::completed::<$ty>()
                 .availability(attribution::FactFamily::$family, stages::AvailabilityPolicy::ObserveAvailability),)*] }
         }
     }

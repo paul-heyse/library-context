@@ -10,7 +10,7 @@ use lctx_model::domain::{
 use std::sync::Arc;
 
 fn consumer(prefix: Option<PublicationBoundary>) -> Stage {
-    let input = RelationUse::stored::<Place>();
+    let input = RelationUse::completed::<Place>();
     Stage {
         name: "place_consumer",
         inputs: vec![prefix.map_or(input, |boundary| input.at_epoch(boundary))],
@@ -94,7 +94,7 @@ async fn distinct_completed_views_remain_selectable_together() {
     contribute(&workspace,"model_places",place("model")).await;
     workspace.freeze_inputs(PublicationBoundary::Model).unwrap();
     let mut declaration=consumer(Some(PublicationBoundary::Facts));
-    declaration.inputs.push(RelationUse::stored::<Place>().at_epoch(PublicationBoundary::Model));
+    declaration.inputs.push(RelationUse::completed::<Place>().at_epoch(PublicationBoundary::Model));
     let inputs=workspace.stage_inputs(&declaration,Profile::Catalog).unwrap();
     assert!(inputs.read::<Place>().is_err(),"an unqualified read must not blend different views");
     let facts=inputs.read_at::<Place>(Some(PublicationBoundary::Facts)).unwrap();

@@ -1,5 +1,5 @@
 //! Independent arithmetic and nominal-boundary controls over explicit earlier normalized rows.
-//! Native normalization and PostgreSQL publication have their own integration controls.
+//! Native normalization and completed workspace publication have their own integration controls.
 use lctx_model::domain::{
     analysis::usage::*,
     attribution::AnalysisContext,

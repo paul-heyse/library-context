@@ -66,7 +66,7 @@ async fn load<R: Record>(
 impl PreparedGraphs {
     /// Prepare after normalized publication/checkpoint, from the first consuming stage's permits.
     /// Its declaration must include the sources' normal invariant/reference closure, just like
-    /// other completed-store readers. Selection is explicit; missing selected snapshots refuse.
+    /// other completed-input readers. Selection is explicit; missing selected snapshots refuse.
     pub async fn load(
         access: &CompletedInputs,
         runtime: &Workspace,

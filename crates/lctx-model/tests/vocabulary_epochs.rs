@@ -30,7 +30,7 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
         stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
         stage(
             "v1",
-            vec![RelationUse::stored::<Literal>()],
+            vec![RelationUse::completed::<Literal>()],
             vec![RelationUse::of::<Literal>()],
         ),
     ];
@@ -59,7 +59,7 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
         stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
         stage(
             "r",
-            vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
+            vec![RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Facts)],
             vec![RelationUse::of::<Package>()],
         ),
     ];
@@ -140,7 +140,7 @@ fn named_boundary_codes_are_not_publication_positions() {
                 if i == 0 {
                     vec![]
                 } else {
-                    vec![RelationUse::stored::<Literal>().at_epoch(boundaries[i - 1])]
+                    vec![RelationUse::completed::<Literal>().at_epoch(boundaries[i - 1])]
                 },
                 vec![RelationUse::of::<Literal>()],
             )
@@ -148,7 +148,7 @@ fn named_boundary_codes_are_not_publication_positions() {
         .collect();
     stages.push(stage(
         "old_reader",
-        vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)],
+        vec![RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)],
         vec![RelationUse::of::<Package>()],
     ));
     let groups = boundaries
@@ -240,7 +240,7 @@ fn registered_order_refuses_duplicates_gaps_unknown_and_foreign_prefixes() {
 fn schedule_accepts_distinct_completed_views_and_refuses_exact_duplicate_selectors(){
  let model=ValidatedModel::declared(vec![Relation::of::<Literal>(),Relation::of::<Package>()]).unwrap();
  let groups=vec![PublicationGroup::new(PublicationBoundary::Facts,vec!["facts"]),PublicationGroup::new(PublicationBoundary::Local,vec!["local"])];
- let selected=vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts),RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Local)];
+ let selected=vec![RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Facts),RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Local)];
  let build=|selected|Schedule::build_with_publications(&model,vec![stage("facts",vec![],vec![RelationUse::of::<Literal>()]),stage("local",vec![],vec![RelationUse::of::<Literal>()]),stage("consume",selected,vec![RelationUse::of::<Package>()])],&[],Profile::Catalog,groups.clone());
  let schedule=build(selected.clone()).unwrap();
  assert_eq!(schedule.stages().iter().find(|s|s.name=="consume").unwrap().inputs.len(),2);

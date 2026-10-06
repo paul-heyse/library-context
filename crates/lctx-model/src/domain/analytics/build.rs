@@ -745,7 +745,7 @@ pub fn stage(
         if own.contains(input.name()) {
             continue;
         }
-        let mut use_ = RelationUse::of_relation(relation(input.name())?).completed_store();
+        let mut use_ = RelationUse::of_relation(relation(input.name())?).completed_input();
         if let Some(epoch) = input.prefix() {
             use_ = use_.at_epoch(epoch);
         }

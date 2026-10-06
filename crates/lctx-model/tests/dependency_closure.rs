@@ -60,7 +60,7 @@ fn inferred_facts_omission_preserves_explicit_inputs_and_unfinished_output_refus
     let closure = DependencyClosure::build(
         &model,
         vec![ValidationInput::of::<Probe>(&["id"])],
-        vec![RelationUse::stored::<Package>()],
+        vec![RelationUse::completed::<Package>()],
         &[],
         PublicationBoundary::Facts,
         LowerLayerPolicy::OmitInferredOrdinaryFacts,
@@ -196,7 +196,7 @@ fn extra_invariant_epoch_and_fact_premise_survive_grant_projection() {
         Some(PublicationBoundary::Local)
     );
     assert!(
-        build(vec![RelationUse::stored::<Package>()])
+        build(vec![RelationUse::completed::<Package>()])
             .grants
             .iter()
             .any(|g| g.name() == Package::NAME),
@@ -226,8 +226,8 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
     };
     let grants = build(
         vec![
-            RelationUse::stored::<Probe>(),
-            RelationUse::stored::<Package>(),
+            RelationUse::completed::<Probe>(),
+            RelationUse::completed::<Package>(),
         ],
         &[],
         LowerLayerPolicy::OmitInferredOrdinaryFacts,
@@ -246,7 +246,7 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
         Some(PublicationBoundary::Facts)
     );
     let all = build(
-        vec![RelationUse::stored::<Probe>()],
+        vec![RelationUse::completed::<Probe>()],
         &[],
         LowerLayerPolicy::IncludeInferredOrdinaryFacts,
     )
@@ -254,7 +254,7 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
     assert!(all.iter().any(|r| r.name() == Package::NAME));
     assert!(
         build(
-            vec![RelationUse::stored::<Probe>()],
+            vec![RelationUse::completed::<Probe>()],
             &[RelationUse::of::<Probe>()],
             LowerLayerPolicy::OmitInferredOrdinaryFacts
         )
@@ -262,7 +262,7 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
     );
     assert!(
         build(
-            vec![RelationUse::stored::<Probe>()],
+            vec![RelationUse::completed::<Probe>()],
             &[RelationUse::of::<Package>()],
             LowerLayerPolicy::OmitInferredOrdinaryFacts
         )
@@ -273,7 +273,7 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
         DependencyClosure::grants(
             &partial,
             vec![],
-            vec![RelationUse::stored::<Package>()],
+            vec![RelationUse::completed::<Package>()],
             &[],
             PublicationBoundary::Facts,
             LowerLayerPolicy::OmitInferredOrdinaryFacts,
@@ -287,7 +287,7 @@ fn convenient_grants_traverse_direct_uses_and_retain_explicit_ordinary_facts() {
 fn grant_composition_inherits_empty_validators_and_refuses_distinct_nonempty_policies() {
     use lctx_model::domain::attribution::FactFamily;
     let model = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();
-    let use_ = RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts);
+    let use_ = RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Facts);
     let order = order();
     let build = |direct| {
         DependencyClosure::grants(

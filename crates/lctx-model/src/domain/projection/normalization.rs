@@ -19,7 +19,7 @@ macro_rules! inputs {
                 $(if name == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
             pub fn validation_inputs() -> Vec<ValidationInput> { crate::domain::normalized::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]) }
-            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()),*] }
+            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::completed::<$ty>()),*] }
         }
     }
 }
@@ -808,7 +808,7 @@ impl InvariantCheck for Check {
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {
     let mut inputs = crate::domain::normalized::event_normalization::stage(profile).inputs;
-    macro_rules! prior { ($($field:ident: $ty:ty,)*) => { $(inputs.push(stages::RelationUse::stored::<$ty>());)* }; }
+    macro_rules! prior { ($($field:ident: $ty:ty,)*) => { $(inputs.push(stages::RelationUse::completed::<$ty>());)* }; }
     crate::normalized_event_outputs!(prior);
     inputs.extend(ProjectionData::stage_inputs());
     inputs.sort_by_key(|r| r.name());

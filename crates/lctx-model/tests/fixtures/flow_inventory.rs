@@ -1,6 +1,6 @@
 #![allow(
     dead_code,
-    reason = "Shared inventory fixture supplies model and PostgreSQL controls"
+    reason = "Shared inventory fixture supplies model and native compiler controls"
 )]
 #[path = "flow.rs"]
 mod flow_fixture;

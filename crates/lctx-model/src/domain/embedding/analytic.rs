@@ -123,7 +123,7 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
         pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
-        pub fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::stored::<$ty>()),*]}
+        pub fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::completed::<$ty>()),*]}
     }
 };}
 crate::analytic_consumption_inputs!(data);
@@ -397,14 +397,14 @@ pub fn stage(
     inputs.extend(
         super::text::relations()
             .iter()
-            .map(|r| RelationUse::of_relation(r).completed_store()),
+            .map(|r| RelationUse::of_relation(r).completed_input()),
     );
     inputs.extend(
         analysis::preparation::configuration_relations()
             .iter()
-            .map(|r| RelationUse::of_relation(r).completed_store()),
+            .map(|r| RelationUse::of_relation(r).completed_input()),
     );
-    macro_rules! add {($($ty:ty),*)=>{$(inputs.push(RelationUse::stored::<$ty>());)*};}
+    macro_rules! add {($($ty:ty),*)=>{$(inputs.push(RelationUse::completed::<$ty>());)*};}
     add!(
         analysis::AnalysisDefinition,
         analysis::MethodParameters,

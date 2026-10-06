@@ -66,7 +66,7 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
         .collect::<std::collections::BTreeSet<_>>();
     for input in &stage.inputs {
         assert!(facts.contains(input.name()));
-        assert_eq!(input.transport(), InputTransport::CompletedStore);
+        assert_eq!(input.transport(), InputTransport::CompletedInput);
         if is_vocabulary(input.name()) {
             assert_eq!(input.prefix(), Some(PublicationBoundary::Facts));
         }

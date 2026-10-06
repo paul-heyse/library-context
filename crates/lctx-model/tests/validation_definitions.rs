@@ -108,7 +108,7 @@ fn any_referrer_retains_the_check_and_missing_definition_or_premise_refuses() {
                 .find(|r| r.name() != Premise::NAME)
                 .unwrap(),
         )
-        .completed_store();
+        .completed_input();
         assert_eq!(stage(vec![use_]).read_invariants(&model).unwrap().len(), 1);
         assert!(
             model
@@ -289,9 +289,9 @@ fn canonical_model_and_shared_source_call_requirements_execute_one_actual_replay
         assert_eq!(references, vec!["source_call_replay"]);
     }
     let requirements = stage(vec![
-        RelationUse::stored::<SourceCallHeader>(),
-        RelationUse::stored::<SourceInvocation>(),
-        RelationUse::stored::<SourceCallRun>(),
+        RelationUse::completed::<SourceCallHeader>(),
+        RelationUse::completed::<SourceInvocation>(),
+        RelationUse::completed::<SourceCallRun>(),
     ])
     .read_invariants(&model)
     .unwrap();

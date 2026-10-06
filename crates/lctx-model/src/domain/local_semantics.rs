@@ -845,22 +845,22 @@ pub fn stage(
         vec![]
     } else {
         vec![
-            RelationUse::stored::<ProviderRun>(),
-            RelationUse::stored::<Provider>(),
-            RelationUse::stored::<NativeQualification>(),
+            RelationUse::completed::<ProviderRun>(),
+            RelationUse::completed::<Provider>(),
+            RelationUse::completed::<NativeQualification>(),
         ]
     };
     inputs.extend([
-        RelationUse::stored::<crate::domain::input::InputRevision>(),
-        RelationUse::stored::<crate::domain::input::ArtifactUse>(),
-        RelationUse::stored::<SourceArtifact>(),
-        RelationUse::stored::<CoverageScope>(),
-        RelationUse::stored::<ProviderCoverage>(),
-        RelationUse::stored::<crate::domain::normalized::coverage::NormalizationComputation>(),
-        RelationUse::stored::<crate::domain::normalized::coverage::NormalizationCoverage>(),
-        RelationUse::stored::<analysis::AnalysisDefinition>(),
-        RelationUse::stored::<crate::domain::normalized::dispatch::DispatchAssessment>(),
-        RelationUse::stored::<crate::domain::normalized::dispatch::DispatchMember>(),
+        RelationUse::completed::<crate::domain::input::InputRevision>(),
+        RelationUse::completed::<crate::domain::input::ArtifactUse>(),
+        RelationUse::completed::<SourceArtifact>(),
+        RelationUse::completed::<CoverageScope>(),
+        RelationUse::completed::<ProviderCoverage>(),
+        RelationUse::completed::<crate::domain::normalized::coverage::NormalizationComputation>(),
+        RelationUse::completed::<crate::domain::normalized::coverage::NormalizationCoverage>(),
+        RelationUse::completed::<analysis::AnalysisDefinition>(),
+        RelationUse::completed::<crate::domain::normalized::dispatch::DispatchAssessment>(),
+        RelationUse::completed::<crate::domain::normalized::dispatch::DispatchMember>(),
     ]);
     let mut outputs = publication::relations()
         .iter()

@@ -63,7 +63,7 @@ impl DependencyClosure {
                 let relation = model.relation(input.name()).ok_or_else(|| {
                     ModelError::Invalid(format!("closure relation absent: {}", input.name()))
                 })?;
-                let use_ = RelationUse::of_relation(relation).completed_store();
+                let use_ = RelationUse::of_relation(relation).completed_input();
                 Ok(if let Some(epoch) = input.prefix() {
                     use_.at_epoch(epoch)
                 } else {
@@ -181,7 +181,7 @@ impl DependencyClosure {
                 // facts checkpoint must cover it; store input admission refuses otherwise.
                 continue;
             }
-            let mut grant = RelationUse::of_relation(relation(input.name())?).completed_store();
+            let mut grant = RelationUse::of_relation(relation(input.name())?).completed_input();
             if let Some(epoch) = input.prefix() {
                 grant = grant.at_epoch(epoch);
             }

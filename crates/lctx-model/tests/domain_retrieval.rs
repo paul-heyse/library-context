@@ -698,7 +698,7 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
                 stage
                     .inputs
                     .iter()
-                    .all(|i| i.transport() == stages::InputTransport::CompletedStore)
+                    .all(|i| i.transport() == stages::InputTransport::CompletedInput)
             );
             let expected = Data::inputs().iter()
                 .filter(|input| stages::is_vocabulary(input.name()))

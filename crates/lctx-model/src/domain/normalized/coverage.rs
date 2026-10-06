@@ -500,10 +500,10 @@ pub fn stage(profile: Profile) -> Stage {
         let producer = capability.producer(profile);
         inputs.extend(producer.inputs);
         for output in producer.outputs {
-            inputs.push(output.completed_store());
+            inputs.push(output.completed_input());
         }
     }
-    inputs.push(RelationUse::stored::<SourceArtifact>());
+    inputs.push(RelationUse::completed::<SourceArtifact>());
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     Stage {

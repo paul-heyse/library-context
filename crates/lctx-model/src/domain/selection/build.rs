@@ -18,7 +18,7 @@ pub fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid(format!("selection premise absent: {}", R::NAME)))
 }
-macro_rules! facts {($($f:ident:$ty:ty,)*)=>{pub struct Facts {$(pub $f:Rows<$ty>,)*}impl Facts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}fn uses()->Vec<RelationUse> {crate::domain::normalized::facts_stage_inputs(vec![$(RelationUse::stored::<$ty>()),*])}}};}
+macro_rules! facts {($($f:ident:$ty:ty,)*)=>{pub struct Facts {$(pub $f:Rows<$ty>,)*}impl Facts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}fn uses()->Vec<RelationUse> {crate::domain::normalized::facts_stage_inputs(vec![$(RelationUse::completed::<$ty>()),*])}}};}
 crate::catalog_selection_inputs!(facts);
 pub struct Data {
     pub source: EvidenceData,
@@ -827,7 +827,7 @@ pub fn stage(
 ) -> Result<Stage, ModelError> {
     let parent = c1::build::stage(profile, model, order)?;
     let mut inputs = parent.inputs;
-    inputs.extend(parent.outputs.into_iter().map(|r| r.completed_store()));
+    inputs.extend(parent.outputs.into_iter().map(|r| r.completed_input()));
     inputs.extend(Facts::uses());
     let mut outputs = super::relations()
         .iter()

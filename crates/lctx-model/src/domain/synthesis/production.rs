@@ -131,7 +131,7 @@ pub fn stage(
     let mut inputs = vec![];
     for row in requested {
         if !own.contains(row.name()) || is_vocabulary(row.name()) {
-            let mut use_ = RelationUse::of_relation(relation(row.name())?).completed_store();
+            let mut use_ = RelationUse::of_relation(relation(row.name())?).completed_input();
             if let Some(epoch) = row.prefix() {
                 use_ = use_.at_epoch(epoch);
             }

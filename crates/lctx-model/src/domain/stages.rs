@@ -86,11 +86,11 @@ pub struct InputRequirement {
     pub group: FactFamily,
     pub policy: AvailabilityPolicy,
 }
-/// Declared once with each input. A store read creates a dependency without retaining batches.
+/// Declared once with each input. A completed input creates a dependency without retaining batches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputTransport {
     Handoff,
-    CompletedStore,
+    CompletedInput,
 }
 impl RelationUse {
     pub fn of<R: Record>() -> Self {
@@ -113,14 +113,14 @@ impl RelationUse {
     pub fn name(self) -> &'static str {
         self.name
     }
-    pub fn stored<R: Record>() -> Self {
+    pub fn completed<R: Record>() -> Self {
         Self {
-            transport: InputTransport::CompletedStore,
+            transport: InputTransport::CompletedInput,
             ..Self::of::<R>()
         }
     }
-    pub fn completed_store(mut self) -> Self {
-        self.transport = InputTransport::CompletedStore;
+    pub fn completed_input(mut self) -> Self {
+        self.transport = InputTransport::CompletedInput;
         self
     }
     pub fn validators(self) -> &'static [&'static str] {
@@ -175,7 +175,7 @@ pub struct Stage {
 }
 impl Stage {
     /// Required checks come from relation owners plus explicitly named shared input checks.
-    /// A stage cannot opt out of its stored relation's own invariants.
+    /// A stage cannot opt out of its completed input relation's own invariants.
     pub fn read_invariants<'m>(
         &self,
         model: &'m ValidatedModel,
@@ -184,11 +184,11 @@ impl Stage {
         for input in self
             .inputs
             .iter()
-            .filter(|i| i.transport == InputTransport::CompletedStore)
+            .filter(|i| i.transport == InputTransport::CompletedInput)
         {
             let relation = model
                 .relation(input.name)
-                .ok_or_else(|| ModelError::Invalid("undeclared stored input".into()))?;
+                .ok_or_else(|| ModelError::Invalid("undeclared completed input".into()))?;
             names.extend(relation.invariant_refs().iter().copied());
             names.extend(input.validators.iter().copied());
         }
@@ -242,7 +242,7 @@ impl Stage {
                 b"transport",
                 match input.transport {
                     InputTransport::Handoff => b"handoff",
-                    InputTransport::CompletedStore => b"completed-store",
+                    InputTransport::CompletedInput => b"completed-input",
                 },
             );
             if let Some(requirement) = input.requirement {
@@ -408,7 +408,7 @@ impl PrefixOrdinal {
     }
 }
 /// Checked persisted boundary-to-order mapping, bound to the registered schedule digest.
-/// Restoring metadata does not grant stored reads: completed source and attempt permits do.
+/// Restoring metadata does not grant completed input reads: completed sources and attempt permits do.
 #[derive(Debug, Clone)]
 pub struct PublicationOrder {
     schedule: ContentHash,
@@ -645,7 +645,7 @@ impl Schedule {
                 .any(|r| r.transport != InputTransport::Handoff)
             {
                 return Err(ModelError::Invalid(
-                    "store transport applies only to inputs".into(),
+                    "completed input transport applies only to inputs".into(),
                 ));
             }
             let mut groups = BTreeMap::new();
@@ -760,7 +760,7 @@ impl Schedule {
             (0..stages.len()).map(|i| (i, BTreeSet::new())).collect();
         for (i, stage) in stages.iter().enumerate() {
             // Invariant inputs are part of the declaration's input closure. Native handoffs
-            // keep their existing boundary; completed-store consumers declare every premise.
+            // keep their existing boundary; completed-input consumers declare every premise.
             for invariant in stage.read_invariants(model)? {
                 for input in &invariant.inputs {
                     if let Some(writer) = writers.get(&input.type_id()) {
@@ -786,9 +786,9 @@ impl Schedule {
                 }
                 let writer = if let Some(epoch) = r.prefix {
                     raw_order.resolve(epoch)?;
-                    if r.transport != InputTransport::CompletedStore {
+                    if r.transport != InputTransport::CompletedInput {
                         return Err(ModelError::Invalid(
-                            "epoch reads require completed-store transport".into(),
+                            "epoch reads require completed-input transport".into(),
                         ));
                     }
                     if !is_vocabulary(r.name) {

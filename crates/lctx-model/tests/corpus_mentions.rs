@@ -402,7 +402,7 @@ fn corpus_links_are_complete_replay_premises_and_acknowledged_metadata_inputs() 
             .iter()
             .find(|input| input.name() == CorpusLibrary::NAME)
             .unwrap();
-        assert_eq!(input.transport(), stages::InputTransport::CompletedStore);
+        assert_eq!(input.transport(), stages::InputTransport::CompletedInput);
         assert_eq!(
             input.requirement(),
             None,
