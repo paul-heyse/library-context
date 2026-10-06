@@ -9,7 +9,7 @@ publish.workspace = true
 [dependencies]
 lctx-model = { path = "../lctx-model" }
 lctx-surrealdb = { path = "../lctx-surrealdb" }
-surrealdb = { version = "3.3", default-features = false, features = ["protocol-grpc", "rustls"] }
+surrealdb = { version = "=3.3.0", default-features = false, features = ["protocol-grpc", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

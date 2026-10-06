@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.14.*"
 resolution-markers = [
     "platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -896,7 +896,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "orjson", specifier = ">=3.10" },
+    { name = "orjson", specifier = "==3.12.0" },
     { name = "tilelang", path = "../../docs/design_review/evidence/2026-09-24_z3-5-migration/tilelang-0.1.12+z3.5.1-cp38-abi3-linux_x86_64.whl" },
     { name = "vllm", specifier = "==0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2", index = "file:///home/paul/wheelhouse/gpu-stack" },
     { name = "z3-solver", specifier = "==5.1.0.0" },

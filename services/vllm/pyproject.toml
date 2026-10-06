@@ -5,13 +5,14 @@ description = "The isolated Qwen embedding service using the gpu-stack sm_120 wh
 requires-python = "==3.14.*"
 dependencies = [
     "vllm==0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2",
-    "orjson>=3.10",
+    "orjson==3.12.0",
     "tilelang==0.1.12+z3.5.1",
     "z3-solver==5.1.0.0",
 ]
 
 [tool.uv]
 package = false
+add-bounds = "exact"
 prerelease = "if-necessary"
 # The local TileLang wheel is qualified for this Linux NVIDIA service.
 environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

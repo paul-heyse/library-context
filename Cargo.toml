@@ -14,9 +14,9 @@ publish = false
 # `just deps` enforces that with scripts/check_family.py (not deny.toml, which
 # misses dev-only duplicates — ADR-0118).
 [workspace.dependencies]
-hex = "0.4.3"
-syn = "2.0.119"
-quote = "1.0.47"
+hex = "=0.4.3"
+syn = "=2.0.119"
+quote = "=1.0.47"
 serde_arrow = { version = "=0.15.1", features = ["arrow-59"] }
 arrow-array = "=59.3.0"
 arrow-schema = "=59.3.0"
@@ -25,25 +25,25 @@ arrow-row = "=59.3.0"
 datafusion = { version = "=55.1.0", default-features = false, features = ["sql", "parquet", "nested_expressions"] }
 petgraph = { version = "=0.8.3", features = ["serde-1"] }
 postcard = { version = "=1.1.3", default-features = false, features = ["alloc"] }
-biodivine-lib-bdd = "0.6.3"
+biodivine-lib-bdd = "=0.6.3"
 pyo3 = { version = "=0.29.2", features = ["extension-module"] }
 # The analytics adapter's subsystem masks and FCA contexts (DESIGN §5, §9.6): petgraph's own
 # `fixedbitset`, already in the graph at this version.
-fixedbitset = "0.5.7"
+fixedbitset = "=0.5.7"
 # Communities (DESIGN §9.4; ADR-0011): sequential Leiden, no features (not its petgraph adapter,
 # not rayon); its RNG is rand 0.9, already in the graph.
 leiden-rs = { version = "=0.8.1", default-features = false }
 # FCA's oracle (ADR-0011): dev-only, never linked into the compiler.
-fcars = "0.2.2"
+fcars = "=0.2.2"
 odis = "=2026.9.1"
 bit-set = "=0.8.0"
-bitvec = "1.0.1"
+bitvec = "=1.1.1"
 # Stage F's lead sentences (DESIGN §10.3): UAX #29 sentence boundaries with byte offsets, already
 # in the graph at this version (arrow-cast -> comfy-table).
-unicode-segmentation = "1.13.3"
+unicode-segmentation = "=1.13.3"
 # The compile-time embedding client (ADR-0010): plain HTTP to a local vLLM service, so no TLS
 # feature; the version object_store already locks, and no package is added.
-reqwest = { version = "0.12.28", default-features = false }
+reqwest = { version = "=0.12.28", default-features = false }
 
 # ADR-0117/0118: native Pyrefly keeps embedded registry Ruff 0.0.14.
 # Latest Ruff/ty use one nominal fork source; no AST type crosses the adapter boundary.
@@ -81,46 +81,46 @@ ruff_python_parser_latest = { package = "ruff_python_parser", git = "https://git
 ruff_text_size_latest = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
 # Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.
 blake3 = "=1.8.6"
-serde_json = "1.0.151"
+serde_json = "=1.0.151"
 schemars = { version = "=1.2.2", default-features = false, features = ["std", "derive"] }
 jsonschema = { version = "=0.58.2", default-features = false }
 # Stage A (ADR-0013): reading a library's `pyproject.toml`/`uv.lock` and verifying `RECORD`
 # hashes from the captured input inventory.
-toml = "1.1.6"
-sha2 = "0.10.9"
-base64 = "0.22.1"
+toml = "=1.1.6"
+sha2 = "=0.10.9"
+base64 = "=0.22.1"
 # The docs family (CPG slice C5, docs/pins.md): markdown-rs, MDX constructs and byte offsets
 # (probe P5).
-markdown = "1.0.0"
+markdown = "=1.0.0"
 # PR3: pure Python packaging metadata parsers (ADR-0076).
-pep508_rs = { version = "0.9.2", default-features = false }
-mailparse = "0.17.0"
-rust-ini = { version = "0.21.3", default-features = false }
+pep508_rs = { version = "=0.9.2", default-features = false }
+mailparse = "=0.17.0"
+rust-ini = { version = "=0.21.3", default-features = false }
 # H1 (the library-leverage review): utility crates already in the graph (Pyrefly, uv tooling).
-globset = "0.4.20"
-serde = { version = "1.0.229", features = ["derive"] }
-csv = "1.4.0"
-clap = { version = "4.6.7", features = ["derive"] }
+globset = "=0.4.20"
+serde = { version = "=1.0.229", features = ["derive"] }
+csv = "=1.4.0"
+clap = { version = "=4.6.7", features = ["derive"] }
 # The binaries' global allocator (ADR-0016): Pyrefly's own Linux/macOS allocator at its exact
 # version, already compiled in this graph.
 tikv-jemallocator = "=0.7.0"
 # The binaries' log subscriber (H1 O1): Pyrefly, delta-kernel and DataFusion (through
 # tracing-log) report through it; the features are those already compiled in this graph.
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 # IO errors that name their path (H1 O3), and `lctx`'s error type (H1 O4); both already in
 # this graph at these versions.
-fs-err = "3.3.1"
-anyhow = "1.0.104"
-walkdir = "2.5.0"
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread"] }
-futures = "0.3.34"
-thiserror = "2.0.21"
-url = "2.5.8"
+fs-err = "=3.3.2"
+anyhow = "=1.0.104"
+walkdir = "=2.5.0"
+tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread"] }
+futures = "=0.3.34"
+thiserror = "=2.0.21"
+url = "=2.5.8"
 
 # dev
-insta = "1.48.0"
-tempfile = "3.27.0"
+insta = "=1.49.0"
+tempfile = "=3.27.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

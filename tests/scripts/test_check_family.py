@@ -29,11 +29,9 @@ version = "2.0.0"
 
 @pytest.fixture(autouse=True)
 def _no_repository_manifest(tmp_path_factory: pytest.TempPathFactory, monkeypatch) -> None:
-    """`main` reads ROOT's manifest and pins; family tests use an empty one."""
+    """`main` reads ROOT's manifests; family tests use an empty one."""
     root = tmp_path_factory.mktemp("root")
     (root / "Cargo.toml").write_text("[workspace.dependencies]\n")
-    (root / "docs").mkdir()
-    (root / "docs" / "pins.md").write_text("# Pins\n")
     monkeypatch.setattr(check_family, "ROOT", root)
 
 
@@ -58,34 +56,48 @@ def test_missing_lockfile_is_not_run_not_failure(tmp_path: Path) -> None:
 MANIFEST = """[workspace.dependencies]
 {dep}
 """
-PINS = (
-    "# Pins\n\n| Component | Pin | Reason | Revisit when | Verified |\n|---|---|---|---|---|\n{row}"
-)
 
 
 @pytest.mark.parametrize(
-    ("dep", "row", "problems"),
+    ("dep", "problems"),
     [
-        # Dependencies float: a caret needs no row.
-        ('tokio = "1.53.1"', "", []),
-        ('tokio = { version = "1.53.1", features = ["macros"] }', "", []),
-        # An exact pin or a git rev is a deliberate exception and needs its reason.
-        ('blake3 = "=1.8.6"', "", ["blake3: exact pin without a docs/pins.md row"]),
+        # A caret or range on a registry dependency fails.
+        ('tokio = "1.53.1"', ["tokio: '1.53.1' is not an exact pin (=x.y.z)"]),
         (
-            'pyrefly = { git = "https://example.invalid/pyrefly", rev = "abc" }',
-            "",
-            ["pyrefly: exact pin without a docs/pins.md row"],
+            'tokio = { version = ">=1.53", features = ["macros"] }',
+            ["tokio: '>=1.53' is not an exact pin (=x.y.z)"],
         ),
-        ('blake3 = "=1.8.6"', "| blake3 | =1.8.6 | Pyrefly's exact requirement | … | … |\n", []),
-        ('arrow-array = "=59.3.0"', "| arrow-*, parquet | =59.3.0 | family | … | … |\n", []),
+        # An exact pin or a git rev passes without a docs/pins.md row.
+        ('blake3 = "=1.8.6"', []),
+        ('tokio = { version = "=1.53.2", features = ["macros"] }', []),
+        ('pyrefly = { git = "https://example.invalid/pyrefly", rev = "abc" }', []),
+        (
+            'pyrefly = { git = "https://example.invalid/pyrefly", branch = "main" }',
+            ["pyrefly: git dependency without a rev"],
+        ),
     ],
 )
-def test_only_exact_pins_need_a_row(tmp_path: Path, dep: str, row: str, problems: list) -> None:
+def test_declared_dependencies_must_be_exact(tmp_path: Path, dep: str, problems: list) -> None:
     manifest = tmp_path / "Cargo.toml"
     manifest.write_text(MANIFEST.format(dep=dep))
-    pins = tmp_path / "pins.md"
-    pins.write_text(PINS.format(row=row))
-    assert check_family.unpinned(manifest, pins) == problems
+    assert check_family.unpinned(manifest) == problems
+
+
+def test_member_tables_are_checked_and_path_or_workspace_entries_exempt(tmp_path: Path) -> None:
+    manifest = tmp_path / "Cargo.toml"
+    manifest.write_text(
+        '[dependencies]\ntonic = "0.14"\nanyhow = { workspace = true }\n'
+        'lctx-model = { path = "../lctx-model" }\n'
+        '[dev-dependencies]\ninsta = "=1.49.0"\n'
+    )
+    assert check_family.unpinned(manifest) == ["tonic: '0.14' is not an exact pin (=x.y.z)"]
+
+
+def test_main_fails_on_a_caret_in_the_root_manifest(tmp_path: Path) -> None:
+    (check_family.ROOT / "Cargo.toml").write_text('[workspace.dependencies]\nhex = "0.4.3"\n')
+    lock = tmp_path / "Cargo.lock"
+    lock.write_text(LOCK)
+    assert check_family.main([str(lock)]) == 1
 
 
 def test_second_ruff_line_fails(tmp_path: Path) -> None:

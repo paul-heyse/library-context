@@ -8,10 +8,10 @@ dependencies = [
     # (docs/pins.md, Serving).
     "fastmcp==4.0.5",
     "mcp-types==2.2.0",
-    "numpy>=2.4.6",
-    "httpx2>=2.13.1",
+    "numpy==2.4.6",
+    "httpx2==2.13.1",
     # Used directly (the holistic assessment's A7), and locked through fastmcp.
-    "pydantic>=2.13.5",
+    "pydantic==2.13.5",
     "lctx-semantics",
 ]
 

@@ -28,7 +28,7 @@ leiden-rs.workspace = true
 postcard.workspace = true
 toml.workspace = true
 unicode-segmentation.workspace = true
-num-bigint = "0.5.1"
+num-bigint = "=0.5.1"
 
 [dev-dependencies]
 jsonschema.workspace = true

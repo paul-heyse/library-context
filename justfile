@@ -110,7 +110,7 @@ adr-lint:
     uv run python scripts/adr.py lint
 
 # Licences are never a rejection reason, so cargo-deny checks bans and sources only.
-# Pinned nominal families and observational forks (ADR-0117/0118); a pins row per exact pin (ADR-0125)
+# Pinned nominal families and observational forks (ADR-0117/0118); every declared dependency exact (ADR-0132)
 deps:
     uv run python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources
@@ -120,22 +120,6 @@ deps:
     cargo shear --exclude lctx-workspace-hack
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
-
-# Upgrade-specific checks join this recipe when a need emerges. `just upgrade` moves the root
-# workspace (uv.lock and Cargo.lock); `just upgrade <dir> …` moves those sub-projects' locks. The
-# analyzed libraries (`libraries/<name>`, moved only through `lctx library` / `--upgrade-package`,
-# libraries/README.md) and `services/vllm` (custom wheel, torch/CUDA overrides) must not move
-# through this recipe routinely.
-# Move lockfiles to the latest versions the manifests allow, at the agent's discretion; then run the tests the move affects (ADR-0125)
-upgrade *projects:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ -z "{{ projects }}" ]; then
-        uv lock --upgrade
-        cargo update
-    else
-        for p in {{ projects }}; do uv lock --upgrade --project "$p"; done
-    fi
 
 # Regenerate the executable's dependency feature union (ADR-0079; part of `turn-end`).
 build-features:

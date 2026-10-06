@@ -16,19 +16,21 @@ lctx-semantics = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
-    "ruff>=0.16.10",
+    "pytest==9.1.1",
+    "ruff==0.16.10",
     # Exact: the CLI is the parity oracle for the linked native Pyrefly (docs/pins.md, Analyzers).
     "pyrefly==1.4.0.dev3",
     # Exact: the version the python-oracles library skill indexes (docs/pins.md, Serving).
     "hypothesis==6.168.1",
-    "fastmcp>=4.0.5",
+    "fastmcp==4.0.5",
     # Independent original-evidence comparison baseline only; product search is native.
-    "bm25s>=0.3.12",
+    "bm25s==0.3.12",
 ]
 
 [tool.uv]
 package = false
+# Declared dependencies are pinned exactly (DESIGN §7); `uv add` writes `==`.
+add-bounds = "exact"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/scripts", "python/lctx_mcp/tests"]
