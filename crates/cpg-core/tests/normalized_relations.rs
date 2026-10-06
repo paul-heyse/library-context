@@ -1,7 +1,10 @@
 //! Completed normalization contracts and original text from the actual cumulative compiler.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
-use lctx_model::domain::{admission::Frontier, stages::Profile};
+use lctx_model::domain::{
+    admission::{Availability, Frontier}, attribution::FactFamily, flow::FlowTestLeafObservation,
+    stages::{AvailabilityPolicy, InputRequirement, Profile},
+};
 async fn run(profile: Profile) {
     let mut settings = catalog_runtime::settings("relations");
     settings.knn = true;
@@ -10,11 +13,28 @@ async fn run(profile: Profile) {
     let counts: (i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM symbol_entity_resolutions) AS fixture_column_0, (SELECT count(*) FROM provider_symbols) AS fixture_column_1").await;
     assert!(counts.0 > 0);
     assert_eq!(counts.0, counts.1);
-    let leaves: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM flow_test_leaf_observations) AS fixture_column_0, (SELECT count(*) FROM test_operand_type_assessments) AS fixture_column_1, (SELECT count(*) FROM test_operand_type_links) AS fixture_column_2").await;
-    assert_eq!(leaves.0, leaves.1);
     match profile {
-        Profile::Catalog => assert_eq!(leaves, (0, 0, 0)),
-        Profile::Behavioral => assert!(leaves.0 > 0 && leaves.2 > 0),
+        Profile::Catalog => {
+            // Unrequested providers publish availability, not fabricated empty assertion streams.
+            assert!(fixture.workspace.completed::<FlowTestLeafObservation>().is_err());
+            let operands: (i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM test_operand_type_assessments) AS fixture_column_0, (SELECT count(*) FROM test_operand_type_links) AS fixture_column_1").await;
+            assert_eq!(operands, (0, 0));
+            let availability = fixture.workspace.facts_availability(profile).unwrap();
+            let flow = availability.evidence().iter()
+                .filter(|row| row.family == FactFamily::Flow).collect::<Vec<_>>();
+            assert!(!flow.is_empty(), "unrequested flow must be explicitly disclosed");
+            assert!(flow.iter().all(|row|
+                row.availability == Availability::NotRequested && row.provider.is_none()
+            ));
+            assert!(availability.admit(InputRequirement {
+                group: FactFamily::Flow, policy: AvailabilityPolicy::RequireComplete,
+            }).is_err(), "unrequested flow cannot authorize complete flow reads");
+        }
+        Profile::Behavioral => {
+            let leaves: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM flow_test_leaf_observations) AS fixture_column_0, (SELECT count(*) FROM test_operand_type_assessments) AS fixture_column_1, (SELECT count(*) FROM test_operand_type_links) AS fixture_column_2").await;
+            assert_eq!(leaves.0, leaves.1);
+            assert!(leaves.0 > 0 && leaves.2 > 0);
+        }
     }
     let signatures: (i64, i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM signature_observations) AS fixture_column_0, (SELECT count(*) FROM signature_variants) AS fixture_column_1, (SELECT count(*) FROM effective_callable_assessments) AS fixture_column_2").await;
     assert!(signatures.0 > 0 && signatures.2 > 0);
