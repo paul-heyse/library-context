@@ -18,3 +18,6 @@ pub mod source_evidence;
 mod flow_inventory;
 mod source_characterization;
 mod source_usage;
+pub mod behavior;
+mod capture;
+
