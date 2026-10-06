@@ -247,13 +247,51 @@ impl CoverageOutput {
 fn invalid(message: &str) -> ModelError {
     ModelError::Frontier(message.into())
 }
+/// Coverage needs the captured artifact/input correspondence, never artifact paths or bytes.
+pub trait ArtifactInputs: Send + Sync {
+    fn input(&self, artifact: Id<SourceArtifact>) -> Option<Id<input::InputRevision>>;
+}
+impl ArtifactInputs for Rows<SourceArtifact> {
+    fn input(&self, artifact: Id<SourceArtifact>) -> Option<Id<input::InputRevision>> {
+        self.get(artifact).map(|row| row.input)
+    }
+}
+/// The primitive correspondence universe retained by normalization coverage.
+pub struct ArtifactInputIndex {
+    inputs: charged::ChargedMap<[u8;16], Id<input::InputRevision>>,
+    charge: charged::StateCharge,
+}
+impl ArtifactInputIndex {
+    pub fn new(budget: &resources::ResourceBudget) -> Self {
+        Self { inputs: Default::default(), charge: charged::StateCharge::new(budget, "coverage-artifact-input-keys") }
+    }
+    /// Ingest only the physical id/input projection of an admitted immutable artifact stream.
+    pub fn ingest(&mut self, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        use arrow_array::{Array, FixedSizeBinaryArray};
+        let keys = batch.column_by_name("id").and_then(|column| column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("artifact coverage key projection"))?;
+        let inputs = batch.column_by_name("input").and_then(|column| column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("artifact coverage input projection"))?;
+        for row in 0..batch.num_rows() {
+            if keys.is_null(row) || inputs.is_null(row) { return Err(invalid("null artifact/input coverage key")); }
+            let key: [u8;16] = keys.value(row).try_into().map_err(ModelError::codec)?;
+            let input = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(inputs.value(row).iter().copied())).map_err(ModelError::codec)?;
+            if self.inputs.get(&key).is_some_and(|prior| *prior != input) { return Err(invalid("artifact coverage input disagreement")); }
+            self.inputs.insert(&mut self.charge, key, input)?;
+        }
+        Ok(())
+    }
+}
+impl ArtifactInputs for ArtifactInputIndex {
+    fn input(&self, artifact: Id<SourceArtifact>) -> Option<Id<input::InputRevision>> {
+        self.inputs.get(artifact.bytes()).copied()
+    }
+}
 fn input_of(
     scope: &CoverageScope,
-    artifacts: &Rows<SourceArtifact>,
+    artifacts: &dyn ArtifactInputs,
 ) -> Option<Id<input::InputRevision>> {
     match scope {
         CoverageScope::Input { input } => Some(*input),
-        CoverageScope::Artifact { artifact } => artifacts.get(*artifact).map(|a| a.input),
+        CoverageScope::Artifact { artifact } => artifacts.input(*artifact),
         _ => None,
     }
 }
@@ -274,7 +312,7 @@ struct EvidenceIndex<'a> {
 impl<'a> EvidenceIndex<'a> {
     fn new(
         evidence: &'a ScopedAvailability,
-        artifacts: &Rows<SourceArtifact>,
+        artifacts: &dyn ArtifactInputs,
         budget: &resources::ResourceBudget,
     ) -> Result<Self, ModelError> {
         let mut index = Self {
@@ -310,7 +348,7 @@ impl<'a> EvidenceIndex<'a> {
         scope: Id<CoverageScope>,
         context: Id<AnalysisContext>,
         evidence: &ScopedAvailability,
-        artifacts: &Rows<SourceArtifact>,
+        artifacts: &dyn ArtifactInputs,
         budget: &resources::ResourceBudget,
     ) -> Result<ScopedOutcome, ModelError> {
         let target = evidence
@@ -375,16 +413,62 @@ pub fn scoped_outcome(
     scope: Id<CoverageScope>,
     context: Id<AnalysisContext>,
     evidence: &ScopedAvailability,
-    artifacts: &Rows<SourceArtifact>,
+    artifacts: &dyn ArtifactInputs,
     budget: &resources::ResourceBudget,
 ) -> Result<ScopedOutcome, ModelError> {
     EvidenceIndex::new(evidence, artifacts, budget)?
         .outcome(capability, scope, context, evidence, artifacts, budget)
 }
+/// Prepared primitive scope/family universe. Rich output records are created only for the
+/// current evidence row or scope, and can be written immediately to bounded compiler transfers.
+pub struct CoveragePreparation<'a> {
+    evidence: &'a ScopedAvailability,
+    artifacts: &'a dyn ArtifactInputs,
+    index: EvidenceIndex<'a>,
+    budget: &'a resources::ResourceBudget,
+}
+impl<'a> CoveragePreparation<'a> {
+    pub fn new(evidence: &'a ScopedAvailability, artifacts: &'a dyn ArtifactInputs, budget: &'a resources::ResourceBudget) -> Result<Self, ModelError> {
+        Ok(Self { evidence, artifacts, index: EvidenceIndex::new(evidence, artifacts, budget)?, budget })
+    }
+    pub fn evidence_records(&self) -> impl Iterator<Item=Result<(NormalizationEvidenceSet, NormalizationEvidenceMember),ModelError>> + '_ {
+        self.evidence.evidence().iter().map(|row| {
+            let input = input_of(self.evidence.scope(row.scope).ok_or_else(|| invalid("evidence scope absent"))?, self.artifacts)
+                .ok_or_else(|| invalid("evidence input absent"))?;
+            let set = NormalizationEvidenceSet { input, context: row.context, family: row.family };
+            let member = NormalizationEvidenceMember { premise: set.id(), coverage: row.coverage };
+            Ok((set, member))
+        })
+    }
+    pub fn scopes(&self, capability: Capability) -> impl Iterator<Item=(Id<CoverageScope>,Id<AnalysisContext>)> + '_ {
+        self.index.by_scope.iter().filter(move |(_, rows)| rows.iter().any(|row| row.family == capability.anchor()))
+            .map(|(&(context, scope), _)| (scope, context))
+    }
+    pub fn outcome(&self, capability: Capability, scope: Id<CoverageScope>, context: Id<AnalysisContext>) -> Result<ScopedOutcome,ModelError> {
+        self.index.outcome(capability, scope, context, self.evidence, self.artifacts, self.budget)
+    }
+}
+/// Aggregate availability is a compact fold over the independently produced scope outcomes.
+#[derive(Default)]
+pub struct CoverageAggregate { availability: Option<EvidenceAvailability>, mixed: bool }
+impl CoverageAggregate {
+    pub fn include(&mut self, availability: EvidenceAvailability) {
+        match self.availability {
+            None => self.availability = Some(availability),
+            Some(prior) => self.mixed |= prior != availability,
+        }
+    }
+    pub fn finish(self, capability: Capability, profile: Profile) -> EvidenceAvailability {
+        if self.mixed { EvidenceAvailability::Partial }
+        else { self.availability.unwrap_or(if matches!(capability, Capability::FlowLinks | Capability::FlowEvents) && profile == Profile::Catalog {
+            EvidenceAvailability::NotRequested
+        } else { EvidenceAvailability::NoScope }) }
+    }
+}
 pub fn assemble(
     profile: Profile,
     evidence: &ScopedAvailability,
-    artifacts: &Rows<SourceArtifact>,
+    artifacts: &dyn ArtifactInputs,
     sources: &[crate::domain::analysis::sources::SourceSnapshot],
     budget: &resources::ResourceBudget,
 ) -> Result<CoverageOutput, ModelError> {
@@ -516,5 +600,62 @@ pub fn stage(profile: Profile) -> Stage {
         effect: Effect::Pure,
         code: policy_revision(),
         configuration: ContentHash::of(b"normalization-coverage/v1"),
+    }
+}
+
+#[cfg(test)]
+mod streamed_coverage_controls {
+    use super::*;
+    fn id<R: Record>(byte: u8) -> Id<R> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+    }
+    #[test]
+    fn primitive_artifact_projection_omits_rich_labels_and_scope_fold_keeps_input_domains() {
+        let budget = resources::ResourceBudget::fixed(64 << 10).unwrap();
+        let artifacts = [
+            SourceArtifact::from_bytes(id(1), format!("{}.py", "x".repeat(128 << 10)), b"a").unwrap(),
+            SourceArtifact::from_bytes(id(2), "other.py".into(), b"b").unwrap(),
+        ];
+        let batch = SourceArtifact::encode(&artifacts).unwrap();
+        let columns = [batch.schema().index_of("id").unwrap(), batch.schema().index_of("input").unwrap()];
+        let mut index = ArtifactInputIndex::new(&budget);
+        index.ingest(&batch.project(&columns).unwrap()).unwrap();
+        let context = id(3);
+        let mut scopes = BTreeMap::new();
+        let mut coverage = Vec::new();
+        let capability = Capability::Callables;
+        for (ordinal, artifact) in artifacts.iter().enumerate() {
+            let artifact_scope = CoverageScope::Artifact { artifact: artifact.id() };
+            let input_scope = CoverageScope::Input { input: artifact.input };
+            scopes.insert(artifact_scope.id(), artifact_scope.clone());
+            scopes.insert(input_scope.id(), input_scope.clone());
+            for family in capability.families() {
+                let partial = ordinal == 1 && *family == FactFamily::Signatures;
+                coverage.push(ProviderCoverage {
+                    scope: if *family == FactFamily::Artifacts { input_scope.id() } else { artifact_scope.id() },
+                    context, provider:Some(id(4)), family:*family, run:Some(id(5)),
+                    status:if partial { CoverageStatus::Partial } else { CoverageStatus::CompleteUnderStatedModel },
+                    reason:partial.then_some(obligation::ObligationKind::OutsideProviderModel), diagnostic:None,
+                });
+            }
+        }
+        let expected = coverage.iter().map(|row| admission::Expected {
+            scope:row.scope, family:row.family, provider:row.provider,
+        }).collect();
+        let evidence = ScopedAvailability::from_completed(Profile::Catalog, &expected, &coverage, &scopes, &budget).unwrap();
+        let prepared = CoveragePreparation::new(&evidence, &index, &budget).unwrap();
+        let mut aggregate = CoverageAggregate::default();
+        let mut found = BTreeMap::new();
+        for (scope, context) in prepared.scopes(capability) {
+            let outcome = prepared.outcome(capability, scope, context).unwrap();
+            aggregate.include(outcome.availability);
+            found.insert(scope, outcome.availability);
+        }
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[&CoverageScope::Artifact {artifact:artifacts[0].id()}.id()], EvidenceAvailability::Complete);
+        assert_eq!(found[&CoverageScope::Artifact {artifact:artifacts[1].id()}.id()], EvidenceAvailability::Partial);
+        assert_eq!(aggregate.finish(capability, Profile::Catalog), EvidenceAvailability::Partial);
+        assert_eq!(prepared.evidence_records().count(), coverage.len());
+        assert_eq!(CoverageAggregate::default().finish(Capability::FlowEvents, Profile::Catalog), EvidenceAvailability::NotRequested);
     }
 }

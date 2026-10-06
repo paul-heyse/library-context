@@ -247,36 +247,65 @@ pub async fn coverage(
     let profile = access.profile();
     let evidence = runtime.facts_availability(profile)?;
     let session = access.session(runtime).await?;
-    let mut artifacts = Rows::<SourceArtifact>::new(runtime.budget());
     let _permit = access.read::<SourceArtifact>()?;
-
-    load(&session, &mut artifacts).await?;
+    let table = access.table_at::<SourceArtifact>(None)?;
+    let mut artifacts = ArtifactInputIndex::new(runtime.budget());
+    // Coverage retains only the primitive artifact/input correspondence. Paths and artifact
+    // payload metadata are excluded by the physical projection before any model decoding.
+    let mut stream = crate::sql::query(&session, &format!("SELECT id,input FROM \"{table}\" ORDER BY id"))
+        .await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        runtime.cancellation().check()?;
+        artifacts.ingest(&batch)?;
+        tokio::task::yield_now().await;
+    }
+    drop(stream);
     drop(session);
-    let rows = assemble(profile, &evidence, &artifacts, &sources, runtime.budget())?;
     output.declare::<NormalizationComputation>()?;
-    for row in rows.computations.iter() {
-        output.push(row.clone()).await?;
-    }
     output.declare::<NormalizationOutputReceipt>()?;
-    for row in rows.receipts.iter() {
-        output.push(row.clone()).await?;
-    }
     output.declare::<NormalizationCoverage>()?;
-    for row in rows.outcomes.iter() {
-        output.push(row.clone()).await?;
-    }
     output.declare::<NormalizationPremise>()?;
-    for row in rows.premises.iter() {
-        output.push(row.clone()).await?;
-    }
     output.declare::<NormalizationEvidenceSet>()?;
-    for row in rows.sets.iter() {
-        output.push(row.clone()).await?;
-    }
     output.declare::<NormalizationEvidenceMember>()?;
-    for row in rows.members.iter() {
-        output.push(row.clone()).await?;
+    let prepared = CoveragePreparation::new(&evidence, &artifacts, runtime.budget())?;
+    for record in prepared.evidence_records() {
+        runtime.cancellation().check()?;
+        let (set, member) = record?;
+        output.push(set).await?;
+        output.push(member).await?;
     }
-    drop(rows);
+    for capability in Capability::ALL {
+        let stage = capability.producer(profile);
+        let mut computation = NormalizationComputation {
+            capability,
+            policy: lctx_model::domain::normalized::policy_revision(),
+            producer: stage.name.into(), declaration: stage.digest(), profile: profile.name().into(),
+            availability: EvidenceAvailability::NoScope,
+        };
+        let mut aggregate = CoverageAggregate::default();
+        for (scope, context) in prepared.scopes(capability) {
+            runtime.cancellation().check()?;
+            let scoped = prepared.outcome(capability, scope, context)?;
+            aggregate.include(scoped.availability);
+            let row = NormalizationCoverage {
+                computation: computation.id(), scope, context, availability: scoped.availability,
+            };
+            let outcome = row.id();
+            output.push(row).await?;
+            for premise in &scoped.premises {
+                output.push(NormalizationPremise { outcome, premise: premise.id() }).await?;
+            }
+        }
+        computation.availability = aggregate.finish(capability, profile);
+        let id = computation.id();
+        output.push(computation).await?;
+        for relation in &stage.outputs {
+            let source = sources.iter().find(|source| source.relation() == relation.name() && source.producer() == stage.name)
+                .ok_or_else(|| ModelError::Frontier("normalization output has no completed producer receipt".into()))?;
+            output.push(NormalizationOutputReceipt {
+                computation: id, relation: relation.name().into(), rows: source.rows(), content: source.content(),
+            }).await?;
+        }
+    }
     output.finish(ProviderOutcome::Complete).await
 }
