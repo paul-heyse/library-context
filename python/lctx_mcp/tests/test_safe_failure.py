@@ -1,22 +1,18 @@
 """Typed native payloads traverse the actual FastMCP tool and resource routes safely."""
 import json
+import os
+import sys
+from pathlib import Path
 
 import pytest
-from fastmcp import Client, FastMCP
+from fastmcp import Client
+from fastmcp.client.transports import StdioTransport
 from lctx_semantics import NativeFailure, wire_decode, wire_failure
 from mcp.shared.exceptions import MCPError
 
-from lctx_mcp.wire import register, native_failure, response_encodings, failure_error, checked_resource_error
+from lctx_mcp.wire import native_failure, response_encodings, failure_error, checked_resource_error
 
 KINDS = ["resource_refused", "incompatible", "corrupt", "unavailable", "unknown_library"]
-
-class FailingExecutor:
-    def __init__(self, error):
-        self.error = error
-
-    async def execute(self, name, arguments):
-        raise self.error
-
 
 def typed_failure(kind):
     raw = wire_failure(kind)
@@ -25,20 +21,30 @@ def typed_failure(kind):
     return error
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("kind", KINDS)
-async def test_actual_tool_and_resource_routes_keep_typed_fixed_failure(kind):
-    server = FastMCP("safe error control")
-    register(server, FailingExecutor(typed_failure(kind)))
-    expected = json.loads(wire_failure(kind))
-    async with Client(server) as client:
+@pytest.mark.parametrize("kind", KINDS + ["unexpected"])
+@pytest.mark.parametrize("transport", ["inprocess", "stdio"])
+async def test_actual_tool_and_resource_routes_keep_typed_fixed_failure(kind, transport):
+    """Injected executor faults exercise both real MCP transports and final envelopes."""
+    from fixtures_safe_failure import server
+
+    target = server(kind) if transport == "inprocess" else StdioTransport(
+        command=sys.executable,
+        args=[str(Path(__file__).with_name("fixtures_safe_failure.py")), kind],
+        env=dict(os.environ),
+        keep_alive=False,
+    )
+    expected = json.loads(wire_failure("unavailable" if kind == "unexpected" else kind))
+    async with Client(target) as client:
         result = await client.call_tool("browse_library", {"library": "fixture"}, raise_on_error=False)
         assert result.is_error is True
         assert result.meta["lctx_failure"] == expected
         assert result.content[0].text == expected["message"]
+        assert "sentinel" not in str(result) and "/private/" not in str(result)
         with pytest.raises(MCPError) as caught:
             await client.read_resource("lctx://capability/" + "01" * 16)
         assert caught.value.error.data == {"lctx_failure": expected}
         assert caught.value.error.message == expected["message"]
+        assert "sentinel" not in str(caught.value.error) and "/private/" not in str(caught.value.error)
 
 
 def test_native_decoder_emits_checked_type_and_unexpected_text_is_never_classified():

@@ -120,53 +120,45 @@ async def test_actual_native_zero_deadline_returns_safe_resource_refusal():
 
 
 @pytest.mark.anyio
-async def test_cancelled_worker_drains_actual_native_dispatch_before_session_close():
-    """Cancellation retains worker admission before actual dispatch and close drains it.
+async def test_cancelled_worker_drains_actual_native_dispatch_before_session_close(tmp_path):
+    """Delay an actual gRPC response after dispatch; cancellation still owns its worker."""
+    from native_transport import ResponseGate, viewer_config
 
-    The latch is before NativeSession.execute; the Rust gRPC stream control separately
-    exercises cancellation after a native query has started.
-    """
     configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
     library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
     assert configured and library, "owned published native fixture required"
-    native = await asyncio.to_thread(NativeSession, configured)
-    entered = threading.Event()
-    released = threading.Event()
-    closed = threading.Event()
-    results = []
-
-    class LatchedNative:
-        def execute(self, tool, request, vector, remaining_ms):
-            entered.set()
-            assert released.wait(5), "test did not release native dispatch"
-            result = native.execute(tool, request, vector, remaining_ms)
-            results.append(json.loads(result))
-            return result
-
-        def close(self):
-            native.close()
-            closed.set()
-
-    executor = NativeExecutor(LatchedNative())
-    request = asyncio.create_task(executor.execute("browse_library", {"library": library}))
-    try:
-        assert await asyncio.to_thread(entered.wait, 2)
-        request.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await request
-        assert len(executor._pending) == 1
-        shutdown = asyncio.create_task(executor.close())
-        await asyncio.sleep(0)
-        assert not shutdown.done() and not closed.is_set()
-        released.set()
-        await shutdown
-        assert results[0]["entries"]["items"]
-        assert closed.is_set() and executor._slots._value == 2
-        with pytest.raises(RuntimeError, match="Canonical serving is unavailable"):
-            await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library":library}))
-    finally:
-        released.set()
-        await executor.close()
+    endpoint = json.loads(Path(configured).read_text())["endpoint"]
+    async with ResponseGate(endpoint) as proxy:
+        path = viewer_config(configured, proxy.endpoint, tmp_path / "viewer.json")
+        native = await asyncio.to_thread(NativeSession, str(path))
+        executor = NativeExecutor(native)
+        try:
+            proxy.pause()
+            request = asyncio.create_task(executor.execute("browse_library", {"library": library}))
+            # Receipt of real upstream DATA is later than NativeSession.execute and SDK
+            # dispatch. This is an injected delayed read, not engine preemption evidence.
+            await asyncio.wait_for(proxy.entered.wait(), timeout=5)
+            assert not request.done()
+            request.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+            assert len(executor._pending) == 1 and executor._slots._value == 1
+            worker = next(iter(executor._pending))
+            proxy.resume()
+            result = await asyncio.wait_for(asyncio.shield(worker), timeout=10)
+            assert json.loads(result)["entries"]["items"]
+            await asyncio.sleep(0)
+            assert not executor._pending and executor._slots._value == 2
+            # The same actual native session remains usable after its abandoned read drains.
+            result = await executor.execute("browse_library", {"library": library})
+            assert json.loads(result)["entries"]["items"]
+            await executor.close()
+            with pytest.raises(NativeFailure) as closed:
+                await asyncio.to_thread(native.execute, "browse_library", json.dumps({"library": library}))
+            assert json.loads(closed.value.lctx_failure_json) == json.loads(wire_failure("unavailable"))
+        finally:
+            proxy.resume()
+            await executor.close()
 
 
 @pytest.mark.anyio
@@ -287,3 +279,87 @@ async def test_stdio_writer_refuses_a_huge_id_without_emitting_its_error():
     with pytest.raises(anyio.EndOfStream):
         await receive.receive()
     await receive.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("transport", ["inprocess", "stdio"])
+async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_both_transports(transport, tmp_path):
+    """Real persisted corruption and injected read loss traverse Rust, PyO3 and MCP."""
+    from native_transport import ResponseGate, fixture_query, viewer_config
+
+    configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
+    library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
+    assert configured and library, "owned published native fixture required"
+    config = json.loads(Path(configured).read_text())
+    selected = json.loads(Path(config["selection"]).read_text())
+    async with ResponseGate(config["endpoint"]) as proxy:
+        path = viewer_config(configured, proxy.endpoint, tmp_path / "viewer.json")
+        target = create_server(path) if transport == "inprocess" else StdioTransport(
+            command=sys.executable,
+            args=["-m", "lctx_mcp", "--serving-config", str(path)],
+            env=dict(os.environ),
+            keep_alive=False,
+        )
+        async with Client(target) as client:
+            found = await client.call_tool("search_capabilities", {"library": library, "query": "carefully"})
+            capability = found.structured_content["results"]["items"][0]["capability"]
+            uri = "lctx://capability/" + bytes(capability).hex()
+            key = bytes(capability).hex()
+            # Capture original bytes through the explicit fixture admin, then alter only
+            # canonical bytes. Public request decoding and current definitions still pass.
+            saved = await asyncio.to_thread(fixture_query, selected,
+                f"SELECT id,encoding::base64::encode(canonical) AS saved FROM entity WHERE semantic_type='synthesis_briefs' AND semantic_key='{key}';")
+            assert len(saved[0]["result"]) == 1
+            record = saved[0]["result"][0]
+            row_id = record["id"]
+            assert row_id.startswith("entity:") and all(char.isalnum() or char in ":_" for char in row_id)
+            try:
+                await asyncio.to_thread(fixture_query, selected, f"UPDATE {row_id} SET canonical=b\"00\";")
+                corrupt = json.loads(wire_failure("corrupt"))
+                result = await client.call_tool("get_capability", {"capability": capability}, raise_on_error=False)
+                assert result.is_error and result.meta["lctx_failure"] == corrupt
+                assert result.content[0].text == corrupt["message"]
+                with pytest.raises(MCPError) as caught:
+                    await client.read_resource(uri)
+                assert caught.value.error.message == corrupt["message"]
+                assert caught.value.error.data == {"lctx_failure": corrupt}
+            finally:
+                await asyncio.to_thread(fixture_query, selected,
+                    f"UPDATE {row_id} SET canonical=encoding::base64::decode('{record['saved']}');")
+            healthy = await client.call_tool("get_capability", {"capability": capability})
+            assert not healthy.is_error
+
+            # A real continuation from a different operation request must retain the exact
+            # incompatible cause through the actual transport, including persisted pin.
+            first = await client.call_tool("browse_library", {"library": library, "page": {"size": 1}})
+            cursor = first.structured_content["entries"]["continuation"]
+            assert cursor
+            wrong = await client.call_tool("browse_library",
+                {"library": library, "view": "vocabulary", "page": {"size": 1, "cursor": cursor}}, raise_on_error=False)
+            incompatible = json.loads(wire_failure("incompatible"))
+            assert wrong.is_error and wrong.meta["lctx_failure"] == incompatible
+            assert wrong.content[0].text == incompatible["message"]
+
+            for resource in [False, True]:
+                proxy.pause()
+                pending = asyncio.create_task(client.read_resource(uri) if resource else
+                    client.call_tool("get_capability", {"capability": capability}, raise_on_error=False))
+                try:
+                    await asyncio.wait_for(proxy.entered.wait(), timeout=5)
+                    assert not pending.done(), "actual native response must remain unread at injection"
+                    proxy.disconnect()
+                    unavailable = json.loads(wire_failure("unavailable"))
+                    if resource:
+                        with pytest.raises(MCPError) as caught:
+                            await asyncio.wait_for(pending, timeout=10)
+                        assert caught.value.error.message == unavailable["message"]
+                        assert caught.value.error.data == {"lctx_failure": unavailable}
+                    else:
+                        result = await asyncio.wait_for(pending, timeout=10)
+                        assert result.is_error and result.meta["lctx_failure"] == unavailable
+                        assert result.content[0].text == unavailable["message"]
+                finally:
+                    proxy.resume()
+                # Reconnection/drain must permit a subsequent actual request on this pin.
+                result = await client.call_tool("get_capability", {"capability": capability})
+                assert not result.is_error
