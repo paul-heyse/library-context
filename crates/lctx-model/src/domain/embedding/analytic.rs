@@ -152,7 +152,6 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
     impl ConsumptionData {
         pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
-        fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
         pub fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::completed::<$ty>()),*]}
     }
 };}

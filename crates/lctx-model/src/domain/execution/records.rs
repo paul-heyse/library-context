@@ -354,12 +354,6 @@ impl BaseCheck {
         )
     }
 
-    pub(crate) fn caller_holds_argument(
-        &self,
-        row: &ExpressionEvaluation,
-    ) -> Result<bool, ModelError> {
-        Ok(self.held_formal(row)?.is_some())
-    }
     pub(crate) fn new(budget: &ResourceBudget) -> Self {
         Self {
             data: EvaluationData::new(budget),

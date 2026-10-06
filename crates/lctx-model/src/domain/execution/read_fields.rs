@@ -414,7 +414,7 @@ impl FieldUniverse {
     pub fn keys(&self)->impl Iterator<Item=&(Id<ClassEntity>,String)> {self.fields.iter()}
     pub fn next_key(&self,after:Option<&(Id<ClassEntity>,String)>)->Option<&(Id<ClassEntity>,String)> {match after {Some(after)=>self.fields.range((std::ops::Bound::Excluded(after),std::ops::Bound::Unbounded)).next(),None=>self.fields.iter().next()}}
     pub fn dynamic_classes(&self)->impl Iterator<Item=Id<ClassEntity>>+'_ {self.dynamic.iter().filter_map(|row|row.declared_class)}
-    pub(super) fn roots(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,work:&mut Work)->Result<(),ModelError> {
+    pub(super) fn roots(&mut self,_data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,work:&mut Work)->Result<(),ModelError> {
     // Admission roots, not observed reads, define the complete source universe.
     for artifact in roots.iter().filter(|a| {
         entry.artifacts.get(**a).is_some_and(|a| {
@@ -467,7 +467,7 @@ impl FieldUniverse {
         for id in self.attribute_ids.iter(){work.tick()?;id.encode(digest);}
         Ok(())
     }
-    pub(super) fn calls(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<calls::CallSyntax>>)->Result<(),ModelError> {
+    pub(super) fn calls(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,_out:&mut ReadRecords,_budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<calls::CallSyntax>>)->Result<(),ModelError> {
     for call in data.call_syntax.iter().filter(|row|selected_id.is_none_or(|id|row.id()==id)) {
         work.tick()?;
         if !selected(entry, inv, call.site, roots)
@@ -576,7 +576,7 @@ impl FieldUniverse {
     }
         Ok(())
     }
-    pub(super) fn classes(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<ClassFieldSyntaxObservation>>)->Result<(),ModelError> {
+    pub(super) fn classes(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,_budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<ClassFieldSyntaxObservation>>)->Result<(),ModelError> {
     for row in data.class_fields.iter().filter(|row|selected_id.is_none_or(|id|row.id()==id)) {
         work.tick()?;
         if !same_context(entry, row.qualification, inv.context)
@@ -629,7 +629,7 @@ impl FieldUniverse {
     }
         Ok(())
     }
-    pub(super) fn stores(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<flow::FlowDefinitionObservation>>)->Result<(),ModelError> {
+    pub(super) fn stores(&mut self,data:&EvaluationData,entry:&EntryData,inv:&publication::AnalysisInvocation,roots:&std::collections::BTreeSet<Id<SourceArtifact>>,out:&mut ReadRecords,_budget:&resources::ResourceBudget,work:&mut Work,selected_id:Option<Id<flow::FlowDefinitionObservation>>)->Result<(),ModelError> {
     for row in entry.definition_observations.iter().filter(|row|selected_id.is_none_or(|id|row.id()==id)) {
         work.tick()?;
         if !same_context(entry, row.qualification, inv.context) {

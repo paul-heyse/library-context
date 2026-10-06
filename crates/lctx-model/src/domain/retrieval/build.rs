@@ -979,7 +979,7 @@ fn render(d: &Data, selected:Option<Id<c1::EvidenceRoot>>, b: &ResourceBudget) -
 }
 /// Inverse memberships the actual root/brief renderers read, not all incoming references.
 pub fn memberships()->Vec<(std::any::TypeId,&'static str)>{
-    use std::any::TypeId;use catalog::{*,evidence::*};use normalized::callables::*;use crate::domain::synthesis::{briefs::*,documentary::*};
+    use std::any::TypeId;use catalog::{*,evidence::*};use normalized::callables::*;use crate::domain::synthesis::briefs::*;
     vec![(TypeId::of::<CatalogExposure>(),"member"),(TypeId::of::<CatalogCallable>(),"member"),
         (TypeId::of::<CatalogOption>(),"member"),(TypeId::of::<CatalogClass>(),"member"),
         (TypeId::of::<CatalogInvocation>(),"callable"),(TypeId::of::<CatalogCallableAspect>(),"callable"),
