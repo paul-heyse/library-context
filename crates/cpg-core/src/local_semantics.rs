@@ -119,7 +119,7 @@ pub async fn run(
                 let ids=batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema(source::SourceArtifact::NAME))?;
                 for i in 0..ids.len(){
                     let source:Id<source::SourceArtifact>=serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(ids.value(i).iter().copied())).map_err(ModelError::codec)?;
-                    let grain=scopes.source(source,budget).await?;let selected=scopes.load(&access,&grain,budget).await?;
+                    let grain=scopes.source(source,run.context,budget).await?;let selected=scopes.load(&access,&grain,budget).await?;
                     let rows=local_semantics::produce_source(&selected,&invocation,definition,source,budget)?;
                     composition.observe(&selected,&rows,budget)?;
                     publish_records(&output,&rows).await?;actual.append(rows.actual)?;

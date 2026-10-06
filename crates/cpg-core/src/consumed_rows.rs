@@ -437,13 +437,23 @@ impl PreparedEdges {
     /// Compute compact keys for one explicitly selected grain. An unsupported root remains
     /// selected, and visited complete nominal keys terminate cycles before another edge read.
     pub async fn grain(&self, root: usize, predicate: &str, budget: &ResourceBudget) -> Result<PreparedClosure, ModelError> {
+        self.grain_roots(&[(root,predicate.to_owned())],budget).await
+    }
+    /// Select an explicit owner-declared union of typed roots. The prepared nominal edges and
+    /// traversal are shared with single-root grains; no source/metadata key becomes a new root.
+    pub async fn grain_roots(&self, roots:&[(usize,String)], budget:&ResourceBudget)->Result<PreparedClosure,ModelError>{
         use datafusion::datasource::MemTable;
         use arrow_array::{RecordBatch,Int64Array,FixedSizeBinaryArray};
         use arrow_schema::{Schema,Field,DataType};
         use std::sync::Arc;
-        let table = self.0.tables.get(root).ok_or_else(|| ModelError::Invalid("closure table index absent".into()))?;
-        if predicate.trim().is_empty() { return Err(ModelError::Invalid("closure root predicate absent".into())); }
-        let sql = format!("SELECT CAST({root} AS BIGINT) AS kind,id FROM {} WHERE ({predicate}) ORDER BY id",identifier(&table.alias));
+        if roots.is_empty(){return Err(ModelError::Invalid("closure root domain absent".into()));}
+        let mut seeds=Vec::new();
+        for(root,predicate)in roots{
+            let table=self.0.tables.get(*root).ok_or_else(||ModelError::Invalid("closure table index absent".into()))?;
+            if predicate.trim().is_empty(){return Err(ModelError::Invalid("closure root predicate absent".into()));}
+            seeds.push(format!("SELECT CAST({root} AS BIGINT) AS kind,id FROM {} WHERE ({predicate})",identifier(&table.alias)));
+        }
+        let sql=format!("SELECT kind,id FROM ({}) actual_roots ORDER BY kind,id",seeds.join(" UNION ALL "));
         let mut roots=crate::sql::query(&self.0.session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         let mut visited=charged::ChargedSet::default();let mut pending=charged::ChargedVec::default();
         let mut traversal_charge=charged::StateCharge::new(budget,"semantic-grain-traversal-keys");
