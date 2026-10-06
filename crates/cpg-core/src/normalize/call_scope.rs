@@ -330,14 +330,22 @@ impl CallScopes {
             // consumers must borrow the same per-symbol domain captured by the binding owner,
             // including alternatives that have no normalized runtime signature variant.
             if let Some(signatures) = table(TypeId::of::<Signature>()) {
-                pair!(ProviderSymbol, Signature, format!(
-                    "SELECT s.id AS source_id,n.id AS target_id FROM {symbols} s JOIN {signatures} n ON n.symbol=s.id"
-                ));
+                pair!(
+                    ProviderSymbol,
+                    Signature,
+                    format!(
+                        "SELECT s.id AS source_id,n.id AS target_id FROM {symbols} s JOIN {signatures} n ON n.symbol=s.id"
+                    )
+                );
             }
             if let Some(enumerations) = table(TypeId::of::<SignatureEnumerationObservation>()) {
-                pair!(ProviderSymbol, SignatureEnumerationObservation, format!(
-                    "SELECT s.id AS source_id,e.id AS target_id FROM {symbols} s JOIN {enumerations} e ON e.symbol=s.id"
-                ));
+                pair!(
+                    ProviderSymbol,
+                    SignatureEnumerationObservation,
+                    format!(
+                        "SELECT s.id AS source_id,e.id AS target_id FROM {symbols} s JOIN {enumerations} e ON e.symbol=s.id"
+                    )
+                );
             }
             if let Some(resolutions) = table(TypeId::of::<SymbolEntityResolution>()) {
                 pair!(

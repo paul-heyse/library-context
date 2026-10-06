@@ -76,7 +76,9 @@ impl Data {
         let mut inputs = Self::validation_inputs();
         // Physical scope selection follows the native premise bridge before decoding the
         // exact qualifications. The semantic kernel consumes those selected qualifications.
-        inputs.push(ValidationInput::of::<analysis::native::NativeAssertionPremise>(&["id"]));
+        inputs.push(ValidationInput::of::<
+            analysis::native::NativeAssertionPremise,
+        >(&["id"]));
         if profile == stages::Profile::Catalog {
             let inherited = ProjectionData::validation_inputs();
             let mut native = conditions::entry::EntryData::facts_inputs();

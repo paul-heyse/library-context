@@ -1019,7 +1019,11 @@ mod controls {
                 docstring: None,
             });
         }
-        let CallableEntity::Source { declaration: callee, .. } = &entities[1] else {
+        let CallableEntity::Source {
+            declaration: callee,
+            ..
+        } = &entities[1]
+        else {
             unreachable!("source callee fixture");
         };
         let later_return = Occurrence {
@@ -1038,17 +1042,20 @@ mod controls {
             ..caller.clone()
         };
         occurrences.extend([later_return.clone(), returned_value.clone()]);
-        register(session, &[execution::source_call_records::SourceCallHeader {
-            invocation: id(13),
-            event: event.id(),
-            attempt: id(14),
-            owner: owner.id(),
-            callee: callees[0].entity.unwrap(),
-            declaration: *callee,
-            qualification: q.id(),
-            status: analysis::policy::EvidenceStatus::StructurallyObserved,
-            premises: ContentHash::of(b"header-scope-control"),
-        }]);
+        register(
+            session,
+            &[execution::source_call_records::SourceCallHeader {
+                invocation: id(13),
+                event: event.id(),
+                attempt: id(14),
+                owner: owner.id(),
+                callee: callees[0].entity.unwrap(),
+                declaration: *callee,
+                qualification: q.id(),
+                status: analysis::policy::EvidenceStatus::StructurallyObserved,
+                premises: ContentHash::of(b"header-scope-control"),
+            }],
+        );
         register(session, std::slice::from_ref(&artifact));
         register(
             session,
@@ -1110,7 +1117,14 @@ mod controls {
         register(session, std::slice::from_ref(&literal));
         register(session, &[detail]);
         register(session, &[observation]);
-        (event, owner, rich, callees.try_into().unwrap(), literal, returned_value)
+        (
+            event,
+            owner,
+            rich,
+            callees.try_into().unwrap(),
+            literal,
+            returned_value,
+        )
     }
     #[tokio::test]
     async fn event_and_owner_closures_keep_all_alternatives_and_project_unused_docstring() {

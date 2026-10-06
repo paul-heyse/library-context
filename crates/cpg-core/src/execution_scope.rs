@@ -588,8 +588,16 @@ mod controls {
                 .count(),
             2
         );
-        assert!(placements.iter().any(|row| row.field == lexical::SyntaxField::Child));
-        assert!(placements.iter().any(|row| row.field == lexical::SyntaxField::Body));
+        assert!(
+            placements
+                .iter()
+                .any(|row| row.field == lexical::SyntaxField::Child)
+        );
+        assert!(
+            placements
+                .iter()
+                .any(|row| row.field == lexical::SyntaxField::Body)
+        );
         drop(placements);
         drop(occurrences);
         drop(scope);

@@ -328,47 +328,107 @@ fn value_copy_is_admitted_before_allocation() {
 #[test]
 fn canonical_selected_service_preserves_analytic_consumption_and_refuses_foreign_specification() {
     use lctx_model::domain::graph::{self, Entity, EntityKind};
-    let budget=ResourceBudget::fixed(2<<20).unwrap();
-    let (data,invocation,window,specification)=fixture(&budget,true);
-    let service=data.services.iter().next().unwrap();
-    let entity=Entity::from(service.clone());
-    assert_eq!(entity.kind(),EntityKind::Definition);
-    let restored:Entity=serde_json::from_slice(&serde_json::to_vec(&entity).unwrap()).unwrap();
+    let budget = ResourceBudget::fixed(2 << 20).unwrap();
+    let (data, invocation, window, specification) = fixture(&budget, true);
+    let service = data.services.iter().next().unwrap();
+    let entity = Entity::from(service.clone());
+    assert_eq!(entity.kind(), EntityKind::Definition);
+    let restored: Entity = serde_json::from_slice(&serde_json::to_vec(&entity).unwrap()).unwrap();
     restored.validate().unwrap();
-    assert_eq!(entity,restored);
-    let service=graph::record::entity_record::<configuration::ServiceConfiguration>(&restored).unwrap();
-    assert_eq!(data.services.iter().next(),Some(&service));
-    let mut selected=std::collections::BTreeSet::new();
+    assert_eq!(entity, restored);
+    let service =
+        graph::record::entity_record::<configuration::ServiceConfiguration>(&restored).unwrap();
+    assert_eq!(data.services.iter().next(), Some(&service));
+    let mut selected = std::collections::BTreeSet::new();
     macro_rules! inventory { ($($variant:ident:$ty:ty,)*) => {$(selected.insert(<$ty>::NAME);)*}; }
     lctx_model::graph_entity_records!(inventory);
     lctx_model::graph_assertion_records!(inventory);
-    let invariant=invariants().into_iter().find(|i|i.name=="analytic_embedding_consumption").unwrap();
-    assert_eq!(invariant.purpose,InvariantPurpose::Admission);
-    for input in &invariant.inputs {assert!(selected.contains(input.name()),"missing canonical consumption premise {}",input.name());}
-    let spec=spec();
-    let value=AdmittedValue::new(&spec,&spec.document_text(window.text.as_str()),7,&[1.0,0.0,-0.0],&budget).unwrap();
-    let mut uses=Rows::new(&budget);
-    AnalysisEmbeddingUse::admit_into(&mut uses,invocation.id(),window.id(),&specification,&value,&budget).unwrap();
-    let outcome=AnalysisOutcome {invocation:invocation.id(),status:analysis::AnalysisStatus::Completed,reason:None};
-    let check=|service:Option<&configuration::ServiceConfiguration>| -> Result<(),ModelError> {
-        let mut check=(invariant.create)(&budget);
-        macro_rules! visit {($ty:ty,$rows:expr)=>{check.visit(<$ty>::NAME,&<$ty>::encode($rows)?)?;};}
-        visit!(EmbeddingSpec,std::slice::from_ref(&specification));
-        visit!(configuration::ServiceConfiguration,&service.into_iter().cloned().collect::<Vec<_>>());
-        for row in data.text_definitions.iter() {visit!(TextDefinition,std::slice::from_ref(row));}
-        for row in data.runs.iter() {visit!(attribution::ProviderRun,std::slice::from_ref(row));}
-        for row in data.assessments.iter() {visit!(TextAssessment,std::slice::from_ref(row));}
-        visit!(AnalysisInvocation,std::slice::from_ref(&invocation));
-        visit!(TextWindow,std::slice::from_ref(&window));
-        for row in uses.iter() {visit!(AnalysisEmbeddingUse,std::slice::from_ref(row));}
-        visit!(AnalysisOutcome,std::slice::from_ref(&outcome));
+    let invariant = invariants()
+        .into_iter()
+        .find(|i| i.name == "analytic_embedding_consumption")
+        .unwrap();
+    assert_eq!(invariant.purpose, InvariantPurpose::Admission);
+    for input in &invariant.inputs {
+        assert!(
+            selected.contains(input.name()),
+            "missing canonical consumption premise {}",
+            input.name()
+        );
+    }
+    let spec = spec();
+    let value = AdmittedValue::new(
+        &spec,
+        &spec.document_text(window.text.as_str()),
+        7,
+        &[1.0, 0.0, -0.0],
+        &budget,
+    )
+    .unwrap();
+    let mut uses = Rows::new(&budget);
+    AnalysisEmbeddingUse::admit_into(
+        &mut uses,
+        invocation.id(),
+        window.id(),
+        &specification,
+        &value,
+        &budget,
+    )
+    .unwrap();
+    let outcome = AnalysisOutcome {
+        invocation: invocation.id(),
+        status: analysis::AnalysisStatus::Completed,
+        reason: None,
+    };
+    let check = |service: Option<&configuration::ServiceConfiguration>| -> Result<(), ModelError> {
+        let mut check = (invariant.create)(&budget);
+        macro_rules! visit {
+            ($ty:ty,$rows:expr) => {
+                check.visit(<$ty>::NAME, &<$ty>::encode($rows)?)?;
+            };
+        }
+        visit!(EmbeddingSpec, std::slice::from_ref(&specification));
+        visit!(
+            configuration::ServiceConfiguration,
+            &service.into_iter().cloned().collect::<Vec<_>>()
+        );
+        for row in data.text_definitions.iter() {
+            visit!(TextDefinition, std::slice::from_ref(row));
+        }
+        for row in data.runs.iter() {
+            visit!(attribution::ProviderRun, std::slice::from_ref(row));
+        }
+        for row in data.assessments.iter() {
+            visit!(TextAssessment, std::slice::from_ref(row));
+        }
+        visit!(AnalysisInvocation, std::slice::from_ref(&invocation));
+        visit!(TextWindow, std::slice::from_ref(&window));
+        for row in uses.iter() {
+            visit!(AnalysisEmbeddingUse, std::slice::from_ref(row));
+        }
+        visit!(AnalysisOutcome, std::slice::from_ref(&outcome));
         check.finish()
     };
     check(Some(&service)).unwrap();
-    assert!(check(None).unwrap_err().to_string().contains("one completed selected service"));
-    let foreign=configuration::ServiceConfiguration {specification:id(99),endpoint:service.endpoint.clone()};
+    assert!(
+        check(None)
+            .unwrap_err()
+            .to_string()
+            .contains("one completed selected service")
+    );
+    let foreign = configuration::ServiceConfiguration {
+        specification: id(99),
+        endpoint: service.endpoint.clone(),
+    };
     Entity::from(foreign.clone()).validate().unwrap();
-    assert!(check(Some(&foreign)).unwrap_err().to_string().contains("another specification"));
-    let invalid=configuration::ServiceConfiguration {endpoint:" ".into(),..service};
+    assert!(
+        check(Some(&foreign))
+            .unwrap_err()
+            .to_string()
+            .contains("another specification")
+    );
+    let invalid = configuration::ServiceConfiguration {
+        endpoint: " ".into(),
+        ..service
+    };
     assert!(Entity::from(invalid).validate().is_err());
 }

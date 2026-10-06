@@ -1150,7 +1150,9 @@ impl VerifiedBindings {
             .expect("binding owner budget")
             .shares_pool(budget)
         {
-            return Err(ModelError::Conflict("enumeration predecessor foreign budget"));
+            return Err(ModelError::Conflict(
+                "enumeration predecessor foreign budget",
+            ));
         }
         verify_enumerations(data, budget)?;
         let mut charge = StateCharge::new(budget, "binding-native-enumeration-grain");

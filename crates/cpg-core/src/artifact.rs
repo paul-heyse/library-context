@@ -222,8 +222,10 @@ impl GraphBuilder {
     ) -> Result<(), ModelError> {
         use lctx_model::domain::admission::Frontier;
         self.entity(value)?;
-        if matches!(frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog)
-            && let Some(endpoint) = value.canonical_place_endpoint()
+        if matches!(
+            frontier,
+            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
+        ) && let Some(endpoint) = value.canonical_place_endpoint()
         {
             self.entity(&endpoint)?;
         }

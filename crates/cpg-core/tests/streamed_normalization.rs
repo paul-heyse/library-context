@@ -615,19 +615,33 @@ async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_bud
             "completed scopes must release decoded inputs and owner ancestors"
         );
         // Independent owner and endpoint identities come from the fixture, not another normalizer.
-        let expected_entity = EntityRef::Module { module: module.id() }.id();
-        let expected_ids = [root.id(), Occurrence {
-            syntax_kind: SyntaxKind::StmtPass,
-            structural_path: vec![0, 0],
-            ..root.clone()
-        }.id(), Occurrence {
-            syntax_kind: SyntaxKind::StmtPass,
-            structural_path: vec![0, 59_999],
-            ..root.clone()
-        }.id()];
+        let expected_entity = EntityRef::Module {
+            module: module.id(),
+        }
+        .id();
+        let expected_ids = [
+            root.id(),
+            Occurrence {
+                syntax_kind: SyntaxKind::StmtPass,
+                structural_path: vec![0, 0],
+                ..root.clone()
+            }
+            .id(),
+            Occurrence {
+                syntax_kind: SyntaxKind::StmtPass,
+                structural_path: vec![0, 59_999],
+                ..root.clone()
+            }
+            .id(),
+        ];
         let mut seen = [false; 3];
         let mut count = 0;
-        for batch in workspace.completed::<OccurrenceOwnership>().unwrap().batches().unwrap() {
+        for batch in workspace
+            .completed::<OccurrenceOwnership>()
+            .unwrap()
+            .batches()
+            .unwrap()
+        {
             for row in OccurrenceOwnership::decode(&batch.unwrap()).unwrap() {
                 assert_eq!(row.owner, root.id());
                 assert_eq!(row.entity, expected_entity);
@@ -651,11 +665,16 @@ async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_bud
         memory_bytes: 2 << 20,
         batch_rows: 128,
         partitions: 1,
-    }).await;
+    })
+    .await;
     let larger = run_wide(WorkspaceOptions {
         memory_bytes: 16 << 20,
         batch_rows: 4096,
         partitions: 2,
-    }).await;
-    assert_eq!(constrained, larger, "canonical normalization output changes with memory/partition configuration");
+    })
+    .await;
+    assert_eq!(
+        constrained, larger,
+        "canonical normalization output changes with memory/partition configuration"
+    );
 }

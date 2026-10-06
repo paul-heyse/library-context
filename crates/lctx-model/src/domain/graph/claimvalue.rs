@@ -21,7 +21,9 @@ pub enum ClaimValue {
     BaseSourceBodySources(crate::domain::execution::body_records::BodySource),
     BaseSourceBodyMembers(crate::domain::execution::body_records::BodyMember),
     BaseSourceBodyReleaseInputs(crate::domain::execution::body_records::BodyReleaseInput),
-    SummaryClaimRefutationCoverage(crate::domain::execution::summary_consequences::ClaimRefutationCoverage),
+    SummaryClaimRefutationCoverage(
+        crate::domain::execution::summary_consequences::ClaimRefutationCoverage,
+    ),
     DefinitionEvaluationSources(crate::domain::execution::definition::DefinitionSource),
     DefinitionEvaluationMembers(crate::domain::execution::definition::DefinitionMember),
     ContextExecutionSources(crate::domain::execution::context_execution::ContextSource),
@@ -224,47 +226,83 @@ impl Key for ClaimValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
             Self::AnalysisFrontierMember(row) => {
-                sink.part(b"semantic-type", <crate::domain::analysis::frontier::AnalysisMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::frontier::AnalysisMember as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::CatalogFrontierMember(row) => {
-                sink.part(b"semantic-type", <crate::domain::analysis::frontier::CatalogMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::analysis::frontier::CatalogMember as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::CatalogCallableAspects(row) => {
-                sink.part(b"semantic-type", <crate::domain::catalog::CatalogCallableAspect as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::catalog::CatalogCallableAspect as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::StructuralArcSources(row) => {
-                sink.part(b"semantic-type", <crate::domain::structural::records::ArcSource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::structural::records::ArcSource as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::StructuralStepEvidence(row) => {
-                sink.part(b"semantic-type", <crate::domain::structural::records::StepEvidence as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::structural::records::StepEvidence as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::StructuralPathSteps(row) => {
-                sink.part(b"semantic-type", <crate::domain::structural::records::PathStep as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::structural::records::PathStep as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::StructuralArgumentFlows(row) => {
-                sink.part(b"semantic-type", <crate::domain::structural::controls::ArgumentFlow as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::structural::controls::ArgumentFlow as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::StructuralControlSteps(row) => {
-                sink.part(b"semantic-type", <crate::domain::structural::controls::ControlStep as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::structural::controls::ControlStep as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::BaseEvaluationSources(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::records::EvaluationSource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::records::EvaluationSource as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::BaseEvaluationMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::records::EvaluationMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::records::EvaluationMember as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::BaseEvaluationOperands(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::records::EvaluationOperand as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::records::EvaluationOperand as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::BaseCompletionSources(row) => {
@@ -280,23 +318,41 @@ impl Key for ClaimValue {
                 row.content_digest().encode(sink);
             }
             Self::ModeledCallArguments(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::modeled_call::ModeledCallArgument as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::modeled_call::ModeledCallArgument as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ModeledCallNativePremises(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::modeled_call::ModeledCallNative as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::modeled_call::ModeledCallNative as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::BaseSourceBodySources(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::body_records::BodySource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::body_records::BodySource as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::BaseSourceBodyMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::body_records::BodyMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::body_records::BodyMember as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::BaseSourceBodyReleaseInputs(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::body_records::BodyReleaseInput as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::body_records::BodyReleaseInput as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::SummaryClaimRefutationCoverage(row) => {
@@ -304,43 +360,83 @@ impl Key for ClaimValue {
                 row.content_digest().encode(sink);
             }
             Self::DefinitionEvaluationSources(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::definition::DefinitionSource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::definition::DefinitionSource as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::DefinitionEvaluationMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::definition::DefinitionMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::definition::DefinitionMember as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ContextExecutionSources(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::context_execution::ContextSource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::context_execution::ContextSource as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ContextExecutionMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::context_execution::ContextMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::context_execution::ContextMember as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ExecutionSources(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::ExecutionSource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::enriched_records::ExecutionSource as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ExecutionMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::ExecutionMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::enriched_records::ExecutionMember as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ExecutionEnteredStatements(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::EnteredStatement as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::enriched_records::EnteredStatement as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ExecutionBodySources(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::BodySource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::enriched_records::BodySource as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ExecutionBodyMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::BodyMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::enriched_records::BodyMember as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ExecutionBodyReleaseInputs(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::enriched_records::BodyReleaseInput as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::enriched_records::BodyReleaseInput as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::SourceExecutionArguments(row) => {
@@ -348,15 +444,27 @@ impl Key for ClaimValue {
                 row.content_digest().encode(sink);
             }
             Self::ContextEntryBindingSources(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::context_binding::BindingSource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::context_binding::BindingSource as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::ContextEntryBindingMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::context_binding::BindingMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::context_binding::BindingMember as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::SourceCallHeaderMembers(row) => {
-                sink.part(b"semantic-type", <crate::domain::execution::source_call_records::HeaderMember as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::execution::source_call_records::HeaderMember as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::SourceFrameArguments(row) => {
@@ -364,27 +472,50 @@ impl Key for ClaimValue {
                 row.content_digest().encode(sink);
             }
             Self::SummaryTransferContributions(row) => {
-                sink.part(b"semantic-type", <crate::domain::transfer::summary::SummaryContribution as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::transfer::summary::SummaryContribution as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::CallableAspects(row) => {
-                sink.part(b"semantic-type", <crate::domain::normalized::callable_aspects::CallableAspect as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::normalized::callable_aspects::CallableAspect as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::CatalogSetupDependencies(row) => {
-                sink.part(b"semantic-type", <crate::domain::catalog::evidence::SetupDependency as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::catalog::evidence::SetupDependency as Record>::NAME.as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::CatalogScenarioDependencies(row) => {
-                sink.part(b"semantic-type", <crate::domain::catalog::evidence::ScenarioDependency as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::catalog::evidence::ScenarioDependency as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::CatalogEvidenceInvocations(row) => {
-                sink.part(b"semantic-type", <crate::domain::catalog::evidence::EvidenceInvocation as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::catalog::evidence::EvidenceInvocation as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::CallableAspectSources(row) => {
-                sink.part(b"semantic-type", <crate::domain::normalized::callable_aspects::AspectSource as Record>::NAME.as_bytes());
+                sink.part(
+                    b"semantic-type",
+                    <crate::domain::normalized::callable_aspects::AspectSource as Record>::NAME
+                        .as_bytes(),
+                );
                 row.content_digest().encode(sink);
             }
             Self::LocalSourceReceipt(row) => {
@@ -404,56 +535,64 @@ impl Key for ClaimValue {
             Self::BaseEvaluationSourceReceipt(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::base_evaluation::SourceReceipt as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::base_evaluation::SourceReceipt as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::BaseEvaluationProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::base_evaluation::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::base_evaluation::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::BaseCompletionSourceReceipt(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::base_completion::SourceReceipt as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::base_completion::SourceReceipt as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::BaseCompletionProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::base_completion::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::base_completion::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::SourceCallSourceReceipt(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::source_call::SourceReceipt as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::source_call::SourceReceipt as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::SourceCallProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::source_call::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::source_call::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::EnrichedSourceReceipt(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::enriched_execution::SourceReceipt as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::enriched_execution::SourceReceipt as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::EnrichedProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::enriched_execution::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::enriched_execution::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
@@ -495,21 +634,24 @@ impl Key for ClaimValue {
             Self::StructuralProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::structural::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::structural::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::AnalyticEmbeddingSourceReceipt(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::analytic_embedding::SourceReceipt as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::analytic_embedding::SourceReceipt as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::AnalyticEmbeddingProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::analytic_embedding::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::analytic_embedding::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
@@ -530,28 +672,32 @@ impl Key for ClaimValue {
             Self::CatalogCoreSourceReceipt(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::catalog_core::SourceReceipt as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::catalog_core::SourceReceipt as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::CatalogCoreProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::catalog_core::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::catalog_core::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::CatalogEvidenceSourceReceipt(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::catalog_evidence::SourceReceipt as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::catalog_evidence::SourceReceipt as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
             Self::CatalogEvidenceProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::catalog_evidence::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::catalog_evidence::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
@@ -565,7 +711,8 @@ impl Key for ClaimValue {
             Self::SelectionProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::selection::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::selection::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
@@ -579,7 +726,8 @@ impl Key for ClaimValue {
             Self::SynthesisProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::synthesis::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::synthesis::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
@@ -593,7 +741,8 @@ impl Key for ClaimValue {
             Self::RetrievalProjectionInput(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::analysis::retrieval::ProjectionInput as Record>::NAME.as_bytes(),
+                    <crate::domain::analysis::retrieval::ProjectionInput as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }
@@ -863,7 +1012,8 @@ impl Key for ClaimValue {
             Self::ProjectionSourceCoverages(row) => {
                 sink.part(
                     b"semantic-type",
-                    <crate::domain::projection::ProjectionSourceCoverage as Record>::NAME.as_bytes(),
+                    <crate::domain::projection::ProjectionSourceCoverage as Record>::NAME
+                        .as_bytes(),
                 );
                 row.content_digest().encode(sink);
             }

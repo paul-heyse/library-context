@@ -675,31 +675,58 @@ fn controls_noscope_keeps_not_requested_and_budget_stop_precedence() {
 }
 
 fn portable_structural_checks(
-    data: &Data, context: &Context, output: &Output, budget: &ResourceBudget,
+    data: &Data,
+    context: &Context,
+    output: &Output,
+    budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let model=lctx_model::domain::model()?;
-    let mut frames=(model.invariant("structural_frame_fidelity")?.create)(budget);
-    let mut source=(model.invariant("structural_source_fidelity")?.create)(budget);
-    macro_rules! visit { ($rows:expr) => {{
-        let rows=$rows.iter().cloned().collect::<Vec<_>>();
-        if let Some(first)=rows.first() { let batch=Record::encode(&rows)?;
-            let name=derivation::RowRef::of(first.id()).relation();
-            if model.invariant("structural_frame_fidelity")?.inputs.iter().any(|input|input.name()==name) {
-                frames.visit(name,&batch)?;
+    let model = lctx_model::domain::model()?;
+    let mut frames = (model.invariant("structural_frame_fidelity")?.create)(budget);
+    let mut source = (model.invariant("structural_source_fidelity")?.create)(budget);
+    macro_rules! visit {
+        ($rows:expr) => {{
+            let rows = $rows.iter().cloned().collect::<Vec<_>>();
+            if let Some(first) = rows.first() {
+                let batch = Record::encode(&rows)?;
+                let name = derivation::RowRef::of(first.id()).relation();
+                if model
+                    .invariant("structural_frame_fidelity")?
+                    .inputs
+                    .iter()
+                    .any(|input| input.name() == name)
+                {
+                    frames.visit(name, &batch)?;
+                }
+                if model
+                    .invariant("structural_source_fidelity")?
+                    .inputs
+                    .iter()
+                    .any(|input| input.name() == name)
+                {
+                    source.visit(name, &batch)?;
+                }
             }
-            if model.invariant("structural_source_fidelity")?.inputs.iter().any(|input|input.name()==name) {
-                source.visit(name,&batch)?;
-            }
-        }
-    }}; }
-    visit!(data.projection.runs); visit!(data.core_invocations);
-    visit!(context.settings); visit!(context.definitions); visit!(context.parameters);
-    visit!(context.local); visit!(context.local_outcomes); visit!(context.local_coverage);
-    visit!(context.invocations); visit!(context.sources); visit!(context.inputs); visit!(context.outcomes);
+        }};
+    }
+    visit!(data.projection.runs);
+    visit!(data.core_invocations);
+    visit!(context.settings);
+    visit!(context.definitions);
+    visit!(context.parameters);
+    visit!(context.local);
+    visit!(context.local_outcomes);
+    visit!(context.local_coverage);
+    visit!(context.invocations);
+    visit!(context.sources);
+    visit!(context.inputs);
+    visit!(context.outcomes);
     // Portable checks get assessments only; neither snapshot headers nor bytes are supplied.
     visit!(context.graphs.assessments);
-    visit!(data.projection.artifacts); visit!(data.projection.scopes);
-    visit!(data.projection.refs); visit!(data.projection.callables); visit!(data.projection.occurrences);
+    visit!(data.projection.artifacts);
+    visit!(data.projection.scopes);
+    visit!(data.projection.refs);
+    visit!(data.projection.callables);
+    visit!(data.projection.occurrences);
     visit!(data.projection.qualifications);
     macro_rules! visit_outputs { ($($field:ident:$ty:ty,)*) => {$(visit!(output.$field);)*}; }
     lctx_model::structural_outputs!(visit_outputs);
@@ -710,60 +737,94 @@ fn portable_structural_checks(
 
 #[test]
 fn portable_structural_frame_source_and_boundary_checks_need_no_snapshot_replay() {
-    let (budget,data,context)=fixture();
-    let output=produce(&data,&context,&budget);
-    portable_structural_checks(&data,&context,&output,&budget).unwrap();
-    let model=lctx_model::domain::model().unwrap();
-    for name in ["structural_frame_fidelity","structural_source_fidelity"] {
-        let invariant=model.invariant(name).unwrap();
-        assert_eq!(invariant.purpose,InvariantPurpose::Admission);
-        assert!(invariant.inputs.iter().all(|input|input.name()!=projection::ProjectionSnapshot::NAME
-            && input.name()!=projection::ProjectionSnapshotChunk::NAME));
+    let (budget, data, context) = fixture();
+    let output = produce(&data, &context, &budget);
+    portable_structural_checks(&data, &context, &output, &budget).unwrap();
+    let model = lctx_model::domain::model().unwrap();
+    for name in ["structural_frame_fidelity", "structural_source_fidelity"] {
+        let invariant = model.invariant(name).unwrap();
+        assert_eq!(invariant.purpose, InvariantPurpose::Admission);
+        assert!(
+            invariant
+                .inputs
+                .iter()
+                .all(|input| input.name() != projection::ProjectionSnapshot::NAME
+                    && input.name() != projection::ProjectionSnapshotChunk::NAME)
+        );
     }
-    assert_eq!(model.invariant("structural_replay").unwrap().purpose,InvariantPurpose::DiagnosticReplay);
+    assert_eq!(
+        model.invariant("structural_replay").unwrap().purpose,
+        InvariantPurpose::DiagnosticReplay
+    );
 }
 
 #[test]
 fn portable_structural_admission_refuses_existing_foreign_source_and_omitted_frame_parent() {
-    let (budget,data,mut context)=fixture();
-    let mut output=produce(&data,&context,&budget);
-    let mut conclusions=Rows::new(&budget);
-    let frame=output.frames.iter().next().unwrap();
-    let row=output.conclusions.iter().find(|row|row.invocation==frame.invocation).unwrap().clone();
-    let mut changed=row.clone();
+    let (budget, data, mut context) = fixture();
+    let mut output = produce(&data, &context, &budget);
+    let mut conclusions = Rows::new(&budget);
+    let frame = output.frames.iter().next().unwrap();
+    let row = output
+        .conclusions
+        .iter()
+        .find(|row| row.invocation == frame.invocation)
+        .unwrap()
+        .clone();
+    let mut changed = row.clone();
     // Existing same-frame invocation, but the source belongs to Delegation, not DirectUsage.
-    changed.invocation=frame.usage_invocation;
+    changed.invocation = frame.usage_invocation;
     conclusions.insert(changed).unwrap();
-    output.conclusions=conclusions;
-    assert!(portable_structural_checks(&data,&context,&output,&budget).unwrap_err().to_string()
-        .contains("source/frame/subject/method"));
-    output.conclusions=Rows::new(&budget);
+    output.conclusions = conclusions;
+    assert!(
+        portable_structural_checks(&data, &context, &output, &budget)
+            .unwrap_err()
+            .to_string()
+            .contains("source/frame/subject/method")
+    );
+    output.conclusions = Rows::new(&budget);
     output.conclusions.insert(row).unwrap();
-    let mut inputs=Rows::new(&budget);
-    for link in context.inputs.iter().skip(1) { inputs.insert(link.clone()).unwrap(); }
-    context.inputs=inputs;
-    assert!(portable_structural_checks(&data,&context,&output,&budget).unwrap_err().to_string()
-        .contains("complete frame/parent"));
+    let mut inputs = Rows::new(&budget);
+    for link in context.inputs.iter().skip(1) {
+        inputs.insert(link.clone()).unwrap();
+    }
+    context.inputs = inputs;
+    assert!(
+        portable_structural_checks(&data, &context, &output, &budget)
+            .unwrap_err()
+            .to_string()
+            .contains("complete frame/parent")
+    );
 }
 
 #[test]
 fn portable_structural_admission_refuses_missing_frame_and_promoted_not_requested_outcome() {
-    let (budget,data,mut context)=fixture();
-    let mut output=produce(&data,&context,&budget);
-    output.frames=Rows::new(&budget);
-    assert!(portable_structural_checks(&data,&context,&output,&budget).unwrap_err().to_string()
-        .contains("complete frame/parent"));
-    let output=produce(&data,&context,&budget);
-    let control=output.frames.iter().next().unwrap().control_invocation;
-    let mut outcomes=Rows::new(&budget);
+    let (budget, data, mut context) = fixture();
+    let mut output = produce(&data, &context, &budget);
+    output.frames = Rows::new(&budget);
+    assert!(
+        portable_structural_checks(&data, &context, &output, &budget)
+            .unwrap_err()
+            .to_string()
+            .contains("complete frame/parent")
+    );
+    let output = produce(&data, &context, &budget);
+    let control = output.frames.iter().next().unwrap().control_invocation;
+    let mut outcomes = Rows::new(&budget);
     for row in context.outcomes.iter() {
-        let mut row=row.clone();
-        if row.invocation==control {row.status=analysis::AnalysisStatus::Completed;row.reason=None;}
+        let mut row = row.clone();
+        if row.invocation == control {
+            row.status = analysis::AnalysisStatus::Completed;
+            row.reason = None;
+        }
         outcomes.insert(row).unwrap();
     }
-    context.outcomes=outcomes;
-    assert!(portable_structural_checks(&data,&context,&output,&budget).unwrap_err().to_string()
-        .contains("actual eligibility/stop/NoScope"));
+    context.outcomes = outcomes;
+    assert!(
+        portable_structural_checks(&data, &context, &output, &budget)
+            .unwrap_err()
+            .to_string()
+            .contains("actual eligibility/stop/NoScope")
+    );
 }
 
 #[test]
@@ -777,9 +838,17 @@ fn structural_admission_dispatches_every_declared_semantic_input() {
     for input in inputs {
         let relation = model.relation(input.name()).unwrap();
         let batch = arrow_array::RecordBatch::new_empty(relation.schema().clone());
-        assert!(data.visit_input(&input, &batch).unwrap(), "{}", input.name());
+        assert!(
+            data.visit_input(&input, &batch).unwrap(),
+            "{}",
+            input.name()
+        );
     }
     for profile in stages::Profile::ALL {
-        assert!(Data::consumed_inputs(profile).iter().any(|input| input.name() == bridge));
+        assert!(
+            Data::consumed_inputs(profile)
+                .iter()
+                .any(|input| input.name() == bridge)
+        );
     }
 }
