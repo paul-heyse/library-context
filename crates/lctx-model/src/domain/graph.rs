@@ -3743,15 +3743,14 @@ impl Assertion {
         {
             return Err(invalid("assertion sets must be sorted and unique"));
         }
-        if let Some(derivation) = &self.derivation {
-            if derivation.rule.is_empty()
+        if let Some(derivation) = &self.derivation
+            && (derivation.rule.is_empty()
                 || derivation.revision == 0
-                || !strictly_ordered(&derivation.assumptions)
-            {
-                return Err(invalid(
-                    "derivation needs rule revision, ordered premises and canonical assumptions",
-                ));
-            }
+                || !strictly_ordered(&derivation.assumptions))
+        {
+            return Err(invalid(
+                "derivation needs rule revision, ordered premises and canonical assumptions",
+            ));
         }
         // Premises and participants are sequences: never sort them to manufacture canonicality.
         Ok(())
@@ -3778,21 +3777,19 @@ pub fn admit_entity(entity: &Entity, lookup: &impl GraphLookup) -> Result<(), Mo
     for reference in entity.reference_requirements()? {
         admit_requirement(reference, lookup)?;
     }
-    if let Entity::Occurrence(row) = entity {
-        if lookup
+    if let Entity::Occurrence(row) = entity
+        && lookup
             .source_length(EntityId::of(row.source))?
             .is_none_or(|length| u64::try_from(row.end).ok().is_none_or(|end| end > length))
-        {
-            return Err(invalid("occurrence extends beyond captured source"));
-        }
+    {
+        return Err(invalid("occurrence extends beyond captured source"));
     }
-    if let Entity::Evidence(super::assertion::Evidence::SourceSpan { source, end, .. }) = entity {
-        if lookup
+    if let Entity::Evidence(super::assertion::Evidence::SourceSpan { source, end, .. }) = entity
+        && lookup
             .source_length(EntityId::of(*source))?
             .is_none_or(|length| u64::try_from(*end).ok().is_none_or(|end| end > length))
-        {
-            return Err(invalid("evidence extends beyond captured source"));
-        }
+    {
+        return Err(invalid("evidence extends beyond captured source"));
     }
     Ok(())
 }

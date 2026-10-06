@@ -1119,7 +1119,7 @@ pub(super) fn derive_with_verified_bindings(
         let status =
             analysis::support::inferred_status(analysis::Interpretation::Structural, statuses);
         let result = conclusion(
-            &condition,
+            condition,
             q,
             c,
             &open,
@@ -1160,7 +1160,7 @@ pub(super) fn derive_with_verified_bindings(
                     member: *member,
                 })?;
             }
-            emit_proof(proof, q, &condition, invocation, definition, &mut rows, b)?;
+            emit_proof(proof, q, condition, invocation, definition, &mut rows, b)?;
         } else {
             let reason = result.reason.unwrap_or(ObligationKind::MissingEvidence);
             rows.obligations.insert(owner::AnalysisObligation {
