@@ -50,6 +50,7 @@ pub(super) struct CheckedContextTransfer {
     branch: TransferBranch<transfer::model::TransferKey>,
 }
 impl CheckedContextTransfer {
+    #[allow(clippy::too_many_arguments, reason = "Context resource, stored binding, predecessor evaluation, Entry facts and actual values are distinct transfer premises.")]
     pub(super) fn derive(
         resource: &ContextResource,
         binding: &ContextEntryBinding,

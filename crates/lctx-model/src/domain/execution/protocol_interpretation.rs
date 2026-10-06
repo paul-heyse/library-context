@@ -415,6 +415,7 @@ pub(super) fn emit(
         data, catalog, verified, invocation, scope, out, budget, None,
     )
 }
+#[allow(clippy::too_many_arguments, reason = "Protocol publication combines independent catalog, binding authority, frame, selected root and admitted construction borrow.")]
 pub(super) fn emit_with_inputs(
     data: &ModelData,
     catalog: &Catalog,

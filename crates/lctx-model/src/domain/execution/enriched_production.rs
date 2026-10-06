@@ -240,6 +240,7 @@ pub fn enrich_all_prepared(
     )
 }
 /// Actual production consumes predecessor values retained by their own owners.
+#[allow(clippy::too_many_arguments, reason = "Frame configuration and actual binding, evaluation and SourceCall owners are independent semantic inputs.")]
 pub fn enrich_all_produced(
     data: &EnrichedData,
     invocation: &publication::AnalysisInvocation,
@@ -272,6 +273,7 @@ pub fn enrich_all_produced(
 /// Publish one actual owner against its complete scoped call/context/capture dependencies.
 /// Intermediate operand results retain their native owner; final statement/body roots select
 /// this owner explicitly so referenced declarations cannot become new publication roots.
+#[allow(clippy::too_many_arguments, reason = "Selected owner, immutable frame configuration, predecessor authorities and shared work must remain explicit.")]
 pub fn enrich_owner_produced(
     data: &EnrichedData,
     invocation: &publication::AnalysisInvocation,
@@ -563,6 +565,7 @@ fn enriched_configuration<'a>(
     }
     Ok(catalog)
 }
+#[allow(clippy::too_many_arguments, reason = "Diagnostic and selected kernels share explicit configuration, predecessor authorities, owner selection and work.")]
 fn enrich_with_application(
     data: &EnrichedData,
     invocation: &publication::AnalysisInvocation,
@@ -1710,7 +1713,7 @@ mod selected_enriched_controls {
         let second = work.catalog(catalog.declaration()).unwrap();
         assert!(std::sync::Arc::ptr_eq(&first, &second));
         let mut changed = catalog.declaration().clone();
-        changed.source.push_str("\n");
+        changed.source.push('\n');
         assert!(work.catalog(&changed).is_err());
         let artifact = SourceArtifact::from_bytes(frame.input, "unit.py".into(), b"pass").unwrap();
         data.source

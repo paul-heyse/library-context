@@ -1806,6 +1806,7 @@ pub fn produce(
     )
 }
 /// Borrow the binding owner's admitted application index across Summary invocations.
+#[allow(clippy::too_many_arguments, reason = "Summary configuration, shared frontier, binding admission and actual Local owner are independent semantic inputs.")]
 pub fn produce_prepared(
     data: &SummaryData,
     invocation: &analysis::summary::AnalysisInvocation,
@@ -1823,6 +1824,7 @@ pub fn produce_prepared(
         data, invocation, definition, profile, graph, budget, verified, actual,
     )
 }
+#[allow(clippy::too_many_arguments, reason = "Shared summary kernel keeps configuration, frontier, binding authority and actual Local owner explicit.")]
 fn produce_with_application(
     data: &SummaryData,
     invocation: &analysis::summary::AnalysisInvocation,
@@ -2006,7 +2008,7 @@ fn produce_with_application(
                     for result in compose(
                         CompositionInputs {
                             data,
-                            verified: &verified,
+                            verified,
                             vocabulary: &vocabulary,
                             guards: &guards,
                         },
@@ -2417,7 +2419,7 @@ fn produce_with_application(
         invocation,
         definition,
         profile,
-        Some(&verified),
+        Some(verified),
         budget,
     )?;
     Ok(out)

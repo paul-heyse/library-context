@@ -212,6 +212,7 @@ pub fn evaluate_all(
     )
     .map(|(records, _)| records)
 }
+#[allow(clippy::too_many_arguments, reason = "Evaluation data, Entry premises, stored witnesses, frame configuration and budget are independently owned.")]
 pub fn evaluate_all_produced(
     data: &EvaluationData,
     entry: &EntryData,

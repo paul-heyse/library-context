@@ -5,6 +5,8 @@ use crate::domain::execution::{
     enriched_records as e, modeled_call as m,
 };
 
+type FormalActualArguments = Vec<(Id<SignatureParameter>, Id<Occurrence>)>;
+
 pub(super) fn name(kind: Kind) -> &'static str {
     match kind {
         Kind::EnrichedStatement => "enriched_statement_fidelity",
@@ -373,6 +375,7 @@ impl Check {
         self.declaration(row.owner, row.declaration)?;
         Ok(frame)
     }
+    #[allow(clippy::too_many_arguments, reason = "Attempt, event, owner, site, frame and ordered argument digest are independently checked portable claims.")]
     fn argument_domain(
         &self,
         attempt_id: Id<CallBindingAttempt>,
@@ -389,7 +392,7 @@ impl Check {
             ),
         >,
         digest: ContentHash,
-    ) -> Result<Vec<(Id<SignatureParameter>, Id<Occurrence>)>, ModelError> {
+    ) -> Result<FormalActualArguments, ModelError> {
         let attempt = need(&self.attempts, attempt_id)?;
         if attempt.outcome != BindingOutcome::Bound {
             return Err(invalid("Enriched argument binding is not Bound"));

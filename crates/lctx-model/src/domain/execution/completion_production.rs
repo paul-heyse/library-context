@@ -342,6 +342,7 @@ pub fn complete_body_produced(
         true,
     )
 }
+#[allow(clippy::too_many_arguments, reason = "Frame configuration, actual evaluation authority, body sink and statement/body selection have independent lifetimes.")]
 fn complete_with_values(
     data: &CompletedEvaluations,
     invocation: &publication::AnalysisInvocation,

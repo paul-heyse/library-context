@@ -135,6 +135,7 @@ impl CheckedContextBinding {
             None,
         )
     }
+    #[allow(clippy::too_many_arguments, reason = "Context binding retains independent source facts, frame, actual evaluation authority and admitted construction premises.")]
     pub(super) fn derive_with_values(
         catalog: &models::Catalog,
         application: &ModelApplicationData,

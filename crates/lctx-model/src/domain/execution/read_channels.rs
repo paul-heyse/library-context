@@ -476,6 +476,7 @@ impl PreparedReads {
             Ok(())
         }
     }
+    #[allow(clippy::too_many_arguments, reason = "Read facts, Entry premises, admitted universe, actual Local values and frame configuration are independent inputs.")]
     pub fn produce(
         &mut self,
         data: &EvaluationData,
@@ -1223,6 +1224,7 @@ fn produce_attributes(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments, reason = "Formal reads require separate facts, Entry premises, selected roots, output, work and actual Local authority.")]
 fn produce_formals(
     data: &EvaluationData,
     entry: &EntryData,

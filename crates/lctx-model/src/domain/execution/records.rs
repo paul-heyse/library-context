@@ -445,7 +445,7 @@ impl BaseCheck {
                 EvaluationSource::Entry { witness } => entries.push(*witness),
             }
         }
-        if ordered_digest("base-evaluation-sources", source_ids.into_iter()) != row.sources {
+        if ordered_digest("base-evaluation-sources", source_ids) != row.sources {
             return Err(invalid(
                 "actual evaluation sources differ from owner receipt",
             ));

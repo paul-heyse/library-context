@@ -403,6 +403,7 @@ pub struct ActualInputs<'a> {
     pub local: &'a local_semantics::ProducedLocal,
 }
 /// Consume actual binding-owner authority; the ordinary `apply_all` remains an explicit diagnostic.
+#[allow(clippy::too_many_arguments, reason = "Selected catalog, binding authority, actual execution values, semantic root and frame configuration are independent inputs.")]
 pub fn apply_selected(
     data: &ModelData,
     invocation: &publication::AnalysisInvocation,
@@ -424,6 +425,7 @@ pub fn apply_selected(
         data, invocation, definition, profile, parsed, verified, scope, actual, budget,
     )
 }
+#[allow(clippy::too_many_arguments, reason = "Diagnostic and actual application share explicit catalog, authorities, selected root and immutable frame configuration.")]
 fn apply_selected_inner(
     data: &ModelData,
     invocation: &publication::AnalysisInvocation,

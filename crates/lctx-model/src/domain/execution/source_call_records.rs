@@ -259,7 +259,7 @@ impl SourceCallData {
                 }
             }
         }
-        if ordered_digest("base-source-body-sources", sources.into_iter()) != row.sources {
+        if ordered_digest("base-source-body-sources", sources) != row.sources {
             return Err(invalid("actual body sources differ from owner receipt"));
         }
         let mut selected = self
@@ -795,6 +795,7 @@ pub(crate) fn prepare_with_application(
     .map(|(records, _)| records)
 }
 /// Fresh production requires the actual predecessor owners, rather than replaying stored outputs.
+#[allow(clippy::too_many_arguments, reason = "Frame configuration and actual binding, Base and Body authorities have independent owners.")]
 pub fn prepare_all_produced(
     data: &SourceCallData,
     invocation: &publication::AnalysisInvocation,
@@ -825,6 +826,7 @@ pub fn prepare_all_produced(
 }
 /// One actual event and its complete binding/body/capture dependency closure. The ephemeral
 /// bytes leave this owner together with a compact issuer receipt for the compiler's spool.
+#[allow(clippy::too_many_arguments, reason = "Selected event, frame configuration and independent binding, Base and Body authorities stay explicit.")]
 pub fn prepare_event_produced(
     data: &SourceCallData,
     invocation: &publication::AnalysisInvocation,
@@ -946,6 +948,7 @@ pub fn prepare_empty_produced(
     produced.issuers.insert(invocation.clone())?;
     Ok((records, produced))
 }
+#[allow(clippy::too_many_arguments, reason = "Shared diagnostic and actual kernels retain independent predecessor authorities, event selection and invocation sink.")]
 fn prepare_with_values(
     data: &SourceCallData,
     invocation: &publication::AnalysisInvocation,
