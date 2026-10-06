@@ -729,7 +729,6 @@ pub async fn compile(
                 )
                 .await?;
                 source_calls = None;
-                evaluations = None;
             }
             UpperStage::Models => {
                 crate::semantic_models::apply(
@@ -738,8 +737,12 @@ pub async fn compile(
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::Models)?,
+                    bindings.as_ref(),
+                    evaluations.as_ref(),
+                    local.as_ref(),
                 )
-                .await?
+                .await?;
+                evaluations = None;
             }
             UpperStage::Summary => {
                 crate::semantic_summaries::produce(
