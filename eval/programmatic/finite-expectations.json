@@ -1,0 +1,22 @@
+{
+  "compatible": "sufficient",
+  "foreign-variant": "insufficient",
+  "foreign-release": "insufficient",
+  "wrong-anchor": "insufficient",
+  "drop-setup": "insufficient",
+  "corrupt-map": "insufficient",
+  "correct-ids-hidden-meaning": "insufficient",
+  "positive-alternate": "sufficient",
+  "empty-positive": "inconclusive",
+  "explicit-not-applicable": "not_applicable",
+  "unsupported": "inconclusive",
+  "incomplete": "inconclusive",
+  "unknown-intent": "model_relative_unknown",
+  "mislabel-expected-failure": "insufficient",
+  "no-budget": "budget_infeasible",
+  "execution-failed": "inconclusive",
+  "satisfiable-twins": "insufficient",
+  "readable-distinction": "sufficient",
+  "empty-worlds": "inconsistent_model",
+  "qualified-conflict": "insufficient"
+}

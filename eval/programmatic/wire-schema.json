@@ -1,0 +1,1783 @@
+{
+  "protocol_version": 1,
+  "kernel_source_revision": "7e8fdc2fbe0e0bc9d2936114fc2073cd010e5394ebc2aebbc1c86ada37949f9b",
+  "request": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Request",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "const": "schema"
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "cases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Case"
+            }
+          },
+          "operation": {
+            "type": "string",
+            "const": "judge"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "cases"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "experiment": {
+            "$ref": "#/$defs/Experiment"
+          },
+          "operation": {
+            "type": "string",
+            "const": "freeze"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "experiment"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "frozen": {
+            "$ref": "#/$defs/Freeze"
+          },
+          "experiment": {
+            "$ref": "#/$defs/Experiment"
+          },
+          "operation": {
+            "type": "string",
+            "const": "admit"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "frozen",
+          "experiment"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "proposal": {
+            "$ref": "#/$defs/FeedbackProposal"
+          },
+          "current_revision": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "const": "feedback"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "proposal",
+          "current_revision"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "input": {
+            "$ref": "#/$defs/Rejudgment"
+          },
+          "operation": {
+            "type": "string",
+            "const": "rejudge"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "input"
+        ]
+      }
+    ],
+    "$defs": {
+      "Case": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "$ref": "#/$defs/EvaluationTask"
+          },
+          "observation": {
+            "$ref": "#/$defs/Observation"
+          },
+          "mode": {
+            "$ref": "#/$defs/Mode"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "task",
+          "observation",
+          "mode"
+        ]
+      },
+      "EvaluationTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "split": {
+            "$ref": "#/$defs/Split"
+          },
+          "family": {
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/$defs/PublicRequest"
+          },
+          "envelope": {
+            "$ref": "#/$defs/Envelope"
+          },
+          "intent": {
+            "$ref": "#/$defs/Intent"
+          },
+          "oracle": {
+            "$ref": "#/$defs/OracleBasis"
+          },
+          "predicates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Predicate"
+            }
+          },
+          "witness": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Witness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FiniteModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "split",
+          "family",
+          "request",
+          "envelope",
+          "intent",
+          "oracle",
+          "predicates"
+        ]
+      },
+      "Split": {
+        "type": "string",
+        "enum": [
+          "development",
+          "validation"
+        ]
+      },
+      "PublicRequest": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "allowed_followups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "question",
+          "context",
+          "allowed_followups"
+        ]
+      },
+      "Envelope": {
+        "type": "object",
+        "properties": {
+          "max_calls": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "max_bytes": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "max_calls",
+          "max_bytes"
+        ]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "positive",
+          "expected_failure",
+          "unknown",
+          "not_applicable"
+        ]
+      },
+      "OracleBasis": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "input_digest": {
+            "type": "string"
+          },
+          "qualification": {
+            "type": "string"
+          },
+          "supported_domain": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "completeness": {
+            "$ref": "#/$defs/Completeness"
+          },
+          "unknown_limits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "input_digest",
+          "qualification",
+          "supported_domain",
+          "revision",
+          "completeness",
+          "unknown_limits"
+        ]
+      },
+      "Completeness": {
+        "type": "string",
+        "enum": [
+          "complete",
+          "incomplete",
+          "unsupported"
+        ]
+      },
+      "Predicate": {
+        "description": "Acceptable text is independently authored, never recovered from the renderer.",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "accepted_text": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "qualifications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_status": {
+            "$ref": "#/$defs/CandidateStatus"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "role",
+          "accepted_text",
+          "anchors",
+          "context",
+          "qualifications",
+          "candidate_status"
+        ]
+      },
+      "CandidateStatus": {
+        "type": "string",
+        "enum": [
+          "supported",
+          "expected_failure",
+          "unknown",
+          "authored",
+          "skipped"
+        ]
+      },
+      "Witness": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "predicate": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "leaf"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "predicate"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Witness"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "all"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "children"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Witness"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "any"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "children"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "child": {
+                "$ref": "#/$defs/Witness"
+              },
+              "kind": {
+                "type": "string",
+                "const": "exists"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "variables",
+              "child"
+            ]
+          }
+        ]
+      },
+      "FiniteModel": {
+        "type": "object",
+        "properties": {
+          "worlds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/World"
+            }
+          },
+          "information": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Information"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "worlds",
+          "information"
+        ]
+      },
+      "World": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "answer": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "context",
+          "facts",
+          "answer"
+        ]
+      },
+      "Information": {
+        "description": "An observed qualified alternative constrains a fact to any matching value.",
+        "type": "object",
+        "properties": {
+          "fact": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fact",
+          "value",
+          "predicate"
+        ]
+      },
+      "Observation": {
+        "type": "object",
+        "properties": {
+          "realization": {
+            "type": "string"
+          },
+          "segments": {
+            "description": "Exact UTF-8 emitted bytes, initial response at index zero.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "spans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/DeliveredSpan"
+            }
+          },
+          "visible_references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/VisibleReference"
+            }
+          },
+          "expansions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Expansion"
+            }
+          },
+          "status": {
+            "$ref": "#/$defs/OperationStatus"
+          },
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "realization",
+          "segments",
+          "spans",
+          "visible_references",
+          "expansions",
+          "status"
+        ]
+      },
+      "DeliveredSpan": {
+        "type": "object",
+        "properties": {
+          "segment": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string"
+          },
+          "anchor": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "qualifications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_status": {
+            "$ref": "#/$defs/CandidateStatus"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "segment",
+          "start",
+          "end",
+          "text",
+          "anchor",
+          "role",
+          "context",
+          "qualifications",
+          "candidate_status"
+        ]
+      },
+      "VisibleReference": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "segment": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "segment",
+          "start",
+          "end"
+        ]
+      },
+      "Expansion": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "realization": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/OperationStatus"
+          },
+          "response_segment": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "operation",
+          "realization",
+          "status"
+        ]
+      },
+      "OperationStatus": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "failed",
+          "refused",
+          "stale",
+          "budget_exhausted",
+          "cancelled"
+        ]
+      },
+      "Mode": {
+        "type": "string",
+        "enum": [
+          "immediate",
+          "expandable"
+        ]
+      },
+      "Experiment": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "string"
+          },
+          "split": {
+            "$ref": "#/$defs/Split"
+          },
+          "meanings": {
+            "$ref": "#/$defs/Meanings"
+          },
+          "baseline": {
+            "$ref": "#/$defs/Realization"
+          },
+          "candidate": {
+            "$ref": "#/$defs/Realization"
+          },
+          "changed_variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "split",
+          "meanings",
+          "baseline",
+          "candidate",
+          "changed_variables"
+        ]
+      },
+      "Meanings": {
+        "type": "object",
+        "properties": {
+          "task_population": {
+            "type": "string"
+          },
+          "split_keys": {
+            "type": "string"
+          },
+          "public_requests": {
+            "type": "string"
+          },
+          "oracle": {
+            "type": "string"
+          },
+          "judgment": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "completeness_applicability": {
+            "type": "string"
+          },
+          "journey_limits": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "string"
+          },
+          "numeric_precision_ties": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "task_population",
+          "split_keys",
+          "public_requests",
+          "oracle",
+          "judgment",
+          "observation",
+          "completeness_applicability",
+          "journey_limits",
+          "metrics",
+          "numeric_precision_ties"
+        ]
+      },
+      "Realization": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "native": {
+            "type": "string"
+          },
+          "encoder": {
+            "type": "string"
+          },
+          "scorer": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "native",
+          "encoder",
+          "scorer",
+          "settings"
+        ]
+      },
+      "Freeze": {
+        "type": "object",
+        "properties": {
+          "experiment": {
+            "$ref": "#/$defs/Experiment"
+          },
+          "digest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "experiment",
+          "digest"
+        ]
+      },
+      "FeedbackProposal": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "packet_digest": {
+            "type": "string"
+          },
+          "observation": {
+            "$ref": "#/$defs/Observation"
+          },
+          "independent_basis": {
+            "$ref": "#/$defs/OracleBasis"
+          },
+          "grounding": {
+            "type": "string"
+          },
+          "causes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/FeedbackCause"
+            }
+          },
+          "proposed_change": {
+            "type": "string"
+          },
+          "affected_tasks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evaluator_revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "task_id",
+          "packet_digest",
+          "observation",
+          "independent_basis",
+          "grounding",
+          "causes",
+          "proposed_change",
+          "affected_tasks"
+        ]
+      },
+      "FeedbackCause": {
+        "type": "string",
+        "enum": [
+          "system",
+          "evaluator",
+          "usability"
+        ]
+      },
+      "Rejudgment": {
+        "type": "object",
+        "properties": {
+          "old_revision": {
+            "type": "string"
+          },
+          "new_revision": {
+            "type": "string"
+          },
+          "old_case": {
+            "$ref": "#/$defs/Case"
+          },
+          "new_case": {
+            "$ref": "#/$defs/Case"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "old_revision",
+          "new_revision",
+          "old_case",
+          "new_case"
+        ]
+      }
+    }
+  },
+  "response": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Response",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result": true,
+          "status": {
+            "type": "string",
+            "const": "completed"
+          }
+        },
+        "required": [
+          "status",
+          "result"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "const": "failed"
+          }
+        },
+        "required": [
+          "status",
+          "reason"
+        ]
+      }
+    ]
+  },
+  "case": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Case",
+    "type": "object",
+    "properties": {
+      "task": {
+        "$ref": "#/$defs/EvaluationTask"
+      },
+      "observation": {
+        "$ref": "#/$defs/Observation"
+      },
+      "mode": {
+        "$ref": "#/$defs/Mode"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "task",
+      "observation",
+      "mode"
+    ],
+    "$defs": {
+      "EvaluationTask": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "split": {
+            "$ref": "#/$defs/Split"
+          },
+          "family": {
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/$defs/PublicRequest"
+          },
+          "envelope": {
+            "$ref": "#/$defs/Envelope"
+          },
+          "intent": {
+            "$ref": "#/$defs/Intent"
+          },
+          "oracle": {
+            "$ref": "#/$defs/OracleBasis"
+          },
+          "predicates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Predicate"
+            }
+          },
+          "witness": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Witness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FiniteModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "split",
+          "family",
+          "request",
+          "envelope",
+          "intent",
+          "oracle",
+          "predicates"
+        ]
+      },
+      "Split": {
+        "type": "string",
+        "enum": [
+          "development",
+          "validation"
+        ]
+      },
+      "PublicRequest": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "allowed_followups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "question",
+          "context",
+          "allowed_followups"
+        ]
+      },
+      "Envelope": {
+        "type": "object",
+        "properties": {
+          "max_calls": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "max_bytes": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "max_calls",
+          "max_bytes"
+        ]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "positive",
+          "expected_failure",
+          "unknown",
+          "not_applicable"
+        ]
+      },
+      "OracleBasis": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "input_digest": {
+            "type": "string"
+          },
+          "qualification": {
+            "type": "string"
+          },
+          "supported_domain": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "completeness": {
+            "$ref": "#/$defs/Completeness"
+          },
+          "unknown_limits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "input_digest",
+          "qualification",
+          "supported_domain",
+          "revision",
+          "completeness",
+          "unknown_limits"
+        ]
+      },
+      "Completeness": {
+        "type": "string",
+        "enum": [
+          "complete",
+          "incomplete",
+          "unsupported"
+        ]
+      },
+      "Predicate": {
+        "description": "Acceptable text is independently authored, never recovered from the renderer.",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "accepted_text": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "qualifications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_status": {
+            "$ref": "#/$defs/CandidateStatus"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "role",
+          "accepted_text",
+          "anchors",
+          "context",
+          "qualifications",
+          "candidate_status"
+        ]
+      },
+      "CandidateStatus": {
+        "type": "string",
+        "enum": [
+          "supported",
+          "expected_failure",
+          "unknown",
+          "authored",
+          "skipped"
+        ]
+      },
+      "Witness": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "predicate": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "leaf"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "predicate"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Witness"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "all"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "children"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Witness"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "any"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "children"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "child": {
+                "$ref": "#/$defs/Witness"
+              },
+              "kind": {
+                "type": "string",
+                "const": "exists"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "variables",
+              "child"
+            ]
+          }
+        ]
+      },
+      "FiniteModel": {
+        "type": "object",
+        "properties": {
+          "worlds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/World"
+            }
+          },
+          "information": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Information"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "worlds",
+          "information"
+        ]
+      },
+      "World": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "answer": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "context",
+          "facts",
+          "answer"
+        ]
+      },
+      "Information": {
+        "description": "An observed qualified alternative constrains a fact to any matching value.",
+        "type": "object",
+        "properties": {
+          "fact": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fact",
+          "value",
+          "predicate"
+        ]
+      },
+      "Observation": {
+        "type": "object",
+        "properties": {
+          "realization": {
+            "type": "string"
+          },
+          "segments": {
+            "description": "Exact UTF-8 emitted bytes, initial response at index zero.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "spans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/DeliveredSpan"
+            }
+          },
+          "visible_references": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/VisibleReference"
+            }
+          },
+          "expansions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Expansion"
+            }
+          },
+          "status": {
+            "$ref": "#/$defs/OperationStatus"
+          },
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "realization",
+          "segments",
+          "spans",
+          "visible_references",
+          "expansions",
+          "status"
+        ]
+      },
+      "DeliveredSpan": {
+        "type": "object",
+        "properties": {
+          "segment": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string"
+          },
+          "anchor": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "qualifications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_status": {
+            "$ref": "#/$defs/CandidateStatus"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "segment",
+          "start",
+          "end",
+          "text",
+          "anchor",
+          "role",
+          "context",
+          "qualifications",
+          "candidate_status"
+        ]
+      },
+      "VisibleReference": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "segment": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "end": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "segment",
+          "start",
+          "end"
+        ]
+      },
+      "Expansion": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "realization": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/OperationStatus"
+          },
+          "response_segment": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "operation",
+          "realization",
+          "status"
+        ]
+      },
+      "OperationStatus": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "failed",
+          "refused",
+          "stale",
+          "budget_exhausted",
+          "cancelled"
+        ]
+      },
+      "Mode": {
+        "type": "string",
+        "enum": [
+          "immediate",
+          "expandable"
+        ]
+      }
+    }
+  },
+  "judgment": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Judgment",
+    "type": "object",
+    "properties": {
+      "task_id": {
+        "type": "string"
+      },
+      "observation_digest": {
+        "type": "string"
+      },
+      "applicability": {
+        "$ref": "#/$defs/Applicability"
+      },
+      "epistemic": {
+        "$ref": "#/$defs/Epistemic"
+      },
+      "execution": {
+        "$ref": "#/$defs/OperationStatus"
+      },
+      "reason": {
+        "type": "string"
+      },
+      "assignments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "countermodels": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "scorable": {
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "task_id",
+      "observation_digest",
+      "applicability",
+      "epistemic",
+      "execution",
+      "reason",
+      "assignments",
+      "countermodels",
+      "scorable"
+    ],
+    "$defs": {
+      "Applicability": {
+        "type": "string",
+        "enum": [
+          "applicable",
+          "not_applicable",
+          "unsupported",
+          "incomplete",
+          "invalid_task"
+        ]
+      },
+      "Epistemic": {
+        "type": "string",
+        "enum": [
+          "sufficient",
+          "insufficient",
+          "model_relative_unknown",
+          "inconsistent_model",
+          "inventory_infeasible",
+          "budget_infeasible",
+          "inconclusive",
+          "not_applicable"
+        ]
+      },
+      "OperationStatus": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "failed",
+          "refused",
+          "stale",
+          "budget_exhausted",
+          "cancelled"
+        ]
+      }
+    }
+  },
+  "experiment": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Experiment",
+    "type": "object",
+    "properties": {
+      "revision": {
+        "type": "string"
+      },
+      "split": {
+        "$ref": "#/$defs/Split"
+      },
+      "meanings": {
+        "$ref": "#/$defs/Meanings"
+      },
+      "baseline": {
+        "$ref": "#/$defs/Realization"
+      },
+      "candidate": {
+        "$ref": "#/$defs/Realization"
+      },
+      "changed_variables": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "revision",
+      "split",
+      "meanings",
+      "baseline",
+      "candidate",
+      "changed_variables"
+    ],
+    "$defs": {
+      "Split": {
+        "type": "string",
+        "enum": [
+          "development",
+          "validation"
+        ]
+      },
+      "Meanings": {
+        "type": "object",
+        "properties": {
+          "task_population": {
+            "type": "string"
+          },
+          "split_keys": {
+            "type": "string"
+          },
+          "public_requests": {
+            "type": "string"
+          },
+          "oracle": {
+            "type": "string"
+          },
+          "judgment": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "completeness_applicability": {
+            "type": "string"
+          },
+          "journey_limits": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "string"
+          },
+          "numeric_precision_ties": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "task_population",
+          "split_keys",
+          "public_requests",
+          "oracle",
+          "judgment",
+          "observation",
+          "completeness_applicability",
+          "journey_limits",
+          "metrics",
+          "numeric_precision_ties"
+        ]
+      },
+      "Realization": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "native": {
+            "type": "string"
+          },
+          "encoder": {
+            "type": "string"
+          },
+          "scorer": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "native",
+          "encoder",
+          "scorer",
+          "settings"
+        ]
+      }
+    }
+  }
+}
