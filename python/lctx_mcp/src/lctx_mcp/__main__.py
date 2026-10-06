@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import anyio
 from fastmcp import FastMCP
 from lctx_semantics import NativeSession
 
 from lctx_mcp.embedder import HttpEmbedder
 from lctx_mcp.native import NativeExecutor
-from lctx_mcp.wire import register
+from lctx_mcp.wire import EnvelopeAdmission, register
 
 
 def create_server(serving_config: Path, embedding_url: str | None = None) -> FastMCP:
@@ -28,16 +28,19 @@ def create_server(serving_config: Path, embedding_url: str | None = None) -> Fas
 
     @asynccontextmanager
     async def lifespan(server):
-        session = await asyncio.to_thread(NativeSession, str(serving_config))
+        session = await anyio.to_thread.run_sync(NativeSession, str(serving_config))
         native = NativeExecutor(session, HttpEmbedder(embedding_url) if embedding_url else None)
         executor.native = native
         try:
             yield {}
         finally:
             executor.native = None
-            await asyncio.shield(native.close())
+            # FastMCP owns its lifespan through AnyIO cancellation scopes. Drain before exit.
+            with anyio.CancelScope(shield=True):
+                await native.close()
 
     server = FastMCP("library-context", lifespan=lifespan, cache_ttl=0, mask_error_details=True)
+    server.add_middleware(EnvelopeAdmission(server))
     register(server, executor)
     return server
 

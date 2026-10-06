@@ -5,8 +5,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastmcp.exceptions import ResourceError, ToolError
-from fastmcp.resources import Resource, ResourceResult, ResourceTemplate
+from fastmcp.exceptions import (
+    DisabledError, FastMCPError, NotFoundError, ResourceError, ToolError, to_mcp_error,
+)
+from fastmcp.server.middleware import Middleware
+from mcp.shared.exceptions import MCPError
+from fastmcp.resources import Resource, ResourceContent, ResourceResult, ResourceTemplate
 from fastmcp.tools import Tool, ToolResult
 from mcp_types import (
     SERVER_INFO_META_KEY,
@@ -17,6 +21,8 @@ from mcp_types import (
     JSONRPCResponse,
     ReadResourceResult,
     ToolAnnotations,
+    TextContent,
+    INTERNAL_ERROR,
 )
 from mcp_types.methods import serialize_server_result
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSIONS
@@ -78,6 +84,78 @@ def negotiated_encodings(
     )
 
 
+class EnvelopeAdmission(Middleware):
+    """Admit both pinned SDK writers after domain results are complete, without truncation."""
+
+    def __init__(self, server) -> None:
+        self.server = server
+
+    def _admit(self, context, result, expanded: bool) -> None:
+        from lctx_semantics import admit_envelope
+
+        current = context.fastmcp_context
+        request = current.request_context if current is not None else None
+        if request is None:
+            # Direct server calls have no JSON-RPC envelope. Domain admission still applies.
+            return
+        # The pinned FastMCP wrapper normalizes request_id to str; its documented SDK
+        # escape hatch retains the wire's integer/string distinction.
+        request_id = request._srctx.request_id
+        if request_id is None:
+            return
+        for encoded in negotiated_encodings(
+            result, request_id, request.protocol_version, self.server
+        ):
+            admit_envelope(encoded.decode("utf-8"), expanded)
+
+    @staticmethod
+    def _refusal() -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="resource_refused: final MCP envelope bytes")],
+            is_error=True,
+        )
+
+    async def on_call_tool(self, context, call_next):
+        page = (context.message.arguments or {}).get("page")
+        expanded = isinstance(page, dict) and page.get("expanded") is True
+        # Refuse an ID that cannot fit even a minimal result before native work starts.
+        self._admit(context, self._refusal(), expanded)
+        try:
+            result = await call_next(context)
+        except (FastMCPError, NotFoundError, DisabledError) as exc:
+            result = ToolResult.from_mcp_result(CallToolResult(
+                content=[TextContent(type="text", text=str(exc))], is_error=True,
+            ))
+        try:
+            self._admit(context, result.to_mcp_result(), expanded)
+        except ValueError:
+            refusal = self._refusal()
+            self._admit(context, refusal, expanded)
+            return ToolResult.from_mcp_result(refusal)
+        return result
+
+    async def on_read_resource(self, context, call_next):
+        expanded = True
+        self._admit(context, ErrorData(code=INTERNAL_ERROR, message="resource_refused"), expanded)
+        try:
+            result = await call_next(context)
+        except (FastMCPError, NotFoundError, DisabledError, MCPError) as exc:
+            error = to_mcp_error(exc)
+            try:
+                self._admit(context, error.error, expanded)
+            except ValueError:
+                error = MCPError(code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes")
+                self._admit(context, error.error, expanded)
+            raise error from exc
+        try:
+            self._admit(context, result.to_mcp_result(str(context.message.uri)), expanded)
+        except ValueError as exc:
+            error = MCPError(code=INTERNAL_ERROR, message="resource_refused: final MCP envelope bytes")
+            self._admit(context, error.error, expanded)
+            raise error from exc
+        return result
+
+
 class SchemaTool(Tool):
     _executor: Any = PrivateAttr()
     _byte_limits: dict[str, int] = PrivateAttr()
@@ -107,7 +185,7 @@ class CapabilityResource(Resource):
             if len(capability) != 16:
                 raise ValueError("capability key must contain 16 bytes")
             raw = await self._executor.execute("get_capability", {"capability": capability})
-            return ResourceResult(wire_capability_resource(raw))
+            return ResourceResult([ResourceContent(wire_capability_resource(raw), mime_type=self.mime_type)])
         except (ValueError, RuntimeError) as exc:
             raise ResourceError(str(exc)) from exc
 

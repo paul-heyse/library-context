@@ -93,7 +93,7 @@ def test_enrichment_sections_keep_native_variant_selection_and_scope_schema():
 @pytest.mark.anyio
 async def test_real_mcp_listing_preserves_the_sole_native_inventory():
     server = FastMCP("current schema control", dereference_schemas=False)
-    register(server)
+    register(server, object())
     declarations = json.loads(wire_tools())
     async with Client(server) as client:
         listed = await client.list_tools()
@@ -125,9 +125,10 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
         ] == json.loads(wire_resources())
 
 
-def test_current_response_wraps_complete_dto_and_actual_generation_key():
+def test_current_response_wraps_complete_dto_and_actual_snapshot_handle():
     response = {
-        "generation": [5] * 16,
+        "snapshot": {"semantic": [5] * 32, "realization": [6] * 32,
+                     "database": {"namespace": "control", "database": "snapshot"}},
         "domains": [],
         "operation": {"resolution": "ambiguous", "candidates": []},
     }
@@ -138,13 +139,13 @@ def test_current_response_wraps_complete_dto_and_actual_generation_key():
     assert protocol.is_error is False
     assert len(protocol.content) == 1
     assert isinstance(protocol.content[0], TextContent)
-    assert protocol.content[0].text == "get_operation: generation-bound result"
+    assert protocol.content[0].text == "get_operation: snapshot-bound result"
     for invalid in [
         {key: value for key, value in response.items() if key != "domains"},
-        {**response, "generation": [5] * 32},
-        {**response, "generation": "05" * 16},
+        {**response, "snapshot": [5] * 32},
+        {**response, "snapshot": "05" * 16},
         {**response, "legacy_snapshot": "05" * 16},
-        {"generation": [5] * 16},
+        {"snapshot": response["snapshot"]},
     ]:
         with pytest.raises(ValueError):
             wire_tool_result("get_operation", json.dumps(invalid), False)
