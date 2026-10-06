@@ -44,17 +44,12 @@ def test_compiler_readiness_has_no_retired_store_or_binding_setup():
     ]
 
 
-def test_later_native_stages_are_explicitly_blocked():
+def test_native_readiness_failure_blocks_both_effect_families():
     commands = []
-    ready = prepare(
-        {"native-store", "native-serving"}, lambda command: commands.append(command) or 0
-    )
+    ready = prepare({"native-store", "native-serving"}, lambda command: commands.append(command) or 1)
     assert ready == {"native-store": False, "native-serving": False}
-    assert execute(["store", "serving"], ready, lambda command: commands.append(command) or 0) == {
-        "store": "blocked",
-        "serving": "blocked",
-    }
-    assert commands == []
+    assert execute(["store", "serving"], ready, lambda command: commands.append(command) or 0) == {"store": "blocked", "serving": "blocked"}
+    assert len(commands) == 1 and commands[0][:3] == ("docker", "image", "inspect")
 
 
 def test_required_families_never_allow_empty_selection():
@@ -124,4 +119,5 @@ def test_compiler_selections_reference_current_binaries():
         "postgres" not in prerequisites("compiler", boundary)
         for boundary in (None, "producer", "cli")
     )
-    assert not FAMILIES["store"].commands and not FAMILIES["serving"].commands
+    assert FAMILIES["store"].commands and FAMILIES["serving"].commands
+    assert all(command[:2] == ("python3", "scripts/native_controls.py") for family in ("store", "serving") for command in FAMILIES[family].commands)

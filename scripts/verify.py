@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from build_environment import ROOT, normalized_env
+from surrealdb_fixture import IMAGE
 
 
 @dataclass(frozen=True)
@@ -65,10 +66,8 @@ FAMILIES = {
         ),
         frozenset({"tools"}),
     ),
-    # Publication and serving are separate later stages. An absent native implementation
-    # must be reported blocked, never covered by retired PostgreSQL tests or an empty pass.
-    "store": Family((), frozenset({"native-store"})),
-    "serving": Family((), frozenset({"native-serving"})),
+    "store": Family((("python3", "scripts/native_controls.py", "store"),), frozenset({"tools", "native-store"})),
+    "serving": Family((("python3", "scripts/native_controls.py", "serving"), ("python3", "scripts/native_controls.py", "mcp")), frozenset({"tools", "native-serving", "native-python"})),
     "oracles": Family(
         (("uv", "run", "--no-sync", "pytest", "tests/scripts/test_flow_soundness.py", "-q"),),
         frozenset({"tools", "cli"}),
@@ -95,8 +94,8 @@ COMMANDS = {
     "analytics": ("rust",),
     "providers": ("extract", "flow"),
     "compiler": ("producer", "cli"),
-    "store": (),
-    "serving": (),
+    "store": ("rust",),
+    "serving": ("rust", "mcp"),
     "oracles": ("flow",),
     "tooling": ("python", "docs"),
 }
@@ -106,6 +105,8 @@ BOUNDARY_REQUIREMENTS = {
     ("providers", "flow"): frozenset(),
     ("compiler", "producer"): frozenset({"tools"}),
     ("compiler", "cli"): frozenset({"tools"}),
+    ("serving", "rust"): frozenset({"tools", "native-serving"}),
+    ("serving", "mcp"): frozenset({"tools", "native-serving", "native-python"}),
     ("oracles", "flow"): frozenset({"tools", "cli"}),
     ("tooling", "python"): frozenset({"tools"}),
     ("tooling", "docs"): frozenset(),
@@ -139,13 +140,14 @@ def prepare(requirements: set[str], run: Runner) -> dict[str, bool]:
     ready = {}
     if "tools" in requirements:
         ready["tools"] = run(("uv", "sync", "--locked", "--inexact", "--only-group", "dev")) == 0
+    native_ready = None
+    if requirements & {"native-store", "native-serving"}:
+        native_ready = run(("docker", "image", "inspect", "--format", "{{.Id}}", IMAGE)) == 0
     for native in ("native-store", "native-serving"):
         if native in requirements:
-            ready[native] = False
-            print(
-                f"blocked: {native} implementation belongs to a later graph-native stage",
-                flush=True,
-            )
+            ready[native] = bool(native_ready)
+    if "native-python" in requirements:
+        ready["native-python"] = run(("uv", "sync", "--locked", "--inexact")) == 0
     if "cli" in requirements:
         ready["cli"] = run(("cargo", "build", "--release", "-p", "lctx")) == 0
     return ready
