@@ -1579,22 +1579,14 @@ pub fn produce(
     invocation: &owner::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition,
     profile: stages::Profile,
-    graph: &MaterializedGraph,
+    graph: Option<&MaterializedGraph>,
     budget: &ResourceBudget,
 ) -> Result<SummaryRecords, ModelError> {
     let limits = summary_proof::limits(need(&data.parameters, definition.parameters)?, definition)?;
     if invocation.definition != definition.id()
         || invocation.subject.is_some()
-        || graph.key()
-            != (ProjectionKey {
-                input: invocation.input,
-                context: invocation.context,
-                name: projection::ProjectionName::CallableInvocation,
-            })
     {
-        return Err(invalid(
-            "Summary invocation or graph changes its exact frame",
-        ));
+        return Err(invalid("Summary invocation changes its exact frame"));
     }
     let mut out = SummaryRecords::new(invocation.id(), budget);
     let mut run = SummaryRun {
@@ -1611,6 +1603,13 @@ pub fn produce(
         out.runs.insert(run)?;
         out.consequences(data, invocation, definition, profile, None, budget)?;
         return Ok(out);
+    }
+    let graph = graph.ok_or_else(|| invalid("requested Summary graph absent"))?;
+    if graph.key() != (ProjectionKey {
+        input: invocation.input, context: invocation.context,
+        name: projection::ProjectionName::CallableInvocation,
+    }) {
+        return Err(invalid("Summary graph changes its exact frame"));
     }
     run.work +=
         super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
@@ -2309,5 +2308,27 @@ mod assumption_controls {
         );
         assert_eq!(out.keys.len(), 1);
         assert_eq!(progress.branches.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod optional_graph_controls {
+    use super::*;
+    fn nominal<T>(byte: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+    }
+    #[test]
+    fn catalog_summary_needs_no_graph_and_behavioral_refuses_missing_graph() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let (parameters, definition) = super::super::configuration::summaries(nominal(3), Default::default()).unwrap();
+        let mut data = SummaryData::new(&budget);
+        data.parameters.insert(parameters).unwrap();
+        let (invocation, _) = owner::AnalysisInvocation::new(nominal(1), nominal(2), definition.id(), None, []);
+        let out = produce(&data, &invocation, &definition, stages::Profile::Catalog, None, &budget).unwrap();
+        assert_eq!(out.outcome.status, analysis::AnalysisStatus::NotRequested);
+        assert!(!out.runs.iter().next().unwrap().requested);
+        assert!(produce(&data, &invocation, &definition, stages::Profile::Behavioral, None, &budget).is_err());
+        let consumed = SummaryData::consumed_inputs(stages::Profile::Catalog);
+        assert!(!consumed.iter().any(|input| input.name() == projection::ProjectionSnapshotChunk::NAME));
     }
 }

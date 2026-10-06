@@ -24,7 +24,7 @@ pub fn inputs() -> Vec<ValidationInput> {
     rows.dedup_by_key(|i| (i.name(), i.prefix()));
     rows
 }
-/// Catalog declares the native frame, completed parents and stored topology, without requesting Flow.
+/// Catalog declares the native frame and completed parents without requesting Flow or topology.
 pub fn production_inputs(profile: Profile) -> Vec<ValidationInput> {
     if profile == Profile::Behavioral {
         return SummaryData::inputs();
@@ -41,10 +41,7 @@ pub fn production_inputs(profile: Profile) -> Vec<ValidationInput> {
         analysis::local::AnalysisOutcome,
         analysis::model::AnalysisOutcome,
         analysis::enriched_execution::AnalysisOutcome,
-        analysis::source_call::AnalysisOutcome,
-        projection::ProjectionSourceAssessment,
-        projection::ProjectionSnapshot,
-        projection::ProjectionSnapshotChunk
+        analysis::source_call::AnalysisOutcome
     )
 }
 /// A closed-store replay may omit unrequested native inputs; Catalog run checks never consume them.
@@ -115,10 +112,12 @@ macro_rules! check{($($field:ident:$ty:ty,)*)=>{
    for invocation in self.invocations.iter(){
     let parents=parents(&self.data,invocation.input,invocation.context,&self.budget)?;let mut digest=KeySink::new("analysis-invocation-inputs");for p in parents.iter(){p.id().encode(&mut digest);}if digest.finish()!=invocation.inputs{return Err(invalid("Summary predecessor inventory changed"));}
     let definition=self.data.definitions.get(invocation.definition).ok_or_else(||invalid("Summary definition absent"))?;let run=self.runs.iter().find(|r|r.invocation==invocation.id()).ok_or_else(||invalid("Summary run absent"))?;
+    let graph = if run.requested {
     let mut assessments=self.data.graphs.assessments.iter().filter(|a|(a.input,a.context,a.projection)==(invocation.input,invocation.context,projection::ProjectionName::CallableInvocation));let assessment=assessments.next().ok_or_else(||invalid("Summary stored invocation graph absent"))?;if assessments.next().is_some(){return Err(invalid("Summary stored invocation graph ambiguous"));}
     let mut headers=self.data.graphs.snapshots.iter().filter(|s|s.assessment==assessment.id());let header=headers.next().ok_or_else(||invalid("Summary snapshot absent"))?;if headers.next().is_some(){return Err(invalid("Summary snapshot ambiguous"));}
     let graph=projection::snapshot::hydrate(header,assessment,&self.data.graphs.chunks,&self.budget)?;
-    let mut records=produce(&self.data,invocation,definition,if run.requested{Profile::Behavioral}else{Profile::Catalog},&graph,&self.budget)?;
+    Some(graph) } else { None };
+    let mut records=produce(&self.data,invocation,definition,if run.requested{Profile::Behavioral}else{Profile::Catalog},graph.as_ref(),&self.budget)?;
     records.discharge(&self.coverage)?;
     $(for row in records.$field.iter(){$field.insert(row.clone())?;})*
     contains_vocabulary(&self.vocabulary,&records.vocabulary)?;

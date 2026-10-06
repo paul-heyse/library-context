@@ -20,7 +20,6 @@ macro_rules! decoder_inputs {
         lctx_model::summary_owned_inputs!($apply);
         lctx_model::summary_vocabulary!($apply);
         lctx_model::summary_evidence_inputs!($apply);
-        lctx_model::summary_projection_inputs!($apply);
         lctx_model::expected_domain_inputs!($apply);
     };
 }
@@ -30,7 +29,7 @@ pub async fn produce(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-    graphs: &PreparedGraphs,
+    graphs: Option<&PreparedGraphs>,
 ) -> Result<(), ModelError> {
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
@@ -48,8 +47,16 @@ pub async fn produce(
         }).await?;
     })*};}
     decoder_inputs!(inputs);
+    // Stored graph bodies are consumed by PreparedGraphs, never copied into SummaryData.
+    macro_rules! graph_sources {($($field:ident:$ty:ty,)*)=>{$(while consumed.next::<$ty>(&access)?.is_some() {})*};}
+    lctx_model::summary_projection_inputs!(graph_sources);
     consumed.finish(access.name())?;
-    let mut records = Vec::new();
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    lctx_model::analysis_publication!(common_publication);
+
+    macro_rules! declarations{($($f:ident:$t:ty,)*)=>{$(output.declare::<$t>()?;)*};}
+    lctx_model::summary_outputs!(declarations);
+    lctx_model::summary_vocabulary!(declarations);
     let mut frames = charged::ChargedSet::default();
     let mut frame_charge = charged::StateCharge::new(budget, "summary-output-frames");
     for run in data.entry.runs.iter() {
@@ -62,7 +69,9 @@ pub async fn produce(
             context: run.context,
             name: projection::ProjectionName::CallableInvocation,
         };
-        let graph = graphs.graph(&access, budget, key)?;
+        let graph = if access.profile() == Profile::Behavioral {
+            Some(graphs.ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?.graph(&access, budget, key)?)
+        } else { None };
         let (invocation, inputs, receipts, projections) = owner::AnalysisInvocation::admitted(
             run.input,
             run.context,
@@ -70,20 +79,23 @@ pub async fn produce(
             None,
             parents.iter().map(Record::id),
             &sources,
-            [analysis::ProjectionDefinition::builtin(
+            graph.map(|_| analysis::ProjectionDefinition::builtin(
                 projection::ProjectionName::CallableInvocation,
-            )
-            .id()],
+            ).id()),
             budget,
         )?;
-        let admitted = owner::coverage::admit(
+        let _frame = budget.reserve("summary-output-frame",
+            4096 + receipts.iter().map(|row| size_of::<owner::SourceReceipt>() + row.heap_bytes()).sum::<usize>()
+                + inputs.len() * size_of::<owner::AnalysisInput>()
+                + projections.len() * size_of::<owner::ProjectionInput>())?;
+        let coverage = owner::coverage::admit(
             &invocation,
             definition,
             analysis::AnalysisCapability::Summaries,
             &coverage,
             budget,
         )?;
-        let result = crate::stage_runtime::borrowed_cpu(access.name(), || {
+        let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
             execution::summary_production::produce(
                 &data,
                 &invocation,
@@ -94,28 +106,6 @@ pub async fn produce(
             )
         })?;
         tokio::task::yield_now().await;
-        frame_charge.grow(
-            size_of::<(owner::AnalysisInvocation, SummaryRecords)>()
-                + 4096
-                + receipts.len().saturating_mul(512),
-        )?;
-        records.push((
-            invocation,
-            parents,
-            inputs,
-            receipts,
-            projections,
-            admitted,
-            result,
-        ));
-    }
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
-    lctx_model::analysis_publication!(common_publication);
-
-    macro_rules! declarations{($($f:ident:$t:ty,)*)=>{$(output.declare::<$t>()?;)*};}
-    lctx_model::summary_outputs!(declarations);
-    lctx_model::summary_vocabulary!(declarations);
-    for (invocation, parents, inputs, receipts, projections, coverage, mut result) in records {
         let mut actual_coverage = normalized::Rows::new(budget);
         let mut actual_premises = normalized::Rows::new(budget);
         for scope in coverage.scopes() {
@@ -179,6 +169,7 @@ mod decoder_tests {
         let mut decoders = std::collections::BTreeSet::new();
         macro_rules! collect {($($field:ident:$ty:ty,)*)=>{$(decoders.insert(std::any::TypeId::of::<$ty>());)*};}
         decoder_inputs!(collect);
+        lctx_model::summary_projection_inputs!(collect);
         for profile in Profile::ALL {
             crate::consumed_rows::assert_decoder_reachability(
                 SummaryData::consumed_inputs(profile),

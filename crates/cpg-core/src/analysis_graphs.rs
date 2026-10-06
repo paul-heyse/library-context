@@ -128,12 +128,20 @@ impl PreparedGraphs {
             if matching.next().is_some() {
                 return Err(invalid("ambiguous selected graph snapshot"));
             }
-            let mut chunks = Rows::<ProjectionSnapshotChunk>::new(budget);
-            load(&session, &mut chunks, col("snapshot").eq(id_literal(header.id()))).await?;
-            let graph = crate::stage_runtime::borrowed_cpu("projection-hydration", || {
-                snapshot::hydrate(header, assessment, &chunks, budget)
-            })?;
-            drop(chunks);
+            let mut assembly = snapshot::GraphAssembly::new(header, assessment, budget)?;
+            let mut stream = crate::sql::query(&session, &format!("SELECT * FROM \"{}\"", ProjectionSnapshotChunk::NAME))
+                .await.map_err(ModelError::codec)?
+                .filter(col("snapshot").eq(id_literal(header.id()))).map_err(ModelError::codec)?
+                .sort(vec![col("ordinal").sort(true, false)]).map_err(ModelError::codec)?
+                .execute_stream().await.map_err(ModelError::codec)?;
+            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                runtime.cancellation().check()?;
+                // Typed payload ownership is restricted to this transfer batch.
+                let _decode = budget.reserve("graph-chunk-decode", lctx_model::domain::decode_allowance::<ProjectionSnapshotChunk>(&batch)?)?;
+                for row in ProjectionSnapshotChunk::decode(&batch)? { assembly.push(&row)?; }
+                tokio::task::yield_now().await;
+            }
+            let graph = crate::stage_runtime::borrowed_cpu("projection-hydration", || assembly.finish())?;
             charge.grow(size_of::<PreparedProjection>())?;
             graphs.push(PreparedProjection { assessment: assessment.clone(), graph });
         }

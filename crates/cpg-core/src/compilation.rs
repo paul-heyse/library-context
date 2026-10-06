@@ -151,7 +151,7 @@ impl UpperStage {
             Self::CatalogFrontier => None,
         }
     }
-    fn graphs(self) -> &'static [projection::ProjectionName] {
+    fn graphs(self, profile: Profile) -> &'static [projection::ProjectionName] {
         match self {
             Self::Configuration => &[],
             Self::Native => &[],
@@ -166,7 +166,8 @@ impl UpperStage {
             Self::SourceCalls => &[],
             Self::Enriched => &[],
             Self::Models => &[],
-            Self::Summary => &[projection::ProjectionName::CallableInvocation],
+            Self::Summary if profile == Profile::Behavioral => &[projection::ProjectionName::CallableInvocation],
+            Self::Summary => &[],
             Self::Structural => &[
                 projection::ProjectionName::CallableInvocation,
                 projection::ProjectionName::DefinitionContainment,
@@ -567,7 +568,7 @@ pub async fn compile(
         .stages()
         .iter()
         .filter_map(|s| UpperStage::resolve(s.name).ok())
-        .flat_map(|s| s.graphs().iter().copied())
+        .flat_map(|s| s.graphs(profile).iter().copied())
         .collect();
     let mut graphs = None;
     for declaration in schedule.stages() {
@@ -586,7 +587,7 @@ pub async fn compile(
         let binding = UpperStage::resolve(declaration.name)?;
         let prepared =
             prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
-        if !binding.graphs().is_empty() && graphs.is_none() {
+        if !binding.graphs(profile).is_empty() && graphs.is_none() {
             graphs = Some(PreparedGraphs::load(&access, workspace, model, &graph_needs).await?);
         }
         match binding {
@@ -710,7 +711,7 @@ pub async fn compile(
                     workspace,
                     model,
                     prepared.definition(AnalysisMethod::Summaries)?,
-                    graphs.as_ref().expect("prepared selected graphs"),
+                    graphs.as_ref(),
                 )
                 .await?
             }
