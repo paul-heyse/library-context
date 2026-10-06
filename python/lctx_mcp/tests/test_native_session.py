@@ -44,21 +44,21 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
     async with Client(target) as client:
         assert len(await client.list_tools()) == 10
         request = {"library": library, "page": {"size": 1}}
-        first = await client.call_tool("list_domains", request)
-        second = await client.call_tool("list_domains", request)
+        first = await client.call_tool("browse_library", request)
+        second = await client.call_tool("browse_library", request)
         assert first.structured_content["snapshot"] == config["snapshot"]
         assert second.structured_content == first.structured_content
         assert first.is_error is False
         assert len(first.content) == 1
-        assert first.content[0].text == "list_domains: snapshot-bound result"
+        assert first.content[0].text == "browse_library: snapshot-bound result"
         with pytest.raises(ToolError):
-            await client.call_tool("list_domains", {**request, "ignored": True})
+            await client.call_tool("browse_library", {**request, "ignored": True})
     # A fresh viewer can be opened after the MCP-owned session drained and invalidated.
     session = await asyncio.to_thread(NativeSession, str(path))
     assert json.loads(session.handle_json()) == config["snapshot"]
     await asyncio.to_thread(session.close)
     with pytest.raises(RuntimeError, match="closed"):
-        await asyncio.to_thread(session.execute, "list_domains", json.dumps(request))
+        await asyncio.to_thread(session.execute, "browse_library", json.dumps(request))
 
 
 @pytest.mark.anyio
@@ -105,7 +105,7 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
             closed.set()
 
     executor = NativeExecutor(OwnedThread())
-    request = asyncio.create_task(executor.execute("list_domains", {"library": "control"}))
+    request = asyncio.create_task(executor.execute("browse_library", {"library": "control"}))
     assert await asyncio.to_thread(entered.wait, 2)
     request.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -121,7 +121,7 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
     assert closed.is_set()
     assert executor._slots._value == 2
     with pytest.raises(RuntimeError, match="closed"):
-        await executor.execute("list_domains", {"library": "control"})
+        await executor.execute("browse_library", {"library": "control"})
 
 
 @pytest.mark.anyio

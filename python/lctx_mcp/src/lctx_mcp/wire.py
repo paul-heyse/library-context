@@ -241,7 +241,7 @@ class CapabilityResource(Resource):
             capability = list(bytes.fromhex(self._capability))
             if len(capability) != 16:
                 raise ValueError("capability key must contain 16 bytes")
-            raw = await self._executor.execute("get_capability", {"capability": capability})
+            raw = await self._executor.execute("get_capability", {"capability": capability, "page": {"expanded": True}})
             return ResourceResult([ResourceContent(wire_capability_resource(raw), mime_type=self.mime_type)])
         except (ValueError, RuntimeError) as exc:
             raise ResourceError(str(exc)) from exc
