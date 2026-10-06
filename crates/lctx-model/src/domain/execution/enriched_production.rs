@@ -308,6 +308,7 @@ fn enrich_with_application(
     let work=shared_work.unwrap_or_else(||local_work.as_mut().expect("ordinary frame work"));
     work.require(invocation,budget)?;
     let catalog=work.catalog(catalog)?;
+    let construction=if evaluations.is_some() {Some(super::model_construction::PreparedConstructionInputs::new(&data.application,verified.ok_or_else(||invalid("requested Enriched application authority absent"))?,budget)?)}else{None};
     let visit = |frame: &mut super::enriched::EnrichedFrame<'_>| {
             let mut step = || -> Result<(), ModelError> {
                 work.step()
@@ -420,6 +421,7 @@ fn enrich_with_application(
                         request,
                         budget,
                         evaluations,
+                        construction.as_ref(),
                     )? {
                         output.context_bindings.insert(proof.record().clone())?;
                         for row in proof.sources().iter() {
@@ -511,6 +513,7 @@ fn enrich_with_application(
                             &body,
                             budget,
                             evaluations,
+                            construction.as_ref(),
                         )? {
                             for body in &proofs {
                                 insert_statement(

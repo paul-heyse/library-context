@@ -905,7 +905,62 @@ impl HeapSize for CompositionAdmission {
         0
     }
 }
+/// Compact native enumeration premises admitted by this binding owner. Constructor metadata
+/// can include initializer alternatives that never produce an ordinary bound call.
+#[derive(Default)]
+struct EnumerationAuthority {
+    qualifications:ChargedMap<Id<crate::domain::assertion::AssertionQualification>,ContentHash>,
+    symbols:ChargedMap<Id<ProviderSymbol>,ContentHash>, signatures:ChargedMap<Id<Signature>,ContentHash>,
+    observations:ChargedMap<Id<SignatureEnumerationObservation>,(ContentHash,Id<ProviderSymbol>)>,
+    members:ChargedMap<Id<SignatureEnumerationMember>,ContentHash>,
+    member_counts:ChargedMap<Id<SignatureEnumerationObservation>,usize>,
+    symbol_counts:ChargedMap<Id<ProviderSymbol>,usize>,
+}
+impl EnumerationAuthority {
+    fn capture(data:&BindingData,charge:&mut StateCharge)->Result<Self,ModelError> {
+        let mut result=Self::default();
+        for row in data.signature_enumerations.iter() {
+            result.observations.insert(charge,row.id(),(row.content_digest(),row.symbol))?;
+            let q=need(&data.qualifications,row.qualification)?;result.qualifications.insert(charge,q.id(),q.content_digest())?;
+            let symbol=need(&data.symbols,row.symbol)?;result.symbols.insert(charge,symbol.id(),symbol.content_digest())?;
+            result.member_counts.insert(charge,row.id(),0)?;result.symbol_counts.update(charge,row.symbol,|n|*n+=1)?;
+        }
+        for member in data.signature_enumeration_members.iter() {
+            result.members.insert(charge,member.id(),member.content_digest())?;result.member_counts.update(charge,member.enumeration,|n|*n+=1)?;
+            let signature=need(&data.signatures,member.signature)?;result.signatures.insert(charge,signature.id(),signature.content_digest())?;
+            let q=need(&data.qualifications,signature.qualification)?;result.qualifications.insert(charge,q.id(),q.content_digest())?;
+            let symbol=need(&data.symbols,signature.symbol)?;result.symbols.insert(charge,symbol.id(),symbol.content_digest())?;
+        }
+        Ok(result)
+    }
+    fn append(&mut self,other:&mut Self,charge:&mut StateCharge,other_charge:&mut StateCharge)->Result<(),ModelError> {
+        macro_rules! join {($field:ident)=>{while let Some(key)=other.$field.keys().next().copied() {let value=other.$field.remove(other_charge,&key).expect("enumeration predecessor entry");if let Some(old)=self.$field.get(&key) {if old!=&value {return Err(ModelError::Conflict("enumeration predecessor changed"));}}else{self.$field.insert(charge,key,value)?;}}};}
+        join!(qualifications);join!(symbols);join!(signatures);join!(members);join!(member_counts);
+        while let Some(key)=other.observations.keys().next().copied() {
+            let value=other.observations.remove(other_charge,&key).expect("enumeration predecessor observation");
+            if let Some(old)=self.observations.get(&key) {if old!=&value {return Err(ModelError::Conflict("enumeration predecessor changed"));}}
+            else {self.observations.insert(charge,key,value)?;self.symbol_counts.update(charge,value.1,|n|*n+=1)?;}
+        }
+        Ok(())
+    }
+    fn require(&self,data:&BindingData,budget:&ResourceBudget)->Result<(),ModelError> {
+        fn row<R:Record>(index:&ChargedMap<Id<R>,ContentHash>,row:&R)->Result<(),ModelError> {if index.get(&row.id())!=Some(&row.content_digest()) {return Err(ModelError::Conflict("enumeration predecessor membership/content"));}Ok(())}
+        let count=data.signature_enumerations.len().checked_add(data.signature_enumeration_members.len()).ok_or_else(||invalid("enumeration predecessor allowance"))?;
+        let _scratch=budget.reserve("construction-enumeration-subset",count.checked_mul(256).ok_or_else(||invalid("enumeration predecessor allowance"))?)?;
+        let mut members=BTreeMap::<Id<SignatureEnumerationObservation>,usize>::new();let mut symbols=BTreeMap::<Id<ProviderSymbol>,usize>::new();
+        for enumeration in data.signature_enumerations.iter() {
+            if self.observations.get(&enumeration.id()).map(|row|row.0)!=Some(enumeration.content_digest()) {return Err(ModelError::Conflict("enumeration predecessor membership/content"));}row(&self.qualifications,need(&data.qualifications,enumeration.qualification)?)?;row(&self.symbols,need(&data.symbols,enumeration.symbol)?)?;
+            members.insert(enumeration.id(),0);*symbols.entry(enumeration.symbol).or_default()+=1;
+        }
+        for member in data.signature_enumeration_members.iter() {
+            row(&self.members,member)?;*members.get_mut(&member.enumeration).ok_or(ModelError::Conflict("constructor member has no enumeration"))?+=1;
+            let signature=need(&data.signatures,member.signature)?;row(&self.signatures,signature)?;row(&self.qualifications,need(&data.qualifications,signature.qualification)?)?;row(&self.symbols,need(&data.symbols,signature.symbol)?)?;
+        }
+        if members.iter().any(|(id,count)|self.member_counts.get(id)!=Some(count)) || symbols.iter().any(|(id,count)|self.symbol_counts.get(id)!=Some(count)) {return Err(ModelError::Conflict("constructor enumeration alternatives incomplete"));}Ok(())
+    }
+}
 pub struct VerifiedBindings {
+    enumerations:EnumerationAuthority,
     bound: ChargedMap<Id<CallBindingAttempt>, ValidatedBoundCall>,
     shape: ChargedMap<Id<CallBindingAttempt>, BindingShapeAdmission>,
     source_shape: ChargedMap<Id<CallBindingAttempt>, SourceBindingShape>,
@@ -925,10 +980,15 @@ impl VerifiedBindings {
                 self.$field.insert(&mut self._charge, key, value)?;
             }
         }}; }
+        self.enumerations.append(&mut other.enumerations,&mut self._charge,&mut other._charge)?;
         join!(bound); join!(shape); join!(source_shape); join!(effective); join!(composition);
         Ok(())
     }
 
+    pub(crate) fn require_enumerations(&self,data:&BindingData,budget:&ResourceBudget)->Result<(),ModelError> {
+        if !self._charge.budget().expect("binding owner budget").shares_pool(budget) {return Err(ModelError::Conflict("constructor enumeration foreign budget"));}
+        self.enumerations.require(data,budget)
+    }
     pub fn bound(&self, attempt: Id<CallBindingAttempt>) -> Option<&ValidatedBoundCall> {
         self.bound.get(&attempt)
     }
@@ -1003,6 +1063,7 @@ fn admit(
     }
     admit_set_predicates(data, stored, &index, budget)?;
     let mut result = VerifiedBindings {
+        enumerations:EnumerationAuthority::default(),
         bound: Default::default(),
         shape: Default::default(),
         source_shape: Default::default(),
@@ -1010,6 +1071,7 @@ fn admit(
         composition: Default::default(),
         _charge: StateCharge::new(budget, "validated-bindings"),
     };
+    result.enumerations=EnumerationAuthority::capture(data,&mut result._charge)?;
     let mut charge = StateCharge::new(budget, "composition-admission-index");
     let mut member_sets: ChargedMap<Id<CallBindingAttempt>, &BindingSetAssessment> =
         Default::default();

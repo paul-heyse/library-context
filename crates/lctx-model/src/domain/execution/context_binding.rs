@@ -103,7 +103,7 @@ impl CheckedContextBinding {
         request: ExpressionRequest,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
-        Self::derive_with_values(catalog,application,data,invocation,request,budget,None)
+        Self::derive_with_values(catalog,application,data,invocation,request,budget,None,None)
     }
     /// Borrow the actual Base owner; ordered argument evidence is hydrated without evaluator replay.
     pub fn derive_produced(
@@ -115,7 +115,7 @@ impl CheckedContextBinding {
         budget: &ResourceBudget,
         values:&super::production::ProducedEvaluations,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
-        Self::derive_with_values(catalog,application,data,invocation,request,budget,Some(values))
+        Self::derive_with_values(catalog,application,data,invocation,request,budget,Some(values),None)
     }
     pub(super) fn derive_with_values(
         catalog: &models::Catalog,
@@ -125,6 +125,7 @@ impl CheckedContextBinding {
         request: ExpressionRequest,
         budget: &ResourceBudget,
         values:Option<&super::production::ProducedEvaluations>,
+        construction:Option<&super::model_construction::PreparedConstructionInputs<'_>>,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
         use ObligationKind as K;
         if invocation.subject.is_some()
@@ -352,7 +353,7 @@ impl CheckedContextBinding {
                 budget,
             )?
             .map_err(boundary)?;
-            let construction = CheckedContextConstruction::derive(
+            let construction = CheckedContextConstruction::derive_with_inputs(
                 &protocol,
                 application,
                 site,
@@ -360,6 +361,7 @@ impl CheckedContextBinding {
                 request.input,
                 request.context,
                 budget,
+                construction,
             )?
             .map_err(boundary)?;
             let mut charge = charged::StateCharge::new(budget, "context_entry_binding");
