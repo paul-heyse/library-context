@@ -52,7 +52,7 @@ impl CallableScopes {
         let coverage=table(TypeId::of::<ProviderCoverage>())?;
         let scopes=table(TypeId::of::<CoverageScope>())?;
         let owners=table(TypeId::of::<OccurrenceOwnership>())?;
-        plan.pairs(index(TypeId::of::<Occurrence>())?,index(TypeId::of::<ProviderCoverage>())?,format!("SELECT o.id AS source_id,c.id AS target_id FROM {occurrences} o JOIN {scopes} scope ON scope.artifact=o.source JOIN {coverage} c ON c.scope=scope.id WHERE c.family={}",FactFamily::Syntax.code()))?;
+        plan.pairs(index(TypeId::of::<Occurrence>())?,index(TypeId::of::<ProviderCoverage>())?,format!("SELECT o.id AS source_id,c.id AS target_id FROM {occurrences} o JOIN {scopes} scope ON scope.artifact_artifact=o.source JOIN {coverage} c ON c.scope=scope.id WHERE c.family={}",FactFamily::Syntax.code()))?;
         // Descriptor children are a complete direct candidate domain. This is deliberately
         // restricted to Decorator nodes: a declaration's whole Body is not a metadata premise.
         plan.pairs(index(TypeId::of::<Occurrence>())?,index(TypeId::of::<SyntaxPlacement>())?,format!("SELECT o.id AS source_id,p.id AS target_id FROM {occurrences} o JOIN {placements} p ON p.parent=o.id WHERE o.syntax_kind={}",SyntaxKind::Decorator.code()))?;

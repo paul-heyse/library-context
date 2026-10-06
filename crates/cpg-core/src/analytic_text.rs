@@ -65,7 +65,7 @@ pub async fn publish(access:CompletedInputs,output:ProducerOutput,runtime:&Works
     let (edges,indices)=prepare_edges(&access,&session,runtime.budget()).await?;
     for (relation,query) in [
         (DeclarationObservation::NAME,format!("SELECT declaration.id,occurrence.source FROM {} declaration JOIN {} occurrence ON occurrence.id=declaration.declaration ORDER BY occurrence.source,declaration.id",DeclarationObservation::NAME,Occurrence::NAME)),
-        (PassageObservation::NAME,format!("SELECT passage.id,evidence.source_span_source AS source FROM {} passage JOIN {} node ON node.id=passage.passage JOIN {} evidence ON evidence.id=node.passage_span ORDER BY evidence.source_span_source,passage.id",PassageObservation::NAME,DocumentNode::NAME,Evidence::NAME)),
+        (PassageObservation::NAME,format!("SELECT passage.id,evidence.sourcespan_source AS source FROM {} passage JOIN {} node ON node.id=passage.passage JOIN {} evidence ON evidence.id=node.passage_span ORDER BY evidence.sourcespan_source,passage.id",PassageObservation::NAME,DocumentNode::NAME,Evidence::NAME)),
     ] {
         let mut roots=crate::sql::query(&session,&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
         let mut current_source:Option<(Vec<u8>,bool)>=None;

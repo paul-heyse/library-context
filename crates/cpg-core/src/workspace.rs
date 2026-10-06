@@ -413,6 +413,18 @@ impl Workspace {
             if let Some(input)=invariant.inputs.iter().find(|input|!names.contains(input.name())&&!unrequested.contains(input.name())) {
                 return Err(ModelError::Invalid(format!("{} requires validation premise {} outside scope",invariant.name,input.name())));
             }
+            if matches!(check.normalization_scope(),Some(lctx_model::domain::normalized::admission::Scope::Callables)) {
+                drop(check);
+                let mut tables=Vec::with_capacity(invariant.inputs.len());
+                for input in &invariant.inputs {
+                    let alias=if unrequested.contains(input.name()){input.name().to_owned()}
+                        else if let Some(inputs)=selected{inputs.validation_table(input)?}
+                        else{Self::validation_table(input,&frozen_tables)?.to_owned()};
+                    tables.push(crate::consumed_rows::ClosureTable{relation:self.model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?.clone(),alias});
+                }
+                crate::normalize::validate_callables(&invariant,tables,&session,self.budget(),&self.cancellation).await?;
+                continue;
+            }
             if let Some(scope)=execution_scope {
                 drop(check);
                 let mut tables=Vec::with_capacity(invariant.inputs.len());

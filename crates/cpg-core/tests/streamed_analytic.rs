@@ -233,7 +233,8 @@ async fn source_subject_closure_renders_exact_parameters_docstring_and_windows_a
 #[tokio::test]
 async fn large_unrelated_body_chunks_are_not_rich_render_premises() {
     let budget=resources::ResourceBudget::fixed(32<<20).unwrap();let data=fixture(&budget,250_000,"module.py");
-    assert!(data.chunks.len()>64);
+    assert!(data.chunks.len()>1);
+    assert!(data.chunks.iter().map(|chunk|chunk.body.0.len()).sum::<usize>()>4<<20);
     let workspace=run(&data,true,4<<20,8).await;
     assert_eq!(workspace.completed::<TextAssessment>().unwrap().rows(),1);
 }

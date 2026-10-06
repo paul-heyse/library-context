@@ -81,7 +81,7 @@ impl EvidenceScopes {
         }
         // A document and its materialized fences form one original-source grain.
         let derived = typed::<input::DerivedArtifact>(&inputs)?;
-        plan.pairs(root, root, format!("SELECT document AS source_id,artifact AS target_id FROM {} WHERE document IS NOT NULL", identifier(&tables[derived].alias)))?;
+        plan.pairs(root, root, format!("SELECT pythoncodeblock_document AS source_id,pythoncodeblock_artifact AS target_id FROM {} WHERE pythoncodeblock_document IS NOT NULL", identifier(&tables[derived].alias)))?;
         // Root public slots use the actual module ownership, never every module on one input.
         let modules = typed::<source::Module>(&inputs)?;
         let members = typed::<catalog::CatalogMember>(&inputs)?;

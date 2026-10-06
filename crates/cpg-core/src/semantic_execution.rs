@@ -1017,7 +1017,10 @@ mod produced_authority_controls {
         assert!(matches!(produced.borrow(&foreign, &other), Err(ModelError::Conflict(_))));
         let changed_profile = runtime.inputs("consumer", Profile::Behavioral, [SourceArtifact::NAME]).unwrap();
         assert!(matches!(produced.borrow(&changed_profile, &runtime), Err(ModelError::Conflict(_))));
-        publish(&runtime, "second", SourceArtifact::from_bytes(nominal(1), "second.py".into(), b"y").unwrap()).await;
+        let contribution=runtime.output("second",Profile::Catalog,ContentHash::of(b"second"),runtime.inputs("second",Profile::Catalog,[]).unwrap());
+        let batch=Batch::new(runtime.model(),vec![SourceArtifact::from_bytes(nominal(1),"second.py".into(),b"y").unwrap()],runtime.budget()).unwrap();
+        contribution.contribute(&batch).unwrap();drop(batch);
+        contribution.finish(ProviderOutcome::Complete).await.unwrap();
         let changed = runtime.inputs("consumer", Profile::Catalog, [SourceArtifact::NAME]).unwrap();
         assert!(matches!(produced.borrow(&changed, &runtime), Err(ModelError::Conflict(_))));
         assert_eq!(*produced.borrow(&selected, &runtime).unwrap(), 7);
