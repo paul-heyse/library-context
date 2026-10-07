@@ -138,6 +138,7 @@ fn plan(inputs: &[ValidationInput], tables: &[ClosureTable]) -> Result<NominalCl
         (index::<retrieval::OriginalAnchor>(inputs)?, "unit", unit),
         (index::<retrieval::UnitSubject>(inputs)?, "unit", unit),
         (part,"unit",unit),(window,"unit",unit),
+        (index::<retrieval::PartContext>(inputs)?,"primary",part),
         (index::<retrieval::PartSourceMap>(inputs)?,"part",part),
         (index::<retrieval::WindowPart>(inputs)?,"window",window),
         (index::<retrieval::WindowSourceMap>(inputs)?,"window",window),

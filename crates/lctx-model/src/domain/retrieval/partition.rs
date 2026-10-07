@@ -15,8 +15,8 @@ pub trait Tokenizer: Send + Sync {
     fn identity(&self) -> ContentHash;
     fn encode(&self, text: &str) -> Result<EncodedInput, ModelError>;
 }
-/// Supported boundaries are already represented as semantic parts. Every selected primary part
-/// retains every mandatory context part. Oversized indivisible primary/context is never truncated.
+/// Supported boundaries are semantic parts. Only the selected primaries' interpretation
+/// dependencies participate in admission. Oversized indivisible material is never truncated.
 pub fn construct(d:&Data, out:&mut Output, unit:Id<Unit>, b:&ResourceBudget)->Result<(),ModelError>{
     let definition=d.selected()?;
     if definition.embedding_requested && d.tokenizer().is_none(){return Err(invalid("requested retrieval requires exact acquired local tokenizer assets"));}
@@ -25,10 +25,14 @@ pub fn construct(d:&Data, out:&mut Output, unit:Id<Unit>, b:&ResourceBudget)->Re
     let context:Vec<_>=parts.iter().filter(|p|p.purpose==PartPurpose::Context).cloned().collect();
     let primary:Vec<_>=parts.iter().filter(|p|p.purpose==PartPurpose::Primary).cloned().collect();
     let mut groups:Vec<Vec<ContentPart>>=vec![];
-    let mut group=vec![];
+    let mut group:Vec<ContentPart>=vec![];
     for part in primary {
+        if !group.is_empty() && required_context(out,&[part.id()].into_iter().collect())!=required_context(out,&group.iter().map(Record::id).collect()){
+            // Sibling interpretation scopes remain independent even when both are short.
+            groups.push(std::mem::take(&mut group));
+        }
         let mut tentative=group.clone(); tentative.push(part.clone());
-        let text=render(&context,&tentative);
+        let text=render(&selected_parts(out,unit,&tentative.iter().map(Record::id).collect())?);
         let tokens=d.tokenizer().map(|t|t.encode(&text).map(|e|e.offsets.len())).transpose()?;
         if !group.is_empty() && tokens.is_some_and(|n|n>definition.preferred_tokens as usize) {
             groups.push(std::mem::take(&mut group));
@@ -39,7 +43,8 @@ pub fn construct(d:&Data, out:&mut Output, unit:Id<Unit>, b:&ResourceBudget)->Re
     // A setup-only grain remains discoverable but has no applicability binding.
     if groups.is_empty() && !context.is_empty(){groups.push(vec![]);}
     for (ordinal,primary) in groups.into_iter().enumerate(){
-        let text=render(&context,&primary);
+        let selected=selected_parts(out,unit,&primary.iter().map(Record::id).collect())?;
+        let text=render(&selected);
         let _copy=b.reserve("retrieval-semantic-window",text.len().saturating_mul(4))?;
         let encoded=d.tokenizer().map(|t|t.encode(&text)).transpose()?;
         let (input_text,body_start,tokens,availability)=match &encoded {
@@ -52,14 +57,14 @@ pub fn construct(d:&Data, out:&mut Output, unit:Id<Unit>, b:&ResourceBudget)->Re
         let mut offset=body_start;
         let mut map_ordinal=0;
         if body_start>0{synthetic(out,window,&mut map_ordinal,0,body_start)?;}
-        for (index,part) in context.iter().chain(primary.iter()).enumerate(){
+        for (index,part) in selected.iter().enumerate(){
             out.window_parts.insert(WindowPart{window,ordinal:index as i64,part:part.id(),start:0,end:part.text.len() as i64})?;
             let mut maps:Vec<_>=out.part_maps.iter().filter(|m|m.part==part.id()).cloned().collect();maps.sort_by_key(|m|m.ordinal);
             for map in maps {
                 out.window_maps.insert(WindowSourceMap{window,ordinal:map_ordinal,start:offset as i64+map.start,end:offset as i64+map.end,part:Some(part.id()),original:map.original,original_start:map.original_start,original_end:map.original_end})?;map_ordinal+=1;
             }
             offset+=part.text.len();
-            if index+1<context.len()+primary.len(){synthetic(out,window,&mut map_ordinal,offset,offset+1)?;offset+=1;}
+            if index+1<selected.len(){synthetic(out,window,&mut map_ordinal,offset,offset+1)?;offset+=1;}
         }
         if offset<input_text.len(){synthetic(out,window,&mut map_ordinal,offset,input_text.len())?;}
         // Nomination is separately produced from primary evidence, not unit parent membership.
@@ -74,7 +79,15 @@ pub fn construct(d:&Data, out:&mut Output, unit:Id<Unit>, b:&ResourceBudget)->Re
     }
     Ok(())
 }
-fn render(context:&[ContentPart],primary:&[ContentPart])->String{context.iter().chain(primary.iter()).map(|p|p.text.as_str()).collect::<Vec<_>>().join("\n")}
+fn required_context(out:&Output,primary:&std::collections::BTreeSet<Id<ContentPart>>)->std::collections::BTreeSet<Id<ContentPart>>{out.part_contexts.iter().filter(|r|primary.contains(&r.primary)).map(|r|r.context).collect()}
+pub(super) fn selected_parts(out:&Output,unit:Id<Unit>,primary:&std::collections::BTreeSet<Id<ContentPart>>)->Result<Vec<ContentPart>,ModelError>{
+    let mut selected=primary.clone();selected.extend(required_context(out,primary));
+    if primary.is_empty(){selected.extend(out.parts.iter().filter(|p|p.unit==unit&&p.purpose==PartPurpose::Context).map(Record::id));}
+    let mut parts=vec![];
+    for id in selected{let part=need(&out.parts,id)?;if part.unit!=unit || (primary.contains(&id)&&part.purpose!=PartPurpose::Primary)||(!primary.contains(&id)&&part.purpose!=PartPurpose::Context){return Err(invalid("retrieval interpretation closure crosses unit/domain or role"));}parts.push(part.clone());}
+    parts.sort_by_key(|p|p.ordinal);Ok(parts)
+}
+fn render(parts:&[ContentPart])->String{parts.iter().map(|p|p.text.as_str()).collect::<Vec<_>>().join("\n")}
 fn synthetic(out:&mut Output,window:Id<SearchWindow>,ordinal:&mut i64,start:usize,end:usize)->Result<(),ModelError>{out.window_maps.insert(WindowSourceMap{window,ordinal:*ordinal,start:start as i64,end:end as i64,part:None,original:None,original_start:None,original_end:None})?;*ordinal+=1;Ok(())}
 
 /// Compose actual Rust byte offsets with canonical complete-input maps. Empty postprocessor

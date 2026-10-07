@@ -467,7 +467,7 @@ pub fn invariants() -> Vec<Invariant> {
     ]);
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 4,
+        revision: 5,
         name: "retrieval_embedding_consumption_and_winners",
         inputs,
         create: std::sync::Arc::new(|b| {

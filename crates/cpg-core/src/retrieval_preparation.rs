@@ -237,6 +237,7 @@ impl Preparation {
         let candidates = typed::<normalized::links::MentionEntityCandidate>(inputs)?;
         let associations = typed::<c1::DocumentAssociation>(inputs)?;
         plan.own(mention, "passage", nodes)?;
+        plan.own(typed::<documents::DocumentComponentObservation>(inputs)?, "passage", nodes)?;
         plan.own(assessments, "observation", mention)?;
         plan.own(candidates, "assessment", assessments)?;
         plan.own(associations, "candidate", candidates)?;

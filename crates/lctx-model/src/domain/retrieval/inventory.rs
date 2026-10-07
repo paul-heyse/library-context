@@ -14,6 +14,7 @@ macro_rules! retrieval_inputs {
          evidence_sources:$crate::domain::analysis::catalog_evidence::InvocationSource,
          evidence_inputs:$crate::domain::analysis::catalog_evidence::AnalysisInput,
          evidence_links:$crate::domain::catalog::evidence::EvidenceInvocation,
+         components:$crate::domain::documents::DocumentComponentObservation,
         }
     };
 }
@@ -30,6 +31,7 @@ macro_rules! retrieval_outputs {
          anchor_sources:$crate::domain::retrieval::AnchorSource,
          roots:$crate::domain::retrieval::UnitRoot,
          parts:$crate::domain::retrieval::ContentPart,
+         part_contexts:$crate::domain::retrieval::PartContext,
          part_maps:$crate::domain::retrieval::PartSourceMap,
          windows:$crate::domain::retrieval::SearchWindow,
          window_parts:$crate::domain::retrieval::WindowPart,

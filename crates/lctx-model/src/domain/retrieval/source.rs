@@ -18,6 +18,7 @@ pub fn coordinates(
     original: &AnchorSource,
 ) -> Result<(Id<SourceArtifact>, i64, i64), ModelError> {
     match original {
+        AnchorSource::SpanSlice{span,start,end}=>{let (artifact,a,z)=coordinates(d,&AnchorSource::Span{span:*span})?;if *start<a||*end>z||end<start{return Err(invalid("interpretation slice exceeds captured span"));}Ok((artifact,*start,*end))},
         AnchorSource::OccurrenceSlice{occurrence,start,end}=>{let r=need(&d.source.core.occurrences,*occurrence)?;if *start<r.start||*end>r.end||end<start{return Err(invalid("interpretation slice exceeds canonical occurrence"));}Ok((r.source,*start,*end))},
         AnchorSource::Occurrence { occurrence } => { let r=need(&d.source.core.occurrences,*occurrence)?; Ok((r.source,r.start,r.end)) },
         AnchorSource::Prose { slice } => {

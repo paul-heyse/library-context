@@ -467,6 +467,7 @@ impl Data {
             ValidationInput::of::<crate::domain::documents::DocumentNode>(&["id"]),
             ValidationInput::of::<crate::domain::documents::DocumentObservation>(&["id"]),
             ValidationInput::of::<crate::domain::documents::PassageObservation>(&["id"]),
+            ValidationInput::of::<crate::domain::documents::DocumentComponentObservation>(&["id"]),
             ValidationInput::of::<crate::domain::normalized::callable_aspects::CallableAspect>(&[
                 "id",
             ]),
@@ -534,6 +535,7 @@ impl Data {
             c1::RootSubject::Document { .. } => types.extend([
                 TypeId::of::<documents::DocumentObservation>(),
                 TypeId::of::<documents::PassageObservation>(),
+                TypeId::of::<documents::DocumentComponentObservation>(),
                 TypeId::of::<documents::DocumentNode>(),
                 TypeId::of::<c1::DocumentAssociation>(),
                 TypeId::of::<normalized::links::MentionEntityCandidate>(),
@@ -604,6 +606,7 @@ impl Data {
             TypeId::of::<analysis::catalog_core::Invocation>(),
             TypeId::of::<documents::DocumentObservation>(),
             TypeId::of::<documents::PassageObservation>(),
+            TypeId::of::<documents::DocumentComponentObservation>(),
             TypeId::of::<documents::DocumentNode>(),
             TypeId::of::<assertion::AssertionQualification>(),
         ]
@@ -1116,6 +1119,9 @@ fn render(
                     }
                     any = true;
                     let text = super::source::read(d, &anchor, b)?;
+                    let anchors=super::construction::passage_anchors(d,passage,b)?;
+                    let mut contextual=String::new();
+                    for ancestor in anchors.iter().take(anchors.len().saturating_sub(1)){contextual.push_str(&super::source::read(d,ancestor,b)?.value);}
                     let mut subjects = vec![];
                     for a in d.evidence.document_associations.iter() {
                         let candidate = need(&d.source.facts.mention_candidates, a.candidate)?;
@@ -1147,8 +1153,8 @@ fn render(
                                 .unwrap_or_else(|| artifact.path.clone()),
                         },
                         Render {
-                            text: format!("Heading: {}\n{}",passage.heading.as_deref().unwrap_or(&artifact.path),text.value),
-                            anchors: vec![anchor],
+                            text: format!("Heading: {}\n{}{}",passage.heading.as_deref().unwrap_or(&artifact.path),contextual,text.value),
+                            anchors,
                             subjects,
                         },
                         b,
@@ -1273,6 +1279,9 @@ pub fn memberships() -> Vec<(std::any::TypeId, &'static str)> {
         (TypeId::of::<EvidenceInvocation>(), "root"),
         (TypeId::of::<BriefDocument>(), "brief"),
         (TypeId::of::<BriefSource>(), "brief"),
+        (TypeId::of::<documents::DocumentNode>(), "passage_span"),
+        (TypeId::of::<documents::PassageObservation>(), "passage"),
+        (TypeId::of::<documents::DocumentComponentObservation>(), "passage"),
     ]
 }
 pub fn invariants() -> Vec<Invariant> {
@@ -1280,7 +1289,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.extend(Output::inputs());
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 2,
+        revision: 3,
         name: "retrieval_canonical_rendering",
         inputs,
         create: std::sync::Arc::new(|b| {

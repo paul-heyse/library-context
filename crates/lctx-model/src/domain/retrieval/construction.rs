@@ -164,7 +164,7 @@ pub(super) fn parts(d:&Data,out:&mut Output,unit:Id<Unit>,b:&ResourceBudget)->Re
         if let Some(relative)=text[cursor..].find(&captured.value){
             let start=cursor+relative;
             if start>cursor{segments.push((cursor,start,None,None,PartPurpose::Context));}
-            let purpose=if matches!(anchor,AnchorSource::OccurrenceSlice{..}){PartPurpose::Context}else if let Origin::Scenario{scenario}=origin{
+            let purpose=if matches!(anchor,AnchorSource::OccurrenceSlice{..}|AnchorSource::SpanSlice{..}){PartPurpose::Context}else if let Origin::Scenario{scenario}=origin{
                 if d.evidence.spans.iter().any(|s|s.scenario==scenario && matches!(s.role,c1::SpanRole::Primary|c1::SpanRole::ExtractedPython) && matches!(anchor,AnchorSource::Original{source}if *source==s.source)){PartPurpose::Primary}else{PartPurpose::Context}
             }else{PartPurpose::Primary};
             segments.push((start,start+captured.value.len(),Some(original),Some(super::source::coordinates(d,anchor)?.1),purpose));
@@ -180,17 +180,92 @@ pub(super) fn parts(d:&Data,out:&mut Output,unit:Id<Unit>,b:&ResourceBudget)->Re
         }else if let Some(original)=original{
             source_blocks(d,out,original,&text[start..end],purpose,owner.context)?
         }else{vec![(0,end-start,purpose)]};
+        let ranges=if matches!(origin,Origin::Document{..}|Origin::Passage{..}) && let (Some(original),Some(base))=(original,original_start){
+            let (artifact,_,_)=super::source::coordinates(d,need(&out.anchor_sources,original)?)?;
+            let mut contexts=vec![];let mut cuts=std::collections::BTreeSet::new();
+            for component in d.facts.components.iter().filter(|c|d.source.core.qualifications.get(c.qualification).is_some_and(|q|q.context==owner.context)){
+                let Some(lead)=component.lead else{continue;};let (source,a,z)=super::source::coordinates(d,&AnchorSource::Span{span:lead})?;
+                if source==artifact&&a>=base&&z<=base+(end-start)as i64 {contexts.push((a-base,z-base));cuts.insert((a-base)as usize);cuts.insert((z-base)as usize);}
+                let (source,a,z)=super::source::coordinates(d,&AnchorSource::Span{span:need(&d.source.facts.nodes,component.component.id())?.span()})?;
+                if source==artifact{for offset in [a,z]{if offset>base&&offset<base+(end-start)as i64{cuts.insert((offset-base)as usize);}}}
+            }
+            if let Origin::Passage{observation}=origin{let passage=need(&d.source.facts.passages,observation)?;if passage.level>0&&matches!(need(&out.anchor_sources,original)?,AnchorSource::Span{span}if *span==need(&d.source.facts.nodes,passage.passage.id())?.span()){
+                let heading_end=captured_heading_end(d,passage,b)?;contexts.push((0,heading_end-base));cuts.insert((heading_end-base)as usize);
+            }}
+            ranges.into_iter().flat_map(|(a,z,purpose)|{let mut boundaries=vec![a];boundaries.extend(cuts.range((a+1)..z).copied());boundaries.push(z);boundaries.windows(2).map(|p|{let purpose=if contexts.iter().any(|(a,z)|p[0]as i64>=*a&&p[1]as i64<=*z){PartPurpose::Context}else{purpose};(p[0],p[1],purpose)}).collect::<Vec<_>>()}).collect()
+        }else{ranges};
         for (a,z,purpose) in ranges{
-            let value=&text[start+a..start+z];
+            let value=text.get(start+a..start+z).ok_or_else(||invalid("document context boundaries are not UTF8"))?;
             if value.is_empty(){continue;}
             // A heading supplies interpretation context; mentioning an API there does not bind it.
-            let purpose=if matches!(origin,Origin::Document{..}|Origin::Passage{..}) && (value.trim_start().starts_with('#')||value.trim().is_empty()){PartPurpose::Context}else{purpose};
+            let purpose=if matches!(origin,Origin::Document{..}|Origin::Passage{..}) && (heading_level(value).is_some()||value.trim().is_empty()){PartPurpose::Context}else{purpose};
             let part=out.parts.insert(ContentPart{unit,ordinal,purpose,scope,qualification:match origin{Origin::Passage{observation}=>Some(need(&d.source.facts.passages,observation)?.qualification),_=>None},digest:ContentHash::of(value.as_bytes()),text:value.into()})?;
             out.part_maps.insert(PartSourceMap{part,ordinal:0,start:0,end:value.len() as i64,original,original_start:original_start.map(|v|v+a as i64),original_end:original_start.map(|v|v+z as i64)})?;
             ordinal+=1;
         }
     }
+    for row in context_dependencies(d,out,unit,b)?.iter() {out.part_contexts.insert(row.clone())?;}
     Ok(())
+}
+
+fn setext_level(line:&str)->Option<i64>{let line=line.trim();if !line.is_empty()&&line.bytes().all(|b|b==b'='){Some(1)}else if !line.is_empty()&&line.bytes().all(|b|b==b'-'){Some(2)}else{None}}
+fn heading_level(text:&str)->Option<i64>{let mut lines=text.lines();let first=lines.next()?.trim_start();let hashes=first.bytes().take_while(|b|*b==b'#').count();if (1..=6).contains(&hashes){Some(hashes as i64)}else{setext_level(lines.next()?)}}
+
+fn captured_heading_end(d:&Data,passage:&documents::PassageObservation,b:&ResourceBudget)->Result<i64,ModelError>{
+    let span=need(&d.source.facts.nodes,passage.passage.id())?.span();let (artifact,start,end)=super::source::coordinates(d,&AnchorSource::Span{span})?;
+    let mut offset=start;let mut value=Vec::new();let mut charge=charged::StateCharge::new(b,"retrieval-captured-heading");let mut scanned=0;let mut line=0;
+    while offset<end{
+        let stop=end.min((offset/artifact::ARTIFACT_CHUNK_BYTES as i64+1)*artifact::ARTIFACT_CHUNK_BYTES as i64);let chunk=need(&d.facts.chunks,Id::of(&artifact::ArtifactChunkKey{artifact,ordinal:offset/artifact::ARTIFACT_CHUNK_BYTES as i64}))?;let first=offset as usize%artifact::ARTIFACT_CHUNK_BYTES;let bytes=chunk.body.0.get(first..first+(stop-offset)as usize).ok_or_else(||invalid("captured heading chunk range absent"))?;charge.grow(bytes.len())?;value.extend_from_slice(bytes);offset=stop;
+        while let Some(relative)=value[scanned..].iter().position(|b|*b==b'\n'){
+            let stop=scanned+relative+1;let content=std::str::from_utf8(&value[scanned..stop]).map_err(|_|invalid("captured heading is not UTF8"))?;
+            if line==0&&content.trim_start().starts_with('#')||line>0&&setext_level(content)==Some(passage.level){return Ok(start+stop as i64);}
+            if content.trim().is_empty(){return Err(invalid("captured passage heading has no original heading prefix"));}
+            scanned=stop;line+=1;
+        }
+    }
+    let tail=std::str::from_utf8(&value[scanned..]).map_err(|_|invalid("captured heading is not UTF8"))?;if line==0&&tail.trim_start().starts_with('#')||line>0&&setext_level(tail)==Some(passage.level){return Ok(end);}
+    Err(invalid("captured passage heading has no original heading prefix"))
+}
+
+pub(super) fn passage_anchors(d:&Data,passage:&documents::PassageObservation,b:&ResourceBudget)->Result<Vec<AnchorSource>,ModelError>{
+    let own=AnchorSource::Span{span:need(&d.source.facts.nodes,passage.passage.id())?.span()};let (artifact,start,_)=super::source::coordinates(d,&own)?;let context=need(&d.source.core.qualifications,passage.qualification)?.context;let mut result=vec![];
+    for (depth,heading) in passage.heading_path.iter().enumerate(){
+        let mut candidates=vec![];
+        for parent in d.source.facts.passages.iter().filter(|p|p.level<passage.level&&p.heading.as_ref()==Some(heading)&&p.heading_path==passage.heading_path[..depth]&&d.source.core.qualifications.get(p.qualification).is_some_and(|q|q.context==context)){
+            let anchor=AnchorSource::Span{span:need(&d.source.facts.nodes,parent.passage.id())?.span()};let (source,a,_)=super::source::coordinates(d,&anchor)?;if source==artifact&&a<start{candidates.push((a,parent));}
+        }
+        candidates.sort_by_key(|(a,p)|(*a,p.id()));let (_,parent)=candidates.last().ok_or_else(||invalid("captured passage ancestor absent"))?;
+        let span=need(&d.source.facts.nodes,parent.passage.id())?.span();let (_,start,_)=super::source::coordinates(d,&AnchorSource::Span{span})?;result.push(AnchorSource::SpanSlice{span,start,end:captured_heading_end(d,parent,b)?});
+    }
+    result.push(own);Ok(result)
+}
+
+pub(super) fn context_dependencies(d:&Data,out:&Output,unit:Id<Unit>,b:&ResourceBudget)->Result<crate::domain::normalized::Rows<PartContext>,ModelError>{
+    let owner=need(&out.units,unit)?;let origin=need(&out.origins,owner.origin)?;let mut parts:Vec<_>=out.parts.iter().filter(|p|p.unit==unit).collect();parts.sort_by_key(|p|p.ordinal);
+    let documentary=matches!(origin,Origin::Document{..}|Origin::Passage{..});let mut global=vec![];let mut headings:Vec<(i64,Id<ContentPart>)>=vec![];let mut result=crate::domain::normalized::Rows::new(b);
+    for part in &parts{
+        if part.purpose==PartPurpose::Context{
+            let maps:Vec<_>=out.part_maps.iter().filter(|m|m.part==part.id()).collect();
+            if !documentary||maps.iter().any(|m|m.original.is_none()||m.original.is_some_and(|id|matches!(out.anchor_sources.get(id),Some(AnchorSource::SpanSlice{..})))){global.push(part.id());}
+            else if let Some(level)=heading_level(part.text.as_str()){while headings.last().is_some_and(|(old,_)|*old>=level){headings.pop();}headings.push((level,part.id()));}
+            continue;
+        }
+        let mut context=global.iter().chain(headings.iter().map(|(_,id)|id)).copied().collect::<std::collections::BTreeSet<_>>();
+        if documentary{
+            for primary in out.part_maps.iter().filter(|m|m.part==part.id()&&m.original.is_some()){
+                let (artifact,_,_)=super::source::coordinates(d,need(&out.anchor_sources,primary.original.unwrap())?)?;let a=primary.original_start.unwrap();let z=primary.original_end.unwrap();
+                for component in d.facts.components.iter().filter(|c|d.source.core.qualifications.get(c.qualification).is_some_and(|q|q.context==owner.context)){
+                    let (source,start,end)=super::source::coordinates(d,&AnchorSource::Span{span:need(&d.source.facts.nodes,component.component.id())?.span()})?;
+                    if source!=artifact||a<start||z>end{continue;}let Some(lead)=component.lead else{continue;};let (_,start,end)=super::source::coordinates(d,&AnchorSource::Span{span:lead})?;
+                    for candidate in &parts{if candidate.purpose==PartPurpose::Context&&out.part_maps.iter().any(|m|m.part==candidate.id()&&m.original.is_some_and(|id|super::source::coordinates(d,need(&out.anchor_sources,id).unwrap()).is_ok_and(|(source,_,_)|source==artifact))&&m.original_start.is_some_and(|a|a>=start)&&m.original_end.is_some_and(|z|z<=end)){context.insert(candidate.id());}}
+                }
+            }
+        }
+        // Non-documentary setup is genuinely shared, including context that follows a primary.
+        if !documentary{context.extend(parts.iter().filter(|p|p.purpose==PartPurpose::Context).map(|p|p.id()));}
+        for context in context{result.insert(PartContext{primary:part.id(),context})?;}
+    }
+    Ok(result)
 }
 /// The canonical Ruff-derived placement owner supplies body boundaries. Compound statements
 /// remain intact, carrying enclosing predicates/control; no line/byte heuristic splits Python.
@@ -227,9 +302,11 @@ fn source_blocks(d:&Data,out:&Output,original:Id<AnchorSource>,text:&str,purpose
 /// prose/list blocks. Captured offsets are retained, including all separators.
 fn document_blocks(text:&str)->Vec<(usize,usize)>{
     let mut ranges=vec![];let mut start=0;let mut offset=0;let mut fence:Option<&str>=None;
-    for line in text.split_inclusive('\n'){
+    let mut lines=text.split_inclusive('\n').peekable();
+    while let Some(line)=lines.next(){
         let trimmed=line.trim_start();
-        if fence.is_none() && trimmed.starts_with('#'){if offset>start{ranges.push((start,offset));}offset+=line.len();ranges.push((offset-line.len(),offset));start=offset;continue;}
+        let setext=fence.is_none()&&!line.trim().is_empty()&&lines.peek().is_some_and(|next|setext_level(next).is_some());
+        if fence.is_none() && (trimmed.starts_with('#')||setext){if offset>start{ranges.push((start,offset));}let header_start=offset;offset+=line.len();if setext{offset+=lines.next().unwrap().len();}ranges.push((header_start,offset));start=offset;continue;}
         if trimmed.starts_with("```")||trimmed.starts_with("~~~"){
             let marker=&trimmed[..3];if fence==Some(marker){fence=None;}else if fence.is_none(){fence=Some(marker);}
         }
@@ -239,7 +316,7 @@ fn document_blocks(text:&str)->Vec<(usize,usize)>{
     if start<text.len(){ranges.push((start,text.len()));}ranges
 }
 
-fn role_matches(d:&Data,out:&Output,part:&ContentPart)->Result<bool,ModelError>{
+fn role_matches(d:&Data,out:&Output,part:&ContentPart,b:&ResourceBudget)->Result<bool,ModelError>{
     let unit=need(&out.units,part.unit)?;let origin=need(&out.origins,unit.origin)?;
     let maps:Vec<_>=out.part_maps.iter().filter(|m|m.part==part.id()).collect();
     let original=maps.iter().find_map(|m|m.original.map(|a|(a,m.original_start.unwrap(),m.original_end.unwrap())));
@@ -248,7 +325,16 @@ fn role_matches(d:&Data,out:&Output,part:&ContentPart)->Result<bool,ModelError>{
         Origin::Option{..}=>if original.is_some()||out.anchors.iter().all(|a|a.unit!=unit.id()){PartPurpose::Primary}else{PartPurpose::Context},
         Origin::UnavailableDefinition{..}=>PartPurpose::Context,
         Origin::Scenario{scenario}=>if original.is_some_and(|(anchor,_,_)|matches!(out.anchor_sources.get(anchor),Some(AnchorSource::Original{source})if d.evidence.spans.iter().any(|s|s.scenario==*scenario&&s.source==*source&&matches!(s.role,c1::SpanRole::Primary|c1::SpanRole::ExtractedPython)))){PartPurpose::Primary}else{PartPurpose::Context},
-        Origin::Document{..}|Origin::Passage{..}=>if original.is_none()||(part.text.as_str().trim_start().starts_with('#')||part.text.as_str().trim().is_empty()){PartPurpose::Context}else{PartPurpose::Primary},
+        Origin::Document{..}|Origin::Passage{..}=>{
+            let mut context=original.is_none()||heading_level(part.text.as_str()).is_some()||part.text.as_str().trim().is_empty();
+            if let Some((anchor,a,z))=original{
+                let anchor=need(&out.anchor_sources,anchor)?;let (artifact,_,_)=super::source::coordinates(d,anchor)?;
+                context|=matches!(anchor,AnchorSource::SpanSlice{..});
+                if let Origin::Passage{observation}=origin{let p=need(&d.source.facts.passages,*observation)?;let (source,start,_)=super::source::coordinates(d,&AnchorSource::Span{span:need(&d.source.facts.nodes,p.passage.id())?.span()})?;if p.level>0&&source==artifact&&a>=start&&z<=captured_heading_end(d,p,b)?{context=true;}}
+                for c in d.facts.components.iter().filter(|c|d.source.core.qualifications.get(c.qualification).is_some_and(|q|q.context==unit.context)){if let Some(lead)=c.lead{let (source,start,end)=super::source::coordinates(d,&AnchorSource::Span{span:lead})?;if source==artifact&&a>=start&&z<=end{context=true;}}}
+            }
+            if context{PartPurpose::Context}else{PartPurpose::Primary}
+        },
         Origin::Deployment{..}=>if original.is_some(){PartPurpose::Primary}else{PartPurpose::Context},
         Origin::Definition{..}|Origin::Source{..}=>{
             let Some((anchor,start,end))=original else{return Ok(part.purpose==PartPurpose::Context);};
@@ -272,13 +358,13 @@ fn role_matches(d:&Data,out:&Output,part:&ContentPart)->Result<bool,ModelError>{
     Ok(part.purpose==expected)
 }
 
-fn expected_originals(d:&Data,unit:&Unit,origin:&Origin)->Result<Option<Vec<AnchorSource>>,ModelError>{
+fn expected_originals(d:&Data,unit:&Unit,origin:&Origin,b:&ResourceBudget)->Result<Option<Vec<AnchorSource>>,ModelError>{
     let anchors=match origin{
         Origin::Source{artifact}=>vec![AnchorSource::Artifact{artifact:*artifact}],
         Origin::Definition{member,entity}=>{let (_,anchor,_)=definitions(d,*member,unit.context)?.into_iter().find(|(candidate,_,_)|candidate==entity).ok_or_else(||invalid("defining source candidate absent"))?;let Some(anchor)=anchor else{return Ok(Some(vec![]));};let mut headers=enclosing(d,&anchor,unit.context)?.into_iter().map(|(anchor,_)|anchor).collect::<Vec<_>>();headers.push(anchor);headers},
         Origin::Scenario{scenario}=>{let mut spans=d.evidence.spans.iter().filter(|r|r.scenario==*scenario).collect::<Vec<_>>();spans.sort_by_key(|r|(r.ordinal,r.id()));spans.into_iter().map(|r|AnchorSource::Original{source:r.source}).collect()},
         Origin::Document{observation}=>vec![AnchorSource::Artifact{artifact:d.document_source(*observation)?}],
-        Origin::Passage{observation}=>vec![AnchorSource::Span{span:need(&d.source.facts.nodes,need(&d.source.facts.passages,*observation)?.passage.id())?.span()}],
+        Origin::Passage{observation}=>passage_anchors(d,need(&d.source.facts.passages,*observation)?,b)?,
         Origin::Deployment{deployment}=>vec![AnchorSource::Span{span:need(&d.source.facts.deployment,need(&d.evidence.deployments,*deployment)?.observation)?.span}],
         Origin::Option{option}=>option_anchors(d,need(&d.source.catalog.options,*option)?)?,
         Origin::Api{..}|Origin::Release{..}|Origin::UnavailableDefinition{..}=>vec![],
@@ -286,8 +372,8 @@ fn expected_originals(d:&Data,unit:&Unit,origin:&Origin)->Result<Option<Vec<Anch
         Origin::Original{..}=>return Err(invalid("legacy original origin cannot own evidence")),
     };Ok(Some(anchors))
 }
-fn verify_original_domain(d:&Data,out:&Output,unit:&Unit)->Result<(),ModelError>{
-    let Some(expected)=expected_originals(d,unit,need(&out.origins,unit.origin)?)?else{return Ok(());};
+fn verify_original_domain(d:&Data,out:&Output,unit:&Unit,b:&ResourceBudget)->Result<(),ModelError>{
+    let Some(expected)=expected_originals(d,unit,need(&out.origins,unit.origin)?,b)?else{return Ok(());};
     let mut actual=out.anchors.iter().filter(|a|a.unit==unit.id()).collect::<Vec<_>>();actual.sort_by_key(|a|a.ordinal);
     if actual.len()!=expected.len()||actual.iter().zip(&expected).enumerate().any(|(ordinal,(a,e))|a.ordinal!=ordinal as i64||a.original!=e.id()){return Err(invalid("retrieval original anchor domain differs from source owner"));}
     for anchor in expected{let (_,start,end)=super::source::coordinates(d,&anchor)?;let mut ranges=vec![];for map in out.part_maps.iter().filter(|map|map.original==Some(anchor.id())&&out.parts.get(map.part).is_some_and(|p|p.unit==unit.id())){map.validate()?;ranges.push((map.original_start.ok_or_else(||invalid("original map start missing"))?,map.original_end.ok_or_else(||invalid("original map end missing"))?));}ranges.sort_unstable();let mut cursor=start;for(a,z)in ranges{if a>cursor||a<start||z>end{return Err(invalid("retrieval original map coverage differs from source owner"));}cursor=cursor.max(z);}if cursor!=end{return Err(invalid("retrieval required original content omitted or relabeled synthetic"));}}
@@ -296,7 +382,8 @@ fn verify_original_domain(d:&Data,out:&Output,unit:&Unit)->Result<(),ModelError>
 pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelError>{
     let definition=d.selected()?;
     definition.validate()?;
-    let _index=b.reserve("retrieval-semantic-admission",(out.parts.len()+out.windows.len()+out.part_maps.len()+out.window_maps.len()+out.bindings.len()).saturating_mul(128))?;
+    let _index=b.reserve("retrieval-semantic-admission",(out.parts.len()+out.part_contexts.len()+out.windows.len()+out.part_maps.len()+out.window_maps.len()+out.bindings.len()).saturating_mul(128))?;
+    for row in out.part_contexts.iter(){let primary=need(&out.parts,row.primary)?;let context=need(&out.parts,row.context)?;if primary.unit!=context.unit||primary.purpose!=PartPurpose::Primary||context.purpose!=PartPurpose::Context{return Err(invalid("retrieval interpretation dependency crosses unit/domain or role"));}}
     let mut rooted=std::collections::BTreeSet::new();
     for root in out.roots.iter(){
         let unit=need(&out.units,root.unit)?;
@@ -307,7 +394,7 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
     let mut used_corpus=std::collections::BTreeSet::new();
     for unit in out.units.iter(){
         if !rooted.contains(&unit.id()){return Err(invalid("retrieval unit lacks contextual root"));}
-        verify_original_domain(d,out,unit)?;
+        verify_original_domain(d,out,unit,b)?;
         let corpus=need(&out.corpus,unit.corpus)?;used_corpus.insert(corpus.id());
         if unit.family!=corpus.family{return Err(invalid("retrieval unit family differs from corpus"));}
         let mut parts:Vec<_>=out.parts.iter().filter(|p|p.unit==unit.id()).collect();parts.sort_by_key(|p|p.ordinal);
@@ -315,7 +402,7 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
         let mut reconstructed=String::new();
         for (ordinal,part) in parts.iter().enumerate(){
             part.validate()?;
-            if !role_matches(d,out,part)?{return Err(invalid("retrieval primary/context role differs from source authority"));}
+            if !role_matches(d,out,part,b)?{return Err(invalid("retrieval primary/context role differs from source authority"));}
             if part.ordinal!=ordinal as i64{return Err(invalid("retrieval content part order incomplete"));}
             if let Some(scope)=part.scope{need(&out.subjects,scope)?;}
             if part.scope!=grain_scope(d,need(&out.origins,unit.origin)?)?.map(|s|s.id()){return Err(invalid("retrieval content semantic scope differs from origin"));}
@@ -341,6 +428,9 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
             if cursor!=part.text.len() as i64{return Err(invalid("retrieval part source map domain omitted"));}
         }
         if reconstructed!=corpus.text.as_str(){return Err(invalid("retrieval content parts differ from completed corpus"));}
+        let expected=context_dependencies(d,out,unit.id(),b)?.iter().map(|r|r.id()).collect::<std::collections::BTreeSet<_>>();
+        let actual=out.part_contexts.iter().filter(|r|out.parts.get(r.primary).is_some_and(|p|p.unit==unit.id())).map(|r|r.id()).collect::<std::collections::BTreeSet<_>>();
+        if expected!=actual{return Err(invalid("retrieval interpretation dependency domain differs/omitted"));}
         let mut windows:Vec<_>=out.windows.iter().filter(|w|w.unit==unit.id()).collect();windows.sort_by_key(|w|w.ordinal);
         if windows.is_empty(){return Err(invalid("retrieval window domain omitted"));}
         let mut covered=std::collections::BTreeSet::new();
@@ -366,7 +456,10 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
                     }}
                 }
             }
-            for part in &parts{if part.purpose==PartPurpose::Context && !linked.contains(&part.id()){return Err(invalid("retrieval mandatory interpretation context omitted"));}}
+            let selected=links.iter().filter(|l|out.parts.get(l.part).is_some_and(|p|p.purpose==PartPurpose::Primary)).map(|l|l.part).collect::<std::collections::BTreeSet<_>>();
+            if selected.is_empty()&&parts.iter().any(|p|p.purpose==PartPurpose::Primary){return Err(invalid("context-only window cannot replace or extend a primary grain"));}
+            let closure=super::partition::selected_parts(out,unit.id(),&selected)?;
+            if links.iter().map(|l|l.part).collect::<Vec<_>>()!=closure.iter().map(|p|p.id()).collect::<Vec<_>>(){return Err(invalid("retrieval selected interpretation closure differs/omitted"));}
             if render.join("\n")!=window.text.as_str(){return Err(invalid("retrieval window rendering differs from selected parts"));}
             let body_start=window.input_text.as_str().find(window.text.as_str()).ok_or_else(||invalid("retrieval complete input loses rendered body"))?;
             if let Some(tokenizer)=d.tokenizer(){

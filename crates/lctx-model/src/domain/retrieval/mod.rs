@@ -13,7 +13,7 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
-pub const RENDER_VERSION: i64 = 3;
+pub const RENDER_VERSION: i64 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum Family {
@@ -166,6 +166,8 @@ pub enum AnchorSource {
     Occurrence { occurrence: Id<crate::domain::source::Occurrence> },
     #[model(code = 5)]
     OccurrenceSlice { occurrence: Id<crate::domain::source::Occurrence>, start:i64, end:i64 },
+    #[model(code = 6)]
+    SpanSlice { span: assertion::EvidenceSourceSpanId, start:i64, end:i64 },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_original_anchors")]
@@ -208,6 +210,14 @@ pub struct ContentPart {
 }
 fn validate_part(r: &ContentPart) -> Result<(),ModelError> {
     if r.ordinal < 0 || r.text.is_empty() || r.digest != ContentHash::of(r.text.as_str().as_bytes()) { return Err(build::invalid("invalid retrieval content part")); } Ok(())
+}
+/// Interpretation context required by one primary part. The owning Unit fixes input,
+/// analysis and release domain; context never creates an applicability target.
+#[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
+#[model(name="retrieval_part_contexts")]
+pub struct PartContext {
+    #[model(key)] pub primary: Id<ContentPart>,
+    #[model(key)] pub context: Id<ContentPart>,
 }
 /// None is an explicit synthetic range, never an inferred original span.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]

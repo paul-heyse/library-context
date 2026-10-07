@@ -152,6 +152,7 @@ pub enum EntityKind {
     EmbeddingProjectionDefinition = 162,
     EmbeddingFullValue = 163,
     EmbeddingProjectedValue = 164,
+    RetrievalPartContext = 165,
 }
 /// A nominal current semantic key, independent of physical family names or Arrow layout.
 fn entity_key(kind: EntityKind, domain: &str, key: &[u8; 16]) -> EntityId {
@@ -197,6 +198,7 @@ pub enum Entity {
     RetrievalWindowPart(super::retrieval::WindowPart),
     RetrievalWindowMap(super::retrieval::WindowSourceMap),
     RetrievalWindowBinding(super::retrieval::WindowBinding),
+    RetrievalPartContext(super::retrieval::PartContext),
     RetrievalDefinition(super::retrieval::RetrievalDefinition),
     AnalyticAttribute(super::analytics::Attribute),
 
@@ -455,6 +457,7 @@ macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{
     RetrievalWindowPart:RetrievalWindowPart=>$crate::domain::retrieval::WindowPart,
     RetrievalWindowMap:RetrievalWindowMap=>$crate::domain::retrieval::WindowSourceMap,
     RetrievalWindowBinding:RetrievalWindowBinding=>$crate::domain::retrieval::WindowBinding,
+    RetrievalPartContext:RetrievalPartContext=>$crate::domain::retrieval::PartContext,
     RetrievalDefinition:RetrievalDefinition=>$crate::domain::retrieval::RetrievalDefinition,
     AnalyticAttribute:AnalyticAttribute=>$crate::domain::analytics::Attribute,
 
@@ -805,6 +808,7 @@ pub fn reference_target(
     <super::retrieval::WindowPart as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalWindowPart,reference.target,&reference.key)),Some(EntityKind::RetrievalWindowPart))),
     <super::retrieval::WindowSourceMap as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalWindowMap,reference.target,&reference.key)),Some(EntityKind::RetrievalWindowMap))),
     <super::retrieval::WindowBinding as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalWindowBinding,reference.target,&reference.key)),Some(EntityKind::RetrievalWindowBinding))),
+    <super::retrieval::PartContext as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalPartContext,reference.target,&reference.key)),Some(EntityKind::RetrievalPartContext))),
     <super::retrieval::RetrievalDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalDefinition,reference.target,&reference.key)),Some(EntityKind::RetrievalDefinition))),
     <super::retrieval::consumption::RetrievalEmbeddingUse as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::retrieval::UnitRoot as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
