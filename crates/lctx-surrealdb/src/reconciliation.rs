@@ -1,10 +1,21 @@
 //! Full canonical and physical readback before a database can become a published snapshot.
-use crate::{Loader, codec, loader::json_value};
+use crate::{Loader, codec};
 use lctx_model::domain::{
     ContentHash, ContentHasher, ModelError,
     graph::{Assertion, Entity, FamilyHasher, GraphFamily, Manifest, Target},
 };
 use surrealdb::types::{Bytes, RecordId, SurrealValue, ToSql, Value, Variables};
+fn canonical_size(actual:&Value)->Result<usize,ModelError>{
+    match actual {Value::Object(object)=>match object.get("canonical"){Some(Value::Bytes(bytes))=>Ok(bytes.len()),_=>Err(ModelError::Schema("native canonical payload"))},_=>Err(ModelError::Schema("native canonical object"))}
+}
+fn decode_entity(actual:&Value)->Result<Entity,ModelError>{
+    let node=Node::from_value(actual.clone()).map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))?;
+    serde_json::from_slice(&node.canonical).map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))
+}
+fn decode_assertion(actual:&Value)->Result<Assertion,ModelError>{
+    let node=Node::from_value(actual.clone()).map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))?;
+    serde_json::from_slice(&node.canonical).map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))
+}
 #[derive(SurrealValue)]
 #[surreal(crate = "surrealdb::types")]
 struct Node {
@@ -40,16 +51,28 @@ impl Loader {
                 1,
             )?;
             let mut hasher = FamilyHasher::new(family);
-            while let Some(actual) = rows.next().await? {
+            let limits=lctx_model::domain::batching::TransferLimits::default();
+            let mut pending=rows.next().await?;
+            while let Some(first)=pending.take() {
+                let mut window=vec![first];
+                let mut bytes=canonical_size(&window[0])?;
+                while window.len()<limits.rows && bytes<limits.bytes {
+                    let Some(next)=rows.next().await? else {break;};
+                    let next_bytes=canonical_size(&next)?;
+                    if bytes.saturating_add(next_bytes)>limits.bytes {pending=Some(next);break;}
+                    bytes+=next_bytes;window.push(next);
+                }
+                let entities=if family==GraphFamily::Entities {window.iter().map(|actual|decode_entity(actual)).collect::<Result<Vec<_>,_>>()?} else {vec![]};
+                let assertions=if family==GraphFamily::Assertions {window.iter().map(|actual|decode_assertion(actual)).collect::<Result<Vec<_>,_>>()?} else {vec![]};
+                let views=if family==GraphFamily::Entities {codec::entity_views(&entities)?} else {codec::assertion_views(&assertions)?};
+                for (index,(actual,view)) in window.into_iter().zip(views).enumerate() {
                 let row = Node::from_value(actual.clone()).map_err(|_| {
                     ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
                 })?;
                 let (key, content, kind, subtype, view, canonical) = if family
                     == GraphFamily::Entities
                 {
-                    let entity: Entity = serde_json::from_slice(&row.canonical).map_err(|_| {
-                        ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
-                    })?;
+                    let entity=&entities[index];
                     entity.validate().map_err(crate::reader::canonical_error)?;
                     for (position, reference) in
                         codec::entity_references(&entity).into_iter().enumerate()
@@ -70,14 +93,11 @@ impl Loader {
                         entity.content(),
                         entity.kind() as i64,
                         entity.subtype(),
-                        codec::entity_view(&entity)?,
+                        view,
                         serde_json::to_vec(&entity).map_err(ModelError::codec)?,
                     )
                 } else {
-                    let assertion: Assertion =
-                        serde_json::from_slice(&row.canonical).map_err(|_| {
-                            ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
-                        })?;
+                    let assertion=&assertions[index];
                     assertion
                         .validate()
                         .map_err(crate::reader::canonical_error)?;
@@ -111,7 +131,7 @@ impl Loader {
                         assertion.content(),
                         assertion.kind as i64,
                         None,
-                        codec::assertion_view(&assertion)?,
+                        view,
                         serde_json::to_vec(&assertion).map_err(ModelError::codec)?,
                     )
                 };
@@ -123,7 +143,7 @@ impl Loader {
                 physical.insert("subtype", subtype.map(Value::from_t).unwrap_or(Value::Null));
                 physical.insert("content", content.hex());
                 physical.insert("canonical", Bytes::from(canonical));
-                let body = json_value(view.body)?;
+                let body = view.body;
                 add_scope_fields(&mut physical, &body, &view.semantic_type)?;
                 physical.insert("body", body);
                 if serde_json::to_vec(&actual).map_err(ModelError::codec)?
@@ -138,6 +158,8 @@ impl Loader {
                         "duplicate native canonical graph element",
                     ));
                 }
+            }
+                if pending.is_none(){pending=rows.next().await?;}
             }
             if !manifest.families.contains(&hasher.finish()) {
                 return Err(ModelError::Conflict(
@@ -238,33 +260,11 @@ impl crate::NativeReader {
         if ranges.is_empty() {
             return Ok(vec![]);
         }
-        let mut vars = Variables::new();
-        let mut clauses = vec![];
-        let mut sources = vec![];
-        for (i, (source, start, length)) in ranges.iter().enumerate() {
-            let end = start
-                .checked_add(*length as u64)
-                .filter(|end| *end <= i64::MAX as u64)
-                .ok_or(ModelError::Schema("original union byte range"))?;
-            let source = RecordId::new("original", source.0.hex());
-            sources.push(source.clone());
-            if *length == 0 {
-                continue;
-            }
-            vars.insert(format!("source_{i}"), source);
-            vars.insert(format!("start_{i}"), start / 65536 * 65536);
-            vars.insert(format!("end_{i}"), end);
-            clauses.push(format!(
-                "(source=$source_{i} AND start >= $start_{i} AND start < $end_{i})"
-            ));
-        }
-        if clauses.is_empty() {
-            return Ok(ranges.iter().map(|_| vec![]).collect());
-        }
-        let sql = format!(
-            "SELECT * FROM original_chunk WHERE {} ORDER BY source,start",
-            clauses.join(" OR ")
-        );
+        let (sources,physical)=physical_original_ranges(ranges)?;
+        if physical.is_empty(){return Ok(ranges.iter().map(|_|vec![]).collect());}
+        let mut vars=Variables::new();
+        vars.insert("chunks",physical.iter().map(|key|RecordId::new("original_chunk",key.clone())).collect::<Vec<_>>());
+        let sql="SELECT * FROM $chunks ORDER BY source,start";
         let mut response = self
             .client()
             .query(sql)
@@ -274,11 +274,7 @@ impl crate::NativeReader {
             .check()
             .map_err(ModelError::codec)?;
         let chunks: Vec<Chunk> = response.take(0).map_err(ModelError::codec)?;
-        for chunk in &chunks {
-            if ContentHash::of(&chunk.bytes).hex() != chunk.content {
-                return Err(ModelError::Conflict("original chunk content"));
-            }
-        }
+        let chunks=index_original_chunks(chunks,&physical)?;
         ranges
             .iter()
             .zip(sources)
@@ -298,36 +294,9 @@ impl crate::NativeReader {
                 "original byte page exceeds response bound".into(),
             ));
         }
-        let end = start
-            .checked_add(length as u64)
-            .ok_or(ModelError::Schema("original byte range"))?;
-        let mut bind = Variables::new();
-        bind.insert("source", RecordId::new("original", source.0.hex()));
-        bind.insert("start", start / 65536 * 65536);
-        bind.insert("end", end);
-        let mut response=self.client().query("SELECT * FROM original_chunk WHERE source=$source AND start >= $start AND start < $end ORDER BY start").bind(bind).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let chunks: Vec<Chunk> = response.take(0).map_err(ModelError::codec)?;
-        let mut result = Vec::with_capacity(length);
-        let mut position = start;
-        for chunk in chunks {
-            if ContentHash::of(&chunk.bytes).hex() != chunk.content {
-                return Err(ModelError::Conflict("original chunk content"));
-            }
-            let offset = position
-                .checked_sub(chunk.start)
-                .filter(|v| *v < chunk.bytes.len() as u64)
-                .ok_or(ModelError::Schema("original chunk continuity"))?
-                as usize;
-            let count = (end - position).min((chunk.bytes.len() - offset) as u64) as usize;
-            result.extend_from_slice(&chunk.bytes[offset..offset + count]);
-            position += count as u64;
-        }
-        if position != end {
-            return Err(ModelError::Invalid(
-                "original byte range unavailable".into(),
-            ));
-        }
-        Ok(result)
+        self.original_bytes_batch(&[(source,start,length)]).await?.pop()
+            .ok_or(ModelError::Schema("original logical result inventory"))
+
     }
 }
 
@@ -394,37 +363,76 @@ struct InventoryCount {
     total: u64,
 }
 
-fn assemble_original(
-    chunks: &[Chunk],
-    source: &RecordId,
-    start: u64,
-    length: usize,
-) -> Result<Vec<u8>, ModelError> {
-    let end = start
-        .checked_add(length as u64)
-        .ok_or(ModelError::Schema("original union bounds"))?;
-    let mut position = start;
-    let mut result = Vec::with_capacity(length);
-    for chunk in chunks.iter().filter(|chunk| {
-        chunk.source == *source
-            && chunk.start < end
-            && chunk.start + chunk.bytes.len() as u64 > start
-    }) {
-        if position == end {
-            break;
+type OriginalChunks=std::collections::BTreeMap<String,std::collections::BTreeMap<u64,Chunk>>;
+fn physical_original_ranges(ranges:&[(lctx_model::domain::graph::EntityId,u64,usize)])
+    ->Result<(Vec<RecordId>,std::collections::BTreeSet<String>),ModelError>{
+    let mut physical=std::collections::BTreeSet::new();
+    let mut sources=Vec::with_capacity(ranges.len());
+    for (source,start,length) in ranges {
+        let end=start.checked_add(*length as u64).filter(|end|*end<=i64::MAX as u64).ok_or(ModelError::Schema("original union byte range"))?;
+        let source_key=source.0.hex();sources.push(RecordId::new("original",source_key.clone()));
+        if *length==0{continue;}
+        let mut chunk=start/65536*65536;
+        while chunk<end{physical.insert(format!("{source_key}_{chunk}"));chunk=chunk.checked_add(65536).ok_or(ModelError::Schema("original chunk bounds"))?;}
+    }
+    Ok((sources,physical))
+}
+fn index_original_chunks(chunks:Vec<Chunk>,requested:&std::collections::BTreeSet<String>)->Result<OriginalChunks,ModelError>{
+    let mut index=OriginalChunks::new();
+    for chunk in chunks {
+        let surrealdb::types::RecordIdKey::String(source)=&chunk.source.key else{return Err(ModelError::Schema("original source key"));};
+        if chunk.source.table.as_str()!="original"||chunk.start%65536!=0||chunk.bytes.is_empty()||chunk.bytes.len()>65536
+            ||chunk.start.checked_add(chunk.bytes.len() as u64).is_none_or(|end|end>i64::MAX as u64)
+            ||chunk.id!=RecordId::new("original_chunk",format!("{source}_{}",chunk.start))||!requested.contains(&format!("{source}_{}",chunk.start))
+            ||ContentHash::of(&chunk.bytes).hex()!=chunk.content{return Err(ModelError::Conflict("original chunk content"));}
+        if index.entry(source.clone()).or_default().insert(chunk.start,chunk).is_some(){return Err(ModelError::Conflict("original chunk inventory"));}
+    }
+    Ok(index)
+}
+fn assemble_original(chunks:&OriginalChunks,source:&RecordId,start:u64,length:usize)->Result<Vec<u8>,ModelError>{
+    let end=start.checked_add(length as u64).ok_or(ModelError::Schema("original union bounds"))?;
+    let mut position=start;let mut result=Vec::with_capacity(length);
+    let surrealdb::types::RecordIdKey::String(source)=&source.key else{return Err(ModelError::Schema("original source key"));};
+    if let Some(chunks)=chunks.get(source){
+        for (_,chunk) in chunks.range(start/65536*65536..end){
+            if position==end{break;}
+            let offset=position.checked_sub(chunk.start).filter(|value|*value<chunk.bytes.len() as u64).ok_or(ModelError::Schema("original chunk continuity"))? as usize;
+            let count=(end-position).min((chunk.bytes.len()-offset) as u64) as usize;
+            result.extend_from_slice(&chunk.bytes[offset..offset+count]);position+=count as u64;
         }
-        let offset = position
-            .checked_sub(chunk.start)
-            .filter(|v| *v < chunk.bytes.len() as u64)
-            .ok_or(ModelError::Schema("original chunk continuity"))? as usize;
-        let count = (end - position).min((chunk.bytes.len() - offset) as u64) as usize;
-        result.extend_from_slice(&chunk.bytes[offset..offset + count]);
-        position += count as u64;
     }
-    if position != end {
-        return Err(ModelError::Invalid(
-            "original byte range unavailable".into(),
-        ));
-    }
+    if position!=end{return Err(ModelError::Invalid("original byte range unavailable".into()));}
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    use lctx_model::domain::graph::EntityId;
+    fn source(label:&[u8])->EntityId{EntityId(ContentHash::of(label))}
+    fn chunk(source:EntityId,start:u64,bytes:Vec<u8>)->Chunk{
+        Chunk{id:RecordId::new("original_chunk",format!("{}_{start}",source.0.hex())),source:RecordId::new("original",source.0.hex()),start,content:ContentHash::of(&bytes).hex(),bytes:Bytes::from(bytes)}
+    }
+    #[test]
+    fn original_union_reuses_overlapping_chunks_and_preserves_logical_order(){
+        let a=source(b"a");let b=source(b"b");
+        let ranges=[(a,65534,4),(a,7,3),(a,65534,4),(b,0,2),(a,0,0)];
+        let (sources,physical)=physical_original_ranges(&ranges).unwrap();
+        assert_eq!(physical.len(),3,"overlap and duplicates select each physical chunk once");
+        let mut first=vec![0;65536];first[7..10].copy_from_slice(b"abc");first[65534..].copy_from_slice(b"xy");
+        let index=index_original_chunks(vec![chunk(b,0,b"BB".to_vec()),chunk(a,65536,b"zw".to_vec()),chunk(a,0,first)],&physical).unwrap();
+        let results=ranges.iter().zip(sources).map(|((_,start,len),source)|assemble_original(&index,&source,*start,*len).unwrap()).collect::<Vec<_>>();
+        assert_eq!(results,vec![b"xyzw".to_vec(),b"abc".to_vec(),b"xyzw".to_vec(),b"BB".to_vec(),vec![]]);
+    }
+    #[test]
+    fn original_union_rejects_missing_corrupt_unrequested_and_duplicate_chunks(){
+        let a=source(b"integrity");let (sources,physical)=physical_original_ranges(&[(a,65535,2)]).unwrap();
+        let index=index_original_chunks(vec![chunk(a,0,vec![1;65536])],&physical).unwrap();
+        assert!(assemble_original(&index,&sources[0],65535,2).is_err());
+        let mut corrupt=chunk(a,0,vec![1;65536]);corrupt.bytes=Bytes::from(vec![2;65536]);
+        assert!(index_original_chunks(vec![corrupt],&physical).is_err());
+        assert!(index_original_chunks(vec![chunk(a,131072,vec![1])],&physical).is_err());
+        assert!(index_original_chunks(vec![chunk(a,0,vec![1]),chunk(a,0,vec![1])],&physical).is_err());
+        assert!(physical_original_ranges(&[(a,u64::MAX,1)]).is_err());
+    }
 }

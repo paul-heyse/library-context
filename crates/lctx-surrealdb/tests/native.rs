@@ -11,7 +11,7 @@ use lctx_model::domain::{
 use lctx_surrealdb::{
     Credentials, Loader, NativeEmbeddingCache, NativeReader, RecordSelection, reader,
 };
-use surrealdb::types::Variables;
+use surrealdb::types::{Bytes,Value,Variables};
 fn config() -> serde_json::Value {
     let path = std::env::var("LCTX_SURREAL_TEST_CONFIG")
         .expect("owned disposable SurrealDB configuration is required");
@@ -246,7 +246,7 @@ async fn native_binary_backed_text_matches_closed_schema() {
         .await
         .unwrap();
     assert_eq!(titles, vec!["Usage scenario 雪".to_owned()]);
-    let literal_bodies: Vec<serde_json::Value> = native
+    let literal_bodies: Vec<Value> = native
         .query(
             "SELECT VALUE body FROM entity WHERE semantic_type='literal_values' ORDER BY subtype",
             Variables::new(),
@@ -254,13 +254,12 @@ async fn native_binary_backed_text_matches_closed_schema() {
         .await
         .unwrap();
     assert_eq!(literal_bodies.len(), 2);
-    assert_eq!(literal_bodies[0]["string_value"], "exact 雪\n\0text");
-    assert!(literal_bodies[1]["string_value"].is_null());
-    assert!(
-        literal_bodies
-            .iter()
-            .all(|body| body.get("bytes_value").is_none())
-    );
+    let textual=literal_bodies[0].as_object().unwrap();
+    let opaque=literal_bodies[1].as_object().unwrap();
+    assert_eq!(textual.get("string_value"),Some(&Value::from_t("exact 雪\n\0text")));
+    assert_eq!(textual.get("bytes_value"),Some(&Value::Null));
+    assert_eq!(opaque.get("string_value"),Some(&Value::Null));
+    assert_eq!(opaque.get("bytes_value"),Some(&Value::Bytes(Bytes::from(vec![0xff,0,0x80]))));
     assert_eq!(
         native
             .records::<CorpusText>(RecordSelection::Keys(vec![*corpus.id().bytes()]))
