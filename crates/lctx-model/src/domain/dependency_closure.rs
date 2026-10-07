@@ -96,23 +96,26 @@ impl DependencyClosure {
         // Canonical value views are selected by exact typed roots, independently of the
         // vocabulary checkpoint. Keep all declared views; inference cannot choose by recency.
         let mut declared_views = BTreeMap::<_, BTreeSet<_>>::new();
-        for (name, epoch) in roots.iter().map(|r| (r.name(), r.prefix()))
+        for (name, epoch) in roots
+            .iter()
+            .map(|r| (r.name(), r.prefix()))
             .chain(direct.iter().map(|r| (r.name(), r.prefix())))
         {
-            if is_epoch_shared(name) && !is_vocabulary(name) && let Some(epoch) = epoch {
+            if is_epoch_shared(name)
+                && !is_vocabulary(name)
+                && let Some(epoch) = epoch
+            {
                 declared_views.entry(name).or_default().insert(epoch);
             }
         }
-        let selected_view = |name, views: Option<&BTreeSet<PublicationBoundary>>| {
-            match views {
-                Some(views) if views.len() == 1 => Ok(*views.first().expect("one view")),
-                Some(_) => Err(ModelError::Invalid(format!(
-                    "ambiguous canonical dependency view: {name}"
-                ))),
-                None => Err(ModelError::Invalid(format!(
-                    "canonical dependency needs an explicit view: {name}"
-                ))),
-            }
+        let selected_view = |name, views: Option<&BTreeSet<PublicationBoundary>>| match views {
+            Some(views) if views.len() == 1 => Ok(*views.first().expect("one view")),
+            Some(_) => Err(ModelError::Invalid(format!(
+                "ambiguous canonical dependency view: {name}"
+            ))),
+            None => Err(ModelError::Invalid(format!(
+                "canonical dependency needs an explicit view: {name}"
+            ))),
         };
         let resolve = |mut input: ValidationInput| -> Result<ValidationInput, ModelError> {
             if is_epoch_shared(input.name()) {
@@ -160,10 +163,14 @@ impl DependencyClosure {
             for id in row.invariant_refs() {
                 let invariant = model.invariant(id)?;
                 for required in &invariant.inputs {
-                    if is_epoch_shared(required.name()) && !is_vocabulary(required.name())
+                    if is_epoch_shared(required.name())
+                        && !is_vocabulary(required.name())
                         && let Some(epoch) = required.prefix()
                     {
-                        owner_views.entry(required.name()).or_default().insert(epoch);
+                        owner_views
+                            .entry(required.name())
+                            .or_default()
+                            .insert(epoch);
                     }
                     premises.push(required.clone());
                 }
@@ -214,8 +221,12 @@ impl DependencyClosure {
             if is_epoch_shared(grant.name()) {
                 let epoch = match grant.prefix() {
                     Some(epoch) => epoch,
-                    None => resolve(ValidationInput::of_relation(relation(grant.name())?, &["id"]))?
-                        .prefix().expect("resolved shared grant"),
+                    None => resolve(ValidationInput::of_relation(
+                        relation(grant.name())?,
+                        &["id"],
+                    ))?
+                    .prefix()
+                    .expect("resolved shared grant"),
                 };
                 grant = grant.at_epoch(epoch);
             }

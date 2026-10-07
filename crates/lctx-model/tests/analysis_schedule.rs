@@ -4,9 +4,12 @@ use lctx_model::domain::{analysis, stages::*, *};
 fn upper_frontiers_have_one_actual_writer_for_every_relation() {
     let model = model().unwrap();
     catalog::build::CatalogData::scoped_field_bindings(
-        &model, &catalog::build::CatalogData::validation_inputs()).unwrap();
-    retrieval::build::Data::scoped_field_bindings(
-        &model, &retrieval::build::Data::inputs()).unwrap();
+        &model,
+        &catalog::build::CatalogData::validation_inputs(),
+    )
+    .unwrap();
+    retrieval::build::Data::scoped_field_bindings(&model, &retrieval::build::Data::inputs())
+        .unwrap();
     let b = resources::ResourceBudget::fixed(1 << 28).unwrap();
     let catalog = models::Catalog::committed().unwrap();
     let settings = analysis::settings::AnalyticsConfiguration {

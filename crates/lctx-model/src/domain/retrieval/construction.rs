@@ -3,11 +3,22 @@ use super::*;
 use crate::domain::{normalized::entities::*, resources::ResourceBudget};
 use build::{Data, Output, invalid, need};
 
+/// Defining entity, available original anchor and exact-resolution status.
+pub(super) type DefiningSource = (Id<EntityRef>, Option<AnchorSource>, bool);
+/// Rendered byte range, original anchor/offset and primary or contextual purpose.
+type ContentSegment = (
+    usize,
+    usize,
+    Option<Id<AnchorSource>>,
+    Option<i64>,
+    PartPurpose,
+);
+
 pub(super) fn definitions(
     d: &Data,
     member: Id<catalog::CatalogMember>,
     context: Id<AnalysisContext>,
-) -> Result<Vec<(Id<EntityRef>, Option<AnchorSource>, bool)>, ModelError> {
+) -> Result<Vec<DefiningSource>, ModelError> {
     let mut result = std::collections::BTreeMap::new();
     for candidate in d.source.catalog.candidates.iter() {
         let exposure = need(&d.source.catalog.exposures, candidate.exposure)?;
@@ -385,10 +396,10 @@ pub(super) fn nominates_part(
     if part.purpose != PartPurpose::Primary {
         return Ok(false);
     }
-    if let Some(q) = n.qualification {
-        if need(&d.source.core.qualifications, q)?.context != need(&out.units, part.unit)?.context {
-            return Ok(false);
-        }
+    if let Some(q) = n.qualification
+        && need(&d.source.core.qualifications, q)?.context != need(&out.units, part.unit)?.context
+    {
+        return Ok(false);
     }
     let Some((artifact, start, end)) = n.range else {
         return Ok(true);
@@ -461,13 +472,7 @@ pub(super) fn parts(
     let mut anchors: Vec<_> = out.anchors.iter().filter(|a| a.unit == unit).collect();
     anchors.sort_by_key(|a| a.ordinal);
     let has_anchors = !anchors.is_empty();
-    let mut segments: Vec<(
-        usize,
-        usize,
-        Option<Id<AnchorSource>>,
-        Option<i64>,
-        PartPurpose,
-    )> = vec![];
+    let mut segments: Vec<ContentSegment> = vec![];
     let mut cursor = 0;
     for original in anchors.into_iter().map(|a| a.original) {
         let anchor = need(&out.anchor_sources, original)?;
@@ -525,7 +530,8 @@ pub(super) fn parts(
             if matches!(
                 origin,
                 Origin::Api { .. } | Origin::Brief { .. } | Origin::Release { .. }
-            ) || (matches!(origin, Origin::Option { .. }) && !has_anchors) {
+            ) || (matches!(origin, Origin::Option { .. }) && !has_anchors)
+            {
                 PartPurpose::Primary
             } else {
                 PartPurpose::Context
@@ -1350,10 +1356,10 @@ pub(super) fn verify(out: &Output, d: &Data, b: &ResourceBudget) -> Result<(), M
                     "retrieval content semantic scope differs from origin",
                 ));
             }
-            if let Some(q) = part.qualification {
-                if need(&d.source.core.qualifications, q)?.context != unit.context {
-                    return Err(invalid("retrieval content qualification changed context"));
-                }
+            if let Some(q) = part.qualification
+                && need(&d.source.core.qualifications, q)?.context != unit.context
+            {
+                return Err(invalid("retrieval content qualification changed context"));
             }
             reconstructed.push_str(part.text.as_str());
             let maps = part_maps.get(&part.id()).map(Vec::as_slice).unwrap_or(&[]);

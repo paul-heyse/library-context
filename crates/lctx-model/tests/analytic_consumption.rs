@@ -3,7 +3,7 @@
 mod fixture;
 use fixture::*;
 use lctx_model::domain::{
-    embedding::{analytic::*, consumption::*, projection::*, value::*, *},
+    embedding::{analytic::*, consumption::*, projection::*, value::*},
     normalized::Rows,
     resources::ResourceBudget,
     *,

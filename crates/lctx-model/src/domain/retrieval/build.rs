@@ -706,7 +706,8 @@ impl Data {
         inputs: &[ValidationInput],
     ) -> Result<Vec<Vec<Option<usize>>>, ModelError> {
         catalog::build::scoped_field_bindings(model, inputs, &Self::inputs(), |source, field| {
-            (source.type_id() == std::any::TypeId::of::<synthesis::documentary::DocumentaryConclusion>()
+            (source.type_id()
+                == std::any::TypeId::of::<synthesis::documentary::DocumentaryConclusion>()
                 && field.name() == "qualification")
                 || (source.type_id() == std::any::TypeId::of::<assertion::AssertionQualification>()
                     && matches!(field.name(), "condition" | "assumptions"))

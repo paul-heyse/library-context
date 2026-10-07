@@ -166,12 +166,11 @@ fn plan(inputs: &[ValidationInput], tables: &[ClosureTable]) -> Result<NominalCl
     let memberships = build::memberships();
     for (source, table) in tables.iter().enumerate() {
         for field in table.relation.fields() {
-            if memberships.contains(&(table.relation.type_id(), field.name())) {
-                if let Some((target, _)) = field.target() {
-                    if let Some(target) = retrieval_field_target(inputs, source, target)? {
-                        plan.own(source, field.name(), target)?;
-                    }
-                }
+            if memberships.contains(&(table.relation.type_id(), field.name()))
+                && let Some((target, _)) = field.target()
+                && let Some(target) = retrieval_field_target(inputs, source, target)?
+            {
+                plan.own(source, field.name(), target)?;
             }
         }
     }
@@ -654,8 +653,8 @@ mod controls {
         };
         let corpus = corpus("complete grain");
         let valid = unit(corpus.id());
-        install(&session, "roots", &[root.clone()]);
-        install(&session, "units", &[valid.clone()]);
+        install(&session, "roots", std::slice::from_ref(&root));
+        install(&session, "units", std::slice::from_ref(&valid));
         install::<retrieval::UnitRoot>(&session, "unit_roots", &[]);
         assert!(
             verify_root_domain(&session, "roots", "unit_roots", "units", &cancellation)
@@ -751,8 +750,8 @@ mod controls {
                 );
             };
         }
-        put!(retrieval::Unit, &[unit.clone()]);
-        put!(retrieval::CorpusText, &[corpus.clone()]);
+        put!(retrieval::Unit, std::slice::from_ref(&unit));
+        put!(retrieval::CorpusText, std::slice::from_ref(&corpus));
         put!(retrieval::ContentPart, &[part.clone(), context.clone()]);
         put!(
             retrieval::PartContext,
@@ -761,7 +760,7 @@ mod controls {
                 context: context.id()
             }]
         );
-        put!(retrieval::SearchWindow, &[window.clone()]);
+        put!(retrieval::SearchWindow, std::slice::from_ref(&window));
         put!(
             retrieval::PartSourceMap,
             &[

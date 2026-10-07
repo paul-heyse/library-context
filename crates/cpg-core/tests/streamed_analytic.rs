@@ -590,7 +590,7 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
             assert_eq!(row.availability, VectorAvailability::Available);
             count += 1;
             let receipt = (row.admitted_tokens, row.value, row.projection);
-            if let Some(first) = receipts.insert(row.input, receipt.clone()) {
+            if let Some(first) = receipts.insert(row.input, receipt) {
                 assert_eq!(first, receipt);
             }
         }

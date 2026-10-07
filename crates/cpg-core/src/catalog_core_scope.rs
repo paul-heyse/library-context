@@ -354,9 +354,15 @@ mod controls {
         }
         let expected = catalog::build::build(&all, &budget).unwrap();
         drop(all);
-        let prepared = CatalogScopes::prepare_bound(inputs.clone(), tables, &lctx_model::domain::model().unwrap(), &session, &budget)
-            .await
-            .unwrap();
+        let prepared = CatalogScopes::prepare_bound(
+            inputs.clone(),
+            tables,
+            &lctx_model::domain::model().unwrap(),
+            &session,
+            &budget,
+        )
+        .await
+        .unwrap();
         let mut actual = catalog::build::CatalogOutput::new(&budget);
         for name in &names {
             let predicate = format!(

@@ -4,6 +4,8 @@ use lctx_model::domain::{
     analysis::analytic_embedding::{AnalysisInvocation, AnalysisOutcome},
     embedding::{
         analytic::{self, AnalysisEmbeddingUse, ConsumptionData, VectorAvailability},
+        consumption::{PublishedValue, SelectedConsumption},
+        projection::{self as embedding_projection, ProjectedValue},
         text::*,
         value::*,
         *,
@@ -38,13 +40,16 @@ impl Fixture {
     fn new(budget: &ResourceBudget, missing: bool) -> Self {
         let mut data = ConsumptionData::new(budget);
         let spec = spec();
-        let specification = EmbeddingSpec::new(&spec).unwrap();
+        let configuration =
+            configuration::Configuration::new(&spec, "fixture://unit-vectors", budget).unwrap();
+        let specification = configuration.row().clone();
+        let document = configuration.document().clone();
+        let projection = configuration.projection().clone();
         data.specifications.insert(specification.clone()).unwrap();
+        data.documents.insert(document.clone()).unwrap();
+        data.projections.insert(projection.clone()).unwrap();
         data.services
-            .insert(configuration::ServiceConfiguration {
-                specification: specification.id(),
-                endpoint: "fixture://unit-vectors".into(),
-            })
+            .insert(configuration.service().clone())
             .unwrap();
         let definition = TextDefinition {
             requested: true,
@@ -108,21 +113,38 @@ impl Fixture {
                         input: input_hash(&spec.document_text(&text)),
                         availability: VectorAvailability::ServiceUnavailable,
                         admitted_tokens: None,
-                        codec: None,
-                        value_digest: None,
-                        bytes: None,
+                        document: document.id(),
+                        value: None,
+                        projection: None,
                     })
                     .unwrap();
                 } else {
                     let value =
                         AdmittedValue::new(&spec, &spec.document_text(&text), 4, vector, budget)
                             .unwrap();
+                    let (full, projected) =
+                        embedding_projection::admit(&specification, &value, &projection).unwrap();
+                    data.values
+                        .admit_full(&full, &specification, &projection)
+                        .unwrap();
+                    data.values.admit_projection(&projected).unwrap();
+                    let published = PublishedValue {
+                        value: full.id(),
+                        projection: projected.id(),
+                        input: full.input,
+                        tokens: 4,
+                    };
+                    data.projected_values.insert(projected).unwrap();
                     AnalysisEmbeddingUse::admit_into(
                         &mut uses,
                         invocation.id(),
                         window.id(),
-                        &specification,
-                        &value,
+                        SelectedConsumption {
+                            encoder: &specification,
+                            document: &document,
+                            projection: &projection,
+                        },
+                        &published,
                         budget,
                     )
                     .unwrap();
@@ -261,18 +283,33 @@ fn work_bounds_missing_windows_and_invalid_universes_never_fabricate_zero_vector
 #[test]
 fn malformed_shapes_and_payloads_refuse_before_any_similarity() {
     let budget = ResourceBudget::fixed(1 << 22).unwrap();
-    let fixture = Fixture::new(&budget, false);
+    let mut fixture = Fixture::new(&budget, false);
+    let projection = fixture.data.projected_values.iter().next().unwrap().clone();
+    for corruption in 0..3 {
+        let mut row = projection.clone();
+        match corruption {
+            0 => row.bytes.0.truncate(4),
+            1 => row.bytes.0[..4].copy_from_slice(&f32::NAN.to_le_bytes()),
+            _ => row.digest = ContentHash::of(b"bad"),
+        }
+        // Payloads now belong to canonical projections. Both typed row retention and the
+        // shared full/projection admission must refuse corruption before kernel preparation.
+        assert!(
+            Rows::<ProjectedValue>::new(&budget)
+                .insert(row.clone())
+                .is_err()
+        );
+        assert!(fixture.data.values.admit_projection(&row).is_err());
+    }
     for corruption in 0..3 {
         let mut bad = Rows::new(&budget);
         for (n, row) in fixture.uses.iter().enumerate() {
             let mut row = row.clone();
             if n == 0 {
                 match corruption {
-                    0 => row.bytes.as_mut().unwrap().0.truncate(4),
-                    1 => {
-                        row.bytes.as_mut().unwrap().0[..4].copy_from_slice(&f32::NAN.to_le_bytes());
-                    }
-                    _ => row.value_digest = Some(ContentHash::of(b"bad")),
+                    0 => row.value = Some(id(90)),
+                    1 => row.projection = Some(id(91)),
+                    _ => row.input = ContentHash::of(b"bad"),
                 }
             }
             bad.insert(row).unwrap();

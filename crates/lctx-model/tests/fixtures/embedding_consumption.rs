@@ -153,9 +153,9 @@ pub fn visit<R: Record>(check: &mut dyn InvariantCheck, rows: &[R]) -> Result<()
 pub fn admission(f: &Fixture, b: &ResourceBudget) -> Box<dyn InvariantCheck> {
     let invariant = embedding::analytic::invariants().remove(0);
     let mut check = (invariant.create)(b);
-    visit(&mut *check, &[f.encoder.clone()]).unwrap();
-    visit(&mut *check, &[f.document.clone()]).unwrap();
-    visit(&mut *check, &[f.policy.clone()]).unwrap();
+    visit(&mut *check, std::slice::from_ref(&f.encoder)).unwrap();
+    visit(&mut *check, std::slice::from_ref(&f.document)).unwrap();
+    visit(&mut *check, std::slice::from_ref(&f.policy)).unwrap();
     for s in f.data.services.iter() {
         visit(&mut *check, std::slice::from_ref(s)).unwrap();
     }

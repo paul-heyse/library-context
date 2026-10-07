@@ -210,10 +210,15 @@ impl Preparation {
         let passage = typed::<documents::PassageObservation>(inputs)?;
         let nodes = typed::<documents::DocumentNode>(inputs)?;
         let evidence = typed::<assertion::Evidence>(inputs)?;
-        let qualifications = inputs.iter().position(|input|
-            input.type_id() == TypeId::of::<assertion::AssertionQualification>()
-                && input.prefix() == Some(stages::PublicationBoundary::Facts))
-            .ok_or(ModelError::Conflict("E0 passage Facts qualification reader absent"))?;
+        let qualifications = inputs
+            .iter()
+            .position(|input| {
+                input.type_id() == TypeId::of::<assertion::AssertionQualification>()
+                    && input.prefix() == Some(stages::PublicationBoundary::Facts)
+            })
+            .ok_or(ModelError::Conflict(
+                "E0 passage Facts qualification reader absent",
+            ))?;
         plan.pairs(root,passage,format!("SELECT r.id AS source_id,p.id AS target_id FROM {} r JOIN {} s ON r.subject=s.id JOIN {} d ON s.document_observation=d.id JOIN {} e ON e.sourcespan_source=d.source JOIN {} n ON n.passage_span=e.id JOIN {} p ON p.passage=n.id JOIN {} q ON p.qualification=q.id WHERE q.context=r.context",identifier(&tables[root_table].alias),identifier(&tables[subjects].alias),identifier(&tables[document].alias),identifier(&tables[evidence].alias),identifier(&tables[nodes].alias),identifier(&tables[passage].alias),identifier(&tables[qualifications].alias)))?;
         let mention = typed::<documents::DocumentMentionObservation>(inputs)?;
         let assessments = typed::<normalized::links::MentionEntityAssessment>(inputs)?;
@@ -746,10 +751,15 @@ mod controls {
             .definitions
             .insert(retrieval::Definition::builtin(false))
             .unwrap();
-        let (edges, root_index, brief) =
-            Preparation::prepare_bound(&inputs, &tables, &lctx_model::domain::model().unwrap(), &session, &budget)
-                .await
-                .unwrap();
+        let (edges, root_index, brief) = Preparation::prepare_bound(
+            &inputs,
+            &tables,
+            &lctx_model::domain::model().unwrap(),
+            &session,
+            &budget,
+        )
+        .await
+        .unwrap();
         let preparation = Preparation {
             metadata,
             session,

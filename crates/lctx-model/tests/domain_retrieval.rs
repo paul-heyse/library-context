@@ -891,19 +891,35 @@ fn anchored_option_separators_are_context_and_cannot_nominate_applicability() {
     let (b, mut d, member, _) = fixture();
     let bytes = b"def run(red: int = 2):\n    pass\n";
     let source = artifact(&mut d, id(1), "option.py", bytes);
-    let qualification = d.source.core.qualifications.insert(AssertionQualification {
-        assumptions: assumptions::AssumptionSet::empty_id(),
-        context: id(2),
-        scope: CoverageScope::Artifact { artifact: source.id() }.id(),
-        condition: conditions::Diagram::always().id(),
-        modality: Modality::Definite,
-        approximation: Approximation::Exact,
-    }).unwrap();
+    let qualification = d
+        .source
+        .core
+        .qualifications
+        .insert(AssertionQualification {
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            context: id(2),
+            scope: CoverageScope::Artifact {
+                artifact: source.id(),
+            }
+            .id(),
+            condition: conditions::Diagram::always().id(),
+            modality: Modality::Definite,
+            approximation: Approximation::Exact,
+        })
+        .unwrap();
     let mut occurrence = |start, end, syntax_kind, path| {
-        d.source.core.occurrences.insert(Occurrence {
-            source: source.id(), start, end, syntax_kind,
-            role: OccurrenceRole::Syntax, structural_path: vec![path],
-        }).unwrap()
+        d.source
+            .core
+            .occurrences
+            .insert(Occurrence {
+                source: source.id(),
+                start,
+                end,
+                syntax_kind,
+                role: OccurrenceRole::Syntax,
+                structural_path: vec![path],
+            })
+            .unwrap()
     };
     let function = occurrence(0, bytes.len() as i64, SyntaxKind::StmtFunctionDef, 0);
     // The canonical ParameterWithDefault includes its annotation/default; their own anchors
@@ -912,33 +928,88 @@ fn anchored_option_separators_are_context_and_cannot_nominate_applicability() {
     let formal = occurrence(8, 16, SyntaxKind::Parameter, 2);
     let annotation = occurrence(13, 16, SyntaxKind::ExprName, 3);
     let default = occurrence(19, 20, SyntaxKind::ExprNumberLiteral, 4);
-    let literal = d.facts.literals.insert(Literal::Integer { decimal: "2".into() }).unwrap();
-    let syntax = d.source.core.parameter_syntax.insert(syntax::ParameterSyntaxObservation {
-        qualification, function, parameter, ordinal: 0,
-        kind: calls::ParameterKind::PositionalOrKeyword,
-        default: Some(default), default_literal: Some(literal), annotation: Some(annotation),
-    }).unwrap();
-    let parameter = d.source.core.parameters.insert(normalized::entities::ParameterEntity::Source {
-        declaration: formal,
-    }).unwrap();
-    let subject = d.source.catalog.subjects.insert(catalog::CatalogOptionSubject::SourceParameter {
-        parameter,
-    }).unwrap();
-    let evidence = d.source.catalog.evidence.insert(catalog::CatalogOptionEvidence::SourceParameter {
-        syntax, placement: None,
-    }).unwrap();
-    let default = d.source.catalog.defaults.insert(catalog::CatalogDefault::Literal { literal }).unwrap();
-    let option = d.source.catalog.options.insert(catalog::CatalogOption {
-        member, subject, evidence, default,
-    }).unwrap();
-    let subject = d.evidence.subjects.insert(c1::RootSubject::Option { option }).unwrap();
-    let root = d.evidence.roots.insert(c1::EvidenceRoot {
-        input: source.input, context: id(2), subject,
-    }).unwrap();
+    let literal = d
+        .facts
+        .literals
+        .insert(Literal::Integer {
+            decimal: "2".into(),
+        })
+        .unwrap();
+    let syntax = d
+        .source
+        .core
+        .parameter_syntax
+        .insert(syntax::ParameterSyntaxObservation {
+            qualification,
+            function,
+            parameter,
+            ordinal: 0,
+            kind: calls::ParameterKind::PositionalOrKeyword,
+            default: Some(default),
+            default_literal: Some(literal),
+            annotation: Some(annotation),
+        })
+        .unwrap();
+    let parameter = d
+        .source
+        .core
+        .parameters
+        .insert(normalized::entities::ParameterEntity::Source {
+            declaration: formal,
+        })
+        .unwrap();
+    let subject = d
+        .source
+        .catalog
+        .subjects
+        .insert(catalog::CatalogOptionSubject::SourceParameter { parameter })
+        .unwrap();
+    let evidence = d
+        .source
+        .catalog
+        .evidence
+        .insert(catalog::CatalogOptionEvidence::SourceParameter {
+            syntax,
+            placement: None,
+        })
+        .unwrap();
+    let default = d
+        .source
+        .catalog
+        .defaults
+        .insert(catalog::CatalogDefault::Literal { literal })
+        .unwrap();
+    let option = d
+        .source
+        .catalog
+        .options
+        .insert(catalog::CatalogOption {
+            member,
+            subject,
+            evidence,
+            default,
+        })
+        .unwrap();
+    let subject = d
+        .evidence
+        .subjects
+        .insert(c1::RootSubject::Option { option })
+        .unwrap();
+    let root = d
+        .evidence
+        .roots
+        .insert(c1::EvidenceRoot {
+            input: source.input,
+            context: id(2),
+            subject,
+        })
+        .unwrap();
     let out = retrieval::build::root(&d, root, &b).unwrap();
     out.verify_completion(&d, &b).unwrap();
     let unit = out.units.iter().next().unwrap();
-    assert!(matches!(out.origins.get(unit.origin), Some(retrieval::Origin::Option { option: owner }) if *owner == option));
+    assert!(
+        matches!(out.origins.get(unit.origin), Some(retrieval::Origin::Option { option: owner }) if *owner == option)
+    );
     let mut parts = out.parts.iter().collect::<Vec<_>>();
     parts.sort_by_key(|part| part.ordinal);
     let separator = parts.last().unwrap();
@@ -946,36 +1017,65 @@ fn anchored_option_separators_are_context_and_cannot_nominate_applicability() {
     assert_eq!(separator.purpose, PartPurpose::Context);
     let mut mapped = 0;
     for part in &parts {
-        let map = out.part_maps.iter().find(|map| map.part == part.id()).unwrap();
+        let map = out
+            .part_maps
+            .iter()
+            .find(|map| map.part == part.id())
+            .unwrap();
         if let Some(original) = map.original {
             mapped += 1;
             assert_eq!(part.purpose, PartPurpose::Primary);
-            let (artifact, start, end) = retrieval::source::coordinates(&d, out.anchor_sources.get(original).unwrap()).unwrap();
+            let (artifact, start, end) =
+                retrieval::source::coordinates(&d, out.anchor_sources.get(original).unwrap())
+                    .unwrap();
             assert_eq!(artifact, source.id());
             assert_eq!(map.original_start, Some(start));
             assert_eq!(map.original_end, Some(end));
-            assert_eq!(part.text.as_str().as_bytes(), &bytes[start as usize..end as usize]);
+            assert_eq!(
+                part.text.as_str().as_bytes(),
+                &bytes[start as usize..end as usize]
+            );
         } else {
             assert_eq!(part.purpose, PartPurpose::Context);
         }
     }
     assert_eq!(mapped, 3);
-    assert!(!out.bindings.is_empty(), "captured option parts must nominate their actual subjects");
-    assert!(out.bindings.iter().all(|binding| out.parts.get(binding.part).unwrap().purpose == PartPurpose::Primary));
-    assert!(out.bindings.iter().all(|binding| binding.part != separator.id()));
-    assert_eq!(parts.iter().map(|part| part.text.as_str()).collect::<String>(),
-        "pkg.api.run\nOption original source parameter: default=Literal 2\nred: int = 2\nint\n2\n");
+    assert!(
+        !out.bindings.is_empty(),
+        "captured option parts must nominate their actual subjects"
+    );
+    assert!(
+        out.bindings
+            .iter()
+            .all(|binding| out.parts.get(binding.part).unwrap().purpose == PartPurpose::Primary)
+    );
+    assert!(
+        out.bindings
+            .iter()
+            .all(|binding| binding.part != separator.id())
+    );
+    assert_eq!(
+        parts
+            .iter()
+            .map(|part| part.text.as_str())
+            .collect::<String>(),
+        "pkg.api.run\nOption original source parameter: default=Literal 2\nred: int = 2\nint\n2\n"
+    );
 
     let separator = separator.id();
     let mut forged = retrieval::build::root(&d, root, &b).unwrap();
     let rows = forged.parts.iter().cloned().collect::<Vec<_>>();
     forged.parts = Rows::new(&b);
     for mut row in rows {
-        if row.id() == separator { row.purpose = PartPurpose::Primary; }
+        if row.id() == separator {
+            row.purpose = PartPurpose::Primary;
+        }
         forged.parts.insert(row).unwrap();
     }
     let rejection = forged.verify_completion(&d, &b).unwrap_err();
-    assert!(matches!(&rejection,
+    assert!(
+        matches!(&rejection,
         ModelError::Invalid(message) if message == "retrieval interpretation dependency crosses unit/domain or role"),
-        "an unmapped synthetic separator cannot become primary evidence: {rejection:?}");
+        "an unmapped synthetic separator cannot become primary evidence: {rejection:?}"
+    );
 }

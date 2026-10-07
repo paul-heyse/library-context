@@ -2,11 +2,7 @@
 #[path = "fixtures/embedding_consumption.rs"]
 mod fixture;
 use fixture::*;
-use lctx_model::domain::{
-    embedding::{text::*, *},
-    resources::ResourceBudget,
-    *,
-};
+use lctx_model::domain::{embedding::text::*, resources::ResourceBudget, *};
 #[test]
 fn streamed_consumption_admits_actual_full_projection_before_references() {
     let b = ResourceBudget::fixed(8 << 20).unwrap();

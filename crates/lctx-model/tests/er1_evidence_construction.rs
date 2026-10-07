@@ -785,26 +785,28 @@ fn documentary_source_bindings_require_primary_originals_without_api_nomination(
     }
 }
 
+struct PassageSource<'a> {
+    artifact: &'a SourceArtifact,
+    qualification: Id<AssertionQualification>,
+    range: std::ops::Range<i64>,
+}
 fn passage(
     d: &mut Data,
-    source: &SourceArtifact,
-    q: Id<AssertionQualification>,
-    start: i64,
-    end: i64,
+    source: &PassageSource<'_>,
     level: i64,
     heading: Option<&str>,
     path: &[&str],
 ) -> Id<documents::PassageObservation> {
     let span = Evidence::SourceSpan {
-        source: source.id(),
-        start,
-        end,
+        source: source.artifact.id(),
+        start: source.range.start,
+        end: source.range.end,
     };
     let span_id = EvidenceSourceSpanId::of(&span).unwrap();
     d.source.facts.canonical_evidence.insert(span).unwrap();
     let node = documents::DocumentNode::Passage {
         span: span_id,
-        ordinal: start,
+        ordinal: source.range.start,
     };
     let passage = documents::DocumentNodePassageId::of(&node).unwrap();
     d.source.facts.nodes.insert(node).unwrap();
@@ -812,7 +814,7 @@ fn passage(
         .facts
         .passages
         .insert(documents::PassageObservation {
-            qualification: q,
+            qualification: source.qualification,
             passage,
             level,
             heading: heading.map(str::to_owned),
@@ -953,23 +955,35 @@ fn captured_passage_ancestry_retains_only_real_heading_prefixes() {
     let q = qualification(&mut d, &source);
     let target_start = text.find("## Target").unwrap() as i64;
     let sibling_start = text.find("## Sibling").unwrap() as i64;
-    passage(&mut d, &source, q, 0, target_start, 1, Some("Root"), &[]);
+    passage(
+        &mut d,
+        &PassageSource {
+            artifact: &source,
+            qualification: q,
+            range: 0..target_start,
+        },
+        1,
+        Some("Root"),
+        &[],
+    );
     let target = passage(
         &mut d,
-        &source,
-        q,
-        target_start,
-        sibling_start,
+        &PassageSource {
+            artifact: &source,
+            qualification: q,
+            range: target_start..sibling_start,
+        },
         2,
         Some("Target"),
         &["Root"],
     );
     passage(
         &mut d,
-        &source,
-        q,
-        sibling_start,
-        source.byte_len,
+        &PassageSource {
+            artifact: &source,
+            qualification: q,
+            range: sibling_start..source.byte_len,
+        },
         2,
         Some("Sibling"),
         &["Root"],
@@ -1138,7 +1152,17 @@ fn captured_component_key_and_table_leads_apply_only_to_enclosed_primary() {
         "<Table key=\"t\">\n\n<Row key=\"r\">\n\nCELL\n\n</Row>\n\n</Table>\n\nUnrelated body\n";
     let source = artifact(&mut d, text, "guide.mdx");
     let q = qualification(&mut d, &source);
-    let observation = passage(&mut d, &source, q, 0, source.byte_len, 0, None, &[]);
+    let observation = passage(
+        &mut d,
+        &PassageSource {
+            artifact: &source,
+            qualification: q,
+            range: 0..source.byte_len,
+        },
+        0,
+        None,
+        &[],
+    );
     let passage = d.source.facts.passages.get(observation).unwrap().passage;
     let mut parent = None;
     for (ordinal, (start, end, lead_end)) in [

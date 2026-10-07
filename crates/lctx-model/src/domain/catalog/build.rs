@@ -24,11 +24,16 @@ impl CatalogData {
         model: &ValidatedModel,
         inputs: &[ValidationInput],
     ) -> Result<Vec<Vec<Option<usize>>>, ModelError> {
-        scoped_field_bindings(model, inputs, &Self::validation_inputs(), |source, field| {
-            // C0 reads qualification context/scope properties, not ConditionsData or assumptions.
-            source.type_id() == std::any::TypeId::of::<assertion::AssertionQualification>()
-                && matches!(field.name(), "condition" | "assumptions")
-        })
+        scoped_field_bindings(
+            model,
+            inputs,
+            &Self::validation_inputs(),
+            |source, field| {
+                // C0 reads qualification context/scope properties, not ConditionsData or assumptions.
+                source.type_id() == std::any::TypeId::of::<assertion::AssertionQualification>()
+                    && matches!(field.name(), "condition" | "assumptions")
+            },
+        )
     }
 }
 
@@ -41,50 +46,95 @@ pub(crate) fn scoped_field_bindings(
     omit: impl Fn(&ValidationInput, &Field) -> bool,
 ) -> Result<Vec<Vec<Option<usize>>>, ModelError> {
     use stages::{PublicationBoundary, is_epoch_shared, is_vocabulary};
-    if inputs.len() != declared.len() || declared.iter().any(|required|
-        inputs.iter().filter(|input| input.type_id() == required.type_id()
-            && input.prefix() == required.prefix()).count() != 1) {
-        return Err(ModelError::Conflict("scoped declared immutable reader absent or ambiguous"));
-    }
-    inputs.iter().map(|source| {
-        if !declared.iter().any(|input| input.type_id() == source.type_id()
-            && input.prefix() == source.prefix()) {
-            return Err(ModelError::Conflict("scoped source immutable reader"));
-        }
-        let relation = model.relation(source.name())
-            .filter(|relation| relation.type_id() == source.type_id())
-            .ok_or(ModelError::Schema("scoped source model relation"))?;
-        relation.fields().iter().map(|field| {
-            let Some((kind, name)) = field.target() else { return Ok(None); };
-            if omit(source, field) { return Ok(None); }
-            // Ordinary companions absent from the owner's declared property inventory are
-            // outside this read grain. Shared companions use the same explicit inventory rule.
-            if !declared.iter().any(|input| input.type_id() == kind) { return Ok(None); }
-            let prefix = if is_vocabulary(name) {
-                Some(if is_epoch_shared(source.name()) {
-                    source.prefix().ok_or(ModelError::Conflict("scoped vocabulary source epoch"))?
-                } else if source.type_id() == std::any::TypeId::of::<local_fields::FieldLocation>()
-                    && field.name() == "qualification" {
-                    PublicationBoundary::Local
-                } else {
-                    PublicationBoundary::Facts
+    if inputs.len() != declared.len()
+        || declared.iter().any(|required| {
+            inputs
+                .iter()
+                .filter(|input| {
+                    input.type_id() == required.type_id() && input.prefix() == required.prefix()
                 })
-            } else if is_epoch_shared(name) {
-                return Err(ModelError::Conflict("scoped canonical value binding undeclared"));
-            } else { None };
-            if !declared.iter().any(|input| input.type_id() == kind && input.prefix() == prefix) {
-                return Err(ModelError::Conflict("scoped companion owner epoch"));
+                .count()
+                != 1
+        })
+    {
+        return Err(ModelError::Conflict(
+            "scoped declared immutable reader absent or ambiguous",
+        ));
+    }
+    inputs
+        .iter()
+        .map(|source| {
+            if !declared.iter().any(|input| {
+                input.type_id() == source.type_id() && input.prefix() == source.prefix()
+            }) {
+                return Err(ModelError::Conflict("scoped source immutable reader"));
             }
-            let mut matching = inputs.iter().enumerate().filter(|(_, input)|
-                input.type_id() == kind && input.prefix() == prefix);
-            let selected = matching.next().map(|(index, _)| index)
-                .ok_or(ModelError::Conflict("scoped companion immutable reader absent"))?;
-            if matching.next().is_some() {
-                return Err(ModelError::Conflict("scoped companion immutable reader ambiguous"));
-            }
-            Ok(Some(selected))
-        }).collect()
-    }).collect()
+            let relation = model
+                .relation(source.name())
+                .filter(|relation| relation.type_id() == source.type_id())
+                .ok_or(ModelError::Schema("scoped source model relation"))?;
+            relation
+                .fields()
+                .iter()
+                .map(|field| {
+                    let Some((kind, name)) = field.target() else {
+                        return Ok(None);
+                    };
+                    if omit(source, field) {
+                        return Ok(None);
+                    }
+                    // Ordinary companions absent from the owner's declared property inventory are
+                    // outside this read grain. Shared companions use the same explicit inventory rule.
+                    if !declared.iter().any(|input| input.type_id() == kind) {
+                        return Ok(None);
+                    }
+                    let prefix = if is_vocabulary(name) {
+                        Some(if is_epoch_shared(source.name()) {
+                            source
+                                .prefix()
+                                .ok_or(ModelError::Conflict("scoped vocabulary source epoch"))?
+                        } else if source.type_id()
+                            == std::any::TypeId::of::<local_fields::FieldLocation>()
+                            && field.name() == "qualification"
+                        {
+                            PublicationBoundary::Local
+                        } else {
+                            PublicationBoundary::Facts
+                        })
+                    } else if is_epoch_shared(name) {
+                        return Err(ModelError::Conflict(
+                            "scoped canonical value binding undeclared",
+                        ));
+                    } else {
+                        None
+                    };
+                    if !declared
+                        .iter()
+                        .any(|input| input.type_id() == kind && input.prefix() == prefix)
+                    {
+                        return Err(ModelError::Conflict("scoped companion owner epoch"));
+                    }
+                    let mut matching = inputs
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, input)| input.type_id() == kind && input.prefix() == prefix);
+                    let selected =
+                        matching
+                            .next()
+                            .map(|(index, _)| index)
+                            .ok_or(ModelError::Conflict(
+                                "scoped companion immutable reader absent",
+                            ))?;
+                    if matching.next().is_some() {
+                        return Err(ModelError::Conflict(
+                            "scoped companion immutable reader ambiguous",
+                        ));
+                    }
+                    Ok(Some(selected))
+                })
+                .collect()
+        })
+        .collect()
 }
 
 macro_rules! output {($($field:ident:$ty:ty,)*)=>{
@@ -1157,7 +1207,13 @@ mod scoped_binding_controls {
         ];
         let bindings = scoped_field_bindings(&model, &inputs, &inputs, |_, _| false).unwrap();
         let relation = model.relation(local_fields::FieldLocation::NAME).unwrap();
-        let field = |name| relation.fields().iter().position(|f| f.name() == name).unwrap();
+        let field = |name| {
+            relation
+                .fields()
+                .iter()
+                .position(|f| f.name() == name)
+                .unwrap()
+        };
         assert_eq!(bindings[0][field("qualification")], Some(2));
         assert_eq!(bindings[0][field("placement")], Some(3));
         let missing = vec![inputs[0].clone(), inputs[1].clone(), inputs[3].clone()];
@@ -1173,9 +1229,17 @@ mod scoped_binding_controls {
             ValidationInput::of::<conditions::Condition>(&["id"]).at_epoch(Local),
         ];
         let bindings = scoped_field_bindings(&model, &inputs, &inputs, |_, _| false).unwrap();
-        let relation = model.relation(assertion::AssertionQualification::NAME).unwrap();
-        let field = relation.fields().iter().position(|f|
-            f.target().is_some_and(|(kind, _)| kind == TypeId::of::<conditions::Condition>())).unwrap();
+        let relation = model
+            .relation(assertion::AssertionQualification::NAME)
+            .unwrap();
+        let field = relation
+            .fields()
+            .iter()
+            .position(|f| {
+                f.target()
+                    .is_some_and(|(kind, _)| kind == TypeId::of::<conditions::Condition>())
+            })
+            .unwrap();
         assert_eq!(bindings[0][field], Some(2));
         let missing = vec![inputs[0].clone(), inputs[1].clone()];
         assert!(scoped_field_bindings(&model, &missing, &inputs, |_, _| false).is_err());
