@@ -105,7 +105,9 @@ pub async fn inspect_with(
     let model = Arc::new(lctx_model::domain::model()?);
     let workspace =
         Workspace::with_budget(model.clone(), options, captured.config().budget().clone(), native)?;
-    compile_facts(&workspace, &captured, profile, providers, limits).await?;
+    if let Err(error)=compile_facts(&workspace,&captured,profile,providers,limits).await {
+        let _=workspace.drain().await;return Err(error);
+    }
     Ok((model, workspace))
 }
 
@@ -120,7 +122,10 @@ pub async fn inspect_with_budget(
 ) -> Result<(Arc<ValidatedModel>, Arc<Workspace>), ModelError> {
     let model = Arc::new(lctx_model::domain::model()?);
     let workspace = Workspace::with_budget(model.clone(), options, budget, native)?;
-    compile_facts(&workspace, &captured, profile, providers, limits).await?;
-    workspace.validate().await?;
+    let result=async{
+        compile_facts(&workspace,&captured,profile,providers,limits).await?;
+        workspace.validate().await?;Ok::<(),ModelError>(())
+    }.await;
+    if let Err(error)=result {let _=workspace.drain().await;return Err(error);}
     Ok((model, workspace))
 }
