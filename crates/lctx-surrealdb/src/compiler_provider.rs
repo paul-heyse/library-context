@@ -4,9 +4,9 @@ use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::{catalog::{Session, TableProvider}, common::{ScalarValue, Statistics, stats::Precision},
     execution::TaskContext, logical_expr::{Expr, Operator, TableProviderFilterPushDown, TableType},
-    physical_plan::{ExecutionPlan, SendableRecordBatchStream, stream::RecordBatchStreamAdapter,
+    physical_plan::{DisplayAs,DisplayFormatType,ExecutionPlan,PlanProperties, SendableRecordBatchStream, stream::RecordBatchStreamAdapter,
         streaming::{PartitionStream, StreamingTableExec}}};
-use lctx_model::domain::{ModelError, Relation, completed::CompletedView, resources::ResourceBudget};
+use lctx_model::domain::{ModelError, Relation, completed::CompletedView, charged::StateCharge, resources::{ResourceBudget,TRANSFER_ROWS}};
 use std::sync::Arc;
 use surrealdb::types::{Number, Value, Variables};
 
@@ -14,9 +14,28 @@ pub fn table_provider(store: Arc<NativeCompilerStore>, view: CompletedView, rela
     budget: ResourceBudget, batch_rows: usize) -> Result<Arc<dyn TableProvider>, ModelError> {
     view.validate()?;
     if view.relation != relation.name() || batch_rows == 0 { return Err(ModelError::Schema("native compiler table binding")); }
-    Ok(Arc::new(NativeTable { store, view, relation, budget, batch_rows }))
+    Ok(Arc::new(NativeTable { store, view, relation, budget, batch_rows, keys:vec![] }))
 }
-struct NativeTable { store: Arc<NativeCompilerStore>, view: CompletedView, relation: Relation, budget: ResourceBudget, batch_rows: usize }
+#[derive(Clone)]
+struct SelectedKeys {keys:Arc<Vec<[u8;16]>>, _charge:Arc<StateCharge>}
+#[derive(Clone)]
+struct NativeTable { keys:Vec<SelectedKeys>, store: Arc<NativeCompilerStore>, view: CompletedView, relation: Relation, budget: ResourceBudget, batch_rows: usize }
+/// Bind sorted, distinct nominal keys before payload selection. The existing key owner charge
+/// follows providers, physical plans and active streams even after the grain scope is dropped.
+/// Detached finite tables return None and continue through the compact local key join.
+pub fn select_table(provider:&Arc<dyn TableProvider>,keys:Arc<Vec<[u8;16]>>,charge:Arc<StateCharge>)->Result<Option<Arc<dyn TableProvider>>,ModelError> {
+    let Some(source)=provider.downcast_ref::<NativeTable>() else{return Ok(None);};
+    if keys.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Schema("native selected keys must be sorted and distinct"));}
+    let mut selected=source.clone();selected.keys.push(SelectedKeys{keys,_charge:charge});Ok(Some(Arc::new(selected)))
+}
+fn row_statistics(schema:&SchemaRef,rows:u64,keys:&[SelectedKeys],filtered:bool)->Statistics {
+    let mut statistics=Statistics::new_unknown(schema.as_ref());
+    statistics.num_rows=if filtered {Precision::Absent} else if keys.is_empty(){usize::try_from(rows).map(Precision::Exact).unwrap_or(Precision::Absent)}else{
+        let upper=keys.iter().map(|selection|selection.keys.len()).min().unwrap_or(0);
+        Precision::Inexact(usize::try_from(rows).map_or(upper,|rows|rows.min(upper)))
+    };
+    statistics
+}
 impl std::fmt::Debug for NativeTable {
     fn fmt(&self, f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {f.debug_struct("NativeCompilerTable").field("view",&self.view).finish_non_exhaustive()}
 }
@@ -25,9 +44,7 @@ impl TableProvider for NativeTable {
     fn schema(&self)->SchemaRef {self.relation.schema().clone()}
     fn table_type(&self)->TableType {TableType::Base}
     fn statistics(&self)->Option<Statistics> {
-        let mut statistics=Statistics::new_unknown(self.schema().as_ref());
-        statistics.num_rows=usize::try_from(self.view.rows).map(Precision::Exact).unwrap_or(Precision::Absent);
-        Some(statistics)
+        Some(row_statistics(&self.schema(),self.view.rows,&self.keys,false))
     }
     fn supports_filters_pushdown(&self, filters:&[&Expr])->datafusion::error::Result<Vec<TableProviderFilterPushDown>> {
         Ok(filters.iter().map(|expr|if translate(expr,&self.relation).is_some(){TableProviderFilterPushDown::Exact}else{TableProviderFilterPushDown::Unsupported}).collect())
@@ -45,21 +62,75 @@ impl TableProvider for NativeTable {
             }
         }
         let predicate=(!predicates.is_empty()).then(||NativePredicate::Sql{sql:predicates.join(" AND "),bindings});
-        let partition=Arc::new(NativePartition {store:self.store.clone(),view:self.view.clone(),relation:self.relation.clone(),projection:projection.cloned(),schema:schema.clone(),predicate,budget:self.budget.clone(),batch_rows:self.batch_rows});
+        let partition=Arc::new(NativePartition {store:self.store.clone(),view:self.view.clone(),relation:self.relation.clone(),projection:projection.cloned(),schema:schema.clone(),predicate,keys:self.keys.clone(),budget:self.budget.clone(),batch_rows:self.batch_rows});
         // The partition already projects natively. Never layer a rich full-schema read under it.
-        Ok(Arc::new(StreamingTableExec::try_new(schema,vec![partition],None,[],false,None)?))
+        let statistics=Arc::new(row_statistics(&schema,self.view.rows,&self.keys,!filters.is_empty()));
+        let inner=StreamingTableExec::try_new(schema,vec![partition],None,[],false,None)?;
+        Ok(Arc::new(NativeExec{inner,statistics}))
     }
 }
-struct NativePartition {store:Arc<NativeCompilerStore>,view:CompletedView,relation:Relation,projection:Option<Vec<usize>>,schema:SchemaRef,predicate:Option<NativePredicate>,budget:ResourceBudget,batch_rows:usize}
+struct NativePartition {store:Arc<NativeCompilerStore>,view:CompletedView,relation:Relation,projection:Option<Vec<usize>>,schema:SchemaRef,predicate:Option<NativePredicate>,keys:Vec<SelectedKeys>,budget:ResourceBudget,batch_rows:usize}
 impl std::fmt::Debug for NativePartition {fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{f.debug_struct("NativeCompilerPartition").field("view",&self.view.identity).finish_non_exhaustive()}}
 impl PartitionStream for NativePartition {
     fn schema(&self)->&SchemaRef {&self.schema}
     fn execute(&self,_context:Arc<TaskContext>)->SendableRecordBatchStream {
         use futures::TryStreamExt;
         let store=self.store.clone();let view=self.view.clone();let relation=self.relation.clone();let projection=self.projection.clone();let predicate=self.predicate.clone();let budget=self.budget.clone();let batch_rows=self.batch_rows;
-        let stream=futures::stream::once(async move {scan_batches(store,view,relation,projection,predicate,budget,batch_rows).await.map_err(df_error)}).try_flatten();
-        Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(),stream))
+        let keys=self.keys.clone();
+        let stream=if keys.is_empty(){
+            let stream=futures::stream::once(async move {scan_batches(store,view,relation,projection,predicate,budget,batch_rows).await.map_err(df_error)}).try_flatten();
+            Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(),stream)) as SendableRecordBatchStream
+        }else{
+            selected_batches(store,view,relation,projection,predicate,keys,budget,batch_rows,self.schema.clone())
+        };
+        stream
     }
+}
+/// A source leaf forwards streaming behavior and publishes the same view/selection cardinality
+/// at the physical optimizer boundary. StreamingTableExec has no statistics setter at DF55.1.
+#[derive(Debug)]
+struct NativeExec {inner:StreamingTableExec,statistics:Arc<Statistics>}
+impl DisplayAs for NativeExec {fn fmt_as(&self,t:DisplayFormatType,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{self.inner.fmt_as(t,f)}}
+impl ExecutionPlan for NativeExec {
+    fn name(&self)->&'static str{"NativeCompilerExec"}
+    fn properties(&self)->&Arc<PlanProperties>{self.inner.properties()}
+    fn children(&self)->Vec<&Arc<dyn ExecutionPlan>>{vec![]}
+    fn apply_expressions(&self,f:&mut dyn FnMut(&Arc<dyn datafusion::physical_expr::PhysicalExpr>)->datafusion::error::Result<datafusion::common::tree_node::TreeNodeRecursion>)->datafusion::error::Result<datafusion::common::tree_node::TreeNodeRecursion>{self.inner.apply_expressions(f)}
+    fn with_new_children(self:Arc<Self>,children:Vec<Arc<dyn ExecutionPlan>>)->datafusion::error::Result<Arc<dyn ExecutionPlan>>{
+        if children.is_empty(){Ok(self)}else{Err(datafusion::error::DataFusionError::Internal("native compiler source has no children".into()))}
+    }
+    fn execute(&self,partition:usize,context:Arc<TaskContext>)->datafusion::error::Result<SendableRecordBatchStream>{self.inner.execute(partition,context)}
+    fn partition_statistics(&self,partition:Option<usize>)->datafusion::error::Result<Arc<Statistics>>{
+        if partition.is_some_and(|partition|partition!=0){return Err(datafusion::error::DataFusionError::Internal("native compiler partition absent".into()));}Ok(self.statistics.clone())
+    }
+    fn metrics(&self)->Option<datafusion::physical_plan::metrics::MetricsSet>{self.inner.metrics()}
+}
+#[allow(clippy::too_many_arguments,reason="Selected native streams retain the exact view, projection, static predicates and existing key owner")]
+fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:Relation,projection:Option<Vec<usize>>,predicate:Option<NativePredicate>,keys:Vec<SelectedKeys>,budget:ResourceBudget,batch_rows:usize,schema:SchemaRef)->SendableRecordBatchStream {
+    use futures::{StreamExt,TryStreamExt};
+    // Every selection is sorted and distinct; disjoint windows preserve native semantic-key
+    // order. Choose the smallest demand and intersect any nested selection before transfer.
+    let driver=keys.iter().enumerate().min_by_key(|(_,selection)|selection.keys.len()).map(|(index,_)|index).expect("selected key owner");
+    let windows=futures::stream::try_unfold((0usize,false),move |(offset,done)|{
+        let store=store.clone();let view=view.clone();let relation=relation.clone();let projection=projection.clone();let predicate=predicate.clone();let keys=keys.clone();let budget=budget.clone();
+        async move {
+            if done{return Ok::<_,datafusion::error::DataFusionError>(None);}
+            let end=offset.saturating_add(TRANSFER_ROWS).min(keys[driver].keys.len());
+            let transfer=budget.reserve("native-selected-key-transfer",(end-offset).saturating_mul(192).saturating_add(4096)).map_err(df_error)?;
+            let selected=keys[driver].keys[offset..end].iter().filter(|key|keys.iter().all(|selection|selection.keys.binary_search(key).is_ok())).map(hex::encode).collect::<Vec<_>>();
+            let mut bindings=Variables::new();bindings.insert("closure_selected_keys",selected);
+            let sql=match predicate {
+                Some(NativePredicate::Sql{sql,bindings:static_bindings})=>{bindings.extend(static_bindings);format!("semantic_key IN $closure_selected_keys AND ({sql})")},
+                None=>"semantic_key IN $closure_selected_keys".into(),
+                _=>return Err(df_error(ModelError::Schema("native table static predicate"))),
+            };
+            // Even empty demand checks the exact view/pin through the ordinary native reader.
+            let rows=scan_batches(store,view,relation,projection,Some(NativePredicate::Sql{sql,bindings}),budget,batch_rows).await.map_err(df_error)?;
+            let rows=rows.map(move |batch|{let _held=&transfer;batch});
+            Ok(Some((rows,(end,end==keys[driver].keys.len()))))
+        }
+    }).try_flatten();
+    Box::pin(RecordBatchStreamAdapter::new(schema,windows))
 }
 pub async fn scan_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:Relation,
     projection:Option<Vec<usize>>,predicate:Option<NativePredicate>,budget:ResourceBudget,batch_rows:usize)->Result<SendableRecordBatchStream,ModelError> {
@@ -93,6 +164,7 @@ struct Predicate {sql:String,values:Vec<(String,Value)>,names:Vec<String>}
 fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
     fn field(expr:&Expr,relation:&Relation)->Option<String>{
         let Expr::Column(column)=expr else{return None;};
+        if relation.name()==<lctx_model::domain::artifact::ArtifactChunk as lctx_model::domain::Record>::NAME && column.name=="body" {return None;}
         relation.schema().field_with_name(&column.name).ok()?;
         if column.name=="id" {Some("semantic_key".into())} else {Some(format!("body.`{}`",column.name.replace('`',"``")))}
     }

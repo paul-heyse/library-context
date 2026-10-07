@@ -5,7 +5,7 @@ use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::sources::CompletedInput, charged, resources::ResourceBudget, *,
 };
-use std::{any::TypeId, collections::BTreeSet};
+use std::{any::TypeId, collections::{BTreeMap,BTreeSet}};
 /// Expected coverage needs artifact identity, input ownership and the model's bounded
 /// classifier property. Ordinary selected algorithm reads still receive canonical rows.
 pub(crate) async fn stream_artifact_admission(
@@ -187,7 +187,7 @@ pub struct ClosureTable {
 /// This plan describes row selection, not admission; the selected owner predicates still run.
 pub struct NominalClosure {
     tables: Vec<ClosureTable>,
-    pairs: Vec<(usize, usize, String)>,
+    pairs: BTreeSet<(usize, usize, String)>,
 }
 impl NominalClosure {
     pub fn new(tables: Vec<ClosureTable>) -> Result<Self, ModelError> {
@@ -198,7 +198,7 @@ impl NominalClosure {
         }
         Ok(Self {
             tables,
-            pairs: Vec::new(),
+            pairs: BTreeSet::new(),
         })
     }
     /// Follow a declared nominal field. Target selection is explicit, so two vocabulary epochs
@@ -225,7 +225,7 @@ impl NominalClosure {
             identifier(&from.alias),
             identifier(field)
         );
-        self.pairs.push((source, target, sql));
+        self.pairs.insert((source, target, sql));
         Ok(())
     }
     /// Include rows owned through this nominal field, as well as their forward owner reference.
@@ -244,7 +244,7 @@ impl NominalClosure {
             identifier(&from.alias),
             identifier(owner_field)
         );
-        self.pairs.push((owner, member, sql));
+        self.pairs.insert((owner, member, sql));
         Ok(())
     }
     /// Explicit semantic edges whose key includes a non-nominal domain, such as RunFamily.
@@ -261,7 +261,7 @@ impl NominalClosure {
         if select.trim().is_empty() {
             return Err(ModelError::Invalid("closure pair SELECT absent".into()));
         }
-        self.pairs.push((source, target, select));
+        self.pairs.insert((source, target, select));
         Ok(())
     }
     fn table(&self, index: usize) -> Result<&ClosureTable, ModelError> {
@@ -419,9 +419,8 @@ impl NominalClosure {
             .saturating_mul(2)
             .saturating_add(batches.len().saturating_mul(64))
             .saturating_add(4096);
-        // Edge preparation is a bulk nominal operation. Grain selection instead joins the
-        // already bounded keys to a rich source scan; sorting the source before filtering
-        // would import unrelated payload into the grain's memory lifetime.
+        // Bulk edge preparation retains compact topology. Each native grain binds its keys
+        // before payload hydration; detached finite tables use the same keys in a local join.
         let state = session.state();
         let catalogs = state.catalog_list().clone();
         let config = state
@@ -437,12 +436,16 @@ impl NominalClosure {
                 .with_catalog_list(catalogs)
                 .build(),
         );
+        index_charge.grow(self.tables.len().saturating_mul(size_of::<std::sync::Arc<dyn datafusion::catalog::TableProvider>>()))?;
+        let mut providers=Vec::with_capacity(self.tables.len());
+        for table in &self.tables {providers.push(session.table_provider(table.alias.as_str()).await.map_err(ModelError::codec)?);}
         Ok(PreparedEdges(std::sync::Arc::new(EdgeSource {
             session,
             path,
             batches,
             reader_allowance,
             tables: self.tables.clone(),
+            providers,
             _index_charge: index_charge,
             _directory: directory,
         })))
@@ -575,6 +578,7 @@ struct EdgeSource {
     batches: charged::ChargedVec<EdgeBatch>,
     reader_allowance: usize,
     tables: Vec<ClosureTable>,
+    providers:Vec<std::sync::Arc<dyn datafusion::catalog::TableProvider>>,
     _index_charge: charged::StateCharge,
     _directory: tempfile::TempDir,
 }
@@ -825,6 +829,8 @@ impl PreparedEdges {
         ]));
         let mut keys = Vec::new();
         let mut charge = charged::StateCharge::new(budget, "semantic-grain-keys");
+        charge.grow(self.0.tables.len().saturating_mul(size_of::<Vec<[u8;16]>>()+size_of::<std::sync::Arc<Vec<[u8;16]>>>()+160))?;
+        let mut native_keys=vec![Vec::new();self.0.tables.len()];
         let mut selected = visited.iter();
         loop {
             let count = selected.len().min(resources::TRANSFER_ROWS);
@@ -836,6 +842,15 @@ impl PreparedEdges {
                 count.saturating_mul(64).saturating_add(4096),
             )?;
             let values = selected.by_ref().take(count).copied().collect::<Vec<_>>();
+            for (kind,id) in &values {
+                let selected=native_keys.get_mut(usize::try_from(*kind).map_err(ModelError::codec)?).ok_or(ModelError::Schema("nominal selected key namespace"))?;
+                if selected.len()==selected.capacity(){
+                    let additional=selected.capacity().max(16);
+                    charge.grow(additional.saturating_mul(size_of::<[u8;16]>()))?;
+                    selected.reserve_exact(additional);
+                }
+                selected.push(*id);
+            }
             let kinds = Int64Array::from_iter_values(values.iter().map(|key| key.0));
             let ids = FixedSizeBinaryArray::try_from_iter(values.iter().map(|key| key.1))
                 .map_err(ModelError::codec)?;
@@ -866,7 +881,9 @@ impl PreparedEdges {
         Ok(PreparedClosure {
             edges: self.0.clone(),
             alias,
-            _charge: charge,
+            native_keys:native_keys.into_iter().map(std::sync::Arc::new).collect(),
+            selected_aliases:std::sync::Mutex::new(BTreeMap::new()),
+            _charge: std::sync::Arc::new(charge),
         })
     }
 }
@@ -875,7 +892,9 @@ impl PreparedEdges {
 pub struct PreparedClosure {
     edges: std::sync::Arc<EdgeSource>,
     alias: String,
-    _charge: charged::StateCharge,
+    native_keys:Vec<std::sync::Arc<Vec<[u8;16]>>>,
+    selected_aliases:std::sync::Mutex<BTreeMap<usize,String>>,
+    _charge: std::sync::Arc<charged::StateCharge>,
 }
 impl PreparedClosure {
     pub fn session(&self) -> &SessionContext {
@@ -887,6 +906,14 @@ impl PreparedClosure {
             .tables
             .get(table)
             .ok_or_else(|| ModelError::Invalid("closure table index absent".into()))?;
+        let mut aliases=self.selected_aliases.lock().map_err(|_|ModelError::Conflict("native scope alias ownership"))?;
+        if let Some(alias)=aliases.get(&table){return Ok(format!("SELECT * FROM {}",identifier(alias)));}
+        if let Some(provider)=lctx_surrealdb::compiler_provider::select_table(&self.edges.providers[table],self.native_keys[table].clone(),self._charge.clone())? {
+            let alias=scope_alias("selected");
+            self.edges.session.register_table(alias.clone(),provider).map_err(ModelError::codec)?;
+            aliases.insert(table,alias.clone());
+            return Ok(format!("SELECT * FROM {}",identifier(&alias)));
+        }
         Ok(format!(
             "SELECT source.* FROM {} AS keys JOIN {} AS source ON keys.kind={table} AND source.id=keys.id",
             identifier(&self.alias),
@@ -897,6 +924,7 @@ impl PreparedClosure {
 impl Drop for PreparedClosure {
     fn drop(&mut self) {
         let _ = self.edges.session.deregister_table(self.alias.as_str());
+        if let Ok(aliases)=self.selected_aliases.lock(){for alias in aliases.values(){let _=self.edges.session.deregister_table(alias.as_str());}}
     }
 }
 
@@ -1004,7 +1032,12 @@ mod nominal_closure_controls {
     async fn explicit_reverse_membership_closes_cycle_without_unrelated_owners() {
         let (session, tables, releases, package) = fixture();
         let mut plan = NominalClosure::new(tables).unwrap();
+        plan.follow(0,"package",1).unwrap();
         plan.own(0, "package", 1).unwrap();
+        plan.own(0, "package", 1).unwrap();
+        let declared=plan.pairs.iter().next().unwrap().clone();
+        plan.pairs(declared.0,declared.1,declared.2).unwrap();
+        assert_eq!(plan.pairs.len(),2,"one exact forward query and its inverse ownership query");
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
         let scope = edges
