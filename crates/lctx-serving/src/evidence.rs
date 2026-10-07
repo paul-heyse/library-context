@@ -75,7 +75,7 @@ pub async fn get(
     };
     let body = body(reader, &data, &original, request, channels, limits, b).await?;
     let (flow_inventory, source_characterization) =
-        crate::source_evidence::sections(data.clone(), &original, request, reader.handle(), channels, b)
+        crate::source_evidence::sections(data.clone(), &original, request, reader.handle(), channels)
             .await?;
     let derivation = derivations(reader, &original, request, channels, b).await?;
     let artifact = need(&rows::<source::SourceArtifact>(&data)?, original.artifact)?.clone();
@@ -109,7 +109,7 @@ pub async fn get(
         .map(|q| q.id())
         .collect();
     let mut interpretation =
-        crate::defaults::qualified(&data, analyses, qids, original.release, b)?;
+        crate::defaults::qualified(&data, analyses, qids, original.release)?;
     crate::defaults::read_originals(reader, &mut interpretation, request, b).await?;
     Ok(EvidencePacket {
         release,
@@ -271,7 +271,7 @@ pub async fn hits(
     .await?;
     let data=Prepared::new(&data,b);
     hits.iter()
-        .map(|hit| hit_packet(&data, hit, domains, b))
+        .map(|hit| hit_packet(&data, hit, domains))
         .collect()
 }
 fn source_range(
@@ -339,7 +339,6 @@ fn hit_packet(
     data: &Prepared<'_>,
     hit: &ranking::RankedHit,
     domains: &[LibraryDomainPacket],
-    b: &ResourceBudget,
 ) -> Result<EvidenceHit, ModelError> {
     let ranking::Target::Unit { unit } = hit.target else {
         return Err(ModelError::Schema("evidence ranked target"));
@@ -516,7 +515,6 @@ fn hit_packet(
         std::collections::BTreeSet::from([hit.context]),
         qids,
         release,
-        b,
     )?;
     let release_identity = captures
         .iter()

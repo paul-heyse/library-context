@@ -82,7 +82,6 @@ pub async fn sections(
     request: &Request,
     snapshot: &SnapshotHandle,
     channels: &ChannelState,
-    budget: &ResourceBudget,
 ) -> Result<
     (
         SectionPage<FlowInventoryPacket>,

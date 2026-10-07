@@ -482,7 +482,7 @@ pub async fn get(
         relationship_values
     );
     let behavior = if r.sections.contains(&OperationSection::Behavior) {
-        let (availability, values) = crate::behavior::packets(&source, member.id(), b).await?;
+        let (availability, values) = crate::behavior::packets(&source, member.id()).await?;
         crate::pagination::page(
             values
                 .into_iter()

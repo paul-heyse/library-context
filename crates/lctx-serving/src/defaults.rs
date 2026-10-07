@@ -98,7 +98,6 @@ fn excerpt(
 pub fn closure(
     source: &Prepared<'_>,
     core: &OperationCore,
-    budget: &ResourceBudget,
 ) -> Result<InterpretationClosure, ModelError> {
     let options = rows::<catalog::CatalogOption>(source)?.select_for("member",&[core.member])?;
     let subjects = rows::<catalog::CatalogOptionSubject>(source)?;
@@ -298,7 +297,7 @@ pub fn closure(
             )?,
         });
     }
-    let mut result = qualified(source, analyses, qids, core.release.release, budget)?;
+    let mut result = qualified(source, analyses, qids, core.release.release)?;
     result.defaults = declarations;
     Ok(result)
 }
@@ -307,7 +306,6 @@ pub fn qualified(
     analyses: BTreeSet<Id<attribution::AnalysisContext>>,
     qids: BTreeSet<Id<assertion::AssertionQualification>>,
     release: Id<input::Release>,
-    budget: &ResourceBudget,
 ) -> Result<InterpretationClosure, ModelError> {
     let contexts = rows::<attribution::AnalysisContext>(source)?;
     let qualifications = rows::<assertion::AssertionQualification>(source)?;

@@ -327,12 +327,10 @@ mod controls {
         }
         // A nominated cohort's part cannot be substituted for another brief's rendering.
         let mut changed = prepared;
-        let first = changed
-            .documents
-            .values_mut()
-            .find(|part| part.brief == briefs[0].0.id())
-            .unwrap();
+        let mut documents=changed.documents.rows().to_vec();
+        let first=documents.iter_mut().find(|part|part.brief==briefs[0].0.id()).unwrap();
         first.text = "rewritten".into();
+        changed.documents=PacketRows::new(documents,&budget).unwrap();
         assert!(changed.packet(briefs[0].0.id(), &budget).is_err());
         assert!(changed.packet(briefs[1].0.id(), &budget).is_ok());
         client

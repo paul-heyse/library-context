@@ -3,12 +3,11 @@ use crate::{
     records::{need, rows, wire, Prepared},
     source_evidence::NativePackets,
 };
-use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
+use lctx_model::domain::{serving::*, *};
 use std::collections::BTreeSet;
 pub async fn packets(
     source: &std::sync::Arc<Prepared<'_>>,
     member: Id<catalog::CatalogMember>,
-    budget: &ResourceBudget,
 ) -> Result<(Availability, Vec<BehaviorPacket>), ModelError> {
     use execution::summary_consequences::{ClaimConclusion, ClaimProof};
     let members = rows::<catalog::CatalogMember>(source)?;
