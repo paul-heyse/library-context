@@ -148,3 +148,18 @@ def test_explicit_native_targets_replace_family_defaults():
         defaults = compiler_packages(boundary, ["-E", "test(chosen)"])
         assert defaults[:2] == ["-p", package]
         assert len(defaults) > 2
+
+
+def test_native_cargo_configuration_reaches_cargo_and_nextest_only():
+    from native_controls import cargo_command
+
+    override = "profile.release.package.cpg-core.opt-level=0"
+    assert cargo_command(["cargo", "test", "--release"], [override]) == [
+        "cargo", "--config", override, "test", "--release",
+    ]
+    assert cargo_command(["cargo", "nextest", "run", "--release"], [override]) == [
+        "cargo", "nextest", "run", "--config", override, "--release",
+    ]
+    command = ["uv", "run", "--no-sync", "pytest"]
+    assert cargo_command(command, [override]) == command
+    assert cargo_command(["cargo", "test"], []) == ["cargo", "test"]

@@ -26,6 +26,15 @@ def compiler_packages(boundary: str, filters: list[str]) -> list[str]:
     return defaults
 
 
+def cargo_command(command: list[str], configuration: list[str]) -> list[str]:
+    if not configuration or command[0] != "cargo":
+        return command
+    options = [argument for value in configuration for argument in ("--config", value)]
+    if command[1:3] == ["nextest", "run"]:
+        return command[:3] + options + command[3:]
+    return command[:1] + options + command[1:]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("boundary", choices=("store", "serving", "mcp", "compiler", "compiler-cli", "providers"))
@@ -33,6 +42,10 @@ def main() -> int:
         "--cli",
         action="store_true",
         help="Build and exercise the native selection CLI in the publication journey",
+    )
+    parser.add_argument(
+        "--cargo-config", action="append", default=[], metavar="KEY=VALUE",
+        help="Temporary Cargo configuration for this control invocation",
     )
     options, filters = parser.parse_known_args()
     if filters[:1] == ["--"]:
@@ -53,7 +66,7 @@ def main() -> int:
         env["LCTX_COMPILER_RUNTIME_CONFIG"]=str(runtime)
 
         def run(command: list[str]) -> int:
-            return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
+            return subprocess.run(cargo_command(command, options.cargo_config), cwd=ROOT, env=env, check=False).returncode
 
         if options.cli:
             code = run(["cargo", "build", "--release", "--locked", "-p", "lctx", "--bin", "lctx"])
