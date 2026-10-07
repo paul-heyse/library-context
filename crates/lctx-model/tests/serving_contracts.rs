@@ -711,6 +711,47 @@ fn optional_packets_retain_their_canonical_question_and_typed_condition() {
 }
 
 #[test]
+fn bounded_final_response_and_distinct_mcp_envelope_keep_exact_byte_contracts() {
+    let response = Response::GetCapability(GetCapabilityResponse {
+        delivery: Optional::default(),
+        snapshot: snapshot_for(7),
+        capability: serde_json::from_value(json!({
+            "capability": vec![6u8; 16],
+            "title": "API",
+            "rendered": "Original é🦀\n\t\"\\ body.",
+            "assertions": [],
+            "originals": [],
+            "availability": {"status": "available"},
+            "unreviewed": true,
+            "documentation_only": true,
+        })).unwrap(),
+    });
+    let raw = response.to_json().unwrap();
+    let envelope = tool_result("get_capability", &raw, false).unwrap();
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(envelope.len() * 4).unwrap();
+    for limit in [raw.len(), raw.len() + 1] {
+        let encoded = response.encode_json(&budget, limit).unwrap();
+        assert_eq!(encoded.as_str(), raw);
+        assert_eq!(serde_json::from_str::<Value>(encoded.as_str()).unwrap(), serde_json::from_str::<Value>(&raw).unwrap());
+        drop(encoded);
+        assert_eq!(budget.reserved(), 0);
+    }
+    assert!(matches!(response.encode_json(&budget, raw.len() - 1), Err(WireError::ResourceRefused(_))));
+    for limit in [envelope.len(), envelope.len() + 1] {
+        let encoded = response.encode_mcp_result(&budget, limit).unwrap();
+        assert_eq!(encoded.as_str(), envelope);
+        assert_eq!(encoded.as_str().len(), response.mcp_result_len().unwrap());
+        let value: Value = serde_json::from_str(encoded.as_str()).unwrap();
+        assert_eq!(value["structuredContent"], serde_json::from_str::<Value>(&raw).unwrap());
+        assert_eq!(value["isError"], false);
+        drop(encoded);
+        assert_eq!(budget.reserved(), 0);
+    }
+    assert!(matches!(response.encode_mcp_result(&budget, envelope.len() - 1), Err(WireError::ResourceRefused(_))));
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
 fn enrichment_sections_require_exact_comparison_selection_and_closed_shapes() {
     let base = json!({"library":"demo","operation":{"kind":"member","member":vec![1u8;16]},"sections":["callable_comparison"]});
     assert!(decode("get_operation", base.clone()).is_err());

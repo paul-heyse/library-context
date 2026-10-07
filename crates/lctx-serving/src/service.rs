@@ -41,10 +41,12 @@ impl NativeService {
     pub async fn execute(&self, tool: &str, raw: &str) -> Result<String, WireError> {
         self.run(tool, raw, None, false, self.limits.request_deadline_ms)
             .await
+            .map(EncodedJson::into_string)
     }
     pub async fn execute_unavailable(&self, tool: &str, raw: &str) -> Result<String, WireError> {
         self.run(tool, raw, None, true, self.limits.request_deadline_ms)
             .await
+            .map(EncodedJson::into_string)
     }
     pub async fn execute_with_vector(
         &self,
@@ -54,6 +56,7 @@ impl NativeService {
     ) -> Result<String, WireError> {
         self.run(tool, raw, vector, false, self.limits.request_deadline_ms)
             .await
+            .map(EncodedJson::into_string)
     }
     /// Execute within the transport's remaining request deadline, including native admission.
     pub async fn execute_for(
@@ -64,6 +67,19 @@ impl NativeService {
         unavailable: bool,
         remaining_ms: u64,
     ) -> Result<String, WireError> {
+        self.execute_encoded_for(tool, raw, vector, unavailable, remaining_ms)
+            .await
+            .map(EncodedJson::into_string)
+    }
+    /// The actual bridge keeps the final-byte reservation live through its transport copy.
+    pub async fn execute_encoded_for(
+        &self,
+        tool: &str,
+        raw: &str,
+        vector: Option<QueryVector>,
+        unavailable: bool,
+        remaining_ms: u64,
+    ) -> Result<EncodedJson, WireError> {
         self.run(
             tool,
             raw,
@@ -80,7 +96,7 @@ impl NativeService {
         vector: Option<QueryVector>,
         unavailable: bool,
         remaining_ms: u64,
-    ) -> Result<String, WireError> {
+    ) -> Result<EncodedJson, WireError> {
         if remaining_ms == 0 {
             return Err(WireError::ResourceRefused("request deadline".into()));
         }
@@ -127,16 +143,10 @@ impl NativeService {
             {
                 crate::delivery::finalize(&request, &mut response)?;
                 self.retained.complete(&mut response)?;
-                let len = response.json_len()?;
-                if len as u64 > self.limits.response_bytes(request.page().expanded) {
-                    return Err(WireError::ResourceRefused(
-                        "complete structured response bytes".into(),
-                    ));
-                }
-                let _response_charge = budget
-                    .reserve("native-complete-response", len.saturating_mul(2))
-                    .map_err(failure)?;
-                let bytes = response.to_json()?;
+                let bytes = response.encode_json(
+                    &budget,
+                    self.limits.response_bytes(request.page().expanded) as usize,
+                )?;
                 if tokio::time::Instant::now() >= deadline {
                     return Err(WireError::ResourceRefused("request deadline".into()));
                 }
@@ -235,17 +245,11 @@ impl NativeService {
             .map_err(failure)?;
             crate::delivery::finalize(&request, &mut response)?;
             self.retained.complete(&mut response)?;
-            let len = response.json_len()?;
-            if len as u64 > self.limits.response_bytes(request.page().expanded) {
-                return Err(WireError::ResourceRefused(
-                    "complete structured response bytes".into(),
-                ));
-            }
-            self.retained.attach(&response)?;
-            let _response_charge = budget
-                .reserve("native-complete-response", len.saturating_mul(2))
-                .map_err(failure)?;
-            let bytes = response.to_json()?;
+            let bytes = response.encode_json(
+                &budget,
+                self.limits.response_bytes(request.page().expanded) as usize,
+            )?;
+            self.retained.attach(&bytes)?;
             if tokio::time::Instant::now() >= deadline {
                 return Err(WireError::ResourceRefused("request deadline".into()));
             }
