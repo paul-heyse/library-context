@@ -13,6 +13,23 @@ use lctx_surrealdb::surrealdb::{
 use lctx_surrealdb::{Loader, NativeReader, RuntimeConfig, reader};
 use std::sync::Arc;
 
+/// Current exact completed dependencies, intended for inspection and future invalidation
+/// planning. These describe retained products; they do not schedule cross-run execution.
+#[derive(serde::Serialize)]
+pub struct SnapshotDetails {
+    pub handle:SnapshotHandle,
+    pub manifest:Manifest,
+    pub contributions:Vec<lctx_model::domain::completed::CompletedContribution>,
+    pub views:Vec<lctx_model::domain::completed::CompletedView>,
+    pub bindings:Vec<lctx_model::domain::completed::CompletedBinding>,
+}
+pub async fn show(reader:&NativeReader)->Result<SnapshotDetails,ModelError> {
+    let (handle,manifest)=marker(reader.client()).await?.ok_or(ModelError::Schema("published snapshot marker"))?;
+    if &handle!=reader.handle(){return Err(ModelError::Conflict("pinned inspection handle"));}
+    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(reader.shared_client(),handle.database.namespace.clone(),handle.database.database.clone());
+    Ok(SnapshotDetails {handle,manifest,contributions:native.contributions().await?,views:native.views().await?,bindings:native.bindings().await?})
+}
+
 async fn metadata(client: &Surreal<Client>, sql: &str) -> Result<serde_json::Value, ModelError> {
     let mut result = client
         .query(sql)
@@ -180,6 +197,9 @@ pub async fn audit(
     }
     let loader = Loader::new(Arc::clone(&client));
     loader.reconcile(&manifest).await?;
+    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(client.clone(),config.namespace.clone(),handle.database.database.clone());
+    if native.completed_state().await? != manifest.completed_state {return Err(ModelError::Conflict("audit completed state"));}
+    native.verify_state().await?;
     crate::search::reconcile_search(&loader).await?;
     if crate::verify_realization(&loader, native_definitions).await? != handle.realization {
         return Err(ModelError::Conflict("audit current realization"));

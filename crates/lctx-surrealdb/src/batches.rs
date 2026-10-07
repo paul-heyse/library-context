@@ -20,7 +20,7 @@ pub struct CanonicalBatches {
     pub batches: Vec<(&'static str, RecordBatch)>,
     _charge: Box<dyn Reservation>,
 }
-impl NativeReader {
+impl<Context> NativeReader<Context> {
     /// SQL is supplied by the finite operation owner. Request values remain SDK bindings.
     /// Ordinary operation callers select indexed roots and their declared semantic closure.
     pub async fn canonical_batches(

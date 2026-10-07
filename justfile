@@ -47,43 +47,43 @@ skills-check:
 # Explicit contract families. Boundary-specific filters use --command <boundary> -- <tool args>.
 [positional-arguments]
 verify-model *args:
-    python3 scripts/verify.py model "$@"
+    uv run --no-sync python scripts/verify.py model "$@"
 
 [positional-arguments]
 verify-compiler *args:
-    python3 scripts/verify.py compiler "$@"
+    uv run --no-sync python scripts/verify.py compiler "$@"
 
 [positional-arguments]
 verify-analytics *args:
-    python3 scripts/verify.py analytics "$@"
+    uv run --no-sync python scripts/verify.py analytics "$@"
 
 [positional-arguments]
 verify-providers *args:
-    python3 scripts/verify.py providers "$@"
+    uv run --no-sync python scripts/verify.py providers "$@"
 
 [positional-arguments]
 verify-store *args:
-    python3 scripts/verify.py store "$@"
+    uv run --no-sync python scripts/verify.py store "$@"
 
 [positional-arguments]
 verify-serving *args:
-    python3 scripts/verify.py serving "$@"
+    uv run --no-sync python scripts/verify.py serving "$@"
 
 [positional-arguments]
 verify-oracles *args:
-    python3 scripts/verify.py oracles "$@"
+    uv run --no-sync python scripts/verify.py oracles "$@"
 
 [positional-arguments]
 verify-tooling *args:
-    python3 scripts/verify.py tooling "$@"
+    uv run --no-sync python scripts/verify.py tooling "$@"
 
 # Target qualification collects independent failures and prepares the selected union once.
 qualify:
-    python3 scripts/verify.py qualify
+    uv run --no-sync python scripts/verify.py qualify
 
-# Explicit complete fixture registration over actual store-free native producers.
+# Explicit complete fixture registration over native persisted producers.
 fixture-corpus:
-    INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test fixture_corpus --no-fail-fast
+    uv run --no-sync python scripts/native_controls.py compiler -E "binary(fixture_corpus)"
 
 # Format everything (mutating)
 fmt:

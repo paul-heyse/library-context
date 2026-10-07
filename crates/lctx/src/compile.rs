@@ -1,4 +1,4 @@
-//! Cumulative graph compilation, store-free artifact export and unselected native publication.
+//! Cumulative graph compilation, explicit artifact export and unselected native publication.
 use lctx_model::domain::{admission::Frontier, stages::Profile};
 use std::{
     path::{Path, PathBuf},
@@ -11,7 +11,7 @@ pub fn profile(text: &str) -> Result<Profile, String> {
         .ok_or_else(|| format!("{text:?} is not catalog or behavioral"))
 }
 pub enum Target<'a> {
-    Artifact(&'a Path),
+    Artifact(&'a Path, &'a Path),
     Native(&'a Path),
 }
 #[allow(
@@ -39,18 +39,21 @@ pub async fn compile(
     {
         anyhow::bail!("library name must be one normalized path component");
     }
-    let runtime = match &target {
-        Target::Artifact(_) => None,
-        Target::Native(path) => Some(crate::newnative::config(path)?),
-    };
+    let runtime = crate::newnative::config(match &target {
+        Target::Artifact(_, config) | Target::Native(config) => config,
+    })?;
+    crate::newnative::ready(&runtime).await?;
     let model = Arc::new(lctx_model::domain::model()?);
-    let workspace = cpg_core::workspace::Workspace::new(
+    let store = lctx_surrealdb::compiler::NativeCompilerStore::begin(&runtime, frontier).await?;
+    let workspace = match cpg_core::workspace::Workspace::new(
         model,
         cpg_core::workspace::WorkspaceOptions {
             memory_bytes,
             ..Default::default()
         },
-    )?;
+        store.clone(),
+    ) {Ok(workspace)=>workspace,Err(error)=>{store.fail();store.abandon().await?;return Err(error.into());}};
+    let result=async {
     let budget = workspace.budget();
     let library = libraries.join(name);
     let upper = options.prepare(frontier.name(), &library)?;
@@ -67,17 +70,10 @@ pub async fn compile(
             )
         })
         .transpose()?;
-    let native_client = match &runtime {
-        Some(config) => Some(crate::newnative::ready(config).await?),
-        None => None,
-    };
-    let cache = match native_client {
-        Some(client) if upper.as_ref().is_some_and(|upper| upper.embedder.is_some()) => Some(
-            Arc::new(lctx_surrealdb::NativeEmbeddingCache::install(client).await?)
-                as Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>,
-        ),
-        _ => None,
-    };
+    let cache = if upper.as_ref().is_some_and(|upper| upper.embedder.is_some()) {
+        Some(Arc::new(lctx_surrealdb::NativeEmbeddingCache::install(crate::newnative::ready(&runtime).await?).await?)
+            as Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>)
+    } else {None};
     let environment = envs.join(name);
     crate::acquire(&library, &environment, false)?;
     let source = crate::fetch_source(&library, &sources.join(name))?;
@@ -104,8 +100,10 @@ pub async fn compile(
     let artifact =
         cpg_core::artifact::admit(&workspace, &captured, frontier, profile, configuration).await?;
     match target {
-        Target::Artifact(destination) => {
-            artifact.export(destination)?;
+        Target::Artifact(destination, _) => {
+            artifact.export(destination).await?;
+            workspace.drain().await?;
+            store.abandon().await?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
@@ -115,18 +113,25 @@ pub async fn compile(
             );
         }
         Target::Native(_) => {
-            let staged = tempfile::tempdir()?;
-            let destination = staged.path().join("artifact");
-            artifact.export(&destination)?;
-            let exported = cpg_core::artifact::verify_export(&destination, &workspace).await?;
-            let handle = lctx_publisher::publish(
-                &exported,
-                runtime.as_ref().expect("native target configuration"),
-                &lctx_serving::native_definitions(),
-            )
-            .await?;
+            let handle = lctx_publisher::seal_completed(
+                &artifact, &runtime, &lctx_serving::native_definitions(),
+            ).await?;
             println!("{}", serde_json::to_string_pretty(&handle)?);
         }
     }
+    workspace.drain().await?;
     Ok(())
+    }.await;
+    if result.is_err() {
+        let drained=workspace.drain().await;
+        store.fail();
+        if store.abandon().await.is_err() {
+            return Err(lctx_model::domain::ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed,
+                format!("failed compile left owned unselected database {}",store.database().as_str()),
+            ).into());
+        }
+        drained?;
+    }
+    result
 }

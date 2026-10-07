@@ -51,15 +51,29 @@ pub async fn publish(
     config: &RuntimeConfig,
     memory_bytes: usize,
 ) -> anyhow::Result<SnapshotHandle> {
-    let workspace = cpg_core::workspace::Workspace::new(
-        Arc::new(lctx_model::domain::model()?),
-        cpg_core::workspace::WorkspaceOptions {
-            memory_bytes,
-            ..Default::default()
-        },
-    )?;
-    let export = cpg_core::artifact::verify_export(path, &workspace).await?;
-    Ok(lctx_publisher::publish(&export, config, &lctx_serving::native_definitions()).await?)
+    let manifest:lctx_model::domain::graph::Manifest=serde_json::from_slice(&std::fs::read(path.join("manifest.json"))?)?;
+    let model=Arc::new(lctx_model::domain::model()?);
+    let native=lctx_surrealdb::compiler::NativeCompilerStore::begin(config,manifest.frontier).await?;
+    let workspace = match cpg_core::workspace::Workspace::new(
+        model,
+        cpg_core::workspace::WorkspaceOptions {memory_bytes,..Default::default()},native.clone(),
+    ) {Ok(workspace)=>workspace,Err(error)=>{native.fail();native.abandon().await?;return Err(error.into());}};
+    let result=async {
+        let export = cpg_core::artifact::verify_export(path, &workspace).await?;
+        Ok(lctx_publisher::publish(&export, config, &lctx_serving::native_definitions()).await?)
+    }.await;
+    let drained=workspace.drain().await;
+    if result.is_err() || drained.is_err() {
+        native.fail();
+        if native.abandon().await.is_err() {
+            return Err(lctx_model::domain::ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed,
+                format!("failed import left owned unselected database {}",native.database().as_str()),
+            ).into());
+        }
+    }
+    drained?;
+    result
 }
 
 fn handle(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<SnapshotHandle> {

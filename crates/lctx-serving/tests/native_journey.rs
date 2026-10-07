@@ -1,6 +1,8 @@
 //! Actual admitted Catalog compilation, native publication, ten tools and original bytes.
 #[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
 mod runtime;
+#[path = "../../cpg-core/tests/fixtures/native.rs"]
+mod native_fixture;
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},
@@ -177,6 +179,17 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         .expect("owned disposable SurrealDB fixture required");
     let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
+    let config = RuntimeConfig {
+        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
+        username: fixture["admin_user"].as_str().unwrap().into(),
+        password: fixture["admin_password"].as_str().unwrap().into(),
+        viewer_username: "serving_fixture".into(),
+        viewer_password: format!("serving-fixture-{}", std::process::id()),
+        namespace: Name::new("gn_serving_journeys").unwrap(),
+        cache_database: Name::new("cache").unwrap(),
+        selection: scratch.path().join("selection.json"),
+    };
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog).await.unwrap();
     let workspace = Workspace::new(
         Arc::new(model().unwrap()),
         WorkspaceOptions {
@@ -184,6 +197,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
             partitions: 1,
             batch_rows: 128,
         },
+        native,
     )
     .unwrap();
     let captured = library_fixture(workspace.budget());
@@ -221,21 +235,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     )
     .await
     .unwrap();
-    let export = scratch.path().join("export");
-    admitted.export(&export).unwrap();
-    drop(admitted);
-    let verified = artifact::verify_export(&export, &workspace).await.unwrap();
-    let config = RuntimeConfig {
-        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
-        username: fixture["admin_user"].as_str().unwrap().into(),
-        password: fixture["admin_password"].as_str().unwrap().into(),
-        viewer_username: "serving_fixture".into(),
-        viewer_password: format!("serving-fixture-{}", std::process::id()),
-        namespace: Name::new("gn_serving_journeys").unwrap(),
-        cache_database: Name::new("cache").unwrap(),
-        selection: scratch.path().join("selection.json"),
-    };
-    let handle = lctx_publisher::publish(&verified, &config, &lctx_serving::native_definitions())
+    let handle = lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
         .await
         .unwrap();
     assert!(!config.selection.exists());
@@ -758,6 +758,17 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     )
     .unwrap();
     let scratch = tempfile::tempdir().unwrap();
+    let config = RuntimeConfig {
+        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
+        username: fixture["admin_user"].as_str().unwrap().into(),
+        password: fixture["admin_password"].as_str().unwrap().into(),
+        viewer_username: "scope_viewer".into(),
+        viewer_password: "owned-scope-viewer".into(),
+        namespace: Name::new("gn_remediation_scopes").unwrap(),
+        cache_database: Name::new("cache").unwrap(),
+        selection: scratch.path().join("selection.json"),
+    };
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog).await.unwrap();
     let workspace = Workspace::new(
         Arc::new(model().unwrap()),
         WorkspaceOptions {
@@ -765,6 +776,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
             partitions: 1,
             batch_rows: 128,
         },
+        native,
     )
     .unwrap();
     let library = "remediation-scopes";
@@ -840,21 +852,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     )
     .await
     .unwrap();
-    let export = scratch.path().join("export");
-    admitted.export(&export).unwrap();
-    drop(admitted);
-    let verified = artifact::verify_export(&export, &workspace).await.unwrap();
-    let config = RuntimeConfig {
-        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
-        username: fixture["admin_user"].as_str().unwrap().into(),
-        password: fixture["admin_password"].as_str().unwrap().into(),
-        viewer_username: "scope_viewer".into(),
-        viewer_password: "owned-scope-viewer".into(),
-        namespace: Name::new("gn_remediation_scopes").unwrap(),
-        cache_database: Name::new("cache").unwrap(),
-        selection: scratch.path().join("selection.json"),
-    };
-    let handle = lctx_publisher::publish(&verified, &config, &lctx_serving::native_definitions())
+    let handle = lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
         .await
         .unwrap();
     let reader = NativeReader::connect(&config.endpoint, &config.viewer_credentials(), handle)

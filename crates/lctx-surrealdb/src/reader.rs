@@ -31,11 +31,11 @@ pub enum RecordSelection {
     },
 }
 #[derive(Clone)]
-pub struct NativeReader {
+pub struct NativeReader<Context = SnapshotHandle> {
     client: Arc<Surreal<Client>>,
-    handle: SnapshotHandle,
+    handle: Context,
 }
-impl NativeReader {
+impl<Context> NativeReader<Context> {
     /// Rows are provisional. Only exhaustion after every declared statement end and the outer
     /// transport completion establishes success. Private publishers discard their target on error.
     pub fn query_stream(
@@ -70,37 +70,6 @@ impl NativeReader {
             failed: false,
             marker: std::marker::PhantomData,
         })
-    }
-    pub fn new(client: Arc<Surreal<Client>>, handle: SnapshotHandle) -> Self {
-        Self { client, handle }
-    }
-    pub async fn connect(
-        endpoint: &str,
-        credentials: &Credentials,
-        handle: SnapshotHandle,
-    ) -> Result<Self, ModelError> {
-        let client = connect(
-            endpoint,
-            credentials,
-            handle.database.namespace.as_str(),
-            handle.database.database.as_str(),
-        )
-        .await?;
-        let reader = Self::new(client, handle);
-        let markers: Vec<String> = reader
-            .query(
-                "SELECT VALUE handle FROM publication:current",
-                Variables::new(),
-            )
-            .await?;
-        let expected = hex::encode(serde_json::to_vec(reader.handle()).map_err(ModelError::codec)?);
-        if markers != vec![expected] {
-            return Err(ModelError::Conflict("snapshot publication handle"));
-        }
-        Ok(reader)
-    }
-    pub fn handle(&self) -> &SnapshotHandle {
-        &self.handle
     }
     pub fn client(&self) -> &Surreal<Client> {
         &self.client
@@ -193,6 +162,48 @@ impl NativeReader {
             result.push(canonical_assertion::<R>(&payload)?);
         }
         Ok(result)
+    }
+}
+
+impl NativeReader<SnapshotHandle> {
+    pub fn new(client: Arc<Surreal<Client>>, handle: SnapshotHandle) -> Self {
+        Self { client, handle }
+    }
+    pub async fn connect(
+        endpoint: &str,
+        credentials: &Credentials,
+        handle: SnapshotHandle,
+    ) -> Result<Self, ModelError> {
+        let client = connect(
+            endpoint,
+            credentials,
+            handle.database.namespace.as_str(),
+            handle.database.database.as_str(),
+        )
+        .await?;
+        let reader = Self::new(client, handle);
+        let markers: Vec<String> = reader
+            .query(
+                "SELECT VALUE handle FROM publication:current",
+                Variables::new(),
+            )
+            .await?;
+        let expected = hex::encode(serde_json::to_vec(reader.handle()).map_err(ModelError::codec)?);
+        if markers != vec![expected] {
+            return Err(ModelError::Conflict("snapshot publication handle"));
+        }
+        Ok(reader)
+    }
+    pub fn handle(&self) -> &SnapshotHandle {
+        &self.handle
+    }
+
+}
+impl NativeReader<()> {
+    /// Owner-supplied private native access, with no published snapshot capability.
+    /// The owner must drain/discard its private target after any terminal failure.
+    pub fn private(client: Arc<Surreal<Client>>) -> Self {
+        Self { client, handle: () }
     }
 }
 

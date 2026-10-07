@@ -154,7 +154,9 @@ fn native_fixture_cli_exports_both_profiles_at_every_frontier() {
             command
                 .args(["compile", "demo", "--artifact-only", "--output"])
                 .arg(&destination)
-                .args(["--profile", profile.name(), "--through", frontier.name()]);
+                .args(["--profile", profile.name(), "--through", frontier.name()])
+                .arg("--runtime-config")
+                .arg(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler native fixture"));
             if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
                 command.args(["--techniques", "default", "--embedder", "none"]);
             }

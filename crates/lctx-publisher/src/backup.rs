@@ -91,6 +91,12 @@ pub async fn backup(
         "original",
         "original_chunk",
         "publication",
+        "compiler_contribution",
+        "compiler_membership",
+        "compiler_view",
+        "compiler_record",
+        "compiler_binding",
+        "compiler_alias",
     ]
     .map(str::to_owned)
     .to_vec();
@@ -152,7 +158,7 @@ fn complete_backup(
     })
 }
 
-/// Import a trusted current-format local dump privately, then copy only canonical graph and
+/// Import a trusted current-format local dump privately, then copy canonical graph, exact completed state and
 /// original bytes into a fresh realization. No imported marker, permission or function is served.
 pub async fn restore(
     config: &RuntimeConfig,
@@ -167,27 +173,32 @@ pub async fn restore(
             let fresh = match begin(config).await {
                 Ok(fresh) => fresh,
                 Err(error) => {
-                    abandon(&staging).await;
+                    abandon(&staging).await?;
                     return Err(error);
                 }
             };
             match copy(config, &staging, &fresh, &manifest, native_definitions).await {
                 Err(error) => {
-                    abandon(&fresh).await;
-                    Err(error)
+                    cleanup_result(Err(error), abandon(&fresh).await)
                 }
                 Ok(()) => match seal(&fresh, &manifest, config, native_definitions).await {
                     Ok(handle) => Ok(handle),
                     Err(error) => {
-                        abandon(&fresh).await;
-                        Err(error)
+                        cleanup_result(Err(error), abandon(&fresh).await)
                     }
                 },
             }
         }
     };
-    abandon(&staging).await;
-    result
+    cleanup_result(result, abandon(&staging).await)
+}
+
+fn cleanup_result<T>(result:Result<T,ModelError>,cleanup:Result<(),ModelError>)->Result<T,ModelError>{
+    match (result,cleanup){
+        (result,Ok(()))=>result,
+        (Ok(_),Err(cleanup))=>Err(cleanup),
+        (Err(primary),Err(cleanup))=>Err(ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,format!("restore failed: {primary}; {cleanup}"))),
+    }
 }
 
 async fn import(
@@ -202,17 +213,7 @@ async fn import(
     drop(client);
     imported?;
     drained?;
-    let reader = NativeReader::new(
-        staging.loader.shared_client(),
-        SnapshotHandle {
-            semantic: lctx_model::domain::ContentHash::of(b"private-import"),
-            realization: lctx_model::domain::ContentHash::of(b"private-import"),
-            database: lctx_model::domain::serving::DatabaseIdentity {
-                namespace: config.namespace.clone(),
-                database: staging.database.clone(),
-            },
-        },
-    );
+    let reader = NativeReader::private(staging.loader.shared_client());
     let bytes: Vec<Bytes> = reader
         .query(
             "SELECT VALUE manifest FROM publication:current",
@@ -231,6 +232,8 @@ async fn import(
         return Err(ModelError::Conflict("restore semantic contract"));
     }
     staging.loader.reconcile(&manifest).await?;
+    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(staging.loader.shared_client(),config.namespace.clone(),staging.database.clone());
+    if native.completed_state().await? != manifest.completed_state {return Err(ModelError::Conflict("restore completed state"));}
     Ok(manifest)
 }
 
@@ -242,11 +245,18 @@ async fn copy(
     native_definitions: &str,
 ) -> Result<(), ModelError> {
     fresh.loader.install(native_definitions).await?;
+    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(fresh.loader.shared_client(),config.namespace.clone(),fresh.database.clone());
+    native.install_state_schema().await?;
     let runtime = cpg_core::workspace::Workspace::new(
         std::sync::Arc::new(lctx_model::domain::model()?),
         cpg_core::workspace::WorkspaceOptions::default(),
+        native.clone(),
     )?;
-    let admission = cpg_core::artifact::SemanticImport::new(&runtime, manifest)?;
+    let result=async {
+    let state=tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
+    let source_state=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(staging.loader.shared_client(),config.namespace.clone(),staging.database.clone());
+    if source_state.export_state(state.path()).await? != manifest.completed_state {return Err(ModelError::Conflict("restore source state"));}
+
     // Two passes: materialize every endpoint before constructing native role/reference arcs.
     for references in [false, true] {
         let mut after = RecordId::new("entity", "");
@@ -258,9 +268,6 @@ async fn copy(
             if references {
                 fresh.loader.entity_references(&rows).await?
             } else {
-                for row in &rows {
-                    admission.entity(row.clone())?;
-                }
                 fresh.loader.entities(&rows).await?
             }
             after = last;
@@ -274,37 +281,25 @@ async fn copy(
             if references {
                 fresh.loader.assertion_references(&rows).await?
             } else {
-                for row in &rows {
-                    admission.assertion(row.clone())?;
-                }
                 fresh.loader.assertions(&rows).await?
             }
             after = last;
         }
     }
-    let source = NativeReader::new(
-        staging.loader.shared_client(),
-        SnapshotHandle {
-            semantic: manifest.content(),
-            realization: lctx_model::domain::ContentHash::of(b"private-import"),
-            database: lctx_model::domain::serving::DatabaseIdentity {
-                namespace: config.namespace.clone(),
-                database: staging.database.clone(),
-            },
-        },
-    );
+    let source = NativeReader::private(staging.loader.shared_client());
     for original in &manifest.originals {
         let mut file = tempfile::tempfile().map_err(ModelError::codec)?;
         let mut start = 0;
         while start < original.byte_len {
-            let length = (original.byte_len - start).min(65536) as usize;
-            file.write_all(
-                &source
-                    .original_bytes(original.source, start, length)
-                    .await?,
-            )
-            .map_err(ModelError::codec)?;
-            start += length as u64;
+            let mut ranges=Vec::new();
+            for _ in 0..4 {
+                if start>=original.byte_len {break;}
+                let length=(original.byte_len-start).min(65536) as usize;
+                ranges.push((original.source,start,length));start+=length as u64;
+            }
+            for bytes in source.original_bytes_batch(&ranges).await? {
+                file.write_all(&bytes).map_err(ModelError::codec)?;
+            }
         }
         file.rewind().map_err(ModelError::codec)?;
         let mut bindings = Variables::new();
@@ -328,7 +323,9 @@ async fn copy(
         let Entity::Source(header) = entity else {
             return Err(ModelError::Schema("restored original source"));
         };
-        admission.original_stream(&header, &mut file)?;
+        if header.content!=original.content || u64::try_from(header.byte_len).map_err(ModelError::codec)?!=original.byte_len {
+            return Err(ModelError::Conflict("restored original source metadata"));
+        }
         file.rewind().map_err(ModelError::codec)?;
         fresh
             .loader
@@ -340,9 +337,15 @@ async fn copy(
             )
             .await?;
     }
-    admission.finish(manifest).await?;
+    native.import_state(state.path(),&manifest.completed_state).await?;
+    runtime.restore(manifest.profile).await?;
+    cpg_core::artifact::verify_restored(&runtime,manifest).await?;
     crate::materialize_search(&fresh.loader).await?;
     fresh.loader.reconcile(manifest).await
+    }.await;
+    runtime.drain().await?;
+    if result.is_err(){native.fail();}else{native.end_writes().await?;}
+    result
 }
 
 async fn page<T: serde::de::DeserializeOwned>(

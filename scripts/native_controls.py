@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import json
+import os
 
 from build_environment import ROOT, normalized_env
 from surrealdb_fixture import fixture
@@ -12,7 +14,7 @@ from surrealdb_fixture import fixture
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("boundary", choices=("store", "serving", "mcp"))
+    parser.add_argument("boundary", choices=("store", "serving", "mcp", "compiler", "compiler-cli", "providers"))
     parser.add_argument(
         "--cli",
         action="store_true",
@@ -24,6 +26,17 @@ def main() -> int:
     with fixture() as owned:
         env = normalized_env(owned.environment(), native_inputs=False)
         env.update(INSTA_UPDATE="no", UV_NO_SYNC="1")
+        runtime=owned.scratch / "compiler-runtime.json"
+        runtime.write_text(json.dumps({
+            "endpoint":owned.config["grpc_endpoint"],
+            "username":owned.config["admin_user"],"password":owned.config["admin_password"],
+            "viewer_username":"fixture_viewer","viewer_password":owned.config["admin_password"]+"_viewer",
+            "namespace":owned.config["namespace"],"cache_database":"compiler_cache",
+            "selection":str(owned.scratch / "selected.json"),
+        }))
+        os.chmod(runtime,0o600)
+        owned.query("DEFINE DATABASE compiler_cache STRICT;")
+        env["LCTX_COMPILER_RUNTIME_CONFIG"]=str(runtime)
 
         def run(command: list[str]) -> int:
             return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
@@ -34,6 +47,13 @@ def main() -> int:
                 return code
             env["LCTX_REMEDIATION_CLI_BIN"] = str(ROOT / "target" / "release" / "lctx")
 
+        if options.boundary in {"compiler", "compiler-cli", "providers"}:
+            packages={
+                "compiler":["-p","cpg-core","--lib","--tests"],
+                "compiler-cli":["-p","lctx","--bin","lctx","--test","acquire","--test","compile_artifact"],
+                "providers":["-p","cpg-extract","--lib","--test","acquisition","--test","bundle","--test","harness","--test","typed_conformance","--test","typed_flow","--test","typed_calls","--test","native_overload_origins","--test","typed_ruff_context"],
+            }[options.boundary]
+            return run(["cargo","nextest","run","--release","--no-fail-fast","--no-tests=fail",*packages,*filters])
         if options.boundary != "mcp":
             packages = (
                 ["-p", "lctx-surrealdb", "-p", "lctx-publisher"]

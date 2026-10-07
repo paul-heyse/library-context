@@ -34,45 +34,25 @@ FAMILIES = {
     "analytics": Family((rust("-p", "lctx-analytics"),)),
     "providers": Family(
         (
-            rust(
-                "-p",
-                "cpg-extract",
-                "--lib",
-                "--test",
-                "acquisition",
-                "--test",
-                "bundle",
-                "--test",
-                "typed_conformance",
-                "--test",
-                "typed_flow",
-                "--test",
-                "typed_calls",
-                "--test",
-                "native_overload_origins",
-                "--test",
-                "typed_ruff_context",
-                "--test",
-                "harness",
-            ),
+            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "providers"),
             rust("-p", "cpg-flow", "--lib", "--test", "flow_shapes", "--test", "capture_timing"),
         ),
-        frozenset({"tools"}),
+        frozenset({"tools", "native-store"}),
     ),
     "compiler": Family(
         (
-            rust("-p", "cpg-core", "--lib", "--tests"),
-            rust("-p", "lctx", "--bin", "lctx", "--test", "acquire", "--test", "compile_artifact"),
+            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "compiler"),
+            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "compiler-cli"),
         ),
-        frozenset({"tools"}),
+        frozenset({"tools", "native-store"}),
     ),
     "store": Family(
-        (("python3", "scripts/native_controls.py", "store"),), frozenset({"tools", "native-store"})
+        (("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "store"),), frozenset({"tools", "native-store"})
     ),
     "serving": Family(
         (
-            ("python3", "scripts/native_controls.py", "serving"),
-            ("python3", "scripts/native_controls.py", "mcp"),
+            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "serving"),
+            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "mcp"),
         ),
         frozenset({"tools", "native-serving", "native-python"}),
     ),
@@ -109,10 +89,10 @@ COMMANDS = {
 }
 
 BOUNDARY_REQUIREMENTS = {
-    ("providers", "extract"): frozenset({"tools"}),
+    ("providers", "extract"): frozenset({"tools", "native-store"}),
     ("providers", "flow"): frozenset(),
-    ("compiler", "producer"): frozenset({"tools"}),
-    ("compiler", "cli"): frozenset({"tools"}),
+    ("compiler", "producer"): frozenset({"tools", "native-store"}),
+    ("compiler", "cli"): frozenset({"tools", "native-store"}),
     ("serving", "rust"): frozenset({"tools", "native-serving"}),
     ("serving", "mcp"): frozenset({"tools", "native-serving", "native-python"}),
     ("oracles", "flow"): frozenset({"tools", "cli"}),

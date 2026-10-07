@@ -65,7 +65,7 @@ enum Cmd {
     },
     /// The acquired environment's deployment identity, as JSON (scripts/deployment_check.py).
     DeploymentIdentity { name: String },
-    /// Compile a cumulative admitted graph and publish it, or export a store-free artifact.
+    /// Compile a cumulative admitted graph and publish it, or explicitly export its complete artifact.
     Compile {
         name: String,
         /// Compile and export without publication.
@@ -74,8 +74,8 @@ enum Cmd {
         /// Destination for the admitted artifact; must not already exist.
         #[arg(long, requires = "artifact_only")]
         output: Option<PathBuf>,
-        /// Native runtime configuration; ordinary compilation only.
-        #[arg(long, conflicts_with = "artifact_only")]
+        /// Native runtime configuration for compilation and explicit export.
+        #[arg(long)]
         runtime_config: Option<PathBuf>,
         #[arg(long)]
         through: String,
@@ -506,12 +506,18 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         )],
         cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
     ));
-    let (model, workspace) = tokio::runtime::Runtime::new()?.block_on(cpg_core::facts::inspect(
+    let runtime=tokio::runtime::Runtime::new()?;
+    let native_path=std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").map(PathBuf::from).unwrap_or_else(||PathBuf::from(crate::newnative::DEFAULT_CONFIG));
+    let native_config=crate::newnative::config(&native_path)?;
+    let native=runtime.block_on(lctx_surrealdb::compiler::NativeCompilerStore::begin(&native_config,lctx_model::domain::admission::Frontier::Facts))?;
+    let (model, workspace) = match runtime.block_on(cpg_core::facts::inspect(
         captured,
         flow_workspace_options(&budget),
         Profile::Behavioral,
-    ))?;
-    let digest = workspace.content()?;
+        native.clone(),
+    )) {Ok(result)=>result,Err(error)=>{native.fail();runtime.block_on(native.abandon())?;return Err(error.into());}};
+    let output=(||->anyhow::Result<()> {
+    let digest = workspace.identity()?;
     fn read<R: Record>(
         workspace: &cpg_core::workspace::Workspace,
         budget: &ResourceBudget,
@@ -630,6 +636,11 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
     });
     println!("{}", serde_json::to_string(&result)?);
     Ok(())
+    })();
+    let drained=runtime.block_on(workspace.drain());
+    runtime.block_on(native.abandon())?;
+    drained?;
+    output
 }
 
 #[derive(Subcommand, Debug)]
@@ -740,6 +751,7 @@ fn run() -> anyhow::Result<()> {
                     output
                         .as_deref()
                         .expect("clap requires an artifact destination"),
+                    &runtime_config,
                 )
             } else {
                 compile::Target::Native(&runtime_config)
@@ -862,7 +874,8 @@ fn run() -> anyhow::Result<()> {
                 }
                 SnapshotCommand::Show { handle } => {
                     let reader = runtime.block_on(newnative::pin(&config, handle.as_deref()))?;
-                    println!("{}", serde_json::to_string_pretty(reader.handle())?);
+                    let details=runtime.block_on(lctx_publisher::inspection::show(&reader))?;
+                    println!("{}", serde_json::to_string_pretty(&details)?);
                 }
                 SnapshotCommand::Query { sql, handle } => {
                     let response =
@@ -937,6 +950,7 @@ mod tests {
     use clap::Parser;
 
     use super::{Cli, Cmd};
+    use std::path::PathBuf;
 
     fn parse(args: &[&str]) -> Result<Cli, String> {
         Cli::try_parse_from(std::iter::once("lctx").chain(args.iter().copied()))
@@ -947,10 +961,14 @@ mod tests {
     async fn flow_workspace_shares_the_capture_budget() {
         use lctx_model::domain::resources::ResourceBudget;
         let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        let path=PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler fixture"));
+        let config=lctx_surrealdb::RuntimeConfig::read(&path).unwrap();
+        let native=lctx_surrealdb::compiler::NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
         let workspace = cpg_core::workspace::Workspace::with_budget(
             std::sync::Arc::new(lctx_model::domain::model().unwrap()),
             super::flow_workspace_options(&budget),
             budget.clone(),
+            native.clone(),
         )
         .unwrap();
         let before = budget.reserved();
@@ -961,6 +979,8 @@ mod tests {
         assert_eq!(budget.reserved(), before + 1024);
         drop(held);
         assert_eq!(budget.reserved(), before);
+        workspace.drain().await.unwrap();
+        native.abandon().await.unwrap();
     }
 
     #[test]

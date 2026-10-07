@@ -68,7 +68,7 @@ def test_required_families_never_allow_empty_selection():
 def test_boundary_filter_scopes_real_prerequisites_and_preserves_ordinary_filters():
     commands = []
     assert prerequisites("providers", "flow") == frozenset()
-    assert prerequisites("compiler", "producer") == frozenset({"tools"})
+    assert prerequisites("compiler", "producer") == frozenset({"tools", "native-store"})
     result = execute(
         ["providers"],
         {},
@@ -114,6 +114,9 @@ def test_compiler_selections_reference_current_binaries():
 
     for family in ("compiler", "providers"):
         for command in FAMILIES[family].commands:
+            if "-p" not in command:
+                assert command[:5] == ("uv", "run", "--no-sync", "python", "scripts/native_controls.py")
+                continue
             package = command[command.index("-p") + 1]
             for index, argument in enumerate(command):
                 if argument == "--test":
@@ -126,7 +129,7 @@ def test_compiler_selections_reference_current_binaries():
     )
     assert FAMILIES["store"].commands and FAMILIES["serving"].commands
     assert all(
-        command[:2] == ("python3", "scripts/native_controls.py")
+        command[:5] == ("uv", "run", "--no-sync", "python", "scripts/native_controls.py")
         for family in ("store", "serving")
         for command in FAMILIES[family].commands
     )

@@ -1,6 +1,8 @@
 //! Actual compiled finite fixture, independent export verification, native publication and VIEWER.
 #[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
 mod runtime;
+#[path = "../../cpg-core/tests/fixtures/native.rs"]
+mod native_fixture;
 use cpg_core::{
     artifact, compilation,
     workspace::{Workspace, WorkspaceOptions},
@@ -62,7 +64,7 @@ fn select_and_show_cli(
         String::from_utf8_lossy(&shown.stderr)
     );
     assert_eq!(
-        serde_json::from_slice::<SnapshotHandle>(&shown.stdout).unwrap(),
+        serde_json::from_value::<SnapshotHandle>(serde_json::from_slice::<serde_json::Value>(&shown.stdout).unwrap()["handle"].clone()).unwrap(),
         *handle
     );
     // A valid-shaped foreign handle must be refused by the actual CLI before the one
@@ -92,7 +94,7 @@ fn select_and_show_cli(
         .unwrap();
     assert!(shown.status.success());
     assert_eq!(
-        serde_json::from_slice::<SnapshotHandle>(&shown.stdout).unwrap(),
+        serde_json::from_value::<SnapshotHandle>(serde_json::from_slice::<serde_json::Value>(&shown.stdout).unwrap()["handle"].clone()).unwrap(),
         *handle
     );
 }
@@ -337,6 +339,17 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
         std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable native server required");
     let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
+    let config = RuntimeConfig {
+        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
+        username: fixture["admin_user"].as_str().unwrap().into(),
+        password: fixture["admin_password"].as_str().unwrap().into(),
+        viewer_username: "fixture_viewer".into(),
+        viewer_password: format!("fixture-viewer-{}", std::process::id()),
+        namespace: Name::new(format!("gn_publication_{}", std::process::id())).unwrap(),
+        cache_database: Name::new("cache").unwrap(),
+        selection: scratch.path().join("selected.json"),
+    };
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized).await.unwrap();
     let workspace = Workspace::new(
         Arc::new(model().unwrap()),
         WorkspaceOptions {
@@ -344,6 +357,7 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
             partitions: 1,
             batch_rows: 128,
         },
+        native.clone(),
     )
     .unwrap();
     let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
@@ -370,19 +384,14 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
     .await
     .unwrap();
     let export = scratch.path().join("artifact");
-    admitted.export(&export).unwrap();
+    admitted.export(&export).await.unwrap();
     drop(admitted);
+    workspace.drain().await.unwrap();
+    native.abandon().await.unwrap();
+    let restored = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized).await.unwrap();
+    let workspace = Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions {memory_bytes: 1 << 30,partitions: 1,batch_rows:128}, restored).unwrap();
     let verified = artifact::verify_export(&export, &workspace).await.unwrap();
-    let config = RuntimeConfig {
-        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
-        username: fixture["admin_user"].as_str().unwrap().into(),
-        password: fixture["admin_password"].as_str().unwrap().into(),
-        viewer_username: "fixture_viewer".into(),
-        viewer_password: format!("fixture-viewer-{}", std::process::id()),
-        namespace: Name::new(format!("gn_publication_{}", std::process::id())).unwrap(),
-        cache_database: Name::new("cache").unwrap(),
-        selection: scratch.path().join("selected.json"),
-    };
+
     let definitions = lctx_surrealdb::materialization::native_definitions();
     let handle = lctx_publisher::publish(&verified, &config, &definitions)
         .await
@@ -391,6 +400,11 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
     assert_eq!(handle.semantic, verified.manifest().content());
     let listed = lctx_publisher::inspection::list(&config).await.unwrap();
     assert!(listed.contains(&handle));
+    let inspector=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),handle.clone()).await.unwrap();
+    let details=lctx_publisher::inspection::show(&inspector).await.unwrap();
+    assert_eq!(details.manifest.completed_state,verified.manifest().completed_state);
+    assert!(!details.contributions.is_empty());
+    assert!(!details.bindings.is_empty());
     lctx_publisher::inspection::audit(&config, &handle, &definitions)
         .await
         .unwrap();

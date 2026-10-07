@@ -81,13 +81,14 @@ pub(crate) async fn verify_realization(
         details.insert(name, table);
     }
     inventory.insert("table_details", details);
-    let mut key = KeySink::new("native-realization/v2");
+    let mut key = KeySink::new("native-realization/v3");
     key.part(b"engine", version.as_bytes());
     key.part(
         b"lowering",
-        b"lctx-native-graph/v3;remote-sdk-3.3;sparse-atomic-id-scopes",
+        b"lctx-native-graph/v4;remote-sdk-3.3;sparse-atomic-id-scopes;completed-state-v1",
     );
     schema::realization_identity(native_definitions).encode(&mut key);
+    key.part(b"compiler-state-schema", lctx_surrealdb::compiler::compiler_schema().as_bytes());
     key.part(
         b"effective-definitions/info-maps-v1",
         inventory.to_sql().as_bytes(),

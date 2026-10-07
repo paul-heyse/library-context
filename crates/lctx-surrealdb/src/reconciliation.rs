@@ -30,17 +30,7 @@ impl Loader {
     pub async fn reconcile(&self, manifest: &Manifest) -> Result<(), ModelError> {
         manifest.validate()?;
         let mut expected = crate::ordered_rows::SortedRows::new()?;
-        let snapshot = lctx_model::domain::serving::SnapshotHandle {
-            semantic: manifest.content(),
-            realization: ContentHash::of(b"private-reconciliation"),
-            database: lctx_model::domain::serving::DatabaseIdentity {
-                namespace: lctx_model::domain::serving::Name::new("private")
-                    .map_err(ModelError::codec)?,
-                database: lctx_model::domain::serving::Name::new("private")
-                    .map_err(ModelError::codec)?,
-            },
-        };
-        let reader = crate::NativeReader::new(self.shared_client(), snapshot);
+        let reader = crate::NativeReader::private(self.shared_client());
         for (table, family) in [
             ("entity", GraphFamily::Entities),
             ("assertion", GraphFamily::Assertions),
@@ -242,7 +232,7 @@ struct Chunk {
     content: String,
     bytes: Bytes,
 }
-impl crate::NativeReader {
+impl<Context> crate::NativeReader<Context> {
     /// One indexed union query for a bounded set of exact original byte ranges.
     /// Results preserve request order, including duplicates; source/chunk integrity is checked.
     pub async fn original_bytes_batch(

@@ -10,7 +10,6 @@ use lctx_model::domain::{
         ContentPart, Family, Origin, OriginalAnchor, PartPurpose, SearchWindow, Subject, Unit,
         WindowBinding, WindowPart, WindowSourceMap, consumption::RetrievalEmbeddingUse,
     },
-    serving::{DatabaseIdentity, Name, SnapshotHandle},
     *,
 };
 use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
@@ -40,19 +39,10 @@ fn table(family: Family) -> &'static str {
         Family::Source => TABLES[3],
     }
 }
-fn reader(loader: &Loader) -> Result<NativeReader, ModelError> {
-    Ok(NativeReader::new(
-        loader.shared_client(),
-        SnapshotHandle {
-            semantic: ContentHash::of(b"private-lowering"),
-            realization: ContentHash::of(b"private-lowering"),
-            database: DatabaseIdentity {
-                namespace: Name::new("private").map_err(ModelError::codec)?,
-                database: Name::new("private").map_err(ModelError::codec)?,
-            },
-        },
-    ))
+fn reader(loader: &Loader) -> Result<NativeReader<()>, ModelError> {
+    Ok(NativeReader::private(loader.shared_client()))
 }
+
 struct Expected {
     pending: Vec<Option<SortedRows>>,
     ordered: Vec<Option<OrderedRows>>,
@@ -87,7 +77,7 @@ impl Expected {
         }
         Ok(self.ordered[index].as_mut().expect("ordered family"))
     }
-    async fn reconcile(&mut self, reader: &NativeReader) -> Result<(), ModelError> {
+    async fn reconcile(&mut self, reader: &NativeReader<()>) -> Result<(), ModelError> {
         for (index, table) in TABLES.iter().enumerate() {
             let mut actual = reader.query_stream(
                 format!("SELECT * FROM {table} ORDER BY id"),
@@ -171,7 +161,7 @@ fn need<R: Record>(index: &Index<R>, id: Id<R>) -> Result<&R, ModelError> {
         .ok_or(ModelError::Schema("canonical search companion"))
 }
 async fn keyed<R: Record + serde::de::DeserializeOwned>(
-    reader: &NativeReader,
+    reader: &NativeReader<()>,
     ids: impl IntoIterator<Item = Id<R>>,
 ) -> Result<Index<R>, ModelError> {
     let ids = ids
@@ -198,7 +188,7 @@ async fn keyed<R: Record + serde::de::DeserializeOwned>(
     Ok(result)
 }
 async fn scoped<R: Record + serde::de::DeserializeOwned, T: serde::Serialize>(
-    reader: &NativeReader,
+    reader: &NativeReader<()>,
     field: &str,
     ids: impl IntoIterator<Item = T>,
 ) -> Result<Index<R>, ModelError> {
@@ -222,7 +212,7 @@ async fn scoped<R: Record + serde::de::DeserializeOwned, T: serde::Serialize>(
     Ok(result)
 }
 async fn fill<R: Record + serde::de::DeserializeOwned>(
-    reader: &NativeReader,
+    reader: &NativeReader<()>,
     index: &mut Index<R>,
     ids: impl IntoIterator<Item = Id<R>>,
 ) -> Result<(), ModelError> {
@@ -240,7 +230,7 @@ struct Basic {
     parts: Index<ContentPart>,
 }
 impl Basic {
-    async fn load(reader: &NativeReader, windows: Index<SearchWindow>) -> Result<Self, ModelError> {
+    async fn load(reader: &NativeReader<()>, windows: Index<SearchWindow>) -> Result<Self, ModelError> {
         let units = keyed(reader, windows.values().map(|w| w.unit)).await?;
         let links = scoped::<WindowPart, _>(reader, "window", windows.keys().copied()).await?;
         let parts = keyed(reader, links.values().map(|link| link.part)).await?;
@@ -297,7 +287,7 @@ fn cohort_row(p: &LoweredProjection, unit: &Unit) -> Result<Value, ModelError> {
     row.insert("embedding", p.embedding.clone());
     Ok(Value::Object(row))
 }
-async fn lower_vectors(reader: &NativeReader, expected: &mut Expected) -> Result<(), ModelError> {
+async fn lower_vectors(reader: &NativeReader<()>, expected: &mut Expected) -> Result<(), ModelError> {
     let mut uses = reader.record_stream::<RetrievalEmbeddingUse>(
         "body.availability=0",
         Variables::new(),
@@ -415,7 +405,7 @@ struct Companions {
     uses: Index<RetrievalEmbeddingUse>,
 }
 impl Companions {
-    async fn load(reader: &NativeReader, b: &Basic) -> Result<Self, ModelError> {
+    async fn load(reader: &NativeReader<()>, b: &Basic) -> Result<Self, ModelError> {
         let bindings =
             scoped::<WindowBinding, _>(reader, "window", b.windows.keys().copied()).await?;
         let subjects = keyed(reader, bindings.values().map(|r| r.subject)).await?;
@@ -529,7 +519,7 @@ impl Companions {
     }
 }
 async fn option_names(
-    reader: &NativeReader,
+    reader: &NativeReader<()>,
     options: &Index<catalog::CatalogOption>,
 ) -> Result<BTreeMap<Id<catalog::CatalogOption>, String>, ModelError> {
     use catalog::CatalogOptionSubject as Subject;
@@ -621,7 +611,7 @@ async fn option_names(
     Ok(result)
 }
 async fn lower(
-    reader: &NativeReader,
+    reader: &NativeReader<()>,
     expected: &mut Expected,
     loader: Option<&Loader>,
 ) -> Result<(), ModelError> {
