@@ -89,18 +89,18 @@ impl DependencyClosure {
         };
         let own: BTreeSet<_> = owned
             .iter()
-            .filter(|r| !is_vocabulary(r.name()))
+            .filter(|r| !is_epoch_shared(r.name()))
             .map(|r| r.name())
             .collect();
         let facts: BTreeSet<_> = facts_relations().iter().map(Relation::name).collect();
         let resolve = |mut input: ValidationInput| -> Result<ValidationInput, ModelError> {
-            if is_vocabulary(input.name()) {
+            if is_epoch_shared(input.name()) {
                 let epoch = input.prefix().unwrap_or(vocabulary);
                 input = input.at_epoch(epoch);
                 order.resolve(input.prefix().expect("resolved epoch"))?;
             } else if input.prefix().is_some() {
                 return Err(ModelError::Invalid(
-                    "ordinary closure input has vocabulary epoch".into(),
+                    "ordinary closure input has shared epoch".into(),
                 ));
             }
             if own.contains(input.name()) {
@@ -166,7 +166,7 @@ impl DependencyClosure {
                     grant.name()
                 )));
             }
-            if is_vocabulary(grant.name()) {
+            if is_epoch_shared(grant.name()) {
                 grant = grant.at_epoch(grant.prefix().unwrap_or(vocabulary));
             }
             merge(&mut grants, grant, order)?;

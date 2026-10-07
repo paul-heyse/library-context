@@ -855,9 +855,9 @@ impl ValidationInput {
         self.prefix
     }
     fn validate_prefix(&self) -> Result<(), ModelError> {
-        if self.prefix.is_some() && !super::stages::is_vocabulary(self.name) {
+        if self.prefix.is_some() && !super::stages::is_epoch_shared(self.name) {
             return Err(ModelError::Invalid(
-                "validation prefix applies only to vocabulary".into(),
+                "validation prefix applies only to shared relations".into(),
             ));
         }
         Ok(())

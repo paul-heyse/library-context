@@ -107,7 +107,7 @@ pub struct Workspace {
     budget: ResourceBudget,
     model: Arc<ValidatedModel>,
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
-    frozen_vocabulary: Mutex<
+    frozen_shared: Mutex<
         BTreeMap<
             (
                 lctx_model::domain::stages::PublicationBoundary,
@@ -160,7 +160,7 @@ impl Workspace {
             }))?,
             model,
             completed: Mutex::default(),
-            frozen_vocabulary: Mutex::default(),
+            frozen_shared: Mutex::default(),
             next: AtomicU64::new(0),
             cancellation: Cancellation::default(),
             completion_gate: tokio::sync::Mutex::new(()),
@@ -349,7 +349,7 @@ impl Workspace {
         // Consumer admission remains exact and never substitutes a missing selected epoch.
         self.validate_scope(profile, true, None).await?;
         for ((boundary, name), relation) in self
-            .frozen_vocabulary
+            .frozen_shared
             .lock()
             .map_err(|_| poisoned())?
             .iter()
@@ -875,7 +875,7 @@ impl Workspace {
         ModelError,
     > {
         let frozen = self
-            .frozen_vocabulary
+            .frozen_shared
             .lock()
             .map_err(|_| poisoned())?
             .clone();
@@ -1187,14 +1187,14 @@ impl Workspace {
             .cloned()
             .ok_or_else(|| ModelError::Invalid(format!("input {name} is not completed")))
     }
-    /// Resolve a replay's declared completed view without widening it to later vocabulary.
+    /// Resolve a replay's declared completed view without widening it to later shared values.
     pub fn input_relation(
         &self,
         input: &lctx_model::domain::ValidationInput,
     ) -> Result<Arc<CompletedRelation>, ModelError> {
         if let Some(boundary) = input.prefix() {
             return self
-                .frozen_vocabulary
+                .frozen_shared
                 .lock()
                 .map_err(|_| poisoned())?
                 .get(&(boundary, input.name()))
@@ -1235,14 +1235,14 @@ impl Workspace {
             relations,
         })
     }
-    /// Bind each declared semantic boundary to immutable vocabulary streams. Only small
+    /// Bind each declared semantic boundary to immutable shared streams. Only small
     /// descriptors are retained; later contributions cannot widen an earlier producer's inputs.
     pub fn freeze_inputs(
         &self,
         boundary: lctx_model::domain::stages::PublicationBoundary,
     ) -> Result<(), ModelError> {
         let completed = self.completed.lock().map_err(|_| poisoned())?;
-        let mut frozen = self.frozen_vocabulary.lock().map_err(|_| poisoned())?;
+        let mut frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
         if frozen.keys().any(|(existing, _)| *existing == boundary) {
             return Err(ModelError::Invalid(
                 "compiler input boundary already frozen".into(),
@@ -1250,7 +1250,7 @@ impl Workspace {
         }
         for (name, source) in completed
             .iter()
-            .filter(|(name, _)| lctx_model::domain::stages::is_vocabulary(name))
+            .filter(|(name, _)| lctx_model::domain::stages::is_epoch_shared(name))
         {
             frozen.insert((boundary, *name), source.clone());
         }
@@ -1274,7 +1274,7 @@ impl Workspace {
                 "selected compiler inputs differ from declaration".into(),
             ));
         }
-        let frozen = self.frozen_vocabulary.lock().map_err(|_| poisoned())?;
+        let frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
         let mut relations = BTreeMap::new();
         for (declared, input) in declaration.inputs.iter().zip(&selected.inputs) {
             if declared.name() != input.name() {
@@ -1980,7 +1980,7 @@ impl ProducerOutput {
         result
     }
     pub fn declare<R: Record>(&self) -> Result<(), ModelError> {
-        self.declare_kind::<R>(lctx_model::domain::stages::is_vocabulary(R::NAME))
+        self.declare_kind::<R>(lctx_model::domain::stages::is_epoch_shared(R::NAME))
     }
     fn declare_kind<R: Record>(&self, contribution: bool) -> Result<(), ModelError> {
         self.guarded(|| self.declare_kind_inner::<R>(contribution))

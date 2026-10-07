@@ -48,7 +48,6 @@ impl UpperStage {
         Self::Native,
         Self::EmbeddingConfiguration,
         Self::Text,
-        Self::Embedding,
         Self::CatalogCore,
         Self::CatalogEvidence,
         Self::Local,
@@ -59,6 +58,7 @@ impl UpperStage {
         Self::Models,
         Self::Summary,
         Self::Structural,
+        Self::Embedding,
         Self::Analytic,
         Self::Selection,
         Self::Synthesis,
@@ -132,7 +132,7 @@ impl UpperStage {
             Self::Native => None,
             Self::EmbeddingConfiguration => None,
             Self::Text => None,
-            Self::Embedding => None,
+            Self::Embedding => Some(PublicationBoundary::AnalyticEmbedding),
             Self::CatalogCore => None,
             Self::CatalogEvidence => None,
             Self::Local => Some(PublicationBoundary::Local),
@@ -146,7 +146,7 @@ impl UpperStage {
             Self::Analytic => Some(PublicationBoundary::Analytic),
             Self::Selection => None,
             Self::Synthesis => Some(PublicationBoundary::Synthesis),
-            Self::Retrieval => None,
+            Self::Retrieval => Some(PublicationBoundary::Retrieval),
             Self::AnalysisFrontier => None,
             Self::CatalogFrontier => None,
         }
@@ -438,7 +438,7 @@ fn validate_upper_dependencies(schedule: &Schedule) -> Result<(), ModelError> {
                 if let Some(limit) = limit {
                     let boundary = schedule.epoch_for(producer.name).ok_or_else(|| {
                         ModelError::Invalid(
-                            "vocabulary producer has no publication boundary".into(),
+                            "shared producer has no publication boundary".into(),
                         )
                     })?;
                     if schedule.prefix_for(boundary)?.ordinal() > limit.ordinal() {
@@ -455,12 +455,12 @@ fn validate_upper_dependencies(schedule: &Schedule) -> Result<(), ModelError> {
 }
 
 /// Resolve the declaration's immutable predecessor view using static semantic dependencies.
-/// An unspecified shared-vocabulary input binds its first producer group, matching the model
+/// An unspecified shared-epoch input binds its first producer group, matching the model
 /// scheduler contract. Ordinary relations retain their completed-stream selection.
 fn completed_input_declaration(schedule: &Schedule, declaration: &Stage) -> Stage {
     let mut selected = declaration.clone();
     for input in &mut selected.inputs {
-        if input.prefix().is_some() || !is_vocabulary(input.name()) {
+        if input.prefix().is_some() || !is_epoch_shared(input.name()) {
             continue;
         }
         if let Some(group) = schedule.publication_groups().iter().find(|group| {
@@ -477,7 +477,7 @@ fn completed_input_declaration(schedule: &Schedule, declaration: &Stage) -> Stag
     }
     selected
 }
-/// Freeze only completed vocabulary descriptors, once all statically named producers for a
+/// Freeze only completed shared descriptors, once all statically named producers for a
 /// boundary finish. No stage grant, receipt, mutable publication epoch or store is involved.
 fn freeze_completed_inputs(
     workspace: &Workspace,
@@ -857,4 +857,19 @@ pub async fn compile(
     workspace
         .finish_compilation(capture_identity, frontier, profile, configuration)
         .await
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+
+    #[test]
+    fn value_publication_boundaries_follow_semantic_dependency_order() {
+        let groups: Vec<_> = UpperStage::ALL.into_iter().filter_map(|stage| stage.boundary()).collect();
+        let structural = groups.iter().position(|boundary| *boundary == PublicationBoundary::Structural).unwrap();
+        assert_eq!(groups[structural + 1], PublicationBoundary::AnalyticEmbedding);
+        assert_eq!(groups[structural + 2], PublicationBoundary::Analytic);
+        assert_eq!(groups.last(), Some(&PublicationBoundary::Retrieval));
+        assert!(groups.iter().position(|boundary| *boundary == PublicationBoundary::Local).unwrap() < structural);
+    }
 }
