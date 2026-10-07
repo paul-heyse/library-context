@@ -75,13 +75,16 @@ Current implementation follows graph-native §9 and AGENTS: touched-crate compil
 
 Targeted acceptance must establish raw origin fidelity, known-empty versus unavailable input, complete native-pin parity, exact necessary admission/checked-input requirements, physical constraints, independent identity vectors and presentation status preservation. Broadening a conclusion because a bounded control passes is forbidden. Retrieval quality, speed and RSS require separate measurements; unmeasured benefits remain hypotheses.
 
-Real-library reconstruction, activation, live-vector campaigns and PR6 remain **not_run / stopped** under Phase 5. IS packages may establish readiness and investigation decisions without lifting that boundary. Sealed confirmation data remain untouched.
+The combined [evidence/retrieval and evaluation execution](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+authorizes fresh local live-Qwen/FastMCP reconstruction and Q1 adoption. Its current receipts own
+that boundary; this historical Q0 receipt does not establish it. Paid outer studies, protected
+confirmation and broad performance campaigns remain unactivated. Sealed confirmation data remain untouched.
 
 ## 6. Documentation and retirement
 
 T0 updates implemented compute claims in DESIGN §B3/§15 and the binding, while preserving accepted relational capability and native kernel ownership. If selected execution changes an architectural choice, add/supersede its ADR and amend the owner in the same slice. No substantive accepted ADR rewrite.
 
-Existing expansion/enrichment plans retain dated implementation/failure evidence and original finding IDs; native replacement acceptance routes to graph-native §9. S1/S2/IS lifecycle obligations do not resume activation. The forward plan owns IS1–IS4/product-driven triggers, and analytical enrichment retains Q1. Shared analyzer skill guidance is maintained through its own maintenance route. Under current repo-agnostic skill policy, migrate stale repository-specific project/wiring notes into existing repository owners and remove that overlay from the shared skill; retain only independently pinned capability contracts there. Do not restamp a contradictory project layer or create another repo authority.
+Existing expansion/enrichment plans retain dated implementation/failure evidence and original finding IDs; native replacement acceptance routes to graph-native §9. The forward plan owns IS1–IS4/product-driven triggers, and analytical enrichment retains Q1, explicitly resumed by the combined execution. Shared analyzer skill guidance is maintained through its own maintenance route. Under current repo-agnostic skill policy, migrate stale repository-specific project/wiring notes into existing repository owners and remove that overlay from the shared skill; retain only independently pinned capability contracts there. Do not restamp a contradictory project layer or create another repo authority.
 
 Update source reviews to link here as the single disposition owner, preserving their original assessment and reassessment. Retire an old plan/review/evidence folder only when its last current consumer is gone and surviving obligations have moved. This authoring task does not remove historical evidence with active qualification consumers.
 

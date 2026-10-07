@@ -8,12 +8,14 @@ owns current compiler, native persistence, projection and serving corrections. I
 plans replace the former generation/receipt/grant integration instructions.
 
 
-**Product extension dependency, Proposed (2026-10-06).** The accepted [evidence/retrieval and evaluation extension](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
-supplies future exact evidence-window/context and final-delivery observations. Its
+**Product extension dependency, Implemented / integration pending (2026-10-06).** The accepted [evidence/retrieval and evaluation extension](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+supplies exact evidence-window/context and final-delivery observations. Its
 [primary finite evaluation loop](programmatic-evaluation-plan_2026-10-06.md) can assess these
 packets independently when the actual producers are migrated. ER2 changes E1 to the declared
 normalized1024 projection of full4096 winners; fresh analytical results/receipts are required.
-This dependency does not move this plan's O/F IDs, activate Q1, or reinterpret its earlier checks.
+This dependency does not move this plan's O/F IDs or reinterpret its earlier checks. The combined
+execution explicitly authorizes the local live-Qwen/FastMCP Q1 pilot and adoption; its current
+receipts remain separate from historical enrichment checks and protected/paid evaluation.
 
 ## 1. Outcome and boundary
 
@@ -32,11 +34,11 @@ provide immutable native packets. Native detached import performs necessary owne
 does not replay all producers or inherit historical validation receipts. The current design and
 [validation owner](../design/sections/validation-and-evaluation.md) govern controls.
 
-Q1 remains a separately activated product/real-library boundary. Challenge actual useful packets,
+Q1 is an authorized product/real-library boundary in the combined execution. Challenge actual useful packets,
 precise identity transfers and independent expected answers, including conditional/generated,
 Terminal/raised and incomplete cases. A fixture success, additional stored rows or observation-only
 bundle does not establish packet benefit, live-Qwen usefulness or operator activation. The current
-remediation's R-Q0 does not silently activate Q1.
+remediation's R-Q0 does not itself establish Q1 completion.
 
 ## 3. Conditional work
 
