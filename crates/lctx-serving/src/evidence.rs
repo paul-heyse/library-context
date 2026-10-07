@@ -360,7 +360,8 @@ mod tests {
     fn id<T>(n:u8)->Id<T>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
     #[test]
     fn delivered_heading_slice_stays_within_captured_span(){
-        let range=OriginalRange{source:OriginalReference::Span{span:id(1)},artifact:id(2),start:7,end:29,digest:ContentHash::of(b"captured source"),encoding:Name::new("raw_bytes").unwrap(),release:id(3),context:id(4)};
+        let span=assertion::Evidence::SourceSpan{source:id(2),start:7,end:29};
+        let range=OriginalRange{source:OriginalReference::Span{span:assertion::EvidenceSourceSpanId::of(&span).unwrap()},artifact:id(2),start:7,end:29,digest:ContentHash::of(b"captured source"),encoding:Name::new("raw_bytes").unwrap(),release:id(3),context:id(4)};
         let mut exact=range.clone();restrict_source_range(&mut exact,7,16).unwrap();
         assert_eq!((exact.start,exact.end),(7,16));assert_eq!(exact.source,range.source);assert_eq!((exact.release,exact.context),(range.release,range.context));
         for (start,end) in [(-1,8),(6,16),(8,30),(16,8)] {let mut invalid=range.clone();assert!(restrict_source_range(&mut invalid,start,end).is_err());assert_eq!(invalid,range);}
