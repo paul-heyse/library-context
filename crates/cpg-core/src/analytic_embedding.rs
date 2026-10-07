@@ -11,6 +11,8 @@ use lctx_model::domain::{
         analytic::{self, AnalysisEmbeddingUse, ConsumptionData, FrameOutcome, VectorAvailability},
         text::{TextAssessment, TextAvailability, TextWindow},
         value,
+        consumption::SelectedConsumption,
+        projection::ProjectedValue,
     },
     normalized::Rows,
     stages::*,
@@ -89,6 +91,8 @@ pub async fn produce(
     }
     read!(embedding::text::TextDefinition, metadata.text_definitions);
     read!(embedding::EmbeddingSpec, metadata.specifications);
+    read!(embedding::DocumentRecipe, metadata.documents);
+    read!(embedding::projection::ProjectionDefinition, metadata.projections);
     read!(
         embedding::configuration::ServiceConfiguration,
         metadata.services
@@ -145,6 +149,8 @@ pub async fn produce(
     macro_rules! common {($($record:ident,)*)=>{$(output.declare::<analysis::analytic_embedding::$record>()?;)*};}
     lctx_model::analysis_publication!(common);
     output.declare::<AnalysisEmbeddingUse>()?;
+    output.declare::<value::FullValue>()?;
+    output.declare::<ProjectedValue>()?;
     let _assessments = access.read::<TextAssessment>()?;
     let _windows = access.read::<TextWindow>()?;
     let assessments = access.table_for(&ValidationInput::of::<TextAssessment>(&["id"]))?;
@@ -192,6 +198,8 @@ pub async fn produce(
         drop(absent);
         if let Some(service) = service.as_mut() {
             let specification = metadata.specification()?;
+            let document = metadata.document()?;
+            let projection = metadata.policy()?
             let query = format!(
                 "SELECT window_row.* FROM \"{windows}\" window_row JOIN \"{assessments}\" assessment ON assessment.id=window_row.assessment WHERE assessment.input={} AND assessment.context={} ORDER BY window_row.id",
                 key_literal(input.bytes()),
@@ -217,14 +225,14 @@ pub async fn produce(
                         .map_err(ModelError::codec)?;
                     for window in &windows {
                         let mut uses = Rows::new(runtime.budget());
-                        match service.realize(window.text.as_str()).await {
-                            Ok(value) => {
+                        match service.publish(window.text.as_str(), &output).await {
+                            Ok(published) => {
                                 AnalysisEmbeddingUse::admit_into(
                                     &mut uses,
                                     invocation.id(),
                                     window.id(),
-                                    specification,
-                                    value,
+                                    SelectedConsumption { encoder: specification, document, projection },
+                                    &published,
                                     runtime.budget(),
                                 )?;
                             }
@@ -265,14 +273,14 @@ pub async fn produce(
                                     invocation: invocation.id(),
                                     window: window.id(),
                                     specification: specification.id(),
+                                    document: document.id(),
                                     input: value::input_hash(
                                         &spec.document_text(window.text.as_str()),
                                     ),
                                     availability,
                                     admitted_tokens,
-                                    codec: None,
-                                    value_digest: None,
-                                    bytes: None,
+                                    value: None,
+                                    projection: None,
                                 })?;
                             }
                         }

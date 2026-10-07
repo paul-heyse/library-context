@@ -2,7 +2,7 @@
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, embedding, stages::Profile};
-type UseRow = (i16, Option<i64>, Option<i16>, Option<Vec<u8>>);
+type UseRow = (i16, Option<i64>, Option<Vec<u8>>, Option<Vec<u8>>);
 async fn run(mode: Mode) {
     let provider = ContractEmbedder {
         inner: cpg_core::embedding_service::FakeEmbedder::new(),
@@ -21,7 +21,7 @@ async fn run(mode: Mode) {
     .await;
     let uses: Vec<UseRow> = catalog_runtime::query(
         &fixture,
-        "SELECT availability, admitted_tokens, codec, bytes FROM analysis_embedding_uses",
+        "SELECT availability, admitted_tokens, value, projection FROM analysis_embedding_uses",
     )
     .await;
     let outcomes: Vec<i16> = catalog_runtime::query(
@@ -39,8 +39,15 @@ async fn run(mode: Mode) {
             assert!(!uses.is_empty());
             assert!(uses.iter().all(|(a, t, c, b)| *a == 0
                 && t.is_some()
-                && *c == Some(1)
-                && b.as_ref().is_some_and(|b| b.len() == 4096)));
+                && c.as_ref().is_some_and(|id| id.len() == 16)
+                && b.as_ref().is_some_and(|id| id.len() == 16)));
+            let full: Vec<(i64, Vec<u8>)> = catalog_runtime::query(&fixture,
+                "SELECT dimensions, bytes FROM embedding_full_values").await;
+            let projected: Vec<(i64, Vec<u8>)> = catalog_runtime::query(&fixture,
+                "SELECT dimensions, bytes FROM embedding_projected_values").await;
+            assert!(!full.is_empty() && !projected.is_empty());
+            assert!(full.iter().all(|(dimensions, bytes)| *dimensions == 4096 && bytes.len() == 16384));
+            assert!(projected.iter().all(|(dimensions, bytes)| *dimensions == 1024 && bytes.len() == 4096));
             assert!(outcomes.iter().all(|s| *s == 0));
         }
         Mode::Unavailable => {
@@ -189,9 +196,9 @@ async fn native_catalog_reuses_analytic_winners_and_batches_unique_requests_with
     )
     .await;
     let analytic = receipts(catalog_runtime::query(&fixture,
-        "SELECT specification, input, admitted_tokens, codec, value_digest, bytes FROM analysis_embedding_uses WHERE availability=0").await);
+        "SELECT winner.encoder, winner.input, winner.tokens, winner.codec, winner.digest, winner.bytes FROM analysis_embedding_uses consumption JOIN embedding_full_values winner ON winner.id=consumption.value WHERE consumption.availability=0").await);
     let retrieval = receipts(catalog_runtime::query(&fixture,
-        "SELECT specification, input, admitted_tokens, codec, value_digest, bytes FROM retrieval_embedding_uses WHERE availability=0").await);
+        "SELECT winner.encoder, winner.input, winner.tokens, winner.codec, winner.digest, winner.bytes FROM retrieval_embedding_uses consumption JOIN embedding_full_values winner ON winner.id=consumption.value WHERE consumption.availability=0").await);
     assert!(!analytic.is_empty() && !retrieval.is_empty());
     let overlap = analytic
         .keys()
