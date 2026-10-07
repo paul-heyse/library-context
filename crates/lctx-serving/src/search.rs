@@ -50,6 +50,7 @@ pub async fn lexical(
     cap: usize,
     policy: &RankingPolicy,
 ) -> Result<Vec<CandidateScore>, ModelError> {
+    if !(1..=1024).contains(&cap) {return Err(ModelError::Invalid("native candidate target cap".into()));}
     let mut vars = Variables::new();
     vars.insert("query", query.to_owned());
     vars.insert("family", family as i16);
@@ -70,7 +71,7 @@ pub async fn lexical(
  RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND in=$parent.in AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best ORDER BY score DESC,target ASC,context ASC,in ASC LIMIT 1024;
 }};"#);
         rows=reader.query::<Vec<NativeHit>>(sql,vars.clone()).await?;
-        let targets=rows.iter().map(|row|(row.member.0.map(|id|*id.bytes()).unwrap_or(*row.unit.bytes()),*row.context.bytes())).collect::<std::collections::BTreeSet<_>>();
+        let targets=rows.iter().map(|row|(if member_mode {row.member.0.map(|id|*id.bytes()).unwrap_or(*row.unit.bytes())}else{*row.unit.bytes()},*row.context.bytes())).collect::<std::collections::BTreeSet<_>>();
         if targets.len()>=cap {break;}
     }
     let binding = ChannelBinding::lexical(policy, query)?;
@@ -139,6 +140,7 @@ pub async fn vector(
     cap: usize,
     policy: &RankingPolicy,
 ) -> Result<Vec<CandidateScore>, ModelError> {
+    if !(1..=1024).contains(&cap) {return Err(ModelError::Invalid("native candidate target cap".into()));}
     if vector.len() != 1024 || vector.iter().any(|v| !v.is_finite()) {
         return Err(ModelError::Invalid("native query vector shape".into()));
     }
@@ -165,7 +167,7 @@ pub async fn vector(
  RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND in=$parent.in AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best ORDER BY score DESC,target ASC,context ASC,in ASC LIMIT 1024;
 }};"#);
         rows=reader.query::<Vec<NativeHit>>(sql,vars.clone()).await?;
-        let targets=rows.iter().map(|row|(row.member.0.map(|id|*id.bytes()).unwrap_or(*row.unit.bytes()),*row.context.bytes())).collect::<std::collections::BTreeSet<_>>();
+        let targets=rows.iter().map(|row|(if member_mode {row.member.0.map(|id|*id.bytes()).unwrap_or(*row.unit.bytes())}else{*row.unit.bytes()},*row.context.bytes())).collect::<std::collections::BTreeSet<_>>();
         if targets.len()>=cap {break;}
     }
     let binding=ChannelBinding::vector(policy,specification,vector_digest,recipe_digest,projection)?;

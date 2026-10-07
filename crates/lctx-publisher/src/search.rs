@@ -192,7 +192,7 @@ fn vector_id(projection: &str, unit: &Unit) -> RecordId {
 async fn lower(reader: &NativeReader, expected: &mut Expected, loader: Option<&Loader>) -> Result<(), ModelError> {
     // Projection bytes are decoded once at canonical grain. Cohort fanout carries only scalar
     // identity and the 1024 lowering; full4096 remains solely in the canonical entity payload.
-    let mut projections=reader.record_stream::<ProjectedValue>("true",Variables::new(),"semantic_key")?;
+    let mut projections=reader.record_stream::<ProjectedValue>("id IN (SELECT VALUE out FROM participant WHERE field='projection' AND in IN (SELECT VALUE id FROM assertion WHERE semantic_type='retrieval_embedding_uses' AND body.availability=0))",Variables::new(),"semantic_key")?;
     while let Some(projection)=projections.next().await? {
         let full=one::<FullValue>(reader,projection.value).await?;
         let policy=one::<ProjectionDefinition>(reader,projection.definition).await?;

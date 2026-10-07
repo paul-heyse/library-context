@@ -105,7 +105,7 @@ async fn restored_derived_excess_is_refused(
     handle: &SnapshotHandle,
     definitions: &str,
 ) {
-    use lctx_surrealdb::surrealdb::types::{Bytes, Object, RecordId, Value, Variables};
+    use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
     let admin = lctx_surrealdb::reader::connect(
         &config.endpoint,
         &config.root_credentials(),
@@ -178,16 +178,12 @@ async fn restored_derived_excess_is_refused(
         embedding[0] = 1.0;
         let mut row = Object::new();
         row.insert("id", RecordId::new("vector", "restored_excess"));
-        row.insert("specification", vec![1i64; 32]);
-        row.insert("input", vec![2i64; 32]);
-        row.insert(
-            "digest",
-            embedding::value::value_digest(&embedding).0.to_vec(),
-        );
-        row.insert(
-            "bytes",
-            Bytes::from(embedding::value::encode_vector(&embedding)),
-        );
+        row.insert("encoder_hash", "restored-excess-encoder");
+        row.insert("policy_key", "restored-excess-policy");
+        row.insert("library_input", "restored-excess-library");
+        row.insert("family", 3i64);
+        row.insert("full_key", "restored-excess-full");
+        row.insert("projection_key", "restored-excess-projection");
         row.insert("embedding", embedding);
         Value::Object(row)
     }
@@ -211,7 +207,12 @@ async fn restored_derived_excess_is_refused(
             row.insert("out", target.clone());
             row.insert("family", 3i64);
             row.insert("unit", vec![1i64; 16]);
-            row.insert("fragment", vec![2i64; 16]);
+            row.insert("window", vec![2i64; 16]);
+            row.insert("part", vec![5i64; 16]);
+            row.insert("binding", Value::Null);
+            row.insert("exact_name", "");
+            row.insert("exact_path", "");
+            row.insert("exact_option", "");
             row.insert("context", vec![3i64; 16]);
             row.insert("input", vec![4i64; 16]);
             row.insert("member", Value::Null);
