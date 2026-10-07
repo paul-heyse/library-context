@@ -33,6 +33,7 @@ mod operation_packet;
 mod operations;
 mod originals;
 mod pagination;
+mod ranked_results;
 mod service;
 mod vocabulary;
 pub use service::{NativeService, QueryVector};

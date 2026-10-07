@@ -69,6 +69,7 @@ pub async fn dispatch(
     channels: &ChannelState,
     vector: Option<&QueryVector>,
     limits: &ResourceLimits,
+    retained: &crate::ranked_results::RankedResults,
     b: &ResourceBudget,
 ) -> Result<Response, ModelError> {
     let snapshot = reader.handle().clone();
@@ -187,14 +188,14 @@ pub async fn dispatch(
         Request::BrowseLibrary(r) => browse(reader, r, request, b)
             .await
             .map(Response::BrowseLibrary),
-        Request::SearchOperations(r) => search_operations(reader, r, request, channels, vector, b)
+        Request::SearchOperations(r) => search_operations(reader, r, request, channels, vector, retained, b)
             .await
             .map(Response::SearchOperations),
-        Request::SearchEvidence(r) => search_evidence(reader, r, request, channels, vector, b)
+        Request::SearchEvidence(r) => search_evidence(reader, r, request, channels, vector, retained, b)
             .await
             .map(Response::SearchEvidence),
         Request::SearchCapabilities(r) => {
-            search_capabilities(reader, r, request, channels, vector, b)
+            search_capabilities(reader, r, request, channels, vector, retained, b)
                 .await
                 .map(Response::SearchCapabilities)
         }
@@ -312,6 +313,7 @@ async fn search_operations(
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
+    retained: &crate::ranked_results::RankedResults,
     b: &ResourceBudget,
 ) -> Result<SearchOperationsResponse, ModelError> {
     let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
@@ -380,7 +382,7 @@ async fn search_operations(
         }
     }
     let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels).map_err(wire)?;
+        crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
     Ok(SearchOperationsResponse {
         snapshot: reader.handle().clone(),
         domains,
@@ -398,6 +400,7 @@ async fn search_evidence(
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
+    retained: &crate::ranked_results::RankedResults,
     b: &ResourceBudget,
 ) -> Result<SearchEvidenceResponse, ModelError> {
     let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
@@ -436,7 +439,7 @@ async fn search_evidence(
         ));
     }
     let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels).map_err(wire)?;
+        crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
     Ok(SearchEvidenceResponse {
         snapshot: reader.handle().clone(),
         domains,
@@ -454,6 +457,7 @@ async fn search_capabilities(
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
+    retained: &crate::ranked_results::RankedResults,
     b: &ResourceBudget,
 ) -> Result<SearchCapabilitiesResponse, ModelError> {
     let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
@@ -496,7 +500,7 @@ async fn search_capabilities(
             .records::<retrieval::Origin>(RecordSelection::Keys(vec![*u.origin.bytes()]))
             .await?;
         if let retrieval::Origin::Brief { brief } = need(&origins, u.origin)?
-            && seen.insert(*brief)
+            && seen.insert((*brief,hit.context))
         {
             values.push((
                 hit,
@@ -510,7 +514,7 @@ async fn search_capabilities(
         }
     }
     let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels).map_err(wire)?;
+        crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
     Ok(SearchCapabilitiesResponse {
         snapshot: reader.handle().clone(),
         domains,

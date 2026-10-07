@@ -64,8 +64,10 @@ pub enum CursorPosition {
         key: ContentHash,
     },
     Ranked {
-        score_bits: u64,
-        key: ContentHash,
+        session: ContentHash,
+        result: ContentHash,
+        digest: ContentHash,
+        offset: u64,
     },
     Original {
         source: ContentHash,
@@ -90,13 +92,6 @@ impl Cursor {
         let cursor: Self = serde_json::from_slice(&bytes)?;
         if &cursor.binding != expected {
             return Err(WireError::Continuation("snapshot, request, policy, representation, group, section, member, ordering or channel changed".into()));
-        }
-        if let CursorPosition::Ranked { score_bits, .. } = &cursor.after
-            && (!f64::from_bits(*score_bits).is_finite() || *score_bits == (-0.0f64).to_bits())
-        {
-            return Err(WireError::Continuation(
-                "noncanonical ranking position".into(),
-            ));
         }
         Ok(cursor)
     }

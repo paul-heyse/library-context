@@ -20,6 +20,7 @@ pub struct NativeService {
     queries: Arc<Semaphore>,
     cpu: Arc<Semaphore>,
     definition: OnceCell<()>,
+    retained: crate::ranked_results::RankedResults,
 }
 impl NativeService {
     pub fn new(reader: NativeReader, limits: ResourceLimits) -> Result<Self, ModelError> {
@@ -31,6 +32,7 @@ impl NativeService {
             reader,
             limits,
             definition: OnceCell::new(),
+            retained: crate::ranked_results::RankedResults::default(),
         })
     }
     pub fn handle(&self) -> &SnapshotHandle {
@@ -119,6 +121,9 @@ impl NativeService {
                     Ok(())
                 })
                 .await?;
+            if let Some(response) = self.retained.resume(&request, self.handle(), vector.as_ref())? {
+                return response.to_json();
+            }
             let query = match &request {
                 Request::SearchOperations(r) => Some(r.query.as_str()),
                 Request::SearchEvidence(r) => Some(r.query.as_str()),
@@ -193,6 +198,7 @@ impl NativeService {
                 &channels,
                 vector.as_ref(),
                 &self.limits,
+                &self.retained,
                 &budget,
             )
             .await
@@ -203,6 +209,7 @@ impl NativeService {
                     "complete structured response bytes".into(),
                 ));
             }
+            self.retained.attach(&response)?;
             let _response_charge = budget
                 .reserve("native-complete-response", len.saturating_mul(2))
                 .map_err(failure)?;

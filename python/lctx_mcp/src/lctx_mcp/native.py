@@ -68,6 +68,7 @@ class NativeExecutor:
         if (
             tool in {"search_operations", "search_evidence", "search_capabilities"}
             and self.embedder
+            and not json.loads(request).get("page", {}).get("cursor")
         ):
             query = json.loads(request).get("query")
             if isinstance(query, str):

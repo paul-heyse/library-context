@@ -315,68 +315,14 @@ pub fn target_key(target: lctx_model::domain::serving::ranking::Target) -> Conte
         ranking::Target::Unit { unit } => graph::EntityId::of(unit).0,
     }
 }
-pub fn ranked<T>(
-    mut values: Vec<(ranking::RankedHit, ContentHash, T)>,
+pub fn ranked<T: serde::Serialize>(
+    values: Vec<(ranking::RankedHit, ContentHash, T)>,
     request: &Request,
     snapshot: &SnapshotHandle,
     channels: &ChannelState,
+    retained: &crate::ranked_results::RankedResults,
 ) -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
-    let expected = binding(
-        request,
-        snapshot,
-        channels,
-        request.tool().name(),
-        "results",
-        None,
-    )?;
-    if let Some(token) = &request.page().cursor.0 {
-        let cursor = Cursor::decode(token, &expected)?;
-        let CursorPosition::Ranked { key, score_bits } = cursor.after else {
-            return Err(WireError::Continuation(
-                "ranked continuation required".into(),
-            ));
-        };
-        let position = values
-            .iter()
-            .position(|(hit, entry, _)| *entry == key && hit.score.to_bits() == score_bits)
-            .ok_or_else(|| {
-                WireError::Continuation(
-                    "ranked position absent from the pinned candidate result".into(),
-                )
-            })?;
-        values.drain(..=position);
-    }
-    let omitted = values.len().saturating_sub(request.page().size as usize) as u64;
-    values.truncate(request.page().size as usize);
-    let continuation = if omitted > 0 {
-        let hit = &values.last().expect("positive requested page size").0;
-        Optional(Some(
-            Cursor {
-                binding: expected,
-                after: CursorPosition::Ranked {
-                    score_bits: hit.score.to_bits(),
-                    key: values.last().expect("positive requested page size").1,
-                },
-            }
-            .encode()?,
-        ))
-    } else {
-        Optional::default()
-    };
-    let (ranking, items) = values
-        .into_iter()
-        .map(|(ranking, _, item)| (ranking, item))
-        .unzip();
-    Ok((
-        SectionPage {
-            availability: Availability::Available {},
-            items,
-            continuation,
-            omitted,
-            truncated: omitted > 0,
-        },
-        ranking,
-    ))
+    retained.page(values, request, snapshot, channels)
 }
 #[cfg(test)]
 mod tests {
