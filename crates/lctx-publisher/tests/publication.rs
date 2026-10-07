@@ -414,8 +414,9 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
             .await
             .is_err()
     );
+    let analyzer = definitions.lines().find(|line|line.starts_with("DEFINE ANALYZER lctx_discovery ")).expect("selected discovery analyzer").replacen("DEFINE ANALYZER ","DEFINE ANALYZER OVERWRITE ",1);
     admin
-        .query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS lowercase")
+        .query(analyzer)
         .await
         .unwrap()
         .check()
