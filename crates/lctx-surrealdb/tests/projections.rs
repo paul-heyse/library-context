@@ -179,7 +179,12 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
         declared_losses: vec!["fixture declared loss".into()],
     };
     let manifest = Manifest {
-        format_version: 6,
+        format_version: graph::ARTIFACT_FORMAT_VERSION,
+        completed_state: lctx_model::domain::completed::CompletedStateIdentity {
+            format_version: lctx_model::domain::completed::STATE_FORMAT_VERSION,
+            contributions: 0, memberships: 0, backing_rows: 0,
+            content: ContentHash::of(b"fixture-empty-completed-state"),
+        },
         frontier: admission::Frontier::Normalized,
         profile: stages::Profile::Catalog,
         captures: vec![graph::EntityId::of(input.id())],

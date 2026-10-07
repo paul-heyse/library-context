@@ -1,0 +1,94 @@
+use futures::TryStreamExt;
+use lctx_model::domain::{
+    ContentHash, Record, Relation, input::Package,
+    completed::ContributionSpec, resources::ResourceBudget,
+    stages::{Profile, ProviderOutcome},
+};
+use lctx_surrealdb::{RuntimeConfig, compiler::{NativeCompilerStore, NativePredicate}};
+use std::collections::{BTreeMap, BTreeSet};
+
+fn spec(producer: &str, relation: &Relation) -> ContributionSpec {
+    ContributionSpec {
+        producer: producer.into(), profile: Profile::Catalog,
+        model: ContentHash::of(b"view-fixture-model"),
+        implementation: ContentHash::of(b"view-fixture-implementation"),
+        configuration: None, inputs: vec![],
+        outputs: BTreeSet::from([relation.name().into()]),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_overlap_frozen_selection_and_state_transport() {
+    let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config = RuntimeConfig::read(&path).unwrap();
+    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let relation = Relation::of::<Package>();
+    let first = Package { name: "first".into() };
+    let second = Package { name: "second".into() };
+    let a = store.begin_contribution(spec("a", &relation)).await.unwrap();
+    store.write_batch(&a, &relation, &Package::encode(std::slice::from_ref(&first)).unwrap()).await.unwrap();
+    let views = store.complete_contribution(a, ProviderOutcome::Complete, std::slice::from_ref(&relation), &BTreeMap::new()).await.unwrap();
+    let frozen = views[relation.name()].clone();
+    let b = store.begin_contribution(spec("b", &relation)).await.unwrap();
+    store.write_batch(&b, &relation, &Package::encode(&[first.clone(), second.clone()]).unwrap()).await.unwrap();
+    let budget = ResourceBudget::fixed(32 << 20).unwrap();
+    let mut rows = store.scan_batches(&frozen, &relation, None, None, &budget, 8).await.unwrap();
+    let mut observed = vec![];
+    while let Some(batch) = rows.try_next().await.unwrap() { observed.extend(Package::decode(&batch).unwrap()); }
+    assert_eq!(observed, vec![first.clone()], "pending values cannot widen a frozen view");
+    let current = store.complete_contribution(b, ProviderOutcome::Complete, std::slice::from_ref(&relation), &views).await.unwrap();
+    assert_eq!(current[relation.name()].rows, 2, "overlapping membership must deduplicate");
+    assert_ne!(current[relation.name()].identity, frozen.identity);
+    let mut rows = store.scan_batches(&current[relation.name()], &relation, None,
+        Some(NativePredicate::Keys(vec![*second.id().bytes()])), &budget, 8).await.unwrap();
+    let selected = rows.try_next().await.unwrap().unwrap();
+    assert_eq!(Package::decode(&selected).unwrap(), vec![second]);
+    assert!(rows.try_next().await.unwrap().is_none());
+    let state = store.completed_state().await.unwrap();
+    assert_eq!(state.contributions, 2);
+    assert_eq!(state.memberships, 3);
+    let file = tempfile::NamedTempFile::new().unwrap();
+    assert_eq!(store.export_state(file.path()).await.unwrap(), state);
+    let restored = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    // Complete state references canonical families; detached import loads those separately.
+    lctx_surrealdb::Loader::new(restored.shared_client()).entities(&[
+        lctx_model::domain::graph::Entity::from(first),
+        lctx_model::domain::graph::Entity::from(Package { name: "second".into() }),
+    ]).await.unwrap();
+    restored.import_state(file.path(), &state).await.unwrap();
+    assert_eq!(restored.completed_state().await.unwrap(), state);
+    store.abandon().await.unwrap();
+    restored.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_conflict() {
+    use lctx_model::domain::{EvidenceBytes, source::SourceArtifact, artifact::ArtifactChunk, input::InputRevision};
+    let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config=RuntimeConfig::read(&path).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let bytes=(0..(1024*1024)).map(|index|(index%256) as u8).collect::<Vec<_>>();
+    let source=SourceArtifact::from_bytes(InputRevision::from_entries(vec![]).unwrap().id(),"opaque.bin".into(),&bytes).unwrap();
+    let relation=Relation::of::<ArtifactChunk>();
+    let source_relation=Relation::of::<SourceArtifact>();
+    let mut specification=spec("bytes",&relation);specification.outputs.insert(source_relation.name().into());
+    let contribution=store.begin_contribution(specification).await.unwrap();
+    store.write_batch(&contribution,&source_relation,&SourceArtifact::encode(std::slice::from_ref(&source)).unwrap()).await.unwrap();
+    let row=ArtifactChunk {artifact:source.id(),ordinal:0,body:EvidenceBytes(bytes.clone())};
+    store.write_batch(&contribution,&relation,&ArtifactChunk::encode(std::slice::from_ref(&row)).unwrap()).await.unwrap();
+    let views=store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation.clone(),source_relation],&BTreeMap::new()).await.unwrap();
+    let budget=ResourceBudget::fixed(32<<20).unwrap();
+    let mut rows=store.scan_batches(&views[relation.name()],&relation,None,None,&budget,8).await.unwrap();
+    assert_eq!(ArtifactChunk::decode(&rows.try_next().await.unwrap().unwrap()).unwrap()[0].body.0,bytes);
+    assert!(rows.try_next().await.unwrap().is_none());
+    let mut response=store.client().query("SELECT VALUE count() FROM original_chunk GROUP ALL").await.unwrap().check().unwrap();
+    let counts:Vec<i64>=response.take(0).unwrap();assert_eq!(counts,vec![16]);
+    let mut response=store.client().query("SELECT VALUE body FROM compiler_record").await.unwrap().check().unwrap();
+    let metadata:Vec<lctx_surrealdb::surrealdb::types::Value>=response.take(0).unwrap();
+    assert!(metadata.iter().all(|body|matches!(body,lctx_surrealdb::surrealdb::types::Value::Object(object) if !object.contains_key("body"))));
+    let other=store.begin_contribution(spec("conflict",&relation)).await.unwrap();
+    let mut altered=row;altered.body.0[0]^=1;
+    assert!(store.write_batch(&other,&relation,&ArtifactChunk::encode(&[altered]).unwrap()).await.is_err());
+    assert!(store.check().is_err());
+    store.abandon().await.unwrap();
+}

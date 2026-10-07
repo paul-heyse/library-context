@@ -253,6 +253,11 @@ fn manifest_distinguishes_exact_empty_partial_and_missing_obligations() {
     };
     let mut manifest = Manifest {
         format_version: ARTIFACT_FORMAT_VERSION,
+        completed_state: d::completed::CompletedStateIdentity {
+            format_version: d::completed::STATE_FORMAT_VERSION,
+            contributions: 0, memberships: 0, backing_rows: 0,
+            content: hash(8),
+        },
         frontier: d::admission::Frontier::Facts,
         profile: d::stages::Profile::Catalog,
         captures: vec![EntityId(hash(3))],

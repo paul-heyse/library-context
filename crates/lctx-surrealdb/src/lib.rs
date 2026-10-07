@@ -15,3 +15,7 @@ pub mod schema;
 pub use reader::{Credentials, NativeReader, RecordSelection};
 pub use surrealdb;
 pub mod projections;
+
+pub mod compiler;
+pub mod compiler_provider;
+mod projected_arrow;

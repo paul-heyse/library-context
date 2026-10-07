@@ -4029,7 +4029,7 @@ pub fn admit_assertion(assertion: &Assertion, lookup: &impl GraphLookup) -> Resu
     Ok(())
 }
 
-pub const ARTIFACT_FORMAT_VERSION: u32 = 1;
+pub const ARTIFACT_FORMAT_VERSION: u32 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum GraphFamily {
@@ -4145,6 +4145,7 @@ pub struct EmbeddingConsumption {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    pub completed_state: super::completed::CompletedStateIdentity,
     pub format_version: u32,
     pub frontier: super::admission::Frontier,
     pub profile: super::stages::Profile,
@@ -4161,8 +4162,13 @@ pub struct Manifest {
 }
 impl Manifest {
     pub fn content(&self) -> ContentHash {
-        let mut sink = KeySink::new("graph-artifact/v1");
+        let mut sink = KeySink::new("graph-artifact/v2");
         sink.part(b"u32", &self.format_version.to_le_bytes());
+        self.completed_state.content.encode(&mut sink);
+        sink.part(b"completed-state-format_version",&self.completed_state.format_version.to_le_bytes());
+        sink.part(b"completed-state-contributions",&self.completed_state.contributions.to_le_bytes());
+        sink.part(b"completed-state-memberships",&self.completed_state.memberships.to_le_bytes());
+        sink.part(b"completed-state-backing_rows",&self.completed_state.backing_rows.to_le_bytes());
         sink.part(b"frontier", self.frontier.name().as_bytes());
         sink.part(b"profile", self.profile.name().as_bytes());
         self.captures.encode(&mut sink);
@@ -4226,6 +4232,7 @@ impl Manifest {
         sink.finish()
     }
     pub fn validate(&self) -> Result<(), ModelError> {
+        self.completed_state.validate()?;
         if self.format_version != ARTIFACT_FORMAT_VERSION
             || self.frontier == super::admission::Frontier::Conformance
         {

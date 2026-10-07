@@ -9,12 +9,12 @@ pub struct SourceReceipt {
     #[model(key)] producer:String,
     #[model(key)] model:ContentHash,
     #[model(key)] implementation:ContentHash,
-    #[model(key)] content:ContentHash,
+    #[model(key)] view:ContentHash,
     #[model(key)] rows:i64,
 }
 impl SourceReceipt {
-    fn from_snapshot(invocation:Id<AnalysisInvocation>,source:&SourceSnapshot)->Self {Self {invocation,relation:source.relation.clone(),producer:source.producer.clone(),model:source.model,implementation:source.implementation,content:source.content,rows:source.rows}}
-    fn snapshot(&self)->SourceSnapshot {SourceSnapshot {relation:self.relation.clone(),producer:self.producer.clone(),model:self.model,implementation:self.implementation,content:self.content,rows:self.rows}}
+    fn from_snapshot(invocation:Id<AnalysisInvocation>,source:&SourceSnapshot)->Self {Self {invocation,relation:source.relation.clone(),producer:source.producer.clone(),model:source.model,implementation:source.implementation,view:source.view,rows:source.rows}}
+    fn snapshot(&self)->SourceSnapshot {SourceSnapshot {relation:self.relation.clone(),producer:self.producer.clone(),model:self.model,implementation:self.implementation,view:self.view,rows:self.rows}}
     pub fn source(&self)->SourceSnapshot {self.snapshot()}
 }
 fn validate_source_receipt(row:&SourceReceipt)->Result<(),ModelError> {if row.relation.is_empty() || row.producer.is_empty() || row.rows<0 {return Err(invalid("source receipt has invalid metadata"));}Ok(())}

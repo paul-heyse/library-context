@@ -16,6 +16,7 @@ pub mod catalog;
 pub mod charged;
 pub mod class_metadata;
 pub mod composition;
+pub mod completed;
 pub mod conditions;
 pub mod declarations;
 pub mod deployment;

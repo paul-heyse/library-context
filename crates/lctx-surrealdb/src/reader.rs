@@ -105,6 +105,7 @@ impl NativeReader {
     pub fn client(&self) -> &Surreal<Client> {
         &self.client
     }
+    pub fn shared_client(&self)->Arc<Surreal<Client>> {self.client.clone()}
     /// Query results become visible only after the SDK has received the complete checked response.
     pub async fn query<T: Serialize + DeserializeOwned + 'static>(
         &self,
@@ -213,9 +214,10 @@ pub struct NativeRows {
     ended: usize,
     exhausted: bool,
     failed: bool,
+    row_bytes: usize,
 }
 impl NativeRows {
-    fn new(
+    pub(crate) fn new(
         stream: impl futures::Stream<Item = surrealdb::Result<surrealdb::method::StreamItem>>
         + Send
         + 'static,
@@ -230,7 +232,15 @@ impl NativeRows {
             ended: 0,
             exhausted: false,
             failed: false,
+            row_bytes: 1024 * 1024,
         })
+    }
+    pub(crate) fn with_row_bytes(mut self, row_bytes:usize)->Self {self.row_bytes=row_bytes;self}
+    /// Finish the SDK transport after a semantic or envelope failure. The original failure
+    /// remains sticky; draining does not turn the failed query into an accepted result.
+    pub(crate) async fn drain_transport(&mut self) {
+        while self.stream.next().await.is_some() {}
+        self.exhausted = true;
     }
     pub async fn next(&mut self) -> Result<Option<Value>, ModelError> {
         if self.failed {
@@ -252,13 +262,13 @@ impl NativeRows {
                     }
                     // The SDK queue is row bounded, not byte bounded. Refuse an oversized source
                     // value before decoding or expansion; this is not a server RSS guarantee.
-                    let bytes = serde_json::to_vec(&value).map_err(ModelError::codec)?.len();
-                    if bytes > 1024 * 1024 {
+                    let bytes = crate::loader::native_bytes(&value);
+                    if bytes > self.row_bytes {
                         return Err(ModelError::Limit {
                             owner: "native-stream",
                             limit: "row bytes",
                             observed: bytes,
-                            bound: 1024 * 1024,
+                            bound: self.row_bytes,
                         });
                     }
                     return Ok(Some(value));
@@ -353,6 +363,13 @@ pub async fn connect(
     namespace: &str,
     database: &str,
 ) -> Result<Arc<Surreal<Client>>, ModelError> {
+    let client = authenticated(endpoint, credentials, Some((namespace,database))).await?;
+    client.use_ns(namespace).use_db(database).await.map_err(ModelError::codec)?;
+    Ok(client)
+}
+/// Authenticate without selecting or implicitly creating a database. Private compiler creation
+/// can therefore establish STRICT before selecting its first storage session.
+pub(crate) async fn authenticated(endpoint:&str,credentials:&Credentials,scope:Option<(&str,&str)>)->Result<Arc<Surreal<Client>>,ModelError> {
     let client = Surreal::new::<Grpc>(
         endpoint
             .strip_prefix("grpc://")
@@ -371,6 +388,7 @@ pub async fn connect(
                 .map_err(ModelError::codec)?;
         }
         Credentials::Database { username, password } => {
+            let (namespace,database)=scope.ok_or(ModelError::Schema("database authentication scope"))?;
             client
                 .signin(Database {
                     namespace: namespace.into(),
@@ -382,11 +400,6 @@ pub async fn connect(
                 .map_err(ModelError::codec)?;
         }
     }
-    client
-        .use_ns(namespace)
-        .use_db(database)
-        .await
-        .map_err(ModelError::codec)?;
     Ok(Arc::new(client))
 }
 

@@ -4067,6 +4067,9 @@ name = "lctx-surrealdb"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
  "futures 0.3.34",
  "hex",
  "lctx-model",

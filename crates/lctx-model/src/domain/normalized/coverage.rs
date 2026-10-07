@@ -143,7 +143,7 @@ pub struct NormalizationOutputReceipt {
     #[model(key)]
     pub relation: String,
     pub rows: i64,
-    pub content: ContentHash,
+    pub view: ContentHash,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "normalization_coverage")]
@@ -630,7 +630,7 @@ pub fn assemble(
                 computation,
                 relation: relation.name().into(),
                 rows: source.rows(),
-                content: source.content(),
+                view: source.view(),
             })?;
         }
     }

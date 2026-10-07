@@ -12,7 +12,7 @@ pub struct SourceSnapshot {
     pub(crate) producer: String,
     pub(crate) model: ContentHash,
     pub(crate) implementation: ContentHash,
-    pub(crate) content: ContentHash,
+    pub(crate) view: ContentHash,
     pub(crate) rows: i64,
 }
 impl HeapSize for SourceSnapshot {
@@ -21,12 +21,20 @@ impl HeapSize for SourceSnapshot {
     }
 }
 impl SourceSnapshot {
+    /// A view belongs to the immutable membership mechanism; individual producer/code/settings
+    /// attribution remains in its completed contribution descriptors. Assembly order is not identity.
+    pub fn of_completed_view(relation:&Relation,model:ContentHash,view:&crate::domain::completed::CompletedView)->Result<Self,ModelError> {
+        view.validate()?;
+        if view.relation!=relation.name(){return Err(invalid("completed view relation mismatch"));}
+        Self::of_relation(relation,format!("completed-view:{}",relation.name()),model,
+            ContentHash::of(b"lctx-native-completed-view-contract/v1"),view.identity,view.rows)
+    }
     pub fn of_relation(
         relation: &Relation,
         producer: impl Into<String>,
         model: ContentHash,
         implementation: ContentHash,
-        content: ContentHash,
+        view: ContentHash,
         rows: u64,
     ) -> Result<Self, ModelError> {
         let producer = producer.into();
@@ -38,7 +46,7 @@ impl SourceSnapshot {
             producer,
             model,
             implementation,
-            content,
+            view,
             rows: i64::try_from(rows)
                 .map_err(|_| invalid("completed input row count exceeds representation"))?,
         })
@@ -56,14 +64,14 @@ impl SourceSnapshot {
     pub fn rows(&self) -> i64 {
         self.rows
     }
-    pub fn content(&self) -> ContentHash {
-        self.content
+    pub fn view(&self) -> ContentHash {
+        self.view
     }
     pub fn model(&self) -> ContentHash {
         self.model
     }
-    pub(crate) fn identity(&self) -> ContentHash {
-        let mut sink = KeySink::new("completed-source-view/v1");
+    pub fn identity(&self) -> ContentHash {
+        let mut sink = KeySink::new("completed-source-view/v2");
         self.encode(&mut sink);
         sink.finish()
     }
@@ -72,11 +80,11 @@ impl SourceSnapshot {
         self.producer.encode(sink);
         self.model.encode(sink);
         self.implementation.encode(sink);
-        self.content.encode(sink);
+        self.view.encode(sink);
         self.rows.encode(sink);
     }
 }
-/// Nominal view metadata; actual Arrow streams and segment lifetimes belong to the compiler.
+/// Nominal view metadata; actual native streams and private database lifetimes belong to the compiler.
 #[derive(Debug, Clone)]
 pub struct CompletedInput<R> {
     source: SourceSnapshot,
@@ -87,7 +95,7 @@ impl<R: Record> CompletedInput<R> {
         producer: impl Into<String>,
         model: ContentHash,
         implementation: ContentHash,
-        content: ContentHash,
+        view: ContentHash,
         rows: u64,
     ) -> Result<Self, ModelError> {
         let producer = producer.into();
@@ -100,7 +108,7 @@ impl<R: Record> CompletedInput<R> {
                 producer,
                 model,
                 implementation,
-                content,
+                view,
                 rows: i64::try_from(rows)
                     .map_err(|_| invalid("completed input row count exceeds representation"))?,
             },
@@ -117,7 +125,7 @@ impl<R: Record> CompletedInput<R> {
 pub(crate) fn digest(
     sources: &std::collections::BTreeMap<ContentHash, SourceSnapshot>,
 ) -> ContentHash {
-    let mut sink = KeySink::new("analysis-completed-inputs/v4");
+    let mut sink = KeySink::new("analysis-completed-inputs/v5");
     for source in sources.values() {
         source.encode(&mut sink);
     }
