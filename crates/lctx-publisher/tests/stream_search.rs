@@ -303,8 +303,9 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
     }
     loader.entities(&entities).await.unwrap();
     loader.assertions(&assertions).await.unwrap();
-    loader.entity_references(&entities).await.unwrap();
-    loader.assertion_references(&assertions).await.unwrap();
+    // This physical-lowering fixture has deliberately partial canonical rows.
+    // Sparse canonical scope keys support its frontiers; full graph closure is
+    // exercised by the separate admitted publication journey.
     materialize_search(&loader).await.unwrap();
     let tables = [
         "search_api_options",

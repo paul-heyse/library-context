@@ -64,16 +64,19 @@ pub async fn lexical(
     let table = family_table(family);
     let target = if member_mode { "out" } else { "unit" };
     let mut rows = Vec::new();
+    // Ordered rank-object keys select one real primary witness per target/context.
+    // Score dictionaries avoid a variable-table scan for every occurrence.
     for tier in [128, 256, 512, 1024] {
         let sql = format!(
             r#"RETURN {{
  LET $input_keys=$inputs.map(|$v|<string>$v);
  LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND array::len((SELECT VALUE id FROM lex_occurs WHERE in=$parent.id AND eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier};
- LET $occurrences=SELECT *, (SELECT VALUE score FROM $documents WHERE id=$parent.in)[0] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND (in IN $documents.id OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
- LET $exact=SELECT {target} AS target,context,math::max(score) AS score FROM $occurrences WHERE exact_name=$query OR exact_path=$query OR exact_option=$query GROUP BY target,context ORDER BY score DESC,target ASC,context ASC LIMIT 1024;
- LET $other=SELECT {target} AS target,context,math::max(score) AS score FROM $occurrences WHERE [{target},context] NOT IN $exact.map(|$v|[$v.target,$v.context]) GROUP BY target,context ORDER BY score DESC,target ASC,context ASC LIMIT 1024;
- LET $best=SELECT * FROM array::concat((SELECT *,true AS exact FROM $exact),(SELECT *,false AS exact FROM $other)) ORDER BY exact DESC,score DESC,target ASC,context ASC LIMIT 1024;
- RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND score=$parent.score AND ($parent.exact=false OR exact_name=$query OR exact_path=$query OR exact_option=$query) ORDER BY occurrence_key LIMIT 1)[0] FROM $best;
+ LET $scores=object::from_entries($documents.map(|$v|[<string>$v.id,$v.score]));
+ LET $occurrences=SELECT *, $scores[<string>in] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND (in IN $documents.id OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $ranked=SELECT {target} AS target,context,{{a:!(exact_name=$query OR exact_path=$query OR exact_option=$query),b:-score,c:occurrence_key,hit:{{score:score,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}}}} AS rank FROM $occurrences;
+ LET $grouped=SELECT target,context,rank FROM $ranked GROUP BY target,context;
+ LET $winners=SELECT target,context,array::first(array::sort(rank)) AS winner FROM $grouped;
+ RETURN SELECT VALUE winner.hit FROM $winners ORDER BY winner.a ASC,winner.b ASC,target ASC,context ASC LIMIT 1024;
 }};"#
         );
         rows = reader.query::<Vec<NativeHit>>(sql, vars.clone()).await?;
@@ -186,14 +189,19 @@ pub async fn vector(
     vars.insert("units", binding(units)?);
     let target = if member_mode { "out" } else { "unit" };
     let mut rows = Vec::new();
+    // Ordered rank-object keys select one real primary witness per target/context.
+    // Score dictionaries avoid a variable-table scan for every occurrence.
     for tier in [128, 256, 512, 1024] {
         let selection = vector_selection_sql(tier)?;
         let sql = format!(
             r#"RETURN {{
  LET $vectors={selection};
- LET $occurrences=SELECT *, (SELECT VALUE score FROM $vectors WHERE id=$parent.in)[0] AS score FROM vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
- LET $best=SELECT {target} AS target,context,math::max(score) AS score FROM $occurrences GROUP BY target,context;
- RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best ORDER BY score DESC,target ASC,context ASC LIMIT 1024;
+ LET $scores=object::from_entries($vectors.map(|$v|[<string>$v.id,$v.score]));
+ LET $occurrences=SELECT *, $scores[<string>in] AS score FROM vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $ranked=SELECT {target} AS target,context,{{a:-score,b:occurrence_key,hit:{{score:score,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}}}} AS rank FROM $occurrences;
+ LET $grouped=SELECT target,context,rank FROM $ranked GROUP BY target,context;
+ LET $winners=SELECT target,context,array::first(array::sort(rank)) AS winner FROM $grouped;
+ RETURN SELECT VALUE winner.hit FROM $winners ORDER BY winner.a ASC,target ASC,context ASC LIMIT 1024;
 }};"#
         );
         rows = reader.query::<Vec<NativeHit>>(sql, vars.clone()).await?;

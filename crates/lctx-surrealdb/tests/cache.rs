@@ -49,17 +49,27 @@ impl Fixture {
         }
     }
     async fn connect(config: &serde_json::Value, database: &str) -> Arc<Surreal<Client>> {
-        reader::connect(
-            config["grpc_endpoint"].as_str().unwrap(),
-            &Credentials::Root {
-                username: config["admin_user"].as_str().unwrap().into(),
-                password: config["admin_password"].as_str().unwrap().into(),
-            },
-            "cache_controls",
-            database,
-        )
-        .await
-        .unwrap()
+        // Independent test processes can race only the server's namespace/database
+        // setup. Retry that exact transient conflict; admission concurrency below
+        // still exercises the production cache winner transaction unchanged.
+        for attempt in 0..8 {
+            let result=reader::connect(
+                config["grpc_endpoint"].as_str().unwrap(),
+                &Credentials::Root {
+                    username:config["admin_user"].as_str().unwrap().into(),
+                    password:config["admin_password"].as_str().unwrap().into(),
+                },
+                "cache_controls",database,
+            ).await;
+            match result {
+                Ok(client)=>return client,
+                Err(lctx_model::domain::ModelError::Codec(message)) if attempt<7 && message.contains("Transaction conflict: Resource busy") => {
+                    tokio::time::sleep(std::time::Duration::from_millis(10*(attempt+1))).await;
+                }
+                Err(error)=>panic!("cache fixture connection: {error}"),
+            }
+        }
+        unreachable!("bounded fixture setup retry")
     }
     async fn close(self) {
         self.client
