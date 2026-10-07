@@ -54,7 +54,7 @@ async def test_actual_native_final_maps_and_schema_valid_false_pointer(transport
                 ),
                 (
                     "search_evidence",
-                    {"library": library, "query": "carefully", "page": {"size": 1, "expanded": True}},
+                    {"library": library, "query": "carefully", "families": [], "page": {"size": 1, "expanded": True}},
                 ),
             ]:
                 result = await client.call_tool_mcp(tool, arguments)
