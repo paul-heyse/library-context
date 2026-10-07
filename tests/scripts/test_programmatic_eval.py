@@ -457,11 +457,11 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     cursor = json.dumps({"binding": {"ordering": list(ordering)}}).encode().hex()
     initial["evidence"]["body"].update({"bytes": body[:cut], "end": cut, "continuation": cursor, "truncated": True, "omitted": len(body) - cut})
     initial["delivery"]["fields"][1]["original"]["end"] = cut
-    initial["delivery"]["omissions"] = [{
+    initial["delivery"]["omissions"].append({
         "field": "/structuredContent/evidence/body", "availability": {"status": "partial", "reason": "original_body_page"},
         "expand": {"tool": "get_evidence", "arguments": {"source": copy.deepcopy(task["public_call"]["arguments"]["source"]),
                                                           "page": {"cursor": cursor, "expanded": False}}},
-    }]
+    })
     final = copy.deepcopy(response)
     final["evidence"]["body"].update({"bytes": body[cut:], "start": cut})
     final["delivery"]["fields"][1]["original"]["start"] = cut
@@ -487,7 +487,8 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     wrong_expansion = copy.deepcopy(case)
     public = json.loads(wrong_expansion["observation"]["segments"][0])
     delivered = copy.deepcopy(public["structuredContent"]["evidence"])
-    public["structuredContent"]["delivery"]["omissions"][0]["expand"]["arguments"]["page"]["evidence_demand"] = {
+    body_omission = next(item for item in public["structuredContent"]["delivery"]["omissions"] if item["field"] == "/structuredContent/evidence/body")
+    body_omission["expand"]["arguments"]["page"]["evidence_demand"] = {
         "facets": ["originals"], "context": {"analysis": [8] * 16}, "maximum_followups": 0,
     }
     assert public["structuredContent"]["evidence"] == delivered

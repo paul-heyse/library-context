@@ -38,7 +38,11 @@ def source_case() -> tuple[dict[str, Any], dict[str, Any]]:
              "dependencies": ["/structuredContent/evidence/release", "/structuredContent/evidence/interpretation"],
              "availability": {"status": "available"}},
         ],
-        "omissions": [], "ranked_continuation": None,
+        "omissions": [
+            {"field": "/structuredContent/evidence/flow_inventory", "availability": {"status": "not_requested"}, "expand": None},
+            {"field": "/structuredContent/evidence/source_characterization", "availability": {"status": "not_requested"}, "expand": None},
+            {"field": "/structuredContent/evidence/derivation", "availability": {"status": "not_requested"}, "expand": None},
+        ], "ranked_continuation": None,
         "packing_policy": "controlled_exact_original_page",
     }
     task = {"id": "actual-rendered-original", "split": "development", "family": "current-mcp-original",
