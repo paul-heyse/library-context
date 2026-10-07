@@ -112,7 +112,7 @@ fn plan(inputs: &[ValidationInput], tables: &[ClosureTable]) -> Result<NominalCl
             let Some((target, _)) = field.target() else {
                 continue;
             };
-            let Some(target) = field_target(inputs, source, target)? else {
+            let Some(target) = retrieval_field_target(inputs, source, target)? else {
                 continue;
             };
             if field.list() {
@@ -146,7 +146,7 @@ fn plan(inputs: &[ValidationInput], tables: &[ClosureTable]) -> Result<NominalCl
         plan.own(member, field, owner)?;
     }
     let memberships=build::memberships();
-    for (source,table) in tables.iter().enumerate(){for field in table.relation.fields(){if memberships.contains(&(table.relation.type_id(),field.name())){if let Some((target,_))=field.target(){if let Some(target)=field_target(inputs,source,target)?{plan.own(source,field.name(),target)?;}}}}}
+    for (source,table) in tables.iter().enumerate(){for field in table.relation.fields(){if memberships.contains(&(table.relation.type_id(),field.name())){if let Some((target,_))=field.target(){if let Some(target)=retrieval_field_target(inputs,source,target)?{plan.own(source,field.name(),target)?;}}}}}
     for (member,field,owner) in [
         (index::<documents::DocumentMentionObservation>(inputs)?,"passage",index::<documents::DocumentNode>(inputs)?),
         (index::<normalized::links::MentionEntityAssessment>(inputs)?,"observation",index::<documents::DocumentMentionObservation>(inputs)?),
@@ -154,6 +154,27 @@ fn plan(inputs: &[ValidationInput], tables: &[ClosureTable]) -> Result<NominalCl
         (index::<catalog::evidence::DocumentAssociation>(inputs)?,"candidate",index::<normalized::links::MentionEntityCandidate>(inputs)?),
     ]{plan.own(member,field,owner)?;}
     Ok(plan)
+}
+fn retrieval_field_target(inputs:&[ValidationInput],source:usize,target:TypeId)->Result<Option<usize>,ModelError>{
+    // Native source/part/binding qualifications retain Facts identity. The documentary
+    // conclusion alone carries the association qualification authored at Local.
+    if target==TypeId::of::<assertion::AssertionQualification>()&&inputs[source].prefix().is_none(){
+        let epoch=if inputs[source].type_id()==TypeId::of::<synthesis::documentary::DocumentaryConclusion>(){stages::PublicationBoundary::Local}else{stages::PublicationBoundary::Facts};
+        return inputs.iter().position(|input|input.type_id()==target&&input.prefix()==Some(epoch)).map(Some).ok_or(ModelError::Conflict("retrieval qualification epoch absent"));
+    }
+    field_target(inputs,source,target)
+}
+fn original_chunk_keys(data:&Data,output:&Output,charge:&mut charged::StateCharge)->Result<charged::ChargedSet<Id<artifact::ArtifactChunk>>,ModelError>{
+    let mut selected=charged::ChargedSet::default();
+    for map in output.part_maps.iter(){if let Some(original)=map.original{
+        let (artifact,anchor_start,anchor_end)=retrieval::source::coordinates(data,build::need(&output.anchor_sources,original)?)?;
+        let start=map.original_start.unwrap();let end=map.original_end.unwrap();
+        if start<anchor_start||end<start||end>anchor_end{return Err(build::invalid("original chunk selection exceeds its anchor"));}
+        if start==end{continue;}
+        let first=start/artifact::ARTIFACT_CHUNK_BYTES as i64;let last=(end-1)/artifact::ARTIFACT_CHUNK_BYTES as i64;
+        for ordinal in first..=last{selected.insert(charge,Id::of(&artifact::ArtifactChunkKey{artifact,ordinal}))?;}
+    }}
+    Ok(selected)
 }
 /// Root integrates this declared scope arm in Workspace::validate_scope. Frozen aliases and
 /// all catalogs are supplied by that existing admission authority; no input is reacquired.
@@ -297,14 +318,13 @@ pub(crate) async fn validate_retrieval(
             // Hydrate only chunks intersecting original maps in this actual unit; API access
             // modules and unrelated source grains are never hydrated or rerendered here.
             let chunks=alias::<artifact::ArtifactChunk>(inputs,&tables)?;
-            let mut selected_chunks=charged::ChargedSet::default();
             let mut chunk_charge=charged::StateCharge::new(budget,"retrieval-completion-original-chunks");
-            for map in output.part_maps.iter(){if let Some(original)=map.original{
-                let (artifact,_,_)=retrieval::source::coordinates(&data,build::need(&output.anchor_sources,original)?)?;
-                let first=map.original_start.unwrap()/artifact::ARTIFACT_CHUNK_BYTES as i64;
-                let last=(map.original_end.unwrap()-1)/artifact::ARTIFACT_CHUNK_BYTES as i64;
-                for ordinal in first..=last{let key:Id<artifact::ArtifactChunk>=Id::of(&artifact::ArtifactChunkKey{artifact,ordinal});if selected_chunks.insert(&mut chunk_charge,key)?{stream(session,&format!("SELECT * FROM {chunks} WHERE id=X'{}'",key.hex()),cancellation,|batch|{data.facts.chunks.decode(batch)?;Ok(())}).await?;}}
-            }}
+            let selected_chunks=original_chunk_keys(&data,&output,&mut chunk_charge)?;
+            if !selected_chunks.is_empty(){
+                chunk_charge.grow(selected_chunks.len().checked_mul(128).ok_or_else(||build::invalid("retrieval original chunk query size overflow"))?)?;
+                let selected=selected_chunks.iter().map(|key|format!("X'{}'",key.hex())).collect::<Vec<_>>().join(",");
+                stream(session,&format!("SELECT * FROM {chunks} WHERE id IN ({selected})"),cancellation,|batch|{data.facts.chunks.decode(batch)?;Ok(())}).await?;
+            }
             output.verify_completion(&data, budget)?;
             let owner = build::need(&output.units, id)?;
             let mut parents = invocations.iter().filter(|invocation| {
@@ -383,6 +403,15 @@ mod controls {
     fn corpus(text:&str)->retrieval::CorpusText{retrieval::CorpusText{family:retrieval::Family::Source,rendering_version:retrieval::RENDER_VERSION,digest:ContentHash::of(text.as_bytes()),text:text.into()}}
     fn unit(corpus:Id<retrieval::CorpusText>)->retrieval::Unit{retrieval::Unit{input:id(1),context:id(2),family:retrieval::Family::Source,origin:id(3),corpus,title:"source".into()}}
     fn window(unit:Id<retrieval::Unit>,corpus:&retrieval::CorpusText)->retrieval::SearchWindow{retrieval::SearchWindow{definition:retrieval::Definition::builtin(false).id(),unit,ordinal:0,corpus:corpus.id(),digest:corpus.digest,text:corpus.text.clone(),input_text:corpus.text.clone(),encoded_digest:embedding::value::input_hash(corpus.text.as_str()),tokenizer:None,tokens:None,availability:retrieval::WindowAvailability::TokenizerUnavailable}}
+    #[test]
+    fn original_chunk_batch_excludes_unrelated_bytes_deduplicates_overlap_and_skips_empty_maps(){
+        let budget=ResourceBudget::fixed(16<<20).unwrap();let mut data=Data::new(&budget);let mut output=Output::new(&budget);let width=artifact::ARTIFACT_CHUNK_BYTES as i64;
+        let source=source::SourceArtifact::from_bytes(id(1),"guide.md".into(),&vec![b'x';artifact::ARTIFACT_CHUNK_BYTES*4]).unwrap();data.source.core.artifacts.insert(source.clone()).unwrap();
+        let original=output.anchor_sources.insert(retrieval::AnchorSource::Artifact{artifact:source.id()}).unwrap();
+        for (ordinal,(start,end)) in [(width-1,width+1),(width,width+2),(3*width,3*width+1),(2*width,2*width)].into_iter().enumerate(){output.part_maps.insert(retrieval::PartSourceMap{part:id(4),ordinal:ordinal as i64,start:0,end:end-start,original:Some(original),original_start:Some(start),original_end:Some(end)}).unwrap();}
+        let mut charge=charged::StateCharge::new(&budget,"original-chunk-control");let selected=original_chunk_keys(&data,&output,&mut charge).unwrap();
+        let expected=[0,1,3].into_iter().map(|ordinal|Id::<artifact::ArtifactChunk>::of(&artifact::ArtifactChunkKey{artifact:source.id(),ordinal})).collect::<std::collections::BTreeSet<_>>();assert_eq!(&*selected,&expected);
+    }
     #[tokio::test]
     async fn omitted_roots_and_foreign_context_cannot_hide_behind_unit_scopes(){
         let session=SessionContext::new();let cancellation=Cancellation::default();
