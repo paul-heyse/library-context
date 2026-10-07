@@ -2,86 +2,56 @@
 
 _Updated 2026-10-06 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Evidence/retrieval and primary evaluation plans authored, 2026-10-06; implementation Proposed.**
-The [combined coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns
-shared ER/EV decisions, dependencies and the nominated [target review](docs/design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)'s
-F01–F03. The [programmatic evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md)
-owns the independent primary loop; grounded outer agentic feedback improves both system and evaluator.
-The four graph-native supporting plans develop production ER1–ER4. The forward product sequence,
-architecture, profile1.5 and ADR-0130/0131 incorporate approved RC01–RC05. Existing gold,
-confirmation and heldout stay protected. Full4096 winners with shared normalized1024 search/E1
-projection and all affected consumer migrations are targets, not implemented changes.
+**Combined evidence/retrieval, primary evaluation and remaining graph-native remediation execution
+is in progress. Integrated acceptance remains pending.** The operator's pushed clean baseline
+`293e5455` is preserved. Root integrates worker slices on main; three temporary production worktrees
+remain active and will be removed after their complete integration and clean review.
 
-The [independent revised-plan review](docs/design_review/reviews/design_review_evidence-retrieval-and-evaluation-plan_2026-10-06.md)
-accepts the target at **Proposed** architectural strength, with no new material finding or rule
-impact. Its dependency-policy follow-up preserves that verdict; the new plans follow the operator's
-2026-10-06 exact-version instructions without changing dependencies. This does not establish runtime acceptance. Source F01–F03 remain open at
-[coordinator §6](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion);
-decided design does not establish implemented closure. **passed**, 2026-10-06:
-`UV_NO_SYNC=1 just adr-lint` (71 records) and `UV_NO_SYNC=1 just docs-check` (324 canonical pages,
-offline links, ADR and agent instructions), after repairing one stale retired-ADR link.
-Product tests, probes, inference, agent/evaluation campaigns and performance measurement are
-**not_run** for this document-authoring scope. The supplied external proposal remains unchanged
-and untracked. No extra worktree or owned runtime worker was created.
+The [combined coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns ER1–ER4,
+EV1–EV4, shared dependencies and the nominated review's F01–F03. The [evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md)
+owns the independent primary programmatic loop. Grounded outer feedback improves both the system
+and the evaluator; neither supplies private expected answers to production. The four graph-native
+supporting plans develop production extensions. [Graph coordinator §7–§9](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
+retains sole disposition of audit F01–F12 and resumes their remaining targeted acceptance. Earlier
+pause receipts describe their original source and scope, not this current execution.
 
-**Next:** plan execution for ER1 construction and EV1 independent finite kernels from the settled
-semantic design; ER2 shared-value/consumer migration follows actual ER1 inputs. Native and live
-lanes consume their actual repaired prerequisites; external comparison parity cannot block pure EV1.
-No production work or paused native acceptance is activated by this documentation handoff.
+Implemented changes include defining-source/option/release roots; primary/context parts, exact maps
+and window bindings; local tokenizer admission; shared full4096 winners and explicit normalized1024
+E0/E1 projections; all affected cache/transport/native/analytic consumers; bulk native lowering and
+rescore; match-zero/exact lexical admission and target/context quotas; contextual readable defaults,
+conditions and setup; actual final-envelope packing/maps; and session-retained ranked continuations.
+Private Rust kernels and a bounded Python runner provide finite witnesses/worlds, numerical
+references, independent final-byte observations, frozen experiments and grounded revision/rejudgment.
+No legacy store, old-value repair, compatibility reader or wheel gate is introduced.
 
-**Graph-native remediation remains paused at the user's request; it is integrated, with final native acceptance pending.**
-The authorized scope is [coordinator §9](docs/plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
-and its four supporting plans. They retain the hard design pivot and targeted functional verification.
-The original graph-native target/capabilities reviews remain the architectural basis; the audit supplies defects.
-Native querying is selected. Design efficiency follows first principles and library capabilities,
-without cost accounting, proof machinery or quantitative performance claims.
+The [assembled implementation review](docs/design_review/reviews/design_review_evidence-retrieval-evaluation-implementation_2026-10-06.md)
+assessed `24a5968c` as **Revise**. Six source-qualified findings now route through
+[combined coordinator §6](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion).
+Corrections are integrated for part-local delivery coordinates, distinct-target quotas, private
+source-provenance composition, opaque class predicates and independent map checks. Typed per-primary
+context dependencies are in progress. A focused follow-up must inspect the actual corrections;
+neither a landed slice nor an isolated pass establishes full closure.
 
-All agent patches are integrated on main. The operator's pushed `ad68af70` is preserved.
-Follow-ups are `1eac2cde` (upper Place endpoint admission), `02b18ab6` (formatted source)
-and `e5df7449` (native logical-text schema correction). No merge remains unresolved.
-All fourteen extra worktrees were reviewed and removed after confirming integration; only main remains.
-Owned native fixtures and credentials are cleaned up. No owned build/test/worker remains running.
-Unrelated processes, containers and shared Cargo caches are preserved.
+**Current verification, 2026-10-06:**
 
-[Coordinator §7](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
-remains the sole graph-native remediation finding disposition owner. Its F01–F12 remain open pending complete integrated closure;
-a landed slice or focused pass does not close the entire remediation.
-[Coordinator §8.1](docs/plans/graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06)
-records source, exact outcomes, stopped builds and resume order. All four supporting plans carry the pause.
+- **passed:** `cargo test --locked --release -p lctx-eval`, 26 Rust controls at `65aaba69`; `/tmp/lctx-er-eval-corrections.log`. Includes separate final-map mutation rejection, distinct-span conjunction/foreign-analysis refusal and retained candidate uncertainty.
+- **passed:** previous ER1 final model selection, 33 controls across five affected model binaries; four `cpg-core --lib scoped_retrieval` controls and one `retrieval_tokenizer` control. Logs and boundaries are at combined coordinator §6. New per-primary context changes require affected reruns.
+- **passed:** actual source-extracted persistent SQL probes for scoped bitmap/KNN, bounded indexed rescore, match-zero and crowded exact name/path/option routes. These do not establish Rust hydration/MCP or performance claims.
+- **failed, repaired; rerun pending:** initial serving/evidence compilation exposed concrete byte/text constructors, a moved source range and an outdated cursor test; integrated corrections are at `841be5e0`/`65aaba69`. The earlier embedding-session fixture used an invalid query template; corrected query recipe rerun remains pending.
+- **in progress:** selected persistent Rust cache, stream-search and native-search controls; scoped serving/private capture controls; typed context dependency correction and focused independent review.
+- **not_run:** complete current publication/cold restore/selection/source-guard journeys, rebuilt editable extension and CLI, actual MCP transport/resource/cancellation/drain controls, final applicable leaves, live client/tokenizer parity, real FastMCP Catalog/Behavioral usefulness and operator adoption.
 
-The integrated compiler separates necessary semantic admission from diagnostic producer replay,
-retains complete neutral typed import, uses bulk/ordered normalization and scoped upper consumers,
-and shares normalization-owned immutable receiver/event/binding and compact projection authority.
-Canonical transport now retains the necessary source/member/service/frontier companions.
-SourceCalls/Enriched retain complete admitted callee bodies while excluding unrelated rich syntax.
-Fresh Normalized/upper lowering includes exact intrinsic Place endpoints; Facts does not publish
-undeclared normalized records. Detached import remains strict and never repairs missing inputs.
+The operator authorized the local live-Qwen/FastMCP pilot and Q1 adoption as part of this execution.
+A fresh local SurrealDB3.3 RocksDB server and the selected custom Qwen service are running as owned
+prerequisites; current full4096 live output admission passed a bounded Python check. That is not
+retrieval quality or completed adoption. Private fixture credentials remain ignored and unprinted.
+Protected gold/heldout/confirmation, paid outer studies, broad legacy parity/qualification and
+quantitative performance campaigns remain unactivated. Direct current Cargo cdylib loading is
+the development Python route; wheel matching is waived.
 
-Native changes include streamed search/witness construction and cold reconciliation, terminally
-checked gRPC backup, atomic selection, exact batched cache winners, complete executable source
-capture, scoped browse vocabulary/counts, parent-owned nested cursors and typed safe Rust/PyO3/MCP
-failures. Current architecture, agent/assurance/task/runbook owners describe the native system.
-Obsolete assurance plans are removed with current obligations transferred; independent product/Q1
-work remains at its existing owner. No compatibility store/reader or legacy runtime is retained.
-
-**Verification checkpoint, 2026-10-06:**
-
-- **passed:** scoped model/compiler controls and their affected repairs, including all necessary transport/frontier companions, actual selected-service consumption, structural/body scope, positive SourceCalls/Enriched equality and detached omission refusal. Exact commands/logs and bounded earlier receipts are at coordinator §8.1.
-- **passed:** paired canonical normalization of 60,000 occurrences under 2 MiB/one partition and 16 MiB/two partitions; `/tmp/lctx-r-final-normalization-paired.log`. This is canonical-output evidence, not RSS/throughput measurement.
-- **passed:** model missing/foreign Place alias refusal; actual detached Behavioral Analysis/Catalog (190.28s/226.92s) and guarded Facts (18.86s); `/tmp/lctx-r-final-place-endpoint2.log`, `/tmp/lctx-r-final-compiler-fast-controls{10,11}.log`. Earlier aggregate attempts failed, with repaired affected reruns recorded separately.
-- **passed:** scoped eight-crate all-target release Clippy, Python types, Ruff and dependency checks on formatted `02b18ab6`; `/tmp/lctx-r-final-source-{clippy,types,ruff,deps}.log`.
-- **passed:** direct Cargo cdylib build and editable-package import of `NativeFailure`/`NativeSession` on `02b18ab6`; `/tmp/lctx-r-dev-native-{build,import}.log`. This extension predates the final native schema correction and must be rebuilt before resumed served acceptance. Wheel packaging is waived during development.
-- **passed:** five actual native serving/identity controls before that final correction; `/tmp/lctx-r-final-native-serving.log`, run `fd6b863e-c7a6-411b-a8ba-2e460a8f490f`.
-- **failed:** both Catalog/native MCP prerequisite journeys at publication because the closed schema omitted binary-backed logical text emitted by the codec; `/tmp/lctx-r-final-native-mcp-fast.log`. `e5df7449` aligns schema generation with textual metadata, preserving opaque bytes and strict shapes. Its affected compile check, actual persistent text/opaque-byte/unknown-field-refusal control and SDK all-target Clippy **passed**; `/tmp/lctx-r-pause-native-text-{check,runtime,clippy}.log`. The two journeys and Python MCP controls have not been rerun after repair.
-- **not_run / stopped before runtime:** final store/CLI/cache/backup/search/reconciliation aggregate. The command-target-only O0 CLI build passed in 55.31s; the subsequent selected test build was stopped before runtime for the repair/pause. Earlier optimized CLI/MCP builds were stopped before runtime; target-only O0 replacements preserve cached release libraries, budgets and expectations. Initial system Python 3.12 launcher failures ran no controls; corrected commands use project Python 3.14.7 through `uv run --no-sync python`.
-
-**Resume:** rebuild the Cargo development extension and create fresh owned persistent RocksDB
-fixtures; finish selected store/CLI/backup/cache/search/reconciliation and affected serving controls,
-then actual Catalog/native journeys and in-process/stdio safe-error/resource/cancellation/drain routes.
-Finish remaining applicable leaves and F01–F12 dispositions before recording R-Q0 completion.
-Do not revive an old realization or restart the stopped legacy suite to save setup.
-
-Broad `just qualify`, legacy CLI snapshot/parity, sealed evaluation, real-library/live-Qwen/operator
-activation and quantitative performance measurement remain **not_run** under this scope.
-The original user-accepted compiler-stage stopped-test boundary remains intact. Q1 adoption is separate.
-Root closeout documentation leaves and `UV_NO_SYNC=1 just turn-end` are recorded at coordinator §8.1.
+**Next:** integrate exact per-primary context closure and consumers, finish affected controls and
+focused review, freeze formatted executable source, rebuild current local extension/CLI, run the
+selected publication/restore/MCP and authorized live real-library journeys, then close only findings
+with their required evidence. Update current architectural/runbook owners and remove fully integrated
+worktrees before final closeout. No push is requested. Shared caches and unrelated host processes
+remain preserved.

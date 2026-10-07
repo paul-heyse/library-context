@@ -1,6 +1,6 @@
 # Named graph projections, analytics and export
 
-**Product extension Proposed, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition and pause remain at its original coordinator.
+**Product extension implementation in progress, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition remains at its original coordinator; its remaining targeted acceptance is resumed by this combined execution.
 
 **Compiler-side A1/A2 implemented and user-accepted; published exports Implemented / focused Tested, 2026-10-05.**
 Compiler model/analytics and artifact controls provide scoped Tested evidence; the coordinator
@@ -10,7 +10,7 @@ records the preserved compiler-stage boundary and actual native projection/expor
 consumers, the [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
 The coordinator owns package state, combined dependencies and finding disposition.
 
-**Current continuation Proposed, 2026-10-06:** §6 develops prepared analytical inputs and terminal streams.
+**Current continuation implemented; targeted acceptance resumed, 2026-10-06:** §6 develops prepared analytical inputs and terminal streams.
 Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
 
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;

@@ -1,12 +1,12 @@
 # Graph-native model and store-free compiler
 
-**Product extension Proposed, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition and pause remain at its original coordinator.
+**Product extension implementation in progress, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition remains at its original coordinator; its remaining targeted acceptance is resumed by this combined execution.
 
 **Complete — implemented and user-accepted, 2026-10-05 (ADR-0128).** Supporting plan for the [replacement coordinator](graph-native-pivot-plan_2026-10-05.md).
 It develops M1, C1, C2-N and C2-U. The coordinator owns package state, cross-plan dependencies
 and finding disposition. The design basis is its two named reviews, not another model review.
 
-**Current continuation Proposed, 2026-10-06:** §5 develops semantic admission and bounded preparation.
+**Current continuation implemented; targeted acceptance resumed, 2026-10-06:** §5 develops semantic admission and bounded preparation.
 Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
 
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;

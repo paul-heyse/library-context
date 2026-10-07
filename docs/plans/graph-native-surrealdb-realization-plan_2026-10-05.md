@@ -1,6 +1,6 @@
 # SurrealDB realization and immutable publication
 
-**Product extension Proposed, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition and pause remain at its original coordinator.
+**Product extension implementation in progress, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition remains at its original coordinator; its remaining targeted acceptance is resumed by this combined execution.
 
 **Implemented / focused Tested, 2026-10-06; operator adoption not_run.** Supporting plan for P1/P2/I1 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). The coordinator owns state,
@@ -8,7 +8,7 @@ shared decisions and disposition. This plan consumes the [admitted graph](graph-
 and the [native serving operations](graph-native-serving-plan_2026-10-05.md); it owns their
 physical realization, not their meaning.
 
-**Current continuation Proposed, 2026-10-06:** §6 develops native construction and lifecycle.
+**Current continuation implemented; targeted acceptance resumed, 2026-10-06:** §6 develops native construction and lifecycle.
 Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
 
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;

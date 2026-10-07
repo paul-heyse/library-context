@@ -296,6 +296,19 @@ named current consumers. Gold/confirmation/heldout remain protected.
 | [F02](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F02) | **Open — migration implemented, integrated acceptance pending**; ER2 and every native/E1 consumer | Complete admission/identity matrix, actual chosen E1 result/receipt, detached transport and restore; live checkpoint acceptance reported separately |
 | [F03](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F03) | **Open — finite-first choice and optional status boundary designed**; EV1/EV2, optional EV5 | Useful finite lane without solver; any adopted solver preserves satisfiability/Unknown/bounds and actual consequence-call status |
 
+The [assembled implementation review](../design_review/reviews/design_review_evidence-retrieval-evaluation-implementation_2026-10-06.md) assessed `24a5968c` as **Revise**, 2026-10-06. Its source-qualified findings are scheduled here; later integrated corrections require focused follow-up on their actual diff and functional controls.
+
+| Assembled review finding | Current disposition / owner | Required closure |
+|---|---|---|
+| Implementation F01 | **Open — corrected, functional acceptance pending**; ER4 | Part-local text/maps, Unicode context and second-primary final delivery |
+| Implementation F02 | **Open — correction in progress**; ER1 | Typed per-primary context closure; sibling independence and missing necessary context refusal |
+| Implementation F03 | **Open — corrected, Rust native acceptance pending**; ER3 | Distinct target/context before quotas, independent exact name/path/option admission, crowded persistent control |
+| Implementation F04 | **Open — corrected, integrated private journey pending**; EV1/EV2 | Leaf provenance separated from shared semantic assignment; distinct-span conjunction and foreign-analysis refusal |
+| Implementation F05 | **Open — corrected, serving control pending**; ER4/EV2 | Opaque class operands unavailable; no ID/string substitution for captured predicate meaning |
+| Implementation F06 | **Open — independent check implemented, final native capture pending**; EV2 | Actual map pointers/bindings/ranges/dependencies/omissions checked separately from truth; valid production map accepted, schema-valid false map rejected |
+
+**Current bounded receipts, 2026-10-06:** `cargo test --locked --release -p lctx-eval` **passed**, 26 Rust controls at `65aaba69`, `/tmp/lctx-er-eval-corrections.log`. This includes finite/reference agreement, multi-span semantic composition, map mutation rejection, and candidate uncertainty. The earlier final ER1 model selection **passed**, 33 controls (`retrieval_consumption`, `er1_evidence_construction`, `domain_retrieval`, `analytic_consumption`, `streamed_analytic`), `/tmp/lctx-er1-model-final3.log`; scoped retrieval **passed**, four controls, `/tmp/lctx-er1-scoped-final4.log`; local tokenizer **passed**, one control, `/tmp/lctx-er1-tokenizer-final.log`. New per-primary context changes require their affected rerun. Actual source-extracted native SQL probes **passed** for scoped ANN bitmap/KNN, indexed bounded rescore, match-zero and crowded exact routes; `/tmp/lctx-er3-{query,bulk-query,quota-query}-probe.log`. These are query-shape/functional receipts, not Rust hydration, transport or quantitative performance claims. Persistent Rust publication/cache/search/restore, current extension/MCP, live Rust/Python tokenizer/full-output conformance, real FastMCP usefulness and operator selection remain **not_run / in progress** until their own receipts land.
+
 No new mutable ledger is required. Other recommendations route through ER/EV packages and their
 explicit conditional triggers. Existing EVAL and analytical/Q1 findings remain at their current
 owners with source-qualified IDs; this table does not absorb or renumber them.
