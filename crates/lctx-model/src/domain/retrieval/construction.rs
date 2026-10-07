@@ -146,7 +146,8 @@ fn grain_scope(d:&Data,origin:&Origin)->Result<Option<Subject>,ModelError>{
     })
 }
 
-pub(super) fn parts(d:&Data,out:&mut Output,unit:Id<Unit>,b:&ResourceBudget)->Result<(),ModelError>{
+pub(super) fn parts(d:&Data,out:&mut Output,unit:Id<Unit>,b:&ResourceBudget)->Result<super::partition::UnitParts,ModelError>{
+    let mut cohort=super::partition::UnitParts::default();
     let owner=need(&out.units,unit)?.clone();
     let origin=need(&out.origins,owner.origin)?.clone();
     let text=need(&out.corpus,owner.corpus)?.text.as_str().to_owned();
@@ -199,13 +200,18 @@ pub(super) fn parts(d:&Data,out:&mut Output,unit:Id<Unit>,b:&ResourceBudget)->Re
             if value.is_empty(){continue;}
             // A heading supplies interpretation context; mentioning an API there does not bind it.
             let purpose=if matches!(origin,Origin::Document{..}|Origin::Passage{..}) && (heading_level(value).is_some()||value.trim().is_empty()){PartPurpose::Context}else{purpose};
-            let part=out.parts.insert(ContentPart{unit,ordinal,purpose,scope,qualification:match origin{Origin::Passage{observation}=>Some(need(&d.source.facts.passages,observation)?.qualification),_=>None},digest:ContentHash::of(value.as_bytes()),text:value.into()})?;
-            out.part_maps.insert(PartSourceMap{part,ordinal:0,start:0,end:value.len() as i64,original,original_start:original_start.map(|v|v+a as i64),original_end:original_start.map(|v|v+z as i64)})?;
+            let part=ContentPart{unit,ordinal,purpose,scope,qualification:match origin{Origin::Passage{observation}=>Some(need(&d.source.facts.passages,observation)?.qualification),_=>None},digest:ContentHash::of(value.as_bytes()),text:value.into()};
+            let id=out.parts.insert(part.clone())?;cohort.parts.push(part);
+            let map=PartSourceMap{part:id,ordinal:0,start:0,end:value.len() as i64,original,original_start:original_start.map(|v|v+a as i64),original_end:original_start.map(|v|v+z as i64)};
+            out.part_maps.insert(map.clone())?;cohort.maps.push(map);
             ordinal+=1;
         }
     }
-    for row in context_dependencies(d,out,unit,b)?.iter() {out.part_contexts.insert(row.clone())?;}
-    Ok(())
+    let parts=cohort.parts.iter().collect::<Vec<_>>();
+    let maps=part_map_index(cohort.maps.iter());
+    let dependencies=context_dependencies(d,out,unit,&parts,&maps,b)?;
+    for row in dependencies.iter() {out.part_contexts.insert(row.clone())?;cohort.dependencies.push(row.clone());}
+    Ok(cohort)
 }
 
 fn setext_level(line:&str)->Option<i64>{let line=line.trim();if !line.is_empty()&&line.bytes().all(|b|b==b'='){Some(1)}else if !line.is_empty()&&line.bytes().all(|b|b==b'-'){Some(2)}else{None}}
@@ -240,29 +246,39 @@ pub(super) fn passage_anchors(d:&Data,passage:&documents::PassageObservation,b:&
     result.push(own);Ok(result)
 }
 
-pub(super) fn context_dependencies(d:&Data,out:&Output,unit:Id<Unit>,b:&ResourceBudget)->Result<crate::domain::normalized::Rows<PartContext>,ModelError>{
-    let owner=need(&out.units,unit)?;let origin=need(&out.origins,owner.origin)?;let mut parts:Vec<_>=out.parts.iter().filter(|p|p.unit==unit).collect();parts.sort_by_key(|p|p.ordinal);
+fn part_map_index<'a>(rows:impl Iterator<Item=&'a PartSourceMap>)->std::collections::BTreeMap<Id<ContentPart>,Vec<&'a PartSourceMap>>{
+    let mut result=std::collections::BTreeMap::<_,Vec<_>>::new();for row in rows{result.entry(row.part).or_default().push(row);}for maps in result.values_mut(){maps.sort_by_key(|m|m.ordinal);}result
+}
+pub(super) fn context_dependencies(d:&Data,out:&Output,unit:Id<Unit>,parts:&[&ContentPart],maps:&std::collections::BTreeMap<Id<ContentPart>,Vec<&PartSourceMap>>,b:&ResourceBudget)->Result<crate::domain::normalized::Rows<PartContext>,ModelError>{
+    let owner=need(&out.units,unit)?;let origin=need(&out.origins,owner.origin)?;let mut parts=parts.to_vec();parts.sort_by_key(|p|p.ordinal);
     let documentary=matches!(origin,Origin::Document{..}|Origin::Passage{..});let mut global=vec![];let mut headings:Vec<(i64,Id<ContentPart>)>=vec![];let mut result=crate::domain::normalized::Rows::new(b);
+    if !documentary{global.extend(parts.iter().filter(|p|p.purpose==PartPurpose::Context).map(|p|p.id()));}
+    // Resolve captured key/table leads once; each primary tests only its enclosing scopes.
+    let mut components=vec![];
+    if documentary{for component in d.facts.components.iter().filter(|c|d.source.core.qualifications.get(c.qualification).is_some_and(|q|q.context==owner.context)){
+        let Some(lead)=component.lead else{continue;};
+        let (artifact,start,end)=super::source::coordinates(d,&AnchorSource::Span{span:need(&d.source.facts.nodes,component.component.id())?.span()})?;
+        let (lead_artifact,a,z)=super::source::coordinates(d,&AnchorSource::Span{span:lead})?;
+        if artifact!=lead_artifact||a<start||z>end{return Err(invalid("captured interpretation lead exceeds component"));}
+        let mut contexts=vec![];
+        for candidate in &parts{if candidate.purpose==PartPurpose::Context&&maps.get(&candidate.id()).into_iter().flatten().any(|m|m.original.is_some_and(|id|super::source::coordinates(d,need(&out.anchor_sources,id).unwrap()).is_ok_and(|(source,_,_)|source==artifact))&&m.original_start.is_some_and(|start|start>=a)&&m.original_end.is_some_and(|end|end<=z)){contexts.push(candidate.id());}}
+        if !contexts.is_empty(){components.push((artifact,start,end,contexts));}
+    }}
     for part in &parts{
         if part.purpose==PartPurpose::Context{
-            let maps:Vec<_>=out.part_maps.iter().filter(|m|m.part==part.id()).collect();
-            if !documentary||maps.iter().any(|m|m.original.is_none()||m.original.is_some_and(|id|matches!(out.anchor_sources.get(id),Some(AnchorSource::SpanSlice{..})))){global.push(part.id());}
+            let part_maps=maps.get(&part.id()).map(Vec::as_slice).unwrap_or(&[]);
+            if !documentary{continue;}
+            if part_maps.iter().any(|m|m.original.is_none()||m.original.is_some_and(|id|matches!(out.anchor_sources.get(id),Some(AnchorSource::SpanSlice{..})))){global.push(part.id());}
             else if let Some(level)=heading_level(part.text.as_str()){while headings.last().is_some_and(|(old,_)|*old>=level){headings.pop();}headings.push((level,part.id()));}
             continue;
         }
         let mut context=global.iter().chain(headings.iter().map(|(_,id)|id)).copied().collect::<std::collections::BTreeSet<_>>();
         if documentary{
-            for primary in out.part_maps.iter().filter(|m|m.part==part.id()&&m.original.is_some()){
+            for primary in maps.get(&part.id()).into_iter().flatten().filter(|m|m.original.is_some()){
                 let (artifact,_,_)=super::source::coordinates(d,need(&out.anchor_sources,primary.original.unwrap())?)?;let a=primary.original_start.unwrap();let z=primary.original_end.unwrap();
-                for component in d.facts.components.iter().filter(|c|d.source.core.qualifications.get(c.qualification).is_some_and(|q|q.context==owner.context)){
-                    let (source,start,end)=super::source::coordinates(d,&AnchorSource::Span{span:need(&d.source.facts.nodes,component.component.id())?.span()})?;
-                    if source!=artifact||a<start||z>end{continue;}let Some(lead)=component.lead else{continue;};let (_,start,end)=super::source::coordinates(d,&AnchorSource::Span{span:lead})?;
-                    for candidate in &parts{if candidate.purpose==PartPurpose::Context&&out.part_maps.iter().any(|m|m.part==candidate.id()&&m.original.is_some_and(|id|super::source::coordinates(d,need(&out.anchor_sources,id).unwrap()).is_ok_and(|(source,_,_)|source==artifact))&&m.original_start.is_some_and(|a|a>=start)&&m.original_end.is_some_and(|z|z<=end)){context.insert(candidate.id());}}
-                }
+                for (source,start,end,contexts) in &components{if *source==artifact&&a>=*start&&z<=*end{context.extend(contexts.iter().copied());}}
             }
         }
-        // Non-documentary setup is genuinely shared, including context that follows a primary.
-        if !documentary{context.extend(parts.iter().filter(|p|p.purpose==PartPurpose::Context).map(|p|p.id()));}
         for context in context{result.insert(PartContext{primary:part.id(),context})?;}
     }
     Ok(result)
@@ -316,9 +332,8 @@ fn document_blocks(text:&str)->Vec<(usize,usize)>{
     if start<text.len(){ranges.push((start,text.len()));}ranges
 }
 
-fn role_matches(d:&Data,out:&Output,part:&ContentPart,b:&ResourceBudget)->Result<bool,ModelError>{
+fn role_matches(d:&Data,out:&Output,part:&ContentPart,maps:&[&PartSourceMap],b:&ResourceBudget)->Result<bool,ModelError>{
     let unit=need(&out.units,part.unit)?;let origin=need(&out.origins,unit.origin)?;
-    let maps:Vec<_>=out.part_maps.iter().filter(|m|m.part==part.id()).collect();
     let original=maps.iter().find_map(|m|m.original.map(|a|(a,m.original_start.unwrap(),m.original_end.unwrap())));
     let expected=match origin{
         Origin::Api{..}|Origin::Brief{..}|Origin::Release{..}=>PartPurpose::Primary,
@@ -384,6 +399,13 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
     definition.validate()?;
     let _index=b.reserve("retrieval-semantic-admission",(out.parts.len()+out.part_contexts.len()+out.windows.len()+out.part_maps.len()+out.window_maps.len()+out.bindings.len()).saturating_mul(128))?;
     for row in out.part_contexts.iter(){let primary=need(&out.parts,row.primary)?;let context=need(&out.parts,row.context)?;if primary.unit!=context.unit||primary.purpose!=PartPurpose::Primary||context.purpose!=PartPurpose::Context{return Err(invalid("retrieval interpretation dependency crosses unit/domain or role"));}}
+    let mut parts_by_unit=std::collections::BTreeMap::<_,Vec<_>>::new();
+    for part in out.parts.iter(){parts_by_unit.entry(part.unit).or_default().push(part);}
+    for parts in parts_by_unit.values_mut(){parts.sort_by_key(|p|p.ordinal);}
+    let part_maps=part_map_index(out.part_maps.iter());
+    let dependencies=super::partition::context_index(out.part_contexts.iter());
+    let mut dependencies_by_unit=std::collections::BTreeMap::<_,std::collections::BTreeSet<_>>::new();
+    for row in out.part_contexts.iter(){dependencies_by_unit.entry(need(&out.parts,row.primary)?.unit).or_default().insert(row.id());}
     let mut rooted=std::collections::BTreeSet::new();
     for root in out.roots.iter(){
         let unit=need(&out.units,root.unit)?;
@@ -397,18 +419,18 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
         verify_original_domain(d,out,unit,b)?;
         let corpus=need(&out.corpus,unit.corpus)?;used_corpus.insert(corpus.id());
         if unit.family!=corpus.family{return Err(invalid("retrieval unit family differs from corpus"));}
-        let mut parts:Vec<_>=out.parts.iter().filter(|p|p.unit==unit.id()).collect();parts.sort_by_key(|p|p.ordinal);
+        let parts=parts_by_unit.get(&unit.id()).map(Vec::as_slice).unwrap_or(&[]);
         if parts.is_empty(){return Err(invalid("retrieval content parts omitted"));}
         let mut reconstructed=String::new();
         for (ordinal,part) in parts.iter().enumerate(){
             part.validate()?;
-            if !role_matches(d,out,part,b)?{return Err(invalid("retrieval primary/context role differs from source authority"));}
+            if !role_matches(d,out,part,part_maps.get(&part.id()).map(Vec::as_slice).unwrap_or(&[]),b)?{return Err(invalid("retrieval primary/context role differs from source authority"));}
             if part.ordinal!=ordinal as i64{return Err(invalid("retrieval content part order incomplete"));}
             if let Some(scope)=part.scope{need(&out.subjects,scope)?;}
             if part.scope!=grain_scope(d,need(&out.origins,unit.origin)?)?.map(|s|s.id()){return Err(invalid("retrieval content semantic scope differs from origin"));}
             if let Some(q)=part.qualification{if need(&d.source.core.qualifications,q)?.context!=unit.context{return Err(invalid("retrieval content qualification changed context"));}}
             reconstructed.push_str(part.text.as_str());
-            let mut maps:Vec<_>=out.part_maps.iter().filter(|m|m.part==part.id()).collect();maps.sort_by_key(|m|m.ordinal);
+            let maps=part_maps.get(&part.id()).map(Vec::as_slice).unwrap_or(&[]);
             let mut cursor=0;
             for (index,map) in maps.iter().enumerate(){
                 map.validate()?;
@@ -428,8 +450,8 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
             if cursor!=part.text.len() as i64{return Err(invalid("retrieval part source map domain omitted"));}
         }
         if reconstructed!=corpus.text.as_str(){return Err(invalid("retrieval content parts differ from completed corpus"));}
-        let expected=context_dependencies(d,out,unit.id(),b)?.iter().map(|r|r.id()).collect::<std::collections::BTreeSet<_>>();
-        let actual=out.part_contexts.iter().filter(|r|out.parts.get(r.primary).is_some_and(|p|p.unit==unit.id())).map(|r|r.id()).collect::<std::collections::BTreeSet<_>>();
+        let expected=context_dependencies(d,out,unit.id(),parts,&part_maps,b)?.iter().map(|r|r.id()).collect::<std::collections::BTreeSet<_>>();
+        let actual=dependencies_by_unit.get(&unit.id()).cloned().unwrap_or_default();
         if expected!=actual{return Err(invalid("retrieval interpretation dependency domain differs/omitted"));}
         let mut windows:Vec<_>=out.windows.iter().filter(|w|w.unit==unit.id()).collect();windows.sort_by_key(|w|w.ordinal);
         if windows.is_empty(){return Err(invalid("retrieval window domain omitted"));}
@@ -458,7 +480,7 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
             }
             let selected=links.iter().filter(|l|out.parts.get(l.part).is_some_and(|p|p.purpose==PartPurpose::Primary)).map(|l|l.part).collect::<std::collections::BTreeSet<_>>();
             if selected.is_empty()&&parts.iter().any(|p|p.purpose==PartPurpose::Primary){return Err(invalid("context-only window cannot replace or extend a primary grain"));}
-            let closure=super::partition::selected_parts(out,unit.id(),&selected)?;
+            let closure=super::partition::selected_parts(parts,&dependencies,unit.id(),&selected)?;
             if links.iter().map(|l|l.part).collect::<Vec<_>>()!=closure.iter().map(|p|p.id()).collect::<Vec<_>>(){return Err(invalid("retrieval selected interpretation closure differs/omitted"));}
             if render.join("\n")!=window.text.as_str(){return Err(invalid("retrieval window rendering differs from selected parts"));}
             let body_start=window.input_text.as_str().find(window.text.as_str()).ok_or_else(||invalid("retrieval complete input loses rendered body"))?;
@@ -477,7 +499,7 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
                     // The whole ordered map stream must exactly compose the canonical part maps.
                     let position=links.iter().position(|l|l.part==part.id()).unwrap();
                     let offset=body_start+links[..position].iter().map(|l|need(&out.parts,l.part).unwrap().text.len()+1).sum::<usize>();
-                    if !out.part_maps.iter().any(|p|p.part==part.id() && p.start+offset as i64==map.start && p.end+offset as i64==map.end && p.original==map.original && p.original_start==map.original_start && p.original_end==map.original_end){return Err(invalid("retrieval window map is not canonical part composition"));}
+                    if !part_maps.get(&part.id()).into_iter().flatten().any(|p|p.start+offset as i64==map.start && p.end+offset as i64==map.end && p.original==map.original && p.original_start==map.original_start && p.original_end==map.original_end){return Err(invalid("retrieval window map is not canonical part composition"));}
                 }else {
                     if map.original.is_some(){return Err(invalid("synthetic input has fabricated source"));}
                     let prefix=map.start==0&&map.end==body_start as i64;

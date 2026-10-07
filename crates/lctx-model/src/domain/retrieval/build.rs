@@ -900,8 +900,8 @@ fn add(
             original,
         })?;
     }
-    super::construction::parts(d,out,unit,b)?;
-    super::partition::construct(d,out,unit,b)?;
+    let parts=super::construction::parts(d,out,unit,b)?;
+    super::partition::construct(d,out,unit,parts,b)?;
     Ok(())
 }
 pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {

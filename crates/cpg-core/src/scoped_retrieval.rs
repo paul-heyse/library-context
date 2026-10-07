@@ -434,17 +434,18 @@ mod controls {
         install::<retrieval::SearchWindow>(&session,"windows",&[]);assert!(verify_corpus_domain(&session,"corpus","units","windows",&cancellation).await.is_err());
     }
     #[tokio::test]
-    async fn actual_unit_inverse_closure_includes_parts_maps_windows_and_bindings(){
+    async fn actual_unit_inverse_closure_includes_parts_contexts_maps_windows_and_bindings(){
         let model=lctx_model::domain::model().unwrap();let inputs=consumption::invariants().remove(0).inputs;let session=SessionContext::new();
         let tables:Vec<_>=inputs.iter().enumerate().map(|(n,input)|{let relation=model.relation(input.name()).unwrap().clone();let alias=format!("closure_{n}");let batch=arrow_array::RecordBatch::new_empty(relation.schema().clone());session.register_table(alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();ClosureTable{relation,alias}}).collect();
         let corpus=corpus("primary");let unit=unit(corpus.id());let window=window(unit.id(),&corpus);let part=retrieval::ContentPart{unit:unit.id(),ordinal:0,purpose:retrieval::PartPurpose::Primary,scope:None,qualification:None,digest:corpus.digest,text:corpus.text.clone()};
+        let context=retrieval::ContentPart{unit:unit.id(),ordinal:1,purpose:retrieval::PartPurpose::Context,scope:None,qualification:None,digest:ContentHash::of(b"context"),text:"context".into()};
         macro_rules! put{($ty:ty,$rows:expr)=>{install::<$ty>(&session,&tables[index::<$ty>(&inputs).unwrap()].alias,$rows);};}
-        put!(retrieval::Unit,&[unit.clone()]);put!(retrieval::CorpusText,&[corpus.clone()]);put!(retrieval::ContentPart,&[part.clone()]);put!(retrieval::SearchWindow,&[window.clone()]);
-        put!(retrieval::PartSourceMap,&[retrieval::PartSourceMap{part:part.id(),ordinal:0,start:0,end:7,original:None,original_start:None,original_end:None}]);
+        put!(retrieval::Unit,&[unit.clone()]);put!(retrieval::CorpusText,&[corpus.clone()]);put!(retrieval::ContentPart,&[part.clone(),context.clone()]);put!(retrieval::PartContext,&[retrieval::PartContext{primary:part.id(),context:context.id()}]);put!(retrieval::SearchWindow,&[window.clone()]);
+        put!(retrieval::PartSourceMap,&[retrieval::PartSourceMap{part:part.id(),ordinal:0,start:0,end:7,original:None,original_start:None,original_end:None},retrieval::PartSourceMap{part:context.id(),ordinal:0,start:0,end:7,original:None,original_start:None,original_end:None}]);
         put!(retrieval::WindowPart,&[retrieval::WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:7}]);
         put!(retrieval::WindowSourceMap,&[retrieval::WindowSourceMap{window:window.id(),ordinal:0,start:0,end:7,part:Some(part.id()),original:None,original_start:None,original_end:None}]);
         put!(retrieval::WindowBinding,&[retrieval::WindowBinding{window:window.id(),part:part.id(),subject:id(9),basis:retrieval::BindingBasis::Source,qualification:None}]);
         let budget=ResourceBudget::fixed(16<<20).unwrap();let prepared=plan(&inputs,&tables).unwrap().prepare(&session,&budget).await.unwrap();let closure=prepared.grain(index::<retrieval::Unit>(&inputs).unwrap(),&format!("id=X'{}'",unit.id().hex()),&budget).await.unwrap();
-        for ty in [TypeId::of::<retrieval::ContentPart>(),TypeId::of::<retrieval::PartSourceMap>(),TypeId::of::<retrieval::SearchWindow>(),TypeId::of::<retrieval::WindowPart>(),TypeId::of::<retrieval::WindowSourceMap>(),TypeId::of::<retrieval::WindowBinding>()]{let index=inputs.iter().position(|input|input.type_id()==ty).unwrap();let selected=closure.select(index).unwrap();let batches=crate::sql::query(closure.session(),&selected).await.unwrap().collect().await.unwrap();assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),1);}
+        for ty in [TypeId::of::<retrieval::PartContext>(),TypeId::of::<retrieval::ContentPart>(),TypeId::of::<retrieval::PartSourceMap>(),TypeId::of::<retrieval::SearchWindow>(),TypeId::of::<retrieval::WindowPart>(),TypeId::of::<retrieval::WindowSourceMap>(),TypeId::of::<retrieval::WindowBinding>()]{let index=inputs.iter().position(|input|input.type_id()==ty).unwrap();let selected=closure.select(index).unwrap();let batches=crate::sql::query(closure.session(),&selected).await.unwrap().collect().await.unwrap();assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),if ty==TypeId::of::<retrieval::ContentPart>()||ty==TypeId::of::<retrieval::PartSourceMap>(){2}else{1});}
     }
 }
