@@ -433,15 +433,17 @@ async fn search_evidence(
     )
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
+    let packets = crate::evidence::hits(reader, &ranked, &domains, b).await?;
+    if packets.len()!=ranked.len(){return Err(ModelError::Schema("retained evidence packet count"));}
     let mut values = Vec::new();
-    for hit in ranked {
+    for (hit, packet) in ranked.into_iter().zip(packets) {
         let ranking::Target::Unit { unit } = hit.target else {
             return Err(ModelError::Schema("evidence ranking target"));
         };
         values.push((
             hit,
             crate::pagination::target_key(ranking::Target::Unit { unit }),
-            crate::evidence::hit(reader, unit, &domains, b).await?,
+            packet,
         ));
     }
     let (results, ranking) =

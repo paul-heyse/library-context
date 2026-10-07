@@ -123,6 +123,7 @@ impl NativeService {
                 .await?;
             if let Some(mut response) = self.retained.resume(&request, self.handle(), vector.as_ref())? {
                 crate::delivery::finalize(&request, &mut response)?;
+                self.retained.complete(&mut response)?;
                 return response.to_json();
             }
             let query = match &request {
@@ -205,6 +206,7 @@ impl NativeService {
             .await
             .map_err(failure)?;
             crate::delivery::finalize(&request, &mut response)?;
+            self.retained.complete(&mut response)?;
             let len = response.json_len()?;
             if len as u64 > self.limits.response_bytes(request.page().expanded) {
                 return Err(WireError::ResourceRefused(

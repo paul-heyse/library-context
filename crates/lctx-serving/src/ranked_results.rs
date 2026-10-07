@@ -56,7 +56,9 @@ impl RankedResults {
         if request.page().cursor.0.is_some() {return Err(unavailable());}
         let expected=crate::pagination::binding(request,snapshot,channels,request.tool().name(),"results",None)?;
         let count=values.len();let size=request.page().size as usize;
-        let continuation=if count>size {
+        // A transient cursor lets final delivery pack fewer whole rows even when the requested
+        // page initially includes the complete pool. Service completion removes unused cursors.
+        let continuation=if count>1 {
             let mut rows=Vec::with_capacity(count);let mut bytes=size_of::<Entry>()+count*size_of::<Vec<u8>>();
             for (ranking,key,item) in &values {
                 let encoded=encode(&Row {ranking:ranking.clone(),key:*key,item},MAX_BYTES.saturating_sub(bytes))?;
@@ -72,11 +74,34 @@ impl RankedResults {
             state.next+=1;let used=state.next;
             let mut key=KeySink::new("native-ranked-entry/v1");key.part(b"session",&self.session.0);key.part(b"sequence",&used.to_le_bytes());key.part(b"digest",&digest.0);let result=key.finish();
             state.entries.insert(result,Entry {binding:expected.clone(),digest,channels:channels.clone(),rows,template:None,created:Instant::now(),used,bytes});state.bytes+=bytes;
-            Optional(Some(Cursor {binding:expected,after:CursorPosition::Ranked {session:self.session,result,digest,offset:size as u64}}.encode()?))
+            Optional(Some(Cursor {binding:expected,after:CursorPosition::Ranked {session:self.session,result,digest,offset:size.min(count) as u64}}.encode()?))
         } else {Optional::default()};
         let (ranking,items)=values.into_iter().take(size).map(|(ranking,_,item)|(ranking,item)).unzip();
         let omitted=count.saturating_sub(size) as u64;
         Ok((SectionPage {availability:Availability::Available {},items,continuation,omitted,truncated:omitted>0},ranking))
+    }
+    /// Final delivery may shrink the page. An unused transient cursor never reaches the wire.
+    pub(crate) fn complete(&self,response:&mut Response)->Result<(),WireError> {
+        let (omitted,continuation)=match response {
+            Response::SearchOperations(r)=>(r.results.omitted,&mut r.results.continuation),
+            Response::SearchEvidence(r)=>(r.results.omitted,&mut r.results.continuation),
+            Response::SearchCapabilities(r)=>(r.results.omitted,&mut r.results.continuation),
+            _=>return Ok(()),
+        };
+        if omitted!=0{return Ok(());}
+        if let Some(token)=&continuation.0 {
+            let cursor:Cursor=serde_json::from_slice(&hex::decode(token.as_str()).map_err(|_|unavailable())?)?;
+            if let CursorPosition::Ranked{session,result,digest,..}=cursor.after {
+                if session!=self.session{return Err(unavailable());}
+                let mut state=self.state.lock().map_err(|_|unavailable())?;
+                let entry=state.entries.get(&result).ok_or_else(unavailable)?;
+                if entry.digest!=digest{return Err(unavailable());}
+                // A first page that fit completely needs no retention. Existing continuation
+                // entries keep their normal lifetime so already-issued pages remain replayable.
+                if entry.template.is_none(){state.remove(result);}
+            }
+        }
+        *continuation=Optional::default();Ok(())
     }
     /// Bind the final response's metadata to its retained order; page payloads are not duplicated.
     pub(crate) fn attach(&self,response:&Response)->Result<(),WireError> {
@@ -128,8 +153,7 @@ impl RankedResults {
         template["results"]["items"]=serde_json::to_value(rows.iter().map(|r|&r.item).collect::<Vec<_>>())?;
         template["ranking"]=serde_json::to_value(rows.iter().map(|r|&r.ranking).collect::<Vec<_>>())?;
         template["results"]["omitted"]=serde_json::json!(entry.rows.len()-end);template["results"]["truncated"]=serde_json::json!(end<entry.rows.len());
-        if end<entry.rows.len() {template["results"]["continuation"]=serde_json::json!(Cursor {binding:expected,after:CursorPosition::Ranked {session,result,digest,offset:end as u64}}.encode()?.as_str());}
-        else {template["results"].as_object_mut().ok_or_else(unavailable)?.remove("continuation");}
+        template["results"]["continuation"]=serde_json::json!(Cursor {binding:expected,after:CursorPosition::Ranked {session,result,digest,offset:end as u64}}.encode()?.as_str());
         template["extent"]=serde_json::json!({"extent":"ranked","returned":rows.len()});
         entry.used=used;
         let raw=serde_json::to_string(&template)?;
@@ -149,10 +173,10 @@ mod tests {
     }
     fn response_with_channels(cache:&RankedResults,request:&Request,channels:&ChannelState)->Response {
         let values=(1..=3).map(|n| {let unit=id::<retrieval::Unit>(n);let ranking=ranking::RankedHit {target:ranking::Target::Unit {unit},context:id::<AnalysisContext>(n),score:1.0/f64::from(n),promoted:false,witnesses:vec![]};
-            (ranking,ContentHash::of(&[n]),EvidenceHit {unit,family:retrieval::Family::Source,title:Name::new(format!("original{n}")).unwrap(),originals:vec![],associated_members:vec![]})}).collect();
+            (ranking,ContentHash::of(&[n]),EvidenceHit {unit,family:retrieval::Family::Source,title:Name::new(format!("original{n}")).unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::NotRequested{}}})}).collect();
         let (results,ranking)=cache.page(values,request,&handle(),channels).unwrap();
-        let response=Response::SearchEvidence(SearchEvidenceResponse {
-            delivery: Optional::default(),snapshot:handle(),domains:vec![],extent:SelectionExtent::Ranked {returned:1},results,channels:channels.clone(),ranking});cache.attach(&response).unwrap();response
+        let mut response=Response::SearchEvidence(SearchEvidenceResponse {
+            delivery: Optional::default(),snapshot:handle(),domains:vec![],extent:SelectionExtent::Ranked {returned:1},results,channels:channels.clone(),ranking});cache.complete(&mut response).unwrap();cache.attach(&response).unwrap();response
     }
     fn next(request:&mut Request,response:&Response) {
         let Request::SearchEvidence(request)=request else {unreachable!()};let Response::SearchEvidence(response)=response else {unreachable!()};request.page.cursor=response.results.continuation.clone();
@@ -162,7 +186,7 @@ mod tests {
         let cache=RankedResults::default();let mut request=request();let first=response(&cache,&request);next(&mut request,&first);
         let second=cache.resume(&request,&handle(),None).unwrap().unwrap();let Response::SearchEvidence(page)=&second else {unreachable!()};
         assert_eq!(page.results.items[0].title.as_str(),"original2");assert_eq!(page.channels,channels());assert_eq!(page.ranking[0].context,id(2));
-        next(&mut request,&second);let third=cache.resume(&request,&handle(),None).unwrap().unwrap();let Response::SearchEvidence(page)=&third else {unreachable!()};assert_eq!(page.results.items[0].title.as_str(),"original3");assert!(page.results.continuation.0.is_none());
+        next(&mut request,&second);let mut third=cache.resume(&request,&handle(),None).unwrap().unwrap();cache.complete(&mut third).unwrap();let Response::SearchEvidence(page)=&third else {unreachable!()};assert_eq!(page.results.items[0].title.as_str(),"original3");assert!(page.results.continuation.0.is_none());
         let mut foreign=handle();foreign.semantic=ContentHash::of(b"changed");assert!(cache.resume(&request,&foreign,None).is_err());
         let Request::SearchEvidence(changed)=&mut request else {unreachable!()};changed.query=QueryText::new("other").unwrap();assert!(cache.resume(&request,&handle(),None).is_err());
     }
@@ -178,6 +202,13 @@ mod tests {
     fn retained_writer_refuses_before_oversized_row_allocation() {
         assert!(encode(&vec!["payload";100],16).is_err());
         let mut state=State::default();assert!(state.make_room(MAX_BYTES+1,None).is_err());
+    }
+    #[test]
+    fn complete_first_page_releases_unused_retention_and_has_no_continuation() {
+        let cache=RankedResults::default();let mut request=request();let Request::SearchEvidence(r)=&mut request else{unreachable!()};r.page.size=3;
+        let response=response(&cache,&request);let Response::SearchEvidence(r)=response else{unreachable!()};
+        assert!(r.results.continuation.0.is_none());assert_eq!(r.results.items.len(),3);
+        assert!(cache.state.lock().unwrap().entries.is_empty());
     }
     #[test]
     fn continuation_rejects_changed_query_value_or_input_but_needs_no_new_inference() {
