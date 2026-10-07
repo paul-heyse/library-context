@@ -270,6 +270,13 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     // Exact spelling is a separate route, including the declared option key.
     let option=lctx_serving::search::lexical(&native,"timeout",Family::ApiOptions,&inputs,Some(&pairs),true,None,128,&policy).await.unwrap();
     assert_eq!(option.len(),1);assert_eq!(option[0].occurrence.context,good);
+    // A second selected-policy value for the same exact primary witness refuses arbitration.
+    let mut competing:Vec<Value>=native.query("SELECT * FROM vector:excluded",Variables::new()).await.unwrap();
+    let Value::Object(mut competing)=competing.remove(0) else {panic!("vector object")};
+    let source=RecordId::new("vector","competing");competing.insert("id",source.clone());competing.insert("projection_key","competing");
+    insert(&native,"vector",false,vec![Value::Object(competing)]).await;
+    insert(&native,"vec_occurs",true,vec![occurrence("vec_occurs","competing",source,out.clone(),*input.bytes(),Some(member.id()),good,unit)]).await;
+    assert!(lctx_serving::search::rescore_union(&native,&query_value,&lexical,&policy).await.is_err(),"competing canonical full winners must refuse");
     client
         .query(
             "DEFINE FUNCTION OVERWRITE fn::lctx_operation_definition() { RETURN 'incompatible'; };",
