@@ -64,15 +64,16 @@ scenarios/deployment, typed retrieval, agent usability and comparative confirmat
 Earlier product receipts retain their recorded boundaries; they do not qualify the reconstructed
 pipeline. Remaining research is activated only by an exposed claim or a named product task.
 
-**Selected next increment / Proposed implementation, 2026-10-07:** [Persisted graph execution](../plans/persisted-graph-execution-plan_2026-10-07.md) replaces store-free compilation with native completed inputs and direct sealing, and consolidates matching inefficiencies across consumers. Operator-confirmed RC01/RC02 and dependency foundations inform this target; PG0 records the superseding decision and updates §B3/§B7/§B12 before dependent code. Earlier implementation receipts do not establish this target.
-
-**Current increment: graph-native replacement (Implemented, 2026-10-06; ADR-0128).**
-The [coordinator](../plans/graph-native-pivot-plan_2026-10-05.md) owns G0/M1/C1/C2, native realization,
-serving, projections and acceptance. The store-free compiler stage is user-accepted; native
-realization, projections and serving are implemented with targeted functional evidence. Compilation
-returns an admitted artifact; publication and reader selection remain separate operations.
-This execution uses the user-selected targeted controls in coordinator §6; broad qualification
-and the stopped compiler suite are not_run.
+**Accepted current increment / implementation in progress, 2026-10-07:**
+[Persisted graph execution](../plans/persisted-graph-execution-plan_2026-10-07.md) replaces
+store-free compilation with native completed inputs and direct sealing, and consolidates matching
+inefficiencies across consumers. ADR-0133 records the selected execution boundaries in
+§B3/§B7/§B12. Exact graph meanings remain model-owned; native contributions/views and retained
+bindings own completed inputs. The same database is sealed after admission; explicit external
+transport independently validates complete graph and retained state. STATUS and the plan own
+current functional acceptance. Earlier graph-native receipts retain their dates and scope.
+This execution uses targeted functional controls; operator adoption and real-library performance
+measurement remain separate.
 
 This is a hard pivot: remove replaced runtime/code at its ownership boundary, rebuild from pinned
 inputs, and retain no compatibility reader, ID bridge, intermediate PostgreSQL repair or dual write.
@@ -297,7 +298,7 @@ implementation provenance and physical realization. Original bytes remain author
 
 ### §B3 Completed inputs and shared semantic operations
 
-**Accepted target / Proposed implementation, 2026-10-07 (ADR-0133).** Pure model operations
+**Implemented / targeted verification in progress, 2026-10-07 (ADR-0133).** Pure model operations
 retain semantic ownership. Compilation reads exact completed native contribution views and uses
 indexed sets/adjacency, bounded native-to-Arrow transfer and spillable kernels. Shared topology,
 selected method demand and unchanged exact validation premises avoid repeated work. Tests and
@@ -403,7 +404,7 @@ rendered text and presentation limits cannot strengthen it.
 
 ### §B7 Separate admitted content from its native realization
 
-**Accepted target / Proposed implementation, 2026-10-07 (ADR-0133).** Compilation owns one
+**Implemented / targeted verification in progress, 2026-10-07 (ADR-0133).** Compilation owns one
 private strict native database through admission and direct sealing. The publisher checks actual
 stored content/state, ready indexes and executable definitions after drainage, ends writable
 ownership and verifies VIEWER reconnect before an unselected handle. Detached external import
@@ -486,7 +487,7 @@ templates and extractive selection; the generative-model trigger remains **Propo
 
 ### §B12 One semantic graph and derived projections
 
-**Accepted target / Proposed implementation, 2026-10-07 (ADR-0133).** One native immutable
+**Implemented / targeted verification in progress, 2026-10-07 (ADR-0133).** One native immutable
 payload authority serves core compilation and published queries. Complete-state memberships,
 dependencies and necessary backing survive transport; graph-family and state identities remain
 separate within aggregate content. Arrow spill, prepared topology, indexes and export projections

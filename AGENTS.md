@@ -7,10 +7,10 @@ behavioral analyses are enrichment; general semantic completion no longer gates 
 The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
 remain Proposed until implemented. FastMCP operation/brief contracts remain Rust-owned; native serving is implemented; STATUS owns its functional evidence.
 
-**Current work: persisted graph execution planning; implemented ER/EV baseline**
+**Current work: persisted graph execution; implemented ER/EV baseline**
 (ADR-0128/0130/0131 describe the implemented baseline, 2026-10-07).
-The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md) owns the next selected hard pivot, catalog-speed F01–F05 and matching non-compiler defects. ADR-0133 installs the accepted target; implementation and focused acceptance are in progress. RC01 direct sealing and RC02 internal exact contribution/view identity were operator-confirmed; retained dependency foundations are in scope, cross-run incremental execution is not.
-The [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md) owns dependencies,
+The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md) owns the authorized hard pivot, catalog-speed F01–F05 and matching non-compiler defects. ADR-0133 installs the accepted target; implementation and focused acceptance are in progress. RC01 direct sealing and RC02 internal exact contribution/view identity were operator-confirmed; retained dependency foundations are in scope, cross-run incremental execution is not.
+The [graph-native coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md) retains its original dependencies,
 acceptance and finding disposition. Its §9 and four supporting remediation sections record the prior implemented
 execution; §7 owns F01–F12. The completed first execution scope is the
 [model/compiler stage](docs/plans/graph-native-model-compiler-plan_2026-10-05.md), including
@@ -21,7 +21,8 @@ The PostgreSQL backend and its clients are retired. No legacy readers, old-ID br
 stores or historical runtime retention are required. The complete compiler stage is implemented
 and user-accepted as complete on 2026-10-05, with partial verification recorded in the coordinator.
 The user stopped further tests; this acceptance does not claim all checks passed.
-`lctx compile --artifact-only --output DIR` is the implemented artifact route.
+`lctx compile --artifact-only --output DIR --runtime-config PATH` exports the complete native
+graph and compiler state; it uses the same persisted compiler as ordinary compilation.
 Ordinary compile verifies native runtime readiness before acquisition and publishes an unselected
 handle. MCP pins a complete read-only snapshot through NativeSession; selection is explicit.
 The selected ER/EV extension executes together with remediation; STATUS and the coordinators own
@@ -36,7 +37,7 @@ comparison meanings; protected confirmation/gold/heldout never tune or enter pro
 ADR-0131 selects exact contextual windows/delivery and full4096 values with deliberate1024 search/E1
 projection. Actual source and targeted receipts establish implementation/acceptance separately.
 Selected graph-native remediation is closed within its recorded functional boundaries. This execution authorizes the local live-Qwen/FastMCP pilot
-and Q1 operator adoption. That continuation is held for the [catalog compilation speed review](docs/design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md), which recommends design revision; its unscheduled findings remain source-owned. Independent finite kernels need no live model or external comparison
+and Q1 operator adoption. That continuation remains held during the persisted pivot. The [catalog compilation speed review](docs/design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md) findings now have their sole scheduled disposition in the persisted execution plan. Independent finite kernels need no live model or external comparison
 parity; protected populations, paid studies and performance remain separately activated.
 
 The pieces:
@@ -46,14 +47,15 @@ The pieces:
   Migration is in progress: current pins/acceptance are in docs/pins and the code-facts coordinator. The
   Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0131);
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
-- **Facts:** independent native providers stream bounded typed batches into an attempt-owned,
-  spillable Arrow/DataFusion workspace. Completed immutable streams feed normalization and analyses;
-  necessary semantic admission is distinct from diagnostic producer replay. Detached imports
-  establish the same owner properties without providers; immutable checked descriptors retain
-  attempt/profile/policy and vocabulary identity. Graph export is separate from native publication
-  (ADR-0128). The model owns
-  identities, roles, qualifications, coverage and graph meaning. Internal typed record views do
-  not dictate the published physical schema.
+- **Facts:** independent native providers stream bounded typed batches into attempt-owned
+  persisted native contributions. Exact immutable completed views feed normalization and analyses;
+  Arrow/DataFusion is bounded compute/transfer, not completed IPC authority. Necessary semantic
+  admission is distinct from diagnostic producer replay. Explicit detached imports establish
+  the same owner properties without providers; completed descriptors retain producer/profile/model,
+  exact dependency views and vocabulary identity. Ordinary publication seals the admitted compiler
+  database directly; explicitly requested export/import retains independent admission (ADR-0133).
+  The model owns identities, roles, qualifications, coverage and graph meaning. Internal typed
+  record views do not dictate the published physical schema.
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -76,8 +78,8 @@ of repeating the root's general orientation. Follow discovered dependencies as n
 preservation and testing rules still apply.
 
 1. Read `STATUS.md`: where we are and what's next.
-2. For the pivot, read the [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md)
-   and the task-relevant supporting plan, then DESIGN §15.
+2. For the current pivot, read the [persisted execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
+   and relevant model/storage owner, then DESIGN §15. The graph-native coordinator retains its prior scoped receipts.
 3. For product context, read the forward plan
    (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
    boundary, §3.0 product PR0–PR6 queue and §6 findings. The retained Stage 3–5 sequence is a
@@ -114,7 +116,7 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on touched crates) and focused affected contract controls through `just verify-model`, `verify-compiler`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles` or `verify-tooling`. Select the family and filters explicitly; no assembled gate after a slice or commit. |
 | At functional scope completion | Run affected family controls and applicable non-functional leaf checks once. Use `just qualify` for this assurance pivot, a changed shared model/receipt/trust/transport contract, or uncertainty that focused controls cannot resolve: all required families, representative actual native-store/native/MCP journeys, compile-fail/doc contracts, full keep-going Clippy and applicable leaves for one tree. Fix failures and rerun affected controls or the failed `just <id>`; minor unrelated docs/library changes do not automatically trigger qualification. |
-| The real library, end to end | `lctx compile fastmcp --artifact-only --output DIR --through facts|normalized|analysis|catalog --profile catalog|behavioral`; ordinary compilation admits and publishes an unselected native handle. Run real-library qualification only when authorized. Compiler evidence is scoped in the graph-native coordinator; the coordinator records native serving controls; live vectors and real-library operator adoption remain not_run. |
+| The real library, end to end | `lctx compile fastmcp --artifact-only --output DIR --through facts|normalized|analysis|catalog --profile catalog|behavioral`; ordinary compilation admits and publishes an unselected native handle. Run real-library qualification only when authorized. Current compiler evidence is scoped in the persisted graph execution plan; the coordinator records native serving controls; live vectors and real-library operator adoption remain not_run. |
 | Native publication and serving | `lctx publish-artifact`, `lctx snapshot show/select/query/export/backup/restore/retire`, `lctx store init/check`, and `lctx tool`; explicit runtime configuration, immutable viewer handles and reader quiescence. See `docs/surrealdb.md`; no operator action is implied by disposable checks. |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Dependency policy | `just deps`, the dependency-policy leaf check: one version each of Arrow/DataFusion/object_store/pyrefly/blake3 and scoped Ruff/ty source families, every declared Cargo dependency is exact (`=x.y.z` or a git `rev`), cargo-deny bans and sources, and the Pyrefly fork check (tag + patch, classified env reads) |
@@ -150,7 +152,8 @@ invoke Python with `--no-sync`; a successful cached build alone does not prove m
 
 This compiler stage does not inspect, reset or activate operator databases or client registrations.
 Native SurrealDB persistence, publication and serving follow the graph-native coordinator; operator
-adoption is a separately authorized package. Store-free compiler controls require no database.
+adoption remains held. Compiler/provider/CLI controls use owned authenticated persistent fixtures
+through their readiness launchers; pure model and finite kernel controls need no database.
 
 ## Writing code against libraries
 
@@ -272,7 +275,8 @@ machinery is required for efficient design.
 - **Fixtures** go under `fixtures/python/<case>/`. Intentional syntax-error cases go under
   an `_invalid/` subdirectory there.
 - **Store tests** exercise the actual native persistent realization.
-  Compiler artifact controls require no database; they do not establish persistence or serving.
+  Compiler artifact controls use owned native fixtures; pure finite model/kernel controls remain
+  independent of a database and do not establish persistence or serving.
 
 ## Reporting
 

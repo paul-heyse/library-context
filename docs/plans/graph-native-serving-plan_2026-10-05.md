@@ -1,6 +1,8 @@
 # Native graph retrieval, selection and evidence serving
 
-**Product extension implementation in progress, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition remains at its original coordinator; its remaining targeted acceptance is resumed by this combined execution.
+**Persisted follow-up implementation in progress, 2026-10-07:** the [persisted graph execution plan](persisted-graph-execution-plan_2026-10-07.md) owns the current combined execution, catalog-speed F01–F05 and additional same-pattern corrections. PG2/PG6/PG8 consolidate typed selected access, byte ranges and bounded final encoding. Existing indexed search, ranking, evidence meaning and pinned journeys remain. Do not create another native reader/cache or turn packet-local scans into scalar RPCs. Original dated receipts and prior audit findings retain their scope; only that new plan owns these follow-up findings.
+
+**ER production scopes Implemented / focused Tested, 2026-10-07:** this plan owns the serving contracts below. [Graph coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities) remains the sole graph-audit disposition owner; its [§8.1 checkpoint](graph-native-pivot-plan_2026-10-05.md#81-current-remediation-acceptance--2026-10-07) and [combined coordinator §6](evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion) own current receipts and completion. Earlier dated receipts retain their original source and scope; Q1 remains pending.
 
 **Implemented / focused Tested, 2026-10-06; operator adoption not_run.** Supporting plan for S1/S2/S3 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). It consumes one admitted
@@ -8,7 +10,7 @@ graph and its [sealed SurrealDB realization](graph-native-surrealdb-realization-
 The coordinator owns current state/disposition. Native querying is a selected part of the target,
 not a capability awaiting a benchmark, accounting proof or adoption verdict.
 
-**Current continuation implemented; targeted acceptance resumed, 2026-10-06:** §6 develops executable identity and consumer corrections.
+**Current continuation Implemented / focused Tested, 2026-10-07:** §6 develops executable identity and consumer corrections.
 Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
 
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
@@ -249,14 +251,14 @@ boundaries and omissions, are recorded in coordinator §8; no Measured claim fol
 
 ## 6. Audit remediation: executable identity and composed consumers
 
-**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** This continuation is grounded in audit F06/F08/F09/F10 and the
+**Implemented / focused Tested, 2026-10-07.** This continuation is grounded in audit F06/F08/F09/F10 and the
 [capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
 The [coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns sequence and completion; §7 owns finding state. Existing §1–§5 contracts remain, with the
 specific corrections below taking precedence over an implementation label. No producer, query
 adoption or legacy ranking-parity gate is added.
 
-**Pause checkpoint:** The five selected native serving/identity controls passed before the final native text-schema correction. The actual Catalog MCP prerequisite exposed that schema defect, now repaired with a focused persistent codec pass. Rebuild the local extension and fresh serving fixture before resuming in-process/stdio/error/cancellation controls. Wheel packaging remains waived during development. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
+**Acceptance checkpoint:** The earlier 2026-10-06 five-control serving/identity receipt remains bounded to its source before the native text-schema correction. Current acceptance uses fresh native fixtures and a matching CLI/development extension; the checkpoint owners linked above record the actual native and in-process/stdio/error/cancellation outcomes. Wheel packaging remains waived during development. Findings and Q1 adoption remain separately owned rather than implied by implementation or a focused journey.
 
 <a id="R-I1"></a>
 
@@ -393,9 +395,9 @@ creating a new always-on observer or restoring a broad test campaign.
 
 ## 7. ER3/ER4 — Contextual discovery and actually delivered information
 
-**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+**Implemented / focused Tested, 2026-10-07.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 owns ER state/new findings. Its §2 replaces the baseline §2.2/§2.3 family/member collapse and single
-spec for this future extension. This is not acceptance or resumption of paused §6 audit packages.
+spec in the implemented ER contracts. Combined execution completed §6's targeted audit acceptance; the coordinator records each finding's closure evidence.
 
 ### 7.1 Discovery nomination and coherent expansion — ER3
 

@@ -3,28 +3,26 @@
 **Implemented / Tested, 2026-09-30, at the qualified facts frontier.** [§15](semantic-model.md) owns the current typed
 facts contracts (ADR-0085/0086/0089/0092). Acquisition captures the locked installed closure and
 selected pinned corpus before extraction. `lctx-model::domain` owns source, occurrence, attribution,
-call, type, flow, document and deployment meaning. **Implemented compiler route, 2026-10-05:**
-providers stream bounded typed batches into the private Arrow/DataFusion workspace; completed inputs
-feed graph admission. `catalog` omits the ty provider and reports Flow NotRequested; `behavioral`
-runs it. Both profiles run documents and deployment. Native publication is subsequent work.
+call, type, flow, document and deployment meaning. **Persisted compiler route Implemented / acceptance in progress, 2026-10-07:**
+providers stream bounded typed batches into immutable contributions in one private native
+STRICT database. Exact completed views feed normalization, analysis and catalog; ordinary
+compilation admits and seals that same database. `catalog` reports Flow NotRequested;
+`behavioral` runs it. Both profiles run documents and deployment.
 
 Current producers are `crates/cpg-extract/src/acquisition.rs`, `typed_syntax.rs`, `lexical.rs`,
 `symbol_records.rs`, `call_records.rs`, `type_records.rs`, `ty_flow.rs`, `document_parser.rs` and
-`deployment.rs`; `pyrefly_stage.rs` currently composes native Pyrefly facts per input, and `cpg-flow`
-provides transient native flow data over ty's separate parse. `cpg-core/src/facts.rs` owns stage
-composition over immutable completed streams; `artifact.rs` owns graph admission, and
-`crates/lctx/src/compile.rs` drives the cumulative frontier CLI. The
-[graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns current compiler
-acceptance; earlier facts receipts apply only to their recorded boundary.
+`deployment.rs`; `pyrefly_stage.rs` composes native Pyrefly facts per input, and `cpg-flow`
+provides transient flow data over ty's separate parse. `cpg-core/src/facts.rs` owns composition
+and declared output inventories; `artifact.rs` owns admission; `crates/lctx/src/compile.rs`
+drives cumulative frontiers. The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
+owns current verification. Earlier facts/compiler receipts retain their original boundaries.
 
-**Current downstream design (Implemented compiler; native serving pending, 2026-10-05).**
-Normalization, analysis and catalog consume store-free completed inputs and enter the admitted
-semantic graph described in §15. SurrealDB persistence/publication and serving are accepted targets
-for subsequent packages. Dated earlier receipts do not establish graph-native real-library
-qualification or activation; both remain stopped. Acquisition
-requirements describe input verification, while typed row declarations own emission.
+Native publication and serving consume the admitted semantic graph described in §15. Pure
+model kernels remain store-independent; actual producer-to-consumer controls use owned native
+fixtures. Real-library qualification and operator activation remain held. Acquisition requirements
+own input verification, while typed row declarations own emission.
 
-> Decision: ADR-0131
+> Decision: ADR-0133, ADR-0131
 
 ## §4 Pipeline
 
@@ -173,14 +171,16 @@ model catalog digest also participates because context extraction retains model-
 classes (§3.2). A catalog or runtime-script edit therefore cannot reuse a prior producer or run
 identity.
 
-**Compiler artifact route (Implemented; integrated acceptance pending, 2026-10-05).**
-`lctx compile <library> --artifact-only --output <directory>` writes the admitted graph and captured
-originals without a database. A failed or interrupted attempt exposes no completed artifact.
-Generation inspection/query commands and their PostgreSQL readers are retired. Ordinary compile
-requires the future native publisher and reports unavailable before acquisition.
-[Storage §6](storage-and-publication.md) owns that subsequent native realization.
+**Compiler/native route (Implemented; targeted acceptance in progress, 2026-10-07).**
+Both ordinary and artifact-only compilation require explicit ready native storage before
+acquisition. `--artifact-only --output <directory> --runtime-config <path>` exports the admitted
+graph, captured originals and complete retained compiler state from its owned native database.
+Ordinary compilation seals that same database and returns an unselected read-only handle.
+A failed or interrupted attempt exposes no completed artifact or publication. PostgreSQL
+generation readers are retired. [Storage §6](storage-and-publication.md) owns realization;
+the [persisted plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current acceptance.
 
-> Decision: ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
+> Decision: ADR-0133, ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
 
 
 ### §4.1 Stages

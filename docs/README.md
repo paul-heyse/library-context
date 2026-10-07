@@ -6,7 +6,7 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Task | Start here |
 |---|---|
 | Understand the system | [Architecture map](design/README.md) → relevant owner |
-| Resume work | [STATUS](../STATUS.md) → [graph-native replacement coordinator](plans/graph-native-pivot-plan_2026-10-05.md) (hard pivot, audit remediation, contracts, dependencies and acceptance) → [forward plan](plans/behavioral-model-forward-plan_2026-09-24.md) (product/research queue) |
+| Resume work | [STATUS](../STATUS.md) → [persisted execution plan](plans/persisted-graph-execution-plan_2026-10-07.md) (current compiler/consumer pivot) → [graph-native replacement coordinator](plans/graph-native-pivot-plan_2026-10-05.md) (hard pivot, audit remediation, contracts, dependencies and acceptance) → [forward plan](plans/behavioral-model-forward-plan_2026-09-24.md) (product/research queue) |
 | Change conditions, models or summaries | [Semantic owner §15.6–§15.9](design/sections/semantic-model.md#section-15-6) → affected model producer/consumer → [model/compiler plan](plans/graph-native-model-compiler-plan_2026-10-05.md); the [graph-native coordinator §7](plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities) owns current pivot disposition |
 | Change schemas or identity | [Facts and identity](design/sections/facts-and-identity.md) → [model owner](../crates/lctx-model/src/lib.rs) → governing ADR |
 | Change serving, retrieval or embeddings | [Synthesis and serving](design/sections/synthesis-and-serving.md) → [storage and publication §6.4](design/sections/storage-and-publication.md) |
@@ -39,7 +39,7 @@ Paths in this reference table are relative to the repository root.
 | `docs/design_review/evidence/` | Optional probes, spikes and investigations behind decisions. When created, use one `YYYY-MM-DD_<topic>/` folder with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. This location convention does not require a review to create or run probes |
 | `docs/pins.md` | Holds: pins that should not be bumped casually, with reason and revisit trigger |
 | `docs/library-utilization.md`, `.jsonl` | Potentially valuable context on library capabilities and integration patterns already used in the codebase; optional focused lookups can inform design alternatives |
-| `crates/` | Single Rust workspace: `lctx-model` owns semantic/wire declarations, policies and shared invariants; `cpg-extract` acquires/captures and produces pinned native facts; `cpg-flow` supplies ty flow; `cpg-core` owns store-free completed streams and admitted artifacts; `lctx-analytics` supplies pure native kernels; `lctx-embed` supplies the embedding effect; `lctx-surrealdb` realizes native graphs/cache/projections, `lctx-publisher` publishes and restores verified content, `lctx-serving` implements fixed-snapshot operations; `lctx` is the CLI. Current serving shapes, wire/native contracts and ranking derive from `lctx-model`; the old schema/bundle authorities are retired |
+| `crates/` | Single Rust workspace: `lctx-model` owns semantic/wire declarations, policies and shared invariants; `cpg-extract` acquires/captures and produces pinned native facts; `cpg-flow` supplies ty flow; `cpg-core` owns native completed-view compilation and admitted artifacts; `lctx-analytics` supplies pure native kernels; `lctx-embed` supplies the embedding effect; `lctx-surrealdb` realizes native compiler state/graphs/cache/projections, `lctx-publisher` seals the admitted compiler database and independently imports/restores verified content, `lctx-serving` implements fixed-snapshot operations; `lctx` is the CLI. Current serving shapes, wire/native contracts and ranking derive from `lctx-model`; the old schema/bundle authorities are retired |
 | `python/` | `lctx_mcp` FastMCP transport and numerical library adapter; `lctx_semantics` exposes model-derived pure wire helpers. NativeSession and native persistence/serving are implemented; operator activation is pending |
 | `eval/` | `behavior/` pre-registered question sets, `gold/` evaluation-only gold extract and freeze, `heldout/` sealed until increment 5 |
 | `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0117). Environments go to `build/envs/` (gitignored) |
@@ -52,8 +52,9 @@ Paths in this reference table are relative to the repository root.
 
 The architectural collection owns accepted contracts and labeled targets. Current ADRs own
 rationale and open choices; the forward plan owns product sequencing and the current disposition
-of scheduled product findings. The graph-native coordinator owns compiler acceptance and the later
-native persistence/serving dependencies; their current owners describe available operator routes.
+of scheduled product findings. The persisted execution plan owns the current compiler/consumer pivot and its findings; the
+graph-native coordinator retains its original receipt boundaries. Architectural owners and the
+runbook describe available operator routes.
 Retained reviews hold dated evidence for open findings; STATUS links
 the current checkpoint. Executable declarations own detailed implementation contracts.
 

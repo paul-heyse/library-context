@@ -1,17 +1,19 @@
 # Graph-native replacement — implementation coordinator
 
-**Remediation target Proposed, 2026-10-06; implemented baseline has open audit findings (ADR-0128).** Replace the PostgreSQL-centered compilation and serving architecture
+**Persisted follow-up implementation in progress, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. Its PG0–PG9 replace the store-free compiler placement and ordinary self-export/readmission, and integrate matching defects across serving, transport and restore. This coordinator retains its two nominated 2026-10-05 reviews, original audit findings and dated receipts; it does not own or close the new plan findings.
+
+**Remediation Implemented / focused Tested, 2026-10-07; documentation freeze and Q1 pending (ADR-0128).** Replace the PostgreSQL-centered compilation and serving architecture
 directly with a Rust-admitted graph and SurrealDB-native persistence, querying and search. This
 coordinator owns the combined execution sequence, shared decisions, finding disposition and
 completion boundary. Supporting plans develop their respective designs; they do not create
 another task ledger. Package evidence below distinguishes implementation from functional acceptance and activation.
 
 The [independent implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) concludes that the runtime migration is
-substantially present but the complete target is not fully realized. §7 owns the twelve open
-findings; existing §8 receipts and the user-accepted compiler checkpoint remain historical evidence.
+substantially present but incomplete on its dated2026-10-06 baseline. §7 owns current disposition
+of its twelve findings; §8.1 records resumed acceptance alongside the user-accepted compiler boundary.
 The executable continuation is [§9](#9-remediation-and-improvement-execution). It addresses the
 audit without reopening store selection, retaining legacy mechanisms or restarting the stopped
-compiler suite. Plan authoring performs no production remediation or Q1 activation.
+compiler suite. Current implementation and targeted acceptance are recorded below; Q1 activation remains pending.
 
 ## 1. Basis, baseline and intended outcome
 
@@ -50,7 +52,7 @@ can survive without preserving their old storage shape or receipt protocols.
 
 | Plan | Responsibility |
 |---|---|
-| [Model and compiler](graph-native-model-compiler-plan_2026-10-05.md) | Graph meanings, identity, admission, spillable workspace, store-free producers and compiler frontiers |
+| [Model and compiler](graph-native-model-compiler-plan_2026-10-05.md) | Graph meanings, identity, admission, native completed views, bounded pure kernels and compiler frontiers |
 | [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md) | Native layout/codecs, server/SDK, cache, loading, reconciliation, executable sealing and publication |
 | [Serving](graph-native-serving-plan_2026-10-05.md) | Native queries/functions, selection and search, packets, original evidence, continuation and MCP migration |
 | [Projections](graph-native-projections-plan_2026-10-05.md) | Named projections, petgraph/analytics integration, source lineage and useful exports |
@@ -66,7 +68,7 @@ The shared products are concepts, not a requirement for one service/type per nam
 | Product / owner | Required meaning and consumer |
 |---|---|
 | Admitted graph / model and compiler | Immutable typed entities, assertions, roles, provenance, originals, coverage and selected outcomes; canonical content manifest and completed admission result. Publisher consumes it without rerunning producers. |
-| Compilation workspace / compiler | Attempt-private ordered streams, indexes and spill segments. Completed input visibility follows semantic dependencies, independent of database roles and stage receipts. |
+| Compilation workspace / compiler | Private native contributions and exact completed views; selected Arrow streams, scoped indexes and derived spill segments. Completed visibility follows semantic dependencies; no legacy stage grants or receipt authority. |
 | Published realization / publisher | Semantic content plus physical-format revision, functions, analyzers, index/embedding specs, engine identity and adopted module bytes; exact database and read-only handle. |
 | Operation / semantic owner | Inputs, effects, selection/answer meaning, incompleteness and resource controls. A query/function realizes the contract; metrics do not define it. |
 | Projection / consuming owner | Source graph, universe, direction, multiplicity, weights, simplifications, algorithm/settings and mapping back to semantic IDs. |
@@ -76,9 +78,9 @@ references, resources and cursors cannot silently resolve against a replacement.
 identity and a new physical/search realization are separate. Definitions cannot change beneath
 pinned readers. Original bytes and consumed vectors are content-authoritative; engine indexes are
 derived. [The exact Qwen specification](../../specs/embedding/qwen3-embedding-8b.json) owns the
-implemented1024 baseline. The accepted product extension in §10 schedules replacement identities,
-full4096 values and deliberate1024 search/analytical projections; this does not alter this paused
-audit checkpoint or turn those values into implemented contracts.
+implemented full4096 encoder. The §10 product extension uses split encoder/document/query
+identities and the declared normalized1024 search/analytical projection. Canonical full values
+and their projections are implemented together; indexes remain derived from those values.
 
 ## 3. Efficient execution by design
 
@@ -120,6 +122,11 @@ concurrency if needed. A refusal at realistic size is not the performance object
 
 ## 4. Coherent packages and dependency order
 
+This table records the initial implemented sequence. The next selected migration follows
+[PG0–PG9](persisted-graph-execution-plan_2026-10-07.md#7-execution-packages-and-dependencies),
+which replaces the store-free compiler and post-compilation publication boundaries while
+preserving the semantic obligations and dated receipts below.
+
 The initial compiler stage is **complete / user-accepted, 2026-10-05**, with partial verification
 and the user-directed stop recorded in §8. M1/C1/C2-N/C2-U and compiler-side A1/A2 are implemented,
 including their G0/S1 interfaces. G0 adopts ADR-0128; S1 supplies the agreed native operation contracts;
@@ -155,12 +162,7 @@ dependency does not create a new durable store stage or a synchronization barrie
 
 ## 5. Replacement and public interfaces
 
-Keep `lctx compile <library> --through facts|normalized|analysis|catalog --profile catalog|behavioral`
-as the cumulative user capability. Default orchestration compiles, admits and publishes an
-**unselected** snapshot; add `--artifact-only` for store-free compilation and a separate
-`lctx publish-artifact <artifact>` for consuming that admitted artifact. The compiler library
-itself takes no store credentials. An artifact remains only while a current publisher/export/debug
-consumer needs it; it is not a runtime archive.
+The implemented initial interface retains `lctx compile <library> --through facts|normalized|analysis|catalog --profile catalog|behavioral` and unselected publication. The earlier store-free `--artifact-only` route is retired. [Persisted plan §6](persisted-graph-execution-plan_2026-10-07.md#6-publication-transport-and-public-behavior) selects one native compiler for both ordinary sealing and portable output: runtime readiness/configuration apply to artifact-only too, external `publish-artifact` independently validates the new complete format, and no second compiler is retained. Completed-state transport and exact graph/state identities migrate with those consumers.
 
 Replace `generation` management with `snapshot list|show|select|retire|audit`; identify complete
 realizations in output, resources and continuation. Replace store install/check/reset and query
@@ -222,12 +224,12 @@ does not establish a passed journey.
 
 | Source obligation | Owning package / completion evidence |
 |---|---|
-| Target GN01 — admission distinct from physical execution | **Audit gaps open** (F01/F02/F03/F04/F05/F07/F11 below). Prior M1/C1/C2 implemented and user-accepted: store-free compilation, bounded workspace and completed graph admission; §8 records scoped artifact controls. P2 is implementation-closed / focused Tested: reconciled unselected publication, read-only viewer, canonical backup, fresh restore and retirement; §8 records the native lifecycle control. |
-| Target GN02 — efficient connected serving | **Audit gaps open** (F02/F03/F08/F09/F10/F11 below). Prior S1/S2/S3 + P1 implementation-closed / focused Tested: actual ten-tool Catalog and MCP journeys, scoped native selection/search/packets/originals, missing/NotRequested states, cursor and deadline refusal; §8. Indexed/coarse access avoids unrelated startup preparation; no Measured performance claim. |
+| Target GN01 — admission distinct from physical execution | **Audit corrections focused Tested** (F01/F02/F03/F04/F05/F07/F11 below; §8.1). Prior M1/C1/C2 implemented and user-accepted: store-free compilation, bounded workspace and completed graph admission; §8 records scoped artifact controls. P2 is implementation-closed / focused Tested: reconciled unselected publication, read-only viewer, canonical backup, fresh restore and retirement; §8 records the native lifecycle control. |
+| Target GN02 — efficient connected serving | **Audit corrections focused Tested** (F02/F03/F08/F09/F10/F11 below; §8.1). Prior S1/S2/S3 + P1 implementation-closed / focused Tested: actual ten-tool Catalog and MCP journeys, scoped native selection/search/packets/originals, missing/NotRequested states, cursor and deadline refusal; §8. Indexed/coarse access avoids unrelated startup preparation; no Measured performance claim. |
 | Target GN03 — explicit projections | Compiler A1/A2 implemented and user-accepted: prepared topology, semantic IDs/roles, source membership and owner-derived losses; model/analytics and selected artifact controls passed (§8). Published A1 export is implementation-closed / focused Tested: actual native scope, isolates, parallel/self arcs, lineage, coverage and gaps; §8 records the control. |
 | Capabilities F01 — fusion semantics | S2 implementation-closed / focused Tested: actual native search checks eligible contextual/member admission before BM25/HNSW caps and witness retention; the operation collapses contributions and uses canonical ties/RRF-K60. §8 records the actual native and Catalog controls; live embedding quality is not_run. |
 | Capabilities F02 — API authorization/rollback | Ordinary functions selected; custom API adoption deferred to an HTTP consumer. If triggered, owning package must enforce explicit scope and actual transactional failure, with focused endpoint controls. |
-| Capabilities F03 — executable realization identity | **Audit gaps open** (F04/F06 below). Prior P2 + S3 implementation-closed / focused Tested: sealed definition inventory/cold audit, actual analyzer-drift refusal and incompatible Rust-operation refusal; fixed viewer handles survive server restart and both MCP transports. §8. This is trusted-installer integrity, not adversarial-root assurance. |
+| Capabilities F03 — executable realization identity | **Audit corrections focused Tested** (F04/F06 below; §8.1). Prior P2 + S3 implementation-closed / focused Tested: sealed definition inventory/cold audit, actual analyzer-drift refusal and incompatible Rust-operation refusal; fixed viewer handles survive server restart and both MCP transports. §8. This is trusted-installer integrity, not adversarial-root assurance. |
 | Compiler-stage review F01 — shared embedding execution | Implementation-closed: shared actual winners and bounded independent request batches; embedding/retrieval controls passed within the compiler run (§8). Source repair independently accepted. |
 | Compiler-stage review F02 — duplicate retrieval replay | Implementation-closed: construction retained, narrow production completion, independent canonical replay retained in controls; retrieval controls passed (§8). Source repair independently accepted. |
 | Compiler-stage review F03 — duplicate projection policy | Implementation-closed: model-owned acceptance/exclusion policy feeds artifact losses; model and projection/artifact controls passed (§8). Source repair independently accepted. |
@@ -235,25 +237,26 @@ does not establish a passed journey.
 ### Implementation audit disposition — 2026-10-06
 
 The [dated audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) owns diagnosis/evidence; this table is the sole current disposition
-owner. Corrections are integrated; every row remains **open** until its required closure evidence
-is accepted. §9 owns the executed continuation and §8.1 records current targeted acceptance. The
+owner. Corrections are integrated. F01–F11 are **closed / focused Tested**,2026-10-07, within the
+actual receipt boundaries in §8.1; F12 is closed by current documentation publication. §9 owns the
+executed continuation and §8.1 records targeted acceptance. The
 audit supplies original evidence and candidate directions, not another execution ledger. Existing accepted compiler
 completion and stopped-test boundaries remain intact.
 
 | Source finding | Disposition / cause | Responsible component | Required closure evidence |
 |---|---|---|---|
-| [Audit F01](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F01) | **Open** — Source-owned semantic support checks absent at actual admission | R-C0 — model/compiler admission and detached import | Independent unsupported/wrong-context support refuses; focused checks without blanket replay |
-| [Audit F02](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F02) | **Open** — Whole-resident normalization lacks promised spill route | R-C1 — normalization and affected upper/projection consumers | Bulk/partitioned preparation preserves canonical output under smaller memory envelope |
-| [Audit F03](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F03) | **Open** — Upper consumers replay completed upstream normalization | R-C2 — normalized/Enriched authority and upper consumers | SourceCalls/Models/Summary consume shared checked immutable preparation |
-| [Audit F04](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F04) | **Open** — Cold audit omits derived serving integrity | R-P2 — publisher/native derived reconciliation | Read-only canonical-to-derived checks reject altered/deleted/extra query-visible rows |
-| [Audit F05](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F05) | **Open** — Selection publishes two authorities separately | R-P4 — native config/CLI/session/retirement | Atomic selection agrees across CLI/MCP launch/retirement under failure |
-| [Audit F06](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F06) | **Open** — Executable guard misses answer-affecting helper | R-I1 — complete model/serving executable capture | Schema-preserving helper change changes guard and refuses old realization |
-| [Audit F07](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F07) | **Open** — HTTP backup EOF lacks engine terminal success | R-P3 — publisher gRPC backup | Late export failure leaves no completed destination; normal fresh restore succeeds |
-| [Audit F08](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F08) | **Open** — Scoped vocabulary uses whole-library members | R-S1 — native browse owner and all views | Two-module/class native scoped vocabulary excludes foreign values/counts |
-| [Audit F09](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F09) | **Open** — Nested diagnostic cursor loses parent page | R-S2 — model cursor/native packet/Python schema | Second scenario child continuation returns its remaining diagnostics |
-| [Audit F10](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F10) | **Open** — Native failures bypass typed safe envelope | R-S3 — model/Rust/PyO3/MCP failure transport | Recognized causes and safe messages survive actual MCP tool/resource envelopes |
-| [Audit F11](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F11) | **Open** — Native expansion/crossings escape bulk boundary | R-P1a AND R-P1b — streamed publisher and batched cache | Bounded streamed search lowering and exact reconciled batch cache writes |
-| [Audit F12](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F12) | **Open** — Current assurance routes retain removed PG owners | R-D1 — current task/design/assurance/runbook owners | Current task routes point to consistent native owners/controls |
+| [Audit F01](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F01) | **Closed — focused Tested, 2026-10-07** — Source-owned semantic support checks absent at actual admission | R-C0 — model/compiler admission and detached import | Independent unsupported/wrong-context support refuses; focused checks without blanket replay |
+| [Audit F02](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F02) | **Closed — focused Tested, 2026-10-07** — Whole-resident normalization lacks promised spill route | R-C1 — normalization and affected upper/projection consumers | Bulk/partitioned preparation preserves canonical output under smaller memory envelope |
+| [Audit F03](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F03) | **Closed — focused Tested, 2026-10-07** — Upper consumers replay completed upstream normalization | R-C2 — normalized/Enriched authority and upper consumers | SourceCalls/Models/Summary consume shared checked immutable preparation |
+| [Audit F04](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F04) | **Closed — focused Tested, 2026-10-07** — Cold audit omits derived serving integrity | R-P2 — publisher/native derived reconciliation | Read-only canonical-to-derived checks reject altered/deleted/extra query-visible rows |
+| [Audit F05](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F05) | **Closed — focused Tested, 2026-10-07** — Selection publishes two authorities separately | R-P4 — native config/CLI/session/retirement | Atomic selection agrees across CLI/MCP launch/retirement under failure |
+| [Audit F06](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F06) | **Closed — focused Tested, 2026-10-07** — Executable guard misses answer-affecting helper | R-I1 — complete model/serving executable capture | Schema-preserving helper change changes guard and refuses old realization |
+| [Audit F07](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F07) | **Closed — focused Tested, 2026-10-07** — HTTP backup EOF lacks engine terminal success | R-P3 — publisher gRPC backup | Late export failure leaves no completed destination; normal fresh restore succeeds |
+| [Audit F08](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F08) | **Closed — focused Tested, 2026-10-07** — Scoped vocabulary uses whole-library members | R-S1 — native browse owner and all views | Two-module/class native scoped vocabulary excludes foreign values/counts |
+| [Audit F09](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F09) | **Closed — focused Tested, 2026-10-07** — Nested diagnostic cursor loses parent page | R-S2 — model cursor/native packet/Python schema | Second scenario child continuation returns its remaining diagnostics |
+| [Audit F10](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F10) | **Closed — focused Tested, 2026-10-07** — Native failures bypass typed safe envelope | R-S3 — model/Rust/PyO3/MCP failure transport | Recognized causes and safe messages survive actual MCP tool/resource envelopes |
+| [Audit F11](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F11) | **Closed — focused Tested, 2026-10-07** — Native expansion/crossings escape bulk boundary | R-P1a AND R-P1b — streamed publisher and batched cache | Bounded streamed search lowering and exact reconciled batch cache writes |
+| [Audit F12](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md#F12) | **Closed — focused Tested, 2026-10-07** — Current assurance routes retain removed PG owners | R-D1 — current task/design/assurance/runbook owners | Current task routes point to consistent native owners/controls |
 
 The compiler-stage F01–F03 rows refer to the dated [implementation reassessment](../design_review/reviews/design_review_graph-native-compiler-stage_2026-10-05.md),
 not an additional architectural basis. Its static judgment accepts those source repairs; the user
@@ -287,18 +290,19 @@ that tests stop and this plan scope be considered complete. This closes M1, C1, 
 compiler-side A1/A2 and their G0/S1 interfaces as Implemented, with scoped Tested evidence below.
 It does not claim every check passed, complete-stage Tested assurance or Measured performance.
 
-`cpg-core` is the sole store-free compiler; `lctx-model` owns finite graph types, nominal references,
-participant roles, semantic policies and graph admission. Immutable completed Arrow IPC inputs
-replace store reads. Ordinary output completion is atomic; explicit vocabulary contributions merge
-at their owner. One charged spillable DataFusion runtime serves workspace consumers. Canonical
-family ordering, bulk reference/span closure, original bytes and exact manifest settings/outcomes,
-projection definitions and consumed vector values are integrated. Summary preparation shares
-indexed immutable inputs and condition preparation without replaying every producer in production.
+The current compiler is `cpg-core` over exact persisted native completed views, under
+[ADR-0133](../adr/0133-persisted-graph-compilation.md). `lctx-model` owns finite graph types,
+nominal references, participant roles, semantic policy and admission. Native pending outputs
+remain private; completed contributions and frozen bindings replace the prior IPC authority.
+One charged spillable DataFusion runtime and shared native selections serve compiler consumers.
+Canonical families, original bytes, exact settings/outcomes and consumed vector values remain.
 
-`lctx compile --artifact-only --output DIR` exports admitted artifacts. Ordinary compile now admits and publishes an unselected native snapshot; explicit runtime
-configuration is checked before acquisition. Native CLI and MCP readers pin the complete handle.
-PostgreSQL backend/binding, generation commands and old serving effects are retired. The broad CLI model-description snapshot control and its obsolete baseline
-are retired for this hard pivot; the actual model-description tool and focused model controls remain.
+Ordinary `lctx compile` admits and seals the same private database, emitting an unselected
+handle. `--artifact-only --output DIR --runtime-config PATH` produces the complete current-format
+export. Native CLI and MCP readers pin the complete handle. PostgreSQL backend/binding,
+generation commands, old IPC authority and ordinary portable self-import are retired.
+The [persisted plan](persisted-graph-execution-plan_2026-10-07.md) owns new acceptance;
+the dated compiler-stage receipt below retains its original boundary.
 
 Preserved user-accepted compiler-stage verification, 2026-10-05, on production baseline `b964e807` (later changes are documentation,
 snapshot-control retirement and the test-only unrequested-Flow repair `e9bcdd4a`):
@@ -458,62 +462,63 @@ Owned persistent Docker databases exercised actual authentication and query path
 operator activation, broad `just qualify`, legacy suite parity and performance measurement are
 **not_run** under this user-selected execution scope. Compiler-stage tests remain stopped.
 
-### 8.1 Remediation checkpoint — in progress, 2026-10-06
+### 8.1 Current remediation acceptance — 2026-10-07
 
-**Paused at the user's request, 2026-10-06.** Current work is integrated on main; §7 remains the sole finding disposition owner. F01–F12
-closure awaits final targeted acceptance. The original compiler-stage stopped-test boundary is
-preserved. These are functional controls, not quantitative performance evidence or operator adoption.
+**Implemented / focused Tested; formatted source and matching consumers frozen, Q1 pending.** §7 is the sole audit
+finding owner. The original user-accepted compiler-stage/stopped-test boundary remains intact.
+The combined [retrieval/evaluation coordinator §6](evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion)
+records the current matching CLI/direct bridge and native/evaluation acceptance. This receipt
+completes the resumed native remediation boundary; it does not imply broad legacy parity,
+measured performance or real-library adoption.
 
-Current production source is `e5df7449` (final logical-text schema repair), following formatted
-source `02b18ab6` and endpoint admission `1eac2cde`. The operator's pushed `ad68af70` is preserved. Documentation migration is `bd475009`. Necessary admission,
-neutral detached import, scoped normalization/upper consumers, private prepared authority,
-streamed native lowering/reconciliation, terminal gRPC backup, atomic selection, exact batch cache
-winners and composed serving/PyO3/MCP repairs are integrated. Current architecture, agent,
-assurance and runbook owners now describe native execution. Independent product investigations
-remain at their existing owner; obsolete assurance plans are removed with obligations transferred.
+Earlier unchanged compiler obligations retain their actual2026-10-06 receipts:
 
-Actual verification, 2026-10-06:
+| Actual control | Outcome and limit |
+|---|---|
+| Scoped core/input/transport/admission controls | **passed**,42 plus two repaired affected controls; `/tmp/lctx-r-final-scoped-core-controls{2,3}.log`, runs `f755a567-77fb-4190-b409-8ea2dc815a0d` and `7457cf58-58b8-4f5e-9726-2136a338b8b5` |
+| Paired60,000-occurrence normalization under2MiB/one partition and16MiB/two partitions | **passed**,canonical equality; `/tmp/lctx-r-final-normalization-paired.log`,run `07e5b681-1d0c-4070-b751-7f4ead00d61c`. No RSS/throughput claim |
+| Actual shared SourceCalls/Enriched authority and detached missing-family refusal | **passed**,164.30s/92.49s; `/tmp/lctx-r-final-compiler-fast-controls{6,7}.log` |
+| Detached Behavioral Analysis/Catalog and guarded Facts-only import | **passed**,190.28s/226.92s/18.86s; `/tmp/lctx-r-final-compiler-fast-controls{10,11}.log`. Exact upper Place membership/refusal also passed, `/tmp/lctx-r-final-place-endpoint2.log` |
 
-- **passed:** assembled eight-crate `cargo check --tests --locked`; `/tmp/lctx-r-final-owner-integration-check6.log`, before final mechanical cleanup.
-- **passed:** scoped model/compiler run `f755a567-77fb-4190-b409-8ea2dc815a0d`: 42 controls passed; two failed from a missing test output declaration and unquoted SQL `end`. Both were repaired, and their affected rerun **passed**, run `7457cf58-58b8-4f5e-9726-2136a338b8b5`, two controls. `/tmp/lctx-r-final-scoped-core-controls{2,3}.log`.
-- **passed:** `cargo clippy --release --locked -p lctx-model -p cpg-core -p cpg-extract -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p lctx-semantics -p lctx --all-targets --keep-going -- -D warnings`; `/tmp/lctx-r-remediation-clippy6.log`. This compiles the retained targets after all mechanical repairs. The final grouped compiler-fixture layout also passed its affected Clippy control, `/tmp/lctx-r-remediation-clippy-oracle-layout2.log`.
-- **passed:** `UV_NO_SYNC=1 just types`, `just ruff`, Python format check, `just deps`, `just ready`, `just adr-lint`, `just lint-agents` and `just docs-check`; `/tmp/lctx-r-remediation-{types,ruff}-fixed.log`, `deps.log`, `final-ready.log`, `adr-lint2.log`, `lint-agents.log` and `docs-worktree-check.log` (same prefix). Documentation publication has 321 canonical pages and zero link errors.
-- **passed:** final scoped eight-crate all-target release Clippy, Python types, Ruff and dependency checks after formatting; `/tmp/lctx-r-final-source-{clippy,types,ruff,deps}.log` on `02b18ab6`. The earlier receipts above remain bounded to their original source.
-- **passed:** paired canonical normalization for 60,000 reverse-arrival occurrences under 2 MiB/one partition and 16 MiB/two partitions; `/tmp/lctx-r-final-normalization-paired.log`, run `07e5b681-1d0c-4070-b751-7f4ead00d61c`. This verifies canonical output under the two configured envelopes, not RSS or throughput.
-- **passed:** source-owned structural admission/body scope, all 39 necessary semantic-input companions, selected service configuration, and four publication-frontier companions. Logs are `/tmp/lctx-r-final-core-{structural,body,complete-transport2,enriched-header-body,frontier-transport}.log` and `/tmp/lctx-r-final-service-and-inventory.log` (actual service consumption passed; its separate initial inventory setup was repaired).
-- **passed:** actual positive SourceCalls/Enriched family equality, including fresh calls/arguments/executions (164.30s), `/tmp/lctx-r-final-compiler-fast-controls6.log`; detached whole-Enriched-family omission refusal (92.49s), `controls7.log` (same prefix).
-- **passed:** exact upper Place endpoint membership with missing/foreign alias refusal, `/tmp/lctx-r-final-place-endpoint2.log`; actual detached Behavioral Analysis/Catalog (190.28s/226.92s), `/tmp/lctx-r-final-compiler-fast-controls10.log`; guarded Facts-only detached admission without normalized aliases (18.86s), `controls11.log` (same prefix). Initial all-frontier/profile attempts exposed absent companions, incomplete callee body scope, E0 binary/output declaration errors and final upper Place endpoint membership. All Catalog and Behavioral Facts/Normalized combinations completed in `controls9.log` before its Behavioral Analysis failure; that failed command is not a passed aggregate. The affected reruns above own repaired closure. Imports retain actual records and never synthesize missing semantic inputs or aliases.
-- **passed:** current local extension built with `cargo build --release --locked -p lctx-semantics --lib`, copied atomically to the editable package, and imported through `.venv/bin/python`; `/tmp/lctx-r-dev-native-{build,import}.log`. Python loaded `NativeFailure` and `NativeSession` without a wheel.
+Current resumed native acceptance,2026-10-07:
 
-- **passed:** five native serving/executable-identity controls, `/tmp/lctx-r-final-native-serving.log`, run `fd6b863e-c7a6-411b-a8ba-2e460a8f490f`, before the final text-schema correction. Second-scenario child cursor, eligible lexical/vector channels and source guard controls retain their tested scope.
-- **failed:** the two actual Catalog/native MCP prerequisite journeys, `/tmp/lctx-r-final-native-mcp-fast.log` (139.35s). The codec included binary-backed logical text while schema generation omitted it, rejecting `retrieval_corpus_texts.text` and `retrieval_units.title`. Production schema generation now uses the same logical textual metadata; exact persistent text/opaque-byte/unknown-field refusal **passed**, `/tmp/lctx-r-pause-native-text-runtime.log` (2.60s), with its compile check **passed**, `/tmp/lctx-r-pause-native-text-check.log`. The final SDK all-target Clippy check **passed**, `/tmp/lctx-r-pause-native-text-clippy.log`, after formatting. The two journeys and Python MCP controls have not been rerun after this repair.
-- **not_run / stopped before runtime:** final store/CLI/backup/cache/search/reconciliation aggregate, `/tmp/lctx-r-final-native-store-fast.log`. The command-target-only O0 CLI build passed (55.31s); its subsequent selected test build was stopped to integrate the known schema repair and honor this pause. Initial system Python 3.12 launchers ran no controls; their corrected launchers use project Python 3.14.7 through `uv run --no-sync python`. The earlier optimized CLI/MCP prerequisite builds were stopped before runtime; target-only O0 replacements retain cached release libraries, budgets and expectations.
+| Actual control | Outcome and source boundary |
+|---|---|
+| Seven native cache controls, crowded search and cold derived audit | Cache7 **passed** in the nine-test grouped run; only search/audit failed. All three affected native/serving reruns **passed** on `97c20a39`; `/tmp/lctx-er3-persistent-grouped.log`, `/tmp/lctx-er3-failed-only-final.log`. Exact concurrent winners, batch reconciliation and read-only altered/deleted/extra-row refusal are exercised |
+| Publication/export/viewer/canonical backup/fresh restore/audit/CLI selection | **passed**,177.27s; `/tmp/lctx-canonical-epoch-publication-stack32.log`. Invalid candidate refusal, new launches, retained old pins and drained retirement remain active |
+| Atomic selection and terminal SDK backup faults | **passed**,five selected Nextest controls; `/tmp/lctx-closeout-lifecycle-fault5.log`,run `c8106a1d-6fa3-4f24-931e-292daf06f6e9`. Actual SDK controlled gRPC late failure, destination failure and terminal success are distinguished from the actual database backup/restore above |
+| Executable/source identities and current compiled native journeys | Identity3 **passed**, `/tmp/lctx-canonical-epoch-identity.log`. Both native Catalog/all-ten-tool/original/E1/restore and scoped-vocabulary/nested-cursor journeys **passed**,183.12s on matching current CLI/bridge; `/tmp/lctx-native-safe-canonical-mcp-final.log` |
+| Actual restarted-fixture Python boundary | **passed**,35 in-process/stdio wire/session/error/resource/final-map/numerical controls; same final log. Corrupt canonical bytes retain Corrupt; actual delayed read/disconnect retains Unavailable; cancellation keeps its worker until drained. Source and normal/expanded guards remain unchanged |
+| Current serving/reader/analytical controls | **passed**,serving24 plus persistent two-brief ownership1, reader5 and migrated neighbor math4; `/tmp/lctx-serving-affected-pure-filtered.log`, `/tmp/lctx-capability-union-current.log`, `/tmp/lctx-reader-current-stream5.log`, `/tmp/lctx-closeout-numeric-controls.log` |
+| Applicable leaves | **passed**,full workspace/all-target `just clippy`, current Ruff/types, dependencies and ADR/agent/rule leaves; `/tmp/lctx-closeout-clippy-assembled.log`, `/tmp/lctx-closeout-{ruff,types}-current.log`, `/tmp/lctx-closeout-deps-rerun.log`. Current documentation publication **passed**,326 canonical pages/zero link errors; `/tmp/lctx-closeout-docs-current.log`. Source formatting and matching CLI/direct-bridge/evaluator rebuilds also passed; `/tmp/lctx-functional-freeze-turn-end.log`, `/tmp/lctx-q1-frozen-cli-build.log`, `/tmp/lctx-q1-frozen-native-worker-build.log` |
 
-**Resume order:** rebuild the Cargo cdylib into the editable package after the final schema correction; rerun the exact native codec control if any relevant source changes, then fresh store/CLI/terminal backup/cache/search/reconciliation and affected serving controls. Run the actual Catalog/native journeys and in-process/stdio safe-error/cancellation/resource routes on their fresh serving fixture. Finish applicable leaves/finding closure and record R-Q0 before calling F01–F12 closed. The development extension built on `02b18ab6` predates the final physical schema correction; do not treat that import as final served acceptance. No work or tests remain running at this pause.
+The binary-backed logical-text schema gap and subsequent canonical epoch/scoped-binding/Option-role
+mismatches are repaired, with focused controls and actual compilation/publication acceptance at the
+combined coordinator. Native scopes/derivations use keyed adjacency and nominated-record reads,
+preserving incoming ownership separately from outgoing proof dependencies. Typed SDK timeouts
+retain ResourceRefused. Source review and exact native CLI exclusion/equivalence probes support
+these choices; no work-accounting or performance proof is required.
 
-**Pause closeout, passed, 2026-10-06:** `UV_NO_SYNC=1 just docs-check` (321 canonical pages, zero link errors), `just adr-lint`, `just lint-agents`, and root `just turn-end`; `/tmp/lctx-r-pause-{docs-check,adr-lint,lint-agents,turn-end}.log`. All agent patches are integrated and committed on main, without unresolved merges. `git worktree list --porcelain` shows only the main checkout. Owned native fixture containers/credentials are gone; unrelated containers/processes and shared caches are preserved. This pause does not close F01–F12 or claim final native acceptance.
+Temporary diagnostics are removed. Driver-only O0/32MiB stacks preserve optimized production
+libraries, resource policies and functional expectations. Direct current Cargo cdylib loading is
+the development Python route; wheel matching is waived. All integrated temporary worktrees/branches
+are removed; only main remains. Shared caches and unrelated host processes are preserved.
 
-The user waived wheel packaging during development. The queued wheel build/install were cancelled
-before execution; direct Cargo cdylib loading supplies the current local extension for Python
-checks. No release/distribution artifact is required for this remediation.
-
-An intermediate whole synthesis build and the superseded four-binary fixture layout were stopped
-before runtime; neither is a passed test receipt. All fourteen extra worktrees were reviewed and
-removed after confirming integrated work. Only main remains; shared caches are preserved. Cargo
-commands serialize through `flock --close /tmp/lctx-remediation-build.lock` without broad cleaning.
-Broad `just qualify`, legacy CLI snapshot/parity, sealed evaluation, real-library/live-Qwen/operator
-activation and quantitative performance measurement remain **not_run** under this scope.
+**Current:** the [persisted graph plan](persisted-graph-execution-plan_2026-10-07.md) owns integrated native compiler, shared-consumer and transport implementation plus remaining acceptance. That plan now owns catalog-speed F01–F05 and matching source-inspected defects, all Open / Proposed. The frozen-source Catalog attempt stopped after65m31s with SIGINT/exit130 and no verdict; Behavioral+knn and Q1 usefulness/adoption remain held. Existing scoped acceptance above does not close these new execution-fit findings. Protected
+populations, paid studies, broad legacy qualification/parity and performance campaigns remain
+**not_run**. Prior failed/stopped aggregates are not promoted into passed receipts.
 
 ## 9. Remediation and improvement execution
 
-**Implemented; targeted acceptance resumed, 2026-10-06.** This is the current executable continuation; §4 describes the initial
+**Implemented / focused Tested, 2026-10-07; Q1 pending.** This is the current executable continuation; §4 describes the initial
 pivot and §8 preserves its scoped receipts. Start from the audit/current source, not the old
 PostgreSQL implementation. The four supporting documents retain coherent responsibility boundaries
-and now supply the concrete corrections. Findings remain open until their required evidence lands.
+and now supply the concrete corrections. §7 records each finding's actual closure boundary.
 The combined [evidence/retrieval execution](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
-resumes the remaining native acceptance and authorizes the local live-Qwen/FastMCP pilot and Q1
-adoption. The earlier pause receipt in §8.1 retains its original source and scope. Production
-corrections are integrated; current native acceptance and operator adoption remain pending.
+completed the remaining native acceptance and authorizes the local live-Qwen/FastMCP pilot and Q1
+adoption. §8.1 preserves earlier compiler receipts at their original dates and records the resumed native boundary. Production
+corrections and current native acceptance are complete within §8.1; final documentation closeout and
+operator adoption remain pending.
 
 ### 9.1 Combined target and foundation choices
 
@@ -668,14 +673,14 @@ source review or focused fixture result promotes it. Complete the remaining R-Q0
 at §8.1 using the integrated compiler and native repairs. Do not restart the stopped legacy suite
 or introduce an additional review gate.
 
-## 10. Evidence/retrieval and primary evaluation extension — implemented, acceptance in progress
+## 10. Evidence/retrieval and primary evaluation extension — focused Tested, Q1 pending
 
 The [evidence/retrieval and evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 realizes the separate [2026-10-06 target review](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
 and owns that review's F01–F03 only. This graph-native coordinator retains its two nominated
 2026-10-05 target/capability reviews as its architectural basis, its implementation-audit source
-IDs, and the dated R-Q0 pause receipt in §8.1. The combined execution resumes its remaining
-native acceptance and the authorized local Q1 pilot; it does not restart the stopped legacy tests
+IDs, and the original bounded compiler-stage receipts in §8. The combined execution has completed
+the resumed native acceptance in §8.1 and has held the authorized local Q1 pilot for catalog compilation design revision; it does not restart the stopped legacy tests
 or activate protected/paid evaluation campaigns.
 
 The four supporting plans develop the integrated ER1–ER4 production scope: exact

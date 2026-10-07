@@ -16,9 +16,10 @@ and explicit policy/invariant revisions, not broad source-comment or lockfile ha
 remain append-only. Provider disagreement and unresolved/conflicting observations remain visible.
 Original evidence, scoped negative premises and five-way verdict semantics retain their authority.
 
-The [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns execution,
-finding disposition and acceptance. The first stage completes all compiler frontiers/profiles and
-compiler-side selected analytics. Managed SurrealDB persistence, publication and native serving
+The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current
+execution, finding disposition and acceptance. The [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md)
+retains its original stage responsibilities and dated receipts. The first stage covers all compiler
+frontiers/profiles and compiler-side selected analytics. Managed SurrealDB persistence, publication and native serving
 follow their respective packages. Native querying is already selected; efficient operations follow
 first principles and library capabilities, not performance proofs or detailed work accounting.
 
@@ -26,8 +27,8 @@ Catalog construction remains independent of optional analysis and briefs. Captur
 Bound/unattached formulas remain distinguishable from unavailable attachment; they do not create
 Entry proof. Exact source/effective defaults, signature variants, predicate-domain closure and
 original source/context association remain typed. Source-field location does not establish runtime
-allocation, mutation, alias or temporal identity. The implemented baseline uses one embedding spec. The accepted product extension (ADR-0131,
-implementation Proposed) separates actual dependencies and full4096 winners from explicit consumer
+allocation, mutation, alias or temporal identity. The implemented baseline uses one embedding spec. The implemented product extension (ADR-0131,
+focused receipts owned by the evidence/evaluation coordinator, 2026-10-07) separates actual dependencies and full4096 winners from explicit consumer
 projections. Initial E1 analytics and ANN use declared normalized1024; exact full/projection
 consumption enters the artifact and reconstructs without a service. Query-only changes do not
 invalidate unchanged document values.
@@ -502,7 +503,7 @@ The symbolic depth-two marker counts the source route constructor→field→read
 of the finite call-path proof limit and never denotes a proved runtime transfer.
 Constructor and reader owners and reader conditions stay explicit even when their Artifact scopes
 coincide. This does not establish temporal heap identity. The [graph-native compiler plan](../../plans/graph-native-model-compiler-plan_2026-10-05.md)
-owns current integration and store-free controls. The earlier [Phase 4 checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
+retains its original compiler-stage controls. Current persisted integration is owned by the [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md). The earlier [Phase 4 checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
 retains the dated P4B3-F01 disposition; it is not current compiler or native-store acceptance.
 
 **Implemented, final targeted acceptance pending, 2026-10-06 (ADR-0129).** Source-field inventory
@@ -561,8 +562,7 @@ fresh artifacts and realizations. Targeted controls and current acceptance remai
   Exact. Separate evidence-occurrence DAGs from aggregate summary publication. An open residual
   prevents universal discharge; an exact finite witness retains its own qualified meaning.
   [Plan §6.4–§6.5](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#6-behavioral-evidence-and-finite-composition)
-  retains the finite engine's dated independent controls. Current store-free integration and
-  acceptance belong to the [compiler plan](../../plans/graph-native-model-compiler-plan_2026-10-05.md).
+  retains the finite engine's dated independent controls. The [compiler plan](../../plans/graph-native-model-compiler-plan_2026-10-05.md) retains its original acceptance boundary; the [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns the current migration.
   Production defaults remain depth eight and proof steps sixty-four; bounded fixtures do not qualify every recursive program.
 
 **Implemented / focused-Tested, 2026-10-04 (ADR-0123).** Source composition witnesses retain
@@ -722,8 +722,9 @@ delegation borrows both projections, preserving canonical witness ties, open dis
 roots, ordered configured seeds, bounds and the complete resolved technique set. The pure parser
 rejects contradictory flags and missing technique dependencies before effects. Final seed selection
 belongs to S0 after optional analytics; the mandatory C0 catalog owns public path expansion.
-Structural Pass A and direct usage have **Implemented / user-accepted store-free compiler adapters,
-2026-10-05**, within the coordinator’s preserved compiler-stage receipt. C0 owns public access candidates; selected settings and release/module
+The earlier Structural Pass A and direct-usage compiler acceptance is preserved in the
+2026-10-05 coordinator receipt. Their **Implemented native-view adapters, 2026-10-07**, now
+consume exact persisted predecessors; the persisted plan owns current targeted acceptance. C0 owns public access candidates; selected settings and release/module
 membership define the structural scope. Production borrows prepared graphs; focused independent
 controls challenge exact path, boundary, usage and invocation inventories over completed inputs.
 Path steps retain their own conditions and phases: structural reachability does not establish
@@ -737,24 +738,13 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 
 ## §15.11 Compilation and physical realization
 
-**Implemented compiler / user-accepted stage, 2026-10-05.** The compiler owns bounded batches,
-immutable completed-input segments, spillable bulk operations, cancellation/drain and shared compact
-analytical topology. Producers read their actual completed predecessors. Completion validates local
-shape, canonical keys, reference closure, domain outcomes and necessary cross-element invariants.
-Shared vocabulary is assembled privately; no persisted epoch/grant/receipt protocol is required.
+**Accepted target / implementation in progress, 2026-10-07 (ADR-0133).** The compiler owns one private STRICT native database from its first output. Model-owned contribution specifications declare producer/code/settings and exact consumed views; immutable completed memberships and current/frozen semantic-boundary bindings define readable inputs. Pending contributions cannot widen a completed view. Completion validates local shape, canonical keys, reference closure, outcomes and applicable cross-element invariants; unchanged exact premises retain their validated status. Shared vocabulary unions exact nominal keys with full-payload conflict checks.
 
-The result is a versioned admitted artifact containing canonical graph streams, original chunks,
-coverage, method definitions and exact consumed vectors. Semantic hashes are independent of batch
-boundaries and Arrow IPC container bytes. Partial producer output remains provisional. Failed or
-cancelled attempts expose no complete artifact; restart from captured inputs rather than resume an
-arbitrary database stage. The library interface carries no store credentials.
+Canonical graph payloads and complete generated native bodies share one immutable value owner. A single declaration-derived inventory governs non-graph compiler backing across schema, writes, scans and bounded cold model regeneration. It preserves projection headers/chunks and other required intermediate fields; no manually maintained type whitelist owns coverage. Regenerated canonical bytes, full nominal keys and retained content must agree at external exposure. ArtifactChunk exposes the existing original_chunk bytes through typed metadata rather than copying original bytes into compiler backing. Native selected/projected scans and bulk Arrow/DataFusion compute serve each operation's physical demand. Pure model kernels remain usable without a server. Cancellation drains submitted writes and reader transports before an owned attempt is removed.
 
-`lctx compile --artifact-only --output <directory>` supplies this independent compiler route.
-Ordinary compile verifies native runtime readiness before acquisition, then publishes an unselected
-handle. Explicit artifact-only compilation uses the managed private database and exports its complete state. Ordinary publication directly seals its admitted database without
-rerunning producers, installs the declared native realization, reconciles persisted content once,
-drains writers, seals definitions and publishes separately from selection. All serving handles pin
-both semantic content and executable realization.
+Ordinary compile admits and seals this same database; it does not write and re-import its own portable artifact. The explicit `--artifact-only --output <directory>` route also requires native runtime readiness and exports graph, originals and complete retained contribution/view/binding state. External import/restore independently checks semantic/reference/state closure. Failed or cancelled attempts expose no complete publication; restart from pinned captures rather than resume arbitrary pending state. Publication remains separate from selection, and serving handles pin both semantic content and executable realization.
+
+The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 
 > Decision: ADR-0133, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
 
@@ -770,8 +760,7 @@ content-authoritative; indexes are derived. Shared text/vector identity does not
 occurrences or channel witnesses. Complex authoritative kernels remain in Rust where appropriate.
 
 The [native serving plan](../../plans/graph-native-serving-plan_2026-10-05.md) owns implementation.
-The pivot removes PostgreSQL-serving effects. Ordinary compilation publishes through the verified
-export boundary; MCP dispatch consumes one fixed native snapshot through NativeSession. Rust
+The pivot removes PostgreSQL-serving effects. The accepted persisted target directly seals ordinary compilation; explicit imports retain their independent verification boundary. MCP dispatch consumes one fixed native snapshot through NativeSession. Rust
 schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
@@ -787,8 +776,7 @@ old generation commands and checkpoint/grant readers are retired at their owners
 No old-format reader, old-ID bridge, dual write or historical runtime archive is retained.
 
 The [coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md) owns package state and surviving
-obligations. Compiler acceptance is focused store-free functional acceptance; complete native
-publication/serving have targeted native functional controls. Broad assembled qualification is
+obligations and dated receipts. The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns the current compiler/consumer migration and its targeted functional controls. Broad assembled qualification is
 not_run by user direction; separately authorized Q1 operator adoption remains later work. Historical PostgreSQL receipts establish no graph-native acceptance. Operator database/client
 state is not changed merely by editing compiler code.
 

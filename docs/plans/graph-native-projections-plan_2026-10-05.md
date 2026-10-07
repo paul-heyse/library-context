@@ -1,6 +1,8 @@
 # Named graph projections, analytics and export
 
-**Product extension implementation in progress, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition remains at its original coordinator; its remaining targeted acceptance is resumed by this combined execution.
+**Persisted follow-up implementation in progress, 2026-10-07:** the [persisted graph execution plan](persisted-graph-execution-plan_2026-10-07.md) owns the current combined execution, catalog-speed F01–F05 and additional same-pattern corrections. PG2/PG4/PG6 move private and published projection consumers onto shared native selections and indexed prepared rows. Projection universes, roles, multiplicity, losses and pure kernel meanings remain. Preparation follows actual selected-method demand; IPC workspace access is the prior implementation. Original dated receipts and prior audit findings retain their scope; only that new plan owns these follow-up findings.
+
+**ER production scopes Implemented / focused Tested, 2026-10-07:** this plan owns the projection contracts below. [Graph coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities) remains the sole graph-audit disposition owner; its [§8.1 checkpoint](graph-native-pivot-plan_2026-10-05.md#81-current-remediation-acceptance--2026-10-07) and [combined coordinator §6](evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion) own current receipts and completion. Earlier dated receipts retain their original source and scope; Q1 remains pending.
 
 **Compiler-side A1/A2 implemented and user-accepted; published exports Implemented / focused Tested, 2026-10-05.**
 Compiler model/analytics and artifact controls provide scoped Tested evidence; the coordinator
@@ -10,7 +12,7 @@ records the preserved compiler-stage boundary and actual native projection/expor
 consumers, the [SurrealDB realization](graph-native-surrealdb-realization-plan_2026-10-05.md).
 The coordinator owns package state, combined dependencies and finding disposition.
 
-**Current continuation implemented; targeted acceptance resumed, 2026-10-06:** §6 develops prepared analytical inputs and terminal streams.
+**Current continuation Implemented / focused Tested, 2026-10-07:** §6 develops prepared analytical inputs and terminal streams.
 Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
 
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
@@ -33,7 +35,7 @@ selects the required universe and edges under its owned policy, then supplies a 
 representation or typed stream. It is rebuildable from the admitted graph, never a second write
 authority. A display selector does not shrink the universe a global result depends on.
 
-A1 enables compilation over closed workspace inputs before publication. The same projection
+The initial A1 implementation enables compilation over closed workspace inputs before publication. Its native replacement consumes exact completed contribution views through the shared access/transfer foundation. The same projection
 contract also supports published diagnostic/export consumers. There is no requirement for the
 compiler to publish, reread and decode a SurrealDB copy before running its analyses.
 
@@ -161,12 +163,12 @@ and any deferred destination trigger remain at the coordinator.
 
 ## 6. Remediation integration: prepared input lifetime and terminal streams
 
-**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** There is no new projection-policy defect asserted by the audit.
+**Implemented / focused Tested, 2026-10-07.** There is no new projection-policy defect asserted by the audit.
 This work completes the projection consumers of compiler F02/F03 and native F04/F11;
 [coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns those packages/disposition rather than creating a separate projection queue.
 
-**Pause checkpoint:** Shared compact projection preparation and terminal native stream handling are integrated. The paired 60,000-occurrence normalization comparison passed under the two configured envelopes. This is canonical-output evidence, without an RSS/throughput claim. Final native projection/publisher reconciliation acceptance remains pending. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
+**Acceptance checkpoint:** Shared compact projection preparation and terminal native stream handling are integrated. The earlier 2026-10-06 paired 60,000-occurrence normalization receipt retains its original source and two configured envelopes; it is canonical-output evidence without an RSS/throughput claim. Current native projection/publisher reconciliation acceptance is recorded by the checkpoint owners linked above, separately from finding closure and Q1 adoption.
 
 ### 6.1 R-C1/R-C2 analytical input slice
 
@@ -219,10 +221,10 @@ export format, old projection reader or historical runtime artifact is retained 
 
 ## 7. ER2 — Explicit analytical representation and evaluation views
 
-**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+**Implemented / focused Tested, 2026-10-07.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 owns F02/ER2. The new embedding owner accepts full4096 values and a deterministic normalized1024
 projection. This plan owns their deliberate analytical consumption, not query instructions or
-native ranking. Paused §6 audit acceptance remains separate.
+native ranking. Combined execution completed §6's targeted audit acceptance; the coordinator records each finding's closure evidence.
 
 Initial E1 neighbors/pairs, centroids, passage links and community labels consume the declared1024
 projection shared with ANN. Their exact score/threshold/top-k/tie and method/input contracts remain

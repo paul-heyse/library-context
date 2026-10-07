@@ -1,11 +1,13 @@
 # API and evidence product target
 
-**Implemented graph-native foundations, 2026-10-06 (ADR-0128); product evaluation remains separate.**
+**Persisted graph-native implementation in progress, 2026-10-07 (ADR-0133); product evaluation remains separate.**
 The [semantic model](semantic-model.md) owns catalog, association, selection, synthesis and retrieval
-meaning. `cpg-core` constructs completed store-free inputs and admitted graph artifacts. Native
-SurrealDB publication and serving follow the [graph-native coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md).
-Native serving is implemented; the coordinator owns focused evidence. Real-library qualification, activation and PR6 remain
-pending; earlier receipts retain their original boundaries.
+meaning. `cpg-core` constructs exact completed native contributions/views and admitted graph products;
+ordinary publication seals that same private database. The
+[persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current
+compiler/shared-consumer acceptance. Native serving and primary programmatic evaluation retain
+their meanings and original focused receipts under the evidence/evaluation coordinator.
+Real-library qualification, activation and PR6 remain pending.
 
 <a id="section-14"></a>
 
@@ -620,8 +622,8 @@ required for a broad superiority claim. The earlier semantic suite retains its o
 
 **Graph-native compiler stage user-accepted; native serving implemented, 2026-10-06.** The compiler realizes typed
 Local, execution/transfer, Model, Summary, Structural, Analytic, C0/C1/C2, S0, retrieval and explicit
-embedding effects as store-free compilation and admitted graph artifacts. The graph-native
-coordinator owns current package status and commands; implementation alone is not acceptance,
+embedding effects through exact native completed views and admitted graph products. The persisted
+execution plan owns current physical compiler status and commands; implementation alone is not acceptance,
 a FastMCP pilot, live embedding qualification or product differentiation.
 
 This is a hard ownership replacement. Remove the PostgreSQL backend, lifecycle and old serving
@@ -633,12 +635,12 @@ separate authorized boundary.
 Native publication and serving integrate pinned requests, typed hydration, native loading,
 ranking, bounded packets and thin MCP transport. The coordinator owns focused native functional
 evidence and the separate operator adoption boundary.
-Catalog/member readiness remains independent of brief availability. The graph-native remediation
-pause and its pending native acceptance remain intact. The accepted next product design is routed
+Catalog/member readiness remains independent of brief availability. Persisted compiler/shared-consumer
+acceptance remains separate from operator adoption and product usefulness. The accepted next product design is routed
 through the [evidence/retrieval and evaluation coordinator](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md):
 independent EV1 kernels need no live service, while affected production controls require the actual
 migrated ER contracts and native prerequisite repair. PR6 retains separately authorized usability
 and comparative work; its parity prerequisite cannot block the primary finite loop. The forward
 plan retains earlier receipts without promoting them to replacement qualification.
 
-> Decision: ADR-0071, ADR-0131, ADR-0085, ADR-0128, ADR-0073
+> Decision: ADR-0071, ADR-0133, ADR-0131, ADR-0085, ADR-0073

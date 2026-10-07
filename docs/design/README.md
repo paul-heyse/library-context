@@ -1,6 +1,6 @@
 # Architecture map
 
-**Selected next target / Proposed implementation, 2026-10-07:** the [persisted graph execution plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns the native compiler and shared efficient execution follow-up. PG0 updates changed architectural owners through a superseding ADR; the table below identifies the implemented baseline.
+**Accepted target / implementation in progress, 2026-10-07:** the [persisted graph execution plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns the native compiler and shared efficient execution follow-up. ADR-0133 owns native compilation and direct sealing; STATUS and that plan distinguish integrated code from final acceptance.
 
 **Interface-checked, 2026-10-02:** these source entrypoints locate current responsibilities.
 [DESIGN](DESIGN.md) holds scope, the binding decisions §B1–§B14 and durable deferrals; the
@@ -9,8 +9,8 @@ Evidence labels distinguish accepted targets from implemented behavior. [STATUS]
 locates current completion claims. The
 [graph-native replacement coordinator](../plans/graph-native-pivot-plan_2026-10-05.md)
 owns the accepted hard-pivot series grounded in the graph-native target and SurrealDB capability
-reviews. Native querying is selected by ADR-0128; execution-fit principles guide efficient
-design rather than introducing accounting proofs or adoption gates. The compiler stage is user-accepted complete; native publication, projections and serving are implemented.
+reviews. Native querying and persisted compilation are selected by ADR-0133; execution-fit principles guide efficient
+design rather than introducing accounting proofs or adoption gates. The earlier compiler acceptance remains a dated receipt; the current persisted pivot is in progress.
 The coordinator's §9/R-Q0 records current remediation acceptance and the separate operator activation boundary.
 Earlier PostgreSQL evidence is baseline history, not replacement acceptance.
 The [target-alignment coordinator](../plans/target-implementation-alignment-plan_2026-10-04.md)
@@ -19,14 +19,14 @@ retains the implemented baseline's dated correction/qualification receipt and or
 
 | Responsibility | Owner | Source entry / adjacent consumer |
 |---|---|---|
-| **Implemented:** semantic graph, store-free compiler and native SurrealDB realization | [Semantic graph model (§15)](sections/semantic-model.md) | `lctx-model` graph contracts and `cpg-core` store-free compilation; ADR-0128; the [coordinator](../plans/graph-native-pivot-plan_2026-10-05.md) owns scoped functional evidence; operator activation remains pending |
+| Semantic graph, persisted compiler and native SurrealDB realization | [Semantic graph model (§15)](sections/semantic-model.md) | `lctx-model` graph contracts, `cpg-core` completed-view compilation and `lctx-surrealdb` native state; ADR-0133; the [persisted plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns current acceptance; operator activation remains pending |
 | API/evidence product target and Context7 differentiation | [Product target (§14)](sections/api-and-evidence-product.md) | Model-owned catalog, source/effective options, original evidence and declaration selection; native tool serving is implemented; product comparison and real-library qualification remain open |
 | Scope, binding decisions, dependency family, deferrals | [DESIGN §1, §2, §7, §13](DESIGN.md) | Every owner below; ADRs govern its §B sections |
 | Fact authority, identity, codebooks, coverage, graph catalog | [Facts and identity (§3–§3.8)](sections/facts-and-identity.md) | [lctx-model](../../crates/lctx-model/src/lib.rs); native extraction produces these contracts, codebooks stay append-only |
 | Catalog wire contracts and library adoption | [Query §14.7](sections/api-and-evidence-product.md#section-14-7), [library policy §14.11](sections/api-and-evidence-product.md#section-14-11) | Typed catalog and selection are model-owned; generated wire/native/Python conformance controls challenge the retained pure wire contracts; native serving is implemented |
 | Pinned acquisition, extraction and fact construction | [Acquisition and extraction (§4)](sections/acquisition-and-extraction.md) | [cpg-extract](../../crates/cpg-extract/src/lib.rs), [lctx](../../crates/lctx/src/main.rs); external analysis environments are explicit inputs |
 | Places, conditions, verdicts and the condition kernel | [Behavior model (§3.9)](sections/behavior-model.md) | [cpg-flow](../../crates/cpg-flow/src/lib.rs), `lctx-model::domain::conditions` kernel; ty's declared runtime view joins canonical latest-Ruff occurrences by mapped span and structural role |
-| Projections, admitted artifacts and native publication | [Storage and publication (§5–§6)](sections/storage-and-publication.md) | `cpg-core` owns store-free compilation/admitted artifacts; `lctx-publisher` and `lctx-surrealdb` implement native publication |
+| Projections, admitted artifacts and native publication | [Storage and publication (§5–§6)](sections/storage-and-publication.md) | `cpg-core` owns persisted compilation/admitted artifacts; `lctx-publisher` and `lctx-surrealdb` implement native publication |
 | Native services and later library capabilities | [Storage §6.5](sections/storage-and-publication.md#section-6-5), [serving §11.4](sections/synthesis-and-serving.md#section-11-4) | [native realization plan](../plans/graph-native-surrealdb-realization-plan_2026-10-05.md); exact-vector consumption is compiler-owned, `lctx-surrealdb` hosts cache and native publication |
 | Structural analysis, communities, centrality and FCA/RCA | [Analytics (§9–§9.8)](sections/analytics.md) | [lctx-analytics](../../crates/lctx-analytics/src/lib.rs): pure native kernels; `lctx-model` owns settings, contracts and nominal outcomes, no store |
 | Models, L2 fates, summaries, proof identity, registry | [Behavioral analysis (§9.9)](sections/behavioral-analysis.md) | `lctx-model::domain::execution` and `transfer`; `cpg-core::semantic_execution` and `semantic_summaries` adapt completed inputs; explicit unknown boundaries constrain claims |

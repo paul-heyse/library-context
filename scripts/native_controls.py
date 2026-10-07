@@ -102,7 +102,7 @@ def main() -> int:
         env["LCTX_EVAL_WORKER"] = str(ROOT / "target" / "release" / "lctx-eval")
         serving = owned.scratch / "serving.json"
         env["LCTX_RETAIN_NATIVE_FIXTURE_CONFIG"] = str(serving)
-        code = run(["cargo", "test", "--release", "-p", "lctx-serving", "--test", "native_journey"])
+        code = run(["cargo", "test", "--release", "-p", "lctx-serving", "--test", "native_journey", "--", "--nocapture"])
         if code:
             return code
         if not serving.is_file():

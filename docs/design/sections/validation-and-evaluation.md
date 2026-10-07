@@ -49,10 +49,13 @@ finite floats and unit-norm vectors.
 **Compiler artifact admission** checks typed graph records, canonical identity/content,
 reference namespace/kind/subtype closure, source bounds, required scoped outcomes, declared
 acyclic derivations and exact consumed vector values. Captured originals remain byte-exact.
-IPC is transport rather than semantic identity. Pending or cancelled output cannot become admitted. Checked completed-input views are private
+Arrow/portable bytes are transport rather than semantic identity. Exact completed native contributions/views
+and retained state have their own identities. Pending or cancelled output cannot become admitted. Checked completed-input views are private
 attempt-scoped authorities over immutable descriptors/profile/policy and exact selected vocabulary.
 A detached artifact or restored dump receives fresh pure semantic admission from neutral typed
-graph records; its authored hashes or publication marker cannot establish validity.
+graph records and complete retained native state; its authored hashes or publication marker cannot establish validity.
+Cold reconciliation compares full canonical/body/key/content agreement for graph and fixed non-graph
+backing, and verifies original bytes independently. Ordinary compilation carries exact unchanged validity.
 
 **Native publication** (Implemented, 2026-10-06) derives schema and indexes from
 the model and enforces the artifact's contract before readiness or selection. No PostgreSQL path,

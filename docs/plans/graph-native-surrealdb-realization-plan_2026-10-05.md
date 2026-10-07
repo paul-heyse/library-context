@@ -1,6 +1,8 @@
 # SurrealDB realization and immutable publication
 
-**Product extension implementation in progress, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition remains at its original coordinator; its remaining targeted acceptance is resumed by this combined execution.
+**Persisted follow-up implementation in progress, 2026-10-07:** the [persisted graph execution plan](persisted-graph-execution-plan_2026-10-07.md) owns the current combined execution, catalog-speed F01–F05 and additional same-pattern corrections. PG1/PG2/PG5/PG7 extend the current native layer for complete typed bodies, immutable membership, direct same-database sealing and completed-state transport. The managed server, canonical semantics, terminal finality and reader pinning remain; post-compile-only loading is displaced. Original dated receipts and prior audit findings retain their scope; only that new plan owns these follow-up findings.
+
+**ER production scopes Implemented / focused Tested, 2026-10-07:** this plan owns the native realization contracts below. [Graph coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities) remains the sole graph-audit disposition owner; its [§8.1 checkpoint](graph-native-pivot-plan_2026-10-05.md#81-current-remediation-acceptance--2026-10-07) and [combined coordinator §6](evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion) own current receipts and completion. Earlier dated receipts retain their original source and scope; Q1 remains pending.
 
 **Implemented / focused Tested, 2026-10-06; operator adoption not_run.** Supporting plan for P1/P2/I1 in the
 [replacement coordinator](graph-native-pivot-plan_2026-10-05.md). The coordinator owns state,
@@ -8,7 +10,7 @@ shared decisions and disposition. This plan consumes the [admitted graph](graph-
 and the [native serving operations](graph-native-serving-plan_2026-10-05.md); it owns their
 physical realization, not their meaning.
 
-**Current continuation implemented; targeted acceptance resumed, 2026-10-06:** §6 develops native construction and lifecycle.
+**Current continuation Implemented / focused Tested, 2026-10-07:** §6 develops native construction and lifecycle.
 Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
 
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
@@ -238,13 +240,13 @@ newer than the inspected runtime; source/tests at the selected family decide app
 
 ## 6. Audit remediation: bounded native construction and lifecycle
 
-**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** The audit F04/F05/F07/F11 continuation uses the
+**Implemented / focused Tested, 2026-10-07.** The audit F04/F05/F07/F11 continuation uses the
 [capability investigation](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/README.md).
 [Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns readiness and §7 owns dispositions. New contracts below correct remaining differences
 between §1–§5 target and production; old successful lifecycle controls do not close them.
 
-**Pause checkpoint:** Streamed construction/reconciliation, terminal backup, selection and exact cache changes are integrated. Final native acceptance was stopped during build for this pause. Actual Catalog publication exposed binary-backed logical text omitted from the closed native schema; schema generation now agrees with the codec, and the focused persistent text/opaque-byte/closed-shape control passed. The realization digest changes mechanically; resume with fresh fixtures. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
+**Acceptance checkpoint:** Streamed construction/reconciliation, terminal backup, selection and exact cache changes are integrated. Schema generation agrees with the codec; the earlier 2026-10-06 persistent text/opaque-byte/closed-shape receipt retains its original source boundary. Current native lifecycle and fault acceptance is in progress on fresh fixtures. The checkpoint owners linked above record actual outcomes; implementation and earlier lifecycle receipts do not close findings or establish Q1 adoption.
 
 <a id="R-P1a"></a>
 
@@ -423,13 +425,12 @@ No failed selection can create two differing authorities. Test owned files/datab
 
 ## 7. ER2/ER3 — Full values, exact bindings and native search realization
 
-**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
-owns ER state/F02 and the fixed semantic/value decisions. This physical consumer extends rather
-than reopens the paused audit packages in §6.
+**Implemented / focused Tested, 2026-10-07.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+owns ER state/F02 and the fixed semantic/value decisions. Combined execution completed §6's targeted audit acceptance; the coordinator records each finding's closure evidence.
 
 ### 7.1 Complete value/service/cache migration — ER2
 
-The current launcher and installed custom vLLM Matryoshka admission allow only1024. Update the
+The launcher and installed custom vLLM Matryoshka admission previously allowed only1024. The implemented migration updates the
 actual launch/pooler recipe and both clients to admit full4096 output under the selected checkpoint's
 installed configuration. Test parameter construction/pool validation without loading weights first.
 The selected NVFP4-r2 model/custom SM120 service remain; no model/dependency upgrade or wheel-build

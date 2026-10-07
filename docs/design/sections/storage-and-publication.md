@@ -15,7 +15,7 @@ coverage, provenance and declared simplifications. Vertices are independent of e
 parallel attributed assertions survive. Dense indices are private and map back to semantic IDs.
 Compatible compiler consumers share compact topology; rich evidence is hydrated separately.
 
-The compiler constructs these views from exact completed native memberships, without a
+The accepted persisted target constructs these compiler views from exact completed native memberships, without a
 publication handle. Indexed native selection and projected Arrow streams feed model-owned kernels. Summary, Structural and optional analytical consumers wait for their actual
 semantic/vector predecessors. Published export uses scoped native queries and terminally successful
 responses under the same projection contract. External destinations remain consumer-triggered.
@@ -38,7 +38,7 @@ owns integration and focused functional acceptance.
 The compiler returns canonical graph streams, original chunks, coverage/outcomes, selected
 method definitions and consumed vector values. It checks local shapes during construction and
 reference closure, required domains and meaningful cross-element invariants over completed inputs.
-Temporary segments are not another canonical database; incomplete output remains private.
+Immutable completed memberships define inputs; incomplete output remains private.
 
 Ordinary publication consumes the compiler-owned admitted native authority directly; explicit
 external artifacts undergo independent transport and semantic validation. `lctx-surrealdb` mechanically lowers
@@ -65,6 +65,11 @@ their versioned state identity and rebuilds current derived search/executable de
 Compiler readers bind explicit immutable native completed views, including exact contribution
 membership and frozen semantic boundaries. Pending values cannot enter selections or absence
 answers. Compact projected streams and scoped typed indexes avoid repeated rich reconstruction.
+Native reads preserve explicit nominal-key demand, point-read deterministic memberships under
+verified completed owners, and deduplicate physical IDs before payload hydration. Recognized atomic
+field selections use bounded indexed scope windows. Compact native scope constants are prepared
+before index selection; inline value mapping/casts remain outside its predicate. General filters retain compact native selection. Explicit empty demands and unfiltered zero-row views retain authority, exact-view and
+shape validation while avoiding a row query; arbitrary SQL retains normal execution semantics.
 Compiler-private sessions have no published snapshot handle. Cancellation drains owned reads,
 writes and provider workers before the attempt is removed; ambiguity fails that owned attempt.
 

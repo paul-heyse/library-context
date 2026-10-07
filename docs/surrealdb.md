@@ -1,10 +1,15 @@
 # SurrealDB operator runbook
 
-**Implemented / focused Tested route, 2026-10-06; operator activation not_run.** The native server hosts fresh,
-immutable graph snapshots and a separate mutable embedding cache. Publication consumes a verified
-compiler export without replaying providers. The [pivot coordinator](plans/graph-native-pivot-plan_2026-10-05.md#8-current-checkpoint)
-owns actual functional receipts and their limits. These commands are explicit operator actions;
-this execution used disposable databases only.
+**Accepted target / implementation in progress, 2026-10-07:** [Persisted graph execution](plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. The same managed persistent server remains the selected host. PG5/PG7 change compiler/import/restore boundaries and completed-state format; ADR-0133 owns this execution boundary; current acceptance is in STATUS and the persisted plan. Operator runtime actions and real-library pilots remain held during this implementation.
+
+**Implemented / focused Tested route, 2026-10-07; operator selection/adoption held for catalog compilation design revision.** The native server hosts fresh,
+immutable graph snapshots and a separate mutable embedding cache. Compilation writes exact
+completed native state and ordinary publication seals that same database. Explicit external import
+consumes a verified complete export without replaying providers. The
+[persisted execution plan](plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+owns current functional receipts; earlier receipts remain with the graph/evaluation coordinators. Disposable databases own contract validation.
+Earlier combined execution authorized local operator preparation; its recorded persisted server
+and embedding cache are preserved. No operator-state change is authorized by the current fixture checks. Fresh library compilation stopped without a verdict, and selected-snapshot adoption is held for the [catalog compilation speed review](design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md). The persistent server and cache remain available; this review did not change service configuration.
 
 ## Server and configuration
 
@@ -20,8 +25,19 @@ memory threshold is a guard rather than an RSS cap; retain synchronous durabilit
 maintenance. Host-derived defaults can exceed an intended container allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a 512 MiB tracked-memory threshold and a 1 GiB container limit. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
 options, persistent restart and readiness checks. It never inspects the operator store.
 
-**Inspected, 2026-10-06:** the installed `/home/paul/.surrealdb/surreal` CLI reports
-`3.3.0`; `surreal start --help` accepts an explicit durable store path and uses best-effort
+Set `SURREAL_GRPC_MAX_MESSAGE_SIZE=128MiB` for this native row contract. SurrealDB3.3 defaults
+to4MiB and advertises that ceiling to the Rust SDK; the SDK takes it by default. Native writes
+target128 rows with the existing8MiB byte target, and an admitted single larger row travels alone
+up to64MiB. Its RPC framing also needs room. This transport ceiling permits indivisible rows;
+it does not increase transaction timeouts or remove native row/byte guards. Configure it before
+starting the managed server; current implementation controls change only their owned fixture.
+The operator deployment remains held. The pinned implementation couples the server's advertised,
+decoding and encoding ceilings in [server configuration](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/server/src/cnf/mod.rs)
+and the [SDK](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/src/opt/grpc.rs)
+reconciles them; setting only a client limit cannot raise the server's request ceiling.
+
+**Inspected, 2026-10-07:** the installed system CLI is visible as `surreal` in a fresh terminal
+and reports `3.3.0`; `surreal start --help` accepts an explicit durable store path and uses best-effort
 planning by default. The pinned 3.3.0 source also enables a cross-transaction definition cache
 (`SURREAL_DATASTORE_CACHE_SIZE`, default 1,000 entries) and a process-shared HNSW vector cache
 (`SURREAL_HNSW_CACHE_SIZE`, default 256 MiB). Retain these caches; size them together with
@@ -31,7 +47,16 @@ describes that distinction. Persistent storage preserves data and indexes across
 in-memory caches warm again. Neither establishes a query-speed claim. Our readers share their
 pinned SDK client, and ranked continuations reuse their retained candidate pool rather than
 rerunning discovery. Caching complements bounded indexed queries; it does not replace removal
-of repeated correlated scans. No general result cache or duplicate canonical store is required.
+of repeated correlated scans. Current eligibility follows indexed record adjacency before channel
+quotas; lexical winner scores are prepared once in a keyed dictionary. No general result cache or
+duplicate canonical store is required.
+
+Request hydration follows keyed record adjacency. Original-evidence incoming ownership uses
+the packet's declared source families; its wider outgoing proof dependencies do not grant
+incoming ownership to unrelated analytical values. Recognized native engine timeouts return
+the typed resource-refusal envelope. A normal response can refuse when its indivisible core,
+coverage and delivery map exceed the budget; use the existing expanded request mode for larger
+packets. The limits remain protective guards rather than a guarantee that every packet fits.
 
 Keep `build/native/runtime.json` outside Git and mode 0600. Its closed fields are:
 
@@ -61,8 +86,8 @@ mutable SDK database-selection context between readers. The current SDK runtime 
 lctx store --runtime-config build/native/runtime.json init
 lctx store --runtime-config build/native/runtime.json check
 lctx compile fastmcp --through catalog --runtime-config build/native/runtime.json
-# Alternatively, prepare and independently verify an export before publication:
-lctx compile fastmcp --through catalog --artifact-only --output build/admitted
+# Export complete graph and compiler state from the same native compiler:
+lctx compile fastmcp --through catalog --artifact-only --output build/admitted --runtime-config build/native/runtime.json
 lctx publish-artifact build/admitted --runtime-config build/native/runtime.json
 ```
 
@@ -77,10 +102,12 @@ python3 scripts/build_environment.py -- uv sync --locked
 uv run --no-sync python -m lctx_mcp --serving-config build/native/selected.serving.json
 ```
 
-Publication installs strict typed families, enforced native roles and indexes/functions, loads
-bounded batches, reconciles canonical content, adjacency, original chunks and derived search
-materialization, then invalidates its writer before returning a checked read-only handle. Failure
-keeps the attempted database unreachable and removes it. A transport dump or copied publication
+Compilation creates a private STRICT database before producing any output. Immutable completed
+contributions/views and bindings exclude pending rows; original chunks have one physical byte owner.
+Ordinary publication admits and reconciles that same database, builds native roles/search indexes,
+closes operation admission, drains retained work and invalidates its writer before returning a
+read-only handle. Explicit import independently validates graph plus completed state. Failure
+keeps the attempt unselected and removes it; uncertain cleanup reports its owned database name. A transport dump or copied publication
 marker does not establish publication trust.
 
 Every running MCP process pins its complete handle. Selection affects new processes. Restart
@@ -151,11 +178,14 @@ the host PostgreSQL installation are outside this pivot.
 
 `python3 scripts/surrealdb_fixture.py -- COMMAND` owns one authenticated persistent disposable
 server, supplies `LCTX_SURREAL_TEST_CONFIG`, and removes only its own container and scratch files.
-Use the current `verify-store` / `verify-serving` routes and explicit filters. Compiler-stage tests
-stopped by the user are not prerequisites to restart. The current combined
-[evidence/retrieval execution](plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
-authorizes fresh local FastMCP Catalog/Behavioral compilation, live Qwen controls and Q1 selection;
-their actual receipts remain separate from fixture acceptance.
+Use the current `verify-store` / `verify-serving` routes and explicit filters. Persisted compiler
+controls additionally receive `LCTX_COMPILER_RUNTIME_CONFIG` through
+`uv run --no-sync python scripts/native_controls.py compiler -- -E '<filter>'`;
+`compiler-cli` and `providers` select their actual changed boundaries. These controls use owned
+persistent fixtures; they do not inspect the operator store. The previously stopped broad compiler
+suite is not restarted. Current native/MCP/programmatic acceptance follows the
+[persisted execution plan](plans/persisted-graph-execution-plan_2026-10-07.md).
+Real FastMCP Catalog/Behavioral compilation, Q1 selection and operator adoption remain held.
 
 Logical text is declared by the model field type independently of Arrow storage. Native query
 projections preserve exact `Utf8Text`, including enum fields, and exclude opaque byte/vector

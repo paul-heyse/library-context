@@ -1,12 +1,14 @@
-# Graph-native model and store-free compiler
+# Graph-native model and compiler
 
-**Product extension implementation in progress, 2026-10-06:** the [retrieval/evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md) owns additional ER packages and review F01–F03; this plan develops their owned production contracts. Existing graph-native audit disposition remains at its original coordinator; its remaining targeted acceptance is resumed by this combined execution.
+**Persisted follow-up implementation in progress, 2026-10-07:** the [persisted graph execution plan](persisted-graph-execution-plan_2026-10-07.md) owns the current combined execution, catalog-speed F01–F05 and additional same-pattern corrections. PG1–PG4 replace the store-free workspace with exact native completed views, shared access and demand-driven preparation. Model meanings and pure kernels remain owned here; the prior IPC/export receipts below describe their original implementation boundary; the current compiler uses native completed views. Original dated receipts and prior audit findings retain their scope; only that new plan owns these follow-up findings.
+
+**ER production scopes Implemented / focused Tested, 2026-10-07:** this plan owns the model/compiler contracts below. [Graph coordinator §7](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities) remains the sole graph-audit disposition owner; its [§8.1 checkpoint](graph-native-pivot-plan_2026-10-05.md#81-current-remediation-acceptance--2026-10-07) and [combined coordinator §6](evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion) own current receipts and completion. Earlier dated receipts retain their original source and scope; Q1 remains pending.
 
 **Complete — implemented and user-accepted, 2026-10-05 (ADR-0128).** Supporting plan for the [replacement coordinator](graph-native-pivot-plan_2026-10-05.md).
 It develops M1, C1, C2-N and C2-U. The coordinator owns package state, cross-plan dependencies
 and finding disposition. The design basis is its two named reviews, not another model review.
 
-**Current continuation implemented; targeted acceptance resumed, 2026-10-06:** §5 develops semantic admission and bounded preparation.
+**Current continuation Implemented / focused Tested, 2026-10-07:** §5 develops semantic admission and bounded preparation.
 Prior implementation/acceptance labels below describe the initial pivot, not closure of the audit.
 
 The [2026-10-06 implementation audit](../design_review/reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md) identifies remaining coordinated-plan gaps;
@@ -33,12 +35,13 @@ plan scope as complete. Model and analytics controls passed; compiler verificati
 with partial passing evidence and a repaired obsolete test not rerun. This is an Implemented
 completion boundary with scoped Tested evidence, not an all-checks-passed or Measured claim.
 
-The compiler instead receives explicit captured inputs, profile/method settings, semantic
+The current compiler receives explicit captured inputs, profile/method settings, semantic
 definitions, resource/runtime services and optional embedder/cache effects. It owns a private
-workspace and returns a completed **admitted graph**. No database connection, database role,
-stage grant, readback or publication transaction is required to extract, normalize or analyze.
-The publisher consumes the artifact through its [realization contract](graph-native-surrealdb-realization-plan_2026-10-05.md).
-Selecting a snapshot is outside both operations.
+STRICT native database and returns an admitted graph backed by that exact completed state.
+Immutable contribution views and frozen semantic-boundary bindings select predecessor inputs;
+model-owned pure kernels remain independent of the store. The publisher seals that same database
+through its [realization contract](graph-native-surrealdb-realization-plan_2026-10-05.md).
+Selecting a snapshot remains outside both operations. The persisted plan owns current acceptance.
 
 ## 2. Graph semantics and identity — M1
 
@@ -124,20 +127,22 @@ primarily establish algorithm correctness.
 
 ## 3. Bounded workspace and producer migration — C1/C2
 
+The initial IPC workspace mechanics below are displaced by [persisted execution PG1–PG4](persisted-graph-execution-plan_2026-10-07.md#7-execution-packages-and-dependencies). Preserve exact typed inputs, outcomes, semantic validation and pure operation boundaries; do not reimplement the old physical recipe.
+
 ### 3.1 Physical compilation route
 
-Use attempt-owned columnar batches and immutable temporary segments. Reuse Arrow/DataFusion
-for bulk joins, grouping, sorting and set membership where suitable, and charged native kernels
-for finite semantics. Spill sorting/join inputs rather than collecting whole relations. Keep one
-owner for buffers, segment lifetimes, CPU pools and cancellation/drain. Account for practical
-resident intermediates and disk use without adding a detailed work-accounting subsystem.
+Use model-owned typed contributions and exact completed native views for authoritative
+compiler products. Native keyed/reference selection reaches scoped rows before hydration;
+projected Arrow/DataFusion batches serve bulk joins, grouping, sorting and semantic kernels.
+One attempt owns budgets, streams, writer admission and cancellation/drain. Necessary spill
+runs are derived scratch, not a second completed IPC relation registry.
 
-Write each completed producer output into its final canonical segment stream once. Compatible
-consumers share prepared ordered views; a different required ordering may justify an external
-sort/index. Resolve references with batched sorted/indexed membership, not per-field remote
-anti-joins. Share canonical content hashing with ordered admission streams where possible.
-Domain dependencies establish which completed views a producer can consume. Temporary segments
-are workspace data, not another authoritative published database.
+A producer declares all outputs, including complete-empty products, and binds its exact
+predecessor views before execution. Full-payload equality governs duplicate nominal keys;
+completed memberships freeze once. Current views can advance without rewriting preceding
+contributions, while frozen lower boundaries remain unchanged. Admission retains exact
+unchanged validity premises and checks altered ones. Explicit export includes the native
+completed-state family; ordinary compilation has no portable self-roundtrip.
 
 Whole-topology algorithms necessarily materialize their named topology; that allocation is not
 made scalable merely by refusing it. Reuse one compact prepared projection across compatible
@@ -150,7 +155,7 @@ required.
 
 | Slice | Result and migrated consumers |
 |---|---|
-| C1 facts | Acquisition and independent Ruff/Pyrefly/ty capture emit attributed typed graph records and original chunks; profile outcomes remain explicit. Facts admission works with no running database. |
+| C1 facts | Acquisition and independent Ruff/Pyrefly/ty capture emit attributed typed graph records and original chunks; profile outcomes remain explicit. Facts admission uses exact completed native views; independent model validation remains pure. |
 | C2-N normalized | Occurrences/entities/places, exposure/declaration correspondence, signatures, call targets/bindings, conditions and projection bases consume completed facts/workspace views. Preserve all alternatives, roles and unresolved inventory. |
 | C2-U semantic upper | Local, execution/transfer, finite models/Summary, Structural and their selected definitions/outcomes/premises consume explicit predecessor views. Remove PG checkpoint adapters and blanket stored replay. |
 | C2-U product | C0 public universe/options/contracts, C1 source/scenario/deployment associations, C2 predicate-domain selection basis, S0 assertions/briefs, contextual retrieval and embedding uses construct the graph. Catalog does not depend on optional analytics or brief availability. |
@@ -195,24 +200,24 @@ adapters unless they actually exercise one. Reuse existing independent fixture e
 do not copy old stage/receipt tests mechanically. Review changed `.snap.new` before acceptance;
 graph/identity/wire changes are explicit contract migrations.
 
-Completion supplies store-free admitted frontiers for both profiles, upper catalog content and
+Initial-pivot completion supplied store-free admitted frontiers for both profiles, upper catalog content and
 selected analytical outcomes, not only a tiny facts demonstration. The publisher's full-content
 roundtrip and actual serving are additional integration obligations at Q0. Real-library scale,
 live vectors and activation remain the coordinator's explicitly authorized Q1 work.
 
 Package state, actual current-tree verification and finding disposition remain at the coordinator.
-The complete compiler stage is authorized; native persistence/publication/serving are subsequent work.
+The persisted plan now owns combined compiler, native publication and shared-serving execution.
 
 ## 5. Audit remediation: semantic admission and bounded shared preparation
 
-**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** F01/F02/F03 are a coupled correction, not permission to restart the
+**Implemented / focused Tested, 2026-10-07.** F01/F02/F03 are a coupled correction, not permission to restart the
 stopped compiler suite. [Coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
 owns execution and §7 owns disposition. The [foundation assessment](../design_review/evidence/2026-10-06_graph-native-remediation-capabilities/compiler.md)
 grounds this design in current owners and the matched DataFusion skill. The current workspace
-already owns private IPC files and spillable compute; rich normalization collectors and upper
-replay currently defeat that route. Tighten admission while removing repeated reconstruction.
+now owns exact native completed views and spillable compute. The persisted plan replaces the
+prior IPC authority and repeated rich reconstruction while preserving these admission obligations.
 
-**Pause checkpoint:** Necessary admission/input transport and the scoped compiler repairs are integrated. Positive SourceCalls/Enriched, paired normalization, exact upper Place endpoint admission, and Facts-only import controls passed. Fresh graph lowering adds exact Place aliases only at Normalized/upper frontiers; detached import remains strict. Final coordinated native acceptance remains pending. See [coordinator §8.1](graph-native-pivot-plan_2026-10-05.md#81-remediation-checkpoint--in-progress-2026-10-06) for exact source, outcomes and resume order.
+**Acceptance checkpoint:** Necessary admission/input transport and the scoped compiler repairs are integrated. The earlier 2026-10-06 SourceCalls/Enriched, paired normalization, exact upper Place endpoint and Facts-only import receipts retain their original source boundaries. Fresh graph lowering adds exact Place aliases only at Normalized/upper frontiers; detached import remains strict. Current coordinated native acceptance is in progress; the checkpoint owners linked above record actual outcomes without closing findings or claiming whole-suite acceptance.
 
 ### 5.1 R-C0 — Necessary semantic admission, distinct from producer replay
 
@@ -264,7 +269,7 @@ sealing or publishing it, without acquisition, providers, normalization replay o
 The canonical graph retains observations/supports, ProviderRun/RunFamily, qualification,
 conditions/assumptions, capture/source/evidence ownership and corpus associations. Share neutral
 mechanical graph-to-typed-record dispatch at the model/codec owner; existing native codec/batch
-conversion demonstrates the route but must not become a compiler dependency on SurrealDB.
+conversion shares the model-owned mappings through the current native compiler dependency.
 Decode bounded batches into attempt-private typed streams and execute the same admission owners.
 Expected coverage/outcome keys come from retained input/profile/method declarations, not observed
 output rows. Missing applicable inputs refuse; an omitted ephemeral workspace projection format
@@ -377,9 +382,9 @@ whole applicable binding/consumer inventory, not only the representative first f
 
 ## 6. ER1/ER2 — Evidence construction and actual encoder dependencies
 
-**Additional product target Proposed, 2026-10-06.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+**Implemented / focused Tested, 2026-10-07.** The [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 owns ER package state and the new review findings; its §2 fixes shared meanings and representation
-policy. This extension does not resume or close §5's paused graph-native audit work.
+policy. Combined execution completed §5's targeted graph-native acceptance; the coordinator records each finding's closure evidence.
 
 ### 6.1 ER1 — Honest roots, parts and binding operation
 

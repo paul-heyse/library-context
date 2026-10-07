@@ -1,7 +1,8 @@
 """Independent CPython oracle for current-model serving soundness.
 
-The Rust serving_soundness control compiles the grouped generated source with the real
-behavioral Catalog producer, then challenges named native paths against these observations.
+These generated CPython observations are independent oracle inputs. The native served
+comparison remains pending under the validation-and-evaluation owner; this module does not
+establish a completed native soundness journey.
 May compatibility is never an established identity claim, and a refuted path is never
 whole-operation absence. Only these generated programs execute, never analyzer fixtures.
 """

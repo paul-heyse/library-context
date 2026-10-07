@@ -1,6 +1,8 @@
 # Primary programmatic evaluation and grounded outer feedback
 
-**Primary loop implemented; selected interface integration pending, 2026-10-06.** Supporting plan for EV1–EV5
+**Persisted follow-up implementation in progress, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. PG6/PG8/PG9 migrate affected production observation/native/wire contracts. Independent task expectations, finite populations and the programmatic primary loop stay here; no generic incremental evaluator or new evaluation defect is inferred.
+
+**Primary loop and selected native interfaces Implemented / focused Tested, 2026-10-07.** Supporting plan for EV1–EV5
 in the [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md).
 It realizes the [review's](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
 information-sufficiency recommendations, F01/F03 and approved RC01/RC02/RC04. The coordinator
@@ -300,16 +302,21 @@ meanings require a new baseline; grounded feedback can propose system changes an
 revisions independently. The scalar F64 full4096/projection reference and supplied-union diagnostics
 are pure numerical controls, not native ANN or live encoder measurements.
 
-Selected verification, 2026-10-06: private source `ff000da4`, worker revision
-`1bf1fb7384cb80e51f1c2db25b57768cdf1b73c4e5433e6b5d945bdd3cefc59c`:
+Selected verification, 2026-10-07: current source-bound worker/schema and rebuilt direct Python3.14
+bridge match the identified source/native boundary in coordinator §6. Earlier receipts retain their original dates:
 
 | Command | Outcome and scope |
 |---|---|
-| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q -k 'not (actual_rust_renderer or actual_mcp_capture or actual_public_projection or actual_capture_freeze or actual_capture_timeout or actual_mcp_continuation)'` | **passed**, 24 selected tests including independent finite populations, semantic mutants/shrinking, world-status refusal, numerical reference and frozen worker/schema/mode/lane negative controls |
-| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q` (earlier source `65aaba69`, prepared shared environment) | 24 private controls passed; six actual renderer/MCP controls **blocked** by the stale development extension: import lacks `embedding_recipe_identities`; passing private controls do not establish those routes |
-| `target/release/lctx-eval --schema` | Generated private schema refreshed from the source-bound worker; schema equality included in the selected Python controls |
+| `cargo test --release --locked -p lctx-eval` | **passed**, 30 controls on the current diff; `/tmp/lctx-eval-current30.log`. Nominal source identity canonicalizes object field order, preserves arrays/scalars and refuses changed content |
+| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q` | **passed**, all41 with the current worker/schema/direct bridge; `/tmp/lctx-eval-frozen-private41.log`. Actual final Rust formatter and Python MCP captures, sensitive independent semantic/map mutants, supported shrinking, finite populations, frozen identities and grounded feedback |
+| `cargo build --release --locked -p lctx-eval` and `target/release/lctx-eval --schema` | **passed**, current worker built and generated schema refreshed; `/tmp/lctx-q1-frozen-native-worker-build.log`. Schema equality is included in the41 Python controls |
 
-Actual rebuilt renderer/native journeys, actual native ANN stage observations, live numerical/agent
-studies, protected populations and performance campaigns remain **not_run** at this checkpoint.
-The coordinator owns integration receipts, finding disposition and acceptance; this bounded
-instrument and its focused controls do not close all EV obligations.
+`scripts/programmatic_native.py` also implements a read-only pinned-viewer adapter for actual
+canonical full4096 values, normalized1024 projections, eligible HNSW results and independent
+scalar-F64 supplied-union references. It admits complete small eligible cohorts, refuses oversized
+cohorts and does not treat a document-as-query numerical control as retrieval quality. Its actual
+persistent native numerical and final-map journeys **passed**,2026-10-07, in the35-control
+actual restarted-fixture Python suite on both MCP transports; `/tmp/lctx-native-safe-canonical-mcp-final.log`.
+The30 Rust controls include exact-origin/named-capture continuation acceptance and foreign-scope negatives. Protected populations, paid outer agent studies and quantitative
+performance campaigns remain **not_run**. The coordinator owns integration receipts, finding
+disposition and acceptance; the selected core EV obligations are closed at focused Tested strength. Conditional EV5 investigations remain consumer-triggered.

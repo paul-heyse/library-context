@@ -1,6 +1,8 @@
 # Evidence-preserving retrieval and primary programmatic evaluation
 
-**Execution in progress, 2026-10-06; integrated acceptance pending.** This coordinator turns the
+**Persisted follow-up implementation in progress, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. ER/EV meaning and original findings stay here; affected native contexts, manifest/state transport and primary evaluator consumers migrate with PG4–PG9. No protected populations or outer studies are activated.
+
+**Implemented / focused Tested, 2026-10-07; real-library Q1 adoption held for catalog compilation design revision.** This coordinator turns the
 [nominated design review](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
 and its [external proposal](../library_context_evidence_retrieval_spec_evaluation_external_proposal_and_review.md)
 into one hard design-phase pivot. Programmatic evaluation is the primary engineering loop.
@@ -21,25 +23,26 @@ The review inspected the current source rather than inheriting the proposal's ol
 baseline. Library follow-up used locked sources, relevant capability skills, Context7 and
 primary documentation. These are static Interface-checked inputs, not runtime receipts.
 
-The store-free compiler, typed graph admission, immutable native publication, shared embedding
+The preceding compiler receipt, typed graph admission, immutable native publication, shared embedding
 winners, original-byte expansion, exact name promotion and snapshot-bound cursor refusal are
-Implemented foundations. Remaining graph-native audit acceptance is **resumed in this execution**, owned solely by
+Implemented foundations. This execution completed the resumed graph-native audit acceptance, owned solely by
 [that coordinator §7–§9](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities).
 No audit finding is closed by this plan. Its two nominated graph-native reviews remain that
 series' architectural basis; this review governs the additional product extension here.
 
-The gaps are concrete: source roots can use access-module rather than defining-source material;
+The review identified concrete gaps, now addressed by the production packages and §6 receipts: source roots can use access-module rather than defining-source material;
 publisher lowering multiplies fragments by parent members/anchors; options and release roots
 are incomplete; byte fragments do not encode exact primary applicability; match-zero BM25 content
 can be excluded; raw candidate caps precede meaningful contextual grouping; delivered IDs do not
 establish delivered information; one embedding spec couples query instructions to document values
-and silently determines analytical dimensions. The existing product runner performs agent trials;
-it is not the primary programmatic loop proposed here.
+and silently determines analytical dimensions. The earlier product runner supplied agent trials; the implemented private programmatic loop now
+owns primary judgments, with grounded outer feedback retained.
 
 The user has authorized the detailed combined execution, including the local live-Qwen/FastMCP
 pilot and Q1 operator adoption. Production changes are integrated incrementally on main and use
 targeted functional controls, current editable native builds and fresh owned fixtures. Live service
-output admission has passed; real-library usefulness and selection await integrated native acceptance.
+output admission and integrated native controls have passed; real-library usefulness and selection
+await fresh-library pilots, currently held after the stopped Catalog attempt. The [catalog compilation speed review](../design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md) owns the new unscheduled execution-fit findings; the existing ER/EV receipts retain their scope.
 No wheel gate, historical CLI parity campaign or broad qualification suite is introduced. Paid
 outer studies, protected confirmation/heldout and quantitative performance remain separately activated.
 
@@ -227,13 +230,13 @@ migration is outside the evidence/retrieval implementation scope.
 ER0 is **authored policy/design, 2026-10-06**, independently accepted at Proposed architectural
 strength. ER1–ER4 and EV1–EV4 are **implemented / integration and targeted acceptance in progress**;
 ER5/EV5 remains conditional on a named limitation. Root owns common declarations, shared identities,
-integration and final acceptance. Three temporary production worktrees isolate compiler, native
-lowering and delivery/evaluator edits; remove them after complete integration.
+integration and final acceptance. All worker slices are integrated on main. All three temporary
+production worktrees and their merged branches have been reviewed and removed.
 
 | Package / detailed owner | Delivered behavior | Actual prerequisite and completion boundary |
 |---|---|---|
 | ER0 — this coordinator | Approved rules, complete shared dependency/consumer decisions and target | This authoring pass; runtime remains unchanged |
-| ER1 — model/compiler plan §6 | Honest roots, primary/context parts, semantic windows, exact bindings, local tokenizer/maps and canonical registration/admission | ER0; source/catalog contracts already available. Pure source/partition controls and detached omission/roundtrip, no database/model required |
+| ER1 — model/compiler plan §6 | Honest roots, primary/context parts, semantic windows, exact bindings, local tokenizer/maps and canonical registration/admission | ER0; source/catalog contracts already available. Pure source/partition controls require no service; detached omission/roundtrip uses owned native compilation, without live embedding |
 | EV1 — evaluation plan §3 | Private task/oracle/observation and compatible witness kernel with independent reference | ER0 plus ER1 semantic design, not all ER1 production. Tiny actual serializer observations can precede native acceptance |
 | ER2 — compiler/realization/projection plans | Full4096 values, split identities, deterministic1024 projections, both clients/cache/service recipe and all E1 consumption/restore | ER1 actual encoder input and shared declarations. Pure numeric/admission/identity controls first; live output usability separately activated |
 | ER3 — realization/serving plans | Stream exact native bindings/search lowering, code-aware match/ANN routes, contextual aggregation, bounded rescoring/expansion and sealed definitions | ER1 canonical graph; ER2 value seam for vector route. Lexical and empty/NotRequested paths do not wait for live inference |
@@ -290,53 +293,69 @@ named current consumers. Gold/confirmation/heldout remain protected.
 
 ## 6. Finding disposition, investigation outcomes and completion
 
-| Review finding | Current disposition / responsible packages | Closure evidence still required |
+| Review finding | Current disposition / responsible packages | Closure evidence |
 |---|---|---|
-| [F01](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F01) | **Open — implemented, integrated acceptance pending**; EV1/EV4, evaluation plan §7 | Grounded system-change and evaluator-change paths; frozen comparisons/new baseline and same-packet rejudgment preserve meaning |
-| [F02](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F02) | **Open — migration implemented, integrated acceptance pending**; ER2 and every native/E1 consumer | Complete admission/identity matrix, actual chosen E1 result/receipt, detached transport and restore; live checkpoint acceptance reported separately |
-| [F03](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F03) | **Open — finite-first implementation tested, integrated acceptance pending**; EV1/EV2, optional EV5 | Useful finite lane without solver; any adopted solver preserves satisfiability/Unknown/bounds and actual consequence-call status |
+| [F01](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F01) | **Closed — focused Tested, 2026-10-07**; EV1/EV4, evaluation plan §7 | Rust30/private Python41 below: grounded system/evaluator revisions, frozen comparisons/new baseline and same-packet rejudgment |
+| [F02](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F02) | **Closed — focused Tested, 2026-10-07**; ER2 and every native/E1 consumer | ER1 matrix51 plus actual E1 result/receipt and fresh restore in native2; persisted numerical replay in Python35; live conformance separately passed |
+| [F03](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F03) | **Closed — focused Tested, 2026-10-07**; EV1/EV2, optional EV5 | Rust30/private Python41: useful finite lane, independent finite references, satisfiability/Unknown/bounds; optional solver adoption remains conditional |
 
 The [assembled implementation review](../design_review/reviews/design_review_evidence-retrieval-evaluation-implementation_2026-10-06.md) assessed `24a5968c` as **Revise**, 2026-10-06. Its source-qualified findings are scheduled here; later integrated corrections require focused follow-up on their actual diff and functional controls.
 
-| Assembled review finding | Current disposition / owner | Required closure |
+| Assembled review finding | Current disposition / owner | Closure evidence |
 |---|---|---|
-| Implementation F01 | **Open — corrected, functional acceptance pending**; ER4 | Part-local text/maps, Unicode context and second-primary final delivery |
-| Implementation F02 | **Open — corrected, focused controls passed**; ER1 | Typed per-primary context closure; sibling independence and missing necessary context refusal; assembled journey pending |
-| Implementation F03 | **Open — corrected, Rust native acceptance pending**; ER3 | Distinct target/context before quotas, independent exact name/path/option admission, crowded persistent control |
-| Implementation F04 | **Open — corrected, integrated private journey pending**; EV1/EV2 | Leaf provenance separated from shared semantic assignment; distinct-span conjunction and foreign-analysis refusal |
-| Implementation F05 | **Open — corrected, serving control pending**; ER4/EV2 | Opaque class operands unavailable; no ID/string substitution for captured predicate meaning |
-| Implementation F06 | **Open — independent check implemented, final native capture pending**; EV2 | Actual map pointers/bindings/ranges/dependencies/omissions checked separately from truth; valid production map accepted, schema-valid false map rejected |
+| Implementation F01 | **Closed — focused Tested, 2026-10-07**; ER4 | Serving24 and actual Python35: part-local text/maps, Unicode/second-primary delivery |
+| Implementation F02 | **Closed — focused Tested, 2026-10-07**; ER1 | ER1 model/scoped controls and assembled native2: typed context closure, sibling independence and necessary-context refusal |
+| Implementation F03 | **Closed — focused Tested, 2026-10-07**; ER3 | Persistent crowded native search on97c20a39 plus exact keyed route probes: target/context before quotas and independent exact admission |
+| Implementation F04 | **Closed — focused Tested, 2026-10-07**; EV1/EV2 | Rust30/private Python41: leaf provenance separated from semantic assignment, distinct-span conjunction and foreign-analysis refusal |
+| Implementation F05 | **Closed — focused Tested, 2026-10-07**; ER4/EV2 | Serving24 plus private41: opaque class operands remain unavailable, without ID/string substitution |
+| Implementation F06 | **Closed — focused Tested, 2026-10-07**; EV2 | Actual native Python35 and private41: independent final-map conformance, valid maps accepted and schema-valid false maps refused |
 
-**Current bounded receipts, 2026-10-06:** the independent correction follow-up through
-`e2177a82` finds Implementation F01–F06 adequately corrected at static/Implemented strength,
-with runtime closure owned here. `cargo test --release --locked -p lctx-eval` **passed**, 28
-controls on formatted source `58cc33f0`, `/tmp/lctx-er-eval-current.log`; the source-bound worker
-build also **passed**, `/tmp/lctx-er-eval-current-worker.log`, and generated schema is refreshed.
-ER1 affected model construction/consumption **passed**, 39 controls across five binaries;
-`cpg-core --lib scoped_retrieval` **passed**, four; local `retrieval_tokenizer` **passed**, one;
-`embedding_realization` **passed**, seven. These 51 controls exercised source `dfb08b5e`;
-`/tmp/lctx-f02-{model-rerun,scoped,tokenizer,session}.log`. The redundant broad external compiler
-build was stopped before runtime, without a completed build or test verdict.
+**Current bounded receipts, 2026-10-06–07:** the independent correction follow-up through
+`e2177a82` accepted Implementation F01–F06 at static/Implemented strength. The subsequent focused
+review of the serving corrections against `f969d0de` plus the current diff found no additional
+correctness defect; runtime acceptance remains separately recorded below.
 
-Private source-independent Python **passed**, 23 selected controls using the current worker;
-actual renderer/native lanes await the current editable extension. The pure CLI runner also
-**passed** on its development population, preserving scorable, inconsistent, unscored and budget
-classes; diagnostic minimizations do not claim production success. Source-extracted actual
-SurrealDB 3.3 SQL probes **passed** grouped vector witnesses, match-zero/context scope and
-1,400-occurrence crowded exact name/path/option admission, plus HNSW `EXPLAIN` KNN/bitmap;
-`/tmp/lctx-er3-grouped-query-probe.log`. These are functional query-shape receipts, not Rust
-hydration/MCP or measured performance. The prior formatted persistent run passed six and failed
-three controls (transient cache-fixture setup conflict, partial-fixture enforced endpoint, repeated
-correlated winner-scan timeout). Their exact repairs are integrated on `959e43ab`; current
-persistent Rust rerun is **in progress**, `/tmp/lctx-er3-persistent-grouped.log`. Timeouts, ranking
-meaning and quotas were not loosened.
+| Actual command/control | Outcome, source and limits |
+|---|---|
+| `cargo test --release --locked -p lctx-eval` | **passed**,30 on current production/evaluator diff; `/tmp/lctx-eval-current30.log`. Includes named-capture search continuation and foreign-scope negatives |
+| `LCTX_EVAL_WORKER=target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q` | **passed**,41 with rebuilt current worker/direct bridge and refreshed schema; `/tmp/lctx-eval-frozen-private41.log`. Actual renderer/MCP capture, independent semantic/map mutants, frozen comparisons and grounded feedback |
+| ER1 construction/consumption, scoped retrieval, tokenizer and embedding session | **passed**,51 on `dfb08b5e`; `/tmp/lctx-f02-{model-rerun,scoped,tokenizer,session}.log` |
+| Persistent crowded search, cold field audit and partial capability preparation | **passed after repair** on `97c20a39`; `/tmp/lctx-er3-failed-only-final.log`. All12 source-extracted keyed query routes also passed; `/tmp/lctx-er3-actual-keyed-query.log` |
+| Live Qwen Rust/Python clients and full4096 numerical comparison | **passed**,Rust9/Python6 and eight cosine pairs, worst1.0000000 against0.9995; `/tmp/lctx-live-{rust-client,python-client,python-cosine}.log`. Checkpoint-bound Unicode/long-input tokenizer parity passed. Client conformance, not retrieval quality |
+| Native publication/export/viewer/restore/audit/CLI selection | **passed**,177.27s; `/tmp/lctx-canonical-epoch-publication-stack32.log`. Executable/source identity3 passed; `/tmp/lctx-canonical-epoch-identity.log` |
+| Canonical epoch closure and complete compiler schedules | **passed**,dependency12 and both profiles/three embedding modes on `77440cc1`; `/tmp/lctx-canonical-epoch-{model,schedule-current}.log` |
+| Exact scoped C0/E0 bindings and Option context separators | **passed**,bindings3, assembled schedule1, complete prepared schedule1 and retrieval11; `/tmp/lctx-scoped-fk-{bindings,schedule,prepared-current}.log`, `/tmp/lctx-option-role-model-final.log`; committed `f969d0de` |
+| Pure serving and typed SDK timeout/stream controls | **passed**,serving24 and current reader5; `/tmp/lctx-serving-affected-pure-filtered.log`, `/tmp/lctx-reader-current-stream5.log`. Migrated native-neighbor math4 also passed, `/tmp/lctx-closeout-numeric-controls.log` |
+| Current persistent two-brief ownership control | **passed**, `UV_NO_SYNC=1 INSTA_UPDATE=no .venv/bin/python scripts/surrealdb_fixture.py -- cargo test --release --locked -p lctx-serving --lib capability::controls::union_preparation_keeps_each_briefs_documents_separate -- --nocapture`; `/tmp/lctx-capability-union-current.log` |
+| Actual compiled Catalog ten-tool/originals/E1/restore and scoped vocabulary/nested-cursor journeys | **passed**,both on matching current CLI/direct bridge,183.12s; `/tmp/lctx-native-safe-canonical-mcp-final.log`. All ten tools, exact original bytes, E1 lineage/fresh restore, scoped vocabulary and nested/foreign cursors |
+| Python native MCP/failure/cancellation and persisted numerical controls | **passed**,35 after owned persistent restart, both MCP transports; `/tmp/lctx-native-safe-canonical-mcp-final.log`. Actual corruption/disconnect, cancellation/drain, valid/false final maps, independent original/default judgment and persisted numerical replay |
+| Real FastMCP Catalog and Behavioral+knn | **not completed**: earlier Catalog process stopped gracefully,exit130; `/tmp/lctx-q1-catalog-corrected.log`. No completed verdict; Behavioral **not_run**. Resume follows the current native boundary |
+| Scope-end checks | **passed**,full workspace/all-target `just clippy`, types, Ruff, dependencies, ADR/agent/rule leaves; `/tmp/lctx-closeout-clippy-assembled.log`, `/tmp/lctx-closeout-{types,ruff}-current.log`, `/tmp/lctx-closeout-deps-rerun.log`. Documentation publication also **passed**,326 canonical pages/zero link errors; `/tmp/lctx-closeout-docs-current.log`. Source formatting and matching CLI/direct-bridge/evaluator rebuilds also passed; `/tmp/lctx-functional-freeze-turn-end.log`, `/tmp/lctx-q1-frozen-cli-build.log`, `/tmp/lctx-q1-frozen-native-worker-build.log` |
+| Selection and terminal backup faults | **passed**,five selected Nextest controls,run `c8106a1d-6fa3-4f24-931e-292daf06f6e9`; `/tmp/lctx-closeout-lifecycle-fault5.log`. Precommit preservation/postcommit uncertainty and actual SDK late failure/destination failure/terminal success |
+| Q1 usefulness/adoption | **pending**,following the frozen matching native builds |
 
-The installed CLI is SurrealDB 3.3.0. Operator and disposable fixtures use persisted RocksDB,
-explicit block-cache/write-buffer allocation and durable synchronization. Built-in definition and
-HNSW caches remain enabled; deployment/cache distinctions are in the [runbook](../surrealdb.md).
-The current CLI build and operator cache initialization **passed** before the final query rewrite;
-a fresh extension/CLI, complete publication/restore/MCP, live client/tokenizer conformance and
-real FastMCP usefulness/adoption still require their own receipts.
+Native repairs retain exact semantics and existing limits. Canonical scopes resolve keyed graph
+adjacency and nominated records, preparing companion keys once per frontier. Original-evidence
+incoming ownership is limited to packet sources while outgoing canonical proof dependencies remain
+available. Derivations fetch only adjacent assertion owners. Actual CLI3.3 equivalence/exclusion and
+EXPLAIN controls passed (`/tmp/lctx-scope-{adjacency,incoming-owner,canonical-keyed}-probe.log`,
+`/tmp/lctx-evidence-derivations-keyed-probe.log`); no measured performance claim. Only typed
+`QueryError::TimedOut` becomes ResourceRefused, without display-text classification. Request-scoped canonical payload decoding uses the existing
+Corrupt classifier while engine/transport failures retain their own causes. The independent evaluator
+validates page-wide search continuations against exact cursors, actual originating library and named
+domain captures, with foreign-scope/release refusal; it does not infer page scope from an arbitrary hit.
+
+Core inventory retains dependencies of actually emitted signatures, defaults, interpretations and
+qualified presentations. The scoped cursor/comparison fixtures select existing expanded mode because
+required semantic cores/maps legitimately exceed normal32KiB; no envelope, timeout, ranking or
+quota is relaxed. Separately identified related contract vectors exercise actual E1 neighbor lineage,
+without asserting ordinary random fake vectors meet the production similarity floor. Exact scoped
+vocabulary comparisons replace an invalid whole-JSON substring check. All temporary diagnostics
+are removed. Driver-only O0 and32MiB test stacks preserve optimized production libraries and guards.
+
+Operator and fixtures already use persistent RocksDB, explicit block-cache/write-buffer allocation,
+durable synchronization and enabled built-in definition/HNSW caches. Fresh-terminal `surreal --help`
+works, CLI3.3.0. See the [runbook](../surrealdb.md); no persistence-based speed claim is implied.
 
 No new mutable ledger is required. Other recommendations route through ER/EV packages and their
 explicit conditional triggers. Existing EVAL and analytical/Q1 findings remain at their current
@@ -359,4 +378,4 @@ Authoring receipt: source/capability inspection completed, 2026-10-06; product t
 inference, agent trials and performance measurements not_run. The [independent revised-target review](../design_review/reviews/design_review_evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 accepts this plan set at Proposed architectural strength, with no new material finding or rule
 impact. Documentation commands/outcomes are recorded at STATUS after actual execution. Source
-F01–F03 remain open for implemented closure under this section.
+F01–F03 and implementation F01–F06 are closed at the focused Tested boundary above; Q1 and conditional investigations remain separately reported.

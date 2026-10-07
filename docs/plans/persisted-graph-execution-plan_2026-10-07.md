@@ -1,6 +1,6 @@
 # Persisted graph compilation and shared efficient execution
 
-**Proposed implementation target, 2026-10-07. Not implemented or performance-measured.**
+**Accepted target / implementation in progress, 2026-10-07. No performance measurement.**
 This document coordinates the next hard design pivot. Its source is the
 [catalog compilation speed review](../design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md),
 especially F01–F05 and RC01/RC02, together with the operator's 2026-10-07 selection of persisted
@@ -12,8 +12,7 @@ alternative; its diagnoses, preservation obligations and uncertainty remain appl
 This plan owns these scheduled findings and the additional source-inspected inefficiencies in §8.
 The existing graph-native and evidence/evaluation coordinators retain their original findings and
 dated receipts. They do not close the new findings. The architectural collection owns enduring
-contracts; PG0 changes those contracts before dependent implementation. This plan does not change
-production code, activate operator state or promote the interrupted pilot into a successful result.
+contracts; PG0 changes those contracts before dependent implementation. Execution is authorized for PG0–PG9. Operator state remains held; the interrupted pilot has no successful verdict.
 
 ## 1. Outcome, baseline and boundaries
 
@@ -90,8 +89,7 @@ expected bodies independently. Programmatic evaluation remains an adjacent contr
 | Native compiler placement | **Selected explicitly:** store-free compilation is displaced. | PG0 replaces DESIGN §B3/§B7/§B12, semantic-model §15.1/§15.11, storage §5/§6/§6.2 and associated instructions. Restate surviving ADR-0128 obligations in the replacement ADR. |
 | Reuse horizon | **Foundations now:** persist exact completed inputs, meaningful dependencies and products; no cross-run scheduler/invalidation executor. | PG1/PG7 give the persisted state real inspection/transport consumers; defer the executor with a named trigger in §10. |
 
-Plan approval is not implementation or finding closure. The old architectural owners still describe
-the implemented store-free baseline until PG0 installs the selected target with explicit labels.
+Plan approval is not implementation or finding closure. PG0 has installed the selected target through ADR-0133; implementation and verification of its dependent packages remain in progress.
 The new ADR must preserve graph identity/role fidelity, programmatic assertions, native query
 selection, explicit publication versus selection, pinned readers, exact values/projections,
 append-only codebooks and rebuilding from pinned inputs. Retire only its replaced execution rules.
@@ -121,10 +119,14 @@ SCHEMAFULL/coercions do not replace semantic shape checks. Derive atomic index k
 an array-element byte index cannot establish whole nominal-ID equality.
 
 Actual completed non-graph records use one fixed generated `compiler_record` family, not one
-table per kind and not a duplicate of registered graph payloads. `QualityStep` is a known such
-record; originals/`ArtifactChunk` use the existing bounded original-chunk owner rather than a
-second full-byte copy. PG1 must reconcile the complete model relation and graph registries;
-undeclared required records fail registration instead of disappearing through dispatch.
+table per kind and not a duplicate of registered graph payloads. Its inventory derives from
+declared catalog relations minus graph entity/assertion declarations; writing, schema, scanning
+and cold validation use that same classification. The current inventory has88 families, including
+projection snapshot headers/chunks and QualityStep. Originals/`ArtifactChunk` retain the bounded
+original-chunk byte owner. Cold validation groups bounded native rows by relation, invokes the
+model canonicalization and shared batch body codec once per type slice, and compares regenerated
+canonical bytes exactly; native numeric Value equality is insufficient for that comparison.
+Undeclared required records fail registration instead of disappearing through dispatch.
 
 Preserve frontier-dependent intrinsic graph lowering: normalized-or-higher Place endpoint aliases
 are derived only when that frontier permits them. Facts do not gain normalized entities early.
@@ -194,6 +196,15 @@ under unchanged premises; an unknown write/COMMIT acknowledgement fails the disp
 There is no resumability journal. Drain and abandon only that owned private database; report an
 unselected orphan if cleanup fails, never sweep unrelated operator databases or claim success.
 
+**Implemented / targeted verification in progress, 2026-10-07:** compiler, loader and retained-state
+import share native row/byte windows for candidate comparisons and checked insertion. Indexed
+write transactions target128 rows while logical Arrow transfers retain4096; existing byte and
+maximum-single-row bounds remain. An admitted larger row travels alone. Metadata replay compares
+complete immutable rows and inserts only missing values; no per-row UPSERT or blanket IGNORE.
+Completion owns visibility after every window, so transaction boundaries do not redefine identity.
+Current overlapping writes are source-ordered; a future concurrent-overlap replay-success contract
+must address that ownership explicitly. This is an execution policy, not a speed measurement.
+
 ## 5. Shared operation mechanisms and efficient placement
 
 ### 5.1 Native access and request-local indexing
@@ -237,7 +248,11 @@ every selected grain. Scratch spill/columnar working data is derived and expires
 
 The pinned remote SDK does not expose a usable Arrow-payload path; native-to-Arrow means one
 field conversion, not zero-copy IPC. Use existing terminal-aware `NativeRows`; rows are provisional
-until statement and outer transport completion. Dependent outputs remain private and are discarded
+until statement and outer transport completion. Native scans materialize compact candidate keys,
+completed contributor IDs and deduplicated membership nodes once, then project directly from
+selected RecordIds; nested per-row membership subqueries are removed. LET scalar NONE results
+are handled locally while unexpected intermediate rows, every statement error/terminal and
+outer exhaustion remain checked. Dependent outputs remain private and are discarded
 on late failure. Server buffers, sort/group work and frame allocation are separate from client
 batch bounds; use selective field width and the actual server envelope rather than claim global
 memory safety from a small output limit.
@@ -365,8 +380,7 @@ the changed native boundary without becoming a second correction ledger.
 
 ## 8. Sole finding disposition
 
-All corrections below are **Open / Proposed**. Acceptance of a decision or this document is not
-verified closure. Source-review IDs retain their original scope; additional IDs below are this
+Catalog-speed F01–F05 and D01–D04 remain **Open** while integrated acceptance proceeds. The additional implementation-review F01 passed its original two-family cold-backing boundary; required projection/metadata families have reopened the broader backing boundary below. Bounded implemented/tested slices in §9.1 do not establish enclosing finding closure. Acceptance of a decision is not verified closure. Source-review IDs retain their original scope; additional IDs below are this
 plan's source-inspected defects, not retroactive edits to the original independent review.
 
 | Source / plan finding | Responsible component and packages | Required closure evidence |
@@ -380,6 +394,7 @@ plan's source-inspected defects, not retroactive edits to the original independe
 | **D02 — scalar original restore transfer**: `backup.rs:296–330` versus existing `original_bytes_batch` | Original range owner + restore, PG2/PG7 | Bounded coalesced restore uses shared verified range reads; ordered complete original-byte admission, hashes and late failure remain correct. |
 | **D03 — duplicate final response serialization**: `service.rs:124–143,236–250`, dispatch count/encode | Model wire + service/bridge, PG8 | Same final shape encoded once with tracked growth/exact cap; normal/retained paths and final delivery maps pass. Different envelopes and changed-shape stabilization remain intentional. |
 | **D04 — singleton Arrow conversion inside native batches**: `codec.rs:50–81`, loader and reconcile | Shared batch codec, PG2/PG5 | Each bounded type slice encoded once, correct aligned bodies/order including opaque binary; independently regenerated actual-state equality still rejects altered bytes/fields/edges. |
+| [Implementation-review F01](../design_review/reviews/design_review_persisted-graph-implementation_2026-10-07.md#f01) — retained non-graph backing fidelity | Native compiler state, PG1/PG5/PG7 | **Prior two-family boundary targeted Tested, 2026-10-07; broader backing closure reopened by required snapshot/metadata families:** `ef47b7c2` + `e73183dd` compare closed typed bodies, full nominal key/physical ID, exact canonical bytes/content and actual original-page digests. Owned `compiler_views` three controls passed (161.36s), including valid body/key/export-row alteration and coherent physical-original tamper. No singleton Arrow re-lowering or new ordinary rich-prefix pass. Whole publication/restore acceptance remains separate. |
 
 Retain source links and responsible owners when combining related corrections. Do not close F01
 solely on a native database rename, F02 on moving the same prefix work into an index builder, or
@@ -417,6 +432,70 @@ keep decision, all §8 obligations have closure evidence, stored state survives 
 paths are deleted, and targeted actual native/MCP/evaluator journeys plus affected leaves pass.
 Report stopped, failed and not_run evidence honestly. Update STATUS from that actual boundary.
 
+### 9.1 Current execution checkpoint, 2026-10-07
+
+PG0 is accepted through [ADR-0133](../adr/0133-persisted-graph-compilation.md). PG1–PG9
+production routes are integrated on main and independently source-reviewed. Final targeted
+compiler, publication, CLI and native/MCP/evaluator acceptance remains in progress. The plan
+owns enclosing finding closure; successful slices do not close it automatically. All worker
+ancestry is merged and only the main checkout remains.
+
+Functional commands below use `INSTA_UPDATE=no` and `UV_NO_SYNC=1`. Owned native commands run
+through `uv run --no-sync python /tmp/persisted-core-controls.py` or the committed
+`scripts/native_controls.py` launcher, with authenticated persistent disposable fixtures and
+private runtime configuration. They do not use or reset the operator store. Nextest selections
+use `--no-tests=fail` and serial test execution for native controls.
+
+| Actual command / selected boundary | Outcome, 2026-10-07 |
+|---|---|
+| `cargo test --release --locked -p lctx-model --test completed_views`; model lib `demand_tests` | **passed:** three exact-view/completion controls and one analytical demand control. |
+| `cargo nextest run --release -p lctx-model --lib --test serving_contracts` with the seven encoding/wire boundary selections | **passed:** seven exact encoding/cap/envelope controls; run `68035e40-13e7-4397-a16b-6e1360e91227`. |
+| `cargo nextest run --release --locked -p lctx-model --lib -E 'test(domain::record::contract_encoding_tests::)'` | **passed:** three independent declaration-vector controls; run `c5720523-175c-42d7-9bff-7fefe318fb10`. Stale expected vectors were corrected to include the already migrated UTF8 tag; production encoding/codebooks were unchanged (`2649cc71`). |
+| `uv run --no-sync pytest tests/scripts/test_verify.py -q` | **passed:** twelve launcher controls. Explicit Cargo targets replace family defaults, and temporary Cargo config is forwarded without changing committed profiles (`b29ae511`, `abbb746f`). |
+| `just ready` | **passed:** prerequisite preparation, including recheck after the native transport environment failure, before producer guards resumed. No environment synchronization while guards were live. |
+| Owned native `cargo nextest run --release --locked -p lctx-surrealdb --lib --test compiler_views --test native --test stream_reconciliation` | **passed:** 24 library, three view, two native and one stream controls after shared128-row native windows (`2aab0cc0`); run `18f1cb10-2a65-4e6c-a85e-feaeaf156dc6`, `/tmp/persisted-native-shared-window-controls.log`, 543.839s. Includes cold backing/original corruption, identical pending replay and conflicting membership rejection. An earlier exact closing-admission lifecycle control also **passed**. |
+| Owned core `cargo nextest run --release -p cpg-core --test facts_admission -E 'test(real_pyrefly_document_predecessor_uses_exact_completed_native_views)'` | **passed:** actual Pyrefly/document/Assemble predecessor in both profiles after correcting the ownerless fixture (`0a827712`); run `14ad5c0d-a9cc-4d33-8979-85f66a5e8e3a`, 163.241s. Not a whole-library pilot. |
+| `cargo check --locked -p cpg-core --tests --message-format short` | **passed:** after the unchanged async API gained a library-owned boxed driver (`3c00275e`), 1m53s. Two bounded preparation future erasures address Rust lifetime checking without copying rows/vectors. |
+| Selected27 core controls, temporary core-only O0 | **partial:** build passed, 15 unchanged controls passed; duplicate-demand fixture errors, O0 test-stack aborts and host ENOSPC interrupted the remainder. Exact log `/tmp/persisted-core-selected-o0-controls.log`, run `37cde719-021f-4410-b1da-0469a02a17d8`. Corrected/remaining boundaries are separate rows below. |
+| Core default-stack cancellation handoff | **passed after correction:** native write polling remains behind the native library's boxed boundary (`0aed7109`); run `3f9abc35-2fdb-4ee8-8dde-7e704a7c2c41`, 52.668s. |
+| Core distinct-edge sort and duplicate-follow selections | **passed after fixture repair:** 102800 genuine distinct edges retain the8MiB pool, plus independent duplicate-demand deduplication (`df2d462b`); run `422d1bfa-1b5d-407f-a2a0-4d7db2f44af1`, 58.767s. Both workspace-input controls also **passed**. |
+| Owned core `native_closure_selection` | **passed after correction:** shared write windows, documented128MiB gRPC ceiling and one-time compact selection/direct RecordId hydration preserve4099 rows, unrelated4MiB body, default stack/timeout,4MiB native read budget, pending exclusion, ordering, corrupt unrelated reference and stream-lifetime assertions. Run `43632f82-3b09-4b3f-ac13-94c7a87bb782`, `/tmp/persisted-core-native-materialized-closure.log`, 114.888s. Actual planner/physical-provider assertions also passed; no Binary-literal translation change was needed. Affected frozen/empty/corruption views also **passed**, three controls/449.743s, run `35f01136-50e6-452f-a68d-777ae4fb607c`; scanner correction `6cd9c8ae` was independently source-reviewed. |
+| `cargo nextest run --release -p lctx-serving --lib` with the23 pure selected-row/delivery/original controls | **passed:** 23 controls; run `91fb0224-5923-4ab5-9798-a54b96592ec9`, 0.237s. Native capability union remains pending. |
+| `cargo build --release --locked -p lctx-semantics`, direct editable extension installation/import | **passed:** final complete-backing/model source built in3m08s and the installed editable extension imported in a guard-free gap; `/tmp/persisted-python-native-complete-backing-build.log`. No wheel or environment synchronization. Publication, CLI and MCP journey targets also built earlier; build-only success is not runtime acceptance. |
+| External publication/backup/restore journey | **failed before correction:** compilation on the old nested scanner refused a request before reaching publication, `/tmp/persisted-publication-controls.log`, 761.92s. **failed at backing coverage:** rerun with corrected scanner reached the omitted projection snapshot chunk schema arm after1647s, `/tmp/persisted-publication-materialized-controls.log`. The shared backing correction precedes the next run; neither attempt reached external transport acceptance. |
+| Analytical/empty driver selections | **failed / corrected empty boundary:** two compound analytics controls hit the runner300s cap without assertion/native errors; the empty control found omitted snapshot backing. After the backing schema correction, empty input reached an obsolete producer-label receipt lookup. Snapshot views now have neutral attribution and actual producer identity is contribution-owned; model/core lookups now use exact relation views; the fresh empty control passed below. Log `/tmp/persisted-core-driver-materialized-controls.log`; no analytical acceptance from these attempts. |
+| Required non-graph backing and neutral completed-view receipts | **passed:** declaration-derived88-family inventory replaces the manual two-arm schema/scanner (`bd29b7ae`). Pure both-profile neutral-view receipt control passed. Final owned `compiler_backing` two controls plus `normalized_generation::empty_captured_scope_completes_explicit_no_scope_and_empty_snapshots` passed, run `bcbb56c1-7069-41a0-a25b-7b0a22666f38`, `/tmp/persisted-native-backing-neutral-empty-controls.log`,303.851s after2m50 build. Covers actual1MiB opaque snapshot payload, >8MiB serialized state envelope and singleton import under the unchanged64MiB bound; coherent negative-zero body/canonical/content tamper fails model regeneration before membership checking. Empty compilation retains explicit no-scope and exact snapshot receipts. Independent source review accepted both the shared backing extension and the core/model receipt migration; producer attribution remains contribution-owned. |
+| CLI early option/configuration/destination refusals | **passed after correction:** `cargo nextest run --release --locked -p lctx --bin lctx --test compile_artifact` selecting three refusal controls plus two `compile_options::tests` controls; run `a9fa4537-c4e9-4ced-b5e5-db35c92c0475`, `/tmp/persisted-cli-preflight-controls.log`,0.062s after2m46 build. Earlier selection had two passes and one failure: lower-frontier flags were masked by missing runtime configuration. Shared `validate_frontier` now runs before native setup and is reused by option preparation; no native compiler/model change. Native missing-store refusal later passed below; final both-profile/frontier acceptance remains pending. |
+| Native runtime progress diagnosis | **stopped diagnostic, not accepted:** `/tmp/persisted-publication-complete-backing-controls.log` and `/tmp/persisted-core-final-six-controls.log` were stopped by terminating only their owned Rust children after bounded GDB snapshots. Publication was synchronously polling `NativeBatches` from normalization coverage on its current-thread client runtime. Locked SurrealDB3.3/tonic0.14.6 source confirms the connection background worker stays on its creation runtime; moving request futures does not migrate it. Coverage now awaits the existing async availability path. The analytic fixture uses a permanent two-worker client runtime; its epoll snapshot does not establish the same cause, and source inspection found no `wait_scans` cycle in normalized admission. The fresh separate analytic diagnostic has reached marked reference and invariant admission checks and continues advancing; no separate deadlock has been established. Temporary source logging was removed after locating that stage. Both fresh older-source diagnostic binaries were then stopped after the final focused native controls passed; only owned Rust children were terminated, both wrappers exited101 and tore down their fixtures. Logs `/tmp/persisted-publication-async-coverage-controls.log` and `/tmp/persisted-core-admission-diagnostic.log` are stopped diagnostics, not acceptance. No separate admission deadlock or measured latency cause was established. No assertion, query timeout, test flavor or model contract was relaxed. |
+| Incremental union counts and canonical/cold graph selection | **implemented / focused verification pending:** completion probes at most128 new keys against exact prior physical contributors during the necessary ordered content fold; it no longer invokes a correlated prior-membership subquery for each current row. Canonical scans select completed memberships, one-hop entity aliases and physical family IDs once before payload hydration. Cold view cardinality audit similarly resolves contributors once while retaining its independent membership scan. Both scan forms share statement/error finality handling. Actual `compiler_views` controls **passed** for multi-window overlapping contributors/frozen views/empty output (69.80s) and canonical family/one-hop alias selection (62.45s), `/tmp/persisted-native-window-controls.log`, after1m54 build. Independent exact-source review accepted the counting/selection/finality changes. A further shared shortcut preserves authority/view/field/projection validation for explicit empty keys/fields and unfiltered zero-row views; arbitrary SQL keeps normal execution. The selected provider lowers known empty intersections to explicit empty keys. The focused empty-read view/refusal/lifecycle control **passed** (65.01s), `/tmp/persisted-native-empty-controls.log`; the existing pending/frozen/selected/state-transport control also **passed** (126.89s) on that final source. Final direct native extension build passed (1m35s); atomic direct installation and fresh import/process exit passed in the subsequent owned guard-free gap, without a wheel or environment synchronization. The first install command overwrote the library mapped by its own importer and exited139 after a successful child import; the corrected installer obtains the path in a finished subprocess and atomically replaces the file before fresh-process validation. This was an installer lifecycle failure, not a passed command. This is qualitative work reduction, not a measured speed claim. |
+| `cargo check --locked -p cpg-core --tests --message-format short`, final async coverage/query changes | **passed:**1m05s, `/tmp/persisted-core-final-async-check.log`; temporary admission diagnostics were removed from final source. |
+| Current-source native CLI and capability controls | **partial:** missing-store refusal passed (0.09s) and actual native capability-union document isolation passed (50.88s), `/tmp/persisted-final-cli-capability.log`. Unchanged CLI frontier control passed Catalog Facts/Normalized, then its Analysis child main thread overflowed under temporary coreO0 with the default OS stack; runner exited101 after565.04s. `RUST_MIN_STACK` covers spawned test threads, not CLI main. The same eight cases are rerunning with child-only32MiB `RLIMIT_STACK`, without a committed runtime/build change. This is functional O0 evidence, not default production stack or performance evidence. |
+| Final non-functional leaves, first execution | **passed:** types, agent instructions,193 fixture parses, gold alignment and both rule controls. **failed:** Ruff formatting/import findings, stale ADR index (also blocks docs publication), stale generated Hakari features, and one manual-clamp Clippy finding. The read-only SQL planning test in the lower foundation could not depend upward on core's helper; it now supplies explicit read-only options under one scoped rule suppression, and `just rules-scan` rerun passed. Clamp expression was corrected equivalently. Formatting/ADR/Hakari regeneration remains at final `just turn-end`; failed leaves will rerun. Logs `/tmp/persisted-final-leaves.log`, `/tmp/persisted-final-clippy.log`, `/tmp/persisted-final-rules-rerun.log`. |
+| All-target source integration and affected pure controls | **passed after correction:** `UV_NO_SYNC=1 just clippy`, `/tmp/persisted-final-clippy-sixth.log`,6.38s final cached rerun. Earlier failures exposed native/core/serving lint findings and stale test integration: two `SourceSnapshot.content` getters, `Workspace.content`, and an extra native-store argument in the shared provider test driver. Tests now consume exact view/workspace identities and the driver creates one store. Contiguous bounded canonical batches remain intentional with a specific allocation rationale. `cargo test --release --locked -p lctx-model --test analysis_expected` passed five controls (0.03s), `/tmp/persisted-model-analysis-views.log`; model `domain::serving::dispatch::encoding_tests` passed three controls (0.00s), `/tmp/persisted-final-encoding-controls.log`; native `compiler_provider::tests::textual_predicates_push_down_before_projection` passed (0.00s), `/tmp/persisted-final-read-only-planning-control.log`. These are pure/source boundaries, not native integrated scope acceptance. |
+| Locked native planner and exact point-selection correction | **implemented / focused native controls passed:** locked SurrealDB3.3 source (`exec/index/analysis.rs`, select/dynamic scan) only extends compound equality prefixes through singleton `IN`; existing relation candidates prevent its separate multi-value expansion. The shared reader and overlap count now reuse writer-derived deterministic membership RecordIds, bounded128 physical pointers, verified logical-to-physical contributor metadata, and deduplication before payload hydration. Key demand survives provider lowering as `KeysSql`; residual filters run on the exact selected payloads. Recognized atomic-field selection excludes the competing family-prefix index through `WITH INDEX by_scope`, uses at most32 containment values per indexed selection, then deduplicates/orders candidate keys before exact membership point reads. Field-only provider demand is consumed once, preventing repeated full field demand across transfer windows. General SQL/non-atomic fields keep their existing compact candidate route; no generic index claim is made. Independent correctness review found two missing obligations: partial candidate keys must survive cancelling/resuming `next()`, and cold admission must establish the deterministic membership ID. Both are corrected in the shared owner; cold identity validation joins the already necessary contribution membership fold/import checks. New actual native controls cover large keys/fields, frozen overlap, projection/residual filtering and coherent membership renaming. The initial large-field control failed on candidate ordering; an explicit deduplicated/grouped ordered key selection corrected it. The borrowed rerun passed five controls, then its last three lost transport when the enclosing CLI fixture closed; that run was not a suite pass. Fresh dedicated `cargo test --release --locked -j1 -p lctx-surrealdb --test compiler_views -- --nocapture --test-threads=1` passed all eight controls (647.45s), `/tmp/persisted-point-native-owned-final.log`, including both new controls and actual state/original transport. Correctness review corrections are implemented; cancellation-resumption has source-reviewed ownership evidence, without a timing-based test claiming to isolate partial gathering. Source diagnosis establishes a physical mismatch, not its share of elapsed compilation time or a Measured speed benefit. |
+| Final compiler control environment and current-build preparation | **failed / stopped:** `/tmp/persisted-core-final-five.log` recorded an O0 test-thread8MiB overflow in `default_off_is_explicit_in_both_profiles`; the following selected analytics case was stopped together with its owned loop before continuing on that setup. Wrapper exited143 and tore down its fixture. The fresh rerun will use temporary child-only32MiB spawned-thread/main stacks on the corrected native source, with unchanged assertions and production settings. `cargo build --release --locked -p lctx-semantics` passed2m39s, `/tmp/persisted-python-native-integrated-final-build.log`; publication/native-journey targets also built, `/tmp/persisted-final-native-journey-build.log`. These preceding-source builds are not final query-correction runtime acceptance. `UV_NO_SYNC=1 just ready` passed after the stack-shaped environment failure without environment synchronization. |
+| Final CLI stack rerun and current development bridge | **failed / partial, before point-read correction:** the unchanged CLI cases completed all four Catalog frontiers and Behavioral Facts/Normalized; Behavioral Analysis failed with unconfirmed cleanup after3830.82s, `/tmp/persisted-cli-frontiers-main-stack.log`. This did not establish a server-death cause; its original failure was obscured by cleanup. The CLI now reports original and cleanup errors together. No assertion, timeout or fixture budget was relaxed. Final point-source `cargo build --release --locked -p lctx-semantics` passed1m29s, `/tmp/persisted-python-native-point-final-build.log`; atomic direct installation and fresh-process import/exit passed before Python producer/consumer guards resumed. `UV_NO_SYNC=1 just ready` passed, `/tmp/persisted-point-final-ready.log`. The fresh actual native/MCP/evaluator and selected compiler controls are running with matching query source and temporary32MiB O0 spawned-thread stacks; no wheel or environment synchronization is involved. |
+| Actual native MCP journey on point-source | **failed:** both finite native journeys completed compilation, admission and direct sealing, then `get_operation` refused canonical evidence. `/tmp/persisted-point-final-mcp-evaluator.log`,1451.62s; Python MCP/evaluator followups were not reached. Source diagnosis found semantic role names passed to physical flattened `SignatureTypeSubject` field selection. The shared serving caller now selects canonical Parameter/Return subject IDs before typed observation postings (`acc1d0ef`). The independent finite `signature_typing_selection_distinguishes_sum_ports_and_preserves_observations` passed (0.00s after2m27 build) under the temporary coreO0 control configuration; includes equal raw bytes across roles, multiple observations and missing/foreign ports. Source review accepted the correction, and the bounded direct caller-pattern check found no matching second sum-field mismatch. Actual journey rerun remains pending; no validator is relaxed. |
+| Atomic scope planning and grouped forward fields | **implemented / native rerun pending:** actual owned3.3 `EXPLAIN` showed inline `map` and concatenation/cast expressions produce `TableScan` despite the scope index hint. A preceding compact `LET` yields `IndexScan` on `by_scope`; this is plan-shape evidence, not elapsed-time attribution or a speed measurement. Atomic field windows and DataFusion Eq/IN lowering now prepare native scope constants before selection, retaining schema-owned native string casts and all statement terminals. Shared closure projects each source/frontier's unique forward fields once while retaining typed target epochs and separate indexed reverse reads. Independent source review accepted the grouping and its finite null/shared-target/epoch control; core and test compile checks passed before final helper cleanup. The first prepared-index large-field control passed71.13s; subsequent compact residual preparation and mandatory DataFusion Eq/IN driver retention passed in the final expanded rerun below. The pinned planner ranks prepared family/scope compound prefixes equally, so recognized mandatory atomic Eq/IN uses the explicit field driver/index; arbitrary OR/SQL retains general execution. The expanded actual native control checks Eq/IN/OR filters under frozen, nominal and field selections. Both actual native closure controls passed173.38s on the corrected grouped source (`/tmp/persisted-prepared-native-controls.log`), including unchanged4099 rows/4MiB transfer and the new null/shared-target/distinct-epoch case. Expanded atomic Eq/IN/OR control passed70.71s (`9d7f4d27`, `/tmp/persisted-expanded-atomic-filter-controls.log`), covering frozen-only, nominal and field-bound providers with exact ordered expected rows. Grouped closure is committed as `af9a0339`. Current development bridge build passed23.74s and atomic installation/fresh-process import passed (`/tmp/persisted-python-native-prepared-build.log`, `/tmp/persisted-native-prepared-install.log`). Twelve launcher controls passed after adding immediate MCP failure output. The preceding32MiB compiler loop was stopped on its confirmed exact child/loop and its wrapper exited143/cleaned its store, so it cannot establish acceptance; the fresh loop uses current prepared native operations. |
+| Final-source all-target Clippy | **passed:** `UV_NO_SYNC=1 just clippy`, `/tmp/persisted-prepared-final-clippy.log`,1m29s on the prepared-query/grouped-forward/serving-port source. The preceding one collapsible conditional was corrected without changing drain ownership. Functional journeys and final generated/docs leaves remain separate. |
+| Both-profile/frontier controls; external transport rerun; CLI; native capability union; MCP/programmatic evaluator; applicable leaves | **pending:** final integration acceptance. |
+
+Functional core controls use the explicit temporary
+`--config 'profile.release.package.cpg-core.opt-level=0'`; other workspace O2 and dependency O3
+settings remain unchanged. Two optimized code-generation attempts were stopped before runtime
+without compiler errors; they are readiness observations, not catalog measurements. GDB localized
+O0 entry frames: native write polling was corrected at its library boundary; full-driver controls
+use child-only `RUST_MIN_STACK=8388608` for the temporary unoptimized driver. Neither change alters
+committed build profiles or runtime stack settings. There is no speed claim from these timings.
+
+Host space was restored after owned fixture teardown; only two confirmed inactive obsolete IPC/
+spill scratch directories were removed. Shared caches, benchmark captures and unrelated host
+processes remain preserved. The independent implementation review's original two-family cold
+non-graph F01 has targeted Tested evidence; the fresh30 native controls above retain its actual
+corruption checks. Broader required backing coverage remains under final targeted verification.
+Enclosing publication/transport and whole-plan acceptance remain separate. Real FastMCP/Q1 pilots,
+live Qwen qualification, protected evaluation activation, operator adoption and push remain held.
+
 ## 10. Library fit, remaining investigations and future change
 
 The comprehensive neo4j-surrealdb skill research from the source review was reused, then deepened
@@ -428,7 +507,8 @@ contracts. No new dependency, backend or server configuration is selected in thi
 | Capability / alternative | Selected placement and limit |
 |---|---|
 | Indexed RecordIds, compound predicates, native sets/adjacency | Shared selected access over completed membership. Full nominal closure remains exact batched one-hop plus Rust visited set. |
-| gRPC SDK streaming | Reuse `stream_items` and existing statement/transport finality. Native projected Values enter generated Arrow builders; pinned SDK rejects unsolicited Arrow payloads. [Exact source](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/src/engine/remote/grpc.rs#L748-L764). |
+| Query executor/planner | Exact3.3.0 source inspection, 2026-10-07: gRPC streaming reaches the executor's new planner under the default best-effort strategy, with legacy fallback for unsupported/unimplemented planning. The fixture does not override this default. Nominal reference Eq/IN already lowers to indexed prefixed `scope_keys CONTAINS` predicates. This establishes the implemented route, not a particular chosen index or absence of fallback for every query. No mandatory per-query proof is added. [Server default](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/server/src/dbs/mod.rs#L295), [gRPC streaming route](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/server/src/rpc/grpc.rs#L1609). |
+| gRPC SDK streaming and message limits | Reuse `stream_items` and existing statement/transport finality. Native projected Values enter generated Arrow builders; pinned SDK rejects unsolicited Arrow payloads. The SDK follows the advertised server message ceiling. The managed deployment and owned fixture require `SURREAL_GRPC_MAX_MESSAGE_SIZE=128MiB` for the existing64MiB native single-row bound plus framing; transactions retain row/byte limits. Operator deployment remains held. [Exact SDK source](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/src/engine/remote/grpc.rs#L748-L764), [server configuration](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/server/src/cnf/mod.rs). |
 | Index maintenance and build timing | Compiler/enforcement indexes early; serving-only secondary indexes after load with a checked synchronous barrier. [Official index documentation](https://surrealdb.com/docs/reference/query-language/statements/define/indexes); exact versioned source/test evidence is in the source review. |
 | INLINE selectors / INLINE EDGES | Classic attributed edges and their existing indexes are initial storage. Investigate narrow INLINE field/role/position selectors only if a migrated query has a material hydration issue; test fallback/missing/null/multiplicity. Do not add table-wide adjacency caches by default. |
 | LIGHTWEIGHT / `+collect` / import shortcut | Not replacements for attributed exact relationships, full-key closure or checked loading. Preserve the source review's capability limits. |
@@ -454,21 +534,15 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-07: plan authoring/static investigation only.** No production changes, operator actions,
-new compilation, product tests, performance probes or dependency moves were performed for this
-document. Existing current-tree receipts retain their original boundaries. All PG packages and
-§8 corrections remain Open / Proposed. The independent
+**2026-10-07: execution in progress.** Native compiler and adjacent shared operations are on
+main; current targeted receipts and remaining checks are in §9.1. The independent
 [target-plan review](../design_review/reviews/design_review_persisted-graph-execution-plan_2026-10-07.md)
-accepted the architecture and dependency sequence at Proposed/static-inspected strength, with
-no additional blocking findings. Its deferred-reference, frozen-universe, exact-statistics and
-complete-body preservation obligations constrain PG1/PG2.
+accepted the Proposed architecture. Its frozen-universe, deferred-reference, exact-statistics
+and complete-body obligations remain binding during implementation. Source acceptance and
+bounded successful controls do not establish the whole pivot or measured compilation speed.
 
-Documentation controls, 2026-10-07: **passed** `UV_NO_SYNC=1 just docs-check` (329 canonical
-pages; zero link errors after correcting one section anchor), **passed**
-`UV_NO_SYNC=1 just lint-agents`, and **passed** `git diff --check`.
-Logs: `/tmp/lctx-persisted-graph-plan-docs-check.log` and
-`/tmp/lctx-persisted-graph-plan-agents-check.log`. These establish proposal/publication quality,
-not implementation. Product builds, tests and pilots are **not_run** for this documentation scope.
-
-Next: execute PG0–PG2's real shared foundations before dependent compiler and consumer migration.
-No clean-tree claim is made for the preexisting open edits; preserve them during execution.
+Next: complete the final targeted compiler,
+publication/transport, native/MCP/evaluator journeys; resolve independent review findings;
+then update §8 dispositions, architectural labels and supporting documents, run applicable
+leaves and close out. Fully merged worker worktrees and branches have been removed.
+Preexisting related open documentation edits are preserved; no push is requested.
