@@ -278,6 +278,7 @@ mod controls {
         let loader = Loader::new(client.clone());
         loader.install(&crate::native_definitions()).await.unwrap();
         let mut assertions = Vec::new();
+        let mut documents = Vec::new();
         let mut briefs = Vec::new();
         for (byte, text) in [(1u8, "first brief"), (2, "second independent brief")] {
             let brief = Brief {
@@ -292,18 +293,20 @@ mod controls {
                 documentation_only: true,
             };
             assertions.push(graph::Assertion::from_record(brief.clone()).unwrap());
-            assertions.push(
-                graph::Assertion::from_record(BriefDocument {
+            let document = graph::Assertion::from_record(BriefDocument {
                     brief: brief.id(),
                     ordinal: 0,
                     text: text.into(),
                 })
-                .unwrap(),
-            );
+                .unwrap();
+            assertions.push(document.clone());
+            documents.push(document);
             briefs.push((brief, text));
         }
         loader.assertions(&assertions).await.unwrap();
-        loader.assertion_references(&assertions).await.unwrap();
+        // Brief seeds are intentionally absent in this packet-only cohort fixture.
+        // Retain the real document-to-brief ownership edges used by union hydration.
+        loader.assertion_references(&documents).await.unwrap();
         let handle = SnapshotHandle {
             semantic: ContentHash::of(b"partial brief fixture"),
             realization: lctx_surrealdb::schema::realization_identity(&crate::native_definitions()),

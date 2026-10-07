@@ -396,7 +396,7 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
                 "full_key='changed'",
                 "policy_key='changed'",
                 "embedding[0]=0.0,embedding[2]=1.0",
-                "embedding[1]=0.0",
+                "embedding[0]=0.5",
             ]
         } else {
             vec![
