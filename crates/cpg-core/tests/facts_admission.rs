@@ -138,7 +138,7 @@ async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
         let capture=captured(b"def f(x):\n    \"\"\"Return x.\"\"\"\n    return x\n",true,profile,&resources);
         let workspace=Workspace::with_budget(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:resources.limit(),batch_rows:17,..Default::default()},resources,crate::native_fixture::store()).unwrap();
         let providers=cpg_core::facts::providers(ContentHash::of(b"real-native-predecessor"))
-            .into_iter().filter(|provider|[cpg_extract::acquisition::ACQUIRE,cpg_extract::pyrefly_stage::PYREFLY,cpg_extract::document_parser::DOCUMENTS].contains(&provider.declaration(profile).name)).collect();
+            .into_iter().filter(|provider|[cpg_extract::acquisition::ACQUIRE,cpg_extract::pyrefly_stage::PYREFLY,cpg_extract::document_parser::DOCUMENTS,cpg_extract::assembly::ASSEMBLE].contains(&provider.declaration(profile).name)).collect();
         cpg_core::facts::compile_facts(&workspace,&capture,profile,providers,Default::default()).await.unwrap();
         assert!(!rows::<lctx_model::domain::documents::PassageObservation>(&workspace).is_empty());
         let completed=workspace.native().contributions().await.unwrap();
@@ -150,7 +150,7 @@ async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
         assert_eq!(source.view(),view.view_identity());
         assert!(view.view().contributions.contains(&predecessor.identity().unwrap()));
         let native=workspace.native().completed_state().await.unwrap();
-        assert_eq!(native.contributions,3);
+        assert_eq!(native.contributions,4);
         workspace.drain().await.unwrap();
     }
 }
