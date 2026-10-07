@@ -52,9 +52,19 @@ class NativeReference:
     def rows(self, sql: str) -> list[dict[str, Any]]:
         try:
             result = subprocess.run(
-                [str(self.binary), "snapshot", "--runtime-config", str(self.runtime),
-                 "query", sql, "--handle", str(self.handle)],
-                check=False, capture_output=True, timeout=30,
+                [
+                    str(self.binary),
+                    "snapshot",
+                    "--runtime-config",
+                    str(self.runtime),
+                    "query",
+                    sql,
+                    "--handle",
+                    str(self.handle),
+                ],
+                check=False,
+                capture_output=True,
+                timeout=30,
             )
         except subprocess.TimeoutExpired as error:
             raise WorkerError("native reference query timed out") from error
@@ -98,7 +108,10 @@ def _full(payload: str) -> list[float]:
 
 
 def native_numeric_reference(
-    worker: Worker, native: NativeReference, *, k: int = 4,
+    worker: Worker,
+    native: NativeReference,
+    *,
+    k: int = 4,
     cohort: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Exhaust one admitted eligible cohort of <=256 rows and compare actual ANN.
@@ -118,14 +131,26 @@ def native_numeric_reference(
         )
         if not found:
             raise WorkerError("native reference has no eligible admitted vector cohort")
-        cohort = {key: found[0][key] for key in ("encoder_hash", "policy_key", "library_input", "family")}
+        cohort = {
+            key: found[0][key] for key in ("encoder_hash", "policy_key", "library_input", "family")
+        }
     if set(cohort) != {"encoder_hash", "policy_key", "library_input", "family"}:
         raise WorkerError("invalid native reference cohort")
-    if any(not isinstance(cohort[key], str) for key in ("encoder_hash", "policy_key", "library_input")) or type(cohort["family"]) is not int:
+    if (
+        any(
+            not isinstance(cohort[key], str)
+            for key in ("encoder_hash", "policy_key", "library_input")
+        )
+        or type(cohort["family"]) is not int
+    ):
         raise WorkerError("invalid native reference cohort values")
-    predicates = " AND ".join(
-        f"{key}={_quoted(cohort[key])}" for key in ("encoder_hash", "policy_key", "library_input")
-    ) + f" AND family={cohort['family']}"
+    predicates = (
+        " AND ".join(
+            f"{key}={_quoted(cohort[key])}"
+            for key in ("encoder_hash", "policy_key", "library_input")
+        )
+        + f" AND family={cohort['family']}"
+    )
     eligibility = (
         "array::len((SELECT VALUE id FROM vec_occurs WHERE in=$parent.id AND eligible=true "
         f"AND family={cohort['family']} AND scope_input={_quoted(cohort['library_input'])} LIMIT 1))>0"
@@ -141,14 +166,14 @@ def native_numeric_reference(
         raise WorkerError("invalid canonical full key")
     full: dict[str, list[float]] = {}
     for start in range(0, len(keys), 32):
-        selected = json.dumps(keys[start:start + 32])
+        selected = json.dumps(keys[start : start + 32])
         batch = native.rows(
             "SELECT semantic_key, encoding::base64::encode(canonical,true) AS canonical FROM entity "
             f"WHERE semantic_type='embedding_full_values' AND semantic_key IN {selected} ORDER BY semantic_key"
         )
         for record in batch:
             key = record["semantic_key"]
-            if key not in keys[start:start + 32] or key in full:
+            if key not in keys[start : start + 32] or key in full:
                 raise WorkerError("duplicate or foreign canonical full row")
             full[key] = _full(record["canonical"])
     if set(full) != set(keys):
@@ -173,20 +198,36 @@ def native_numeric_reference(
         f"{json.dumps(rows[0]['embedding'], allow_nan=False)}"
     )
     nominated = [row["vector_id"] for row in ann]
-    if not nominated or len(set(nominated)) != len(nominated) or any(key not in ids for key in nominated):
+    if (
+        not nominated
+        or len(set(nominated)) != len(nominated)
+        or any(key not in ids for key in nominated)
+    ):
         raise WorkerError("native ANN returned empty, duplicate or foreign scope")
-    reference = stored_vector_reference(worker, {
-        "policy": {"full_dimensions": 4096, "projection_dimensions": 1024,
-                   "block_rows": 32, "k": k},
-        "query": query,
-        "vectors": [{"id": row["vector_id"], "values": full[row["full_key"]], "eligible": True} for row in rows],
-        "nominated_ids": nominated,
-    })
+    reference = stored_vector_reference(
+        worker,
+        {
+            "policy": {
+                "full_dimensions": 4096,
+                "projection_dimensions": 1024,
+                "block_rows": 32,
+                "k": k,
+            },
+            "query": query,
+            "vectors": [
+                {"id": row["vector_id"], "values": full[row["full_key"]], "eligible": True}
+                for row in rows
+            ],
+            "nominated_ids": nominated,
+        },
+    )
     return {
-        "snapshot": native.snapshot, "cohort": cohort,
+        "snapshot": native.snapshot,
+        "cohort": cohort,
         "population_scope": "complete eligible admitted rows in this declared native cohort",
         "query_basis": "retained document full4096 winner, numerical control only",
-        "inference_started": False, "native_ann": ann,
+        "inference_started": False,
+        "native_ann": ann,
         "native_nomination_basis": "actual indexed HNSW1024, residual eligible occurrence, k/ef128",
         "reference": reference,
     }

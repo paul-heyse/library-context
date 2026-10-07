@@ -20,6 +20,8 @@ def test_actual_stored_cohort_full_projection_ann_and_union_without_inference():
         assert result["inference_started"] is False
         assert result["reference"]["eligible_rows"] >= 2
         assert result["reference"]["supplied_population_complete"] is True
-        assert result["reference"]["full"][0]["id"] in {row["vector_id"] for row in result["native_ann"]}
+        assert result["reference"]["full"][0]["id"] in {
+            row["vector_id"] for row in result["native_ann"]
+        }
         assert result["reference"]["candidate_union_rescored"]
         assert result["snapshot"] == native.snapshot
