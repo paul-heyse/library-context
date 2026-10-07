@@ -399,6 +399,7 @@ impl<'a> Session<'a> {
                     )
                     .into());
                 }
+                if winner.admitted_tokens>spec.max_document_tokens {self.refuse(*key,Refusal::TokenLimit {tokens:winner.admitted_tokens as usize,limit:spec.max_document_tokens})?;continue;}
                 self.insert(AdmittedValue::new(
                     &spec,
                     request,

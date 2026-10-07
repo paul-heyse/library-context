@@ -497,6 +497,11 @@ impl InvariantCheck for Check {
         each!(TextWindow, row, {
             self.window(row)?;
         });
+        each!(value::FullValue,row,{
+            let encoder=self.metadata.specification()?.clone();let policy=self.metadata.policy()?.clone();
+            self.metadata.values.admit_full(&row,&encoder,&policy)?;
+        });
+        each!(ProjectedValue,row,{self.metadata.values.admit_projection(&row)?;});
         each!(AnalysisEmbeddingUse, row, {
             self.consumed(row)?;
         });

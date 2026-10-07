@@ -1,8 +1,7 @@
 //! Compact semantic manifest from completed owners. Diagnostics and physical realizations do not
 //! enter identity; nominal outcomes and exact consumed embedding values do.
 use crate::workspace::Workspace;
-use datafusion::arrow::array::{Array, BinaryArray};
-use futures::TryStreamExt;
+use datafusion::arrow::array::Array;
 use lctx_model::domain::{
     self as d,
     admission::Frontier,

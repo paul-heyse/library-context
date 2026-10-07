@@ -165,9 +165,15 @@ impl NativeService {
                         "query embedding specification or rendered input mismatch".into(),
                     ));
                 }
+                let policies=self.reader.records::<embedding::projection::ProjectionDefinition>(RecordSelection::Keys(vec![*v.projection.bytes()])).await.map_err(failure)?;
+                let policy=policies.first().ok_or_else(||WireError::Invalid("query projection is not admitted".into()))?;
+                policy.validate().map_err(failure)?;
+                if policy.dimensions!=1024 || v.recipe.max_tokens>8192 {return Err(WireError::Invalid("unsupported query projection/admission policy".into()));}
                 VectorChannel::Available {
                     spec: v.spec,
                     query_vector: embedding::value::value_digest(&v.vector),
+                    query_recipe:v.recipe.identity(),
+                    projection:v.projection,
                 }
             } else if unavailable && query.is_some() {
                 VectorChannel::Degraded {

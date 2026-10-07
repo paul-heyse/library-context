@@ -199,7 +199,7 @@ pub async fn produce(
         if let Some(service) = service.as_mut() {
             let specification = metadata.specification()?;
             let document = metadata.document()?;
-            let projection = metadata.policy()?
+            let projection = metadata.policy()?;
             let query = format!(
                 "SELECT window_row.* FROM \"{windows}\" window_row JOIN \"{assessments}\" assessment ON assessment.id=window_row.assessment WHERE assessment.input={} AND assessment.context={} ORDER BY window_row.id",
                 key_literal(input.bytes()),

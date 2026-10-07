@@ -12,7 +12,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 use futures::TryStreamExt;
-use lctx_model::domain::{ContentHash, HeapSize, ModelError, Record, Relation, graph::*};
+use lctx_model::domain::{ContentHash, HeapSize, Id, ModelError, Record, Relation, graph::*};
 use lctx_model::domain::{charged::StateCharge, resources::ResourceBudget};
 use std::{
     collections::{BTreeMap, BTreeSet},

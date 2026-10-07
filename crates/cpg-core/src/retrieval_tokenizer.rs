@@ -13,13 +13,13 @@ impl LocalTokenizer {
     pub fn load_verified(root:&Path,spec:&crate::embedding_service::Spec)->Result<Arc<Self>,ModelError> {
         use sha2::{Digest as _,Sha256};
         let manifest=std::fs::read(root.join("SHA256SUMS")).map_err(ModelError::codec)?;
-        let revision=format!("sha256:{}",hex::encode(Sha256::digest(&manifest)));
+        let revision=format!("sha256:{}",ContentHash(Sha256::digest(&manifest).into()).hex());
         if revision!=spec.tokenizer_revision {return Err(invalid("selected tokenizer manifest differs from encoder"));}
         let text=std::str::from_utf8(&manifest).map_err(ModelError::codec)?;
         for name in ["tokenizer.json","tokenizer_config.json","config.json"] {
             let expected=text.lines().find_map(|line| {let (hash,path)=line.split_once(char::is_whitespace)?;(path.trim().trim_start_matches('*')==name).then_some(hash)}).ok_or_else(||invalid("tokenizer asset absent from selected manifest"))?;
             let bytes=std::fs::read(root.join(name)).map_err(ModelError::codec)?;
-            if hex::encode(Sha256::digest(bytes))!=expected {return Err(invalid("acquired tokenizer asset checksum mismatch"));}
+            if ContentHash(Sha256::digest(bytes).into()).hex()!=expected {return Err(invalid("acquired tokenizer asset checksum mismatch"));}
         }
         Self::load(&root.join("tokenizer.json"),&root.join("tokenizer_config.json"),&spec.document_template)
     }
