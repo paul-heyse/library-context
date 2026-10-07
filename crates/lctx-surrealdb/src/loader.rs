@@ -349,8 +349,9 @@ fn require_row(bytes:usize,limits:lctx_model::domain::batching::TransferLimits)-
 }
 /// Indexed native writes have a smaller transaction target than logical Arrow transfers.
 /// Compiler, loading and retained-state import share these row/byte/max-row bounds.
+pub(crate) const NATIVE_WINDOW_ROWS:usize=128;
 pub(crate) struct NativeWindows {rows:std::iter::Peekable<std::vec::IntoIter<Value>>,limits:lctx_model::domain::batching::TransferLimits}
-impl NativeWindows {pub(crate) fn new(rows:Vec<Value>)->Self{Self{rows:rows.into_iter().peekable(),limits:lctx_model::domain::batching::TransferLimits{rows:128,..Default::default()}}}}
+impl NativeWindows {pub(crate) fn new(rows:Vec<Value>)->Self{Self{rows:rows.into_iter().peekable(),limits:lctx_model::domain::batching::TransferLimits{rows:NATIVE_WINDOW_ROWS,..Default::default()}}}}
 impl Iterator for NativeWindows {
     type Item=Result<Vec<Value>,ModelError>;
     fn next(&mut self)->Option<Self::Item>{

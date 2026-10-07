@@ -181,3 +181,125 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     assert!(store.check().is_err());
     store.abandon().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn overlapping_membership_windows_count_distinct_keys_across_contributors() {
+    let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config=RuntimeConfig::read(&path).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let relation=Relation::of::<Package>();
+    let mut views=BTreeMap::new();
+    let mut frozen=Vec::new();
+    for (producer,range,expected) in [("a",0..200,200),("b",120..400,400),("c",150..450,450),("empty",0..0,450)] {
+        let mut specification=spec(producer,&relation);
+        if let Some(view)=views.get(relation.name()) {
+            specification.inputs.push(lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&relation,specification.model,view).unwrap());
+        }
+        let contribution=store.begin_contribution(specification).await.unwrap();
+        let rows=range.rev().map(|index|Package{name:format!("window-{index:04}")}).collect::<Vec<_>>();
+        if !rows.is_empty(){store.write_batch(&contribution,&relation,&Package::encode(&rows).unwrap()).await.unwrap();}
+        views=store.complete_contribution(contribution,ProviderOutcome::Complete,std::slice::from_ref(&relation),&views).await.unwrap();
+        let view=views[relation.name()].clone();
+        assert_eq!(view.rows,expected,"union cardinality for {producer}");
+        frozen.push(view);
+    }
+    let budget=ResourceBudget::fixed(32<<20).unwrap();
+    for (view,expected) in frozen.iter().zip([200,400,450,450]) {
+        let mut stream=store.scan_batches(view,&relation,None,None,&budget,37).await.unwrap();
+        let mut observed=BTreeSet::new();
+        while let Some(batch)=stream.try_next().await.unwrap(){
+            for row in Package::decode(&batch).unwrap(){assert!(observed.insert(row.name));}
+        }
+        let expected=(0..expected).map(|index|format!("window-{index:04}")).collect::<BTreeSet<_>>();
+        assert_eq!(observed,expected,"frozen membership retains its own exact union");
+    }
+    store.verify_state().await.unwrap();
+    store.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
+    use lctx_model::domain::{FiniteF64,analytics::QualityStep,graph::Entity};
+    use lctx_surrealdb::surrealdb::types::{Bytes,RecordId,SurrealValue,Value,Variables};
+    let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config=RuntimeConfig::read(&path).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Normalized).await.unwrap();
+    let relation=Relation::of::<Package>();
+    let first=Package{name:"completed".into()};
+    let alias=Package{name:"one-hop-alias".into()};
+    let pending=Package{name:"pending-unselected".into()};
+    let quality=QualityStep{run:serde_json::from_value(serde_json::json!(vec![8u8;16])).unwrap(),ordinal:0,value:FiniteF64::new(0.25).unwrap()};
+    let metadata=Relation::of::<QualityStep>();
+    let mut specification=spec("complete",&relation);specification.outputs.insert(metadata.name().into());
+    let complete=store.begin_contribution(specification).await.unwrap();
+    store.write_batch(&complete,&relation,&Package::encode(std::slice::from_ref(&first)).unwrap()).await.unwrap();
+    store.write_batch(&complete,&metadata,&QualityStep::encode(&[quality]).unwrap()).await.unwrap();
+    store.complete_contribution(complete,ProviderOutcome::Complete,&[relation.clone(),metadata],&BTreeMap::new()).await.unwrap();
+    let uncompleted=store.begin_contribution(spec("pending",&relation)).await.unwrap();
+    store.write_batch(&uncompleted,&relation,&Package::encode(&[alias.clone(),pending]).unwrap()).await.unwrap();
+    // Mechanical one-hop selection: only a completed source can admit its intrinsic target.
+    let first_id=lctx_model::domain::graph::EntityId::of(first.id());
+    let alias_id=lctx_model::domain::graph::EntityId::of(alias.id());
+    let mut variables=Variables::new();variables.insert("source",RecordId::new("entity",first_id.0.hex()));variables.insert("target",RecordId::new("entity",alias_id.0.hex()));
+    store.client().query("CREATE compiler_alias:selection SET source=$source,target=$target").bind(variables).await.unwrap().check().unwrap();
+    let mut rows=store.scan_canonical(true).await.unwrap();
+    let mut names=BTreeSet::new();
+    while let Some(row)=rows.next().await.unwrap(){
+        let Value::Object(object)=row else{panic!("canonical graph record");};
+        let bytes=Bytes::from_value(object.get("canonical").unwrap().clone()).unwrap();
+        let entity:Entity=serde_json::from_slice(&bytes).unwrap();
+        let Entity::Package(package)=entity else{panic!("only selected packages");};
+        names.insert(package.name);
+    }
+    assert_eq!(names,BTreeSet::from([first.name,alias.name]));
+    let mut headers=store.scan_graph_headers(true).await.unwrap();
+    let mut count=0;
+    while headers.next().await.unwrap().is_some(){count+=1;}
+    assert_eq!(count,2,"nongraph backing and unrelated pending entities stay excluded");
+    let mut assertions=store.scan_canonical(false).await.unwrap();
+    assert!(assertions.next().await.unwrap().is_none());
+    store.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
+    use lctx_model::domain::completed::CompletedView;
+    let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config=RuntimeConfig::read(&path).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let relation=Relation::of::<Package>();
+    let empty=store.begin_contribution(spec("empty-read",&relation)).await.unwrap();
+    let views=store.complete_contribution(empty,ProviderOutcome::Complete,std::slice::from_ref(&relation),&BTreeMap::new()).await.unwrap();
+    let frozen=views[relation.name()].clone();
+    assert_eq!(frozen.rows,0);
+    assert!(store.scan_rows(&frozen,&relation,None,None).await.unwrap().next().await.unwrap().is_none());
+    let invalid=vec!["missing_field".to_owned()];
+    assert!(store.scan_rows(&frozen,&relation,Some(&invalid),None).await.is_err());
+    let invalid=NativePredicate::Field{field:"missing_field".into(),values:vec![]};
+    assert!(store.scan_rows(&frozen,&relation,None,Some(invalid)).await.is_err());
+    let forged=CompletedView::new(relation.name().into(),frozen.contributions.clone(),1).unwrap();
+    assert!(store.scan_rows(&forged,&relation,None,Some(NativePredicate::Keys(vec![]))).await.is_err());
+    let next=store.begin_contribution(spec("populated-read",&relation)).await.unwrap();
+    store.write_batch(&next,&relation,&Package::encode(&[Package{name:"present".into()}]).unwrap()).await.unwrap();
+    let current=store.complete_contribution(next,ProviderOutcome::Complete,std::slice::from_ref(&relation),&views).await.unwrap();
+    let view=&current[relation.name()];
+    assert_eq!(view.rows,1);
+    for predicate in [NativePredicate::Keys(vec![]),NativePredicate::Field{field:"name".into(),values:vec![]}] {
+        assert!(store.scan_rows(view,&relation,None,Some(predicate)).await.unwrap().next().await.unwrap().is_none());
+    }
+    // An empty physical demand is also preserved through the shared selected provider.
+    let budget=ResourceBudget::fixed(32<<20).unwrap();
+    let provider=store.table_provider(view,relation.clone(),budget.clone(),8).unwrap();
+    let charge=std::sync::Arc::new(lctx_model::domain::charged::StateCharge::new(&budget,"empty-key-owner"));
+    let provider=lctx_surrealdb::compiler_provider::select_table(&provider,std::sync::Arc::new(vec![]),charge).unwrap().unwrap();
+    let session=datafusion::prelude::SessionContext::new();
+    session.register_table("selected",provider).unwrap();
+    let batches=session.sql("SELECT * FROM selected").await.unwrap().collect().await.unwrap();
+    assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),0);
+    // Newer members do not widen the exact completed empty view.
+    assert!(store.scan_rows(&frozen,&relation,None,None).await.unwrap().next().await.unwrap().is_none());
+    store.end_writes().await.unwrap();
+    assert!(store.scan_rows(&frozen,&relation,None,None).await.is_err());
+    assert!(store.scan_rows(view,&relation,None,Some(NativePredicate::Keys(vec![]))).await.is_err());
+    store.abandon().await.unwrap();
+}

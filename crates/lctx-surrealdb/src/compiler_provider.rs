@@ -129,8 +129,10 @@ fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:R
             let field_keys=keys.iter().filter(|selection|selection.field.is_some()).map(|selection|selection.keys.len()).sum::<usize>();
             let transfer=budget.reserve("native-selected-key-transfer",(end-offset).saturating_mul(192).saturating_add(field_keys.saturating_mul(1536)).saturating_add(4096)).map_err(df_error)?;
             let mut bindings=Variables::new();let mut predicates=Vec::new();
+            let mut empty=keys.iter().any(|selection|selection.keys.is_empty());
             if keys[driver].field.is_none(){
                 let selected=keys[driver].keys[offset..end].iter().filter(|key|keys.iter().filter(|selection|selection.field.is_none()).all(|selection|selection.keys.binary_search(key).is_ok())).map(hex::encode).collect::<Vec<_>>();
+                empty|=selected.is_empty();
                 bindings.insert("closure_selected_keys",selected);predicates.push("semantic_key IN $closure_selected_keys".to_owned());
             }
             for (index,selection) in keys.iter().enumerate(){
@@ -147,7 +149,8 @@ fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:R
             }
             let sql=predicates.join(" AND ");
             // Even empty demand checks the exact view/pin through the ordinary native reader.
-            let rows=scan_batches(store,view,relation,projection,Some(NativePredicate::Sql{sql,bindings}),budget,batch_rows).await.map_err(df_error)?;
+            let predicate=if empty {NativePredicate::Keys(vec![])}else{NativePredicate::Sql{sql,bindings}};
+            let rows=scan_batches(store,view,relation,projection,Some(predicate),budget,batch_rows).await.map_err(df_error)?;
             let rows=rows.map(move |batch|{let _held=&transfer;batch});
             Ok(Some((rows,(end,end==keys[driver].keys.len()))))
         }

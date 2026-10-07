@@ -122,11 +122,18 @@ impl NativeCompilerStore {
     }
     async fn scan_graph_inner(self:&Arc<Self>,entities:bool,fields:&str)->Result<CompilerRows,ModelError> {
         self.check_failed()?;
-        let membership="(SELECT VALUE node FROM compiler_membership WHERE contribution.completed=true GROUP BY node)";
         let table=if entities {"entity"}else{"assertion"};
-        let aliases=if entities {format!("OR id IN (SELECT VALUE target FROM compiler_alias WHERE source IN {membership} GROUP BY target)")}else{String::new()};
-        let sql=format!("SELECT {fields} FROM {table} WHERE id IN {membership} {aliases} ORDER BY id");
-        let rows=self.track_rows(NativeRows::new(self.client.query(sql).stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(64<<20))?;
+        let mut sql="LET $__compiler_owners = (SELECT VALUE id FROM compiler_contribution WHERE completed=true); LET $__compiler_members = (SELECT VALUE node FROM compiler_membership WHERE contribution IN $__compiler_owners GROUP BY node);".to_string();
+        let mut statements=2;
+        let candidates=if entities {
+            sql.push_str("LET $__compiler_aliases = (SELECT VALUE target FROM compiler_alias WHERE source IN $__compiler_members GROUP BY target);");
+            statements+=1;
+            "array::union($__compiler_members,$__compiler_aliases)"
+        } else {"$__compiler_members"};
+        sql.push_str(&format!("LET $__compiler_nodes = {candidates}.filter(|$node| record::table($node)='{table}'); SELECT {fields} FROM $__compiler_nodes ORDER BY id"));
+        statements+=2;
+        let stream=final_statement_rows(self.client.query(sql).stream_items().map_err(ModelError::codec)?,statements);
+        let rows=self.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?;
         Ok(rows)
     }
     pub fn client(&self)->&Surreal<Client> { &self.client }
@@ -342,21 +349,6 @@ impl NativeCompilerStore {
         }
         let (spec,completed)=self.specifications.lock().map_err(|_|ModelError::Conflict("native contribution owner"))?.get(&id).cloned().ok_or(ModelError::Conflict("unknown native contribution"))?;
         if completed {return Err(ModelError::Conflict("duplicate contribution completion"));}
-        let mut content=BTreeMap::<String,(u64,KeySink)>::new();
-        for output in outputs {content.insert(output.name().into(),(0,KeySink::new("native-contribution-output/v1")));}
-        let mut b=Variables::new();b.insert("contribution",RecordId::new("compiler_contribution",id.hex()));
-        let mut stream=self.track_rows(NativeRows::new(self.client.query("SELECT relation,semantic_key,content FROM compiler_membership WHERE contribution=$contribution ORDER BY relation,semantic_key").bind(b).stream_items().map_err(ModelError::codec)?,1)?)?;
-        while let Some(row)=stream.next().await? {
-            let row=SerdeWrapper::<MembershipContent>::from_value(row).map_err(ModelError::codec)?.0;
-            let (count,sink)=content.get_mut(&row.relation).ok_or(ModelError::Conflict("undeclared native output"))?;
-            row.semantic_key.encode(sink);row.content.encode(sink);*count+=1;
-        }
-        let descriptor=CompletedContribution {spec,outcome:outcome.code(),outputs:content.into_iter().map(|(name,(rows,sink))|(name,OutputContent{rows,content:sink.finish()})).collect()};
-        let logical=descriptor.identity()?;
-        let mut b=Variables::new();b.insert("id",RecordId::new("compiler_contribution",id.hex()));b.insert("descriptor",Bytes::from(serde_json::to_vec(&descriptor).map_err(ModelError::codec)?));b.insert("logical",logical.hex());b.insert("outcome",outcome.code());
-        let response=self.client.query("UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true WHERE completed=false RETURN VALUE completed").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let mut response=response; let success:Vec<bool>=response.take(0).map_err(ModelError::codec)?; if success!=vec![true] {self.fail();return Err(ModelError::Conflict("native completion transition"));}
-        self.specifications.lock().map_err(|_|ModelError::Conflict("native contribution owner"))?.get_mut(&id).ok_or(ModelError::Conflict("unknown native contribution"))?.1=true;
         let prior_logical=outputs.iter().filter_map(|relation|previous.get(relation.name())).flat_map(|view|view.contributions.iter().copied()).collect::<std::collections::BTreeSet<_>>();
         let mut prior_ids=BTreeMap::new();
         if !prior_logical.is_empty(){
@@ -369,20 +361,49 @@ impl NativeCompilerStore {
                 if prior_ids.insert(logical.clone(),id.clone()).is_some(){return Err(ModelError::Conflict("duplicate prior contributor"));}}
             if prior_ids.len()!=prior_logical.len() || prior_logical.iter().any(|id|!prior_ids.contains_key(&id.hex())) {return Err(ModelError::Conflict("prior contributor membership"));}
         }
+        let mut content=BTreeMap::<String,(u64,KeySink)>::new();
+        for output in outputs {content.insert(output.name().into(),(0,KeySink::new("native-contribution-output/v1")));}
+        let mut added=BTreeMap::<String,u64>::new();
+        let mut pending_relation=None::<String>;
+        let mut pending=Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
+        let mut b=Variables::new();b.insert("contribution",RecordId::new("compiler_contribution",id.hex()));
+        let mut stream=self.track_rows(NativeRows::new(self.client.query("SELECT relation,semantic_key,content FROM compiler_membership WHERE contribution=$contribution ORDER BY relation,semantic_key").bind(b).stream_items().map_err(ModelError::codec)?,1)?)?;
+        while let Some(row)=stream.next().await? {
+            let row=SerdeWrapper::<MembershipContent>::from_value(row).map_err(ModelError::codec)?.0;
+            let (count,sink)=content.get_mut(&row.relation).ok_or(ModelError::Conflict("undeclared native output"))?;
+            row.semantic_key.encode(sink);row.content.encode(sink);*count+=1;
+            if pending_relation.as_ref().is_some_and(|relation|relation!=&row.relation) {
+                let relation=pending_relation.take().expect("nonempty key window");
+                let prior=&previous[&relation];
+                let owners=prior.contributions.iter().map(|logical|prior_ids[&logical.hex()].clone()).collect::<Vec<_>>();
+                *added.entry(relation.clone()).or_default()+=self.new_membership_keys(&relation,&pending,&owners).await?;
+                pending.clear();
+            }
+            if previous.get(&row.relation).is_some_and(|prior|prior.rows>0) {
+                pending_relation=Some(row.relation.clone());pending.push(row.semantic_key);
+                if pending.len()==crate::loader::NATIVE_WINDOW_ROWS {
+                    let prior=&previous[&row.relation];
+                    let owners=prior.contributions.iter().map(|logical|prior_ids[&logical.hex()].clone()).collect::<Vec<_>>();
+                    *added.entry(row.relation.clone()).or_default()+=self.new_membership_keys(&row.relation,&pending,&owners).await?;
+                    pending.clear();pending_relation=None;
+                }
+            } else {*added.entry(row.relation).or_default()+=1;}
+        }
+        if let Some(relation)=pending_relation {
+            let owners=previous[&relation].contributions.iter().map(|logical|prior_ids[&logical.hex()].clone()).collect::<Vec<_>>();
+            *added.entry(relation.clone()).or_default()+=self.new_membership_keys(&relation,&pending,&owners).await?;
+        }
+        let descriptor=CompletedContribution {spec,outcome:outcome.code(),outputs:content.into_iter().map(|(name,(rows,sink))|(name,OutputContent{rows,content:sink.finish()})).collect()};
+        let logical=descriptor.identity()?;
+        let mut b=Variables::new();b.insert("id",RecordId::new("compiler_contribution",id.hex()));b.insert("descriptor",Bytes::from(serde_json::to_vec(&descriptor).map_err(ModelError::codec)?));b.insert("logical",logical.hex());b.insert("outcome",outcome.code());
+        let response=self.client.query("UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true WHERE completed=false RETURN VALUE completed").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let mut response=response; let success:Vec<bool>=response.take(0).map_err(ModelError::codec)?; if success!=vec![true] {self.fail();return Err(ModelError::Conflict("native completion transition"));}
+        self.specifications.lock().map_err(|_|ModelError::Conflict("native contribution owner"))?.get_mut(&id).ok_or(ModelError::Conflict("unknown native contribution"))?.1=true;
         let mut views=BTreeMap::new();
         for relation in outputs {
             let mut contributions=previous.get(relation.name()).map(|v|v.contributions.clone()).unwrap_or_default();contributions.insert(logical);
             let prior=previous.get(relation.name());
-            let produced=descriptor.outputs.get(relation.name()).ok_or(ModelError::Schema("completed output inventory"))?.rows;
-            let new=if produced==0 {0} else if let Some(prior)=prior {
-                let mut bindings=Variables::new();bindings.insert("current",RecordId::new("compiler_contribution",id.hex()));bindings.insert("relation",relation.name().to_string());
-                bindings.insert("previous",prior.contributions.iter().map(|logical|prior_ids[&logical.hex()].clone()).collect::<Vec<_>>());
-                // Only this contribution's keys are candidates. The exact prior membership is
-                // probed through (relation,semantic_key,contribution), without prior-key hydration.
-                let mut response=self.client.query("SELECT count() AS rows FROM compiler_membership WHERE contribution=$current AND relation=$relation AND array::len((SELECT VALUE id FROM compiler_membership WHERE relation=$relation AND semantic_key=$parent.semantic_key AND contribution IN $previous LIMIT 1))=0 GROUP ALL").bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-                let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;
-                match rows.as_slice(){[]=>0,[row]=>{let Some(Value::Number(surrealdb::types::Number::Int(count)))=value_object(row).and_then(|object|object.get("rows")) else{return Err(ModelError::Schema("incremental view count"));};u64::try_from(*count).map_err(ModelError::codec)?},_=>return Err(ModelError::Schema("incremental view count rows"))}
-            } else {produced};
+            let new=added.get(relation.name()).copied().unwrap_or(0);
             let count=prior.map(|view|view.rows).unwrap_or(0).checked_add(new).ok_or(ModelError::Schema("native union count overflow"))?;
             let view=CompletedView::new(relation.name().into(),contributions,count)?;
             let mut row=Object::new();row.insert("id",RecordId::new("compiler_view",view.identity.hex()));row.insert("descriptor",Bytes::from(serde_json::to_vec(&view).map_err(ModelError::codec)?));for (field,value) in view_projection(&view)? {row.insert(field,value);}let mut b=Variables::new();b.insert("row",row);
@@ -391,6 +412,21 @@ impl NativeCompilerStore {
             views.insert(relation.name().to_string(),view);
         }
         Ok(views)
+    }
+
+    /// Reuse the necessary ordered content pass to probe only one bounded window of newly
+    /// produced nominal keys. Prior memberships are selected before transfer; neither prior
+    /// payloads nor the entire prior key universe are reconstructed for a union count.
+    async fn new_membership_keys(&self,relation:&str,keys:&[String],owners:&[RecordId])->Result<u64,ModelError>{
+        if keys.is_empty() || keys.len()>crate::loader::NATIVE_WINDOW_ROWS || keys.windows(2).any(|pair|pair[0]>=pair[1]) {
+            return Err(ModelError::Schema("incremental membership key window"));
+        }
+        let mut bindings=Variables::new();bindings.insert("relation",relation.to_string());bindings.insert("keys",keys.to_vec());bindings.insert("previous",owners.to_vec());
+        let mut response=self.client.query("SELECT VALUE semantic_key FROM compiler_membership WHERE relation=$relation AND semantic_key IN $keys AND contribution IN $previous GROUP BY semantic_key").bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let overlaps:Vec<String>=response.take(0).map_err(ModelError::codec)?;
+        let overlaps=overlaps.into_iter().collect::<std::collections::BTreeSet<_>>();
+        if overlaps.iter().any(|key|keys.binary_search(key).is_err()){return Err(ModelError::Conflict("incremental membership selection"));}
+        u64::try_from(keys.len()-overlaps.len()).map_err(ModelError::codec)
     }
 
     async fn validate_inputs(self:&Arc<Self>,inputs:&[d::analysis::sources::SourceSnapshot])->Result<(),ModelError> {
@@ -452,7 +488,8 @@ impl NativeCompilerStore {
         }
         for view in self.views_inner().await? {
             let mut b=Variables::new();b.insert("relation",view.relation.clone());b.insert("contributions",view.contributions.iter().map(ContentHash::hex).collect::<Vec<_>>());
-            let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT semantic_key FROM compiler_membership WHERE relation=$relation AND contribution IN (SELECT VALUE id FROM compiler_contribution WHERE completed=true AND logical IN $contributions) GROUP BY semantic_key").bind(b).stream_items().map_err(ModelError::codec)?,1)?)?;
+            let stream=self.client.query("LET $__compiler_owners = (SELECT VALUE id FROM compiler_contribution WHERE completed=true AND logical IN $contributions); SELECT semantic_key FROM compiler_membership WHERE relation=$relation AND contribution IN $__compiler_owners GROUP BY semantic_key").bind(b).stream_items().map_err(ModelError::codec)?;
+            let mut rows=self.track_rows(NativeRows::new(final_statement_rows(stream,2),2)?)?;
             let mut count=0u64;while rows.next().await?.is_some(){count+=1;}if count!=view.rows{return Err(ModelError::Conflict("completed view cardinality"));}
             self.validate_view_contributions(std::slice::from_ref(&view)).await?;
         }
@@ -675,6 +712,7 @@ impl NativeCompilerStore {
         if view.relation!=relation.name() {return Err(ModelError::Conflict("native view relation"));}
         let mut b=Variables::new();b.insert("relation",relation.name().to_string());b.insert("contributions",view.contributions.iter().map(ContentHash::hex).collect::<Vec<_>>());
         let selected=predicate.is_some();
+        let empty=match &predicate {None=>view.rows==0,Some(NativePredicate::Keys(keys))=>keys.is_empty(),Some(NativePredicate::Field{values,..})=>values.is_empty(),Some(NativePredicate::Sql{..})=>false};
         let keyed=matches!(&predicate,Some(NativePredicate::Keys(_)));
         let predicate=match predicate {
             None=>"true".into(),
@@ -695,6 +733,10 @@ impl NativeCompilerStore {
                 projections.push("(SELECT start,bytes,content FROM original_chunk WHERE source=$parent.body.original AND start >= $parent.body.start AND start < $parent.body.start+$parent.body.len ORDER BY start) AS __original_chunks, body.start AS __original_start, body.len AS __original_len, body.digest AS __original_digest".to_string());
             } else if relation.fields().iter().any(|f|f.name()==field) {projections.push(format!("body.`{field}` AS `{field}`"));} else {return Err(ModelError::Conflict("native projection field"));}}
         if projections.is_empty() {projections.push("semantic_key AS __row".into());}
+        // Exact empty demand still passes the owner, view and shape checks above. There is
+        // no physical stream to hold or drain, and no fabricated transport receipt. Internal
+        // SQL predicates keep their ordinary execution/error semantics.
+        if empty {return Ok(CompilerRows{rows:None,store:self.clone(),lease:None});}
         // Start with exact selected keys, then fetch their immutable payloads. Membership overlap
         // is deduplicated before rich hydration; private pending rows never enter this query.
         let table=if crate::schema::compiler_relations().iter().any(|declared|declared.name()==relation.name()) {"compiler_record"} else if relation_is_entity(relation.name()) {"entity"} else {"assertion"};
@@ -715,15 +757,7 @@ impl NativeCompilerStore {
         let stream=self.client.query(sql).bind(b).stream_items().map_err(ModelError::codec)?;
         // LET emits a scalar NONE through the SDK row stream. Keep all statement terminals
         // (including failures), and expose only the final SELECT's projected records.
-        let stream=stream.filter_map(move |item|async move {
-            match &item {
-                Ok(surrealdb::method::StreamItem::Row{statement,value}) if *statement < statements-1 => {
-                    if matches!(value,Value::None) {None}
-                    else {Some(Err(surrealdb::Error::internal("native scan intermediate payload".into())))}
-                },
-                _=>Some(item),
-            }
-        });
+        let stream=final_statement_rows(stream,statements);
         let rows=self.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?;
         Ok(rows)
     }
@@ -733,6 +767,20 @@ impl NativeCompilerStore {
     pub async fn scan_batches(self:&Arc<Self>,view:&CompletedView,relation:&Relation,projection:Option<Vec<usize>>,predicate:Option<NativePredicate>,budget:&d::resources::ResourceBudget,batch_rows:usize)->Result<datafusion::physical_plan::SendableRecordBatchStream,ModelError> {
         crate::compiler_provider::scan_batches(self.clone(),view.clone(),relation.clone(),projection,predicate,budget.clone(),batch_rows).await
     }
+}
+
+/// LET statements emit scalar NONE rows. Preserve every statement terminal/error and expose
+/// projected payloads only from the final SELECT, for both typed and canonical graph scans.
+fn final_statement_rows(stream:impl futures::Stream<Item=surrealdb::Result<surrealdb::method::StreamItem>>+Send+'static,statements:usize)->impl futures::Stream<Item=surrealdb::Result<surrealdb::method::StreamItem>>+Send {
+    stream.filter_map(move |item|async move {
+        match &item {
+            Ok(surrealdb::method::StreamItem::Row{statement,value}) if *statement<statements-1=>{
+                if matches!(value,Value::None){None}
+                else{Some(Err(surrealdb::Error::internal("native scan intermediate payload".into())))}
+            },
+            _=>Some(item),
+        }
+    })
 }
 
 pub struct CompilerRows {rows:Option<NativeRows>,store:Arc<NativeCompilerStore>,lease:Option<OperationLease>}
