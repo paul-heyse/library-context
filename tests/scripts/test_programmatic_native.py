@@ -58,7 +58,9 @@ async def check_declared_default_and_exact_source(worker, client, library, obser
     authored_prefix = b"timeout: int = "
     expected_start = fixture.index(authored_prefix) + len(authored_prefix)
     assert fixture[expected_start:expected_start + 1] == b"2"
-    reference = timeout[0]["original"]["original"]
+    captured_sources = [row["original"]["original"] for row in timeout if row.get("original") is not None]
+    assert captured_sources, "actual source default occurrence required; native defaults alone do not establish it"
+    reference = captured_sources[0]
     assert (reference["start"], reference["end"], reference["encoding"]) == (expected_start, expected_start + 1, "raw_bytes")
     call = {"tool": "get_evidence", "arguments": {"library": library, "source": reference["source"],
             "page": {"expanded": True, "evidence_demand": {"facets": [], "context": {
@@ -133,9 +135,11 @@ async def test_actual_native_final_maps_and_schema_valid_false_pointer(transport
                 raw = result.model_dump_json(by_alias=True)
                 public = json.loads(raw)["structuredContent"]
                 assert public["delivery"]["fields"], "actual finalized native map required"
+                facts = _capture_facts(declared_source_task({"tool": tool, "arguments": arguments}, []),
+                        raw, [{"tool": tool, "arguments": arguments}], "native", 20000)
+                facts["serialization"] = "sdk_result_object"
                 observation = {
-                    "capture": _capture_facts(declared_source_task({"tool": tool, "arguments": arguments}, []),
-                        raw, [{"tool": tool, "arguments": arguments}], "native", 20000),
+                    "capture": facts,
                     "realization": bytes(public["snapshot"]["realization"]).hex(),
                     "segments": [raw],
                     "observer_format": "mcp_tool_result_v1",

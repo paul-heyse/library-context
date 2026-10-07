@@ -661,6 +661,9 @@ def packet_ceiling(
                     len(segment.encode()) for segment in trial["observation"]["segments"]
                 ),
             }
+            if trial["observation"]["capture"] is not None:
+                trial["observation"]["capture"]["byte_limit"] = trial["task"]["envelope"]["max_bytes"]
+                trial["observation"]["capture"]["call_limit"] = trial["task"]["envelope"]["max_calls"] + 1
             relaxed.append(trial)
     diagnostic_rows = list(worker.judge(relaxed))
     if not inventory_complete:
