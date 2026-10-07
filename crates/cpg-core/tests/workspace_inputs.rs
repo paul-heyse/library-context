@@ -197,3 +197,85 @@ async fn distinct_completed_views_remain_selectable_together() {
     }
     assert!(session.sql("SELECT * FROM places").await.is_err());
 }
+
+// Deliberately minimal records exercise shared transport independently of value admission.
+#[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
+#[model(name = "embedding_full_values")]
+struct FullWinner {
+    #[model(key)]
+    input: ContentHash,
+    payload: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
+#[model(name = "embedding_projected_values")]
+struct ProjectedWinner {
+    #[model(key)]
+    input: ContentHash,
+    payload: String,
+}
+
+fn value_consumer(boundary: PublicationBoundary) -> Stage {
+    let mut declaration = consumer(None);
+    declaration.name = "value_consumer";
+    declaration.inputs = vec![
+        RelationUse::completed::<FullWinner>().at_epoch(boundary),
+        RelationUse::completed::<ProjectedWinner>().at_epoch(boundary),
+    ];
+    declaration
+}
+async fn publish_values(
+    workspace: &Arc<Workspace>,
+    producer: &'static str,
+    rows: &[(&str, &str)],
+) -> Result<(), ModelError> {
+    let inputs = workspace.inputs(producer, Profile::Catalog, [])?;
+    let output = workspace.output(producer, Profile::Catalog, ContentHash::of(producer.as_bytes()), inputs);
+    output.declare::<FullWinner>()?;
+    output.declare::<ProjectedWinner>()?;
+    for (input, payload) in rows {
+        output.push(FullWinner { input: ContentHash::of(input.as_bytes()), payload: (*payload).into() }).await?;
+        output.push(ProjectedWinner { input: ContentHash::of(input.as_bytes()), payload: (*payload).into() }).await?;
+    }
+    output.finish(ProviderOutcome::Complete).await
+}
+
+#[tokio::test]
+async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_views() {
+    let model = ValidatedModel::declared(vec![Relation::of::<FullWinner>(), Relation::of::<ProjectedWinner>()]).unwrap();
+    let workspace = Workspace::new(Arc::new(model), WorkspaceOptions { batch_rows: 1, ..Default::default() }).unwrap();
+    publish_values(&workspace, "e1", &[("shared", "original"), ("analytic", "first")]).await.unwrap();
+    let analytic = value_consumer(PublicationBoundary::AnalyticEmbedding);
+    assert!(workspace.stage_inputs(&analytic, Profile::Catalog).is_err());
+    workspace.freeze_inputs(PublicationBoundary::AnalyticEmbedding).unwrap();
+    let before = workspace.stage_inputs(&analytic, Profile::Catalog).unwrap();
+    let original = before.relation::<FullWinner>().unwrap().clone();
+    publish_values(&workspace, "e0", &[("shared", "original"), ("retrieval", "second")]).await.unwrap();
+    workspace.freeze_inputs(PublicationBoundary::Retrieval).unwrap();
+    let frozen = workspace.stage_inputs(&analytic, Profile::Catalog).unwrap();
+    let latest = workspace.stage_inputs(&value_consumer(PublicationBoundary::Retrieval), Profile::Catalog).unwrap();
+    assert!(Arc::ptr_eq(&original, frozen.relation::<FullWinner>().unwrap()));
+    assert_eq!(frozen.relation::<FullWinner>().unwrap().rows(), 2);
+    assert_eq!(frozen.relation::<ProjectedWinner>().unwrap().rows(), 2);
+    assert_eq!(latest.relation::<FullWinner>().unwrap().rows(), 3);
+    assert_eq!(latest.relation::<ProjectedWinner>().unwrap().rows(), 3);
+    let content = latest.relation::<FullWinner>().unwrap().content();
+    let error = publish_values(&workspace, "conflict", &[("shared", "changed")]).await.unwrap_err();
+    assert!(error.to_string().contains("embedding_full_values"), "{error}");
+    assert_eq!(workspace.relation(FullWinner::NAME).unwrap().content(), content);
+    assert_eq!(frozen.relation::<FullWinner>().unwrap().content(), original.content());
+    let projected_content = latest.relation::<ProjectedWinner>().unwrap().content();
+    let output = workspace.output(
+        "projection_conflict",
+        Profile::Catalog,
+        ContentHash::of(b"projection_conflict"),
+        workspace.inputs("projection_conflict", Profile::Catalog, []).unwrap(),
+    );
+    output.declare::<ProjectedWinner>().unwrap();
+    output.push(ProjectedWinner {
+        input: ContentHash::of(b"shared"),
+        payload: "changed_projection".into(),
+    }).await.unwrap();
+    let error = output.finish(ProviderOutcome::Complete).await.unwrap_err();
+    assert!(error.to_string().contains("embedding_projected_values"), "{error}");
+    assert_eq!(workspace.relation(ProjectedWinner::NAME).unwrap().content(), projected_content);
+}

@@ -485,7 +485,7 @@ impl PublicationOrder {
         Ok(())
     }
 }
-/// The only relations permitted to grow. Ordinary outputs remain single-writer.
+/// Semantic vocabulary families. Value sharing does not make a relation vocabulary.
 pub fn is_vocabulary(name: &str) -> bool {
     use super::{
         assertion::AssertionQualification,
@@ -515,6 +515,12 @@ pub fn is_vocabulary(name: &str) -> bool {
         AssertionQualification::NAME,
     ]
     .contains(&name)
+}
+/// Relations whose immutable streams may grow across named publication epochs.
+/// Canonical embedding winners share transport, never semantic vocabulary ownership.
+pub fn is_epoch_shared(name: &str) -> bool {
+    is_vocabulary(name)
+        || matches!(name, "embedding_full_values" | "embedding_projected_values")
 }
 #[derive(Debug, Clone)]
 pub struct PublicationGroup {
@@ -557,7 +563,7 @@ impl Schedule {
         let assembly = stages
             .iter()
             .filter(|s| {
-                s.profiles.contains(&profile) && s.outputs.iter().any(|r| is_vocabulary(r.name()))
+                s.profiles.contains(&profile) && s.outputs.iter().any(|r| is_epoch_shared(r.name()))
             })
             .map(|s| s.name)
             .collect::<Vec<_>>();
@@ -722,7 +728,7 @@ impl Schedule {
                 )));
             }
             for r in &stage.outputs {
-                if is_vocabulary(r.name)
+                if is_epoch_shared(r.name)
                     && let Some(epoch) = grouped.get(stage.name)
                     && !epoch_writers.insert((r.type_id, *epoch))
                 {
@@ -732,7 +738,7 @@ impl Schedule {
                     )));
                 }
                 if let Some(old) = writers.get(&r.type_id).copied() {
-                    if !is_vocabulary(r.name)
+                    if !is_epoch_shared(r.name)
                         || !grouped.contains_key(stage.name)
                         || !grouped.contains_key(stages[old].name)
                         || grouped[stage.name] == grouped[stages[old].name]
@@ -775,7 +781,7 @@ impl Schedule {
             }
             for r in &stage.inputs {
                 if r.prefix.is_none()
-                    && is_vocabulary(r.name)
+                    && is_epoch_shared(r.name)
                     && stages
                         .iter()
                         .filter(|s| s.outputs.iter().any(|o| o.type_id == r.type_id))
@@ -783,7 +789,7 @@ impl Schedule {
                         > 1
                 {
                     return Err(ModelError::Invalid(
-                        "a growing vocabulary input needs an explicit closed epoch".into(),
+                        "a growing shared input needs an explicit closed epoch".into(),
                     ));
                 }
                 let writer = if let Some(epoch) = r.prefix {
@@ -793,9 +799,9 @@ impl Schedule {
                             "epoch reads require completed-input transport".into(),
                         ));
                     }
-                    if !is_vocabulary(r.name) {
+                    if !is_epoch_shared(r.name) {
                         return Err(ModelError::Invalid(
-                            "epoch bound applies only to vocabulary".into(),
+                            "epoch bound applies only to shared relations".into(),
                         ));
                     }
                     stages

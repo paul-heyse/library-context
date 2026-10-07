@@ -388,3 +388,45 @@ fn local_missing_predecessor_is_a_typed_rejection() {
 fn epoch_checks_refs() -> Vec<&'static str> {
     vec!["closure_extra_epoch_and_fact_premise"]
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "embedding_full_values")]
+struct FullProbe {
+    #[model(key)]
+    input: ContentHash,
+    payload: String,
+}
+#[test]
+fn shared_value_closure_retains_an_earlier_view_while_the_stage_appends_values() {
+    let model = ValidatedModel::validate(
+        vec![Relation::of::<FullProbe>()],
+        ValidationDefinitions {
+            invariants: vec![Invariant {
+                purpose: InvariantPurpose::Admission,
+                revision: 1,
+                name: "shared_value_epoch_probe",
+                inputs: vec![ValidationInput::of::<FullProbe>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding)],
+                create: std::sync::Arc::new(|_| Box::new(EpochCheck)),
+            }],
+            publication_checks: vec![],
+        },
+    ).unwrap();
+    let order = PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::AnalyticEmbedding, vec!["e1"]),
+        PublicationGroup::new(PublicationBoundary::Retrieval, vec!["e0"]),
+    ]).unwrap();
+    let closure = DependencyClosure::build(
+        &model,
+        vec![ValidationInput::of::<FullProbe>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding)],
+        vec![RelationUse::completed::<FullProbe>().at_epoch(PublicationBoundary::AnalyticEmbedding)],
+        &[RelationUse::of::<FullProbe>()],
+        PublicationBoundary::AnalyticEmbedding,
+        LowerLayerPolicy::OmitInferredOrdinaryFacts,
+        &order,
+    ).unwrap();
+    assert_eq!(closure.requirements.len(), 1);
+    assert_eq!(closure.requirements[0].prefix(), Some(PublicationBoundary::AnalyticEmbedding));
+    assert_eq!(closure.grants.len(), 1);
+    assert_eq!(closure.grants[0].prefix(), Some(PublicationBoundary::AnalyticEmbedding));
+}
