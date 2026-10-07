@@ -72,6 +72,7 @@ def main() -> int:
                 "python/lctx_mcp/tests/test_wire_contract.py",
                 "python/lctx_mcp/tests/test_native_session.py",
                 "python/lctx_mcp/tests/test_safe_failure.py",
+                "tests/scripts/test_programmatic_native.py",
                 "-q",
                 *filters,
             ]
