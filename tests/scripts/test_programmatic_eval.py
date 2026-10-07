@@ -220,9 +220,7 @@ def test_freeze_binds_actual_tasks_and_blocks_changed_yardstick(worker):
 def test_timeout_cancels_the_campaign_process(tmp_path):
     executable = tmp_path / "hung-worker"
     executable.write_text(
-        "#!"
-        + os.sys.executable
-        + "\nimport json, sys, time\nfor line in sys.stdin:\n"
+        "#!" + os.sys.executable + "\nimport json, sys, time\nfor line in sys.stdin:\n"
         " if json.loads(line).get('operation') == 'schema':\n"
         "  print(json.dumps({'status':'completed','result':{'protocol_version':3,"
         "'case':{'$schema':'https://json-schema.org/draft/2020-12/schema'}}}), flush=True)\n"

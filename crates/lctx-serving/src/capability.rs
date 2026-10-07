@@ -294,11 +294,11 @@ mod controls {
             };
             assertions.push(graph::Assertion::from_record(brief.clone()).unwrap());
             let document = graph::Assertion::from_record(BriefDocument {
-                    brief: brief.id(),
-                    ordinal: 0,
-                    text: text.into(),
-                })
-                .unwrap();
+                brief: brief.id(),
+                ordinal: 0,
+                text: text.into(),
+            })
+            .unwrap();
             assertions.push(document.clone());
             documents.push(document);
             briefs.push((brief, text));
