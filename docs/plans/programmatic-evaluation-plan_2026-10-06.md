@@ -300,12 +300,13 @@ meanings require a new baseline; grounded feedback can propose system changes an
 revisions independently. The scalar F64 full4096/projection reference and supplied-union diagnostics
 are pure numerical controls, not native ANN or live encoder measurements.
 
-Selected verification, 2026-10-06, source `65aaba69` plus the continuation fixture correction:
+Selected verification, 2026-10-06: private source `ff000da4`, worker revision
+`1bf1fb7384cb80e51f1c2db25b57768cdf1b73c4e5433e6b5d945bdd3cefc59c`:
 
 | Command | Outcome and scope |
 |---|---|
-| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q -k 'not actual_'` (shared prepared environment) | **passed**, 18 selected tests including independent finite populations, semantic mutants/shrinking, world-status refusal, numerical reference and frozen worker/schema/mode/lane negative controls |
-| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q` | Six actual renderer/MCP controls **blocked** by the stale development extension: import lacks `embedding_recipe_identities`; passing private controls do not establish those routes |
+| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q -k 'not (actual_rust_renderer or actual_mcp_capture or actual_public_projection or actual_capture_freeze or actual_capture_timeout or actual_mcp_continuation)'` | **passed**, 24 selected tests including independent finite populations, semantic mutants/shrinking, world-status refusal, numerical reference and frozen worker/schema/mode/lane negative controls |
+| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q` (earlier source `65aaba69`, prepared shared environment) | 24 private controls passed; six actual renderer/MCP controls **blocked** by the stale development extension: import lacks `embedding_recipe_identities`; passing private controls do not establish those routes |
 | `target/release/lctx-eval --schema` | Generated private schema refreshed from the source-bound worker; schema equality included in the selected Python controls |
 
 Actual rebuilt renderer/native journeys, actual native ANN stage observations, live numerical/agent
