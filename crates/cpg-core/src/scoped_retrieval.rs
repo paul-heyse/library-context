@@ -303,7 +303,7 @@ pub(crate) async fn validate_retrieval(
                 let (artifact,_,_)=retrieval::source::coordinates(&data,build::need(&output.anchor_sources,original)?)?;
                 let first=map.original_start.unwrap()/artifact::ARTIFACT_CHUNK_BYTES as i64;
                 let last=(map.original_end.unwrap()-1)/artifact::ARTIFACT_CHUNK_BYTES as i64;
-                for ordinal in first..=last{let key=Id::of(&artifact::ArtifactChunkKey{artifact,ordinal});if selected_chunks.insert(&mut chunk_charge,key)?{stream(session,&format!("SELECT * FROM {chunks} WHERE id=X'{}'",key.hex()),cancellation,|batch|{data.facts.chunks.decode(batch)?;Ok(())}).await?;}}
+                for ordinal in first..=last{let key:Id<artifact::ArtifactChunk>=Id::of(&artifact::ArtifactChunkKey{artifact,ordinal});if selected_chunks.insert(&mut chunk_charge,key)?{stream(session,&format!("SELECT * FROM {chunks} WHERE id=X'{}'",key.hex()),cancellation,|batch|{data.facts.chunks.decode(batch)?;Ok(())}).await?;}}
             }}
             output.verify_completion(&data, budget)?;
             let owner = build::need(&output.units, id)?;
