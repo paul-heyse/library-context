@@ -20,7 +20,7 @@ fn scalar(field: &Field) -> String {
         Scalar::Id => "array<int,16>".into(),
         Scalar::Digest => "array<int,32>".into(),
         Scalar::Binary if field.textual() => "string".into(),
-        Scalar::Binary => "array<int>".into(),
+        Scalar::Binary => "bytes".into(),
         Scalar::FiniteF64 => "float".into(),
     };
     let ty = if field.list() {
@@ -37,7 +37,6 @@ fn scalar(field: &Field) -> String {
 fn declaration<R: Record>() -> String {
     let fields = R::fields()
         .into_iter()
-        .filter(|f| f.scalar() != Scalar::Binary || f.textual())
         .collect::<Vec<_>>();
     if let Some(sum) = R::sum() {
         sum.arms
@@ -124,6 +123,22 @@ pub const SCOPE_FIELDS: &[&str] = &[
     "set",
     "universe",
 ];
+/// Non-graph compiler backing has a closed model-generated body, just like graph records.
+pub fn compiler_record_schema() -> String {
+    let shapes = [declaration::<lctx_model::domain::analytics::QualityStep>(), "{__type:'artifact_chunks', artifact:array<int,16>, ordinal:int, original:record<original>, start:int, len:int, digest:string}".into()];
+    let mut sql=format!("DEFINE TABLE compiler_record SCHEMAFULL; DEFINE FIELD semantic_type ON compiler_record TYPE string; DEFINE FIELD semantic_key ON compiler_record TYPE string; DEFINE FIELD content ON compiler_record TYPE string; DEFINE FIELD canonical ON compiler_record TYPE bytes; DEFINE FIELD body ON compiler_record TYPE {}; DEFINE INDEX compiler_record_key ON compiler_record FIELDS semantic_type,semantic_key UNIQUE;", shapes.join(" | "));
+    sql.push_str(&scope_schema("compiler_record"));
+    sql
+}
+fn scope_schema(table:&str)->String {
+    let mut sql=String::new();
+        for field in SCOPE_FIELDS {
+            sql.push_str(&format!("DEFINE FIELD `scope_{field}` ON {table} TYPE option<string> VALUE IF body.`{field}` IS NONE THEN NONE ELSE <string>body.`{field}` END;"));
+        }
+        let active=SCOPE_FIELDS.iter().map(|field|format!("IF body.`{field}` IS NONE OR body.`{field}` IS NULL THEN NONE ELSE semantic_type+'|{field}|'+<string>body.`{field}` END")).collect::<Vec<_>>().join(",");
+        sql.push_str(&format!("DEFINE FIELD scope_keys ON {table} TYPE array<string> VALUE [{active}].filter(|$value| $value IS NOT NONE); DEFINE INDEX by_scope ON {table} FIELDS scope_keys.*,semantic_key;"));
+    sql
+}
 pub fn canonical_schema() -> String {
     let mut sql = String::new();
     for (table, shapes) in [
@@ -138,13 +153,7 @@ pub fn canonical_schema() -> String {
     }
     // Whole semantic IDs are atomic index keys. Array indexes flatten each byte and cannot
     // implement whole-ID IN selection; retain canonical typed arrays in body unchanged.
-    for table in ["entity", "assertion"] {
-        for field in SCOPE_FIELDS {
-            sql.push_str(&format!("DEFINE FIELD `scope_{field}` ON {table} TYPE option<string> VALUE IF body.`{field}` IS NONE THEN NONE ELSE <string>body.`{field}` END;"));
-        }
-        let active=SCOPE_FIELDS.iter().map(|field|format!("IF body.`{field}` IS NONE OR body.`{field}` IS NULL THEN NONE ELSE semantic_type+'|{field}|'+<string>body.`{field}` END")).collect::<Vec<_>>().join(",");
-        sql.push_str(&format!("DEFINE FIELD scope_keys ON {table} TYPE array<string> VALUE [{active}].filter(|$value| $value IS NOT NONE); DEFINE INDEX by_scope ON {table} FIELDS scope_keys.*,semantic_key;"));
-    }
+    for table in ["entity","assertion"] {sql.push_str(&scope_schema(table));}
     for (table, input) in [("participant", "assertion"), ("reference", "entity")] {
         sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity | assertion | external ENFORCED SCHEMAFULL; DEFINE FIELD field ON {table} TYPE string; DEFINE FIELD role ON {table} TYPE int; DEFINE FIELD position ON {table} TYPE int | null; DEFINE INDEX incoming ON {table} FIELDS out,field,in; DEFINE INDEX outgoing ON {table} FIELDS in,field,out,position;"));
     }
@@ -155,4 +164,18 @@ pub fn realization_identity(native_definitions: &str) -> ContentHash {
     let mut bytes = canonical_schema().into_bytes();
     bytes.extend_from_slice(native_definitions.as_bytes());
     ContentHash::of(&bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn generated_native_schemas_keep_opaque_bytes_and_closed_compiler_metadata(){
+        let literals=declaration::<lctx_model::domain::value::Literal>();
+        assert!(literals.contains("bytes"));assert!(!literals.contains("FLEXIBLE"));
+        let compiler=compiler_record_schema();
+        assert!(compiler.contains("__type:'artifact_chunks'"));assert!(compiler.contains("original:record<original>"));assert!(compiler.contains("artifact:array<int,16>"));
+        assert!(compiler.contains(&declaration::<lctx_model::domain::analytics::QualityStep>()));
+        assert!(compiler.contains("scope_keys"));assert!(compiler.contains("ON compiler_record"));assert!(!compiler.contains("FLEXIBLE"));
+    }
 }
