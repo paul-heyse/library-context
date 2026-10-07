@@ -7,6 +7,54 @@ use lctx_surrealdb::{RuntimeConfig,compiler::NativeCompilerStore};
 use std::collections::{BTreeMap,BTreeSet};
 
 #[tokio::test(flavor="multi_thread")]
+async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs(){
+    use lctx_model::domain::{Id,calls::{CallTarget,CallPhase,ProviderSymbol,SymbolKind},source::{Occurrence,OccurrenceRole,SyntaxKind}};
+    // This is a closure-selection control, not semantic admission of the unselected fields.
+    fn nominal<T>(byte:u8)->Id<T>{serde_json::from_value(serde_json::to_value(vec![byte;16]).unwrap()).unwrap()}
+    async fn persist<R:Record>(store:&std::sync::Arc<NativeCompilerStore>,producer:&str,rows:&[R])->lctx_model::domain::completed::CompletedView {
+        let relation=Relation::of::<R>();
+        let spec=ContributionSpec{producer:producer.into(),profile:Profile::Catalog,model:ContentHash::of(b"forward-closure-model"),implementation:ContentHash::of(b"forward-closure-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([R::NAME.into()])};
+        let contribution=store.begin_contribution(spec).await.unwrap();
+        store.write_batch(&contribution,&relation,&R::encode(rows).unwrap()).await.unwrap();
+        store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&BTreeMap::new()).await.unwrap().remove(R::NAME).unwrap()
+    }
+    let path=std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
+    let config=RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let occurrence=Occurrence{source:nominal(1),start:0,end:1,syntax_kind:SyntaxKind::ExprCall,role:OccurrenceRole::Call,structural_path:vec![]};
+    let other_occurrence=Occurrence{start:2,end:3,..occurrence.clone()};
+    let symbol=ProviderSymbol{provider:nominal(2),context:nominal(3),module:nominal(4),native_key:"selected-class".into(),name:"Selected".into(),kind:SymbolKind::Class};
+    let other_symbol=ProviderSymbol{native_key:"unrelated-class".into(),name:"Unrelated".into(),..symbol.clone()};
+    let target=CallTarget{qualification:nominal(5),site:occurrence.id(),origin:nominal(6),destination:nominal(7),channel:nominal(8),phase:CallPhase::Call,receiver:nominal(9),implicit:false,receiver_class:Some(symbol.id()),passing:None,class_method:None,static_method:None};
+    let null_target=CallTarget{receiver_class:None,..target.clone()};
+    let unrelated=CallTarget{site:other_occurrence.id(),receiver_class:Some(other_symbol.id()),..target.clone()};
+    let roots=persist(&store,"forward-roots",&[target.clone(),null_target.clone(),unrelated]).await;
+    let first=persist(&store,"first-occurrence-epoch",std::slice::from_ref(&occurrence)).await;
+    let second=persist(&store,"second-occurrence-epoch",std::slice::from_ref(&other_occurrence)).await;
+    let symbols=persist(&store,"forward-symbols",&[symbol.clone(),other_symbol]).await;
+    let budget=ResourceBudget::fixed(8<<20).unwrap();let session=SessionContext::new();
+    let tables=[("roots",Relation::of::<CallTarget>(),roots),("first_occurrences",Relation::of::<Occurrence>(),first),("second_occurrences",Relation::of::<Occurrence>(),second),("symbols",Relation::of::<ProviderSymbol>(),symbols)];
+    for (alias,relation,view) in &tables {session.register_table(*alias,store.table_provider(view,relation.clone(),budget.clone(),16).unwrap()).unwrap();}
+    let mut plan=NominalClosure::new(tables.iter().map(|(alias,relation,_)|ClosureTable{relation:relation.clone(),alias:(*alias).into()}).collect()).unwrap();
+    plan.follow(0,"site",1).unwrap();plan.follow(0,"site",2).unwrap();plan.follow(0,"receiver_class",3).unwrap();
+    let edges=plan.prepare(&session,&budget).await.unwrap();
+    for root in [&target,&null_target] {
+        let scope=edges.grain(0,&format!("id=X'{}'",root.id().hex()),&budget).await.unwrap();
+        let read=|table|{let query=scope.select(table).unwrap();let scope=&scope;async move{scope.session().sql(&query).await}};
+        let actual=read(0).await.unwrap().collect().await.unwrap();
+        assert_eq!(actual.iter().flat_map(|batch|CallTarget::decode(batch).unwrap()).collect::<Vec<_>>(),vec![(*root).clone()]);
+        let actual=read(1).await.unwrap().collect().await.unwrap();
+        assert_eq!(actual.iter().flat_map(|batch|Occurrence::decode(batch).unwrap()).collect::<Vec<_>>(),vec![occurrence.clone()]);
+        let actual=read(2).await.unwrap().collect().await.unwrap();
+        assert_eq!(actual.iter().map(|batch|batch.num_rows()).sum::<usize>(),0,"same reference bytes must retain the explicitly selected target epoch");
+        let actual=read(3).await.unwrap().collect().await.unwrap();
+        let expected=if root.receiver_class.is_some(){vec![symbol.clone()]}else{vec![]};
+        assert_eq!(actual.iter().flat_map(|batch|ProviderSymbol::decode(batch).unwrap()).collect::<Vec<_>>(),expected,"nullable links and shared targets exclude unrelated neighbors");
+    }
+    drop(edges);store.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor="multi_thread")]
 async fn native_closure_windows_projection_pin_and_stream_lifetime(){
     let path=std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
     let config=RuntimeConfig::read(std::path::Path::new(&path)).unwrap();

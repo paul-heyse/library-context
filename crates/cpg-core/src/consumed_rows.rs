@@ -760,14 +760,47 @@ impl<'a> EdgeCursor<'a> {
 #[derive(Clone)]
 pub struct PreparedEdges(std::sync::Arc<EdgeSource>);
 impl PreparedEdges {
-    /// Project one declared native reference over a relation-qualified frontier. The captured
-    /// provider is the exact physical table epoch; target namespace remains owner-declared.
-    async fn native_targets(&self,edge:NativeEdge,keys:std::sync::Arc<Vec<[u8;16]>>,charge:std::sync::Arc<charged::StateCharge>,mut accept:impl FnMut([u8;16])->Result<(),ModelError>)->Result<(),ModelError>{
+    /// Forward fields share one exact table/frontier demand. Decode only their nominal columns;
+    /// each declaration retains its target namespace, including duplicate fields across epochs.
+    async fn native_forward_targets(&self,edges:&[NativeEdge],keys:std::sync::Arc<Vec<[u8;16]>>,charge:std::sync::Arc<charged::StateCharge>,budget:&ResourceBudget,mut accept:impl FnMut(usize,[u8;16])->Result<(),ModelError>)->Result<(),ModelError>{
+        use arrow_array::{Array,FixedSizeBinaryArray};
+        let Some(first)=edges.iter().find(|edge|!edge.reverse) else{return Ok(());};
+        // Forward declarations bind their source table. A source-kind frontier therefore has
+        // exactly one physical provider; reverse members remain separate indexed demands.
+        if edges.iter().filter(|edge|!edge.reverse).any(|edge|edge.table!=first.table){return Err(ModelError::Schema("native forward table binding"));}
+        let selected=lctx_surrealdb::compiler_provider::select_table(&self.0.providers[first.table],keys.clone(),charge)?.ok_or(ModelError::Schema("native nominal edge binding"))?;
+        let schema=selected.schema();
+        let _projection_charge=budget.reserve("native-forward-projection",edges.len().saturating_add(1).saturating_mul(size_of::<usize>()).saturating_add(4096))?;
+        let mut projection=Vec::with_capacity(edges.len()+1);
+        projection.push(schema.index_of("id").map_err(ModelError::codec)?);
+        for edge in edges.iter().filter(|edge|!edge.reverse){projection.push(schema.index_of(edge.field).map_err(ModelError::codec)?);}
+        projection.sort_unstable();projection.dedup();
+        let state=self.0.session.state();
+        let plan=selected.scan(&state,Some(&projection),&[],None).await.map_err(ModelError::codec)?;
+        let mut stream=plan.execute(0,self.0.session.task_ctx()).map_err(ModelError::codec)?;
+        while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
+            let ids=batch.column_by_name("id").and_then(|column|column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("native nominal source key"))?;
+            for edge in edges.iter().filter(|edge|!edge.reverse){
+                let fields=batch.column_by_name(edge.field).and_then(|column|column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("native nominal target key"))?;
+                for row in 0..batch.num_rows(){
+                    if fields.is_null(row){continue;}
+                    if ids.is_null(row){return Err(ModelError::Schema("native nominal source key null"));}
+                    let id:[u8;16]=ids.value(row).try_into().map_err(|_|ModelError::Schema("native nominal source width"))?;
+                    let target:[u8;16]=fields.value(row).try_into().map_err(|_|ModelError::Schema("native nominal target width"))?;
+                    if keys.binary_search(&id).is_err(){return Err(ModelError::Conflict("native nominal frontier mismatch"));}
+                    accept(edge.target,target)?;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok(())
+    }
+    /// Project one reverse membership over its indexed field frontier. The captured provider
+    /// is the exact physical table epoch; target namespace remains owner-declared.
+    async fn native_reverse_targets(&self,edge:NativeEdge,keys:std::sync::Arc<Vec<[u8;16]>>,charge:std::sync::Arc<charged::StateCharge>,mut accept:impl FnMut([u8;16])->Result<(),ModelError>)->Result<(),ModelError>{
         use arrow_array::{Array,FixedSizeBinaryArray};
         let provider=&self.0.providers[edge.table];
-        let selected=if edge.reverse {
-            lctx_surrealdb::compiler_provider::select_field_table(provider,edge.field,keys.clone(),charge)?
-        }else{lctx_surrealdb::compiler_provider::select_table(provider,keys.clone(),charge)?}.ok_or(ModelError::Schema("native nominal edge binding"))?;
+        let selected=lctx_surrealdb::compiler_provider::select_field_table(provider,edge.field,keys.clone(),charge)?.ok_or(ModelError::Schema("native nominal edge binding"))?;
         let schema=selected.schema();
         let projection=vec![schema.index_of("id").map_err(ModelError::codec)?,schema.index_of(edge.field).map_err(ModelError::codec)?];
         let state=self.0.session.state();
@@ -781,7 +814,7 @@ impl PreparedEdges {
                 if ids.is_null(row){return Err(ModelError::Schema("native nominal source key null"));}
                 let id:[u8;16]=ids.value(row).try_into().map_err(|_|ModelError::Schema("native nominal source width"))?;
                 let field:[u8;16]=fields.value(row).try_into().map_err(|_|ModelError::Schema("native nominal target width"))?;
-                let (source,target)=if edge.reverse{(field,id)}else{(id,field)};
+                let (source,target)=(field,id);
                 if keys.binary_search(&source).is_err(){return Err(ModelError::Conflict("native nominal frontier mismatch"));}
                 accept(target)?;
             }
@@ -879,8 +912,13 @@ impl PreparedEdges {
                 let keys=std::sync::Arc::new(frontier[offset..end].iter().map(|(_,key)|*key).collect::<Vec<_>>());
                 let first=self.0.native_edges.partition_point(|edge|(edge.source as i64)<kind);
                 let last=self.0.native_edges.partition_point(|edge|(edge.source as i64)<=kind);
-                for edge in &self.0.native_edges[first..last]{
-                    self.native_targets(*edge,keys.clone(),frontier_charge.clone(),|key|{
+                let edges=&self.0.native_edges[first..last];
+                self.native_forward_targets(edges,keys.clone(),frontier_charge.clone(),budget,|kind,key|{
+                    let target=(kind as i64,key);
+                    if visited.insert(&mut traversal_charge,target)?{pending.push(&mut traversal_charge,target)?;}Ok(())
+                }).await?;
+                for edge in edges.iter().filter(|edge|edge.reverse){
+                    self.native_reverse_targets(*edge,keys.clone(),frontier_charge.clone(),|key|{
                         let target=(edge.target as i64,key);
                         if visited.insert(&mut traversal_charge,target)?{pending.push(&mut traversal_charge,target)?;}Ok(())
                     }).await?;
