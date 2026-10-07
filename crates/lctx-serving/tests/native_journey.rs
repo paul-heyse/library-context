@@ -4,7 +4,7 @@ mod runtime;
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},
-    embedding_service::{Embedder, FakeEmbedder},
+    embedding_service::{EmbedFuture, Embedder, FakeEmbedder},
     workspace::{Workspace, WorkspaceOptions},
 };
 use lctx_model::domain::{admission::Frontier, serving::*, stages::Profile, *};
@@ -12,6 +12,63 @@ use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader, RecordSelection, RuntimeConfig, reader};
 use std::{io::Write, os::unix::fs::OpenOptionsExt, sync::Arc};
 const LIBRARY: &str = "synthesis-sources";
+/// Nominal E1 output needs known above-floor geometry, not the random-text fake's cosine.
+/// This fixture owns a distinct encoder identity. A shared dominant component plus small
+/// deterministic text components gives distinct full values and prefix projections with
+/// above-floor cosine. It makes no claim about a live model's semantic similarity.
+struct ContractEmbedder {
+    inner: FakeEmbedder,
+    specification: embedding::Spec,
+}
+impl ContractEmbedder {
+    fn new() -> Self {
+        let inner = FakeEmbedder::new();
+        let mut specification = inner.spec().clone();
+        specification.model = "lctx-native-journey-contract-aligned-vectors".into();
+        specification.revision = "dominant-e0-random-quarter-v1".into();
+        // Tokenization is still the exact delegated bytes/4 tokenizer; no pooling occurs.
+        specification.server = "in-process-aligned-vector-fixture".into();
+        Self {
+            inner,
+            specification,
+        }
+    }
+}
+impl Embedder for ContractEmbedder {
+    fn spec(&self) -> &embedding::Spec {
+        &self.specification
+    }
+    fn endpoint(&self) -> &str {
+        "fixture://native-journey-aligned-vectors"
+    }
+    fn document_tokenizer(&self) -> Option<Arc<dyn retrieval::partition::Tokenizer>> {
+        self.inner.document_tokenizer()
+    }
+    fn count_tokens<'a>(&'a self, text: &'a str) -> EmbedFuture<'a, usize> {
+        self.inner.count_tokens(text)
+    }
+    fn embed<'a>(&'a self, texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
+        Box::pin(async move {
+            Ok(texts
+                .iter()
+                .map(|text| {
+                    let mut vector = self.inner.vector(text);
+                    vector.iter_mut().for_each(|v| *v *= 0.25);
+                    vector[0] = 1.0;
+                    let norm = vector
+                        .iter()
+                        .map(|v| f64::from(*v).powi(2))
+                        .sum::<f64>()
+                        .sqrt();
+                    vector
+                        .iter_mut()
+                        .for_each(|v| *v = (f64::from(*v) / norm) as f32);
+                    vector
+                })
+                .collect())
+        })
+    }
+}
 /// The source bytes remain the captured fixture. Explicit distribution ownership is the
 /// library admission premise; a labelled, unowned tree supplies no such authority.
 fn library_fixture(
@@ -111,7 +168,7 @@ async fn call(
     let encoded = service
         .execute(tool, &serde_json::to_string(&request).unwrap())
         .await
-        .unwrap_or_else(|e| panic!("{tool}: {e}"));
+        .unwrap_or_else(|e| panic!("{tool} request {request}: {e}"));
     serde_json::from_str(&encoded).unwrap()
 }
 #[tokio::test]
@@ -131,7 +188,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     .unwrap();
     let captured = library_fixture(workspace.budget());
     let settings = ContentHash::of(b"native-serving-journey");
-    let fake = FakeEmbedder::new();
+    let fake = ContractEmbedder::new();
     let mut analytics = runtime::settings("api");
     analytics.knn = true;
     let prepared = PreparedCompilation::new(
@@ -268,6 +325,19 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         .unwrap();
     selections.sort_by_key(Record::id);
     assert!(selections.iter().any(|s| s.available_windows > 0));
+    let mut cohort_entities = std::collections::BTreeMap::new();
+    for selection in &selections {
+        if let Some(entity) = selection.entity.filter(|_| selection.available_windows > 0) {
+            cohort_entities
+                .entry(selection.frame)
+                .or_insert_with(std::collections::BTreeSet::new)
+                .insert(entity);
+        }
+    }
+    assert!(
+        cohort_entities.values().any(|entities| entities.len() >= 2),
+        "chosen E1 frame must contain two distinct available public entities"
+    );
     let result_ids = results
         .iter()
         .map(|r| serde_json::to_value(r.id()).unwrap())
@@ -284,6 +354,59 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         !neighbours.is_empty(),
         "chosen E1 policy must produce actual neighbour results"
     );
+    let analytic_windows = reader
+        .records::<embedding::text::TextWindow>(RecordSelection::Keys(
+            analytic_uses.iter().map(|u| *u.window.bytes()).collect(),
+        ))
+        .await
+        .unwrap();
+    let analytic_assessments = reader
+        .records::<embedding::text::TextAssessment>(RecordSelection::Keys(
+            analytic_windows
+                .iter()
+                .map(|w| *w.assessment.bytes())
+                .collect(),
+        ))
+        .await
+        .unwrap();
+    for neighbour in &neighbours {
+        let result = results.iter().find(|r| r.id() == neighbour.result).unwrap();
+        let entities = &cohort_entities[&result.frame];
+        assert_ne!(neighbour.query, neighbour.target);
+        assert!(entities.contains(&neighbour.query) && entities.contains(&neighbour.target));
+        assert!(neighbour.score.get() >= analytics::policy::RETAINED.neighbour_floor);
+        assert!(neighbour.score.get() <= 1.000001);
+        let mut endpoint_digests = Vec::new();
+        for (entity, use_id) in [
+            (neighbour.query, neighbour.query_use),
+            (neighbour.target, neighbour.target_use),
+        ] {
+            let use_ = analytic_uses.iter().find(|u| u.id() == use_id).unwrap();
+            endpoint_digests.push(
+                projected
+                    .iter()
+                    .find(|p| Some(p.id()) == use_.projection)
+                    .unwrap()
+                    .digest,
+            );
+            let window = analytic_windows
+                .iter()
+                .find(|w| w.id() == use_.window)
+                .unwrap();
+            let assessment = analytic_assessments
+                .iter()
+                .find(|a| a.id() == window.assessment)
+                .unwrap();
+            assert_eq!(assessment.entity, Some(entity));
+            assert!(selections.iter().any(|s| {
+                s.frame == result.frame
+                    && s.entity == Some(entity)
+                    && s.subject == assessment.subject
+                    && s.invocation == use_.invocation
+            }));
+        }
+        assert_ne!(endpoint_digests[0], endpoint_digests[1]);
+    }
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
     let missing = service
         .execute("browse_library", r#"{"library":"absent-library"}"#)
@@ -464,7 +587,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
             })
         })
         .expect("connect host formal");
-    let callable_comparison=call(&service,"get_operation",serde_json::json!({"library":library,"operation":{"kind":"member","member":member},"sections":["callable_comparison"],"comparison":{"analysis":signature["analysis"],"left":signature["variant"],"right":signature["variant"]}})).await;
+    let callable_comparison=call(&service,"get_operation",serde_json::json!({"library":library,"operation":{"kind":"member","member":member},"sections":["callable_comparison"],"comparison":{"analysis":signature["analysis"],"left":signature["variant"],"right":signature["variant"]},"page":{"expanded":true}})).await;
     assert_eq!(
         callable_comparison["operation"]["packet"]["callable_comparison"]["items"]
             .as_array()
@@ -862,9 +985,15 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
             serde_json::json!({"library":library,"scope":class_scope,"view":"vocabulary"}),
         )
         .await;
-        let encoded = class_vocabulary.to_string();
-        assert!(encoded.contains(own));
-        assert!(!encoded.contains(foreign));
+        let names = class_vocabulary["entries"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|entry| entry["values"].as_array().unwrap())
+            .filter_map(serde_json::Value::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(names.contains(own));
+        assert!(!names.contains(foreign));
         let selected = call(
             &service,
             "browse_library",
@@ -905,7 +1034,9 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     assert!(empty["entries"]["items"].as_array().unwrap().is_empty());
     // Independent document blocks call the same API. Each contains three distinct undefined
     // arguments; diagnostic correspondence must retain its exact owning association.
-    let mut request = serde_json::json!({"library":library,"operation":{"kind":"public_path","path":["alpha","alpha"]},"sections":["scenarios"],"page":{"size":1}});
+    // Mandatory signatures, coverage and delivery maps exceed the normal envelope here.
+    // This control verifies parent-bound continuation through the public expanded route.
+    let mut request = serde_json::json!({"library":library,"operation":{"kind":"public_path","path":["alpha","alpha"]},"sections":["scenarios"],"page":{"size":1,"expanded":true}});
     let first = call(&service, "get_operation", request.clone()).await;
     let first_page = &first["operation"]["packet"]["scenarios"];
     request["page"]["cursor"] = first_page["continuation"].clone();
@@ -980,7 +1111,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         seen, expected,
         "all and only the selected parent's diagnostic witnesses"
     );
-    let beta_operation = call(&service, "get_operation", serde_json::json!({"library":library,"operation":{"kind":"public_path","path":["beta","beta"]},"sections":["scenarios"],"page":{"size":1}})).await;
+    let beta_operation = call(&service, "get_operation", serde_json::json!({"library":library,"operation":{"kind":"public_path","path":["beta","beta"]},"sections":["scenarios"],"page":{"size":1,"expanded":true}})).await;
     let beta_scenario = &beta_operation["operation"]["packet"]["scenarios"]["items"][0]["scenario"];
     assert!(!beta_scenario.is_null());
     let beta_associations = reader

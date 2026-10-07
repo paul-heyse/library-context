@@ -30,10 +30,10 @@ pub async fn get(
                 EvidenceFacet::Behavior => Some(OperationSection::Behavior),
                 _ => None,
             };
-            if let Some(section) = section {
-                if !requested.sections.contains(&section) {
-                    requested.sections.push(section);
-                }
+            if let Some(section) = section
+                && !requested.sections.contains(&section)
+            {
+                requested.sections.push(section);
             }
         }
     }

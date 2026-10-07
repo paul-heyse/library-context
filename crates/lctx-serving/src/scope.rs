@@ -56,7 +56,27 @@ pub async fn hydrate_with(
     owned_fields: &[&str],
     budget: &ResourceBudget,
 ) -> Result<CanonicalBatches, ModelError> {
+    hydrate_with_owners(reader, roots, inputs, inputs, owned_fields, budget).await
+}
+/// Incoming ownership is the consumer's finite read inventory; outgoing dependencies
+/// can include a wider canonical proof universe without admitting unrelated owners.
+#[allow(
+    clippy::mutable_key_type,
+    reason = "Graph node IDs are immutable generated string keys; the SDK key union includes unused mutable regex caches"
+)]
+pub async fn hydrate_with_owners(
+    reader: &NativeReader,
+    roots: Vec<RecordId>,
+    inputs: &[ValidationInput],
+    incoming_inputs: &[ValidationInput],
+    owned_fields: &[&str],
+    budget: &ResourceBudget,
+) -> Result<CanonicalBatches, ModelError> {
     let types: BTreeSet<_> = inputs.iter().map(|i| i.name().to_owned()).collect();
+    let incoming_types: Vec<_> = incoming_inputs
+        .iter()
+        .map(|i| i.name().to_owned())
+        .collect();
     let mut seen = BTreeSet::new();
     let mut frontier: Vec<_> = roots
         .into_iter()
@@ -67,22 +87,34 @@ pub async fn hydrate_with(
         let mut vars = Variables::new();
         vars.insert("frontier", frontier);
         vars.insert("types", types.iter().cloned().collect::<Vec<_>>());
+        vars.insert("incoming_types", incoming_types.clone());
         vars.insert("fields", owned_fields.to_vec());
-        // No prefix replay: every node enters the frontier exactly once. The four adjacency
-        // selections use the physical incoming/outgoing indexes on graph relation endpoints.
-        let next:Vec<RecordId>=reader.query("RETURN array::distinct(array::concat(\
-            (SELECT VALUE out FROM reference WHERE in IN $frontier AND out.semantic_type IN $types),\
-            (SELECT VALUE out FROM participant WHERE in IN $frontier AND out.semantic_type IN $types),\
-            (SELECT VALUE in FROM reference WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types),\
-            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types),\
-            (SELECT VALUE in FROM reference WHERE out IN $frontier AND field='input' AND in.semantic_type='provider_runs' AND in.semantic_type IN $types),\
-            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field='scope' AND in.semantic_type='provider_coverage' AND in.semantic_type IN $types),\
-            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field='run' AND in.semantic_type='run_families' AND in.semantic_type IN $types),\
-            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field IN ['atom','binding'] AND in.semantic_type='guard_substitutions' AND in.semantic_type IN $types),\
-            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field='variable' AND in.semantic_type='type_binder_assessments' AND in.semantic_type IN $types),\
-            (SELECT VALUE in FROM participant WHERE out IN $frontier AND ((field='term' AND in.semantic_type='type_entity_links') OR (field='place' AND in.semantic_type='place_entity_links') OR (field='resolution' AND in.semantic_type='normalized_call_resolution_evidence')) AND in.semantic_type IN $types),\
-            (SELECT VALUE id FROM assertion WHERE semantic_type='input_distributions' AND semantic_type IN $types AND scope_keys CONTAINSANY array::concat((SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','catalog_members','retrieval_units']),(SELECT VALUE <string>body.library FROM assertion WHERE semantic_type='corpus_libraries' AND scope_keys CONTAINSANY (SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','retrieval_units']).map(|$v|'corpus_libraries|corpus|'+$v))).map(|$v|'input_distributions|input|'+$v)),\
-            (SELECT VALUE id FROM assertion WHERE semantic_type='corpus_libraries' AND semantic_type IN $types AND scope_keys CONTAINSANY (SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','retrieval_units']).map(|$v|'corpus_libraries|corpus|'+$v))));",vars).await?;
+        // No prefix replay: every node enters the frontier exactly once. Four keyed graph
+        // walks combine the exact incoming admission rules before returning their endpoints.
+        // Capture companions use finite keys computed once, not nested frontier queries
+        // evaluated inside each assertion's scope predicate. Corpus membership still resolves
+        // distribution inputs even when corpus rows themselves are outside the selected types.
+        let next:Vec<RecordId>=reader.query("RETURN {\
+            LET $capture_inputs = SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','catalog_members','retrieval_units'];\
+            LET $source_inputs = SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','retrieval_units'];\
+            LET $corpus_keys = $source_inputs.map(|$v|'corpus_libraries|corpus|'+$v);\
+            LET $capture_corpora = SELECT id, <string>body.library AS library FROM assertion WHERE semantic_type='corpus_libraries' AND scope_keys CONTAINSANY $corpus_keys;\
+            LET $distribution_keys = array::concat($capture_inputs,$capture_corpora.map(|$c|$c.library)).map(|$v|'input_distributions|input|'+$v);\
+            LET $corpus_ids = IF 'corpus_libraries' IN $types THEN $capture_corpora.map(|$c|$c.id) ELSE [] END;\
+            RETURN array::distinct(array::concat(\
+            (SELECT VALUE out FROM $frontier->reference WHERE out.semantic_type IN $types),\
+            (SELECT VALUE out FROM $frontier->participant WHERE out.semantic_type IN $types),\
+            (SELECT VALUE in FROM $frontier<-reference WHERE in.semantic_type IN $incoming_types AND (field IN $fields OR (field='input' AND in.semantic_type='provider_runs'))),\
+            (SELECT VALUE in FROM $frontier<-participant WHERE in.semantic_type IN $incoming_types AND (field IN $fields OR\
+                (field='scope' AND in.semantic_type='provider_coverage') OR\
+                (field='run' AND in.semantic_type='run_families') OR\
+                (field IN ['atom','binding'] AND in.semantic_type='guard_substitutions') OR\
+                (field='variable' AND in.semantic_type='type_binder_assessments') OR\
+                (field='term' AND in.semantic_type='type_entity_links') OR\
+                (field='place' AND in.semantic_type='place_entity_links') OR\
+                (field='resolution' AND in.semantic_type='normalized_call_resolution_evidence'))),\
+            (SELECT VALUE id FROM assertion WHERE semantic_type='input_distributions' AND semantic_type IN $types AND scope_keys CONTAINSANY $distribution_keys),\
+            $corpus_ids)); };",vars).await?;
         frontier = next
             .into_iter()
             .filter(|id| seen.insert(id.clone()))
@@ -93,6 +125,6 @@ pub async fn hydrate_with(
     vars.insert("nodes", seen.into_iter().collect::<Vec<_>>());
     vars.insert("types", types.into_iter().collect::<Vec<_>>());
     reader.canonical_batches("RETURN array::concat(\
-        (SELECT 'entity' AS node_kind, canonical FROM entity WHERE id IN $nodes AND semantic_type IN $types),\
-        (SELECT 'assertion' AS node_kind, canonical FROM assertion WHERE id IN $nodes AND semantic_type IN $types));".into(),vars,budget).await
+        (SELECT 'entity' AS node_kind, canonical FROM $nodes WHERE record::table(id)='entity' AND semantic_type IN $types),\
+        (SELECT 'assertion' AS node_kind, canonical FROM $nodes WHERE record::table(id)='assertion' AND semantic_type IN $types));".into(),vars,budget).await
 }

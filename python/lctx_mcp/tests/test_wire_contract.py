@@ -8,6 +8,7 @@ from fastmcp import Client, FastMCP
 from lctx_semantics import (
     NativeFailure,
     wire_decode,
+    wire_failure,
     wire_resources,
     wire_schema,
     wire_tool,
@@ -176,8 +177,10 @@ def test_unsupported_facets_are_refused_by_native_request_admission():
             "joint": 1,
         },
     }
-    with pytest.raises(ValueError, match="facet membership"):
+    with pytest.raises(NativeFailure) as refused:
         wire_decode("find_operations", json.dumps(request))
+    assert json.loads(refused.value.lctx_failure_json) == json.loads(wire_failure("incompatible"))
+    assert "facet membership" not in str(refused.value)
 
 
 def test_native_response_requires_resolved_claim_assumption_basis():

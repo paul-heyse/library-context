@@ -10,6 +10,144 @@ use lctx_model::domain::{
     *,
 };
 use lctx_surrealdb::{NativeReader, batches::CanonicalBatches, reader::target_id};
+use std::collections::BTreeSet;
+
+// The core emits native type presentations, not structural TypeTerm trees. Only IDs
+// actually referenced by its signatures/defaults/claim premises need readable inventory.
+#[derive(Default)]
+struct InventoryRoots {
+    terms: BTreeSet<(Id<attribution::AnalysisContext>, Id<types::TypeTerm>)>,
+    literals: BTreeSet<[u8; 16]>,
+}
+impl InventoryRoots {
+    fn literal_default(&mut self, value: &DefaultValue) {
+        if let DefaultValue::Literal { literal } = value {
+            self.literals.insert(*literal.bytes());
+        }
+    }
+    fn basis(&mut self, basis: &ClaimBasisPacket) {
+        for definition in &basis.definitions {
+            if let ClaimAssumptionPacket::TypeConformance { term, support, .. } = definition {
+                self.terms.insert((support.context, *term));
+            }
+        }
+    }
+    fn core(core: &OperationCore) -> Self {
+        let mut roots = Self::default();
+        for signature in &core.signatures {
+            roots.terms.extend(
+                signature
+                    .return_types
+                    .iter()
+                    .map(|id| (signature.analysis, *id)),
+            );
+            for typing in &signature.typing {
+                roots.terms.insert((signature.analysis, typing.term));
+                roots.basis(&typing.claim_basis);
+            }
+            for parameter in signature
+                .parameters
+                .iter()
+                .chain(&signature.effective_parameters)
+            {
+                roots
+                    .terms
+                    .extend(parameter.types.iter().map(|id| (signature.analysis, *id)));
+                roots.literal_default(&parameter.default);
+            }
+        }
+        for option in &core.options {
+            roots.literal_default(&option.default);
+        }
+        for default in &core.interpretation.defaults {
+            roots.literal_default(&default.value);
+        }
+        for qualification in &core.interpretation.qualifications {
+            roots.basis(&qualification.claim_basis);
+        }
+        roots
+    }
+    fn type_literals(&mut self, terms: &[types::TypeTerm]) -> Result<(), ModelError> {
+        for (_, id) in &self.terms {
+            let term = need(terms, *id)?;
+            for reference in term
+                .references()
+                .iter()
+                .filter(|r| r.target == value::Literal::NAME)
+            {
+                self.literals.insert(reference.key);
+            }
+        }
+        Ok(())
+    }
+    fn literal_values(
+        &self,
+        literals: &[value::Literal],
+    ) -> Result<Vec<LiteralPacket>, ModelError> {
+        self.literals
+            .iter()
+            .map(|key| {
+                let row = literals
+                    .iter()
+                    .find(|row| row.id().bytes() == key)
+                    .ok_or(ModelError::Schema("core literal dependency"))?;
+                LiteralPacket::from_canonical(row)
+            })
+            .collect()
+    }
+    fn presentation(
+        &self,
+        presentation: &types::TypePresentation,
+        analysis: Id<attribution::AnalysisContext>,
+    ) -> bool {
+        self.terms.contains(&(analysis, presentation.term))
+    }
+}
+fn inventory(
+    source: &CanonicalBatches,
+    core: &mut OperationCore,
+    claims: &Claims,
+) -> Result<(), ModelError> {
+    let mut roots = InventoryRoots::core(core);
+    let terms = rows::<types::TypeTerm>(source)?;
+    let literals = rows::<value::Literal>(source)?;
+    let presentations = rows::<types::TypePresentation>(source)?;
+    let mut selected = BTreeSet::new();
+    loop {
+        let before = selected.len();
+        for presentation in &presentations {
+            if selected.contains(&presentation.id()) {
+                continue;
+            }
+            if !roots
+                .terms
+                .iter()
+                .any(|(_, term)| *term == presentation.term)
+            {
+                continue;
+            }
+            let qualification = claims
+                .qualifications
+                .get(&presentation.qualification)
+                .ok_or(ModelError::Schema("type presentation qualification"))?;
+            if !roots.presentation(presentation, qualification.context) {
+                continue;
+            }
+            let basis = claims.basis(presentation.qualification)?;
+            roots.basis(&basis);
+            core.type_presentations
+                .push(TypePresentationPacket::from_canonical(presentation, basis).map_err(wire)?);
+            selected.insert(presentation.id());
+        }
+        if selected.len() == before {
+            break;
+        }
+    }
+    roots.type_literals(&terms)?;
+    core.literal_values = roots.literal_values(&literals)?;
+    core.type_presentations.sort_by_key(|p| p.presentation);
+    Ok(())
+}
 
 pub async fn hydrate(
     reader: &NativeReader,
@@ -419,16 +557,6 @@ pub fn packet(
             })
         })
         .collect::<Result<Vec<_>, ModelError>>()?;
-    let literals = rows::<value::Literal>(source)?
-        .iter()
-        .map(LiteralPacket::from_canonical)
-        .collect::<Result<Vec<_>, _>>()?;
-    let presentations = rows::<types::TypePresentation>(source)?
-        .iter()
-        .map(|r| {
-            TypePresentationPacket::from_canonical(r, claims.basis(r.qualification)?).map_err(wire)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     let mut path = module
         .qualified_name
         .split('.')
@@ -463,8 +591,8 @@ pub fn packet(
         signatures: signature_packets,
         signature_knowledge: knowledge,
         options: option_packets,
-        literal_values: literals,
-        type_presentations: presentations,
+        literal_values: vec![],
+        type_presentations: vec![],
         interpretation: InterpretationClosure {
             contexts: vec![],
             defaults: vec![],
@@ -478,10 +606,104 @@ pub fn packet(
         },
     };
     packet.interpretation = crate::defaults::closure(source, &packet, budget)?;
+    inventory(source, &mut packet, &claims)?;
     charge.grow(
         serde_json::to_vec(&packet)
             .map_err(ModelError::codec)?
             .len(),
     )?;
     Ok(packet)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn id<T>(n: u8) -> Id<T> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    fn core(term: Id<types::TypeTerm>, default: Id<value::Literal>) -> OperationCore {
+        // An independent small public DTO. Its roots are an int-like literal type and a
+        // declared parameter default; broad hydration also has another operation's values.
+        serde_json::from_value(serde_json::json!({
+            "member":id::<catalog::CatalogMember>(1),"name":"alpha",
+            "release":{"input":id::<input::InputRevision>(2),"release":id::<input::Release>(3),"distribution":"mini","version":"1"},
+            "access":{"module":id::<source::Module>(4),"path":["alpha","alpha"],"exposures":[],"candidates":[],"basis":null},
+            "invocations":[],"signature_knowledge":0,"options":[],"literal_values":[],"type_presentations":[],
+            "signatures":[{"signature":id::<calls::Signature>(5),"role":0,"native":null,"variant":id::<SignatureVariant>(6),"analysis":id::<attribution::AnalysisContext>(7),"form":0,"adjustment":0,
+                "parameters":[{"parameter":id::<calls::SignatureParameter>(8),"slot":null,"formals":[],"ordinal":0,"name":"red","kind":1,"required":false,"types":[term],"type_evidence":[],"default":{"kind":"literal","literal":default}}],
+                "effective_parameters":[],"return_types":[],"return_evidence":[],"typing":[],"complete":true}],
+            "interpretation":{"contexts":[],"defaults":[],"qualifications":[],"availability":{"status":"not_requested"}},
+            "limits":{"maximum_page_rows":100,"maximum_response_bytes":32768,"signature_indivisible":true}
+        })).unwrap()
+    }
+    #[test]
+    fn emitted_core_inventory_excludes_unrelated_values_and_foreign_presentations() {
+        let typed = value::Literal::Integer {
+            decimal: "3".into(),
+        };
+        let default = value::Literal::Integer {
+            decimal: "2".into(),
+        };
+        let unrelated = value::Literal::String {
+            value: "unrelated".repeat(4096).into(),
+        };
+        let term = types::TypeTerm::Literal { value: typed.id() };
+        let unrelated_term = types::TypeTerm::Literal {
+            value: unrelated.id(),
+        };
+        let packet = core(term.id(), default.id());
+        let mut roots = InventoryRoots::core(&packet);
+        roots
+            .type_literals(&[term.clone(), unrelated_term.clone()])
+            .unwrap();
+        let values = roots
+            .literal_values(&[typed.clone(), default.clone(), unrelated])
+            .unwrap();
+        assert_eq!(
+            values.iter().map(|v| v.literal).collect::<BTreeSet<_>>(),
+            BTreeSet::from([typed.id(), default.id()])
+        );
+        let display = types::TypePresentation {
+            qualification: id(9),
+            scope: id(10),
+            term: term.id(),
+            display: "Literal[3]".into(),
+            detail: None,
+        };
+        assert!(roots.presentation(&display, id(7)));
+        assert!(
+            !roots.presentation(&display, id(11)),
+            "shared type identity is not shared analysis"
+        );
+        let sibling = types::TypePresentation {
+            term: unrelated_term.id(),
+            display: "sibling".repeat(4096),
+            ..display
+        };
+        assert!(!roots.presentation(&sibling, id(7)));
+        // This regression cannot authorize eliding or changing the source signature/default.
+        assert_eq!(packet.signatures[0].parameters[0].types, vec![term.id()]);
+        assert_eq!(
+            packet.signatures[0].parameters[0].default,
+            DefaultValue::Literal {
+                literal: default.id()
+            }
+        );
+    }
+    #[test]
+    fn emitted_core_inventory_refuses_missing_required_type_and_literal() {
+        let literal = value::Literal::Integer {
+            decimal: "2".into(),
+        };
+        let term = types::TypeTerm::Literal {
+            value: literal.id(),
+        };
+        let packet = core(term.id(), literal.id());
+        let mut roots = InventoryRoots::core(&packet);
+        assert!(roots.type_literals(&[]).is_err());
+        roots.type_literals(&[term]).unwrap();
+        assert!(roots.literal_values(&[]).is_err());
+        // Presentation absence remains permitted: the helper does not invent a native display.
+        assert!(packet.type_presentations.is_empty());
+    }
 }

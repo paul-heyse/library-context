@@ -49,7 +49,7 @@ impl NativeReader {
                 .query(sql.into())
                 .bind(bindings)
                 .stream_items()
-                .map_err(ModelError::codec)?,
+                .map_err(sdk_error)?,
             statements,
         )
     }
@@ -116,10 +116,10 @@ impl NativeReader {
             .query(sql.into())
             .bind(bindings)
             .await
-            .map_err(ModelError::codec)?
+            .map_err(sdk_error)?
             .check()
-            .map_err(ModelError::codec)?;
-        let value: Value = response.take(0).map_err(ModelError::codec)?;
+            .map_err(sdk_error)?;
+        let value: Value = response.take(0).map_err(sdk_error)?;
         SerdeWrapper::<T>::from_value(value)
             .map(|value| value.0)
             .map_err(ModelError::codec)
@@ -179,9 +179,9 @@ impl NativeReader {
             .query(sql)
             .bind(bindings)
             .await
-            .map_err(ModelError::codec)?
+            .map_err(sdk_error)?
             .check()
-            .map_err(ModelError::codec)?;
+            .map_err(sdk_error)?;
         let entities: Vec<Bytes> = response.take(0).map_err(|_| corrupt())?;
         let assertions: Vec<Bytes> = response.take(1).map_err(|_| corrupt())?;
         let mut result = Vec::with_capacity(entities.len() + assertions.len());
@@ -192,6 +192,18 @@ impl NativeReader {
             result.push(canonical_assertion::<R>(&payload)?);
         }
         Ok(result)
+    }
+}
+
+/// Preserve recognized engine work ceilings before the SDK error becomes display text.
+fn sdk_error(error: surrealdb::Error) -> ModelError {
+    if matches!(
+        error.query_details(),
+        Some(surrealdb::types::QueryError::TimedOut { .. })
+    ) {
+        ModelError::Serving(lctx_model::domain::serving::FailureKind::ResourceRefused)
+    } else {
+        ModelError::codec(error)
     }
 }
 
@@ -233,7 +245,7 @@ impl NativeRows {
             return Ok(None);
         }
         while let Some(item) = self.stream.next().await {
-            match item.map_err(ModelError::codec)? {
+            match item.map_err(sdk_error)? {
                 surrealdb::method::StreamItem::Row { statement, value } => {
                     if statement != self.ended || statement >= self.statements {
                         return Err(ModelError::Schema("native stream row order"));
@@ -254,7 +266,7 @@ impl NativeRows {
                 surrealdb::method::StreamItem::StatementEnd {
                     statement, result, ..
                 } => {
-                    result.map_err(ModelError::codec)?;
+                    result.map_err(sdk_error)?;
                     if statement != self.ended || statement >= self.statements {
                         return Err(ModelError::Schema("native stream terminal order"));
                     }
@@ -382,6 +394,35 @@ pub async fn connect(
 mod streaming_tests {
     use super::*;
     use surrealdb::method::StreamItem;
+    #[test]
+    fn typed_sdk_timeout_is_resource_refused_without_message_classification() {
+        let error = surrealdb::Error::query(
+            "opaque engine reason".into(),
+            surrealdb::types::QueryError::TimedOut {
+                duration: std::time::Duration::from_secs(10),
+            },
+        );
+        assert!(matches!(
+            sdk_error(error),
+            ModelError::Serving(lctx_model::domain::serving::FailureKind::ResourceRefused)
+        ));
+    }
+    #[test]
+    fn other_sdk_errors_preserve_codec_payload_even_with_timeout_wording() {
+        for error in [
+            surrealdb::Error::query("timeout without typed details".into(), None),
+            surrealdb::Error::query("cancelled".into(), surrealdb::types::QueryError::Cancelled),
+            surrealdb::Error::query(
+                "conflict".into(),
+                surrealdb::types::QueryError::TransactionConflict,
+            ),
+            surrealdb::Error::internal("exceeded the timeout: 10s".into()),
+            surrealdb::Error::serialization("serialization failure".into(), None),
+        ] {
+            let expected = error.to_string();
+            assert!(matches!(sdk_error(error), ModelError::Codec(message) if message == expected));
+        }
+    }
     fn row() -> StreamItem {
         let mut value = surrealdb::types::Object::new();
         value.insert("id", RecordId::new("entity", "row"));

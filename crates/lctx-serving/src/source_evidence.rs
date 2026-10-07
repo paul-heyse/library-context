@@ -134,6 +134,16 @@ pub fn inputs() -> Vec<ValidationInput> {
         .map(|r| ValidationInput::of_relation(r, &["id"]))
         .collect()
 }
+/// Proof dependencies permit outgoing reads, not incoming ownership of every graph family.
+pub fn owner_inputs() -> Vec<ValidationInput> {
+    use serving::mappings::PacketOutput;
+    EvidencePacket::binding()
+        .mapping
+        .sources
+        .iter()
+        .map(|r| ValidationInput::of_relation(r, &["id"]))
+        .collect()
+}
 /// Lower all indivisible selected records before independently paging either section.
 pub async fn sections(
     source: &CanonicalBatches,

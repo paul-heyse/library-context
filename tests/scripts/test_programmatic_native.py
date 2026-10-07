@@ -129,7 +129,6 @@ async def check_declared_default_and_exact_source(worker, client, library, obser
     call = {
         "tool": "get_evidence",
         "arguments": {
-            "library": library,
             "source": reference["source"],
             "page": {
                 "expanded": True,

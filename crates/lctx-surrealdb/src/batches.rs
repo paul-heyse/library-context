@@ -1,5 +1,5 @@
 //! Finite canonical graph records back into request-scoped model kernel batches.
-use crate::reader::NativeReader;
+use crate::reader::{NativeReader, canonical_error};
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
     ModelError, Record,
@@ -42,11 +42,14 @@ impl NativeReader {
         for node in nodes {
             match node.node_kind.as_str() {
                 "entity" => entities.push(
-                    serde_json::from_slice::<Entity>(&node.canonical).map_err(ModelError::codec)?,
+                    serde_json::from_slice::<Entity>(&node.canonical)
+                        .map_err(ModelError::codec)
+                        .map_err(canonical_error)?,
                 ),
                 "assertion" => assertions.push(
                     serde_json::from_slice::<Assertion>(&node.canonical)
-                        .map_err(ModelError::codec)?,
+                        .map_err(ModelError::codec)
+                        .map_err(canonical_error)?,
                 ),
                 _ => return Err(ModelError::Schema("native canonical node kind")),
             }
@@ -70,7 +73,7 @@ impl NativeReader {
         })*};}
         lctx_model::graph_entity_records!(entity_batches);
         macro_rules! assertion_batches {($($variant:ident:$ty:ty,)*)=>{$({
-            let rows:Vec<$ty>=assertion_groups.get(<$ty>::NAME).into_iter().flat_map(|rows|rows.iter()).map(|a|crate::codec::assertion_record::<$ty>(a)).collect::<Result<_,_>>()?;
+            let rows:Vec<$ty>=assertion_groups.get(<$ty>::NAME).into_iter().flat_map(|rows|rows.iter()).map(|a|crate::codec::assertion_record::<$ty>(a).map_err(canonical_error)).collect::<Result<_,_>>()?;
             if !rows.is_empty(){let batch=<$ty>::encode(&rows)?;charge.try_resize(charge.size().saturating_add(lctx_model::domain::logical_batch_bytes(&batch)?))?;batches.push((<$ty>::NAME,batch));}
         })*};}
         lctx_model::graph_assertion_records!(assertion_batches);

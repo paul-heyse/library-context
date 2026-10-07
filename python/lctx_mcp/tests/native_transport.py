@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import contextlib
 import json
 import os
 import urllib.request
@@ -78,25 +77,36 @@ class ResponseGate:
         except OSError, asyncio.IncompleteReadError:
             pass
         finally:
-            for child in forwarding:
-                child.cancel()
-            await asyncio.gather(*forwarding, return_exceptions=True)
-            for writer in [client, upstream]:
-                if writer is not None:
-                    self.writers.discard(writer)
-                    writer.close()
-                    with contextlib.suppress(OSError):
-                        await writer.wait_closed()
-            self.tasks.discard(task)
+            try:
+                for child in forwarding:
+                    child.cancel()
+                await asyncio.gather(*forwarding, return_exceptions=True)
+                for writer in [client, upstream]:
+                    if writer is not None:
+                        self.writers.discard(writer)
+                        writer.close()
+                        try:
+                            await asyncio.wait_for(writer.wait_closed(), timeout=2)
+                        except TimeoutError:
+                            writer.transport.abort()
+                        except OSError:
+                            pass
+            finally:
+                self.tasks.discard(task)
 
     async def __aexit__(self, *exc):
         self.resume()
         assert self.server is not None
         self.server.close()
-        await self.server.wait_closed()
-        for task in tuple(self.tasks):
+        # Python 3.14 waits for accepted connections as well as the listener.
+        # Close our connections before waiting for the server to finish.
+        tasks = tuple(self.tasks)
+        for writer in tuple(self.writers):
+            writer.close()
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*tuple(self.tasks), return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await self.server.wait_closed()
 
 
 def viewer_config(configured, endpoint, target):

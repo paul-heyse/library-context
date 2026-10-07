@@ -336,13 +336,13 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
             saved = await asyncio.to_thread(
                 fixture_query,
                 selected,
-                "SELECT id,encoding::base64::encode(canonical) AS saved FROM entity "
+                "SELECT id,encoding::base64::encode(canonical) AS saved FROM assertion "
                 f"WHERE semantic_type='synthesis_briefs' AND semantic_key='{key}';",
             )
             assert len(saved[0]["result"]) == 1
             record = saved[0]["result"][0]
             row_id = record["id"]
-            assert row_id.startswith("entity:") and all(
+            assert row_id.startswith("assertion:") and all(
                 char.isalnum() or char in ":_" for char in row_id
             )
             try:

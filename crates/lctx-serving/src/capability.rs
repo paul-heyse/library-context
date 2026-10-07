@@ -98,7 +98,7 @@ impl Prepared {
         budget: &ResourceBudget,
     ) -> Result<CapabilityPacket, ModelError> {
         let briefs = &self.briefs;
-        let brief = need(&briefs, id)?;
+        let brief = need(briefs, id)?;
         let mut documents = self
             .documents
             .values()
@@ -140,20 +140,16 @@ impl Prepared {
             if link.ordinal != ordinal as i64 {
                 return Err(ModelError::Schema("brief assertion ordinal"));
             }
-            let assertion = need(&assertions, link.assertion)?;
+            let assertion = need(assertions, link.assertion)?;
             let q = claims
                 .qualifications
                 .get(&assertion.qualification())
                 .ok_or(ModelError::Schema("brief assertion qualification"))?;
-            let input = need(
-                &members,
-                need(&member_invocations, assertion.member)?.member,
-            )?
-            .input;
+            let input = need(members, need(member_invocations, assertion.member)?.member)?.input;
             let mut attribution = Vec::new();
             let mut terminal_packet = None;
             for support in supports.values().filter(|s| s.assertion == assertion.id()) {
-                let source = need(&sources, support.source)?;
+                let source = need(sources, support.source)?;
                 let target = match source {
                     synthesis::assertions::AssertionSource::Documentary { conclusion } => {
                         derivation::RowRef::of(*conclusion)
@@ -216,7 +212,7 @@ impl Prepared {
         let docs = &self.documentary;
         let mut originals = Vec::new();
         for source in self.original_links.iter().filter(|s| s.brief == id) {
-            let doc = need(&docs, source.documentary)?;
+            let doc = need(docs, source.documentary)?;
             let q = claims
                 .qualifications
                 .get(&doc.qualification())

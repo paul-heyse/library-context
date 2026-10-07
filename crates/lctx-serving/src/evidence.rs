@@ -37,10 +37,11 @@ pub async fn get(
         "link",
         "access",
     ]);
-    let data = crate::scope::hydrate_with(
+    let data = crate::scope::hydrate_with_owners(
         reader,
         vec![target_id(crate::originals::target(source)?)],
         &crate::source_evidence::inputs(),
+        &crate::source_evidence::owner_inputs(),
         &fields,
         b,
     )
@@ -317,7 +318,7 @@ fn restrict_source_range(
     range.end = end as u64;
     Ok(())
 }
-fn fragment<'a>(text: &'a str, start: i64, end: i64) -> Result<&'a str, ModelError> {
+fn fragment(text: &str, start: i64, end: i64) -> Result<&str, ModelError> {
     if start < 0 || end <= start {
         return Err(ModelError::Schema("delivered window fragment bounds"));
     }
@@ -542,7 +543,14 @@ async fn derivations(
     let root = target_id(crate::originals::target(&range.source)?);
     let mut vars = Variables::new();
     vars.insert("root", root);
-    let nodes:Vec<CanonicalNode>=reader.query("RETURN SELECT 'assertion' AS node_kind, canonical FROM assertion WHERE id IN array::distinct(array::concat((SELECT VALUE in FROM participant WHERE out=$root),(SELECT VALUE in FROM reference WHERE out=$root)));",vars).await?;
+    // Resolve this source's adjacent owners once, then fetch only their canonical records.
+    // Incoming entity owners are not assertion derivations.
+    let nodes:Vec<CanonicalNode>=reader.query("RETURN {\
+        LET $nodes = array::distinct(array::concat(\
+            (SELECT VALUE in FROM $root<-participant),\
+            (SELECT VALUE in FROM $root<-reference)));\
+        RETURN SELECT 'assertion' AS node_kind, canonical FROM $nodes WHERE record::table(id)='assertion';\
+        };",vars).await?;
     let _charge = b.reserve(
         "native-derivation-packets",
         nodes.iter().map(|n| n.canonical.len() * 2 + 512).sum(),

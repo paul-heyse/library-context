@@ -49,24 +49,28 @@ struct Scan<'a> {
     maximum_followups: u32,
     libraries: std::collections::BTreeMap<Id<input::Release>, Vec<Name>>,
 }
+struct FieldEvidence {
+    original: Option<OriginalRange>,
+    binding: DeliveryBinding,
+    qualifications: Vec<Id<assertion::AssertionQualification>>,
+    dependencies: Vec<String>,
+}
 impl Scan<'_> {
     fn field(
         &mut self,
         path: String,
         role: DeliveryRole,
-        original: Option<OriginalRange>,
-        binding: DeliveryBinding,
-        qualifications: Vec<Id<assertion::AssertionQualification>>,
-        dependencies: Vec<String>,
+        evidence: FieldEvidence,
         availability: Availability,
     ) -> Result<(), WireError> {
         self.map.fields.push(DeliveredEvidence {
             field: name(path)?,
             role,
-            original: Nullable(original),
-            binding,
-            qualifications,
-            dependencies: dependencies
+            original: Nullable(evidence.original),
+            binding: evidence.binding,
+            qualifications: evidence.qualifications,
+            dependencies: evidence
+                .dependencies
                 .into_iter()
                 .map(name)
                 .collect::<Result<_, _>>()?,
@@ -132,10 +136,12 @@ impl Scan<'_> {
                     self.field(
                         format!("{path}/text"),
                         DeliveryRole::Primary,
-                        Some(original.clone()),
-                        binding.clone(),
-                        quals.clone(),
-                        vec![],
+                        FieldEvidence {
+                            original: Some(original.clone()),
+                            binding: binding.clone(),
+                            qualifications: quals.clone(),
+                            dependencies: vec![],
+                        },
                         availability.clone(),
                     )?;
                 } else {
@@ -184,10 +190,15 @@ impl Scan<'_> {
                     } else {
                         DeliveryRole::Synthetic
                     },
-                    source,
-                    binding.clone(),
-                    quals.clone(),
-                    vec![format!("{path}/release"), format!("{path}/interpretation")],
+                    FieldEvidence {
+                        original: source,
+                        binding: binding.clone(),
+                        qualifications: quals.clone(),
+                        dependencies: vec![
+                            format!("{path}/release"),
+                            format!("{path}/interpretation"),
+                        ],
+                    },
                     Availability::Available {},
                 )?;
                 if body.get("truncated").and_then(Value::as_bool) == Some(true)
@@ -242,37 +253,36 @@ impl Scan<'_> {
             parse::<Id<catalog::CatalogMember>>(value, "member"),
             parse::<Id<attribution::AnalysisContext>>(value, "analysis"),
             value.get("releases").and_then(Value::as_array),
-        ) {
-            if !demand.facets.is_empty() {
-                let arguments: Value = serde_json::from_str(&self.request.to_json()?)?;
-                if let Some(library) = arguments.get("library") {
-                    for release in releases {
-                        let Some(version) = release.get("version") else {
-                            continue;
-                        };
-                        if demand
-                            .context
-                            .release
-                            .0
-                            .as_ref()
-                            .is_some_and(|wanted| version.as_str() != Some(wanted.as_str()))
-                        {
-                            continue;
-                        }
-                        let mut expansion_demand = demand.clone();
-                        expansion_demand.context.analysis = Optional::supplied(analysis);
-                        expansion_demand.context.release =
-                            Optional::supplied(serde_json::from_value(version.clone())?);
-                        let expansion = DeliveryExpansion {
-                            tool: Tool::GetOperation,
-                            arguments: serde_json::json!({"library":library,"operation":{"kind":"member","member":member},"page":{"expanded":true,"evidence_demand":expansion_demand}}),
-                        };
-                        self.omission(
-                            format!("{path}/interpretation"),
-                            partial("navigation_requires_contextual_operation_expansion")?,
-                            Some(expansion),
-                        )?;
+        ) && !demand.facets.is_empty()
+        {
+            let arguments: Value = serde_json::from_str(&self.request.to_json()?)?;
+            if let Some(library) = arguments.get("library") {
+                for release in releases {
+                    let Some(version) = release.get("version") else {
+                        continue;
+                    };
+                    if demand
+                        .context
+                        .release
+                        .0
+                        .as_ref()
+                        .is_some_and(|wanted| version.as_str() != Some(wanted.as_str()))
+                    {
+                        continue;
                     }
+                    let mut expansion_demand = demand.clone();
+                    expansion_demand.context.analysis = Optional::supplied(analysis);
+                    expansion_demand.context.release =
+                        Optional::supplied(serde_json::from_value(version.clone())?);
+                    let expansion = DeliveryExpansion {
+                        tool: Tool::GetOperation,
+                        arguments: serde_json::json!({"library":library,"operation":{"kind":"member","member":member},"page":{"expanded":true,"evidence_demand":expansion_demand}}),
+                    };
+                    self.omission(
+                        format!("{path}/interpretation"),
+                        partial("navigation_requires_contextual_operation_expansion")?,
+                        Some(expansion),
+                    )?;
                 }
             }
         }
@@ -290,36 +300,32 @@ impl Scan<'_> {
         if object.contains_key("window")
             && parse::<retrieval::PartPurpose>(value, "purpose")
                 == Some(retrieval::PartPurpose::Primary)
-        {
-            if let (Some(demand), Some(member), Some(analysis), Some(release)) = (
+            && let (Some(demand), Some(member), Some(analysis), Some(release)) = (
                 self.request.page().evidence_demand.0.as_ref(),
                 parse::<Id<catalog::CatalogMember>>(value, "member"),
                 parse::<Id<attribution::AnalysisContext>>(value, "analysis"),
                 release.as_ref(),
-            ) {
-                if !demand.facets.is_empty() {
-                    let libraries = self
-                        .libraries
-                        .get(&release.release)
-                        .cloned()
-                        .unwrap_or_default();
-                    for library in libraries {
-                        let mut demand = demand.clone();
-                        demand.context.analysis = Optional::supplied(analysis);
-                        demand.context.release = Optional::supplied(release.version.clone());
-                        let expand = DeliveryExpansion {
-                            tool: Tool::GetOperation,
-                            arguments: serde_json::json!({"library":library,"operation":{"kind":"member","member":member},"page":{"expanded":true,"evidence_demand":demand}}),
-                        };
-                        self.omission(
-                            format!("{path}/operation"),
-                            partial(
-                                "primary_window_member_requires_contextual_operation_expansion",
-                            )?,
-                            Some(expand),
-                        )?;
-                    }
-                }
+            )
+            && !demand.facets.is_empty()
+        {
+            let libraries = self
+                .libraries
+                .get(&release.release)
+                .cloned()
+                .unwrap_or_default();
+            for library in libraries {
+                let mut demand = demand.clone();
+                demand.context.analysis = Optional::supplied(analysis);
+                demand.context.release = Optional::supplied(release.version.clone());
+                let expand = DeliveryExpansion {
+                    tool: Tool::GetOperation,
+                    arguments: serde_json::json!({"library":library,"operation":{"kind":"member","member":member},"page":{"expanded":true,"evidence_demand":demand}}),
+                };
+                self.omission(
+                    format!("{path}/operation"),
+                    partial("primary_window_member_requires_contextual_operation_expansion")?,
+                    Some(expand),
+                )?;
             }
         }
         if object.contains_key("window")
@@ -335,14 +341,16 @@ impl Scan<'_> {
                 } else {
                     DeliveryRole::Primary
                 },
-                None,
-                binding.clone(),
-                quals.clone(),
-                vec![
-                    format!("{path}/source_maps"),
-                    format!("{path}/analysis"),
-                    format!("{path}/qualification"),
-                ],
+                FieldEvidence {
+                    original: None,
+                    binding: binding.clone(),
+                    qualifications: quals.clone(),
+                    dependencies: vec![
+                        format!("{path}/source_maps"),
+                        format!("{path}/analysis"),
+                        format!("{path}/qualification"),
+                    ],
+                },
                 Availability::Available {},
             )?;
         }
@@ -405,53 +413,58 @@ impl Scan<'_> {
                     } else {
                         role
                     },
-                    source,
-                    binding.clone(),
-                    quals.clone(),
-                    dependencies.clone(),
+                    FieldEvidence {
+                        original: source,
+                        binding: binding.clone(),
+                        qualifications: quals.clone(),
+                        dependencies: dependencies.clone(),
+                    },
                     availability.clone(),
                 )?;
             }
         }
-        if let Some(default) = object.get("default") {
-            if default.is_object() {
-                self.field(
-                    format!("{path}/default"),
-                    DeliveryRole::Reference,
-                    None,
-                    binding.clone(),
-                    quals.clone(),
-                    vec![],
-                    unavailable("default_reference_is_not_readable_value_or_condition")?,
-                )?;
-            }
+        if let Some(default) = object.get("default")
+            && default.is_object()
+        {
+            self.field(
+                format!("{path}/default"),
+                DeliveryRole::Reference,
+                FieldEvidence {
+                    original: None,
+                    binding: binding.clone(),
+                    qualifications: quals.clone(),
+                    dependencies: vec![],
+                },
+                unavailable("default_reference_is_not_readable_value_or_condition")?,
+            )?;
         }
         if object.contains_key("source")
             && object.contains_key("artifact")
             && object.contains_key("digest")
+            && let Ok(original) = serde_json::from_value::<OriginalRange>(value.clone())
         {
-            if let Ok(original) = serde_json::from_value::<OriginalRange>(value.clone()) {
-                let mut source_binding = binding.clone();
-                if source_binding
-                    .analysis
-                    .0
-                    .is_some_and(|id| id != original.context)
-                {
-                    return Err(WireError::Invalid(
-                        "original reference/container analysis".into(),
-                    ));
-                }
-                source_binding.analysis = Nullable(Some(original.context));
-                self.field(
-                    path.into(),
-                    DeliveryRole::Reference,
-                    Some(original.clone()),
-                    source_binding,
-                    quals.clone(),
-                    vec![],
-                    unavailable("original_reference_without_source_body")?,
-                )?;
+            let mut source_binding = binding.clone();
+            if source_binding
+                .analysis
+                .0
+                .is_some_and(|id| id != original.context)
+            {
+                return Err(WireError::Invalid(
+                    "original reference/container analysis".into(),
+                ));
             }
+            source_binding.analysis = Nullable(Some(original.context));
+            self.field(
+                path.into(),
+                DeliveryRole::Reference,
+                FieldEvidence {
+                    original: Some(original.clone()),
+                    binding: source_binding,
+                    qualifications: quals.clone(),
+                    dependencies: vec![],
+                },
+                unavailable("original_reference_without_source_body")?,
+            )?;
         }
         for (key, v) in object {
             if key == "delivery" {
@@ -515,10 +528,12 @@ fn evidence_map(request: &Request, response: &Response) -> Result<PacketEvidence
     scan.field(
         "/content/0/text".into(),
         DeliveryRole::Synthetic,
-        None,
-        DeliveryBinding::default(),
-        vec![],
-        vec![],
+        FieldEvidence {
+            original: None,
+            binding: DeliveryBinding::default(),
+            qualifications: vec![],
+            dependencies: vec![],
+        },
         Availability::Available {},
     )?;
     scan.visit(
@@ -561,16 +576,16 @@ fn check_context(request: &Request, response: &Response) -> Result<(), WireError
                         "demand analysis has no operation context".into(),
                     ));
                 }
-                if c.signature.0.is_some() || c.variant.0.is_some() {
-                    if !packet.core.signatures.iter().any(|s| {
+                if (c.signature.0.is_some() || c.variant.0.is_some())
+                    && !packet.core.signatures.iter().any(|s| {
                         c.signature.0.is_none_or(|id| id == s.signature)
                             && c.variant.0.is_none_or(|id| id == s.variant)
                             && c.analysis.0.is_none_or(|id| id == s.analysis)
-                    }) {
-                        return Err(WireError::Invalid(
-                            "demand context has no compatible signature".into(),
-                        ));
-                    }
+                    })
+                {
+                    return Err(WireError::Invalid(
+                        "demand context has no compatible signature".into(),
+                    ));
                 }
             }
         }

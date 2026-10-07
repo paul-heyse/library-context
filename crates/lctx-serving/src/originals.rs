@@ -68,9 +68,9 @@ impl Prepared {
         let mut captured_slice = None;
         if let OriginalReference::Anchor { anchor } = original {
             let anchors = &self.anchors;
-            let a = need(&anchors, anchor)?;
+            let a = need(anchors, anchor)?;
             let units = &self.units;
-            let unit = need(&units, a.unit)?;
+            let unit = need(units, a.unit)?;
             if context.is_some_and(|requested| requested != unit.context) {
                 return Err(ModelError::Conflict(
                     "original anchor context differs from demand",
@@ -78,7 +78,7 @@ impl Prepared {
             }
             chosen_context = Some(unit.context);
             let sources = &self.anchor_sources;
-            original = match need(&sources, a.original)? {
+            original = match need(sources, a.original)? {
                 retrieval::AnchorSource::Original { source } => {
                     OriginalReference::Catalog { source: *source }
                 }
@@ -112,7 +112,7 @@ impl Prepared {
         }
         if let OriginalReference::Catalog { source } = original {
             let sources = &self.catalog_sources;
-            original = match need(&sources, source)? {
+            original = match need(sources, source)? {
                 catalog::evidence::OriginalSource::Artifact { artifact } => {
                     OriginalReference::Artifact {
                         artifact: *artifact,
@@ -136,23 +136,23 @@ impl Prepared {
         let mut encoding = "raw_bytes";
         let (artifact, start, end) = if let Some(id) = prose {
             let slices = &self.slices;
-            let slice = need(&slices, id)?;
+            let slice = need(slices, id)?;
             let sources = &self.prose_sources;
-            match need(&sources, slice.source)? {
+            match need(sources, slice.source)? {
                 synthesis::documentary::ProseSource::Occurrence { occurrence } => {
-                    let o = need(&occurrences, *occurrence)?;
+                    let o = need(occurrences, *occurrence)?;
                     if slice.end > o.end - o.start {
                         return Err(ModelError::Schema("prose raw slice bounds"));
                     }
                     (o.source, o.start + slice.start, o.start + slice.end)
                 }
                 synthesis::documentary::ProseSource::Literal { occurrence, .. } => {
-                    let o = need(&occurrences, *occurrence)?;
+                    let o = need(occurrences, *occurrence)?;
                     encoding = "native_literal_utf8_slice";
                     (o.source, o.start, o.end)
                 }
                 synthesis::documentary::ProseSource::Span { span } => {
-                    match need(&evidence, span.id())? {
+                    match need(evidence, span.id())? {
                         assertion::Evidence::SourceSpan { source, start, end } => {
                             if slice.end > end - start {
                                 return Err(ModelError::Schema("prose raw slice bounds"));
@@ -166,14 +166,14 @@ impl Prepared {
         } else {
             match original {
                 OriginalReference::Artifact { artifact } => {
-                    let a = need(&artifacts, artifact)?;
+                    let a = need(artifacts, artifact)?;
                     (artifact, 0, a.byte_len)
                 }
                 OriginalReference::Occurrence { occurrence } => {
-                    let o = need(&occurrences, occurrence)?;
+                    let o = need(occurrences, occurrence)?;
                     (o.source, o.start, o.end)
                 }
-                OriginalReference::Span { span } => match need(&evidence, span.id())? {
+                OriginalReference::Span { span } => match need(evidence, span.id())? {
                     assertion::Evidence::SourceSpan { source, start, end } => {
                         (*source, *start, *end)
                     }
@@ -190,7 +190,7 @@ impl Prepared {
         } else {
             (start, end)
         };
-        let a = need(&artifacts, artifact)?;
+        let a = need(artifacts, artifact)?;
         if start < 0 || end < start || end > a.byte_len {
             return Err(ModelError::Schema("original byte bounds"));
         }
