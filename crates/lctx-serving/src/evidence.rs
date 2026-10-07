@@ -226,16 +226,22 @@ fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDo
     for witness in &hit.witnesses {
         let o=&witness.occurrence;
         if o.unit!=unit||o.context!=hit.context||o.target!=hit.target {return Err(ModelError::Conflict("ranked window witness target/context"));}
-        if !seen.insert((o.window,o.part,o.binding)){continue;}
-        let window=need(&windows,o.window)?;let part=need(&parts,o.part)?;
-        if window.unit!=unit||part.unit!=unit||part.purpose!=retrieval::PartPurpose::Primary{return Err(ModelError::Conflict("context part cannot be primary evidence"));}
-        let wp=window_parts.iter().find(|p|p.window==o.window&&p.part==o.part).ok_or(ModelError::Schema("ranked part absent from window"))?;
+        let window=need(&windows,o.window)?;let primary=need(&parts,o.part)?;
+        if window.unit!=unit||primary.unit!=unit||primary.purpose!=retrieval::PartPurpose::Primary{return Err(ModelError::Conflict("context part cannot be primary evidence"));}
+        if !window_parts.iter().any(|p|p.window==o.window&&p.part==o.part){return Err(ModelError::Schema("ranked part absent from window"));}
+        for wp in window_parts.iter().filter(|p|p.window==o.window) {
+        let part=need(&parts,wp.part)?;
+        if wp.part!=o.part&&part.purpose!=retrieval::PartPurpose::Context {continue;}
+        if part.unit!=unit{return Err(ModelError::Conflict("window context part unit"));}
+        let nominated=if part.purpose==retrieval::PartPurpose::Primary{o.binding}else{None};
+        if !seen.insert((o.window,wp.part,nominated)){continue;}
+        if let Some(q)=part.qualification{qids.insert(q);}
         let text=fragment(window.text.as_str(),wp.start,wp.end)?;
-        let binding=o.binding.map(|id|need(&bindings,id)).transpose()?;
+        let binding=nominated.map(|id|need(&bindings,id)).transpose()?;
         if binding.is_some_and(|v|v.window!=o.window||v.part!=o.part){return Err(ModelError::Conflict("ranked window binding"));}
         if let Some(binding)=binding {if let retrieval::Subject::Member{member}=need(&subjects,binding.subject)? {members.insert(*member);}if let Some(q)=binding.qualification{qids.insert(q);}}
         let mut source_maps=vec![];
-        for map in maps.iter().filter(|m|m.window==o.window&&m.part==Some(o.part)&&m.start<wp.end&&m.end>wp.start) {
+        for map in maps.iter().filter(|m|m.window==o.window&&m.part==Some(wp.part)&&m.start<wp.end&&m.end>wp.start) {
             let start=map.start.max(wp.start);let end=map.end.min(wp.end);
             fragment(window.text.as_str(),start,end)?;
             let original=match (map.original,map.original_start,map.original_end) {
@@ -254,7 +260,8 @@ fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDo
             };
             source_maps.push(DeliveredWindowMap{start:(start-wp.start) as u64,end:(end-wp.start) as u64,availability:if original.is_some(){Availability::Available{}}else{Availability::Unavailable{reason:Name::new("synthetic_window_text").map_err(wire)?}},original:Nullable(original)});
         }
-        delivered.push(DeliveredWindow{window:o.window,part:o.part,analysis:hit.context,binding:Nullable(o.binding),subject:Nullable(binding.map(|v|v.subject)),basis:Nullable(binding.map(|v|v.basis)),qualification:Nullable(binding.and_then(|v|v.qualification)),text:Text::new(text).map_err(wire)?,source_maps});
+        delivered.push(DeliveredWindow{window:o.window,part:wp.part,purpose:part.purpose,analysis:hit.context,binding:Nullable(nominated),subject:Nullable(binding.map(|v|v.subject)),basis:Nullable(binding.map(|v|v.basis)),qualification:Nullable(binding.and_then(|v|v.qualification).or(part.qualification)),text:Text::new(text).map_err(wire)?,source_maps});
+        }
     }
     if delivered.is_empty(){return Err(ModelError::Schema("ranked evidence missing primary witnesses"));}
     let interpretation=crate::defaults::qualified(data,std::collections::BTreeSet::from([hit.context]),qids,release,b)?;

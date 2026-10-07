@@ -479,7 +479,7 @@ packet!(PremisePacket {
     premise: ProofReference
 });
 packet!(DeliveredWindowMap {start:u64,end:u64,original:Nullable<OriginalRange>,availability:Availability});
-packet!(DeliveredWindow {window:Id<retrieval::SearchWindow>,part:Id<retrieval::ContentPart>,analysis:Id<attribution::AnalysisContext>,binding:Nullable<Id<retrieval::WindowBinding>>,subject:Nullable<Id<retrieval::Subject>>,basis:Nullable<retrieval::BindingBasis>,qualification:Nullable<Id<assertion::AssertionQualification>>,text:Text<0,262144>,source_maps:Vec<DeliveredWindowMap>});
+packet!(DeliveredWindow {window:Id<retrieval::SearchWindow>,part:Id<retrieval::ContentPart>,purpose:retrieval::PartPurpose,analysis:Id<attribution::AnalysisContext>,binding:Nullable<Id<retrieval::WindowBinding>>,subject:Nullable<Id<retrieval::Subject>>,basis:Nullable<retrieval::BindingBasis>,qualification:Nullable<Id<assertion::AssertionQualification>>,text:Text<0,262144>,source_maps:Vec<DeliveredWindowMap>});
 packet!(EvidenceHit {unit:Id<retrieval::Unit>,family:retrieval::Family,title:Name,originals:Vec<OriginalRange>,associated_members:Vec<Id<catalog::CatalogMember>>,delivered_windows:Vec<DeliveredWindow>,interpretation:InterpretationClosure});
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

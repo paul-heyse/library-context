@@ -44,7 +44,7 @@ impl Scan<'_> {
                 let end=body.get("end").and_then(Value::as_u64).ok_or_else(||WireError::Invalid("delivered original body end".into()))?;
                 let raw=matches!(original.encoding.as_str(),"raw_bytes"|"utf-8");
                 let length=original.end.checked_sub(original.start).ok_or_else(||WireError::Invalid("delivered original bounds".into()))?;
-                if end<start||(raw&&end>length){return Err(WireError::Invalid("delivered original body bounds".into()));}
+                if end<start||(raw&&end>length)||body.get("bytes").and_then(Value::as_array).is_none_or(|bytes|bytes.len() as u64!=end-start){return Err(WireError::Invalid("delivered original body bounds".into()));}
                 let source=if raw {let mut actual=original;actual.start+=start;actual.end=actual.start+(end-start);Some(actual)}else{None};
                 self.field(format!("{path}/body/bytes"),if raw{DeliveryRole::Primary}else{DeliveryRole::Synthetic},source,binding.clone(),quals.clone(),vec![format!("{path}/release"),format!("{path}/interpretation")],Availability::Available{})?;
                 if body.get("truncated").and_then(Value::as_bool)==Some(true)||body.get("omitted").and_then(Value::as_u64).is_some_and(|n|n>0){
@@ -81,7 +81,7 @@ impl Scan<'_> {
             }
         }
         if object.contains_key("window")&&object.contains_key("source_maps")&&object.get("text").is_some_and(Value::is_string) {
-            self.field(format!("{path}/text"),DeliveryRole::Primary,None,binding.clone(),quals.clone(),vec![format!("{path}/source_maps"),format!("{path}/analysis"),format!("{path}/qualification")],Availability::Available{})?;
+            self.field(format!("{path}/text"),if parse::<retrieval::PartPurpose>(value,"purpose")==Some(retrieval::PartPurpose::Context){DeliveryRole::Interpretation}else{DeliveryRole::Primary},None,binding.clone(),quals.clone(),vec![format!("{path}/source_maps"),format!("{path}/analysis"),format!("{path}/qualification")],Availability::Available{})?;
         }
         let mut dependencies=vec![];
         if object.contains_key("analysis")&&object.contains_key("variant"){dependencies.push(format!("{path}/analysis"));dependencies.push(format!("{path}/variant"));}
@@ -95,7 +95,10 @@ impl Scan<'_> {
         if let Some(default)=object.get("default") {if default.is_object(){self.field(format!("{path}/default"),DeliveryRole::Reference,None,binding.clone(),quals.clone(),vec![],unavailable("default_reference_is_not_readable_value_or_condition")?)?;}}
         if object.contains_key("source")&&object.contains_key("artifact")&&object.contains_key("digest") {
             if let Ok(original)=serde_json::from_value::<OriginalRange>(value.clone()) {
-                self.field(path.into(),DeliveryRole::Reference,Some(original.clone()),binding.clone(),quals.clone(),vec![],unavailable("original_reference_without_source_body")?)?;
+                let mut source_binding=binding.clone();
+                if source_binding.analysis.0.is_some_and(|id|id!=original.context){return Err(WireError::Invalid("original reference/container analysis".into()));}
+                source_binding.analysis=Nullable(Some(original.context));
+                self.field(path.into(),DeliveryRole::Reference,Some(original.clone()),source_binding,quals.clone(),vec![],unavailable("original_reference_without_source_body")?)?;
             }
         }
         for (key,v) in object {
@@ -203,7 +206,7 @@ mod tests {
     }
     #[test]
     fn interpreted_prose_has_no_original_byte_map() {
-        let map=scan(&request(),serde_json::json!({"original":original("native_literal_utf8_slice"),"body":{"start":0,"end":30,"bytes":[65],"truncated":false,"omitted":0}})).unwrap();
+        let map=scan(&request(),serde_json::json!({"original":original("native_literal_utf8_slice"),"body":{"start":0,"end":30,"bytes":vec![65;30],"truncated":false,"omitted":0}})).unwrap();
         let field=map.fields.iter().find(|f|f.field.as_str().ends_with("/body/bytes")).unwrap();assert!(field.original.0.is_none());assert_eq!(field.role,DeliveryRole::Synthetic);
     }
     #[test]
@@ -238,7 +241,7 @@ mod packing_tests {
         let mut items=vec![];let mut rankings=vec![];
         for n in 1..=3 {
             let unit=id(n);let analysis=id(n);
-            items.push(EvidenceHit{unit,family:retrieval::Family::Source,title:Name::new("original").unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![DeliveredWindow{window:id(n),part:id(n),analysis,binding:Nullable(None),subject:Nullable(None),basis:Nullable(None),qualification:Nullable(None),text:Text::new("x".repeat(18000)).unwrap(),source_maps:vec![]}],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::Unavailable{reason:Name::new("opaque").unwrap()}}});
+            items.push(EvidenceHit{unit,family:retrieval::Family::Source,title:Name::new("original").unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![DeliveredWindow{window:id(n),part:id(n),purpose:retrieval::PartPurpose::Primary,analysis,binding:Nullable(None),subject:Nullable(None),basis:Nullable(None),qualification:Nullable(None),text:Text::new("x".repeat(18000)).unwrap(),source_maps:vec![]}],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::Unavailable{reason:Name::new("opaque").unwrap()}}});
             rankings.push(ranking::RankedHit{target:ranking::Target::Unit{unit},context:analysis,score:1.0/f64::from(n),promoted:false,witnesses:vec![]});
         }
         let mut response=Response::SearchEvidence(SearchEvidenceResponse{snapshot,delivery:Optional::default(),domains:vec![],results:SectionPage{availability:Availability::Available{},items,continuation:Optional::supplied(cursor.encode().unwrap()),omitted:0,truncated:false},channels,extent:SelectionExtent::Ranked{returned:3},ranking:rankings});
