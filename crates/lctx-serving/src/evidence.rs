@@ -212,6 +212,10 @@ fn fragment<'a>(text:&'a str,start:i64,end:i64)->Result<&'a str,ModelError>{
     if start<0||end<=start{return Err(ModelError::Schema("delivered window fragment bounds"));}
     text.get(start as usize..end as usize).ok_or(ModelError::Schema("delivered window UTF8 fragment bounds"))
 }
+fn part_fragment<'a>(part:&'a retrieval::ContentPart,window_part:&retrieval::WindowPart)->Result<&'a str,ModelError>{
+    if window_part.part!=part.id(){return Err(ModelError::Conflict("window part identity"));}
+    fragment(part.text.as_str(),window_part.start,window_part.end)
+}
 fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDomainPacket],b:&ResourceBudget)->Result<EvidenceHit,ModelError>{
     let ranking::Target::Unit{unit}=hit.target else{return Err(ModelError::Schema("evidence ranked target"));};
     let units=rows::<retrieval::Unit>(data)?;let u=need(&units,unit)?;
@@ -221,7 +225,7 @@ fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDo
     if releases.len()!=1{return Err(ModelError::Conflict("window release capture ambiguity"));}
     let release=*releases.first().expect("one window release");
     let windows=rows::<retrieval::SearchWindow>(data)?;let parts=rows::<retrieval::ContentPart>(data)?;let window_parts=rows::<retrieval::WindowPart>(data)?;
-    let bindings=rows::<retrieval::WindowBinding>(data)?;let subjects=rows::<retrieval::Subject>(data)?;let maps=rows::<retrieval::WindowSourceMap>(data)?;let anchors=rows::<retrieval::AnchorSource>(data)?;
+    let bindings=rows::<retrieval::WindowBinding>(data)?;let subjects=rows::<retrieval::Subject>(data)?;let maps=rows::<retrieval::PartSourceMap>(data)?;let anchors=rows::<retrieval::AnchorSource>(data)?;
     let mut delivered=vec![];let mut originals=vec![];let mut members=std::collections::BTreeSet::new();let mut qids=std::collections::BTreeSet::new();let mut seen=std::collections::BTreeSet::new();
     for witness in &hit.witnesses {
         let o=&witness.occurrence;
@@ -236,15 +240,15 @@ fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDo
         let nominated=if part.purpose==retrieval::PartPurpose::Primary{o.binding}else{None};
         if !seen.insert((o.window,wp.part,nominated)){continue;}
         if let Some(q)=part.qualification{qids.insert(q);}
-        let text=fragment(window.text.as_str(),wp.start,wp.end)?;
+        let text=part_fragment(part,wp)?;
         let binding=nominated.map(|id|need(&bindings,id)).transpose()?;
         if binding.is_some_and(|v|v.window!=o.window||v.part!=o.part){return Err(ModelError::Conflict("ranked window binding"));}
         if let Some(binding)=binding {if let retrieval::Subject::Member{member}=need(&subjects,binding.subject)? {members.insert(*member);}if let Some(q)=binding.qualification{qids.insert(q);}}
         let member=if let Some(binding)=binding {if let retrieval::Subject::Member{member}=need(&subjects,binding.subject)?{Some(*member)}else{None}}else{None};
         let mut source_maps=vec![];
-        for map in maps.iter().filter(|m|m.window==o.window&&m.part==Some(wp.part)&&m.start<wp.end&&m.end>wp.start) {
+        for map in maps.iter().filter(|m|m.part==wp.part&&m.start<wp.end&&m.end>wp.start) {
             let start=map.start.max(wp.start);let end=map.end.min(wp.end);
-            fragment(window.text.as_str(),start,end)?;
+            fragment(part.text.as_str(),start,end)?;
             let original=match (map.original,map.original_start,map.original_end) {
                 (None,None,None)=>None,
                 (Some(id),Some(a),Some(z))=>{
@@ -332,6 +336,21 @@ async fn derivations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn id<T>(n:u8)->Id<T>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+    #[test]
+    fn unicode_context_and_second_primary_use_part_local_coordinates(){
+        let unit=id::<retrieval::Unit>(1);let window=id::<retrieval::SearchWindow>(2);
+        let mut fragments=vec![];
+        for (ordinal,purpose,text) in [(0,retrieval::PartPurpose::Context,"α setup"),(1,retrieval::PartPurpose::Primary,"a much longer first primary"),(2,retrieval::PartPurpose::Primary,"β2")] {
+            let part=retrieval::ContentPart{unit,ordinal,purpose,scope:None,qualification:None,digest:ContentHash::of(text.as_bytes()),text:Utf8Text::new(text).unwrap()};
+            let wp=retrieval::WindowPart{window,ordinal,part:part.id(),start:0,end:text.len() as i64};
+            fragments.push(part_fragment(&part,&wp).unwrap().to_owned());
+        }
+        let complete_input=format!("nonempty query template\n{}",fragments.join("\n"));
+        assert_eq!(fragments,vec!["α setup","a much longer first primary","β2"]);
+        assert_ne!(&complete_input[..fragments[2].len()],fragments[2]);
+        assert!(complete_input.starts_with("nonempty query template"));
+    }
     #[test]
     fn primary_fragment_checks_utf8_and_exact_bounds(){
         assert_eq!(fragment("setup α primary",6,8).unwrap(),"α");
