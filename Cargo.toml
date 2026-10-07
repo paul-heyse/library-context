@@ -15,6 +15,10 @@ publish = false
 # misses dev-only duplicates — ADR-0118).
 [workspace.dependencies]
 hex = "=0.4.3"
+# The native logical restore parser/AST must match the exact server/SDK version.
+surrealdb-syn = "=3.3.0"
+surrealdb-sql = "=3.3.0"
+bytes = "=1.12.1"
 syn = "=2.0.119"
 quote = "=1.0.47"
 serde_arrow = { version = "=0.15.1", features = ["arrow-59"] }

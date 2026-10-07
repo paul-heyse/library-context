@@ -14,6 +14,9 @@ serde_json.workspace = true
 hex.workspace = true
 tempfile.workspace = true
 futures.workspace = true
+surrealdb-syn.workspace = true
+surrealdb-sql.workspace = true
+bytes.workspace = true
 [dev-dependencies]
 cpg-extract = { path = "../cpg-extract" }
 datafusion.workspace = true
