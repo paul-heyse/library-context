@@ -294,6 +294,17 @@ pub(crate) async fn validate_retrieval(
                 })
                 .await?;
             }
+            // Hydrate only chunks intersecting original maps in this actual unit; API access
+            // modules and unrelated source grains are never hydrated or rerendered here.
+            let chunks=alias::<artifact::ArtifactChunk>(inputs,&tables)?;
+            let mut selected_chunks=charged::ChargedSet::default();
+            let mut chunk_charge=charged::StateCharge::new(budget,"retrieval-completion-original-chunks");
+            for map in output.part_maps.iter(){if let Some(original)=map.original{
+                let (artifact,_,_)=retrieval::source::coordinates(&data,build::need(&output.anchor_sources,original)?)?;
+                let first=map.original_start.unwrap()/artifact::ARTIFACT_CHUNK_BYTES as i64;
+                let last=(map.original_end.unwrap()-1)/artifact::ARTIFACT_CHUNK_BYTES as i64;
+                for ordinal in first..=last{let key=Id::of(&artifact::ArtifactChunkKey{artifact,ordinal});if selected_chunks.insert(&mut chunk_charge,key)?{stream(session,&format!("SELECT * FROM {chunks} WHERE id=X'{}'",key.hex()),cancellation,|batch|{data.facts.chunks.decode(batch)?;Ok(())}).await?;}}
+            }}
             output.verify_completion(&data, budget)?;
             let owner = build::need(&output.units, id)?;
             let mut parents = invocations.iter().filter(|invocation| {

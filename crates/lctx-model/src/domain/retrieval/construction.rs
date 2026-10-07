@@ -306,12 +306,10 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
                     let (artifact,start,end)=super::source::coordinates(d,anchor)?;
                     let (input,len)=d.artifact_bounds(artifact)?;
                     if map.original_start.unwrap()<start || map.original_end.unwrap()>end || end>len || (!matches!(need(&out.origins,unit.origin)?,Origin::Brief{..}) && input!=unit.input){return Err(invalid("retrieval source map exceeds original contextual anchor"));}
-                    // Actual available chunks permit byte agreement without re-running producers.
-                    if !d.facts.chunks.is_empty(){
-                        let original=super::source::read(d,anchor,b)?;
-                        let a=(map.original_start.unwrap()-start)as usize;let z=(map.original_end.unwrap()-start)as usize;
-                        if original.value.get(a..z)!=part.text.as_str().get(map.start as usize..map.end as usize){return Err(invalid("retrieval original map bytes differ"));}
-                    }
+                    // Exact selected original ranges are necessary evidence, not producer replay.
+                    let original=super::source::read_range(d,artifact,map.original_start.unwrap(),map.original_end.unwrap(),b)?;
+                    if Some(original.value.as_str())!=part.text.as_str().get(map.start as usize..map.end as usize){return Err(invalid("retrieval original map bytes differ"));}
+
                 }
                 cursor=map.end;
             }

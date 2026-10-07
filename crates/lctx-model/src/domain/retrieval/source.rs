@@ -81,8 +81,10 @@ pub fn coordinates(
 }
 pub fn read(d: &Data, original: &AnchorSource, b: &ResourceBudget) -> Result<Text, ModelError> {
     let (id, start, end) = coordinates(d, original)?;
-    let artifact = need(&d.source.core.artifacts, id)?;
-    if start < 0 || end < start || end > artifact.byte_len {
+    read_range(d,id,start,end,b)
+}
+pub fn read_range(d:&Data,id:Id<SourceArtifact>,start:i64,end:i64,b:&ResourceBudget)->Result<Text,ModelError>{
+    if start < 0 || end < start || end > d.artifact_bounds(id)?.1 {
         return Err(invalid("retrieval original coordinates outside artifact"));
     }
     let len = usize::try_from(end - start).map_err(ModelError::codec)?;
