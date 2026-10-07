@@ -1,6 +1,7 @@
 //! Fixed independent decoding of the current final MCP structured output. No producer maps.
-//! Supported meanings: exact original UTF-8 source, operation names, parameter names and
-//! declared literal defaults. Missing effective/runtime/condition semantics stay missing.
+//! Supports captured UTF-8 originals, primary/context windows, operation navigation,
+//! declared defaults and independently readable qualification/setup closure.
+//! Runtime effective values and unreadable predicates remain unsupported.
 use std::collections::BTreeMap;
 use serde_json::Value;
 use crate::contracts::{Assignment, CandidateStatus};
