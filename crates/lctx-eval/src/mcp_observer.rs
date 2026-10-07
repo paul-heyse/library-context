@@ -7,6 +7,26 @@ use crate::observer::{DecodedPacket, PublicEvidence, PublicGroup, PublicQualific
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+// Nominal source identity must not depend on serializer field insertion order or
+// serde_json feature unification. Captured final bytes remain untouched.
+fn source_key(source: &Value) -> Result<String, String> {
+    fn ordered(value: &Value) -> Value {
+        match value {
+            Value::Object(fields) => Value::Object(
+                fields
+                    .iter()
+                    .map(|(key, value)| (key.clone(), ordered(value)))
+                    .collect::<BTreeMap<_, _>>()
+                    .into_iter()
+                    .collect(),
+            ),
+            Value::Array(values) => Value::Array(values.iter().map(ordered).collect()),
+            value => value.clone(),
+        }
+    }
+    serde_json::to_string(&ordered(source)).map_err(|error| error.to_string())
+}
+
 // Final captures have unique object fields; reject ambiguous manual/corrupted captures.
 struct UniqueJson(Value);
 impl<'de> serde::Deserialize<'de> for UniqueJson {
@@ -596,8 +616,7 @@ fn search_evidence(
                 {
                     return Err("public window/original association mismatch".into());
                 }
-                let anchor =
-                    serde_json::to_string(field(original, "source")?).map_err(|e| e.to_string())?;
+                let anchor = source_key(field(original, "source")?)?;
                 let mut meaning = observed(
                     anchor,
                     if purpose == 0 {
@@ -813,8 +832,7 @@ fn decode_fields(result: &Value, realization: &str) -> Result<DecodedPacket, Str
         {
             return Err("public source range mismatch".into());
         }
-        let anchor =
-            serde_json::to_string(field(original, "source")?).map_err(|e| e.to_string())?;
+        let anchor = source_key(field(original, "source")?)?;
         let context = Assignment::from([
             (
                 "release_identity".into(),
@@ -1020,6 +1038,22 @@ fn semantic_control(bytes: &str, realization: &str) -> Result<DecodedPacket, Str
 mod tests {
     use super::semantic_control as decode;
     use super::*;
+    #[test]
+    fn nominal_source_identity_ignores_field_order_and_preserves_values() {
+        let first: Value = serde_json::from_str(
+            r#"{"kind":"artifact","artifact":[1,2],"nested":{"z":2,"a":1}}"#,
+        )
+        .unwrap();
+        let second: Value = serde_json::from_str(
+            r#"{"nested":{"a":1,"z":2},"artifact":[1,2],"kind":"artifact"}"#,
+        )
+        .unwrap();
+        assert_eq!(source_key(&first).unwrap(), source_key(&second).unwrap());
+        let mut foreign = second;
+        foreign["artifact"] = serde_json::json!([2, 1]);
+        assert_ne!(source_key(&first).unwrap(), source_key(&foreign).unwrap());
+    }
+
     fn operation() -> Value {
         serde_json::json!({"content":[{"type":"text","text":"get_operation: snapshot-bound result"}],"isError":false,
             "structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},
