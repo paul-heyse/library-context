@@ -25,7 +25,7 @@ fn run(request: Request) -> Result<serde_json::Value, String> {
         Request::Schema => Ok(wire_schema()),
         Request::Numeric { input } => serde_json::to_value(lctx_eval::numeric::evaluate(&input)?),
         Request::Observe { observation } => {
-            let packet = lctx_eval::observer::decode(&observation.observer_format, observation.segments.first().ok_or("missing initial capture bytes")?, &observation.realization)?;
+            let packet = lctx_eval::observer::decode_for_call(&observation.observer_format, observation.segments.first().ok_or("missing initial capture bytes")?, &observation.realization, observation.capture.as_ref().and_then(|v|v.calls.first()))?;
             Ok(serde_json::json!({"semantic_snapshot":packet.semantic_snapshot,"public_references":packet.references}))
         },
         Request::Judge { cases } => {

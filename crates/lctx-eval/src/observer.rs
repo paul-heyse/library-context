@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use crate::contracts::{Assignment, CandidateStatus, ObserverFormat};
+use crate::contracts::{Assignment, CandidateStatus, ObserverFormat, PublicCall};
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -66,7 +66,10 @@ pub struct DecodedPacket {
 }
 
 pub fn decode(format: &ObserverFormat, bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
-    if matches!(format, ObserverFormat::McpToolResultV1) { return crate::mcp_observer::decode(bytes, realization); }
+    decode_for_call(format, bytes, realization, None)
+}
+pub fn decode_for_call(format: &ObserverFormat, bytes: &str, realization: &str, origin: Option<&PublicCall>) -> Result<DecodedPacket, String> {
+    if matches!(format, ObserverFormat::McpToolResultV1) { return crate::mcp_observer::decode_for_call(bytes, realization, origin); }
     let packet: FinitePacket = match format {
         ObserverFormat::FinitePacketV1 => serde_json::from_str(bytes).map_err(|e| format!("invalid captured public packet: {e}"))?,
         ObserverFormat::McpToolResultV1 => unreachable!("MCP has its own independent decoder"),

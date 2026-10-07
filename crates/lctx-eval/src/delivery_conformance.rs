@@ -2,6 +2,7 @@
 //! Successful metadata checks never supply facts to the semantic observer.
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use crate::contracts::PublicCall;
 
 struct EvidenceRole {
     role: &'static str,
@@ -84,7 +85,7 @@ fn same_original(actual: &Value, mapped: &Value, body: Option<&Value>) -> bool {
     }
     &expected == mapped
 }
-fn expansion(root: &Value, path: &str, item: &Value, nodes: &[&Value]) -> Result<(), String> {
+fn expansion(root: &Value, path: &str, item: &Value, nodes: &[&Value], origin: Option<&PublicCall>) -> Result<(), String> {
     let Some(expand) = item.get("expand").filter(|v| !v.is_null()) else {return Ok(());};
     let tool = expand["tool"].as_str().ok_or("delivery expansion has no public tool")?;
     let args = expand["arguments"].as_object().ok_or("delivery expansion has no public arguments")?;
@@ -125,15 +126,25 @@ fn expansion(root: &Value, path: &str, item: &Value, nodes: &[&Value]) -> Result
         let matched = captured_release.is_some_and(|v|v.get("version")==Some(release)) || nodes.iter().any(|v|v.get("releases").and_then(Value::as_array).is_some_and(|rs|rs.iter().any(|r|r.get("version")==Some(release))));
         if !matched { return Err("delivery expansion invents release attribution".into()); }
     }
-    for key in ["signature", "variant"] {
-        if let Some(value) = demand.and_then(|v|v.get(key)) {
-            if tool=="get_evidence" {return Err("delivery source expansion invents callable binding".into());}
-            if nominal_nearest(nodes,key)!=Some(value) && !core.and_then(|v|v.get("signatures")).and_then(Value::as_array).is_some_and(|signatures|signatures.iter().any(|s|s.get(key)==Some(value) && requested_analysis.is_none_or(|analysis|s.get("analysis")==Some(analysis)))) {return Err("delivery operation expansion invents callable binding".into());}
-        }
+    let requested_signature = demand.and_then(|v|v.get("signature"));
+    let requested_variant = demand.and_then(|v|v.get("variant"));
+    if requested_signature.is_some() || requested_variant.is_some() {
+        if tool=="get_evidence" {return Err("delivery source expansion invents callable binding".into());}
+        let matches = |value: &Value| value.get("signature").is_some_and(|v|!v.is_null()) && value.get("variant").is_some_and(|v|!v.is_null()) && requested_signature.is_none_or(|v|value.get("signature")==Some(v)) && requested_variant.is_none_or(|v|value.get("variant")==Some(v)) && requested_analysis.is_none_or(|v|value.get("analysis")==Some(v));
+        if !nodes.iter().any(|node|matches(node)) && !core.and_then(|v|v.get("signatures")).and_then(Value::as_array).is_some_and(|values|values.iter().any(matches)) {return Err("delivery operation expansion invents callable tuple".into());}
+    }
+    if let Some(library) = args.get("library") {
+        let releases = nodes.iter().flat_map(|node|node.get("releases").and_then(Value::as_array).into_iter().flatten()).chain(captured_release).collect::<Vec<_>>();
+        let domain_match = root["structuredContent"]["domains"].as_array().is_some_and(|domains|domains.iter().any(|domain|domain.get("name")==Some(library) && domain.get("captures").and_then(Value::as_array).is_some_and(|captures|captures.iter().any(|capture|capture.get("release").is_some_and(|release|releases.contains(&release) && requested_release.is_none_or(|version|release.get("version")==Some(version)))))));
+        // get_operation has no domain inventory. Its captured public request supplies the
+        // already-admitted library scope, independently of expansion metadata.
+        let origin_match = origin.is_some_and(|call|call.tool=="get_operation" && call.arguments.get("library")==Some(library) && core.is_some());
+        if !domain_match && !origin_match {return Err("delivery expansion invents library/release scope".into());}
     }
     Ok(())
 }
-pub fn validate(result: &Value) -> Result<(), String> {
+pub fn validate(result: &Value) -> Result<(), String> { validate_for_call(result, None) }
+pub fn validate_for_call(result: &Value, origin: Option<&PublicCall>) -> Result<(), String> {
     let map = result.get("structuredContent").and_then(|v|v.get("delivery")).ok_or("current MCP delivery map is absent")?;
     let fields = map["fields"].as_array().ok_or("delivery map fields are absent")?;
     let omissions = map["omissions"].as_array().ok_or("delivery map omissions are absent")?;
@@ -187,7 +198,7 @@ pub fn validate(result: &Value) -> Result<(), String> {
         let actual=result.pointer(path);
         let available=actual.is_some_and(|v|!v.is_null()&&v.get("omitted").and_then(Value::as_u64).unwrap_or(0)==0&&v.get("truncated").and_then(Value::as_bool)!=Some(true)&&v.get("availability").and_then(|a|a.get("status")).and_then(Value::as_str).is_none_or(|kind|kind=="available"));
         if available {return Err("delivery map omits an available complete field".into());}
-        expansion(result,path,item,&nodes)?;
+        expansion(result,path,item,&nodes,origin)?;
     }
     if !required_omissions.is_empty() {return Err("delivery map omits actual unavailable or truncated evidence".into());}
     Ok(())
@@ -218,5 +229,19 @@ mod tests {
         for dependencies in [serde_json::json!([]),serde_json::json!(["/content/0/text"])] {let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["dependencies"]=dependencies;assert!(validate(&wrong).is_err());}
         for role in ["synthetic","reference","interpretation"] {let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["role"]=role.into();assert!(validate(&wrong).is_err());}
         let mut duplicate=good.clone();let row=duplicate["structuredContent"]["delivery"]["fields"][0].clone();duplicate["structuredContent"]["delivery"]["fields"].as_array_mut().unwrap().push(row);assert!(validate(&duplicate).is_err());
+    }
+    #[test]
+    fn expansion_keeps_one_callable_and_library_release_tuple() {
+        let mut good=packet();
+        let release=serde_json::json!({"input":vec![10;16],"release":vec![11;16],"distribution":"mini","version":"1"});
+        good["structuredContent"]["item"]["core"]=serde_json::json!({"member":vec![1;16],"release":release,"signatures":[{"signature":vec![12;16],"variant":vec![13;16],"analysis":vec![2;16]},{"signature":vec![14;16],"variant":vec![15;16],"analysis":vec![2;16]}]});
+        good["structuredContent"]["item"]["interpretation"]=serde_json::json!({"availability":{"status":"unavailable"}});
+        good["structuredContent"]["domains"]=serde_json::json!([{"name":"mini","captures":[{"release":release}]},{"name":"other","captures":[{"release":{"input":vec![20;16],"release":vec![21;16],"distribution":"other","version":"2"}}]}]);
+        good["structuredContent"]["delivery"]["omissions"]=serde_json::json!([{"field":"/structuredContent/item/interpretation","availability":{"status":"unavailable"},"expand":{"tool":"get_operation","arguments":{"library":"mini","operation":{"kind":"member","member":vec![1;16]},"page":{"evidence_demand":{"context":{"analysis":vec![2;16],"signature":vec![12;16],"variant":vec![13;16],"release":"1"}}}}}}]);
+        validate(&good).unwrap();
+        let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["omissions"][0]["expand"]["arguments"]["page"]["evidence_demand"]["context"]["variant"]=serde_json::json!(vec![15;16]);assert!(validate(&wrong).is_err());
+        let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["omissions"][0]["expand"]["arguments"]["library"]="other".into();assert!(validate(&wrong).is_err());
+        good["structuredContent"].as_object_mut().unwrap().remove("domains");assert!(validate(&good).is_err());
+        let origin=PublicCall{tool:"get_operation".into(),arguments:serde_json::json!({"library":"mini"})};validate_for_call(&good,Some(&origin)).unwrap();
     }
 }

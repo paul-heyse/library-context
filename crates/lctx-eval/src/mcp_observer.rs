@@ -4,7 +4,7 @@
 //! Runtime effective values and unreadable predicates remain unsupported.
 use std::collections::BTreeMap;
 use serde_json::Value;
-use crate::contracts::{Assignment, CandidateStatus};
+use crate::contracts::{Assignment, CandidateStatus, PublicCall};
 use crate::observer::{DecodedPacket, PublicEvidence, PublicGroup, PublicQualification};
 
 
@@ -245,10 +245,13 @@ fn continuation_expanded(cursor:&str)->Result<bool,String>{
     if ordering==blake3::hash(b"serving-key-order/v2:default").to_hex().to_string(){Ok(false)}else if ordering==blake3::hash(b"serving-key-order/v2:expanded").to_hex().to_string(){Ok(true)}else{Err("unsupported public continuation ordering".into())}
 }
 pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
+    decode_for_call(bytes, realization, None)
+}
+pub fn decode_for_call(bytes: &str, realization: &str, origin: Option<&PublicCall>) -> Result<DecodedPacket, String> {
     let UniqueJson(root) = serde_json::from_str(bytes).map_err(|e| e.to_string())?;
     let result = if root.get("jsonrpc").is_some() { field(&root, "result")? } else { &root };
     if field(result, "isError")?.as_bool() != Some(false) { return Err("MCP operation returned error/refusal".into()); }
-    crate::delivery_conformance::validate(result)?;
+    crate::delivery_conformance::validate_for_call(result, origin)?;
     decode_fields(result, realization)
 }
 // Semantic extraction remains independently testable; production always validates the final map

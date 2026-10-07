@@ -51,6 +51,11 @@ fn continuation_projection(reference: &PublicCall, origin: &PublicCall) -> Publi
     if let (Some(existing),Some(visible))=(result.arguments["page"].as_object_mut(),page.as_object()){existing.extend(visible.clone());}
     result
 }
+fn decode_segment(observation: &Observation, index: usize) -> Result<observer::DecodedPacket, String> {
+    let call_index = if index==0 {Some(0)} else {observation.expansions.iter().position(|v|v.response_segment==Some(index)).map(|v|v+1)};
+    let origin = observation.capture.as_ref().and_then(|v|call_index.and_then(|index|v.calls.get(index)));
+    observer::decode_for_call(&observation.observer_format, observation.segments.get(index).ok_or("captured segment is absent")?, &observation.realization, origin)
+}
 fn observed_packets(case: &Case) -> Result<Vec<observer::DecodedPacket>, String> {
     let observation = &case.observation;
     if observation.segments.is_empty() { return Err("missing exact initial bytes".into()); }
@@ -58,17 +63,17 @@ fn observed_packets(case: &Case) -> Result<Vec<observer::DecodedPacket>, String>
     if matches!(observation.observer_format, ObserverFormat::McpToolResultV1) {
         let capture = observation.capture.as_ref().ok_or("MCP capture facts are required")?;
         if capture.native_realization != observation.realization || capture.calls.is_empty() || capture.timeout_millis == 0 || capture.calls.len() > capture.call_limit || capture.calls.len() != observation.expansions.len() + 1 || capture.call_limit != case.task.envelope.max_calls + 1 || capture.byte_limit != case.task.envelope.max_bytes { return Err("MCP capture identity/journey bounds mismatch".into()); }
-        let mut visible=vec![(observer::decode(&observation.observer_format,&observation.segments[0],&observation.realization)?, &capture.calls[0])];
+        let mut visible=vec![(decode_segment(observation,0)?, &capture.calls[0])];
         for (index, expansion) in observation.expansions.iter().enumerate() {
             let actual = &capture.calls[index + 1];
             let reference:PublicCall=serde_json::from_str(&expansion.reference).map_err(|_|"captured follow-up is not a public call")?;
             if expansion.operation != actual.tool || !visible.iter().any(|(packet,origin)|packet.references.contains(&expansion.reference)&&serde_json::to_value(continuation_projection(&reference,origin)).ok()==serde_json::to_value(actual).ok()) { return Err("captured follow-up differs from independently visible public reference and origin".into()); }
-            if let Some(segment)=expansion.response_segment {let bytes=observation.segments.get(segment).ok_or("captured follow-up segment is absent")?;visible.push((observer::decode(&observation.observer_format,bytes,&observation.realization)?,actual));}
+            if let Some(segment)=expansion.response_segment {visible.push((decode_segment(observation,segment)?,actual));}
         }
         if case.task.public_call.as_ref().is_none_or(|call| serde_json::to_value(call).ok() != serde_json::to_value(&capture.calls[0]).ok()) { return Err("captured initial public request differs from task projection".into()); }
     }
     let mut active = BTreeSet::from([0]);
-    let mut packets = vec![observer::decode(&observation.observer_format, &observation.segments[0], &observation.realization)?];
+    let mut packets = vec![decode_segment(observation,0)?];
     if case.mode == Mode::Expandable {
         if observation.expansions.len() > case.task.envelope.max_calls { return Err("journey call budget exhausted".into()); }
         for call in &observation.expansions {
@@ -78,7 +83,7 @@ fn observed_packets(case: &Case) -> Result<Vec<observer::DecodedPacket>, String>
             if call.status != OperationStatus::Completed { return Err(format!("expansion {:?}", call.status)); }
             let segment = call.response_segment.ok_or("completed expansion has no response bytes")?;
             if segment == 0 || active.contains(&segment) || segment >= observation.segments.len() { return Err("invalid expansion response segment".into()); }
-            packets.push(observer::decode(&observation.observer_format, &observation.segments[segment], &observation.realization)?);
+            packets.push(decode_segment(observation,segment)?);
             active.insert(segment);
         }
     }
