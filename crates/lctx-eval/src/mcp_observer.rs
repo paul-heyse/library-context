@@ -48,14 +48,14 @@ pub fn identity(value: &Value, length: usize) -> Result<String, String> {
     bytes.iter().map(|value| integer(value).and_then(|n| u8::try_from(n).map(|b| format!("{b:02x}")).map_err(|_| "public identity byte range".into()))).collect()
 }
 fn observed(anchor: String, role: &str, text: String) -> PublicEvidence {
-    PublicEvidence { anchor, role: role.into(), text, qualifications: vec![], candidate_status: CandidateStatus::Supported }
+    PublicEvidence { anchor, provenance: Assignment::new(), role: role.into(), text, qualifications: vec![], candidate_status: CandidateStatus::Supported }
 }
 fn literal(value: &Value) -> Result<Option<String>, String> {
     match text(field(value, "kind")?)? {
         "none" => Ok(Some("None".into())),
         "bool" => Ok(Some(if field(value, "value")?.as_bool().ok_or("public Boolean literal")? { "True".into() } else { "False".into() })),
         "integer" => Ok(Some(text(field(value, "decimal")?)?.into())),
-        "string" => Ok(Some(text(field(value, "value")?)?.into())),
+        "string" => Ok(Some(serde_json::to_string(text(field(value, "value")?)?).map_err(|e|e.to_string())?)),
         // Raw IEEE bits and byte arrays are not fabricated readable Python literals.
         "float" | "bytes" => Ok(None),
         _ => Err("unsupported public literal kind".into()),
@@ -100,7 +100,11 @@ fn readable_qualification(value:&Value,analysis:&str,release:&str)->Result<Optio
         }
         meanings.join(" or ")
     };
-    Ok(Some(PublicQualification{id,text:meaning}))
+    let attributes=["modality","approximation","claim_basis","availability"].into_iter().filter_map(|key|value.get(key).map(|v|Ok((key.into(),serde_json::to_string(v).map_err(|e|e.to_string())?)))).collect::<Result<Assignment,String>>()?;
+    Ok(Some(PublicQualification{id,text:meaning,attributes}))
+}
+fn qualified_status(qualification:&PublicQualification)->CandidateStatus {
+    if qualification.attributes.get("modality").map(String::as_str)==Some("\"definite\"") && qualification.attributes.get("approximation").map(String::as_str)==Some("\"exact\"") && qualification.attributes.get("availability").and_then(|v|serde_json::from_str::<Value>(v).ok()).is_some_and(|v|v["status"]=="available") {CandidateStatus::Supported}else{CandidateStatus::Unknown}
 }
 fn interpretation(core:&Value,common:&Assignment,groups:&mut Vec<PublicGroup>)->Result<(),String>{
     let Some(closure)=core.get("interpretation")else{return Ok(());};
@@ -155,7 +159,7 @@ fn interpretation(core:&Value,common:&Assignment,groups:&mut Vec<PublicGroup>)->
                     if field(excerpt,"text")?.as_str()!=Some(readable)||identity(field(original,"source")?.get("occurrence").ok_or("expression original is not occurrence")?,16)?!=identity(field(field(default,"value")?,"expression")?,16)?||identity(field(original,"release")?,16)?!=*common.get("release_identity").ok_or("missing enclosing release")?||identity(field(original,"context")?,16)?!=analysis||text(field(original,"encoding")?)?!="raw_bytes"||integer(field(original,"end")?)?.checked_sub(integer(field(original,"start")?)?)!=Some(readable.len() as u64){return Err("public expression is not exact captured original".into());}
                 }
                 let mut meaning=observed(anchor,role,readable.into());
-                if !field(default,"qualification")?.is_null(){let q=identity(field(default,"qualification")?,16)?;if let Some(Some(q))=qualifications.get(&(q,analysis.clone())){meaning.qualifications.push(q.clone());}}
+                if !field(default,"qualification")?.is_null(){let q=identity(field(default,"qualification")?,16)?;meaning.candidate_status=CandidateStatus::Unknown;if let Some(Some(q))=qualifications.get(&(q,analysis.clone())){meaning.candidate_status=qualified_status(q);meaning.qualifications.push(q.clone());}}
                 evidence.push(meaning);
             }
         }
@@ -195,7 +199,7 @@ fn search_evidence(structured:&Value,groups:&mut Vec<PublicGroup>,references:&mu
             if !witnesses.iter().any(|w|w.get("occurrence").is_some_and(|o|identity(&o["window"],16).ok().as_ref()==Some(&wid)&&identity(&o["context"],16).ok().as_ref()==Some(&analysis)&&(purpose==1||identity(&o["part"],16).ok().as_ref()==Some(&part)))){return Err("public window has no actual ranked witness".into());}
             if purpose==1&&["binding","subject","basis","member"].iter().any(|key|window.get(key).is_some_and(|v|!v.is_null())){return Err("context/setup part cannot nominate primary binding".into());}
             let content=text(field(window,"text")?)?;
-            let mut context=common.clone();context.insert("analysis_identity".into(),analysis.clone());context.insert("window_identity".into(),wid.clone());context.insert("part_identity".into(),part);
+            let mut context=common.clone();context.insert("analysis_identity".into(),analysis.clone());
             if let Some(member)=window.get("member").filter(|v|!v.is_null()){if purpose!=0{return Err("context member nomination".into());}context.insert("member_identity".into(),identity(member,16)?);}
             let mut meanings=vec![];let maps=array(field(window,"source_maps")?)?;
             let mut ranges=vec![];
@@ -209,9 +213,9 @@ fn search_evidence(structured:&Value,groups:&mut Vec<PublicGroup>,references:&mu
                 if identity(field(original,"context")?,16)?!=analysis||identity(field(original,"release")?,16)?!=common["release_identity"]||text(field(original,"encoding")?)?!="raw_bytes"||integer(field(original,"end")?)?.checked_sub(integer(field(original,"start")?)?)!=Some(end-start){return Err("public window/original association mismatch".into());}
                 let anchor=serde_json::to_string(field(original,"source")?).map_err(|e|e.to_string())?;
                 let mut meaning=observed(anchor,if purpose==0{"primary_window_source"}else{"context_window_source"},fragment.into());
-                if !field(window,"qualification")?.is_null(){let q=identity(field(window,"qualification")?,16)?;if let Some(Some(readable))=quals.get(&q){meaning.qualifications.push(readable.clone());}}
-                let mut source_context=context.clone();source_context.insert("artifact_identity".into(),identity(field(original,"artifact")?,16)?);source_context.insert("source_start".into(),integer(field(original,"start")?)?.to_string());source_context.insert("source_end".into(),integer(field(original,"end")?)?.to_string());
-                groups.push(PublicGroup{context:source_context,evidence:vec![meaning]});
+                if !field(window,"qualification")?.is_null(){let q=identity(field(window,"qualification")?,16)?;meaning.candidate_status=CandidateStatus::Unknown;if let Some(Some(readable))=quals.get(&q){meaning.candidate_status=qualified_status(readable);meaning.qualifications.push(readable.clone());}}
+                meaning.provenance=Assignment::from([("window_identity".into(),wid.clone()),("part_identity".into(),part.clone()),("artifact_identity".into(),identity(field(original,"artifact")?,16)?),("source_start".into(),integer(field(original,"start")?)?.to_string()),("source_end".into(),integer(field(original,"end")?)?.to_string())]);
+                groups.push(PublicGroup{context:context.clone(),evidence:vec![meaning]});
                 references.push(serde_json::json!({"tool":"get_evidence","arguments":{"source":field(original,"source")?,"page":{"expanded":true,"evidence_demand":{"facets":["originals","conditions","setup"],"context":{"analysis":field(window,"analysis")?,"release":field(release,"version")?},"maximum_followups":0}}}}).to_string());
             }
             if maps.is_empty(){let mut synthetic=observed(wid,if purpose==0{"synthetic_primary_window"}else{"synthetic_context_window"},content.into());synthetic.candidate_status=CandidateStatus::Unknown;meanings.push(synthetic);}
@@ -244,6 +248,7 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
     let UniqueJson(root) = serde_json::from_str(bytes).map_err(|e| e.to_string())?;
     let result = if root.get("jsonrpc").is_some() { field(&root, "result")? } else { &root };
     if field(result, "isError")?.as_bool() != Some(false) { return Err("MCP operation returned error/refusal".into()); }
+    crate::delivery_conformance::validate(result)?;
     let content = array(field(result, "content")?)?;
     if content.iter().any(|block| block.get("type").and_then(Value::as_str) != Some("text")) { return Err("unsupported MCP content kind".into()); }
     let structured = field(result, "structuredContent")?;
@@ -273,18 +278,17 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
         if original_end < original_start || (encoding!="native_literal_utf8_slice"&&end > original_end - original_start) { return Err("public source range mismatch".into()); }
         let anchor = serde_json::to_string(field(original, "source")?).map_err(|e| e.to_string())?;
         let context = Assignment::from([
-            ("artifact_identity".into(), artifact),
             ("release_identity".into(), identity(field(original, "release")?,16)?),
             ("analysis_identity".into(), identity(field(original, "context")?,16)?),
-            ("source_start".into(), original_start.to_string()),
-            ("source_end".into(), original_end.to_string()),
         ]);
         let mut context=context;
         if let Some(release)=evidence.get("release") {
             if identity(field(release,"release")?,16)?!=context["release_identity"]{return Err("source readable release binding disagreement".into());}
             context.insert("release".into(),text(field(release,"version")?)?.into());context.insert("distribution".into(),text(field(release,"distribution")?)?.into());
         }
-        groups.push(PublicGroup { context:context.clone(), evidence: vec![observed(anchor.clone(),if encoding=="native_literal_utf8_slice"{"interpreted_prose"}else{"original_source"},source)] });
+        let mut meaning=observed(anchor.clone(),if encoding=="native_literal_utf8_slice"{"interpreted_prose"}else{"original_source"},source);
+        meaning.provenance=Assignment::from([("artifact_identity".into(),artifact),("source_start".into(),original_start.to_string()),("source_end".into(),original_end.to_string())]);
+        groups.push(PublicGroup { context:context.clone(), evidence: vec![meaning] });
         interpretation(evidence,&context,&mut groups)?;
         if let Some(cursor) = body.get("continuation") {let cursor=text(cursor)?;references.push(serde_json::json!({"tool":"get_evidence","arguments":{"source":field(original,"source")?,"page":{"cursor":cursor,"expanded":continuation_expanded(cursor)?}}}).to_string());}
     } else if let Some(operation) = structured.get("operation") {
@@ -314,7 +318,7 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
                 parameter_context.insert("parameter_identity".into(), id.clone());
                 if let Some(name) = field(parameter,"name")?.as_str() { meanings.push(observed(id.clone(),"parameter_name", name.into())); }
                 let default = field(parameter,"default")?;
-                if default.get("kind").and_then(Value::as_str) == Some("literal") {
+                if core.get("interpretation").is_none() && default.get("kind").and_then(Value::as_str) == Some("literal") {
                     let literal_id = identity(field(default,"literal")?,16)?;
                     if let Some(value) = literals.get(&literal_id).and_then(|v| literal(v).transpose()).transpose()? { meanings.push(observed(id,"declared_literal_default",value)); }
                 }
@@ -392,7 +396,7 @@ mod closure_tests {
     fn packet()->Value{
         let original=serde_json::json!({"source":{"kind":"occurrence","occurrence":vec![8;16]},"artifact":vec![7;16],"context":vec![3;16],"release":vec![11;16],"start":0,"end":4,"encoding":"raw_bytes"});
         let atom=serde_json::json!({"analysis":vec![3;16],"predicate":"is truthy","value":true,"evaluation":{"text":"flag","original":original}});
-        let q=serde_json::json!({"qualification":vec![16;16],"analysis":vec![3;16],"constant":null,"truncated":false,"terms":[[atom]]});
+        let q=serde_json::json!({"qualification":vec![16;16],"analysis":vec![3;16],"constant":null,"truncated":false,"terms":[[atom]],"modality":"definite","approximation":"exact","claim_basis":{"definitions":[]},"availability":{"status":"available"}});
         let context=serde_json::json!({"analysis":vec![3;16],"python_version":"3.14","python_platform":"linux","search_path":["/captured/src"],"site_package_path":[]});
         let default=serde_json::json!({"signature":vec![12;16],"variant":vec![2;16],"analysis":vec![3;16],"parameter":vec![4;16],"field":null,"subject_name":"timeout","option":vec![15;16],"value":{"kind":"literal","literal":vec![9;16]},"readable":"10","original":null,"qualification":vec![16;16]});
         let interpretation=serde_json::json!({"contexts":[context],"defaults":[default],"qualifications":[q]});
@@ -422,6 +426,17 @@ mod closure_tests {
         let decoded=decode(&field.to_string(),&"06".repeat(32)).unwrap();let group=decoded.groups.last().unwrap();assert_eq!(group.context["field_identity"],"11".repeat(16));assert!(!group.context.contains_key("signature_identity"));assert_eq!(group.evidence[0].role,"field_name");
         let mut unknown=field;unknown["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["qualifications"][0]["terms"][0][0]["predicate"]=Value::Null;
         assert!(decode(&unknown.to_string(),&"06".repeat(32)).unwrap().groups.last().unwrap().evidence[1].qualifications.is_empty());
+    }
+    #[test]
+    fn readable_candidates_preserve_uncertainty_and_literal_identity(){
+        assert_ne!(literal(&serde_json::json!({"kind":"none"})).unwrap(),literal(&serde_json::json!({"kind":"string","value":"None"})).unwrap());
+        let mut source=packet();
+        source["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["qualifications"][0]["modality"]="candidate".into();
+        let decoded=decode(&source.to_string(),&"06".repeat(32)).unwrap();
+        let meaning=&decoded.groups.last().unwrap().evidence[1];
+        assert_eq!(meaning.text,"10");assert_eq!(meaning.candidate_status,CandidateStatus::Unknown);
+        assert_eq!(meaning.qualifications[0].attributes["modality"],"\"candidate\"");
+        assert_eq!(meaning.qualifications[0].attributes["approximation"],"\"exact\"");
     }
 }
 #[cfg(test)]
@@ -454,7 +469,7 @@ mod search_tests {
     }
     #[test]
     fn actual_source_maps_and_context_roles_are_independently_decoded(){
-        let mut source=packet();source["structuredContent"]["delivery"]=serde_json::json!({"fields":[{"field":"/results/0","binding":{"analysis":vec![99;16]}}]});
+        let source=packet();
         let decoded=decode(&source.to_string(),&"06".repeat(32)).unwrap();assert_eq!(decoded.tool.as_deref(),Some("search_evidence"));
         assert!(decoded.groups.iter().any(|g|g.evidence.iter().any(|e|e.role=="primary_window_source"&&e.text=="call")));
         let setup=decoded.groups.last().unwrap();assert_eq!(setup.evidence[0].role,"synthetic_context_window");assert_eq!(setup.evidence[0].candidate_status,CandidateStatus::Unknown);
@@ -472,6 +487,24 @@ mod search_tests {
         let encoded=cursor.as_bytes().iter().map(|b|format!("{b:02x}")).collect::<String>();source["structuredContent"]["results"]["continuation"]=serde_json::json!(encoded);
         let decoded=decode(&source.to_string(),&"06".repeat(32)).unwrap();let reference:Value=serde_json::from_str(decoded.references.last().unwrap()).unwrap();assert_eq!(reference["tool"],"search_evidence");assert_eq!(reference["arguments"]["page"]["expanded"],false);assert!(reference["arguments"].get("query").is_none());
         assert!(continuation_expanded("α").is_err());assert!(continuation_expanded("ab").is_err());
+    }
+    #[test]
+    fn distinct_source_instances_join_only_on_semantic_context(){
+        let mut source=packet();
+        let mut second=source["structuredContent"]["results"]["items"][0]["delivered_windows"][0].clone();
+        second["part"]=serde_json::json!(vec![12;16]);second["text"]="more".into();
+        second["source_maps"][0]["original"]["start"]=30.into();second["source_maps"][0]["original"]["end"]=34.into();
+        let mut witness=source["structuredContent"]["ranking"][0]["witnesses"][0].clone();witness["occurrence"]["part"]=second["part"].clone();
+        source["structuredContent"]["ranking"][0]["witnesses"].as_array_mut().unwrap().push(witness);
+        source["structuredContent"]["results"]["items"][0]["delivered_windows"].as_array_mut().unwrap().push(second);
+        let decoded=decode(&source.to_string(),&"06".repeat(32)).unwrap();
+        let leaves=decoded.groups.iter().filter(|g|g.evidence.iter().any(|e|e.role=="primary_window_source")).collect::<Vec<_>>();
+        assert_eq!(leaves.len(),2);assert!(crate::witness::compatible(&leaves[0].context,&leaves[1].context));
+        assert_ne!(leaves[0].evidence[0].provenance,leaves[1].evidence[0].provenance);
+        let names=BTreeMap::from([("first".into(),vec![leaves[0].context.clone()]),("second".into(),vec![leaves[1].context.clone()])]);
+        let all=crate::contracts::Witness::All{children:vec![crate::contracts::Witness::Leaf{predicate:"first".into()},crate::contracts::Witness::Leaf{predicate:"second".into()}]};
+        assert_eq!(crate::witness::evaluate(&all,&names).len(),1);
+        let mut foreign=leaves[1].context.clone();foreign.insert("analysis_identity".into(),"ff".repeat(16));assert!(!crate::witness::compatible(&leaves[0].context,&foreign));
     }
     #[test]
     fn operation_search_names_are_navigation_only(){

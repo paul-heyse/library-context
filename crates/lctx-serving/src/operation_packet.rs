@@ -463,8 +463,9 @@ pub async fn get(
             .map(|l| l.brief)
             .collect::<std::collections::BTreeSet<_>>();
         let mut values = Vec::new();
+        let prepared = crate::capability::Prepared::new(&source, b)?;
         for id in ids {
-            values.push((key(id)?, crate::capability::packet(&source, id, b)?));
+            values.push((key(id)?, prepared.packet(id, b)?));
         }
         values
     } else {

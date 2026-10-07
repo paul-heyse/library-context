@@ -7,11 +7,20 @@ use crate::contracts::{Assignment, CandidateStatus, ObserverFormat};
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct PublicQualification { pub id: String, pub text: String }
+pub struct PublicQualification {
+    pub id: String,
+    pub text: String,
+    /// Preserved public epistemic qualifiers; readable source is not definite behavior.
+    #[serde(default)]
+    pub attributes: Assignment,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PublicEvidence {
     pub anchor: String,
+    /// Evidence-instance coordinates authenticate this leaf, never constrain semantic joins.
+    #[serde(default)]
+    pub provenance: Assignment,
     pub role: String,
     pub text: String,
     pub qualifications: Vec<PublicQualification>,

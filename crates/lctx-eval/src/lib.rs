@@ -3,6 +3,7 @@ pub mod contracts;
 pub mod experiment;
 pub mod observer;
 pub mod mcp_observer;
+pub mod delivery_conformance;
 pub mod numeric;
 pub mod witness;
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,6 +41,16 @@ pub fn validate_task(task: &EvaluationTask) -> Result<(), String> {
     Ok(())
 }
 
+/// Replay only the public origin of a partial same-tool continuation.
+fn continuation_projection(reference: &PublicCall, origin: &PublicCall) -> PublicCall {
+    let Some(page)=reference.arguments.get("page").filter(|v|v.get("cursor").is_some()) else{return reference.clone();};
+    let Some(arguments)=reference.arguments.as_object() else{return reference.clone();};
+    if reference.tool!=origin.tool || (reference.tool=="get_evidence" && arguments.get("source")!=origin.arguments.get("source")) || arguments.keys().any(|key|key!="page" && !(reference.tool=="get_evidence" && key=="source")) {return reference.clone();}
+    let mut result=origin.clone();
+    if result.arguments.get("page").is_none(){result.arguments["page"]=serde_json::json!({});}
+    if let (Some(existing),Some(visible))=(result.arguments["page"].as_object_mut(),page.as_object()){existing.extend(visible.clone());}
+    result
+}
 fn observed_packets(case: &Case) -> Result<Vec<observer::DecodedPacket>, String> {
     let observation = &case.observation;
     if observation.segments.is_empty() { return Err("missing exact initial bytes".into()); }
@@ -47,9 +58,12 @@ fn observed_packets(case: &Case) -> Result<Vec<observer::DecodedPacket>, String>
     if matches!(observation.observer_format, ObserverFormat::McpToolResultV1) {
         let capture = observation.capture.as_ref().ok_or("MCP capture facts are required")?;
         if capture.native_realization != observation.realization || capture.calls.is_empty() || capture.timeout_millis == 0 || capture.calls.len() > capture.call_limit || capture.calls.len() != observation.expansions.len() + 1 || capture.call_limit != case.task.envelope.max_calls + 1 || capture.byte_limit != case.task.envelope.max_bytes { return Err("MCP capture identity/journey bounds mismatch".into()); }
+        let mut visible=vec![(observer::decode(&observation.observer_format,&observation.segments[0],&observation.realization)?, &capture.calls[0])];
         for (index, expansion) in observation.expansions.iter().enumerate() {
             let actual = &capture.calls[index + 1];
-            if expansion.operation != actual.tool || serde_json::from_str::<serde_json::Value>(&expansion.reference).ok() != serde_json::to_value(actual).ok() { return Err("captured follow-up differs from independently visible public reference".into()); }
+            let reference:PublicCall=serde_json::from_str(&expansion.reference).map_err(|_|"captured follow-up is not a public call")?;
+            if expansion.operation != actual.tool || !visible.iter().any(|(packet,origin)|packet.references.contains(&expansion.reference)&&serde_json::to_value(continuation_projection(&reference,origin)).ok()==serde_json::to_value(actual).ok()) { return Err("captured follow-up differs from independently visible public reference and origin".into()); }
+            if let Some(segment)=expansion.response_segment {let bytes=observation.segments.get(segment).ok_or("captured follow-up segment is absent")?;visible.push((observer::decode(&observation.observer_format,bytes,&observation.realization)?,actual));}
         }
         if case.task.public_call.as_ref().is_none_or(|call| serde_json::to_value(call).ok() != serde_json::to_value(&capture.calls[0]).ok()) { return Err("captured initial public request differs from task projection".into()); }
     }

@@ -40,7 +40,7 @@ fn run(request: Request) -> Result<serde_json::Value, String> {
 }
 fn wire_schema() -> serde_json::Value {
     let mut source = blake3::Hasher::new();
-    for input in [include_str!("../Cargo.toml"), include_str!("contracts.rs"), include_str!("witness.rs"), include_str!("experiment.rs"), include_str!("lib.rs"), include_str!("observer.rs"), include_str!("mcp_observer.rs"), include_str!("numeric.rs"), include_str!("main.rs")] {
+    for input in [include_str!("../Cargo.toml"), include_str!("contracts.rs"), include_str!("witness.rs"), include_str!("experiment.rs"), include_str!("lib.rs"), include_str!("observer.rs"), include_str!("mcp_observer.rs"), include_str!("delivery_conformance.rs"), include_str!("numeric.rs"), include_str!("main.rs")] {
         source.update(&(input.len() as u64).to_le_bytes());
         source.update(input.as_bytes());
     }

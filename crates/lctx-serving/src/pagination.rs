@@ -440,8 +440,10 @@ mod tests {
         let token = Cursor {
             binding,
             after: CursorPosition::Ranked {
-                score_bits: 1f64.to_bits(),
-                key: ContentHash::of(b"row"),
+                session: ContentHash::of(b"session"),
+                result: ContentHash::of(b"result"),
+                digest: ContentHash::of(b"rows"),
+                offset: 1,
             },
         }
         .encode()

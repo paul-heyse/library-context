@@ -155,6 +155,23 @@ def capture_renderer(task: dict[str, Any], response: dict[str, Any]) -> dict[str
             "observer_format": "mcp_tool_result_v1", "expansions": [], "status": "completed", "failure": None}
 
 
+def _continuation_projection(reference: dict[str, Any], origin: dict[str, Any]) -> dict[str, Any]:
+    """Complete a visible cursor using only its actual originating public request."""
+    public = copy.deepcopy(reference)
+    arguments = public.get("arguments", {})
+    page = arguments.get("page", {})
+    if public.get("tool") != origin.get("tool") or not page.get("cursor"):
+        return public
+    if public["tool"] == "get_evidence" and arguments.get("source") != origin["arguments"].get("source"):
+        return public
+    allowed = {"page", "source"} if public["tool"] == "get_evidence" else {"page"}
+    if set(arguments) - allowed:
+        return public
+    merged = copy.deepcopy(origin)
+    merged["arguments"].setdefault("page", {}).update(page)
+    return merged
+
+
 async def capture_public_journey(
     worker: Worker, client: Any, task: dict[str, Any], *, lane: str,
     timeout_seconds: float = 20.0,
@@ -196,18 +213,18 @@ async def capture_public_journey(
     if len(raw.encode()) > task["envelope"]["max_bytes"]:
         return observation  # Judge reports infeasible delivery; no follow-up is attempted.
     try:
-        queue = list(worker.request({"operation": "observe", "observation": observation})["public_references"])
+        queue = [(reference, initial) for reference in worker.request({"operation": "observe", "observation": observation})["public_references"]]
     except WorkerError as error:
         observation["status"] = "failed"
         observation["failure"] = str(error)
         return observation
     seen: set[str] = set()
     while queue and len(observation["expansions"]) < task["envelope"]["max_calls"]:
-        reference = queue.pop(0)
+        reference, origin = queue.pop(0)
         if reference in seen:
             continue
         seen.add(reference)
-        public = json.loads(reference)
+        public = _continuation_projection(json.loads(reference), origin)
         if public["tool"] not in task["request"]["allowed_followups"]:
             continue
         entry = {"reference": reference, "operation": public["tool"], "realization": observation["realization"], "status": "completed", "response_segment": None}
@@ -234,7 +251,7 @@ async def capture_public_journey(
             break
         part = {**observation, "segments": [following]}
         try:
-            queue.extend(worker.request({"operation": "observe", "observation": part})["public_references"])
+            queue.extend((reference, public) for reference in worker.request({"operation": "observe", "observation": part})["public_references"])
         except WorkerError:
             entry["status"] = "failed"
             break

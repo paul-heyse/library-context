@@ -361,6 +361,20 @@ def test_actual_public_projection_rejects_private_fields_before_effects():
         _public_projection(task)
 
 
+def test_cursor_replays_actual_public_origin_without_private_expectations():
+    from programmatic_eval import _continuation_projection
+    origin = {"tool": "search_evidence", "arguments": {"library": "mini", "query": "connect", "families": ["code"], "page": {"size": 3, "expanded": False, "evidence_demand": {"facets": ["defaults"], "maximum_followups": 1}}}}
+    visible = {"tool": "search_evidence", "arguments": {"page": {"cursor": "public-cursor", "expanded": False}}}
+    replay = _continuation_projection(visible, origin)
+    assert replay["arguments"]["query"] == "connect"
+    assert replay["arguments"]["page"]["evidence_demand"] == origin["arguments"]["page"]["evidence_demand"]
+    assert replay["arguments"]["page"]["cursor"] == "public-cursor"
+    assert "cursor" not in origin["arguments"]["page"]
+    assert set(replay["arguments"]) == {"library", "query", "families", "page"}
+    fresh = {"tool": "get_evidence", "arguments": {"source": {"kind": "artifact", "artifact": [9] * 16}, "page": {"cursor": "another-source"}}}
+    assert _continuation_projection(fresh, origin) == fresh
+
+
 def test_actual_capture_freeze_binds_source_native_wire_budget_precision(worker):
     from programmatic_eval import capture_renderer
     task, response = renderer_source_case()
