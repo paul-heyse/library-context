@@ -1,5 +1,13 @@
 //! Publication inputs bind immutable completed streams, including contributed vocabulary.
-use cpg_core::workspace::{CompletedInputs, Workspace, WorkspaceOptions};
+use cpg_core::{
+    embedding_service::{Embedder, FakeEmbedder},
+    workspace::{CompletedInputs, Workspace, WorkspaceOptions},
+};
+use lctx_model::domain::embedding::{
+    EmbeddingSpec,
+    projection::{ProjectedValue, ProjectionDefinition},
+    value::{AdmittedValue, FullValue, encode_vector, value_digest},
+};
 use lctx_model::domain::{
     input::InputRevision,
     source::{Module, SourceArtifact},
@@ -202,28 +210,34 @@ async fn distinct_completed_views_remain_selectable_together() {
     assert!(session.sql("SELECT * FROM places").await.is_err());
 }
 
-// Deliberately minimal records exercise shared transport independently of value admission.
-#[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
-#[model(name = "embedding_full_values")]
-struct FullWinner {
-    #[model(key)]
-    input: ContentHash,
-    payload: String,
+// Use the production record codec and nominal keys. Referenced encoder/policy anchors are
+// outside this selected completed-view control, as source anchors are in the Place controls.
+fn value_pair(workspace: &Workspace, input: &str, payload: &str) -> (FullValue, ProjectedValue) {
+    let embedder = FakeEmbedder::new();
+    let encoder = EmbeddingSpec::new(embedder.spec()).unwrap();
+    let policy = ProjectionDefinition::initial(embedder.spec());
+    let admitted = AdmittedValue::new(
+        embedder.spec(), input, 1, &embedder.vector(payload), workspace.budget(),
+    ).unwrap();
+    let full = FullValue::new(&encoder, &admitted).unwrap();
+    let projected = ProjectedValue::new(&full, &policy).unwrap();
+    (full, projected)
 }
-#[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
-#[model(name = "embedding_projected_values")]
-struct ProjectedWinner {
-    #[model(key)]
-    input: ContentHash,
-    payload: String,
+
+fn value_workspace() -> Arc<Workspace> {
+    Workspace::new(
+        Arc::new(model().unwrap()),
+        WorkspaceOptions { batch_rows: 1, ..Default::default() },
+        crate::native_fixture::store(),
+    ).unwrap()
 }
 
 fn value_consumer(boundary: PublicationBoundary) -> Stage {
     let mut declaration = consumer(None);
     declaration.name = "value_consumer";
     declaration.inputs = vec![
-        RelationUse::completed::<FullWinner>().at_epoch(boundary),
-        RelationUse::completed::<ProjectedWinner>().at_epoch(boundary),
+        RelationUse::completed::<FullValue>().at_epoch(boundary),
+        RelationUse::completed::<ProjectedValue>().at_epoch(boundary),
     ];
     declaration
 }
@@ -238,42 +252,21 @@ async fn publish_values(
         Profile::Catalog,
         ContentHash::of(producer.as_bytes()),
         inputs,
-    [<FullWinner>::NAME, <ProjectedWinner>::NAME],
+    [<FullValue>::NAME, <ProjectedValue>::NAME],
     );
-    output.declare::<FullWinner>()?;
-    output.declare::<ProjectedWinner>()?;
+    output.declare::<FullValue>()?;
+    output.declare::<ProjectedValue>()?;
     for (input, payload) in rows {
-        output
-            .push(FullWinner {
-                input: ContentHash::of(input.as_bytes()),
-                payload: (*payload).into(),
-            })
-            .await?;
-        output
-            .push(ProjectedWinner {
-                input: ContentHash::of(input.as_bytes()),
-                payload: (*payload).into(),
-            })
-            .await?;
+        let (full, projected) = value_pair(workspace, input, payload);
+        output.push(full).await?;
+        output.push(projected).await?;
     }
     output.finish(ProviderOutcome::Complete).await
 }
 
 #[tokio::test]
 async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_views() {
-    let model = ValidatedModel::declared(vec![
-        Relation::of::<FullWinner>(),
-        Relation::of::<ProjectedWinner>(),
-    ])
-    .unwrap();
-    let workspace = Workspace::new(
-        Arc::new(model),
-        WorkspaceOptions {
-            batch_rows: 1,
-            ..Default::default()
-        }, crate::native_fixture::store()
-)
-    .unwrap();
+    let workspace = value_workspace();
     publish_values(
         &workspace,
         "e1",
@@ -287,7 +280,7 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
         .freeze_inputs(PublicationBoundary::AnalyticEmbedding)
         .unwrap();
     let before = workspace.stage_inputs(&analytic, Profile::Catalog).unwrap();
-    let original = before.relation::<FullWinner>().unwrap().clone();
+    let original = before.relation::<FullValue>().unwrap().clone();
     publish_values(
         &workspace,
         "e0",
@@ -307,55 +300,58 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
         .unwrap();
     assert!(Arc::ptr_eq(
         &original,
-        frozen.relation::<FullWinner>().unwrap()
+        frozen.relation::<FullValue>().unwrap()
     ));
-    assert_eq!(frozen.relation::<FullWinner>().unwrap().rows(), 2);
-    assert_eq!(frozen.relation::<ProjectedWinner>().unwrap().rows(), 2);
-    assert_eq!(latest.relation::<FullWinner>().unwrap().rows(), 3);
-    assert_eq!(latest.relation::<ProjectedWinner>().unwrap().rows(), 3);
-    let content = latest.relation::<FullWinner>().unwrap().view_identity();
+    assert_eq!(frozen.relation::<FullValue>().unwrap().rows(), 2);
+    assert_eq!(frozen.relation::<ProjectedValue>().unwrap().rows(), 2);
+    assert_eq!(latest.relation::<FullValue>().unwrap().rows(), 3);
+    assert_eq!(latest.relation::<ProjectedValue>().unwrap().rows(), 3);
+    let content = latest.relation::<FullValue>().unwrap().view_identity();
     let error = publish_values(&workspace, "conflict", &[("shared", "changed")])
         .await
         .unwrap_err();
-    assert!(
-        error.to_string().contains("embedding_full_values"),
-        "{error}"
-    );
+    assert!(matches!(error, ModelError::Conflict(_)), "{error}");
     assert_eq!(
-        workspace.relation(FullWinner::NAME).unwrap().view_identity(),
+        workspace.relation(FullValue::NAME).unwrap().view_identity(),
         content
     );
     assert_eq!(
-        frozen.relation::<FullWinner>().unwrap().view_identity(),
+        frozen.relation::<FullValue>().unwrap().view_identity(),
         original.view_identity()
     );
-    let projected_content = latest.relation::<ProjectedWinner>().unwrap().view_identity();
+    workspace.drain().await.unwrap();
+}
+
+#[tokio::test]
+async fn projected_value_conflicts_preserve_the_completed_view() {
+    let workspace = value_workspace();
+    publish_values(&workspace, "e1", &[("shared", "original")]).await.unwrap();
+    workspace.freeze_inputs(PublicationBoundary::Retrieval).unwrap();
+    let frozen = workspace.stage_inputs(
+        &value_consumer(PublicationBoundary::Retrieval), Profile::Catalog,
+    ).unwrap();
+    let projected_content = frozen.relation::<ProjectedValue>().unwrap().view_identity();
+    let (_, mut competing) = value_pair(&workspace, "shared", "original");
+    // Keep the exact nominal value/policy key while presenting different valid unit bytes.
+    let values = competing.values().unwrap().into_iter().map(|value| -value).collect::<Vec<_>>();
+    competing.bytes = EvidenceBytes(encode_vector(&values));
+    competing.digest = value_digest(&values);
+    competing.validate().unwrap();
     let output = workspace.output(
-        "projection_conflict",
-        Profile::Catalog,
-        ContentHash::of(b"projection_conflict"),
-        workspace
-            .inputs("projection_conflict", Profile::Catalog, [])
-            .unwrap(),
-    [<ProjectedWinner>::NAME],
+        "projection_conflict", Profile::Catalog, ContentHash::of(b"projection_conflict"),
+        workspace.inputs("projection_conflict", Profile::Catalog, []).unwrap(),
+        [ProjectedValue::NAME],
     );
-    output.declare::<ProjectedWinner>().unwrap();
-    output
-        .push(ProjectedWinner {
-            input: ContentHash::of(b"shared"),
-            payload: "changed_projection".into(),
-        })
-        .await
-        .unwrap();
-    let error = output.finish(ProviderOutcome::Complete).await.unwrap_err();
-    assert!(
-        error.to_string().contains("embedding_projected_values"),
-        "{error}"
-    );
-    assert_eq!(
-        workspace.relation(ProjectedWinner::NAME).unwrap().view_identity(),
-        projected_content
-    );
+    output.declare::<ProjectedValue>().unwrap();
+    let result = match output.push(competing).await {
+        Ok(()) => output.finish(ProviderOutcome::Complete).await,
+        Err(error) => Err(error),
+    };
+    let error = result.unwrap_err();
+    assert!(matches!(error, ModelError::Conflict(_)), "{error}");
+    assert_eq!(workspace.relation(ProjectedValue::NAME).unwrap().view_identity(), projected_content);
+    assert_eq!(frozen.relation::<ProjectedValue>().unwrap().view_identity(), projected_content);
+    workspace.drain().await.unwrap();
 }
 
 #[path = "fixtures/native.rs"]
