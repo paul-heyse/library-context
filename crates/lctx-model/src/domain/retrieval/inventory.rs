@@ -2,6 +2,8 @@
 macro_rules! retrieval_inputs {
     ($m:ident) => {
         $m! {
+         packages:$crate::domain::input::Package,
+         releases:$crate::domain::input::Release,
          definitions:$crate::domain::retrieval::Definition,
          chunks:$crate::domain::artifact::ArtifactChunk,
          shapes:$crate::domain::calls::ParameterShape,
@@ -27,7 +29,12 @@ macro_rules! retrieval_outputs {
          anchors:$crate::domain::retrieval::OriginalAnchor,
          anchor_sources:$crate::domain::retrieval::AnchorSource,
          roots:$crate::domain::retrieval::UnitRoot,
-         fragments:$crate::domain::retrieval::Fragment,
+         parts:$crate::domain::retrieval::ContentPart,
+         part_maps:$crate::domain::retrieval::PartSourceMap,
+         windows:$crate::domain::retrieval::SearchWindow,
+         window_parts:$crate::domain::retrieval::WindowPart,
+         window_maps:$crate::domain::retrieval::WindowSourceMap,
+         bindings:$crate::domain::retrieval::WindowBinding,
         }
     };
 }

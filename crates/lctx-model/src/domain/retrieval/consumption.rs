@@ -24,7 +24,7 @@ pub struct RetrievalEmbeddingUse {
     #[model(key)]
     pub invocation: Id<AnalysisInvocation>,
     #[model(key)]
-    pub fragment: Id<Fragment>,
+    pub window: Id<SearchWindow>,
     pub specification: Id<EmbeddingSpec>,
     pub input: ContentHash,
     pub availability: VectorAvailability,
@@ -51,7 +51,7 @@ impl RetrievalEmbeddingUse {
     pub fn admit_into(
         rows: &mut Rows<Self>,
         invocation: Id<AnalysisInvocation>,
-        fragment: Id<Fragment>,
+        window: Id<SearchWindow>,
         specification: &EmbeddingSpec,
         value: &value::AdmittedValue,
         b: &ResourceBudget,
@@ -65,7 +65,7 @@ impl RetrievalEmbeddingUse {
         )?;
         rows.insert(Self {
             invocation,
-            fragment,
+            window,
             specification: specification.id(),
             input: value.input(),
             availability: VectorAvailability::Available,
@@ -90,7 +90,7 @@ impl RetrievalEmbeddingUse {
         })
     }
 }
-/// Availability is retained once per native frame; no fragment text or vector survives its unit.
+/// Availability is retained once per native frame; no window text or vector survives its unit.
 #[derive(Default)]
 pub struct Disposition {
     reason: Option<ObligationKind>,
@@ -148,16 +148,16 @@ pub fn verify_uses(
     let mut winners = Winners::new(b);
     let mut expected = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(b, "retrieval-unit-use-membership");
-    for fragment in output.fragments.iter().filter(|fragment| {
+    for window in output.windows.iter().filter(|window| {
         output.units.iter().any(|unit| {
-            unit.corpus == fragment.corpus
+            unit.id() == window.unit
                 && unit.input == invocation.input
                 && unit.context == invocation.context
         })
     }) {
         let id = Id::of(&RetrievalEmbeddingUseKey {
             invocation: invocation.id(),
-            fragment: fragment.id(),
+            window: window.id(),
         });
         expected.insert(&mut charge, id)?;
         let row = need(uses, id)?;
@@ -165,7 +165,7 @@ pub fn verify_uses(
         if row.specification != specification.id() {
             return Err(invalid("retrieval use changed selected specification"));
         }
-        let bound = fragment
+        let bound = window
             .text
             .len()
             .checked_mul(spec.document_template.matches("{text}").count())
@@ -173,17 +173,19 @@ pub fn verify_uses(
             .and_then(|n| n.checked_mul(2))
             .ok_or_else(|| invalid("retrieval request overflow"))?;
         let _request = b.reserve("retrieval-consumption-request", bound)?;
-        if row.input != value::input_hash(&spec.document_text(fragment.text.as_str())) {
-            return Err(invalid("retrieval input differs from completed fragment"));
+        if spec.document_text(window.text.as_str())!=window.input_text.as_str(){return Err(invalid("retrieval complete encoder input differs from selected processing"));}
+        if row.input != value::input_hash(&spec.document_text(window.text.as_str())) {
+            return Err(invalid("retrieval input differs from completed window"));
         }
+        if window.availability==WindowAvailability::LexicalOnly && row.availability!=VectorAvailability::TokenLimit{return Err(invalid("oversized semantic window cannot admit a vector"));}
         match row.availability {
             VectorAvailability::Available => {
-                drop(winners.replay(&spec, fragment.text.as_str(), row.receipt()?)?);
+                drop(winners.replay(&spec, window.text.as_str(), row.receipt()?)?);
             }
             VectorAvailability::TokenLimit
                 if row
                     .admitted_tokens
-                    .is_none_or(|n| n <= i64::from(spec.max_document_tokens)) =>
+                    .is_none_or(|n| n <= 2048) =>
             {
                 return Err(invalid("retrieval token refusal within selected cap"));
             }
@@ -268,11 +270,11 @@ impl ConsumptionData {
         }
         Ok(spec)
     }
-    pub fn owns(&self, i: &AnalysisInvocation, f: &Fragment) -> bool {
+    pub fn owns(&self, i: &AnalysisInvocation, f: &SearchWindow) -> bool {
         self.output
             .units
             .iter()
-            .any(|u| u.corpus == f.corpus && u.input == i.input && u.context == i.context)
+            .any(|u| u.id() == f.unit && u.input == i.input && u.context == i.context)
     }
     pub fn outcome(
         &self,
@@ -466,10 +468,10 @@ impl ConsumptionData {
             }
             let specification = self.selected_spec()?;
             let spec = specification.configuration()?;
-            for fragment in self.output.fragments.iter().filter(|f| self.owns(i, f)) {
+            for window in self.output.windows.iter().filter(|f| self.owns(i, f)) {
                 let key = RetrievalEmbeddingUseKey {
                     invocation: i.id(),
-                    fragment: fragment.id(),
+                    window: window.id(),
                 };
                 let id = Id::of(&key);
                 expected.insert(&mut charge, id)?;
@@ -478,7 +480,7 @@ impl ConsumptionData {
                 if row.specification != specification.id() {
                     return Err(invalid("retrieval use changed selected specification"));
                 }
-                let bound = fragment
+                let bound = window
                     .text
                     .as_str()
                     .len()
@@ -487,17 +489,19 @@ impl ConsumptionData {
                     .and_then(|n| n.checked_mul(2))
                     .ok_or_else(|| invalid("retrieval request overflow"))?;
                 let _request = b.reserve("retrieval-consumption-request", bound)?;
-                if row.input != value::input_hash(&spec.document_text(fragment.text.as_str())) {
-                    return Err(invalid("retrieval input differs from completed fragment"));
+                if spec.document_text(window.text.as_str())!=window.input_text.as_str(){return Err(invalid("retrieval complete encoder input differs from selected processing"));}
+                if row.input != value::input_hash(&spec.document_text(window.text.as_str())) {
+                    return Err(invalid("retrieval input differs from completed window"));
                 }
+                if window.availability==WindowAvailability::LexicalOnly && row.availability!=VectorAvailability::TokenLimit{return Err(invalid("oversized semantic window cannot admit a vector"));}
                 match row.availability {
                     VectorAvailability::Available => {
-                        drop(winners.replay(&spec, fragment.text.as_str(), row.receipt()?)?);
+                        drop(winners.replay(&spec, window.text.as_str(), row.receipt()?)?);
                     }
                     VectorAvailability::TokenLimit
                         if row
                             .admitted_tokens
-                            .is_none_or(|n| n <= i64::from(spec.max_document_tokens)) =>
+                            .is_none_or(|n| n <= 2048) =>
                     {
                         return Err(invalid("retrieval token refusal within selected cap"));
                     }

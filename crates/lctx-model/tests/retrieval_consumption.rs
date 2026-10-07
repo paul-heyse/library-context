@@ -106,6 +106,16 @@ fn fixture(
             requested_families: ContentHash::of(b"r"),
         })
         .unwrap();
+    struct FixtureTokenizer;
+    impl retrieval::partition::Tokenizer for FixtureTokenizer {
+        fn identity(&self)->ContentHash{ContentHash::of(b"independent-consumption-fixture")}
+        fn encode(&self,text:&str)->Result<retrieval::partition::EncodedInput,ModelError>{
+            let input=format!("prefix: {text}");
+            let offsets=input.char_indices().map(|(a,c)|(a,a+c.len_utf8())).chain(std::iter::once((0,0))).collect::<Vec<_>>();
+            Ok(retrieval::partition::EncodedInput{text:input,body_start:8,body_end:8+text.len(),specials:vec![false;offsets.len()],offsets})
+        }
+    }
+    d.render.set_tokenizer(std::sync::Arc::new(FixtureTokenizer));
     d.output = retrieval::build::build(&d.render, &b).unwrap();
     let specification = EmbeddingSpec::new(&spec()).unwrap();
     d.specifications.insert(specification.clone()).unwrap();
@@ -213,14 +223,14 @@ fn frames(
 fn exact_retrieval_and_analytic_winners_cold_replay_preserves_signed_zero() {
     let (b, mut d, i, specification) = fixture(true);
     let spec = spec();
-    let fragment = d.output.fragments.iter().next().unwrap().clone();
-    let text = fragment.text.as_str();
+    let window = d.output.windows.iter().next().unwrap().clone();
+    let text = window.text.as_str();
     let v = AdmittedValue::new(&spec, &spec.document_text(text), 7, &[1.0, 0.0, -0.0], &b).unwrap();
     let mut uses = Rows::new(&b);
     let key =
-        RetrievalEmbeddingUse::admit_into(&mut uses, i.id(), fragment.id(), &specification, &v, &b)
+        RetrievalEmbeddingUse::admit_into(&mut uses, i.id(), window.id(), &specification, &v, &b)
             .unwrap();
-    let window = TextWindow {
+    let analytic_window = TextWindow {
         assessment: id(4),
         ordinal: 0,
         start: 0,
@@ -228,11 +238,11 @@ fn exact_retrieval_and_analytic_winners_cold_replay_preserves_signed_zero() {
         text: text.into(),
         content: ContentHash::of(text.as_bytes()),
     };
-    d.windows.insert(window.clone()).unwrap();
+    d.windows.insert(analytic_window.clone()).unwrap();
     AnalysisEmbeddingUse::admit_into(
         &mut d.analytic_uses,
         id(5),
-        window.id(),
+        analytic_window.id(),
         &specification,
         &v,
         &b,
@@ -258,7 +268,7 @@ fn exact_retrieval_and_analytic_winners_cold_replay_preserves_signed_zero() {
     RetrievalEmbeddingUse::admit_into(
         &mut forged,
         i.id(),
-        fragment.id(),
+        window.id(),
         &specification,
         &changed,
         &b,
@@ -282,17 +292,17 @@ fn exact_retrieval_and_analytic_winners_cold_replay_preserves_signed_zero() {
 fn corruption_spec_request_codec_or_consumption_erasure_refuses() {
     let (b, d, i, specification) = fixture(true);
     let spec = spec();
-    let fragment = d.output.fragments.iter().next().unwrap();
+    let window = d.output.windows.iter().next().unwrap();
     let value = AdmittedValue::new(
         &spec,
-        &spec.document_text(fragment.text.as_str()),
+        &spec.document_text(window.text.as_str()),
         2,
         &[1.0, 0.0, 0.0],
         &b,
     )
     .unwrap();
     let mut uses = Rows::new(&b);
-    RetrievalEmbeddingUse::admit_into(&mut uses, i.id(), fragment.id(), &specification, &value, &b)
+    RetrievalEmbeddingUse::admit_into(&mut uses, i.id(), window.id(), &specification, &value, &b)
         .unwrap();
     let (invocations, outcomes) = frames(&d, &i, &uses, &b);
     d.verify(&invocations, &outcomes, &uses, &b).unwrap();
@@ -324,7 +334,7 @@ fn corruption_spec_request_codec_or_consumption_erasure_refuses() {
 fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_completed() {
     for selected in [false, true] {
         let (b, d, i, specification) = fixture(selected);
-        let fragment = d.output.fragments.iter().next().unwrap();
+        let window = d.output.windows.iter().next().unwrap();
         let spec = spec();
         for (availability, tokens) in [
             (VectorAvailability::ServiceUnavailable, None),
@@ -337,9 +347,9 @@ fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_comp
             if selected {
                 uses.insert(RetrievalEmbeddingUse {
                     invocation: i.id(),
-                    fragment: fragment.id(),
+                    window: window.id(),
                     specification: specification.id(),
-                    input: input_hash(&spec.document_text(fragment.text.as_str())),
+                    input: input_hash(&spec.document_text(window.text.as_str())),
                     availability,
                     admitted_tokens: tokens,
                     codec: None,
@@ -359,7 +369,7 @@ fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_comp
                 }
             );
             assert_eq!(d.output.units.len(), 1);
-            assert_eq!(d.output.fragments.len(), 1);
+            assert_eq!(d.output.windows.len(), 1);
         }
     }
 }
@@ -370,10 +380,10 @@ fn foreign_spec_refuses_without_changing_lexical_preparation() {
     other.revision.push('x');
     let changed = EmbeddingSpec::new(&other).unwrap();
     assert_ne!(changed.id(), specification.id());
-    let fragment = d.output.fragments.iter().next().unwrap();
+    let window = d.output.windows.iter().next().unwrap();
     let value = AdmittedValue::new(
         &other,
-        &other.document_text(fragment.text.as_str()),
+        &other.document_text(window.text.as_str()),
         1,
         &[1.0, 0.0, 0.0],
         &b,
@@ -384,7 +394,7 @@ fn foreign_spec_refuses_without_changing_lexical_preparation() {
         RetrievalEmbeddingUse::admit_into(
             &mut uses,
             i.id(),
-            fragment.id(),
+            window.id(),
             &specification,
             &value,
             &b
@@ -397,7 +407,7 @@ fn foreign_spec_refuses_without_changing_lexical_preparation() {
         RetrievalEmbeddingUse::admit_into(
             &mut uses,
             i.id(),
-            fragment.id(),
+            window.id(),
             &changed,
             &value,
             &tiny
@@ -460,10 +470,10 @@ fn unit_consumption_preserves_exact_finite_oracle_and_refuses_missing_foreign_or
     let (b, data, invocation, specification) = fixture(true);
     let spec = spec();
     let mut uses = Rows::new(&b);
-    for fragment in data.output.fragments.iter() {
+    for window in data.output.windows.iter() {
         let value = AdmittedValue::new(
             &spec,
-            &spec.document_text(fragment.text.as_str()),
+            &spec.document_text(window.text.as_str()),
             7,
             &[1.0, 0.0, -0.0],
             &b,
@@ -472,7 +482,7 @@ fn unit_consumption_preserves_exact_finite_oracle_and_refuses_missing_foreign_or
         RetrievalEmbeddingUse::admit_into(
             &mut uses,
             invocation.id(),
-            fragment.id(),
+            window.id(),
             &specification,
             &value,
             &b,

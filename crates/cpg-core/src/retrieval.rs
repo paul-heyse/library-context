@@ -75,19 +75,26 @@ async fn realize(
     service
         .prepare(
             output
-                .fragments
+                .windows
                 .iter()
-                .map(|fragment| fragment.text.as_str()),
+                .filter(|window|window.availability==retrieval::WindowAvailability::Ready)
+                .map(|window| window.text.as_str()),
         )
         .await
         .map_err(ModelError::codec)?;
-    for fragment in output.fragments.iter() {
-        match service.realize(fragment.text.as_str()).await {
+    for window in output.windows.iter() {
+        if window.availability==retrieval::WindowAvailability::TokenizerUnavailable{return Err(build::invalid("requested retrieval window lacks exact local tokenizer admission"));}
+        if window.availability==retrieval::WindowAvailability::LexicalOnly{
+            uses.insert(RetrievalEmbeddingUse{invocation:invocation.id(),window:window.id(),specification:specification.id(),input:value::input_hash(window.input_text.as_str()),availability:VectorAvailability::TokenLimit,admitted_tokens:window.tokens,codec:None,value_digest:None,bytes:None})?;
+            continue;
+        }
+        if service.configuration().specification().document_text(window.text.as_str())!=window.input_text.as_str(){return Err(build::invalid("selected tokenizer preprocessing differs from actual encoder input"));}
+        match service.realize(window.text.as_str()).await {
             Ok(value) => {
                 RetrievalEmbeddingUse::admit_into(
                     &mut uses,
                     invocation.id(),
-                    fragment.id(),
+                    window.id(),
                     specification,
                     value,
                     b,
@@ -106,7 +113,7 @@ async fn realize(
                         return Err(ModelError::codec(error));
                     };
                 let spec = service.configuration().specification();
-                let bound = fragment
+                let bound = window
                     .text
                     .len()
                     .checked_mul(spec.document_template.matches("{text}").count())
@@ -116,9 +123,9 @@ async fn realize(
                 let _copy = b.reserve("retrieval-unavailable-request", bound)?;
                 uses.insert(RetrievalEmbeddingUse {
                     invocation: invocation.id(),
-                    fragment: fragment.id(),
+                    window: window.id(),
                     specification: specification.id(),
-                    input: value::input_hash(&spec.document_text(fragment.text.as_str())),
+                    input: value::input_hash(&spec.document_text(window.text.as_str())),
                     availability,
                     admitted_tokens,
                     codec: None,

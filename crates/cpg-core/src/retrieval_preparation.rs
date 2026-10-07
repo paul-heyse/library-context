@@ -361,6 +361,7 @@ impl Preparation {
                     table(TypeId::of::<c1::CatalogDeployment>())?,
                     table(TypeId::of::<deployment::DeploymentObservation>())?
                 ),
+                c1::RootSubject::Source{..}=>format!("SELECT s.source_artifact AS source {prefix} WHERE {predicate}"),
                 c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {
                     format!("SELECT source FROM {occurrence} WHERE FALSE")
                 }
@@ -407,7 +408,7 @@ impl Preparation {
                     "SELECT id,channel FROM ({}) diagnostic_properties",
                     scope.select(index)?
                 )
-            } else if input.type_id() == TypeId::of::<source::SourceArtifact>() {
+            } else if input.type_id() == TypeId::of::<source::SourceArtifact>() && !allowed.contains(&TypeId::of::<catalog::CatalogCandidate>()) {
                 format!(
                     "SELECT * FROM {} WHERE id IN ({artifacts})",
                     identifier(&self.tables[index].alias)
@@ -443,6 +444,7 @@ impl Preparation {
         data.facts
             .definitions
             .insert(self.metadata.selected()?.clone())?;
+        if let Some(tokenizer)=self.metadata.tokenizer(){data.set_tokenizer(tokenizer.clone());}
         Ok(data)
     }
     async fn chunks(

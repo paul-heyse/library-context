@@ -17,6 +17,7 @@ pub mod embedding_service;
 pub mod facts;
 pub mod final_coverage;
 pub mod retrieval_preparation;
+pub mod retrieval_tokenizer;
 mod scoped_admission;
 mod scoped_aspects;
 mod scoped_execution;

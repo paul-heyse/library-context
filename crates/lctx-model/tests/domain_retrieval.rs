@@ -114,10 +114,10 @@ fn distinct_occurrences_deduplicate_text_without_losing_members_or_anchors() {
     let out = retrieval::build::build(&d, &b).unwrap();
     assert_eq!(
         out.units.len(),
-        3,
-        "source occurrence merges member roots while API slots remain distinct"
+        4,
+        "unavailable definitions retain separate public slot boundaries"
     );
-    assert_eq!(out.corpus.len(), 3);
+    assert_eq!(out.corpus.len(), 4);
     out.verify_completion(&d, &b).unwrap();
     let source = out
         .units
@@ -129,20 +129,20 @@ fn distinct_occurrences_deduplicate_text_without_losing_members_or_anchors() {
             .iter()
             .filter(|r| r.unit == source.id())
             .count(),
-        2
+        1
     );
     assert_eq!(
         out.roots.iter().filter(|r| r.unit == source.id()).count(),
-        2
+        1
     );
     assert_eq!(
         out.anchors.iter().filter(|r| r.unit == source.id()).count(),
-        1
+        0
     );
     assert!(
         out.corpus
             .iter()
-            .any(|r| r.text.as_str() == "def run():\n    pass\n")
+            .all(|r| r.text.as_str() != "def run():\n    pass\n")
     );
     // The same source in another exact analysis context remains another occurrence of one corpus.
     root(
@@ -152,9 +152,9 @@ fn distinct_occurrences_deduplicate_text_without_losing_members_or_anchors() {
         c1::RootSubject::Member { member: m },
     );
     let next = retrieval::build::build(&d, &b).unwrap();
-    assert_eq!(next.units.len(), 5);
-    assert_eq!(next.corpus.len(), 3);
-    assert_eq!(next.fragments.len(), 3);
+    assert_eq!(next.units.len(), 6);
+    assert_eq!(next.corpus.len(), 4);
+    assert_eq!(next.windows.len(), 6);
     next.verify_completion(&d, &b).unwrap();
     let mut crossed = retrieval::build::build(&d, &b).unwrap();
     let foreign = d
@@ -287,62 +287,24 @@ fn api_corpus_preserves_default_uncertainty_and_exact_values() {
     );
 }
 #[test]
-fn unicode_fragments_are_canonical_contiguous_and_addressable() {
-    let b = ResourceBudget::fixed(1 << 20).unwrap();
-    let definition = Definition {
-        fragment_bytes: 5,
-        ..Definition::builtin(false)
-    };
-    let text = "hello🦀worldλ";
-    let corpus = CorpusText {
-        family: Family::Source,
-        rendering_version: RENDER_VERSION,
-        digest: ContentHash::of(text.as_bytes()),
-        text: Utf8Text::from(text),
-    };
-    let mut out = Rows::new(&b);
-    retrieval::build::fragments(&definition, &corpus, &mut out, &b).unwrap();
-    let mut rows = out.iter().collect::<Vec<_>>();
-    rows.sort_by_key(|r| r.ordinal);
-    assert_eq!(
-        rows.iter().map(|r| r.text.as_str()).collect::<String>(),
-        text
-    );
-    assert_eq!(rows[0].start, 0);
-    for pair in rows.windows(2) {
-        assert_eq!(pair[0].end, pair[1].start);
-    }
-    assert!(rows.iter().all(|r| r.text.as_str().len() <= 5));
-    let mut again = Rows::new(&b);
-    retrieval::build::fragments(&definition, &corpus, &mut again, &b).unwrap();
-    assert!(out.same(&again));
-    let mut empty = Rows::new(&b);
-    let corpus = CorpusText {
-        digest: ContentHash::of(b""),
-        text: Utf8Text::from(""),
-        ..corpus
-    };
-    retrieval::build::fragments(&definition, &corpus, &mut empty, &b).unwrap();
-    assert!(empty.is_empty());
+fn unicode_original_maps_keep_exact_scalar_boundaries_and_reject_forgery() {
+    let (b,mut d,_,_)=fixture();
+    let out=retrieval::build::build(&d,&b).unwrap();
+    out.verify_completion(&d,&b).unwrap();
+    for part in out.parts.iter(){for map in out.part_maps.iter().filter(|m|m.part==part.id()){
+        assert!(part.text.as_str().is_char_boundary(map.start as usize));
+        assert!(part.text.as_str().is_char_boundary(map.end as usize));
+    }}
+    let mut omitted=retrieval::build::build(&d,&b).unwrap();omitted.window_maps=Rows::new(&b);
+    assert!(omitted.verify_completion(&d,&b).is_err());
+    d.facts.definitions=Rows::new(&b);
+    assert!(out.verify_completion(&d,&b).is_err());
 }
 #[test]
-fn vector_selection_and_specification_do_not_change_lexical_fragment_identity() {
-    let b = ResourceBudget::fixed(1 << 20).unwrap();
-    let text = "same lexical text";
-    let corpus = CorpusText {
-        family: Family::Source,
-        rendering_version: RENDER_VERSION,
-        digest: ContentHash::of(text.as_bytes()),
-        text: text.into(),
-    };
-    let mut ids = vec![];
-    for selected in [false, true] {
-        let mut rows = Rows::new(&b);
-        retrieval::build::fragments(&Definition::builtin(selected), &corpus, &mut rows, &b)
-            .unwrap();
-        ids.push(rows.iter().next().unwrap().id());
-    }
-    assert_eq!(ids[0], ids[1]);
+fn unrequested_embedding_preserves_semantic_lexical_windows_without_tokenizer_assets(){
+    let (b,d,_,_)=fixture();let out=retrieval::build::build(&d,&b).unwrap();
+    assert!(out.windows.iter().all(|w|w.availability==WindowAvailability::TokenizerUnavailable&&w.tokens.is_none()));
+    assert!(out.bindings.iter().all(|r|out.parts.get(r.part).unwrap().purpose==PartPurpose::Primary));
 }
 #[test]
 fn all_four_families_preserve_original_setup_execution_and_release_scope() {
@@ -520,7 +482,7 @@ fn all_four_families_preserve_original_setup_execution_and_release_scope() {
     assert!(
         out.corpus
             .iter()
-            .any(|r| r.text.as_str() == "# Setup\nwith prepare():\n    run()\n")
+            .any(|r| r.text.as_str().contains("# Setup\nwith prepare():\n    run()\n"))
     );
     assert!(
         !out.corpus
@@ -559,12 +521,8 @@ fn replay(d: &Data, out: &Output, b: &ResourceBudget) -> Result<(), ModelError> 
             .find(|input| {
                 input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
             })
-            .ok_or_else(|| {
-                ModelError::Invalid(format!(
-                    "replay fixture has no declared source for {} at {prefix:?}",
-                    R::NAME
-                ))
-            })?;
+            ;
+        let Some(input)=input else {assert!(rows.is_empty(),"nonempty undeclared fixture source {}",R::NAME);return Ok(());};
         check.visit_input(
             input,
             &R::encode(&rows.iter().cloned().collect::<Vec<_>>())?,
@@ -610,7 +568,7 @@ fn replay_refuses_forged_text_subjects_anchors_or_coupled_erasure() {
             0 => {
                 out.units = Rows::new(&b);
                 out.corpus = Rows::new(&b);
-                out.fragments = Rows::new(&b);
+                out.windows = Rows::new(&b);
                 out.unit_subjects = Rows::new(&b);
                 out.roots = Rows::new(&b);
                 out.anchors = Rows::new(&b);
@@ -626,7 +584,10 @@ fn replay_refuses_forged_text_subjects_anchors_or_coupled_erasure() {
                 out.corpus.insert(row).unwrap();
             }
             _ => {
-                out.anchors = Rows::new(&b);
+                // This fixture deliberately has unavailable definitions, so it
+                // has no original anchors. Erasing its synthetic source maps
+                // must still fail the completed rendering contract.
+                out.window_maps = Rows::new(&b);
             }
         }
         assert!(
@@ -636,7 +597,7 @@ fn replay_refuses_forged_text_subjects_anchors_or_coupled_erasure() {
     }
 }
 #[test]
-fn authored_definition_original_bytes_and_resource_bounds_are_mandatory() {
+fn unavailable_definition_retains_boundary_without_inventing_source_read_and_resource_bounds_are_mandatory() {
     let (b, mut d, _, _) = fixture();
     let tiny = ResourceBudget::fixed(1).unwrap();
     assert!(matches!(
@@ -645,7 +606,7 @@ fn authored_definition_original_bytes_and_resource_bounds_are_mandatory() {
     ));
     assert_eq!(tiny.reserved(), 0);
     d.facts.chunks = Rows::new(&b);
-    assert!(retrieval::build::build(&d, &b).is_err());
+    assert!(retrieval::build::build(&d, &b).is_ok());
     d.facts.definitions = Rows::new(&b);
     assert!(retrieval::build::build(&d, &b).is_err());
 }

@@ -1,6 +1,6 @@
 //! Four-family deterministic renderer and shared replay, over completed canonical C0/C1 evidence.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION: i64 = 1;
+const SEMANTIC_RULE_REVISION: i64 = 2;
 use super::*;
 use crate::domain::{
     catalog::evidence::build::{EvidenceData, EvidenceOutput},
@@ -17,6 +17,7 @@ pub fn need<R: Record>(r: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
     })
 }
 pub struct Data {
+    tokenizer: Option<std::sync::Arc<dyn super::partition::Tokenizer>>,
     pub source: EvidenceData,
     pub evidence: EvidenceOutput,
     pub facts: Facts,
@@ -55,6 +56,7 @@ pub struct Data {
 impl Data {
     pub fn new(b: &ResourceBudget) -> Self {
         Self {
+            tokenizer: None,
             source: EvidenceData::new(b),
             evidence: EvidenceOutput::new(b),
             facts: Facts::new(b),
@@ -70,6 +72,8 @@ impl Data {
             completion_charge: charged::StateCharge::new(b, "retrieval-completion-properties"),
         }
     }
+    pub fn set_tokenizer(&mut self,t:std::sync::Arc<dyn super::partition::Tokenizer>){self.tokenizer=Some(t);}
+    pub fn tokenizer(&self)->Option<&std::sync::Arc<dyn super::partition::Tokenizer>>{self.tokenizer.as_ref()}
     pub fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
         if self.visit_diagnostic(n, b)? {
             return Ok(true);
@@ -299,7 +303,7 @@ impl Data {
         let member = need(&self.source.catalog.members, id)?;
         Ok((member.input, member.access))
     }
-    fn module_source(
+    pub(super) fn module_source(
         &self,
         id: Id<crate::domain::source::Module>,
     ) -> Result<Id<crate::domain::source::SourceArtifact>, ModelError> {
@@ -317,7 +321,7 @@ impl Data {
         }
         Ok(need(&self.synthesis.briefs, id)?.seed)
     }
-    fn document_source(
+    pub(super) fn document_source(
         &self,
         id: Id<documents::DocumentObservation>,
     ) -> Result<Id<crate::domain::source::SourceArtifact>, ModelError> {
@@ -326,7 +330,7 @@ impl Data {
         }
         Ok(need(&self.source.facts.documents, id)?.source)
     }
-    fn verify_origin(
+    pub(super) fn verify_origin(
         &self,
         unit: &Unit,
         origin: &Origin,
@@ -362,17 +366,11 @@ impl Data {
                     && source == self.document_source(*owner)?
                     && self.artifact_bounds(source)?.0 == unit.input
             }
-            (Origin::Original { source }, S::Member { member }) => {
-                let (input, module) = self.member_access(*member)?;
-                let artifact = self.module_source(module)?;
-                unit.family == Family::Source
-                    && input == unit.input
-                    && matches!(need(&self.evidence.original_sources,*source)?,c1::OriginalSource::Artifact{artifact:owner} if *owner==artifact)
-                    && super::source::coordinates(
-                        self,
-                        &AnchorSource::Original { source: *source },
-                    )? == (artifact, 0, self.artifact_bounds(artifact)?.1)
-            }
+            (Origin::Definition { member,entity }, S::Member { member:owner }) => member==owner && unit.family==Family::Source && super::construction::definitions(self,*member,unit.context)?.iter().any(|(e,_,_)|e==entity),
+            (Origin::UnavailableDefinition{member},S::Member{member:owner})=>member==owner && unit.family==Family::Source && super::construction::definitions(self,*member,unit.context)?.is_empty(),
+            (Origin::Source{artifact},S::Source{artifact:owner})=>artifact==owner && unit.family==Family::Source && self.artifact_bounds(*artifact)?.0==unit.input,
+            (Origin::Option{option},S::Option{option:owner})=>option==owner && unit.family==Family::ApiOptions,
+            (Origin::Release{release},S::Release{release:owner})=>release==owner && unit.family==Family::DocumentationDeployment,
             (Origin::Brief { brief }, S::Member { member }) => {
                 let seed = need(&self.synthesis.seeds, self.brief_seed(*brief)?)?;
                 let plan = need(&self.synthesis.seed_plans, seed.plan)?;
@@ -404,6 +402,8 @@ impl Data {
     /// remain with their own necessary admission owner.
     pub fn root_inputs() -> Vec<ValidationInput> {
         crate::domain::normalized::facts_inputs(vec![
+            ValidationInput::of::<input::Package>(&["id"]),
+            ValidationInput::of::<input::Release>(&["id"]),
             ValidationInput::of::<crate::domain::analysis::catalog_core::Invocation>(&["id"]),
             ValidationInput::of::<crate::domain::analysis::native::NativeAssertionPremise>(&["id"]),
             ValidationInput::of::<crate::domain::artifact::ArtifactChunk>(&["id"]),
@@ -413,6 +413,12 @@ impl Data {
             ValidationInput::of::<crate::domain::calls::ParameterShape>(&["id"]),
             ValidationInput::of::<crate::domain::calls::Signature>(&["id"]),
             ValidationInput::of::<crate::domain::calls::SignatureParameter>(&["id"]),
+            ValidationInput::of::<crate::domain::catalog::CatalogCandidate>(&["id"]),
+            ValidationInput::of::<normalized::entities::SymbolEntityCandidate>(&["id"]),
+            ValidationInput::of::<normalized::entities::SymbolEntityResolution>(&["id"]),
+            ValidationInput::of::<normalized::entities::EntityRef>(&["id"]),
+            ValidationInput::of::<normalized::entities::CallableEntity>(&["id"]),
+            ValidationInput::of::<normalized::entities::ClassEntity>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogCallable>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogCallableAspect>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogClass>(&["id"]),
@@ -422,6 +428,11 @@ impl Data {
             ValidationInput::of::<crate::domain::catalog::CatalogInvocation>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogMember>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogMemberInvocation>(&["id"]),
+            ValidationInput::of::<catalog::CatalogOptionEvidence>(&["id"]),
+            ValidationInput::of::<syntax::ParameterSyntaxObservation>(&["id"]),
+            ValidationInput::of::<syntax::ClassFieldSyntaxObservation>(&["id"]),
+            ValidationInput::of::<normalized::entities::FieldDeclarationLink>(&["id"]),
+            ValidationInput::of::<normalized::entities::ParameterEntity>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogOption>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::CatalogOptionSubject>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::CatalogDeployment>(&["id"]),
@@ -437,6 +448,8 @@ impl Data {
             ValidationInput::of::<crate::domain::catalog::evidence::OriginalSource>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::ReleaseDeployment>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::RootSubject>(&["id"]),
+            ValidationInput::of::<normalized::events::NormalizedCallAlternative>(&["id"]),
+            ValidationInput::of::<normalized::events::NormalizedCallEvent>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::ScenarioAssociation>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::ScenarioDependency>(&["id"]),
             ValidationInput::of::<crate::domain::catalog::evidence::ScenarioSpan>(&["id"]),
@@ -472,6 +485,7 @@ impl Data {
             ]),
             ValidationInput::of::<crate::domain::source::Module>(&["id"]),
             ValidationInput::of::<crate::domain::source::Occurrence>(&["id"]),
+            ValidationInput::of::<syntax::SyntaxPlacement>(&["id"]),
             ValidationInput::of::<crate::domain::source::SourceArtifact>(&["id"]),
             ValidationInput::of::<crate::domain::value::Literal>(&["id"]),
         ])
@@ -500,6 +514,8 @@ impl Data {
                 crate::retrieval_inputs!(rows);
             }
             c1::RootSubject::Scenario { .. } => types.extend([
+                TypeId::of::<normalized::events::NormalizedCallAlternative>(),
+                TypeId::of::<normalized::events::NormalizedCallEvent>(),
                 TypeId::of::<c1::CatalogScenario>(),
                 TypeId::of::<c1::ScenarioSpan>(),
                 TypeId::of::<c1::ScenarioDependency>(),
@@ -529,7 +545,12 @@ impl Data {
                 TypeId::of::<deployment::DeploymentObservation>(),
                 TypeId::of::<c1::ReleaseDeployment>(),
             ]),
-            c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {}
+            c1::RootSubject::Option { .. } => {
+                macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(types.push(TypeId::of::<$ty>());)*};}
+                crate::catalog_inputs!(rows);crate::catalog_outputs!(rows);crate::retrieval_inputs!(rows);
+            },
+            c1::RootSubject::Source{..}=>types.extend([TypeId::of::<syntax::SyntaxPlacement>()]),
+            c1::RootSubject::Release { .. } => types.extend([TypeId::of::<input::Package>(),TypeId::of::<input::Release>(),TypeId::of::<c1::ReleaseDeployment>(),TypeId::of::<c1::CatalogDeployment>(),TypeId::of::<deployment::DeploymentObservation>()]),
         }
         types
     }
@@ -537,6 +558,7 @@ impl Data {
         use std::any::TypeId;
         let mut types = vec![
             TypeId::of::<Definition>(),
+            TypeId::of::<syntax::SyntaxPlacement>(),
             TypeId::of::<crate::domain::source::SourceArtifact>(),
             TypeId::of::<crate::domain::source::Occurrence>(),
             TypeId::of::<value::Literal>(),
@@ -550,11 +572,16 @@ impl Data {
         crate::retrieval_synthesis_inputs!(rows);
         types
     }
-    /// Necessary completed corpus/fragment/anchor properties do not decode API rendering
+    /// Necessary completed corpus/window/anchor properties do not decode API rendering
     /// premises or replay the deterministic renderer.
     pub fn completion_types() -> Vec<std::any::TypeId> {
         use std::any::TypeId;
         vec![
+            TypeId::of::<catalog::CatalogCandidate>(),TypeId::of::<catalog::CatalogExposure>(),TypeId::of::<catalog::CatalogOption>(),TypeId::of::<catalog::CatalogDefault>(),
+            TypeId::of::<normalized::entities::EntityRef>(),TypeId::of::<normalized::entities::SymbolEntityCandidate>(),TypeId::of::<normalized::entities::SymbolEntityResolution>(),TypeId::of::<normalized::entities::PublicExposure>(),TypeId::of::<normalized::entities::CallableEntity>(),TypeId::of::<normalized::entities::ClassEntity>(),TypeId::of::<normalized::entities::ParameterEntity>(),
+            TypeId::of::<c1::ScenarioAssociation>(),TypeId::of::<normalized::events::NormalizedCallAlternative>(),TypeId::of::<normalized::events::NormalizedCallEvent>(),
+            TypeId::of::<c1::DocumentAssociation>(),TypeId::of::<normalized::links::MentionEntityCandidate>(),TypeId::of::<normalized::links::MentionEntityAssessment>(),TypeId::of::<documents::DocumentMentionObservation>(),TypeId::of::<c1::ReleaseDeployment>(),
+            TypeId::of::<syntax::SyntaxPlacement>(),
             TypeId::of::<Definition>(),
             TypeId::of::<crate::domain::source::SourceArtifact>(),
             TypeId::of::<crate::domain::source::Occurrence>(),
@@ -606,6 +633,7 @@ impl Data {
     pub fn inputs() -> Vec<ValidationInput> {
         let mut inputs = Self::mandatory_consumed_inputs(Profile::Behavioral);
         inputs.extend(Self::synthesis_consumed_inputs());
+        inputs.push(ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(PublicationBoundary::Local));
         inputs.sort_by_key(|input| (input.name(), input.prefix()));
         inputs.dedup_by_key(|input| (input.name(), input.prefix()));
         inputs
@@ -626,152 +654,13 @@ crate::retrieval_synthesis_inputs!(synthesis);
 macro_rules! outputs {($($f:ident:$ty:ty,)*)=>{pub struct Output {$(pub $f:Rows<$ty>,)*}impl Output {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"])),*]}pub fn matches(&self,o:&Self)->Result<(),ModelError> {$(if !self.$f.same(&o.$f) {return Err(invalid(format!("canonical retrieval closure differs: {}",<$ty>::NAME)));})*Ok(())}}};}
 crate::retrieval_outputs!(outputs);
 impl Output {
-    /// Check completed text membership, exact fragment bytes, contextual roots and original
-    /// anchor closure without rendering API/source/document text a second time.
-    pub fn verify_completion(&self, d: &Data, b: &ResourceBudget) -> Result<(), ModelError> {
-        let definition = d.selected()?;
-        let _index = b.reserve(
-            "retrieval-completion-index",
-            self.fragments.len() * (size_of::<&Fragment>() + 64)
-                + self.roots.len() * (size_of::<&UnitRoot>() + 64)
-                + self.anchors.len() * (size_of::<&OriginalAnchor>() + 64)
-                + self.units.len() * (size_of::<Id<CorpusText>>() + 64),
-        )?;
-        let mut rooted_units = std::collections::BTreeSet::new();
-        let mut anchors = std::collections::BTreeMap::<Id<Unit>, Vec<&OriginalAnchor>>::new();
-        let mut corpora = std::collections::BTreeSet::new();
-        for unit in self.units.iter() {
-            corpora.insert(unit.corpus);
-        }
-        for root in self.roots.iter() {
-            let unit = need(&self.units, root.unit)?;
-            let evidence = need(&d.evidence.roots, root.root)?;
-            if evidence.input != unit.input || evidence.context != unit.context {
-                return Err(invalid(
-                    "retrieval unit differs from its exact contextual root",
-                ));
-            }
-            d.verify_origin(unit, need(&self.origins, unit.origin)?, evidence)?;
-            // A shared source occurrence retains each member's root; the pair is the row key.
-            rooted_units.insert(root.unit);
-        }
-        for anchor in self.anchors.iter() {
-            need(&self.units, anchor.unit)?;
-            anchors.entry(anchor.unit).or_default().push(anchor);
-        }
-        let mut fragments = std::collections::BTreeMap::<Id<CorpusText>, Vec<&Fragment>>::new();
-        for fragment in self.fragments.iter() {
-            fragment.validate()?;
-            need(&self.corpus, fragment.corpus)?;
-            fragments.entry(fragment.corpus).or_default().push(fragment);
-        }
-        for corpus in self.corpus.iter() {
-            corpus.validate()?;
-            if corpus.rendering_version != definition.rendering_version
-                || !corpora.contains(&corpus.id())
-            {
-                return Err(invalid("retrieval corpus has no selected contextual unit"));
-            }
-            let rows = fragments.entry(corpus.id()).or_default();
-            rows.sort_by_key(|f| f.ordinal);
-            let mut start = 0;
-            for (ordinal, fragment) in rows.iter().enumerate() {
-                let mut end = (start + definition.fragment_bytes as usize).min(corpus.text.len());
-                while !corpus.text.as_str().is_char_boundary(end) {
-                    end -= 1;
-                }
-                if fragment.definition != definition.id()
-                    || fragment.fragment_bytes != definition.fragment_bytes
-                    || fragment.ordinal != ordinal as i64
-                    || fragment.start != start as i64
-                    || fragment.end != end as i64
-                    || corpus.text.as_str().get(start..end) != Some(fragment.text.as_str())
-                {
-                    return Err(invalid(
-                        "retrieval fragment differs from exact completed corpus",
-                    ));
-                }
-                start = end;
-            }
-            if start != corpus.text.len() {
-                return Err(invalid("retrieval fragment domain incomplete"));
-            }
-        }
-        for unit in self.units.iter() {
-            let corpus = need(&self.corpus, unit.corpus)?;
-            let origin = need(&self.origins, unit.origin)?;
-            if unit.family != corpus.family {
-                return Err(invalid("retrieval unit family differs from corpus"));
-            }
-            if !rooted_units.contains(&unit.id()) {
-                return Err(invalid("retrieval unit lacks C1 root"));
-            }
-            let unit_anchors = anchors.entry(unit.id()).or_default();
-            unit_anchors.sort_by_key(|a| a.ordinal);
-            for (ordinal, anchor) in unit_anchors.iter().enumerate() {
-                if anchor.ordinal != ordinal as i64 {
-                    return Err(invalid("retrieval original anchor order incomplete"));
-                }
-                let source = need(&self.anchor_sources, anchor.original)?;
-                let (artifact, start, end) = super::source::coordinates(d, source)?;
-                let (input, byte_len) = d.artifact_bounds(artifact)?;
-                if start < 0
-                    || end < start
-                    || end > byte_len
-                    || (!matches!(origin, Origin::Brief { .. }) && input != unit.input)
-                {
-                    return Err(invalid(
-                        "retrieval anchor differs from captured original frame",
-                    ));
-                }
-            }
-        }
-        for link in self.unit_subjects.iter() {
-            need(&self.units, link.unit)?;
-            need(&self.subjects, link.subject)?;
-        }
-        Ok(())
+    /// Necessary completion/admission checks operate on immutable semantic records, without
+    /// reconstructing upstream producer outputs or replaying the textual renderer.
+    pub fn verify_completion(&self,d:&Data,b:&ResourceBudget)->Result<(),ModelError>{
+        super::construction::verify(self,d,b)
     }
 }
-pub fn fragments(
-    definition: &Definition,
-    corpus: &CorpusText,
-    out: &mut Rows<Fragment>,
-    b: &ResourceBudget,
-) -> Result<(), ModelError> {
-    definition.validate()?;
-    corpus.validate()?;
-    let text = corpus.text.as_str();
-    let mut start = 0;
-    let mut ordinal = 0;
-    while start < text.len() {
-        let mut end = (start + definition.fragment_bytes as usize).min(text.len());
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        if end == start {
-            return Err(invalid("retrieval window cannot fit Unicode scalar"));
-        }
-        let _copy = b.reserve(
-            "retrieval-fragment-copy",
-            (end - start) * 2 + size_of::<Fragment>(),
-        )?;
-        let part = &text[start..end];
-        out.insert(Fragment {
-            definition: definition.id(),
-            fragment_bytes: definition.fragment_bytes,
-            corpus: corpus.id(),
-            ordinal,
-            start: start as i64,
-            end: end as i64,
-            digest: ContentHash::of(part.as_bytes()),
-            text: Utf8Text::from(part),
-        })?;
-        start = end;
-        ordinal += 1;
-    }
-    Ok(())
-}
+pub(super) use super::construction::{nominations,nominates_part};
 struct Render {
     text: String,
     anchors: Vec<AnchorSource>,
@@ -877,7 +766,34 @@ fn api(
         .filter(|r| r.member == m.id())
         .collect::<Vec<_>>();
     options.sort_by_key(|r| r.id());
-    for o in options {
+    for o in options {text.push_str(&option_text(d,o,b)?);}
+    for class in d
+        .source
+        .catalog
+        .classes
+        .iter()
+        .filter(|r| r.member == m.id())
+    {
+        for c in d
+            .source
+            .catalog
+            .constructors
+            .iter()
+            .filter(|r| r.class == class.id())
+        {
+            text.push_str(&format!(
+                "Constructor {:?} {:?} applicability={:?} disposition={:?}\n",
+                c.origin, c.kind, c.applicability, c.disposition
+            ));
+        }
+    }
+    Ok(Render {
+        text,
+        anchors: vec![],
+        subjects: vec![Subject::Member { member: m.id() }],
+    })
+}
+fn option_text(d:&Data,o:&catalog::CatalogOption,b:&ResourceBudget)->Result<String,ModelError>{
         let subject = need(&d.source.catalog.subjects, o.subject)?;
         let default = need(&d.source.catalog.defaults, o.default)?;
         let label = match subject {
@@ -919,40 +835,7 @@ fn api(
             catalog::CatalogDefault::Expression { .. } => "Unevaluated expression".into(),
             catalog::CatalogDefault::Factory { .. } => "Factory (not evaluated)".into(),
         };
-        text.push_str(&format!("Option {label}: default={value}\n"));
-    }
-    for class in d
-        .source
-        .catalog
-        .classes
-        .iter()
-        .filter(|r| r.member == m.id())
-    {
-        for c in d
-            .source
-            .catalog
-            .constructors
-            .iter()
-            .filter(|r| r.class == class.id())
-        {
-            text.push_str(&format!(
-                "Constructor {:?} {:?} applicability={:?} disposition={:?}\n",
-                c.origin, c.kind, c.applicability, c.disposition
-            ));
-        }
-    }
-    let module = need(&d.source.core.modules, m.access)?;
-    let original = c1::OriginalSource::Artifact {
-        artifact: module.source,
-    };
-    need(&d.evidence.original_sources, original.id())?;
-    Ok(Render {
-        text,
-        anchors: vec![AnchorSource::Original {
-            source: original.id(),
-        }],
-        subjects: vec![Subject::Member { member: m.id() }],
-    })
+    Ok(format!("Option {label}: default={value}\n"))
 }
 struct RenderedIdentity {
     family: Family,
@@ -1012,15 +895,8 @@ fn add(
             original,
         })?;
     }
-    // Each distinct corpus text is fragmented once; membership remains on all original units.
-    if !out.fragments.iter().any(|f| f.corpus == corpus) {
-        fragments(
-            d.selected()?,
-            need(&out.corpus, corpus)?,
-            &mut out.fragments,
-            b,
-        )?;
-    }
+    super::construction::parts(d,out,unit,b)?;
+    super::partition::construct(d,out,unit,b)?;
     Ok(())
 }
 pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
@@ -1098,32 +974,18 @@ fn render(
                     api(d, m, root.context, b)?,
                     b,
                 )?;
-                let module = need(&d.source.core.modules, m.access)?;
-                let source = c1::OriginalSource::Artifact {
-                    artifact: module.source,
-                };
-                let anchor = AnchorSource::Original {
-                    source: source.id(),
-                };
-                let text = super::source::read(d, &anchor, b)?;
-                add(
-                    d,
-                    &mut out,
-                    root,
-                    RenderedIdentity {
-                        family: Family::Source,
-                        origin: Origin::Original {
-                            source: source.id(),
-                        },
-                        title: need(&d.source.core.artifacts, module.source)?.path.clone(),
-                    },
-                    Render {
-                        text: text.value.clone(),
-                        anchors: vec![anchor],
-                        subjects: vec![Subject::Member { member: *member }],
-                    },
-                    b,
-                )?;
+                let definitions=super::construction::definitions(d,*member,root.context)?;
+                if definitions.is_empty(){
+                    add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::UnavailableDefinition{member:*member},title:format!("{title}: defining source unavailable")},Render{text:format!("Defining source unavailable for {title}; public access does not identify a source body."),anchors:vec![],subjects:vec![Subject::Member{member:*member}]},b)?;
+                }
+                for (entity,anchor,exact) in definitions {
+                    let (text,anchors)=if let Some(anchor)=anchor{
+                        let mut text=String::new();let mut anchors=vec![];
+                        for (enclosing,branch) in super::construction::enclosing(d,&anchor,root.context)?{text.push_str(&format!("Enclosing syntax branch {branch:?}\n"));text.push_str(&super::source::read(d,&enclosing,b)?.value);text.push('\n');anchors.push(enclosing);}
+                        text.push_str(&super::source::read(d,&anchor,b)?.value);anchors.push(anchor);(text,anchors)
+                    }else{(format!("Defining alternative {entity:?}; native/external/synthetic source unavailable; exact={exact}"),vec![])};
+                    add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::Definition{member:*member,entity},title:title.clone()},Render{text,anchors,subjects:vec![Subject::Member{member:*member},Subject::Definition{entity}]},b)?;
+                }
             }
             c1::RootSubject::Scenario { scenario } => {
                 let r = need(&d.evidence.scenarios, *scenario)?;
@@ -1283,7 +1145,7 @@ fn render(
                                 .unwrap_or_else(|| artifact.path.clone()),
                         },
                         Render {
-                            text: text.value.clone(),
+                            text: format!("Heading: {}\n{}",passage.heading.as_deref().unwrap_or(&artifact.path),text.value),
                             anchors: vec![anchor],
                             subjects,
                         },
@@ -1310,7 +1172,7 @@ fn render(
                                 .unwrap_or_else(|| artifact.path.clone()),
                         },
                         Render {
-                            text: text.value.clone(),
+                            text: format!("Document: {}\n{}",document.title.as_deref().unwrap_or(&artifact.path),text.value),
                             anchors: vec![anchor],
                             subjects: vec![],
                         },
@@ -1357,7 +1219,24 @@ fn render(
                     b,
                 )?;
             }
-            c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {}
+            c1::RootSubject::Option { option } => {
+                let row=need(&d.source.catalog.options,*option)?;
+                let member=need(&d.source.catalog.members,row.member)?;
+                let mut text=format!("{}\n{}",member_path(d,member)?,option_text(d,row,b)?);
+                let anchors=super::construction::option_anchors(d,row)?;
+                for anchor in &anchors{text.push_str(&super::source::read(d,anchor,b)?.value);text.push('\n');}
+
+                add(d,&mut out,root,RenderedIdentity{family:Family::ApiOptions,origin:Origin::Option{option:*option},title:format!("{} option",member_path(d,member)?)},Render{text,anchors,subjects:vec![Subject::Option{option:*option},Subject::Member{member:row.member}]},b)?;
+            }
+            c1::RootSubject::Source { artifact } => {
+                let anchor=AnchorSource::Artifact{artifact:*artifact};let text=super::source::read(d,&anchor,b)?;
+                let source=need(&d.source.core.artifacts,*artifact)?;
+                add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::Source{artifact:*artifact},title:source.path.clone()},Render{text:text.value,anchors:vec![anchor],subjects:vec![Subject::Source{artifact:*artifact}]},b)?;
+            }
+            c1::RootSubject::Release { release } => {
+                let row=need(&d.facts.releases,*release)?;let package=need(&d.facts.packages,row.package)?;
+                add(d,&mut out,root,RenderedIdentity{family:Family::DocumentationDeployment,origin:Origin::Release{release:*release},title:format!("{} {}",package.name,row.version)},Render{text:format!("Distribution {} version {}",package.name,row.version),anchors:vec![],subjects:vec![Subject::Release{release:*release}]},b)?;
+            }
         }
     }
     if selected.is_none() {
@@ -1373,6 +1252,7 @@ pub fn memberships() -> Vec<(std::any::TypeId, &'static str)> {
     use std::any::TypeId;
     vec![
         (TypeId::of::<CatalogExposure>(), "member"),
+        (TypeId::of::<CatalogCandidate>(), "exposure"),
         (TypeId::of::<CatalogCallable>(), "member"),
         (TypeId::of::<CatalogOption>(), "member"),
         (TypeId::of::<CatalogClass>(), "member"),
@@ -1380,6 +1260,8 @@ pub fn memberships() -> Vec<(std::any::TypeId, &'static str)> {
         (TypeId::of::<CatalogCallableAspect>(), "callable"),
         (TypeId::of::<CatalogConstructor>(), "class"),
         (TypeId::of::<SignatureSlot>(), "variant"),
+        (TypeId::of::<syntax::SyntaxPlacement>(), "parent"),
+        (TypeId::of::<crate::domain::source::Occurrence>(), "source"),
         (TypeId::of::<OriginalSource>(), "artifact_artifact"),
         (TypeId::of::<ScenarioSpan>(), "scenario"),
         (TypeId::of::<ScenarioDependency>(), "scenario"),
@@ -1698,7 +1580,12 @@ pub fn stage(
         } else {
             Effect::Pure
         },
-        code: ContentHash::of(include_bytes!("build.rs")),
+        code: ContentHash::of(&[
+            include_bytes!("build.rs").as_slice(),
+            include_bytes!("construction.rs").as_slice(),
+            include_bytes!("partition.rs").as_slice(),
+            include_bytes!("source.rs").as_slice(),
+        ].concat()),
         configuration: ContentHash::of(selected.id().bytes()),
     })
 }
@@ -1834,23 +1721,23 @@ mod tests {
                 .iter()
                 .all(|id| extended.units.get(*id).is_some())
         );
-        // A fragment with internally valid text/digest still must equal its canonical corpus slice.
-        let original = extended.fragments.iter().next().unwrap().clone();
+        // A window with internally valid text/digest still must equal its canonical corpus slice.
+        let original = extended.windows.iter().next().unwrap().clone();
         let mut damaged = original.clone();
         damaged.text = "x".repeat(original.text.len()).into();
         damaged.digest = ContentHash::of(damaged.text.as_str().as_bytes());
         damaged.validate().unwrap();
-        let mut fragments = Rows::new(&b);
-        for fragment in extended.fragments.iter() {
-            fragments
-                .insert(if fragment.id() == original.id() {
+        let mut windows = Rows::new(&b);
+        for window in extended.windows.iter() {
+            windows
+                .insert(if window.id() == original.id() {
                     damaged.clone()
                 } else {
-                    fragment.clone()
+                    window.clone()
                 })
                 .unwrap();
         }
-        extended.fragments = fragments;
+        extended.windows = windows;
         assert!(extended.verify_completion(&d, &b).is_err());
         let unit = out
             .units

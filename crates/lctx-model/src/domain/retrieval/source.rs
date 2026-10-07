@@ -18,6 +18,8 @@ pub fn coordinates(
     original: &AnchorSource,
 ) -> Result<(Id<SourceArtifact>, i64, i64), ModelError> {
     match original {
+        AnchorSource::OccurrenceSlice{occurrence,start,end}=>{let r=need(&d.source.core.occurrences,*occurrence)?;if *start<r.start||*end>r.end||end<start{return Err(invalid("interpretation slice exceeds canonical occurrence"));}Ok((r.source,*start,*end))},
+        AnchorSource::Occurrence { occurrence } => { let r=need(&d.source.core.occurrences,*occurrence)?; Ok((r.source,r.start,r.end)) },
         AnchorSource::Prose { slice } => {
             let slice = need(&d.synthesis.prose_slices, *slice)?;
             let (artifact, start, end) = match need(&d.synthesis.prose_sources, slice.source)? {
@@ -145,17 +147,9 @@ pub fn root_ranges(
     let mut ranges = Ranges::new(b);
     match need(&d.evidence.subjects, root.subject)? {
         c1::RootSubject::Member { member } => {
-            let member = need(&d.source.catalog.members, *member)?;
-            let module = need(&d.source.core.modules, member.access)?;
-            let original = c1::OriginalSource::Artifact {
-                artifact: module.source,
-            };
-            ranges.add(
-                d,
-                AnchorSource::Original {
-                    source: original.id(),
-                },
-            )?;
+            for (_,anchor,_) in super::construction::definitions(d,*member,root.context)? {
+                if let Some(anchor)=anchor { for (context,_) in super::construction::enclosing(d,&anchor,root.context)?{ranges.add(d,context)?;} ranges.add(d,anchor)?; }
+            }
         }
         c1::RootSubject::Scenario { scenario } => {
             for span in d
@@ -209,7 +203,9 @@ pub fn root_ranges(
                 },
             )?;
         }
-        c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {}
+        c1::RootSubject::Option { option } => {for anchor in super::construction::option_anchors(d,need(&d.source.catalog.options,*option)?)?{ranges.add(d,anchor)?;}},
+        c1::RootSubject::Release { .. } => {},
+        c1::RootSubject::Source{artifact}=>ranges.add(d,AnchorSource::Artifact{artifact:*artifact})?,
     }
     Ok(ranges)
 }
