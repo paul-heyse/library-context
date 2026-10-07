@@ -133,6 +133,7 @@ def test_responses_are_judged_as_the_shared_corpus_says() -> None:
         **Spec.packaged(QWEN).fields,
         "model": corpus["model"],
         "dimensions": corpus["dimensions"],
+        "source_dimensions": corpus["dimensions"],
         "admission": {
             "is_matryoshka": True,
             "matryoshka_dimensions": [corpus["dimensions"]],

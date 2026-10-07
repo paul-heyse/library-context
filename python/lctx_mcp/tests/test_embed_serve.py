@@ -44,19 +44,19 @@ def test_checkpoint_refuses_mismatched_manifest_and_changed_files(tmp_path: Path
         verify(spec, tmp_path)
 
 
-def test_mrl_launch_is_derived_from_the_standard_spec() -> None:
+def test_full_output_launch_is_derived_from_the_standard_spec() -> None:
     root = Path(__file__).resolve().parents[3]
     launch = runpy.run_path(str(root / "scripts/embed_serve.py"))["launch_command"]
     spec = json.loads((root / "specs/embedding/qwen3-embedding-8b.json").read_text())
     command = launch(spec, 8123)
     assert json.loads(command[command.index("--hf-overrides") + 1]) == {
         "is_matryoshka": True,
-        "matryoshka_dimensions": [1024],
+        "matryoshka_dimensions": [4096],
     }
     assert json.loads(command[command.index("--pooler-config") + 1]) == {
         "seq_pooling_type": "LAST",
         "use_activation": True,
-        "dimensions": 1024,
+        "dimensions": 4096,
     }
     with pytest.raises(ValueError, match="reduction/admission"):
-        launch(spec | {"dimensions": 4096}, 8123)
+        launch(spec | {"dimensions": 1024}, 8123)
