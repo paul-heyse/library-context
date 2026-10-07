@@ -32,6 +32,14 @@ def population():
     return list(load_cases(ROOT / "eval/programmatic/finite-cases.jsonl"))
 
 
+def public_packet(case):
+    return json.loads(case["observation"]["segments"][0])
+
+
+def replace_packet(case, packet):
+    case["observation"]["segments"][0] = json.dumps(packet, ensure_ascii=False)
+
+
 def test_independent_expected_population_and_explicit_denominators(worker):
     expected = json.loads((ROOT / "eval/programmatic/finite-expectations.json").read_text())
     cases = population()
@@ -57,7 +65,7 @@ def test_worker_generated_schema_and_private_projection_boundary(worker):
 def test_schema_valid_mutants_are_judged_not_just_admitted(worker):
     rows = {row["task_id"]: row for row in worker.judge(population())}
     for name in ("foreign-variant", "foreign-release", "wrong-anchor", "drop-setup",
-                 "corrupt-map", "correct-ids-hidden-meaning", "mislabel-expected-failure"):
+                 "qualification-id-only", "same-substring-foreign-association", "correct-ids-hidden-meaning", "mislabel-expected-failure"):
         assert mutation_outcome(rows["compatible"], rows[name]) == "caught"
     assert mutation_outcome(rows["compatible"], rows["positive-alternate"], equivalent=True) == "equivalent"
     assert mutation_outcome(rows["compatible"], rows["empty-positive"]) == "invalid"
@@ -66,15 +74,17 @@ def test_schema_valid_mutants_are_judged_not_just_admitted(worker):
 
 def test_shrink_preserves_supported_oracle_and_failure_class(worker):
     case = next(case for case in population() if case["task"]["id"] == "foreign-variant")
-    extra = copy.deepcopy(case["observation"]["spans"][0])
-    extra.update(role="irrelevant", anchor="unrelated")
-    case["observation"]["spans"].append(extra)
+    packet = public_packet(case)
+    extra = copy.deepcopy(packet["groups"][0])
+    extra["evidence"][0].update(role="irrelevant", anchor="unrelated")
+    packet["groups"].append(extra)
+    replace_packet(case, packet)
     def preserves(trial):
         row = list(worker.judge([trial]))[0]
         return row["epistemic"] == "insufficient" and row["reason"] == "individually readable predicates have incompatible contexts"
     minimized = minimize(case, preserves)
     assert minimized["task"] == case["task"]
-    assert len(minimized["observation"]["spans"]) < len(case["observation"]["spans"])
+    assert len(public_packet(minimized)["groups"]) < len(public_packet(case)["groups"])
     assert preserves(minimized)
 
 
@@ -86,7 +96,9 @@ def test_actual_byte_ceiling_and_missing_inventory(worker):
     assert packet_ceiling(worker, task, [case["observation"]])["status"] == "budget_infeasible"
     assert packet_ceiling(worker, task, [])["status"] == "inventory_infeasible"
     insufficient = copy.deepcopy(case["observation"])
-    insufficient["spans"].pop()
+    packet = json.loads(insufficient["segments"][0])
+    packet["groups"].pop()
+    insufficient["segments"][0] = json.dumps(packet)
     result = packet_ceiling(worker, task, [case["observation"], insufficient])
     assert result["status"] == "budget_infeasible"
     assert result["budget_relaxation_diagnostic_only"]
@@ -127,24 +139,24 @@ def test_generated_population_is_reproducible_and_family_split_is_fixed():
 
 
 def test_freeze_binds_actual_tasks_and_blocks_changed_yardstick(worker):
-    realization = {"source": "hand-source-v1", "native": "not_run", "encoder": "not_requested", "scorer": "finite", "settings": {}}
+    realization = {"observation_realization": "finite-render-1", "source": "hand-source-v1", "native": "not_run", "encoder": "not_requested", "scorer": "finite", "settings": {}}
     meanings = {"judgment": "finite-v1", "observation": worker.schema["case"]["$defs"]["Observation"], "metrics": "epistemic-counts", "numeric_precision_ties": "not_requested"}
     cases = population()
     frozen = prepare_comparison(worker, cases, "1", realization, realization, [], meanings)
-    assert len(frozen_judgments(worker, frozen, cases, frozen["experiment"])) == len(cases)
+    assert len(frozen_judgments(worker, frozen, cases, frozen["experiment"], lane="baseline")) == len(cases)
     changed = copy.deepcopy(cases)
     changed[0]["task"]["predicates"][0]["accepted_text"] = ["changed expected meaning"]
     with pytest.raises(WorkerError, match="inventory differs"):
-        frozen_judgments(worker, frozen, changed, frozen["experiment"])
+        frozen_judgments(worker, frozen, changed, frozen["experiment"], lane="baseline")
     experiment = copy.deepcopy(frozen["experiment"])
     experiment["revision"] = "2"
     with pytest.raises(WorkerError, match="incompatible comparison"):
-        frozen_judgments(worker, frozen, cases, experiment)
+        frozen_judgments(worker, frozen, cases, experiment, lane="candidate")
 
 
 def test_timeout_cancels_the_campaign_process(tmp_path):
     executable = tmp_path / "hung-worker"
-    executable.write_text("#!" + os.sys.executable + "\nimport json, sys, time\nfor line in sys.stdin:\n if json.loads(line).get('operation') == 'schema':\n  print(json.dumps({'status':'completed','result':{'case':{'$schema':'https://json-schema.org/draft/2020-12/schema'}}}), flush=True)\n else:\n  time.sleep(30)\n")
+    executable.write_text("#!" + os.sys.executable + "\nimport json, sys, time\nfor line in sys.stdin:\n if json.loads(line).get('operation') == 'schema':\n  print(json.dumps({'status':'completed','result':{'protocol_version':2,'case':{'$schema':'https://json-schema.org/draft/2020-12/schema'}}}), flush=True)\n else:\n  time.sleep(30)\n")
     executable.chmod(0o700)
     with Worker(executable, timeout=0.2) as process:
         with pytest.raises(WorkerError, match="timeout"):
@@ -158,13 +170,15 @@ def test_timeout_cancels_the_campaign_process(tmp_path):
        setup=st.sets(st.sampled_from(["A", "B", "C"])))
 def test_generated_context_population_uses_one_worker(worker, signature, default, setup):
     case = population()[0]
-    prototype = case["observation"]["spans"]
-    case["observation"]["spans"] = []
+    packet = public_packet(case)
+    prototype = packet["groups"]
+    packet["groups"] = []
     for item, variants in zip(prototype, (signature, default, setup), strict=True):
         for variant in sorted(variants):
-            span = copy.deepcopy(item)
-            span["context"]["variant"] = variant
-            case["observation"]["spans"].append(span)
+            group = copy.deepcopy(item)
+            group["context"]["variant"] = variant
+            packet["groups"].append(group)
+    replace_packet(case, packet)
     judgment = list(worker.judge([case]))[0]
     # Independent finite set intersection, not the production/reference join kernel.
     assert (judgment["epistemic"] == "sufficient") == bool(signature & default & setup)
@@ -174,8 +188,10 @@ def test_generator_shrinks_source_task_context_together(worker):
     def build(factors):
         case = next(case for case in population() if case["task"]["id"] == "foreign-variant")
         source = "def connect(timeout=None): return timeout\n" + "".join(factors["source_noise"])
-        for span in case["observation"]["spans"]:
-            span["context"].update(factors["context_noise"])
+        packet = public_packet(case)
+        for group in packet["groups"]:
+            group["context"].update(factors["context_noise"])
+        replace_packet(case, packet)
         case["task"]["request"]["context"].update(factors["context_noise"])
         case["task"]["oracle"]["input_digest"] = content_digest(source)
         return {"source": source, "case": case}
@@ -200,3 +216,71 @@ def test_python_grounded_feedback_can_reach_both_owners(worker):
     assert disposition["retain_old_semantic_result"]
     with pytest.raises(WorkerError, match="new revision"):
         grounded_feedback(worker, case, "1", "independent source", ["evaluator"], "new expectation", [case["task"]["id"]])
+
+
+def comparison(worker):
+    realization = {"observation_realization": "finite-render-1", "source": "hand-source-v1", "native": "not_run", "encoder": "not_requested", "scorer": "finite", "settings": {}}
+    meanings = {"metrics": "epistemic-counts", "numeric_precision_ties": "not_requested"}
+    cases = population()
+    frozen = prepare_comparison(worker, cases, "2", realization, realization, [], meanings)
+    return cases, frozen
+
+
+def test_no_overlay_can_relabel_same_actual_foreign_substring(worker):
+    case = next(case for case in population() if case["task"]["id"] == "same-substring-foreign-association")
+    original_bytes = case["observation"]["segments"][0]
+    case["observation"]["spans"] = [{"text": "default timeout is 10", "context": {"release": "1", "variant": "A"}, "anchor": "default", "role": "default"}]
+    with pytest.raises(WorkerError, match="unknown field"):
+        list(worker.judge([case]))
+    assert case["observation"]["segments"][0] == original_bytes
+    del case["observation"]["spans"]
+    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+
+
+def test_retained_qualification_id_cannot_supply_omitted_condition(worker):
+    case = population()[0]
+    requirement = {"id": "setup-condition", "accepted_text": ["Applies only with installed transport"]}
+    case["task"]["predicates"][1]["qualifications"].append(requirement)
+    packet = public_packet(case)
+    condition = {"id": "setup-condition", "text": "Applies only with installed transport"}
+    packet["groups"][1]["evidence"][0]["qualifications"].append(condition)
+    replace_packet(case, packet)
+    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    condition["text"] = ""
+    replace_packet(case, packet)
+    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+
+
+def test_frozen_mode_and_explicit_realization_lane_refuse_mismatch(worker):
+    cases, frozen = comparison(worker)
+    changed = copy.deepcopy(cases)
+    changed[0]["mode"] = "expandable"
+    with pytest.raises(WorkerError, match="mode inventory"):
+        frozen_judgments(worker, frozen, changed, frozen["experiment"], lane="baseline")
+    changed = copy.deepcopy(cases)
+    changed[0]["observation"]["realization"] = "foreign"
+    with pytest.raises(WorkerError, match="realization differs"):
+        frozen_judgments(worker, frozen, changed, frozen["experiment"], lane="candidate")
+    with pytest.raises(WorkerError, match="explicit baseline"):
+        frozen_judgments(worker, frozen, cases, frozen["experiment"], lane="unspecified")
+    # A forged overlay handle cannot hide a different handle in exact emitted bytes.
+    packet = public_packet(cases[0])
+    packet["realization"] = "foreign"
+    replace_packet(cases[0], packet)
+    assert list(worker.judge([cases[0]]))[0]["epistemic"] == "inconclusive"
+
+
+@pytest.mark.parametrize("change", ["kernel", "schema"])
+def test_changed_actual_worker_executable_cannot_use_old_freeze(worker, tmp_path, change):
+    cases, frozen = comparison(worker)
+    schema = copy.deepcopy(worker.schema)
+    if change == "kernel":
+        schema["kernel_source_revision"] = "different-executable-source"
+    else:
+        schema["finite_packet"]["description"] = "different-observation-contract"
+    executable = tmp_path / "different-worker"
+    executable.write_text("#!" + os.sys.executable + "\nimport json, sys\nschema = json.loads(" + repr(json.dumps(schema)) + ")\nfor line in sys.stdin:\n print(json.dumps({'status':'completed','result':schema}), flush=True)\n")
+    executable.chmod(0o700)
+    with Worker(executable) as different:
+        with pytest.raises(WorkerError, match="actual running kernel/schema"):
+            frozen_judgments(different, frozen, cases, frozen["experiment"], lane="baseline")

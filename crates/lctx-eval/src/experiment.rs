@@ -13,6 +13,7 @@ pub struct Meanings {
     pub oracle: String,
     pub judgment: String,
     pub observation: String,
+    pub wire_schema: String,
     pub completeness_applicability: String,
     pub journey_limits: String,
     pub metrics: String,
@@ -21,6 +22,7 @@ pub struct Meanings {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Realization {
+    pub observation_realization: String,
     pub source: String,
     pub native: String,
     pub encoder: String,
@@ -44,7 +46,7 @@ pub struct Freeze { pub experiment: Experiment, pub digest: String }
 pub fn freeze(experiment: Experiment) -> Result<Freeze, String> {
     let value = serde_json::to_value(&experiment).map_err(|e| e.to_string())?;
     if experiment.revision.is_empty() || serde_json::to_value(&experiment.meanings).map_err(|e| e.to_string())?.as_object().is_none_or(|fields| fields.values().any(|v| v.as_str().is_none_or(str::is_empty))) { return Err("freeze requires every comparison meaning".into()); }
-    let changed: Vec<_> = ["source", "native", "encoder", "scorer", "settings"].into_iter().filter(|key| value["baseline"][key] != value["candidate"][key]).map(str::to_owned).collect();
+    let changed: Vec<_> = ["observation_realization", "source", "native", "encoder", "scorer", "settings"].into_iter().filter(|key| value["baseline"][key] != value["candidate"][key]).map(str::to_owned).collect();
     let declared: std::collections::BTreeSet<_> = experiment.changed_variables.iter().cloned().collect();
     if changed.into_iter().collect::<std::collections::BTreeSet<_>>() != declared { return Err("changed variables do not match baseline/candidate realization differences".into()); }
     let bytes = serde_json::to_vec(&experiment).map_err(|e| e.to_string())?;

@@ -33,11 +33,11 @@ fn run(request: Request) -> Result<serde_json::Value, String> {
 }
 fn wire_schema() -> serde_json::Value {
     let mut source = blake3::Hasher::new();
-    for input in [include_str!("../Cargo.toml"), include_str!("contracts.rs"), include_str!("witness.rs"), include_str!("experiment.rs"), include_str!("lib.rs"), include_str!("main.rs")] {
+    for input in [include_str!("../Cargo.toml"), include_str!("contracts.rs"), include_str!("witness.rs"), include_str!("experiment.rs"), include_str!("lib.rs"), include_str!("observer.rs"), include_str!("main.rs")] {
         source.update(&(input.len() as u64).to_le_bytes());
         source.update(input.as_bytes());
     }
-    serde_json::json!({"protocol_version": 1, "kernel_source_revision": source.finalize().to_hex().to_string(), "request": schemars::schema_for!(Request), "response": schemars::schema_for!(Response), "case": schemars::schema_for!(Case), "judgment": schemars::schema_for!(Judgment), "experiment": schemars::schema_for!(Experiment)})
+    serde_json::json!({"protocol_version": 2, "kernel_source_revision": source.finalize().to_hex().to_string(), "request": schemars::schema_for!(Request), "response": schemars::schema_for!(Response), "case": schemars::schema_for!(Case), "finite_packet": schemars::schema_for!(lctx_eval::observer::FinitePacket), "judgment": schemars::schema_for!(Judgment), "experiment": schemars::schema_for!(Experiment)})
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().nth(1).as_deref() == Some("--schema") {

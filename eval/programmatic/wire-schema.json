@@ -1,6 +1,6 @@
 {
-  "protocol_version": 1,
-  "kernel_source_revision": "7e8fdc2fbe0e0bc9d2936114fc2073cd010e5394ebc2aebbc1c86ada37949f9b",
+  "protocol_version": 2,
+  "kernel_source_revision": "1cdd56a29cc514ca9cdcb4f6ae3725e67398473af013f1baf8bb2d0ae3594d6d",
   "request": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Request",
@@ -339,7 +339,7 @@
           "qualifications": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/$defs/QualificationRequirement"
             }
           },
           "candidate_status": {
@@ -355,6 +355,25 @@
           "context",
           "qualifications",
           "candidate_status"
+        ]
+      },
+      "QualificationRequirement": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "accepted_text": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "accepted_text"
         ]
       },
       "CandidateStatus": {
@@ -538,17 +557,8 @@
               "type": "string"
             }
           },
-          "spans": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/DeliveredSpan"
-            }
-          },
-          "visible_references": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/VisibleReference"
-            }
+          "observer_format": {
+            "$ref": "#/$defs/ObserverFormat"
           },
           "expansions": {
             "type": "array",
@@ -570,96 +580,15 @@
         "required": [
           "realization",
           "segments",
-          "spans",
-          "visible_references",
+          "observer_format",
           "expansions",
           "status"
         ]
       },
-      "DeliveredSpan": {
-        "type": "object",
-        "properties": {
-          "segment": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "start": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "end": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "text": {
-            "type": "string"
-          },
-          "anchor": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "context": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          },
-          "qualifications": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "candidate_status": {
-            "$ref": "#/$defs/CandidateStatus"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "segment",
-          "start",
-          "end",
-          "text",
-          "anchor",
-          "role",
-          "context",
-          "qualifications",
-          "candidate_status"
-        ]
-      },
-      "VisibleReference": {
-        "type": "object",
-        "properties": {
-          "reference": {
-            "type": "string"
-          },
-          "segment": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "start": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "end": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "reference",
-          "segment",
-          "start",
-          "end"
+      "ObserverFormat": {
+        "type": "string",
+        "enum": [
+          "finite_packet_v1"
         ]
       },
       "Expansion": {
@@ -768,6 +697,9 @@
           "observation": {
             "type": "string"
           },
+          "wire_schema": {
+            "type": "string"
+          },
           "completeness_applicability": {
             "type": "string"
           },
@@ -789,6 +721,7 @@
           "oracle",
           "judgment",
           "observation",
+          "wire_schema",
           "completeness_applicability",
           "journey_limits",
           "metrics",
@@ -798,6 +731,9 @@
       "Realization": {
         "type": "object",
         "properties": {
+          "observation_realization": {
+            "type": "string"
+          },
           "source": {
             "type": "string"
           },
@@ -819,6 +755,7 @@
         },
         "additionalProperties": false,
         "required": [
+          "observation_realization",
           "source",
           "native",
           "encoder",
@@ -1189,7 +1126,7 @@
           "qualifications": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/$defs/QualificationRequirement"
             }
           },
           "candidate_status": {
@@ -1205,6 +1142,25 @@
           "context",
           "qualifications",
           "candidate_status"
+        ]
+      },
+      "QualificationRequirement": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "accepted_text": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "accepted_text"
         ]
       },
       "CandidateStatus": {
@@ -1388,17 +1344,8 @@
               "type": "string"
             }
           },
-          "spans": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/DeliveredSpan"
-            }
-          },
-          "visible_references": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/VisibleReference"
-            }
+          "observer_format": {
+            "$ref": "#/$defs/ObserverFormat"
           },
           "expansions": {
             "type": "array",
@@ -1420,96 +1367,15 @@
         "required": [
           "realization",
           "segments",
-          "spans",
-          "visible_references",
+          "observer_format",
           "expansions",
           "status"
         ]
       },
-      "DeliveredSpan": {
-        "type": "object",
-        "properties": {
-          "segment": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "start": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "end": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "text": {
-            "type": "string"
-          },
-          "anchor": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "context": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          },
-          "qualifications": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "candidate_status": {
-            "$ref": "#/$defs/CandidateStatus"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "segment",
-          "start",
-          "end",
-          "text",
-          "anchor",
-          "role",
-          "context",
-          "qualifications",
-          "candidate_status"
-        ]
-      },
-      "VisibleReference": {
-        "type": "object",
-        "properties": {
-          "reference": {
-            "type": "string"
-          },
-          "segment": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "start": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          },
-          "end": {
-            "type": "integer",
-            "format": "uint",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "reference",
-          "segment",
-          "start",
-          "end"
+      "ObserverFormat": {
+        "type": "string",
+        "enum": [
+          "finite_packet_v1"
         ]
       },
       "Expansion": {
@@ -1560,6 +1426,115 @@
         "enum": [
           "immediate",
           "expandable"
+        ]
+      }
+    }
+  },
+  "finite_packet": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "FinitePacket",
+    "type": "object",
+    "properties": {
+      "realization": {
+        "type": "string"
+      },
+      "groups": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/PublicGroup"
+        }
+      },
+      "references": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "realization",
+      "groups",
+      "references"
+    ],
+    "$defs": {
+      "PublicGroup": {
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/PublicEvidence"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "context",
+          "evidence"
+        ]
+      },
+      "PublicEvidence": {
+        "type": "object",
+        "properties": {
+          "anchor": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "qualifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/PublicQualification"
+            }
+          },
+          "candidate_status": {
+            "$ref": "#/$defs/CandidateStatus"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "anchor",
+          "role",
+          "text",
+          "qualifications",
+          "candidate_status"
+        ]
+      },
+      "PublicQualification": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text"
+        ]
+      },
+      "CandidateStatus": {
+        "type": "string",
+        "enum": [
+          "supported",
+          "expected_failure",
+          "unknown",
+          "authored",
+          "skipped"
         ]
       }
     }
@@ -1720,6 +1695,9 @@
           "observation": {
             "type": "string"
           },
+          "wire_schema": {
+            "type": "string"
+          },
           "completeness_applicability": {
             "type": "string"
           },
@@ -1741,6 +1719,7 @@
           "oracle",
           "judgment",
           "observation",
+          "wire_schema",
           "completeness_applicability",
           "journey_limits",
           "metrics",
@@ -1750,6 +1729,9 @@
       "Realization": {
         "type": "object",
         "properties": {
+          "observation_realization": {
+            "type": "string"
+          },
           "source": {
             "type": "string"
           },
@@ -1771,6 +1753,7 @@
         },
         "additionalProperties": false,
         "required": [
+          "observation_realization",
           "source",
           "native",
           "encoder",

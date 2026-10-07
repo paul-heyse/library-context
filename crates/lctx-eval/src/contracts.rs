@@ -43,6 +43,9 @@ pub enum Witness {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateStatus { Supported, ExpectedFailure, Unknown, Authored, Skipped }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct QualificationRequirement { pub id: String, pub accepted_text: Vec<String> }
 /// Acceptable text is independently authored, never recovered from the renderer.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -52,7 +55,7 @@ pub struct Predicate {
     pub accepted_text: Vec<String>,
     pub anchors: Vec<String>,
     pub context: Assignment,
-    pub qualifications: Vec<String>,
+    pub qualifications: Vec<QualificationRequirement>,
     pub candidate_status: CandidateStatus,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -95,21 +98,8 @@ pub enum Split { Development, Validation }
 #[serde(rename_all = "snake_case")]
 pub enum OperationStatus { Completed, Failed, Refused, Stale, BudgetExhausted, Cancelled }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DeliveredSpan {
-    pub segment: usize,
-    pub start: usize,
-    pub end: usize,
-    pub text: String,
-    pub anchor: String,
-    pub role: String,
-    pub context: Assignment,
-    pub qualifications: Vec<String>,
-    pub candidate_status: CandidateStatus,
-}
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisibleReference { pub reference: String, pub segment: usize, pub start: usize, pub end: usize }
+#[serde(rename_all = "snake_case")]
+pub enum ObserverFormat { FinitePacketV1 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Expansion {
@@ -125,8 +115,7 @@ pub struct Observation {
     pub realization: String,
     /// Exact UTF-8 emitted bytes, initial response at index zero.
     pub segments: Vec<String>,
-    pub spans: Vec<DeliveredSpan>,
-    pub visible_references: Vec<VisibleReference>,
+    pub observer_format: ObserverFormat,
     pub expansions: Vec<Expansion>,
     pub status: OperationStatus,
     pub failure: Option<String>,

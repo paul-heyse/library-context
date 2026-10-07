@@ -36,17 +36,17 @@ fn expansion_requires_readable_public_reference_and_matching_realization() {
     let mut case = cases().remove(0);
     case.mode = Mode::Expandable;
     case.observation.expansions.push(Expansion { reference: "ref:default".into(), operation: "section".into(), realization: case.observation.realization.clone(), status: OperationStatus::Completed, response_segment: Some(1) });
-    case.observation.segments.push("content".into());
+    case.observation.segments.push(serde_json::json!({"realization": case.observation.realization, "groups": [], "references": []}).to_string());
     assert_eq!(judge(&case).epistemic, Epistemic::Inconclusive);
-    let start = case.observation.segments[0].len();
-    case.observation.segments[0].push_str("ref:default");
-    case.observation.visible_references.push(VisibleReference { reference: "ref:default".into(), segment: 0, start, end: start + 11 });
+    let mut packet: serde_json::Value = serde_json::from_str(&case.observation.segments[0]).unwrap();
+    packet["references"].as_array_mut().unwrap().push("ref:default".into());
+    case.observation.segments[0] = packet.to_string();
     assert_eq!(judge(&case).epistemic, Epistemic::Sufficient);
     case.observation.expansions[0].realization = "foreign".into();
     assert_eq!(judge(&case).epistemic, Epistemic::Inconclusive);
 }
 fn experiment() -> Experiment {
-    Experiment { revision: "1".into(), split: Split::Development, meanings: Meanings { task_population: "p".into(), split_keys: "s".into(), public_requests: "r".into(), oracle: "o".into(), judgment: "j".into(), observation: "b".into(), completeness_applicability: "c".into(), journey_limits: "l".into(), metrics: "m".into(), numeric_precision_ties: "n".into() }, baseline: Realization { source: "s".into(), native: "not_run".into(), encoder: "not_requested".into(), scorer: "finite".into(), settings: BTreeMap::new() }, candidate: Realization { source: "s".into(), native: "not_run".into(), encoder: "not_requested".into(), scorer: "finite".into(), settings: BTreeMap::new() }, changed_variables: vec![] }
+    Experiment { revision: "1".into(), split: Split::Development, meanings: Meanings { task_population: "p".into(), split_keys: "s".into(), public_requests: "r".into(), oracle: "o".into(), judgment: "j".into(), observation: "b".into(), wire_schema: "w".into(), completeness_applicability: "c".into(), journey_limits: "l".into(), metrics: "m".into(), numeric_precision_ties: "n".into() }, baseline: Realization { observation_realization: "finite-render-1".into(), source: "s".into(), native: "not_run".into(), encoder: "not_requested".into(), scorer: "finite".into(), settings: BTreeMap::new() }, candidate: Realization { observation_realization: "finite-render-1".into(), source: "s".into(), native: "not_run".into(), encoder: "not_requested".into(), scorer: "finite".into(), settings: BTreeMap::new() }, changed_variables: vec![] }
 }
 #[test]
 fn freeze_refuses_mixed_meanings_and_undeclared_changes() {
@@ -67,4 +67,48 @@ fn both_grounded_feedback_paths_and_same_packet_rejudgment() {
     let mut request = Rejudgment { old_revision: "1".into(), new_revision: "2".into(), old_case: case, new_case: revised };
     let (old, new) = rejudge(&request).unwrap(); assert_eq!(old.epistemic, Epistemic::Sufficient); assert_eq!(new.epistemic, Epistemic::Insufficient);
     request.new_case.task.request.question = "different task".into(); assert!(rejudge(&request).is_err());
+}
+
+#[test]
+fn readable_conditions_and_exact_public_containers_are_required() {
+    let mut case = cases().remove(0);
+    case.task.predicates[1].qualifications.push(QualificationRequirement { id: "setup-condition".into(), accepted_text: vec!["Applies only with installed transport".into()] });
+    let mut packet: serde_json::Value = serde_json::from_str(&case.observation.segments[0]).unwrap();
+    packet["groups"][1]["evidence"][0]["qualifications"].as_array_mut().unwrap().push(serde_json::json!({"id": "setup-condition", "text": "Applies only with installed transport"}));
+    case.observation.segments[0] = packet.to_string();
+    assert_eq!(judge(&case).epistemic, Epistemic::Sufficient);
+    packet["groups"][1]["evidence"][0]["qualifications"][1]["text"] = "".into();
+    case.observation.segments[0] = packet.to_string();
+    assert_eq!(judge(&case).epistemic, Epistemic::Insufficient);
+    // The old valid-substring metadata overlay cannot be admitted in current format.
+    let mut wire = serde_json::to_value(&case).unwrap();
+    wire["observation"]["spans"] = serde_json::json!([{"context": {"variant": "A"}, "anchor": "default"}]);
+    assert!(serde_json::from_value::<Case>(wire).is_err());
+}
+#[test]
+fn escaped_text_decodes_in_its_own_container_without_substring_reattribution() {
+    let mut case = cases().remove(0);
+    let meaningful = "default timeout is \"ten\"\nonly here";
+    case.task.predicates[1].accepted_text = vec![meaningful.into()];
+    let mut packet: serde_json::Value = serde_json::from_str(&case.observation.segments[0]).unwrap();
+    packet["groups"][1]["evidence"][0]["text"] = meaningful.into();
+    case.observation.segments[0] = packet.to_string();
+    assert_eq!(judge(&case).epistemic, Epistemic::Sufficient);
+    packet["groups"][1]["context"]["variant"] = "B".into();
+    let mut unrelated = packet["groups"][1].clone();
+    unrelated["context"]["variant"] = "A".into();
+    unrelated["evidence"][0]["anchor"] = "unrelated".into();
+    packet["groups"].as_array_mut().unwrap().push(unrelated);
+    case.observation.segments[0] = packet.to_string();
+    assert_eq!(judge(&case).epistemic, Epistemic::Insufficient);
+}
+
+#[test]
+fn task_free_decoder_preserves_foreign_container_and_refuses_duplicate_context() {
+    let case = cases().into_iter().find(|case| case.task.id == "foreign-variant").unwrap();
+    let packet = observer::decode(&case.observation.observer_format, &case.observation.segments[0], &case.observation.realization).unwrap();
+    assert_eq!(packet.groups[1].context["variant"], "B");
+    assert_eq!(packet.groups[1].evidence[0].anchor, "default");
+    let duplicate = r#"{"realization":"finite-render-1","groups":[{"context":{"variant":"B","variant":"A"},"evidence":[]}],"references":[]}"#;
+    assert!(observer::decode(&ObserverFormat::FinitePacketV1, duplicate, "finite-render-1").is_err());
 }

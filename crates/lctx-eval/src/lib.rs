@@ -1,6 +1,7 @@
 //! Offline, private, finite-first evaluation. No production imports or serving dependencies.
 pub mod contracts;
 pub mod experiment;
+pub mod observer;
 pub mod witness;
 use std::collections::{BTreeMap, BTreeSet};
 use contracts::*;
@@ -23,7 +24,7 @@ pub fn validate_task(task: &EvaluationTask) -> Result<(), String> {
     let names: BTreeSet<_> = task.predicates.iter().map(|p| p.name.clone()).collect();
     if names.len() != task.predicates.len() { return Err("duplicate predicate".into()); }
     for p in &task.predicates {
-        if p.name.is_empty() || p.role.is_empty() || p.accepted_text.is_empty() || p.accepted_text.iter().any(String::is_empty) || p.anchors.is_empty() { return Err("predicate requires independent readable text, anchors, role and status".into()); }
+        if p.name.is_empty() || p.role.is_empty() || p.accepted_text.is_empty() || p.accepted_text.iter().any(String::is_empty) || p.anchors.is_empty() || p.qualifications.iter().any(|q| q.id.is_empty() || q.accepted_text.is_empty() || q.accepted_text.iter().any(String::is_empty)) { return Err("predicate requires independent readable text, anchors, role and status".into()); }
     }
     if task.intent != Intent::NotApplicable && task.witness.is_none() && task.model.is_none() { return Err("positive task has no information question".into()); }
     if let Some(expr) = &task.witness { witness::validate(expr, &names, 0)?; }
@@ -36,33 +37,29 @@ pub fn validate_task(task: &EvaluationTask) -> Result<(), String> {
     Ok(())
 }
 
-fn active_segments(case: &Case) -> Result<BTreeSet<usize>, String> {
+fn observed_packets(case: &Case) -> Result<Vec<observer::FinitePacket>, String> {
     let observation = &case.observation;
     if observation.segments.is_empty() { return Err("missing exact initial bytes".into()); }
-    if observation.spans.len() > MAX_FINITE_ITEMS || observation.expansions.len() > MAX_FINITE_ITEMS { return Err("observation finite bound exceeded".into()); }
+    if observation.segments.len() > MAX_FINITE_ITEMS || observation.expansions.len() > MAX_FINITE_ITEMS { return Err("observation finite bound exceeded".into()); }
     let mut active = BTreeSet::from([0]);
+    let mut packets = vec![observer::decode(&observation.observer_format, &observation.segments[0], &observation.realization)?];
     if case.mode == Mode::Expandable {
         if observation.expansions.len() > case.task.envelope.max_calls { return Err("journey call budget exhausted".into()); }
         for call in &observation.expansions {
             if call.realization != observation.realization { return Err("stale expansion realization".into()); }
             if !case.task.request.allowed_followups.contains(&call.operation) { return Err("unsupported public follow-up".into()); }
-            let visible = observation.visible_references.iter().any(|reference| {
-                reference.reference == call.reference && active.contains(&reference.segment) && observation.segments.get(reference.segment).and_then(|bytes| bytes.get(reference.start..reference.end)).is_some_and(|text| text == reference.reference)
-            });
-            if !visible { return Err("expansion reference was not readable before the call".into()); }
+            if !packets.iter().any(|packet| packet.references.contains(&call.reference)) { return Err("expansion reference was not public before the call".into()); }
             if call.status != OperationStatus::Completed { return Err(format!("expansion {:?}", call.status)); }
             let segment = call.response_segment.ok_or("completed expansion has no response bytes")?;
             if segment == 0 || active.contains(&segment) || segment >= observation.segments.len() { return Err("invalid expansion response segment".into()); }
+            packets.push(observer::decode(&observation.observer_format, &observation.segments[segment], &observation.realization)?);
             active.insert(segment);
         }
     }
+    if packets.iter().flat_map(|packet| &packet.groups).map(|group| group.evidence.len()).sum::<usize>() > MAX_FINITE_ITEMS { return Err("observed campaign evidence bound exceeded".into()); }
     let bytes: usize = active.iter().map(|index| observation.segments[*index].len()).sum();
     if bytes > case.task.envelope.max_bytes { return Err("packet byte budget exhausted".into()); }
-    for span in &observation.spans {
-        let bytes = observation.segments.get(span.segment).ok_or("delivery map references missing bytes")?;
-        if bytes.get(span.start..span.end) != Some(span.text.as_str()) || span.text.is_empty() { return Err("delivery map differs from exact emitted bytes".into()); }
-    }
-    Ok(active)
+    Ok(packets)
 }
 
 pub fn judge(case: &Case) -> Judgment {
@@ -74,8 +71,8 @@ pub fn judge(case: &Case) -> Judgment {
         Completeness::Incomplete => return result(case, Applicability::Incomplete, Epistemic::Inconclusive, "incomplete oracle inventory"),
         Completeness::Complete => {}
     }
-    let active = match active_segments(case) { Ok(active) => active, Err(reason) => {
-        let epistemic = if reason.contains("budget") { Epistemic::BudgetInfeasible } else if reason.contains("delivery map") { Epistemic::Insufficient } else { Epistemic::Inconclusive };
+    let packets = match observed_packets(case) { Ok(packets) => packets, Err(reason) => {
+        let epistemic = if reason.contains("budget") { Epistemic::BudgetInfeasible } else { Epistemic::Inconclusive };
         let mut judgment = result(case, Applicability::Applicable, epistemic, &reason);
         if case.mode == Mode::Expandable {
             if reason.contains("budget") { judgment.execution = OperationStatus::BudgetExhausted; }
@@ -86,13 +83,15 @@ pub fn judge(case: &Case) -> Judgment {
     }};
     let mut leaves: BTreeMap<String, Vec<Assignment>> = BTreeMap::new();
     for predicate in &case.task.predicates {
-        let matches: Vec<_> = case.observation.spans.iter().filter(|span| active.contains(&span.segment)
-            && span.role == predicate.role && predicate.accepted_text.contains(&span.text)
-            && predicate.anchors.contains(&span.anchor) && predicate.candidate_status == span.candidate_status
-            && predicate.qualifications.iter().all(|q| span.qualifications.contains(q))
-            && predicate.context.iter().all(|(k,v)| span.context.get(k) == Some(v))
-            && case.task.request.context.iter().all(|(k,v)| span.context.get(k) == Some(v)))
-            .map(|span| span.context.clone()).collect();
+        let matches: Vec<_> = packets.iter().flat_map(|packet| &packet.groups).filter(|group|
+            predicate.context.iter().all(|(key, value)| group.context.get(key) == Some(value))
+            && case.task.request.context.iter().all(|(key, value)| group.context.get(key) == Some(value)))
+            .flat_map(|group| group.evidence.iter().filter(move |evidence|
+                evidence.role == predicate.role && predicate.accepted_text.contains(&evidence.text)
+                && predicate.anchors.contains(&evidence.anchor) && predicate.candidate_status == evidence.candidate_status
+                && predicate.qualifications.iter().all(|required| evidence.qualifications.iter().any(|actual|
+                    actual.id == required.id && required.accepted_text.contains(&actual.text))))
+                .map(move |_| group.context.clone())).collect();
         leaves.insert(predicate.name.clone(), matches);
     }
     fn proof_bound(expr: &Witness, leaves: &BTreeMap<String, Vec<Assignment>>) -> usize {

@@ -42,7 +42,7 @@ class Worker:
         self.pending = bytearray()
         try:
             self.schema = self.request({"operation": "schema"})
-            if self.schema["case"]["$schema"] != "https://json-schema.org/draft/2020-12/schema":
+            if self.schema.get("protocol_version") != 2 or self.schema["case"]["$schema"] != "https://json-schema.org/draft/2020-12/schema":
                 raise WorkerError("unsupported generated wire schema")
         except BaseException:
             self.close()
@@ -161,11 +161,13 @@ def prepare_comparison(
             raise WorkerError("optimization comparisons admit development only")
         if groups.setdefault(task["family"], task["split"]) != task["split"]:
             raise WorkerError("source/grammar family split leakage")
+    schema = worker.request({"operation": "schema"})
     frozen_meanings = {
         **{key: content_digest(value) for key, value in meanings.items()},
-        "judgment": content_digest(worker.schema["kernel_source_revision"]),
-        "observation": content_digest(worker.schema["case"]["$defs"]["Observation"]),
-        "task_population": content_digest([case["task"] for case in cases]),
+        "judgment": content_digest(schema["kernel_source_revision"]),
+        "observation": content_digest(schema["case"]["$defs"]["Observation"]),
+        "wire_schema": content_digest(schema),
+        "task_population": content_digest([{"task": case["task"], "mode": case["mode"]} for case in cases]),
         "split_keys": content_digest(groups),
         "public_requests": content_digest([case["task"]["request"] for case in cases]),
         "oracle": content_digest([case["task"]["oracle"] for case in cases]),
@@ -183,10 +185,23 @@ def prepare_comparison(
 
 def frozen_judgments(
     worker: Worker, frozen: dict[str, Any], cases: list[dict[str, Any]],
-    experiment: dict[str, Any],
+    experiment: dict[str, Any], *, lane: str,
 ) -> list[dict[str, Any]]:
-    if content_digest([case["task"] for case in cases]) != frozen["experiment"]["meanings"]["task_population"]:
-        raise WorkerError("actual task/oracle inventory differs from frozen comparison")
+    if lane not in ("baseline", "candidate"):
+        raise WorkerError("frozen run requires an explicit baseline or candidate lane")
+    schema = worker.request({"operation": "schema"})
+    meanings = frozen["experiment"]["meanings"]
+    actual = {"judgment": content_digest(schema["kernel_source_revision"]),
+              "observation": content_digest(schema["case"]["$defs"]["Observation"]),
+              "wire_schema": content_digest(schema)}
+    if any(meanings[key] != value for key, value in actual.items()):
+        raise WorkerError("actual running kernel/schema meanings differ from frozen comparison")
+    population = [{"task": case["task"], "mode": case["mode"]} for case in cases]
+    if content_digest(population) != meanings["task_population"]:
+        raise WorkerError("actual task/oracle/mode inventory differs from frozen comparison")
+    selected = frozen["experiment"][lane]["observation_realization"]
+    if not selected or any(case["observation"]["realization"] != selected for case in cases):
+        raise WorkerError("captured observation realization differs from selected comparison lane")
     worker.request({"operation": "admit", "frozen": frozen, "experiment": experiment})
     return list(worker.judge(cases))
 
@@ -203,21 +218,28 @@ def summary(judgments: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
 
 def minimize(case: dict[str, Any], preserves: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
-    """Deletion shrink keeps oracle/task fixed and retains the caller's failure class.
+    """Shrink supported finite fixture bytes with fixed source/task/oracle meaning.
 
-    Never removes source/oracle facts blindly. Source/context shrinking requires an
-    independent re-authoring function, supplied by a supported generator.
+    This explicitly changes the captured packet for diagnostic controls. It does
+    not rewrite producer metadata or pretend to be a production MCP observer.
     """
     current = copy.deepcopy(case)
-    for key in ("spans", "visible_references"):
-        index = 0
-        while index < len(current["observation"][key]):
-            trial = copy.deepcopy(current)
-            del trial["observation"][key][index]
-            if preserves(trial):
-                current = trial
-            else:
-                index += 1
+    if current["observation"]["observer_format"] != "finite_packet_v1":
+        raise WorkerError("no shrinker for this independent capture format")
+    for segment in range(len(current["observation"]["segments"])):
+        for field in ("groups", "references"):
+            index = 0
+            while True:
+                packet = json.loads(current["observation"]["segments"][segment])
+                if index >= len(packet[field]):
+                    break
+                trial = copy.deepcopy(current)
+                del packet[field][index]
+                trial["observation"]["segments"][segment] = json.dumps(packet, ensure_ascii=False)
+                if preserves(trial):
+                    current = trial
+                else:
+                    index += 1
     return current
 
 

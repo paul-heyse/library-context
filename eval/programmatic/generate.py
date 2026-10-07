@@ -12,28 +12,30 @@ from pathlib import Path
 from typing import Any
 
 
-def span(text: str, anchor: str, role: str, variant: str = "A") -> dict[str, Any]:
-    return {"segment": 0, "start": 0, "end": len(text.encode()), "text": text,
-            "anchor": anchor, "role": role, "context": {"release": "1", "variant": variant},
-            "qualifications": ["source"], "candidate_status": "supported"}
+def evidence(text: str, anchor: str, role: str, variant: str = "A") -> dict[str, Any]:
+    return {"context": {"release": "1", "variant": variant}, "evidence": [{
+        "text": text, "anchor": anchor, "role": role,
+        "qualifications": [{"id": "source", "text": "From the pinned release source"}],
+        "candidate_status": "supported"}]}
 
 
-def observation(items: list[dict[str, Any]]) -> dict[str, Any]:
-    items = copy.deepcopy(items)
-    packet = ""
-    for item in items:
-        item["start"] = len(packet.encode())
-        packet += item["text"]
-        item["end"] = len(packet.encode())
-        packet += "\n"
-    return {"realization": "finite-render-1", "segments": [packet], "spans": items,
-            "visible_references": [], "expansions": [], "status": "completed", "failure": None}
+def observation(groups: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = {"realization": "finite-render-1", "groups": copy.deepcopy(groups), "references": []}
+    return {"realization": "finite-render-1", "segments": [json.dumps(packet, ensure_ascii=False)],
+            "observer_format": "finite_packet_v1", "expansions": [],
+            "status": "completed", "failure": None}
+
+
+def mutate_packet(case: dict[str, Any], change: Any) -> None:
+    packet = json.loads(case["observation"]["segments"][0])
+    change(packet)
+    case["observation"]["segments"][0] = json.dumps(packet, ensure_ascii=False)
 
 
 def predicate(name: str, text: list[str], role: str | None = None) -> dict[str, Any]:
     return {"name": name, "role": role or name, "accepted_text": text,
             "anchors": [name, name + "-alternate"], "context": {"release": "1"},
-            "qualifications": ["source"], "candidate_status": "supported"}
+            "qualifications": [{"id": "source", "accepted_text": ["From the pinned release source"]}], "candidate_status": "supported"}
 
 
 def leaf(name: str) -> dict[str, Any]:
@@ -56,9 +58,9 @@ def base_case() -> dict[str, Any]:
                         "child": {"kind": "all", "children": [leaf(p["name"]) for p in requirements]}},
             "model": None}
     return {"task": task, "observation": observation([
-        span("def connect(timeout=None)", "signature", "signature"),
-        span("default timeout is 10", "default", "default"),
-        span("requires installed transport", "setup", "setup")]), "mode": "immediate"}
+        evidence("def connect(timeout=None)", "signature", "signature"),
+        evidence("default timeout is 10", "default", "default"),
+        evidence("requires installed transport", "setup", "setup")]), "mode": "immediate"}
 
 
 def populations() -> list[tuple[str, dict[str, Any], str]]:
@@ -69,23 +71,26 @@ def populations() -> list[tuple[str, dict[str, Any], str]]:
         case["task"]["id"] = name
         change(case)
         rows.append((name, case, expected))
-    add("foreign-variant", lambda c: c["observation"]["spans"][1]["context"].update(variant="B"), "insufficient")
-    add("foreign-release", lambda c: c["observation"]["spans"][1]["context"].update(release="2"), "insufficient")
-    add("wrong-anchor", lambda c: c["observation"]["spans"][1].update(anchor="unrelated"), "insufficient")
-    add("drop-setup", lambda c: c["observation"]["spans"].pop(), "insufficient")
-    add("corrupt-map", lambda c: c["observation"]["spans"][1].update(start=0), "insufficient")
+    add("foreign-variant", lambda c: mutate_packet(c, lambda p: p["groups"][1]["context"].update(variant="B")), "insufficient")
+    add("foreign-release", lambda c: mutate_packet(c, lambda p: p["groups"][1]["context"].update(release="2")), "insufficient")
+    add("wrong-anchor", lambda c: mutate_packet(c, lambda p: p["groups"][1]["evidence"][0].update(anchor="unrelated")), "insufficient")
+    add("drop-setup", lambda c: mutate_packet(c, lambda p: p["groups"].pop()), "insufficient")
+    add("qualification-id-only", lambda c: mutate_packet(c, lambda p: p["groups"][1]["evidence"][0]["qualifications"][0].update(text="")), "insufficient")
+    add("same-substring-foreign-association", lambda c: mutate_packet(c, lambda p: (
+        p["groups"][1]["context"].update(variant="B"),
+        p["groups"].append(evidence("default timeout is 10", "unrelated", "default", "A")))), "insufficient")
     add("correct-ids-hidden-meaning", lambda c: c.update(observation=observation([
-        span("signature default setup", "signature", "signature")])), "insufficient")
+        evidence("signature default setup", "signature", "signature")])), "insufficient")
     add("positive-alternate", lambda c: c.update(observation=observation([
-        span("def connect(timeout=None)", "signature-alternate", "signature"),
-        span("timeout defaults to ten", "default-alternate", "default"),
-        span("requires installed transport", "setup-alternate", "setup")])), "sufficient")
+        evidence("def connect(timeout=None)", "signature-alternate", "signature"),
+        evidence("timeout defaults to ten", "default-alternate", "default"),
+        evidence("requires installed transport", "setup-alternate", "setup")])), "sufficient")
     add("empty-positive", lambda c: c["task"].update(witness={"kind": "all", "children": []}), "inconclusive")
     add("explicit-not-applicable", lambda c: c["task"].update(intent="not_applicable", witness=None), "not_applicable")
     add("unsupported", lambda c: c["task"]["oracle"].update(completeness="unsupported"), "inconclusive")
     add("incomplete", lambda c: c["task"]["oracle"].update(completeness="incomplete"), "inconclusive")
     add("unknown-intent", lambda c: c["task"].update(intent="unknown"), "model_relative_unknown")
-    add("mislabel-expected-failure", lambda c: c["observation"]["spans"][1].update(candidate_status="expected_failure"), "insufficient")
+    add("mislabel-expected-failure", lambda c: mutate_packet(c, lambda p: p["groups"][1]["evidence"][0].update(candidate_status="expected_failure")), "insufficient")
     add("no-budget", lambda c: c["task"]["envelope"].update(max_bytes=1), "budget_infeasible")
     add("execution-failed", lambda c: c["observation"].update(status="failed", failure="renderer failed"), "inconclusive")
     twin = copy.deepcopy(base)
@@ -99,12 +104,12 @@ def populations() -> list[tuple[str, dict[str, Any], str]]:
             "information": [{"fact": "rule", "value": "none", "predicate": "none-rule"},
                             {"fact": "rule", "value": "truthy", "predicate": "truthy-rule"}]})
     twin["task"]["request"]["question"] = "What is timeout when caller passes zero?"
-    twin["observation"] = observation([span("def connect(timeout=None)", "signature", "signature")])
+    twin["observation"] = observation([evidence("def connect(timeout=None)", "signature", "signature")])
     rows.append(("satisfiable-twins", twin, "insufficient"))
     distinguished = copy.deepcopy(twin)
     distinguished["task"]["id"] = "readable-distinction"
-    distinguished["observation"] = observation([span("def connect(timeout=None)", "signature", "signature"),
-        span("timeout = 10 if timeout is None else timeout", "none-rule", "source")])
+    distinguished["observation"] = observation([evidence("def connect(timeout=None)", "signature", "signature"),
+        evidence("timeout = 10 if timeout is None else timeout", "none-rule", "source")])
     rows.append(("readable-distinction", distinguished, "sufficient"))
     inconsistent = copy.deepcopy(twin)
     inconsistent["task"]["id"] = "empty-worlds"
@@ -112,17 +117,16 @@ def populations() -> list[tuple[str, dict[str, Any], str]]:
     rows.append(("empty-worlds", inconsistent, "inconsistent_model"))
     conflict = copy.deepcopy(distinguished)
     conflict["task"]["id"] = "qualified-conflict"
-    conflict["observation"] = observation([span("def connect(timeout=None)", "signature", "signature"),
-        span("timeout = 10 if timeout is None else timeout", "none-rule", "source"),
-        span("timeout = timeout or 10", "truthy-rule", "source")])
+    conflict["observation"] = observation([evidence("def connect(timeout=None)", "signature", "signature"),
+        evidence("timeout = 10 if timeout is None else timeout", "none-rule", "source"),
+        evidence("timeout = timeout or 10", "truthy-rule", "source")])
     rows.append(("qualified-conflict", conflict, "insufficient"))
     for _, case, _ in rows:
         if case["task"]["family"] == "falsey-override":
             case["task"]["request"]["context"]["override"] = "0"
             for world in case["task"]["model"]["worlds"]:
                 world["context"]["override"] = "0"
-            for item in case["observation"]["spans"]:
-                item["context"]["override"] = "0"
+            mutate_packet(case, lambda p: [group["context"].update(override="0") for group in p["groups"]])
     return rows
 
 
