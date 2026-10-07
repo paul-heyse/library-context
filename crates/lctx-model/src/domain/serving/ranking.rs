@@ -5,7 +5,7 @@ use crate::domain::{
     attribution::AnalysisContext,
     catalog::CatalogMember,
     resources::{Reservation, ResourceBudget},
-    retrieval::{Family, SearchWindow, OriginalAnchor, Unit},
+    retrieval::{Family, SearchWindow, OriginalAnchor, Unit, ContentPart, WindowBinding},
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -98,12 +98,16 @@ impl ChannelBinding {
         policy: &RankingPolicy,
         spec: ContentHash,
         query_vector: ContentHash,
+        recipe: ContentHash,
+        projection: Id<crate::domain::embedding::projection::ProjectionDefinition>,
     ) -> Result<Self, ModelError> {
         let policy = policy.identity()?;
         let mut sink = KeySink::new("serving-vector-channel/v1");
         sink.part(b"policy", &policy.0.0);
         sink.part(b"spec", &spec.0);
         sink.part(b"query-vector", &query_vector.0);
+        sink.part(b"query-recipe", &recipe.0);
+        sink.part(b"projection", projection.bytes());
         Ok(Self {
             channel: Channel::Vector,
             identity: ChannelIdentity(sink.finish()),
@@ -131,7 +135,9 @@ pub enum Target {
 pub struct Occurrence {
     pub target: Target,
     pub unit: Id<Unit>,
-    pub fragment: Id<SearchWindow>,
+    pub window: Id<SearchWindow>,
+    pub part: Id<ContentPart>,
+    pub binding: Option<Id<WindowBinding>>,
     pub context: Id<AnalysisContext>,
     pub anchor: Option<Id<OriginalAnchor>>,
     pub family: Family,
@@ -142,7 +148,9 @@ impl Ord for Occurrence {
             self.target,
             self.family as i16,
             self.unit,
-            self.fragment,
+            self.window,
+            self.part,
+            self.binding,
             self.context,
             self.anchor,
         )
@@ -150,7 +158,9 @@ impl Ord for Occurrence {
                 other.target,
                 other.family as i16,
                 other.unit,
-                other.fragment,
+                other.window,
+                other.part,
+                other.binding,
                 other.context,
                 other.anchor,
             ))

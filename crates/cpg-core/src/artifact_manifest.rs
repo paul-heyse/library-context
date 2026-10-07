@@ -476,85 +476,21 @@ fn projections(
 }
 
 async fn embeddings(
-    workspace: &Workspace,
-    profile: Profile,
-    charge: &mut charged::StateCharge,
-) -> Result<Vec<EmbeddingConsumption>, ModelError> {
-    let mut specs = BTreeMap::new();
-    let completed = workspace
-        .completed_relations()?
-        .iter()
-        .map(|r| r.name())
-        .collect::<BTreeSet<_>>();
-    if !completed.contains(d::embedding::EmbeddingSpec::NAME) {
-        if completed.contains(d::embedding::analytic::AnalysisEmbeddingUse::NAME)
-            || completed.contains(d::retrieval::consumption::RetrievalEmbeddingUse::NAME)
-        {
-            return Err(invalid("embedding consumers lack specification relation"));
-        }
-        return Ok(vec![]);
-    }
-    visit::<d::embedding::EmbeddingSpec>(workspace, |row| {
-        charge.grow(size_of::<d::embedding::Spec>() + row.heap_bytes() + 32)?;
-        specs.insert(row.id(), row.configuration()?);
-        Ok(())
+    workspace:&Workspace, _profile:Profile, charge:&mut charged::StateCharge,
+)->Result<Vec<EmbeddingConsumption>,ModelError> {
+    let completed=workspace.completed_relations()?.iter().map(|r|r.name()).collect::<BTreeSet<_>>();
+    if !completed.contains(d::embedding::value::FullValue::NAME) {return Ok(vec![]);}
+    let mut encoders=BTreeMap::new();
+    visit::<d::embedding::EmbeddingSpec>(workspace,|row| {row.validate()?;charge.grow(64)?;encoders.insert(row.id(),(row.service_hash,row.dimensions));Ok(())})?;
+    let mut vectors=BTreeMap::new();
+    visit::<d::embedding::value::FullValue>(workspace,|row| {
+        row.validate()?;
+        let (encoder,dimensions)=encoders.get(&row.encoder).ok_or_else(||invalid("full winner missing encoder"))?;
+        if row.dimensions!=*dimensions {return Err(invalid("full winner differs from encoder dimensions"));}
+        let value=EmbeddingConsumption {specification:*encoder,text:row.input,dimension:*dimensions as u32,values:row.digest};
+        let key=(value.specification,value.text);
+        if vectors.get(&key).is_some_and(|old|old!=&value) {return Err(invalid("conflicting immutable full winners"));}
+        charge.grow(size_of::<EmbeddingConsumption>()+64)?;vectors.insert(key,value);Ok(())
     })?;
-    let mut selected = BTreeSet::new();
-    if completed.contains(d::embedding::configuration::ServiceConfiguration::NAME) {
-        visit::<d::embedding::configuration::ServiceConfiguration>(workspace, |row| {
-            if !specs.contains_key(&row.specification) {
-                return Err(invalid(
-                    "selected embedding configuration lacks specification",
-                ));
-            }
-            selected.insert(row.specification);
-            Ok(())
-        })?;
-    }
-    let mut vectors = BTreeMap::new();
-    macro_rules! consume {($record:ty,$text:ty,$field:ident)=>{if completed.contains(<$record>::NAME){
-        let inputs=workspace.inputs("manifest-vector-binding",profile,[<$record>::NAME,<$text>::NAME])?;
-        let context=inputs.session(workspace).await?;
-        let query=format!("SELECT u.*, t.text AS consumed_text FROM {} u LEFT JOIN {} t ON u.{} = t.id",<$record>::NAME,<$text>::NAME,stringify!($field));
-        let mut stream=crate::sql::query(&context,&query).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-        while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
-            let width=<$record>::schema().fields().len();
-            let typed=batch.project(&(0..width).collect::<Vec<_>>()).map_err(ModelError::codec)?;
-            let _decode=workspace.budget().reserve("manifest-vector-binding",decode_allowance::<$record>(&typed)?)?;
-            let rows=<$record>::decode(&typed)?;
-            let texts=batch.column(width).as_any().downcast_ref::<BinaryArray>().ok_or(ModelError::Schema(<$text>::NAME))?;
-            for (index,row) in rows.iter().enumerate(){
-                row.validate()?;if texts.is_null(index){return Err(invalid("embedding consumption lacks original text reference"));}
-                let text=std::str::from_utf8(texts.value(index)).map_err(ModelError::codec)?;
-                if !selected.contains(&row.specification){return Err(invalid("embedding consumption uses an unselected specification"));}
-                let specification=specs.get(&row.specification).ok_or_else(||invalid("embedding consumption lacks selected specification"))?;
-                let request_bytes=text.len().checked_mul(specification.document_template.matches("{text}").count())
-                    .and_then(|n|n.checked_add(specification.document_template.len())).and_then(|n|n.checked_mul(2)).ok_or_else(||invalid("embedding request allocation overflow"))?;
-                let _request=workspace.budget().reserve("manifest-vector-request",request_bytes)?;
-                let request=specification.document_text(text);
-                if row.input!=d::embedding::value::input_hash(&request){return Err(invalid("embedding consumption input differs from exact request text"));}
-                if row.availability==d::embedding::analytic::VectorAvailability::TokenLimit && row.admitted_tokens.is_none_or(|tokens|tokens<=i64::from(specification.max_document_tokens)){
-                    return Err(invalid("embedding token-limit status does not exceed selected cap"));
-                }
-                if row.availability==d::embedding::analytic::VectorAvailability::Available{
-                    let receipt=row.receipt()?;let _value=d::embedding::value::decode(specification,receipt.bytes,receipt.digest,receipt.admitted_tokens,workspace.budget())?;
-                    let value=EmbeddingConsumption {specification:specification.hash(),text:row.input,dimension:specification.dimensions,values:receipt.digest};
-                    let key=(value.specification,value.text);
-                    if let Some(old)=vectors.get(&key){if old!=&value{return Err(invalid("conflicting consumed vectors for one specification and input"));}}
-                    else {charge.grow(size_of::<EmbeddingConsumption>()+64)?;vectors.insert(key,value);}
-                }
-            }
-        }
-    }}}
-    consume!(
-        d::embedding::analytic::AnalysisEmbeddingUse,
-        d::embedding::text::TextWindow,
-        window
-    );
-    consume!(
-        d::retrieval::consumption::RetrievalEmbeddingUse,
-        d::retrieval::Fragment,
-        fragment
-    );
     Ok(vectors.into_values().collect())
 }

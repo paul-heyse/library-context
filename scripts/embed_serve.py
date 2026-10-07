@@ -43,15 +43,15 @@ def launch_command(spec: dict, port: int) -> list[str]:
         raise ValueError("port must be between 1 and 65535")
     admission = spec["admission"]
     if (
-        spec["format"] != 2
+        spec["format"] != 3
         or spec["source_dimensions"] != 4096
-        or spec["reduction"] != "mrl-prefix"
-        or spec["dimensions"] != 1024
+        or spec["reduction"] != "none"
+        or spec["dimensions"] != 4096
         or spec["normalization"] != "l2"
         or admission
         != {
             "is_matryoshka": True,
-            "matryoshka_dimensions": [1024],
+            "matryoshka_dimensions": [4096],
             "use_activation": True,
         }
     ):

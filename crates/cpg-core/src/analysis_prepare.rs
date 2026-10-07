@@ -96,15 +96,19 @@ pub async fn embedding_configuration(
     runtime: &Workspace,
     configuration: Option<&embedding::configuration::Configuration>,
 ) -> Result<(), ModelError> {
-    use embedding::{EmbeddingSpec, configuration::ServiceConfiguration};
+    use embedding::{EmbeddingSpec, DocumentRecipe, projection::ProjectionDefinition, configuration::ServiceConfiguration};
     if let Some(configuration) = configuration {
         configuration.check_budget(runtime.budget())?;
     }
     output.declare::<EmbeddingSpec>()?;
     output.declare::<ServiceConfiguration>()?;
+    output.declare::<DocumentRecipe>()?;
+    output.declare::<ProjectionDefinition>()?;
     if let Some(configuration) = configuration {
         output.push(configuration.row().clone()).await?;
         output.push(configuration.service().clone()).await?;
+        output.push(configuration.document().clone()).await?;
+        output.push(configuration.projection().clone()).await?;
     }
     output.finish(ProviderOutcome::Complete).await
 }

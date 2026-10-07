@@ -17,6 +17,7 @@ macro_rules! decoder_inputs {($apply:ident)=>{
         $apply! {qualifications:assertion::AssertionQualification,conditions:conditions::Condition,nodes:conditions::ConditionNode,sets:assumptions::AssumptionSet,members:assumptions::AssumptionSetMember,}
         lctx_model::analytic_extra_inputs!($apply);
         lctx_model::analytic_consumption_inputs!($apply);
+        $apply! {full_values:embedding::value::FullValue,projected_values:embedding::projection::ProjectedValue,}
         lctx_model::projection_outputs!($apply);
 
 };}

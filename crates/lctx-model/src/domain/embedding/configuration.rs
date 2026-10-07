@@ -11,6 +11,10 @@ pub struct ServiceConfiguration {
     #[model(key)]
     pub specification: Id<EmbeddingSpec>,
     #[model(key)]
+    pub document: Id<DocumentRecipe>,
+    #[model(key)]
+    pub projection: Id<projection::ProjectionDefinition>,
+    #[model(key)]
     pub endpoint: String,
 }
 fn validate_service(row: &ServiceConfiguration) -> Result<(), ModelError> {
@@ -25,6 +29,8 @@ fn validate_service(row: &ServiceConfiguration) -> Result<(), ModelError> {
 pub struct Configuration {
     spec: Spec,
     row: EmbeddingSpec,
+    document: DocumentRecipe,
+    projection: projection::ProjectionDefinition,
     service: ServiceConfiguration,
     budget: ResourceBudget,
     _reservation: Box<dyn Reservation>,
@@ -44,18 +50,31 @@ impl Configuration {
             })?;
         let reservation = budget.reserve("embedding-configuration", bytes)?;
         let row = EmbeddingSpec::new(spec)?;
+        let document = DocumentRecipe::new(spec)?;
+        let projection = projection::ProjectionDefinition::initial(spec);
+        projection.validate()?;
         let service = ServiceConfiguration {
             specification: row.id(),
+            document: document.id(),
+            projection: projection.id(),
             endpoint: endpoint.to_owned(),
         };
         service.validate()?;
         Ok(Self {
             spec: spec.clone(),
             row,
+            document,
+            projection,
             service,
             budget: budget.clone(),
             _reservation: reservation,
         })
+    }
+    pub fn from_selected(encoder:&EmbeddingSpec,document:&DocumentRecipe,projection:&projection::ProjectionDefinition,service:&ServiceConfiguration,budget:&ResourceBudget)->Result<Self,ModelError> {
+        encoder.validate()?;document.validate()?;projection.validate()?;service.validate()?;
+        if service.specification!=encoder.id() || service.document!=document.id() || service.projection!=projection.id() || projection.dimensions>encoder.dimensions {return Err(ModelError::Invalid("selected embedding recipes differ".into()));}
+        let mut selected=Self::new(&document.configuration(encoder)?,&service.endpoint,budget)?;
+        selected.projection=projection.clone();selected.service=service.clone();Ok(selected)
     }
     pub fn specification(&self) -> &Spec {
         &self.spec
@@ -63,6 +82,8 @@ impl Configuration {
     pub fn row(&self) -> &EmbeddingSpec {
         &self.row
     }
+    pub fn document(&self) -> &DocumentRecipe { &self.document }
+    pub fn projection(&self) -> &projection::ProjectionDefinition { &self.projection }
     pub fn service(&self) -> &ServiceConfiguration {
         &self.service
     }

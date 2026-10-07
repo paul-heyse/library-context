@@ -17,7 +17,7 @@ from typing import Protocol
 
 import httpx2
 import numpy as np
-from lctx_semantics import canonical_embedding_spec
+from lctx_semantics import canonical_embedding_spec, embedding_recipe_identities
 from pydantic import BaseModel, ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 
@@ -48,8 +48,20 @@ class Spec:
 
     @property
     def hash(self) -> str:
-        """The spec hash: SHA-256 of the canonical JSON."""
-        return hashlib.sha256(self.canonical.encode()).hexdigest()
+        """Rust-owned encoder identity, independent of query/document policy."""
+        return json.loads(embedding_recipe_identities(self.canonical))["encoder"]
+
+    @property
+    def query_hash(self) -> str:
+        return json.loads(embedding_recipe_identities(self.canonical))["query"]
+
+    @property
+    def document_hash(self) -> str:
+        return json.loads(embedding_recipe_identities(self.canonical))["document"]
+
+    @property
+    def projection_id(self) -> str:
+        return json.loads(embedding_recipe_identities(self.canonical))["projection"]
 
     @property
     def model(self) -> str:

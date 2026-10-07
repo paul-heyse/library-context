@@ -15,6 +15,8 @@ pub use lctx_model::domain::embedding::value::input_hash;
 pub trait Embedder: Send + Sync {
     fn spec(&self) -> &Spec;
     fn endpoint(&self) -> &str;
+    /// Exact acquired local complete-document tokenizer, shared by every construction grain.
+    fn document_tokenizer(&self) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> { None }
     /// The number of the served model's tokens in a request text.
     fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize>;
     /// One vector per request text, in order, each checked ([`check_vector`]).
@@ -33,12 +35,12 @@ impl FakeEmbedder {
     pub fn new() -> Self {
         Self {
             spec: Spec {
-                format: 2,
-                source_dimensions: 1024,
+                format: 3,
+                source_dimensions: 4096,
                 reduction: "none".to_owned(),
                 admission: None,
                 model: "lctx-fake-embedder".to_owned(),
-                revision: "2".to_owned(),
+                revision: "3".to_owned(),
                 tokenizer_revision: "bytes/4".to_owned(),
                 server: "in-process".to_owned(),
                 served_dtype: "float32".to_owned(),
@@ -46,10 +48,11 @@ impl FakeEmbedder {
                 query_template: "Instruct: {task_description}\nQuery:{query}".to_owned(),
                 query_task: "Given a coding task, retrieve relevant Python library APIs, capability briefs, configuration options, source code, usage examples, and documentation.".to_owned(),
                 document_template: "{text}".to_owned(),
-                dimensions: 1024,
+                dimensions: 4096,
                 output_dtype: "float32".to_owned(),
                 normalization: "l2".to_owned(),
                 max_document_tokens: 2048,
+                max_query_tokens:8192,
             },
         }
     }
@@ -89,11 +92,21 @@ impl Embedder for FakeEmbedder {
         &self.spec
     }
 
+    fn document_tokenizer(&self) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {Some(std::sync::Arc::new(FakeTokenizer))}
     fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize> {
         Box::pin(async move { Ok(request_text.len().div_ceil(4)) })
     }
 
     fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
         Box::pin(async move { Ok(request_texts.iter().map(|t| self.vector(t)).collect()) })
+    }
+}
+
+struct FakeTokenizer;
+impl lctx_model::domain::retrieval::partition::Tokenizer for FakeTokenizer {
+    fn identity(&self)->lctx_model::domain::ContentHash {lctx_model::domain::ContentHash::of(b"lctx-fake-tokenizer:bytes/4:v3")}
+    fn encode(&self,text:&str)->Result<lctx_model::domain::retrieval::partition::EncodedInput,lctx_model::domain::ModelError> {
+        let offsets=(0..text.len()).step_by(4).map(|start|(start,(start+4).min(text.len()))).collect::<Vec<_>>();
+        Ok(lctx_model::domain::retrieval::partition::EncodedInput {text:text.into(),body_start:0,body_end:text.len(),specials:vec![false;offsets.len()],offsets})
     }
 }

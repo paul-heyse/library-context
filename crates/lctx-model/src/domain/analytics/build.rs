@@ -718,7 +718,10 @@ pub(super) fn add_pair(
 
 fn vector_inputs() -> Vec<ValidationInput> {
     macro_rules! rows{($($f:ident:$t:ty,)*)=>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]};}
-    crate::analytic_consumption_inputs!(rows)
+    let mut inputs=crate::analytic_consumption_inputs!(rows);
+    inputs.push(ValidationInput::of::<embedding::value::FullValue>(&["id"]).at_epoch(stages::PublicationBoundary::AnalyticEmbedding));
+    inputs.push(ValidationInput::of::<embedding::projection::ProjectedValue>(&["id"]).at_epoch(stages::PublicationBoundary::AnalyticEmbedding));
+    inputs
 }
 /// Complete acyclic predecessor closure is installed from the actual model, never from a
 /// dormant generic proof sum. Every consumed relation carries its source receipt.

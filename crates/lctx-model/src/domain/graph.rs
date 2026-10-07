@@ -147,6 +147,10 @@ pub enum EntityKind {
     RetrievalWindowPart = 158,
     RetrievalWindowMap = 159,
     RetrievalWindowBinding = 160,
+    EmbeddingDocumentRecipe = 161,
+    EmbeddingProjectionDefinition = 162,
+    EmbeddingFullValue = 163,
+    EmbeddingProjectedValue = 164,
 }
 /// A nominal current semantic key, independent of physical family names or Arrow layout.
 fn entity_key(kind: EntityKind, domain: &str, key: &[u8; 16]) -> EntityId {
@@ -182,6 +186,10 @@ pub trait GraphEntityRecord: Record {
 pub enum Entity {
     CatalogEvidenceRoot(super::catalog::evidence::EvidenceRoot),
     CatalogEvidenceRootSubject(super::catalog::evidence::RootSubject),
+    EmbeddingDocumentRecipe(super::embedding::DocumentRecipe),
+    EmbeddingProjectionDefinition(super::embedding::projection::ProjectionDefinition),
+    EmbeddingFullValue(super::embedding::value::FullValue),
+    EmbeddingProjectedValue(super::embedding::projection::ProjectedValue),
     RetrievalWindow(super::retrieval::SearchWindow),
     RetrievalContentPart(super::retrieval::ContentPart),
     RetrievalPartMap(super::retrieval::PartSourceMap),
@@ -436,6 +444,10 @@ macro_rules! graph_entities {($consumer:ident;$($variant:ident:$kind:ident=>$ty:
 macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{$consumer;
     CatalogEvidenceRoot:Scope=>$crate::domain::catalog::evidence::EvidenceRoot,
     CatalogEvidenceRootSubject:Subject=>$crate::domain::catalog::evidence::RootSubject,
+    EmbeddingDocumentRecipe:EmbeddingDocumentRecipe=>$crate::domain::embedding::DocumentRecipe,
+    EmbeddingProjectionDefinition:EmbeddingProjectionDefinition=>$crate::domain::embedding::projection::ProjectionDefinition,
+    EmbeddingFullValue:EmbeddingFullValue=>$crate::domain::embedding::value::FullValue,
+    EmbeddingProjectedValue:EmbeddingProjectedValue=>$crate::domain::embedding::projection::ProjectedValue,
     RetrievalWindow:RetrievalWindow=>$crate::domain::retrieval::SearchWindow,
     RetrievalContentPart:RetrievalContentPart=>$crate::domain::retrieval::ContentPart,
     RetrievalPartMap:RetrievalPartMap=>$crate::domain::retrieval::PartSourceMap,
@@ -782,6 +794,10 @@ pub fn reference_target(
     <super::catalog::evidence::DiagnosticUseTarget as Record>::NAME=>Ok((Target::Assertion(AssertionId::from_key(reference.target,&reference.key)),None)),
     <super::catalog::evidence::EvidenceRoot as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Scope,reference.target,&reference.key)),Some(EntityKind::Scope))),
     <super::catalog::evidence::RootSubject as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::Subject,reference.target,&reference.key)),Some(EntityKind::Subject))),
+    <super::embedding::DocumentRecipe as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::EmbeddingDocumentRecipe,reference.target,&reference.key)),Some(EntityKind::EmbeddingDocumentRecipe))),
+    <super::embedding::projection::ProjectionDefinition as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::EmbeddingProjectionDefinition,reference.target,&reference.key)),Some(EntityKind::EmbeddingProjectionDefinition))),
+    <super::embedding::value::FullValue as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::EmbeddingFullValue,reference.target,&reference.key)),Some(EntityKind::EmbeddingFullValue))),
+    <super::embedding::projection::ProjectedValue as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::EmbeddingProjectedValue,reference.target,&reference.key)),Some(EntityKind::EmbeddingProjectedValue))),
     <super::retrieval::SearchWindow as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalWindow,reference.target,&reference.key)),Some(EntityKind::RetrievalWindow))),
     <super::retrieval::ContentPart as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalContentPart,reference.target,&reference.key)),Some(EntityKind::RetrievalContentPart))),
     <super::retrieval::PartSourceMap as Record>::NAME=>Ok((Target::Entity(entity_key(EntityKind::RetrievalPartMap,reference.target,&reference.key)),Some(EntityKind::RetrievalPartMap))),

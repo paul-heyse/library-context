@@ -10,6 +10,8 @@ pub struct QueryVector {
     pub spec: ContentHash,
     pub input: ContentHash,
     pub vector: Vec<f32>,
+    pub recipe:embedding::QueryRecipe,
+    pub projection:Id<embedding::projection::ProjectionDefinition>,
 }
 pub struct NativeService {
     reader: NativeReader,
@@ -153,9 +155,10 @@ impl NativeService {
                     .configuration()
                     .map_err(failure)?;
                 embedding::check_vector(&v.vector, spec.dimensions).map_err(WireError::Invalid)?;
-                if spec.dimensions != 1024
+                v.recipe.validate().map_err(WireError::Invalid)?;
+                if spec.dimensions != 4096
                     || embedding::value::input_hash(
-                        &spec.query_text(query.expect("validated search vector")),
+                        &v.recipe.text(query.expect("validated search vector")),
                     ) != v.input
                 {
                     return Err(WireError::Invalid(

@@ -4,7 +4,6 @@ use crate::domain::{
     analysis::analytic_embedding::{AnalysisInvocation, AnalysisOutcome},
     embedding::{
         analytic::{AnalysisEmbeddingUse, ConsumptionData, VectorAvailability},
-        consumption::Winners,
         text::{TextAvailability, TextSubject, TextWindow},
         value::DecodedValue,
     },
@@ -46,7 +45,7 @@ struct Window {
     item: ItemKey,
     window: Id<TextWindow>,
     use_: Id<AnalysisEmbeddingUse>,
-    vector: DecodedValue,
+    vector: std::sync::Arc<DecodedValue>,
 }
 /// Admission replays the stored E1 owner first. Callers cannot construct a mismatched-width matrix.
 pub struct Prepared {
@@ -76,9 +75,7 @@ impl Prepared {
         let reservation = budget.reserve("native-neighbour-inputs", bytes)?;
         let mut items = Vec::with_capacity(item_cap);
         let mut windows = Vec::with_capacity(uses.len());
-        let selected = data.specification()?;
-        let spec = selected.configuration()?;
-        let mut winners = Winners::new(budget);
+        let mut values = std::collections::BTreeMap::new();
         for invocation in invocations.iter() {
             for assessment in data
                 .assessments
@@ -102,7 +99,12 @@ impl Prepared {
                         .find(|u| u.invocation == invocation.id() && u.window == window.id())
                         .ok_or_else(|| invalid("admitted analytic window use disappeared"))?;
                     if row.availability == VectorAvailability::Available {
-                        let vector = winners.replay(&spec, window.text.as_str(), row.receipt()?)?;
+                        let id=row.projection.ok_or_else(||invalid("missing analytic projection"))?;
+                        if let std::collections::btree_map::Entry::Vacant(entry)=values.entry(id) {
+                            let projection=data.projected_values.get(id).ok_or_else(||invalid("missing admitted projected payload"))?;
+                            entry.insert(std::sync::Arc::new(crate::domain::embedding::value::decode_projection(projection,budget)?));
+                        }
+                        let vector=std::sync::Arc::clone(values.get(&id).expect("inserted projection"));
                         windows.push(Window {
                             item: key,
                             window: window.id(),

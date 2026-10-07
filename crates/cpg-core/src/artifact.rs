@@ -613,30 +613,7 @@ async fn verify_transport(
         .iter()
         .map(|value| (value.specification, value.text))
         .collect::<BTreeSet<_>>();
-    // The two model owners share one exact value recipe. Repeated uses of a winner are allowed;
-    // the manifest records the complete union of consumed (specification, request) identities.
-    macro_rules! consume_embedding {
-        ($consumption:ident) => {{
-            use lctx_model::domain::embedding::analytic::VectorAvailability;
-            let spec = specifications
-                .get(&$consumption.specification)
-                .ok_or(ModelError::Conflict("artifact embedding specification"))?;
-            let receipt = ($consumption.availability == VectorAvailability::Available)
-                .then(|| $consumption.receipt())
-                .transpose()?;
-            if let Some(key) = verify_embedding(
-                spec,
-                $consumption.input,
-                $consumption.availability,
-                $consumption.admitted_tokens,
-                receipt,
-                &manifest,
-                workspace,
-            )? {
-                embeddings.remove(&key);
-            }
-        }};
-    }
+    let encoder_keys=manifest.embeddings.iter().map(|v| (Id::of(&lctx_model::domain::embedding::EmbeddingSpecKey {service_hash:v.specification}),v.specification)).collect::<BTreeMap<_,_>>();
     let mut check = GraphBuilder::new(workspace.budget())?;
     for (file, family) in [
         ("entities.arrow", GraphFamily::Entities),
@@ -726,6 +703,14 @@ async fn verify_transport(
                                 return Err(ModelError::Conflict("artifact source metadata"));
                             }
                         }
+                        Entity::EmbeddingFullValue(full) => {
+                            full.validate()?;
+                            let encoder=encoder_keys.get(&full.encoder).ok_or(ModelError::Conflict("artifact full winner encoder"))?;
+                            let key=(*encoder,full.input);
+                            let position=manifest.embeddings.binary_search_by_key(&key,|v|(v.specification,v.text)).map_err(|_|ModelError::Conflict("artifact full winner membership"))?;
+                            let expected=&manifest.embeddings[position];
+                            if i64::from(expected.dimension)!=full.dimensions || expected.values!=full.digest || !embeddings.remove(&key) {return Err(ModelError::Conflict("artifact full winner differs from manifest"));}
+                        }
                         Entity::EmbeddingSpecification(specification) => {
                             let configuration = specification.configuration()?;
                             metadata_charge.grow(
@@ -764,12 +749,12 @@ async fn verify_transport(
                             projections.insert(assessment.projection);
                         }
                         AssertionValue::Claim(ClaimValue::AnalysisEmbeddingUses(consumption)) => {
-                            consume_embedding!(consumption);
+                            consumption.validate()?;
                         }
                         AssertionValue::Analysis(AnalysisValue::RetrievalEmbeddingUse(
                             consumption,
                         )) => {
-                            consume_embedding!(consumption);
+                            consumption.validate()?;
                         }
                         _ => {}
                     }
@@ -1026,43 +1011,6 @@ async fn readmit_detached(
         }
     }
     admission.finish(manifest).await
-}
-
-fn verify_embedding(
-    spec: &lctx_model::domain::embedding::Spec,
-    input: ContentHash,
-    availability: lctx_model::domain::embedding::analytic::VectorAvailability,
-    admitted_tokens: Option<i64>,
-    receipt: Option<lctx_model::domain::embedding::consumption::ValueReceipt<'_>>,
-    manifest: &Manifest,
-    workspace: &Workspace,
-) -> Result<Option<(ContentHash, ContentHash)>, ModelError> {
-    use lctx_model::domain::embedding::{analytic::VectorAvailability, value};
-    if availability == VectorAvailability::TokenLimit
-        && admitted_tokens.is_none_or(|tokens| tokens <= i64::from(spec.max_document_tokens))
-    {
-        return Err(ModelError::Conflict("artifact embedding token limit"));
-    }
-    if let Some(receipt) = receipt {
-        let _value = value::decode(
-            spec,
-            receipt.bytes,
-            receipt.digest,
-            receipt.admitted_tokens,
-            workspace.budget(),
-        )?;
-        let key = (spec.hash(), input);
-        let index = manifest
-            .embeddings
-            .binary_search_by_key(&key, |value| (value.specification, value.text))
-            .map_err(|_| ModelError::Conflict("artifact embedding consumption"))?;
-        let expected = &manifest.embeddings[index];
-        if expected.dimension != spec.dimensions || expected.values != receipt.digest {
-            return Err(ModelError::Conflict("artifact embedding consumption"));
-        }
-        return Ok(Some(key));
-    }
-    Ok(None)
 }
 
 fn verify_projections(
