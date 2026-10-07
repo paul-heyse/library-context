@@ -18,6 +18,14 @@ The review does not authorize remediation or resume the paused acceptance runs.
 zero link errors after repairing the stale ADR index and one retired historical source link).
 Product tests/builds/probes **not_run** for this source-and-receipt review; paused edits preserved.
 
+**Workspace capability review, 2026-10-07:** [follow-up review](docs/design_review/reviews/design_review_agent-workspace-effectiveness-capabilities_2026-10-07.md)
+concludes **Revise** on the [workspace proposal](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md).
+It owns unscheduled corrections and capability additions pending proposal revision; no harness,
+runtime configuration or memory changes were implemented. Next: revise the proposal's affected
+contracts. Product tests/builds/fixtures **not_run** for this documentation-only scope.
+**passed:** `UV_NO_SYNC=1 just docs-check` (336 pages, zero link errors) and `git diff --check`.
+`just turn-end` **not_run**: its whole-tree formatter would modify the paused concurrent edits.
+
 **Integrated on main:** immutable native contributions/views and frozen bindings; complete typed
 codec/Arrow bridge; all compiler frontiers/profiles and selected analytical preparation; native
 selected closure; shared request-local serving indexes; direct same-database sealing;

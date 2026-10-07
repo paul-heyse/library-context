@@ -4,6 +4,8 @@
 
 The [independent design review](../design_review/reviews/design_review_agent-workspace-effectiveness_2026-10-07.md) concluded **Revise**: keep the main direction, but correct the contracts. Its F01–F08 are integrated below (§8). P1, D5–D7 and P7 can proceed once confirmed. P2–P5 carry the corrected contracts, plus two settling checks that run before implementation.
 
+**Follow-up review, 2026-10-07:** the [capability review](../design_review/reviews/design_review_agent-workspace-effectiveness-capabilities_2026-10-07.md) recommends further revisions, including to the first review's readiness judgment for D6/P7. Its F01–F08 and RC01–RC06 remain unscheduled recommendations in that review and are **not integrated or adopted** below. Revise the affected capability contracts before implementing them.
+
 ## 1. Context
 
 The operator asked how the environment, command surface, tooling and agent configuration could make highly capable agents more *effective* here. Claude Code and Codex are weighted equally. "Effective" means:
