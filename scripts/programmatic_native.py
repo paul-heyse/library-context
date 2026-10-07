@@ -153,7 +153,8 @@ def native_numeric_reference(
     )
     eligibility = (
         "array::len((SELECT VALUE id FROM vec_occurs WHERE in=$parent.id AND eligible=true "
-        f"AND family={cohort['family']} AND scope_input={_quoted(cohort['library_input'])} LIMIT 1))>0"
+        f"AND family={cohort['family']} "
+        f"AND scope_input={_quoted(cohort['library_input'])} LIMIT 1))>0"
     )
     rows = native.rows(
         "SELECT <string>id AS vector_id, full_key, projection_key, embedding FROM vector "
@@ -168,8 +169,10 @@ def native_numeric_reference(
     for start in range(0, len(keys), 32):
         selected = json.dumps(keys[start : start + 32])
         batch = native.rows(
-            "SELECT semantic_key, encoding::base64::encode(canonical,true) AS canonical FROM entity "
-            f"WHERE semantic_type='embedding_full_values' AND semantic_key IN {selected} ORDER BY semantic_key"
+            "SELECT semantic_key, encoding::base64::encode(canonical,true) "
+            "AS canonical FROM entity "
+            f"WHERE semantic_type='embedding_full_values' AND semantic_key IN {selected} "
+            "ORDER BY semantic_key"
         )
         for record in batch:
             key = record["semantic_key"]
