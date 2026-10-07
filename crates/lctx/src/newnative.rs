@@ -19,19 +19,30 @@ pub fn config(path: &Path) -> anyhow::Result<RuntimeConfig> {
 /// Establish version, authentication and the explicit configured control database before acquisition.
 pub async fn ready(config: &RuntimeConfig) -> anyhow::Result<Arc<Surreal<Client>>> {
     tokio::time::timeout(deadline(), async {
-        let client = lctx_surrealdb::reader::connect(
-            &config.endpoint,
-            &config.root_credentials(),
-            config.namespace.as_str(),
-            config.cache_database.as_str(),
-        )
-        .await?;
+        let client = lctx_surrealdb::reader::authenticated(
+            &config.endpoint, &config.root_credentials(), None,
+        ).await?;
         require_version(&client).await?;
+        // Root USE can implicitly create storage. Readiness requires an installed control
+        // database and must not create operator state as a side effect of a failed compile.
+        require_member(&client, "INFO FOR ROOT", "namespaces", config.namespace.as_str()).await?;
+        client.use_ns(config.namespace.as_str()).await?;
+        require_member(&client, "INFO FOR NS", "databases", config.cache_database.as_str()).await?;
+        client.use_db(config.cache_database.as_str()).await?;
         client.query("INFO FOR DB").await?.check()?;
         Ok(client)
     })
     .await
     .context("native runtime readiness deadline exceeded")?
+}
+
+async fn require_member(client:&Surreal<Client>,sql:&str,group:&str,name:&str)->anyhow::Result<()> {
+    let mut response=client.query(sql).await?.check()?;
+    let value:Value=response.take(0)?;
+    let Value::Object(object)=value else{anyhow::bail!("native readiness inventory unavailable");};
+    let Some(Value::Object(members))=object.get(group) else{anyhow::bail!("native readiness inventory unavailable");};
+    anyhow::ensure!(members.contains_key(name),"native runtime storage is not installed; run store install explicitly");
+    Ok(())
 }
 
 fn deadline() -> Duration {
@@ -174,22 +185,14 @@ pub async fn tool(
 /// Explicitly initialize only the namespace/control database named by the runtime configuration.
 pub async fn install(config: &RuntimeConfig) -> anyhow::Result<()> {
     tokio::time::timeout(deadline(), async {
-        let client = lctx_surrealdb::reader::connect(
-            &config.endpoint,
-            &config.root_credentials(),
-            config.namespace.as_str(),
-            config.cache_database.as_str(),
-        )
-        .await?;
+        let client = lctx_surrealdb::reader::authenticated(
+            &config.endpoint,&config.root_credentials(),None,
+        ).await?;
         require_version(&client).await?;
-        client
-            .query(format!(
-                "DEFINE NAMESPACE IF NOT EXISTS `{}`; DEFINE DATABASE OVERWRITE `{}` STRICT;",
-                config.namespace.as_str(),
-                config.cache_database.as_str()
-            ))
-            .await?
-            .check()?;
+        client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`",config.namespace.as_str())).await?.check()?;
+        client.use_ns(config.namespace.as_str()).await?;
+        client.query(format!("DEFINE DATABASE IF NOT EXISTS `{}` STRICT",config.cache_database.as_str())).await?.check()?;
+        client.use_db(config.cache_database.as_str()).await?;
         lctx_surrealdb::NativeEmbeddingCache::install(client).await?;
         Ok(())
     })
