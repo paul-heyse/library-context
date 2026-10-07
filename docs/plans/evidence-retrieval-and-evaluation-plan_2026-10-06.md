@@ -242,7 +242,7 @@ lowering and delivery/evaluator edits; remove them after complete integration.
 | EV3 — evaluation plan §5 | Primary runner over unchanged production interfaces, numeric/channel/packet ablations and first-loss diagnostics | EV1/EV2; selected actual ER3/ER4 boundaries for integrated claims. Pure and native lanes have explicit different readiness |
 | EV4 — evaluation plan §7 | Frozen development experiments, versioned evaluator comparisons and outer-feedback triage to system/evaluator | EV1/EV3 design and results appropriate to chosen lane. No paid/agent trial prerequisite for primary loop |
 | ER5 — this coordinator / evaluation §6 | Conditional investigations: exceptional windows, native residency, scorer, BDD/theory solver, optimizer/coverage tools | Named baseline limitation and operation-specific acceptance; no blanket dependency or fixed obligatory order |
-| ER6 — this coordinator | Targeted integrated functional acceptance, relevant leaves and current docs; retire replaced runtime/code | Selected implemented ER/EV packages and required matching native repairs. Q1/live activation remains separate |
+| ER6 — this coordinator | Targeted integrated functional acceptance, relevant leaves and current docs; retire replaced runtime/code | Selected implemented ER/EV packages and required matching native repairs, followed by the authorized local Qwen/FastMCP Q1 pilot and adoption. Paid/protected studies remain separate |
 
 ER1 construction and EV1 independent meaning are early shared foundations; the consumer query
 schema is not the first design project. Lexical routes and pure evaluator work can progress without

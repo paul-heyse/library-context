@@ -89,12 +89,21 @@ itself explicitly creates STRICT databases and a separate read-only viewer.
 
 ## Embeddings and native search
 
-Keep the existing exact Qwen specification and inference service. Compilation opens cache/inference
-only when requested; consumed winner bytes enter admitted content. MCP's optional
+Use the selected full4096 Qwen specification and the existing custom inference service. The
+encoder identity includes the actual checkpoint/tokenizer/runtime/output semantics; document and
+query recipes are independently identified. Complete document inputs are admitted with the acquired
+local tokenizer at2048 tokens. Query admission uses its separate8192-token recipe. Compilation
+opens cache/inference only when requested; exact normalized full winners and their declared
+normalized1024 prefix projections enter admitted content and replay without the mutable cache.
+Search and E1 analytics share that explicit1024 representation; bounded search rescoring uses the
+full winners. MCP's optional
 `--embedding-url` names the existing service. Omission disables vector search; service failure
 reports degradation while native lexical search remains available. No service is started or
 upgraded implicitly. BM25 and shared-vector HNSW candidates are restricted to eligible contextual
-occurrences before their finite channel caps; analytical exact-neighbor contracts remain separate.
+occurrences before distinct target/context channel caps. Exact name/path/option matches have an
+independent prioritized lane, including literal matches with zero BM25. Session-retained ranked
+continuations reuse the initial candidate pool and query vector under the original snapshot,
+request and policy. Analytical exact-neighbor contracts remain separate.
 
 ## Export, restore and retirement
 
@@ -130,8 +139,10 @@ the host PostgreSQL installation are outside this pivot.
 `python3 scripts/surrealdb_fixture.py -- COMMAND` owns one authenticated persistent disposable
 server, supplies `LCTX_SURREAL_TEST_CONFIG`, and removes only its own container and scratch files.
 Use the current `verify-store` / `verify-serving` routes and explicit filters. Compiler-stage tests
-stopped by the user are not prerequisites to restart. Real FastMCP compilation, live Qwen inference
-and operator selection remain separately authorized Q1 work.
+stopped by the user are not prerequisites to restart. The current combined
+[evidence/retrieval execution](plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+authorizes fresh local FastMCP Catalog/Behavioral compilation, live Qwen controls and Q1 selection;
+their actual receipts remain separate from fixture acceptance.
 
 Logical text is declared by the model field type independently of Arrow storage. Native query
 projections preserve exact `Utf8Text`, including enum fields, and exclude opaque byte/vector

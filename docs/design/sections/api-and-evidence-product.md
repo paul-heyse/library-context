@@ -335,11 +335,12 @@ documentation/deployment, scenario and source. Conceptual pages without an exact
 remain evidence units; useful content is not forced into a guessed member ID. Brief retrieval is a
 distinct consumer.
 
-Unit, fragment, contextual occurrence and vector identities are separate. Identical family/text
-can deduplicate corpus material while preserving original occurrences, member associations and
-winning context. Bounded UTF-8 fragments do not discard original anchors. Embedding use/spec and
-complete text keys are explicit; token refusal leaves original evidence addressable. Lexical-only
-availability must be labeled. Query instruction/spec changes cannot mix incompatible vectors.
+Unit, primary/context part, semantic window, binding and vector identities are separate. Each
+primary declares its necessary interpretation context; partitioning preserves that closure without
+admitting unrelated sibling primaries. Exact part maps and captured source slices preserve
+original coordinates. Identical final encoder inputs share values while retaining distinct
+occurrences and associations. Token refusal leaves originals addressable with explicit lexical-only
+availability. Query recipe changes preserve document winners; incompatible realizations never mix.
 
 The retained P5 ranking contract uses exact-symbol priority, BM25 and native HNSW candidate ranks, with
 one best contribution per family/member, deterministic ties and equal-weight family-normalized
@@ -353,7 +354,7 @@ semantic capture/specification identity. Native realization is derived from admi
 content; it does not introduce another semantic authority.
 
 
-**Accepted next target, implementation Proposed (ADR-0131).** The
+**Implemented extension; targeted integrated acceptance pending, 2026-10-06 (ADR-0131).** The
 [evidence/retrieval coordinator §2](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#2-shared-target-and-responsibilities)
 owns the extension beyond these implemented unit/rank contracts. Evidence roots separate defining
 source and public access; primary parts retain their context closure, semantic windows their exact

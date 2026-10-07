@@ -70,9 +70,9 @@ contextual classifier are implemented in PR4; conditional library adoption remai
 | Comparative value | No controlled Context7 comparison | PR0 protocol/baselines; PR6 confirmation; parity leaves objective open |
 | Existing semantic Stage 3 | Functionally incomplete; earlier tests retain their scope | Research backlog, except defects affecting exposed claims must be fixed or withheld |
 
-**Next design, implementation Proposed:** the new coordinator sequences ER1 evidence construction,
+**Current combined execution, integrated acceptance pending:** the new coordinator sequences ER1 evidence construction,
 ER2 full-value/projection and consumer migration, ER3/ER4 native discovery/delivery, and the EV primary
-programmatic loop. EV1's private pure kernels are independent of paused native acceptance. Affected
+programmatic loop. EV1's private pure kernels are independent of native acceptance. Affected
 production controls require matching repaired native prerequisites. Resolve PR0 independent
 parity/admission before external comparative scoring only; sealed confirmation remains untouched.
 
@@ -136,9 +136,9 @@ query scope remain. §6.2 owns the scheduled CLF findings; §7 retains library a
 ### 3.0 Consolidated execution
 
 **Current acceptance checkpoint:** [graph-native remediation §9/R-Q0](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution)
-remains paused. Its native acceptance and source finding obligations are unchanged. The
+has resumed under the combined execution. Its source finding obligations are unchanged. The
 [evidence/retrieval and evaluation extension §4](evidence-retrieval-and-evaluation-plan_2026-10-06.md#4-packages-and-real-prerequisites)
-owns the next accepted design and execution dependencies. PR5 receipts describe prior scope;
+owns current execution dependencies and the authorized local live-Qwen/FastMCP Q1 pilot. PR5 receipts describe prior scope;
 PR0 external comparison remains blocked. The old P0–P7/S1–S7 labels below are research identifiers.
 Current evaluation freezes task meanings, references and declared envelopes per experiment;
 development configuration may change within that comparison. Changed meanings require a new
@@ -168,9 +168,10 @@ weakening evidence or declaring an unavailable capability implemented.
 
 #### Retained product and operational investigations
 
-These IS1–IS4 obligations transfer from serving alignment to this product queue. They do not
-activate Q1, operator reconstruction, live embeddings or sealed PR6 evaluation. Native remediation
-acceptance stays with graph-native coordinator §9/R-Q0; its fixture passes do not establish benefit.
+These IS1–IS4 obligations transfer from serving alignment to this product queue. The combined
+execution now authorizes local live-Qwen/FastMCP Q1 reconstruction and adoption; sealed PR6 and
+paid outer evaluation remain unactivated. Native remediation acceptance stays with graph-native
+coordinator §9/R-Q0; its fixture passes do not establish benefit.
 
 | Package | Preparation, decision criterion and trigger |
 |---|---|

@@ -506,11 +506,14 @@ activation and quantitative performance measurement remain **not_run** under thi
 
 ## 9. Remediation and improvement execution
 
-**Implemented; paused before final targeted acceptance at the user's request, 2026-10-06.** This is the current executable continuation; §4 describes the initial
+**Implemented; targeted acceptance resumed, 2026-10-06.** This is the current executable continuation; §4 describes the initial
 pivot and §8 preserves its scoped receipts. Start from the audit/current source, not the old
 PostgreSQL implementation. The four supporting documents retain coherent responsibility boundaries
 and now supply the concrete corrections. Findings remain open until their required evidence lands.
-The user authorized implementation of this remediation scope. Production corrections are integrated; remaining targeted acceptance is explicitly pending until work resumes. Operator activation remains outside this scope.
+The combined [evidence/retrieval execution](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
+resumes the remaining native acceptance and authorizes the local live-Qwen/FastMCP pilot and Q1
+adoption. The earlier pause receipt in §8.1 retains its original source and scope. Production
+corrections are integrated; current native acceptance and operator adoption remain pending.
 
 ### 9.1 Combined target and foundation choices
 
@@ -651,27 +654,31 @@ fresh realization and current local extension for any final served claim. No old
 
 Applicable docs/lint/types/dependency/ADR leaves follow changed files; root runs `just turn-end`
 last. Record exact commands/revisions/outcomes and limits at the coordinator, with one handoff.
-The stopped compiler suite, broad `just qualify`, legacy CLI snapshots/parity, sealed evaluation,
-real-library/live-Qwen/operator work and quantitative performance measurement remain not_run unless
-separately authorized. No per-query planner capture or instrumentation/accounting framework is
+The stopped compiler suite, broad `just qualify`, legacy CLI snapshots/parity, sealed evaluation
+and quantitative performance measurement remain not_run. The combined execution authorizes
+the local live-Qwen/FastMCP and Q1 work; record its actual outcomes separately from fixture
+acceptance. No per-query planner capture or instrumentation/accounting framework is
 required for acceptance.
 
 Complete this remediation only when all F01–F12 closure evidence and applicable migration/deletion
 obligations are satisfied. Native querying remains selected throughout. Close F11 only after both
 bounded publisher construction/reconciliation and actual concurrent exact cache-winner controls.
-Keep Q1 adoption separately pending; no source review or focused fixture result promotes it.
-On resume, start with the remaining R-Q0 checks listed at §8.1, using the integrated compiler and native repairs. Do not restart the stopped legacy suite or introduce an additional review gate.
+Keep Q1 adoption pending until its actual fresh-library/usefulness/selection controls pass; no
+source review or focused fixture result promotes it. Complete the remaining R-Q0 checks listed
+at §8.1 using the integrated compiler and native repairs. Do not restart the stopped legacy suite
+or introduce an additional review gate.
 
-## 10. Evidence/retrieval and primary evaluation extension — accepted design, implementation Proposed
+## 10. Evidence/retrieval and primary evaluation extension — implemented, acceptance in progress
 
 The [evidence/retrieval and evaluation coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 realizes the separate [2026-10-06 target review](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
 and owns that review's F01–F03 only. This graph-native coordinator retains its two nominated
 2026-10-05 target/capability reviews as its architectural basis, its implementation-audit source
-IDs, and the paused R-Q0 acceptance checkpoint in §8.1. The extension neither changes those
-receipts nor restarts stopped tests, native acceptance, Q1 or an evaluation campaign.
+IDs, and the dated R-Q0 pause receipt in §8.1. The combined execution resumes its remaining
+native acceptance and the authorized local Q1 pilot; it does not restart the stopped legacy tests
+or activate protected/paid evaluation campaigns.
 
-The four supporting plans now develop ER1–ER4 as additional Proposed production scope: exact
+The four supporting plans develop the integrated ER1–ER4 production scope: exact
 evidence roots/parts/windows/bindings, local complete-input tokenizer admission, full4096 winning
 values with split dependencies, explicit shared normalized1024 E1/search projection, native
 scoped discovery/rescoring, contextual expansion/demand-aware packing and final serialized delivery
@@ -685,7 +692,8 @@ from the settled ER semantic design without waiting for a database, live model o
 parity. ER3/ER4 production journeys require their actual migrated contracts and relevant native
 prerequisite repair. EV3 joins delivered observations and numerical/stage diagnosis only after the
 respective producers exist. Agentic outer feedback improves both system and evaluator, under
-versioned comparison meanings; comparative confirmation and Q1 remain separate authorized work.
+versioned comparison meanings. Comparative confirmation remains separately activated; the
+combined execution owns the authorized local Q1 pilot and records it separately.
 
 The extension coordinator §4 owns cross-plan ER/EV dependency order and §6 finding disposition.
 The forward plan retains the product/research queue and its independent EVAL/analytical IDs.
