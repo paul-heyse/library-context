@@ -53,6 +53,10 @@ def main() -> int:
                 ]
             )
         # The real bridge/MCP prerequisite is produced here, not supplied by an operator store.
+        code = run(["cargo", "build", "--release", "--locked", "-p", "lctx-eval"])
+        if code:
+            return code
+        env["LCTX_EVAL_WORKER"] = str(ROOT / "target" / "release" / "lctx-eval")
         serving = owned.scratch / "serving.json"
         env["LCTX_RETAIN_NATIVE_FIXTURE_CONFIG"] = str(serving)
         code = run(["cargo", "test", "--release", "-p", "lctx-serving", "--test", "native_journey"])
