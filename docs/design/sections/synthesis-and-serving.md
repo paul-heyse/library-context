@@ -200,9 +200,8 @@ definition. No unrelated corpus is hydrated at startup.
 
 > Decision: ADR-0128, ADR-0131, ADR-0106
 
-**Implemented baseline, 2026-10-06:** format2 single-spec1024 values, explicit cache/service
-effect and service-free canonical receipt replay. **Accepted replacement target, implementation
-Proposed (ADR-0131):** split actual encoder/input, rendering, query and projection dependencies.
+**Implemented replacement, 2026-10-06; integrated native acceptance pending (ADR-0131):** format3
+separates actual encoder/input, rendering, query and projection dependencies.
 One admitted normalized full4096 F32 winner per actual input supplies a deterministic normalized1024
 projection, shared by initial ANN and E1 analytics. F64 prefix-norm accumulation and one F32 rounding
 are explicit policy; endpoint bitwise equivalence is not assumed. Full values serve bounded rescoring
@@ -217,8 +216,8 @@ input/encoder, independently of provenance; semantic uses retain context and qua
 [The combined plan §2.2](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#22-full-values-and-deliberate-analytical-policy--f02)
 owns migration sequencing across launcher, both clients/cache, model consumption, E1 results, canonical
 transport, native schema/index and restore. Exact winners replay without inference or mutable cache.
-Current NVFP4/custom-service locks remain. Fake controls establish mechanics only; live checkpoint
-acceptance, numerical parity/quality and operator activation remain separate, not newly verified.
+Current NVFP4/custom-service locks remain. Fake controls establish mechanics only. Live checkpoint
+acceptance, numerical parity, usefulness and operator adoption require their own recorded outcomes.
 
 <a id="section-11-2"></a>
 
@@ -226,7 +225,7 @@ acceptance, numerical parity/quality and operator activation remain separate, no
 
 > Decision: ADR-0128, ADR-0131
 
-**Implemented native retrieval baseline, 2026-10-05; no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
+**Implemented native retrieval, 2026-10-06; integrated acceptance pending and no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
 contextual occurrences. Native operations retain release/library eligibility, finite channels,
 exact-symbol selection, family/member ranking meaning, RRF-K60 fusion and canonical ties. Collapse
 duplicate contributions before fusion; retain the actual winning occurrence/channel witnesses.
@@ -239,7 +238,7 @@ Do not enumerate in Rust merely to obtain examined-work counts or copy every occ
 The query planner and metrics are optional diagnostics for concrete query-shape questions.
 
 
-**Accepted extension target, implementation Proposed (ADR-0131):** compiler-owned semantic windows,
+**Implemented extension, integrated acceptance pending (ADR-0131):** compiler-owned semantic windows,
 exact primary bindings and mandatory context replace broad fragment-parent applicability. Group
 eligible target/context alternatives, preserve zero-BM25 match eligibility and exact identifiers,
 and hydrate full values/evidence late. Evidence demands select compatible context-closed bundles;

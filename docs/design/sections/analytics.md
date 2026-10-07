@@ -227,8 +227,10 @@ applicable-case suggestions are exposed only through their typed conclusions and
 
 Analytic text uses normalized declaration/document inputs, before synthesized briefs or retrieval
 units. `embedding::analytic` owns its consumption records; retrieval has a separate later
-consumption owner. Both refer to one immutable embedding spec and canonical exact value codec.
-Spec/input hash, consumed text, availability and winning vector bytes are explicit.
+consumption owner. **Implemented, 2026-10-06; integrated acceptance pending:** both refer to canonical
+full4096 winners and the declared shared normalized1024 projection through compact immutable keys.
+Encoder/input, document recipe, projection policy, availability and exact value digests are explicit.
+AnalyticEmbedding publishes shared companions before analytic uses; retrieval can reuse them.
 
 The bounded exact neighbor kernel validates equal dimensions and finite admitted values before
 dot products. Threshold, top-k and semantic-ID tie-breaking are declared. Mismatched widths refuse;
@@ -240,7 +242,7 @@ service/cache effects and exact cache keys. Cold stored-value replay needs no li
 Optional unavailability remains explicit and does not rewrite another completed invocation.
 Live embedding qualification, performance and ranking benefit are not claimed here.
 
-> Decision: ADR-0020, ADR-0106
+> Decision: ADR-0020, ADR-0106, ADR-0131
 
 <a id="section-9-8"></a>
 
