@@ -67,8 +67,10 @@ pub async fn lexical(
  LET $input_keys=$inputs.map(|$v|<string>$v);
  LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND array::len((SELECT VALUE id FROM lex_occurs WHERE in=$parent.id AND eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier};
  LET $occurrences=SELECT *, (SELECT VALUE score FROM $documents WHERE id=$parent.in)[0] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND (in IN $documents.id OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
- LET $best=SELECT {target} AS target,context,in,math::max(score) AS score FROM $occurrences GROUP BY target,context,in;
- RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND in=$parent.in AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best ORDER BY score DESC,target ASC,context ASC,in ASC LIMIT 1024;
+ LET $exact=SELECT {target} AS target,context,math::max(score) AS score FROM $occurrences WHERE exact_name=$query OR exact_path=$query OR exact_option=$query GROUP BY target,context ORDER BY score DESC,target ASC,context ASC LIMIT 1024;
+ LET $other=SELECT {target} AS target,context,math::max(score) AS score FROM $occurrences WHERE [{target},context] NOT IN $exact.map(|$v|[$v.target,$v.context]) GROUP BY target,context ORDER BY score DESC,target ASC,context ASC LIMIT 1024;
+ LET $best=SELECT * FROM array::concat((SELECT *,true AS exact FROM $exact),(SELECT *,false AS exact FROM $other)) ORDER BY exact DESC,score DESC,target ASC,context ASC LIMIT 1024;
+ RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND score=$parent.score AND ($parent.exact=false OR exact_name=$query OR exact_path=$query OR exact_option=$query) ORDER BY occurrence_key LIMIT 1)[0] FROM $best;
 }};"#);
         rows=reader.query::<Vec<NativeHit>>(sql,vars.clone()).await?;
         let targets=rows.iter().map(|row|(if member_mode {row.member.0.map(|id|*id.bytes()).unwrap_or(*row.unit.bytes())}else{*row.unit.bytes()},*row.context.bytes())).collect::<std::collections::BTreeSet<_>>();
@@ -163,8 +165,8 @@ pub async fn vector(
         let sql=format!(r#"RETURN {{
  LET $vectors={selection};
  LET $occurrences=SELECT *, (SELECT VALUE score FROM $vectors WHERE id=$parent.in)[0] AS score FROM vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
- LET $best=SELECT {target} AS target,context,in,math::max(score) AS score FROM $occurrences GROUP BY target,context,in;
- RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND in=$parent.in AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best ORDER BY score DESC,target ASC,context ASC,in ASC LIMIT 1024;
+ LET $best=SELECT {target} AS target,context,math::max(score) AS score FROM $occurrences GROUP BY target,context;
+ RETURN SELECT VALUE (SELECT score,unit,window,part,binding,context,member,anchor FROM $occurrences WHERE {target}=$parent.target AND context=$parent.context AND score=$parent.score ORDER BY occurrence_key LIMIT 1)[0] FROM $best ORDER BY score DESC,target ASC,context ASC LIMIT 1024;
 }};"#);
         rows=reader.query::<Vec<NativeHit>>(sql,vars.clone()).await?;
         let targets=rows.iter().map(|row|(if member_mode {row.member.0.map(|id|*id.bytes()).unwrap_or(*row.unit.bytes())}else{*row.unit.bytes()},*row.context.bytes())).collect::<std::collections::BTreeSet<_>>();
