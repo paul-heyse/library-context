@@ -253,8 +253,9 @@ mod tests {
     }
     #[test]
     fn field_interpretation_never_invents_signature() {
-        let map=scan(&request(),serde_json::json!({"field":id::<normalized::entities::FieldEntity>(7),"analysis":id::<attribution::AnalysisContext>(6),"signature":null,"variant":null,"parameter":null,"subject_name":"limit","readable":"8"})).unwrap();
+        let map=scan(&request(),serde_json::json!({"option":id::<catalog::CatalogOption>(8),"field":id::<normalized::entities::FieldEntity>(7),"analysis":id::<attribution::AnalysisContext>(6),"signature":null,"variant":null,"parameter":null,"subject_name":"limit","readable":"8"})).unwrap();
         let field=map.fields.iter().find(|v|v.field.as_str().ends_with("/readable")).unwrap();assert_eq!(field.binding.field.0,Some(id(7)));assert!(field.binding.signature.0.is_none());assert!(field.binding.variant.0.is_none());
+        assert_eq!(field.dependencies.iter().map(Name::as_str).collect::<Vec<_>>(), vec!["/structuredContent/analysis", "/structuredContent/field"]);
     }
 }
 #[cfg(test)]
