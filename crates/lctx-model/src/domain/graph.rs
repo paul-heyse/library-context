@@ -139,6 +139,7 @@ pub enum EntityKind {
     Definition = 150,
     SynthesisFrame = 151,
     AnalyticAttribute = 152,
+    /// Retired record code; reserved under the append-only codebook, with no registered reader.
     RetrievalFragment = 153,
     RetrievalDefinition = 154,
     RetrievalWindow = 155,

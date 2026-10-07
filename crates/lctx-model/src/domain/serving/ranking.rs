@@ -188,7 +188,7 @@ pub struct RankingWitness {
     pub channel: Channel,
     pub channel_identity: ChannelIdentity,
     pub channel_score: f64,
-    /// Contiguous one-based rank within this family/channel, after best-fragment selection.
+    /// Contiguous one-based rank within this family/channel after contextual window grouping.
     pub rank: u32,
     pub snapshot: SnapshotHandle,
     pub policy: PolicyIdentity,

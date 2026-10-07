@@ -91,7 +91,6 @@ pub const SCOPE_FIELDS: &[&str] = &[
     "window",
     "entity",
     "corpus",
-    "fragment",
     "specification",
     "input",
     "origin",
