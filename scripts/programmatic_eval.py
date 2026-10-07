@@ -241,6 +241,49 @@ async def capture_public_journey(
     return observation
 
 
+STAGES = ("source_inventory", "binding_render_partition", "admission_projection",
+          "native_nomination", "context_aggregation", "expansion", "fusion_rescore",
+          "packing", "serialized_delivery", "navigation")
+
+
+def diagnose_stages(worker: Worker, task: dict[str, Any], stages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Judge separately captured stages or explicit diagnostic injections.
+
+    Labels belong to the capture caller; this operation does not manufacture a
+    native trace. Missing stages bound a loss interval, rather than establishing
+    a cause in an unobserved stage. Injections never count as production success.
+    """
+    if not stages or len(stages) > len(STAGES):
+        raise WorkerError("stage diagnosis requires 1..10 bounded observations")
+    if any(entry["stage"] not in STAGES for entry in stages):
+        raise WorkerError("unknown diagnosis stage")
+    indices = [STAGES.index(entry["stage"]) for entry in stages]
+    if indices != sorted(set(indices)):
+        raise WorkerError("stage observations must be unique and ordered")
+    cases = []
+    for entry in stages:
+        if entry["basis"] not in ("actual_capture", "controlled_injection"):
+            raise WorkerError("stage observation requires an explicit capture/injection basis")
+        if entry["basis"] == "actual_capture" and not entry["observation"].get("capture"):
+            raise WorkerError("actual stage requires final interface capture facts")
+        cases.append({"task": task, "observation": entry["observation"], "mode": entry.get("mode", "immediate")})
+    judgments = list(worker.judge(cases))
+    rows = [{"stage": entry["stage"], "basis": entry["basis"],
+             "capture_lane": entry["observation"].get("capture", {}).get("lane") if entry["observation"].get("capture") else None,
+             "judgment": judgment} for entry, judgment in zip(stages, judgments, strict=True)]
+    loss = None
+    for index in range(1, len(rows)):
+        before, after = rows[index - 1], rows[index]
+        if before["judgment"]["epistemic"] == "sufficient" and after["judgment"]["epistemic"] == "insufficient":
+            loss = {"after": before["stage"], "at_or_before": after["stage"],
+                    "unobserved_between": list(STAGES[indices[index - 1] + 1:indices[index]]),
+                    "basis": [before["basis"], after["basis"]]}
+            break
+    return {"diagnostic_only": True, "stage_labels": "caller annotated, no inferred native trace",
+            "first_observed_loss": loss, "rows": rows,
+            "unobserved_stages": [stage for stage in STAGES if stage not in {entry["stage"] for entry in stages}]}
+
+
 def stored_vector_reference(worker: Worker, input_data: dict[str, Any]) -> dict[str, Any]:
     """Private bounded stored-value numeric lane. It never starts inference or ANN."""
     return worker.request({"operation": "numeric", "input": input_data})

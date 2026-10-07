@@ -13,7 +13,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from programmatic_eval import (
-    Worker, WorkerError, content_digest, frozen_judgments, grounded_feedback, load_cases, load_observations, minimize, minimize_generated, mutation_outcome, packet_ceiling, prepare_comparison, summary,
+    Worker, WorkerError, diagnose_stages, content_digest, frozen_judgments, grounded_feedback, load_cases, load_observations, minimize, minimize_generated, mutation_outcome, packet_ceiling, prepare_comparison, summary,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -442,3 +442,33 @@ def test_unbounded_journey_envelopes_refuse_before_any_public_effect(worker):
     assert list(worker.judge([case]))[0]["applicability"] == "invalid_task"
     with pytest.raises(WorkerError, match="bounded public journey"):
         _public_projection(case["task"])
+
+
+def test_stage_diagnosis_localizes_only_observed_intervals(worker):
+    cases={case["task"]["id"]:case for case in population()}
+    task=cases["compatible"]["task"]
+    report=diagnose_stages(worker,task,[
+        {"stage":"expansion","basis":"controlled_injection","observation":cases["compatible"]["observation"]},
+        {"stage":"serialized_delivery","basis":"controlled_injection","observation":cases["drop-setup"]["observation"]},
+    ])
+    assert report["diagnostic_only"] is True
+    assert report["first_observed_loss"]["after"]=="expansion"
+    assert report["first_observed_loss"]["unobserved_between"]==["fusion_rescore","packing"]
+    assert report["rows"][1]["judgment"]["epistemic"]=="insufficient"
+    with pytest.raises(WorkerError,match="capture facts"):
+        diagnose_stages(worker,task,[{"stage":"native_nomination","basis":"actual_capture","observation":cases["compatible"]["observation"]}])
+    with pytest.raises(WorkerError,match="ordered"):
+        diagnose_stages(worker,task,[{"stage":"packing","basis":"controlled_injection","observation":cases["compatible"]["observation"]},
+                                    {"stage":"expansion","basis":"controlled_injection","observation":cases["compatible"]["observation"]}])
+
+
+def test_stage_diagnosis_preserves_unsupported_oracle_and_budget_outcomes(worker):
+    cases={case["task"]["id"]:case for case in population()}
+    unsupported=cases["unsupported"]
+    report=diagnose_stages(worker,unsupported["task"],[{"stage":"serialized_delivery","basis":"controlled_injection","observation":unsupported["observation"]}])
+    assert report["first_observed_loss"] is None
+    assert report["rows"][0]["judgment"]["applicability"]=="unsupported"
+    task=copy.deepcopy(cases["compatible"]["task"]);task["envelope"]["max_bytes"]=1
+    report=diagnose_stages(worker,task,[{"stage":"packing","basis":"controlled_injection","observation":cases["compatible"]["observation"]}])
+    assert report["first_observed_loss"] is None
+    assert report["rows"][0]["judgment"]["epistemic"]=="budget_infeasible"
