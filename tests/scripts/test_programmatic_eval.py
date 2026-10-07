@@ -938,7 +938,10 @@ def test_renderer_inventory_enumeration_keeps_dependency_and_context_bundles(mon
         runner, "capture_renderer", lambda task, response: copy.deepcopy(observation)
     )
 
-    class StubWorker:
+    class StubWorker(Worker):
+        def __init__(self):
+            pass
+
         def judge(self, cases):
             for row in cases:
                 yield {
