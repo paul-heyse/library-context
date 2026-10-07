@@ -14,20 +14,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from programmatic_eval import (
-    Worker,
-    WorkerError,
-    content_digest,
-    diagnose_stages,
-    frozen_judgments,
-    grounded_feedback,
-    load_cases,
-    load_observations,
-    minimize,
-    minimize_generated,
-    mutation_outcome,
-    packet_ceiling,
-    prepare_comparison,
-    summary,
+    Worker, WorkerError, diagnose_stages, content_digest, frozen_judgments, grounded_feedback, load_cases, load_observations, minimize, minimize_generated, minimize_mcp, mutation_outcome, packet_ceiling, renderer_inventory_ceiling, prepare_comparison, summary,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -123,13 +110,15 @@ def test_actual_byte_ceiling_and_missing_inventory(worker):
     assert packet_ceiling(worker, case["task"], [case["observation"]])["status"] == "feasible"
     task = copy.deepcopy(case["task"])
     task["envelope"]["max_bytes"] = 1
-    assert packet_ceiling(worker, task, [case["observation"]])["status"] == "budget_infeasible"
-    assert packet_ceiling(worker, task, [])["status"] == "inventory_infeasible"
+    assert packet_ceiling(worker, task, [case["observation"]], inventory_complete=True)["status"] == "budget_infeasible"
+    assert packet_ceiling(worker, task, [], inventory_complete=True)["status"] == "inventory_infeasible"
+    assert packet_ceiling(worker, task, [case["observation"]])["status"] == "inconclusive"
+    assert packet_ceiling(worker, task, [])["status"] == "inconclusive"
     insufficient = copy.deepcopy(case["observation"])
     packet = json.loads(insufficient["segments"][0])
     packet["groups"].pop()
     insufficient["segments"][0] = json.dumps(packet)
-    result = packet_ceiling(worker, task, [case["observation"], insufficient])
+    result = packet_ceiling(worker, task, [case["observation"], insufficient], inventory_complete=True)
     assert result["status"] == "budget_infeasible"
     assert result["budget_relaxation_diagnostic_only"]
 
@@ -913,4 +902,72 @@ def test_stage_diagnosis_preserves_unsupported_oracle_and_budget_outcomes(worker
         ],
     )
     assert report["first_observed_loss"] is None
-    assert report["rows"][0]["judgment"]["epistemic"] == "budget_infeasible"
+    assert report["rows"][0]["judgment"]["epistemic"]=="budget_infeasible"
+
+
+def test_renderer_inventory_enumeration_keeps_dependency_and_context_bundles(monkeypatch):
+    import programmatic_eval as runner
+    case = population()[0]
+    observation = copy.deepcopy(case["observation"])
+    observation["capture"] = {"byte_limit": 32768}
+    monkeypatch.setattr(runner, "capture_renderer", lambda task, response: copy.deepcopy(observation))
+    class StubWorker:
+        def judge(self, cases):
+            for row in cases:
+                yield {"scorable": True, "epistemic": "budget_infeasible" if row["task"]["envelope"]["max_bytes"] == 1 else "sufficient"}
+    worker = StubWorker()
+    inventory = {"complete": False, "scope": "declared tiny bundles only", "basis": "hand-authored independent inventory",
+                 "bundles": [{"id": "a", "context": {"variant": "a"}},
+                             {"id": "setup", "context": {"variant": "a"}, "requires": ["a"]},
+                             {"id": "b", "context": {"variant": "b"}}]}
+    result = renderer_inventory_ceiling(worker, case["task"], inventory, lambda selected: {}, [1, 32768])
+    assert result["selections"] == [[], ["a"], ["a", "setup"], ["b"]]
+    assert result["inventory_complete"] is False
+    assert result["profiles"][0]["status"] == "inconclusive"
+    assert result["profiles"][1]["status"] == "feasible"
+    inventory["bundles"] *= 3
+    with pytest.raises(WorkerError, match="bounded"):
+        renderer_inventory_ceiling(worker, case["task"], inventory, lambda selected: {}, [32768])
+
+
+def test_actual_renderer_ceiling_uses_independent_source_inventory(worker):
+    task, response = renderer_source_case()
+    raw = bytes(response["evidence"]["body"]["bytes"])
+    cut = len(raw) // 2
+    inventory = {"complete": True, "scope": "all contiguous prefix alternatives of this controlled source only",
+                 "basis": "hand-authored source bytes with exact contiguous offsets",
+                 "bundles": [{"id": "prefix", "context": {"analysis": "03" * 16}, "bytes": list(raw[:cut])},
+                             {"id": "suffix", "context": {"analysis": "03" * 16}, "requires": ["prefix"], "bytes": list(raw[cut:])}]}
+    def compose(selected):
+        packet = copy.deepcopy(response)
+        delivered = [byte for bundle in selected for byte in bundle["bytes"]]
+        packet["evidence"]["body"].update(bytes=delivered, end=len(delivered))
+        packet["delivery"]["fields"][1]["original"]["end"] = len(delivered)
+        return packet
+    result = renderer_inventory_ceiling(worker, task, inventory, compose, [1, 32768])
+    assert result["inventory_complete"] is True
+    assert result["selections"] == [[], ["prefix"], ["prefix", "suffix"]]
+    assert [row["status"] for row in result["profiles"]] == ["budget_infeasible", "feasible"]
+    assert result["profiles"][1]["alternative"] == 2
+    assert result["emitted_bytes"] == sorted(result["emitted_bytes"])
+
+
+def test_actual_mcp_shrink_retains_task_oracle_supported_failure_and_coordinates(worker):
+    from programmatic_eval import capture_renderer
+    task, response = renderer_source_case()
+    task["predicates"][0]["qualifications"] = [{"id": "setup", "accepted_text": ["requires installed transport"]}]
+    case = {"task": task, "observation": capture_renderer(task, response), "mode": "immediate"}
+    initial = list(worker.judge([case]))[0]
+    assert initial["scorable"] and initial["epistemic"] == "insufficient"
+    result = minimize_mcp(worker, case, max_trials=16)
+    reduced = result["case"]
+    assert result["diagnostic_only"] and result["production_success"] is False
+    assert reduced["task"] == task
+    assert len(reduced["observation"]["segments"][0].encode()) < len(case["observation"]["segments"][0].encode())
+    public = json.loads(reduced["observation"]["segments"][0])["structuredContent"]
+    body = public["evidence"]["body"]
+    assert bytes(body["bytes"]) == bytes(response["evidence"]["body"]["bytes"])[body["start"]:body["end"]]
+    assert list(worker.judge([reduced]))[0]["reason"] == initial["reason"]
+    assert result["trials"] <= 16
+    with pytest.raises(WorkerError, match="bounded supported"):
+        minimize_mcp(worker, case, max_trials=0)

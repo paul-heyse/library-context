@@ -626,11 +626,9 @@ def minimize(case: dict[str, Any], preserves: Callable[[dict[str, Any]], bool]) 
 
 
 def packet_ceiling(
-    worker: Worker,
-    task: dict[str, Any],
-    alternatives: Iterable[dict[str, Any]],
-    mode: str = "immediate",
-    max_alternatives: int = 256,
+    worker: Worker, task: dict[str, Any], alternatives: Iterable[dict[str, Any]],
+    mode: str = "immediate", max_alternatives: int = 256,
+    *, inventory_complete: bool = False, inventory_scope: str = "supplied_alternatives",
 ) -> dict[str, Any]:
     """Exact emitted-envelope alternatives from an actual renderer/capture seam.
 
@@ -643,13 +641,16 @@ def packet_ceiling(
             raise WorkerError("finite packet ceiling bound exceeded")
         observations.append(observation)
     if not observations:
-        return {"status": "inventory_infeasible", "reason": "no supplied packet inventory"}
+        return {"status": "inventory_infeasible" if inventory_complete else "inconclusive",
+                "reason": "no supplied packet inventory", "inventory_complete": inventory_complete,
+                "inventory_scope": inventory_scope}
     cases = [{"task": task, "observation": item, "mode": mode} for item in observations]
     judgments = list(worker.judge(cases))
     sufficient = [index for index, row in enumerate(judgments) if row["epistemic"] == "sufficient"]
     if sufficient:
-        best = min(sufficient, key=lambda i: len(observations[i]["segments"][0].encode()))
-        return {"status": "feasible", "alternative": best, "judgments": judgments}
+        best = min(sufficient, key=lambda i: sum(len(s.encode()) for s in observations[i]["segments"]))
+        return {"status": "feasible", "alternative": best, "judgments": judgments,
+                "inventory_complete": inventory_complete, "inventory_scope": inventory_scope}
     relaxed = []
     for case, row in zip(cases, judgments, strict=True):
         if row["epistemic"] == "budget_infeasible":
@@ -662,7 +663,9 @@ def packet_ceiling(
             }
             relaxed.append(trial)
     diagnostic_rows = list(worker.judge(relaxed))
-    if any(row["epistemic"] == "sufficient" for row in diagnostic_rows):
+    if not inventory_complete:
+        status = "inconclusive"
+    elif any(row["epistemic"] == "sufficient" for row in diagnostic_rows):
         status = "budget_infeasible"
     elif all(
         row["scorable"] or row["epistemic"] == "budget_infeasible" for row in judgments
@@ -670,11 +673,181 @@ def packet_ceiling(
         status = "inventory_infeasible"
     else:
         status = "inconclusive"
-    return {
-        "status": status,
-        "judgments": judgments,
-        "budget_relaxation_diagnostic_only": diagnostic_rows,
-    }
+    return {"status": status, "judgments": judgments,
+            "budget_relaxation_diagnostic_only": diagnostic_rows,
+            "inventory_complete": inventory_complete, "inventory_scope": inventory_scope}
+
+
+
+def renderer_inventory_ceiling(worker: Worker, task: dict[str, Any], inventory: dict[str, Any],
+                               compose: Callable[[list[dict[str, Any]]], dict[str, Any]],
+                               byte_limits: list[int], mode: str = "immediate") -> dict[str, Any]:
+    """Enumerate independently supplied whole context bundles through the real renderer.
+
+    Completeness applies only to the named supplied inventory scope. Compose authors
+    a current public DTO/map from source bundles; no expected answers enter the renderer.
+    """
+    bundles = inventory["bundles"]
+    if not isinstance(inventory.get("complete"), bool) or not inventory.get("scope") or not inventory.get("basis"):
+        raise WorkerError("renderer inventory requires completeness, scope and independent basis")
+    if len(bundles) > 8 or not byte_limits or len(byte_limits) > 16 or any(not 0 <= n <= MAX_LINE for n in byte_limits):
+        raise WorkerError("renderer inventory exceeds bounded bundles or byte profiles")
+    ids = [bundle["id"] for bundle in bundles]
+    if len(set(ids)) != len(ids) or any(not name for name in ids):
+        raise WorkerError("renderer bundle identities must be unique")
+    if any(set(bundle.get("requires", [])) - set(ids) for bundle in bundles):
+        raise WorkerError("renderer bundle dependency is outside supplied inventory")
+    alternatives, selections, refused = [], [], []
+    for mask in range(1 << len(bundles)):
+        chosen = [bundle for index, bundle in enumerate(bundles) if mask & (1 << index)]
+        selected = {bundle["id"] for bundle in chosen}
+        context, compatible = {}, True
+        for bundle in chosen:
+            if set(bundle.get("requires", [])) - selected:
+                compatible = False
+            for key, value in bundle["context"].items():
+                if key in context and context[key] != value:
+                    compatible = False
+                context[key] = value
+        if not compatible:
+            continue
+        try:
+            alternatives.append(capture_renderer(task, compose(copy.deepcopy(chosen))))
+            selections.append(sorted(selected))
+        except WorkerError as error:
+            refused.append({"selection": sorted(selected), "reason": str(error)})
+    complete = inventory["complete"] and not refused
+    profiles = []
+    for limit in byte_limits:
+        scoped_task = copy.deepcopy(task)
+        scoped_task["envelope"]["max_bytes"] = limit
+        observations = copy.deepcopy(alternatives)
+        for observation in observations:
+            observation["capture"]["byte_limit"] = limit
+        profiles.append({"max_bytes": limit, **packet_ceiling(worker, scoped_task, observations, mode,
+                         inventory_complete=complete, inventory_scope=inventory["scope"])})
+    return {"inventory_scope": inventory["scope"], "independent_basis": inventory["basis"],
+            "inventory_complete": complete, "selections": selections, "refused": refused,
+            "emitted_bytes": [sum(len(segment.encode()) for segment in item["segments"]) for item in alternatives],
+            "profiles": profiles}
+
+
+def minimize_mcp(worker: Worker, case: dict[str, Any],
+                 max_trials: int = 64) -> dict[str, Any]:
+    """Rerender diagnostic MCP ablations, retaining task/oracle and supported failure.
+
+    Contiguous source fragments keep exact coordinates; optional rows stay whole
+    bundles. Independent judgment must retain the caller's supported failure class.
+    Returned bytes never count as production success or an original native capture.
+    """
+    from lctx_semantics import NativeFailure, wire_tool_result
+    if case["observation"]["observer_format"] != "mcp_tool_result_v1" or case["mode"] != "immediate" or case["observation"]["expansions"] or len(case["observation"]["segments"]) != 1:
+        raise WorkerError("MCP shrinking supports one immediate capture without expansions")
+    initial = list(worker.judge([case]))[0]
+    def preserves(trial):
+        row = list(worker.judge([trial]))[0]
+        return row["scorable"] and row["epistemic"] == "insufficient" and row["reason"] == initial["reason"] and row["applicability"] == initial["applicability"]
+    if not 1 <= max_trials <= 256 or not initial["scorable"] or initial["epistemic"] != "insufficient":
+        raise WorkerError("MCP shrinking requires a bounded supported initial failure")
+    current, trials = copy.deepcopy(case), 0
+    def pointer(value, path):
+        for key in path.strip("/").split("/"):
+            key = key.replace("~1", "/").replace("~0", "~")
+            value = value[int(key)] if isinstance(value, list) else value[key]
+        return value
+    def rows(value, path=""):
+        if isinstance(value, dict):
+            if isinstance(value.get("items"), list) and all(key in value for key in ("availability", "omitted", "truncated")):
+                yield path, value["items"], "section"
+            if all(key in value for key in ("defaults", "contexts", "qualifications")):
+                yield path + "/defaults", value["defaults"], "defaults"
+            for key, child in value.items():
+                if key != "delivery":
+                    yield from rows(child, path + "/" + key.replace("~", "~0").replace("/", "~1"))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                yield from rows(child, path + "/" + str(index))
+    def remap(metadata, array_path, index):
+        prefix = "/structuredContent" + array_path + "/"
+        def shifted(path):
+            if not path.startswith(prefix):
+                return path
+            head, _, tail = path[len(prefix):].partition("/")
+            number = int(head)
+            if number == index:
+                return None
+            return prefix + str(number - (number > index)) + ("/" + tail if tail else "")
+        for group in ("fields", "omissions"):
+            retained = []
+            for item in metadata[group]:
+                field = shifted(item["field"])
+                dependencies = [shifted(dep) for dep in item.get("dependencies", [])]
+                if field is not None and all(dep is not None for dep in dependencies):
+                    item["field"] = field
+                    if "dependencies" in item:
+                        item["dependencies"] = dependencies
+                    retained.append(item)
+            metadata[group] = retained
+    def candidates(response):
+        for path, values, kind in rows(response):
+            for index in range(len(values)):
+                changed = copy.deepcopy(response)
+                if kind == "section":
+                    section = pointer(changed, path)
+                    section["items"].pop(index)
+                    section["omitted"] += 1
+                    section["truncated"] = True
+                    section["availability"] = {"status": "partial", "reason": "diagnostic_bundle_removed"}
+                    section.pop("continuation", None)
+                    remap(changed["delivery"], path + "/items", index)
+                    omission_path = "/structuredContent" + path
+                    changed["delivery"]["omissions"] = [item for item in changed["delivery"]["omissions"] if item["field"] != omission_path]
+                    changed["delivery"]["omissions"].append({"field": omission_path, "availability": section["availability"], "expand": None})
+                    changed["delivery"]["fields"] = [item for item in changed["delivery"]["fields"] if item["field"] != omission_path + "/continuation"]
+                else:
+                    pointer(changed, path).pop(index)
+                    remap(changed["delivery"], path, index)
+                    pointer(changed, path.rsplit("/", 1)[0])["availability"] = {"status": "partial", "reason": "diagnostic_default_removed"}
+                yield changed
+        evidence = response.get("evidence", {})
+        body, original = evidence.get("body"), evidence.get("original")
+        if body and original and original["encoding"] in ("raw_bytes", "utf-8"):
+            try:
+                decoded = bytes(body["bytes"]).decode("utf-8")
+            except UnicodeDecodeError:
+                return
+            if len(decoded) > 1 and not body.get("truncated"):
+                middle = len(decoded[:len(decoded)//2].encode())
+                for start, end in ((0, middle), (middle, len(body["bytes"]))):
+                    changed = copy.deepcopy(response)
+                    fragment = changed["evidence"]["body"]
+                    fragment.update(bytes=body["bytes"][start:end], start=body["start"] + start, end=body["start"] + end)
+                    for entry in changed["delivery"]["fields"]:
+                        if entry["field"] == "/structuredContent/evidence/body/bytes":
+                            entry["original"]["start"] = original["start"] + fragment["start"]
+                            entry["original"]["end"] = original["start"] + fragment["end"]
+                    yield changed
+    while trials < max_trials:
+        response = json.loads(current["observation"]["segments"][0])["structuredContent"]
+        changed = False
+        for candidate in candidates(response):
+            if trials == max_trials:
+                break
+            trials += 1
+            call = current["task"]["public_call"]
+            try:
+                raw = wire_tool_result(call["tool"], json.dumps(candidate, ensure_ascii=False), call["arguments"].get("page", {}).get("expanded", False))
+            except NativeFailure:
+                continue
+            trial = copy.deepcopy(current)
+            trial["observation"]["segments"] = [raw]
+            if len(raw.encode()) < len(current["observation"]["segments"][0].encode()) and preserves(trial):
+                current, changed = trial, True
+                break
+        if not changed:
+            break
+    return {"diagnostic_only": True, "production_success": False, "kind": "rerendered_mcp_ablation",
+            "case": current, "trials": trials, "failure_class": initial["reason"]}
 
 
 def minimize_generated(
