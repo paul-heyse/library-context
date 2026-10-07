@@ -1,6 +1,6 @@
 # Evidence-preserving retrieval and primary programmatic evaluation
 
-**Accepted direction; implementation target Proposed, 2026-10-06.** This coordinator turns the
+**Execution in progress, 2026-10-06; integrated acceptance pending.** This coordinator turns the
 [nominated design review](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
 and its [external proposal](../library_context_evidence_retrieval_spec_evaluation_external_proposal_and_review.md)
 into one hard design-phase pivot. Programmatic evaluation is the primary engineering loop.
@@ -23,7 +23,7 @@ primary documentation. These are static Interface-checked inputs, not runtime re
 
 The store-free compiler, typed graph admission, immutable native publication, shared embedding
 winners, original-byte expansion, exact name promotion and snapshot-bound cursor refusal are
-Implemented foundations. Remaining graph-native audit acceptance is **paused**, owned solely by
+Implemented foundations. Remaining graph-native audit acceptance is **resumed in this execution**, owned solely by
 [that coordinator §7–§9](graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities).
 No audit finding is closed by this plan. Its two nominated graph-native reviews remain that
 series' architectural basis; this review governs the additional product extension here.
@@ -36,11 +36,12 @@ establish delivered information; one embedding spec couples query instructions t
 and silently determines analytical dimensions. The existing product runner performs agent trials;
 it is not the primary programmatic loop proposed here.
 
-Plan authoring changes documentation and accepted policy only. Production migration, inference,
-agent/API trials, sealed confirmation, real-library compilation and operator activation are
-not_run. Implementation later uses targeted functional controls, current editable native builds
-and fresh owned fixtures. No wheel gate, historical CLI parity campaign or broad qualification
-suite is introduced. Real-library/live-model/outer paid studies remain separately activated.
+The user has authorized the detailed combined execution, including the local live-Qwen/FastMCP
+pilot and Q1 operator adoption. Production changes are integrated incrementally on main and use
+targeted functional controls, current editable native builds and fresh owned fixtures. Live service
+output admission has passed; real-library usefulness and selection await integrated native acceptance.
+No wheel gate, historical CLI parity campaign or broad qualification suite is introduced. Paid
+outer studies, protected confirmation/heldout and quantitative performance remain separately activated.
 
 ## 2. Shared target and responsibilities
 
@@ -223,9 +224,11 @@ migration is outside the evidence/retrieval implementation scope.
 
 ## 4. Packages and real prerequisites
 
-ER0 is **authored policy/design, 2026-10-06**, independently accepted at Proposed architectural strength; documentation checks are recorded at STATUS. Runtime ER/EV rows are **Proposed / not_started**; documentation approval does not activate them.
-Root owns common declarations, ADRs, shared identities and integration. Production worktrees
-are unnecessary until genuinely concurrent production edits are selected.
+ER0 is **authored policy/design, 2026-10-06**, independently accepted at Proposed architectural
+strength. ER1–ER4 and EV1–EV4 are **implemented / integration and targeted acceptance in progress**;
+ER5/EV5 remains conditional on a named limitation. Root owns common declarations, shared identities,
+integration and final acceptance. Three temporary production worktrees isolate compiler, native
+lowering and delivery/evaluator edits; remove them after complete integration.
 
 | Package / detailed owner | Delivered behavior | Actual prerequisite and completion boundary |
 |---|---|---|
@@ -290,7 +293,7 @@ named current consumers. Gold/confirmation/heldout remain protected.
 | Review finding | Current disposition / responsible packages | Closure evidence still required |
 |---|---|---|
 | [F01](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F01) | **Open — target correction designed/scheduled**; EV1/EV4, evaluation plan §7 | Implement grounded system-change and evaluator-change paths; frozen comparisons/new baseline and same-packet rejudgment preserve meaning |
-| [F02](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F02) | **Open — policy decided, migration not_started**; ER2 and every native/E1 consumer | Complete admission/identity matrix, actual chosen E1 result/receipt, detached transport and restore; live checkpoint acceptance reported separately |
+| [F02](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F02) | **Open — migration implemented, integrated acceptance pending**; ER2 and every native/E1 consumer | Complete admission/identity matrix, actual chosen E1 result/receipt, detached transport and restore; live checkpoint acceptance reported separately |
 | [F03](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md#F03) | **Open — finite-first choice and optional status boundary designed**; EV1/EV2, optional EV5 | Useful finite lane without solver; any adopted solver preserves satisfiability/Unknown/bounds and actual consequence-call status |
 
 No new mutable ledger is required. Other recommendations route through ER/EV packages and their

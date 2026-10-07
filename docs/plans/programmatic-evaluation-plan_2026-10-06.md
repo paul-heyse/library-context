@@ -1,6 +1,6 @@
 # Primary programmatic evaluation and grounded outer feedback
 
-**Accepted loop arrangement; implementation Proposed, 2026-10-06.** Supporting plan for EV1–EV5
+**Primary loop implemented; selected interface integration pending, 2026-10-06.** Supporting plan for EV1–EV5
 in the [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md).
 It realizes the [review's](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
 information-sufficiency recommendations, F01/F03 and approved RC01/RC02/RC04. The coordinator
