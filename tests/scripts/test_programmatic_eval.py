@@ -326,6 +326,39 @@ def test_actual_rust_renderer_source_observation_and_missing_interpretation(work
     assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
 
 
+@pytest.mark.parametrize("mutation", ["absent_map", "empty_map", "missing_body", "missing_release_dependency",
+                                     "missing_interpretation_dependency", "null_original", "wrong_role"])
+def test_actual_rust_renderer_schema_valid_map_mutants_cannot_authorize_truth(worker, mutation):
+    from programmatic_eval import capture_renderer
+    task, response = renderer_source_case()
+    observation = capture_renderer(task, response)
+    case = {"task": task, "observation": observation, "mode": "immediate"}
+    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    public = json.loads(observation["segments"][0])
+    content = copy.deepcopy(public["content"])
+    evidence = copy.deepcopy(public["structuredContent"]["evidence"])
+    metadata = public["structuredContent"]["delivery"]
+    if mutation == "absent_map":
+        del public["structuredContent"]["delivery"]
+    elif mutation == "empty_map":
+        metadata["fields"] = []
+    elif mutation == "missing_body":
+        metadata["fields"].pop(1)
+    elif mutation.startswith("missing_"):
+        dependency = "/structuredContent/evidence/" + ("release" if mutation == "missing_release_dependency" else "interpretation")
+        metadata["fields"][1]["dependencies"].remove(dependency)
+    elif mutation == "null_original":
+        metadata["fields"][1]["original"] = None
+    elif mutation == "wrong_role":
+        metadata["fields"][1]["role"] = "synthetic"
+    assert public["content"] == content
+    assert public["structuredContent"]["evidence"] == evidence
+    observation["segments"][0] = json.dumps(public, ensure_ascii=False)
+    row = list(worker.judge([case]))[0]
+    assert row["epistemic"] == "inconclusive"
+    assert not row["scorable"]
+
+
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
@@ -423,8 +456,15 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     ordering = bytes.fromhex("6ade0dd88d6cb7bc982071c22a05cca2b25c1db2268561ad0d3fe9691b8aceb2")
     cursor = json.dumps({"binding": {"ordering": list(ordering)}}).encode().hex()
     initial["evidence"]["body"].update({"bytes": body[:cut], "end": cut, "continuation": cursor, "truncated": True, "omitted": len(body) - cut})
+    initial["delivery"]["fields"][1]["original"]["end"] = cut
+    initial["delivery"]["omissions"] = [{
+        "field": "/structuredContent/evidence/body", "availability": {"status": "partial", "reason": "original_body_page"},
+        "expand": {"tool": "get_evidence", "arguments": {"source": copy.deepcopy(task["public_call"]["arguments"]["source"]),
+                                                          "page": {"cursor": cursor, "expanded": False}}},
+    }]
     final = copy.deepcopy(response)
     final["evidence"]["body"].update({"bytes": body[cut:], "start": cut})
+    final["delivery"]["fields"][1]["original"]["start"] = cut
     # Exact each-page meaning; the independent oracle never authorizes concatenating arbitrary spans.
     task["predicates"][0]["accepted_text"] = [bytes(body[cut:]).decode()]
     sent = []
@@ -444,6 +484,15 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     case["mode"] = "immediate"
     assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
     case["mode"] = "expandable"
+    wrong_expansion = copy.deepcopy(case)
+    public = json.loads(wrong_expansion["observation"]["segments"][0])
+    delivered = copy.deepcopy(public["structuredContent"]["evidence"])
+    public["structuredContent"]["delivery"]["omissions"][0]["expand"]["arguments"]["page"]["evidence_demand"] = {
+        "facets": ["originals"], "context": {"analysis": [8] * 16}, "maximum_followups": 0,
+    }
+    assert public["structuredContent"]["evidence"] == delivered
+    wrong_expansion["observation"]["segments"][0] = json.dumps(public, ensure_ascii=False)
+    assert list(worker.judge([wrong_expansion]))[0]["epistemic"] == "inconclusive"
     case["observation"]["capture"]["calls"][1]["arguments"]["source"]["artifact"] = [8] * 16
     assert list(worker.judge([case]))[0]["epistemic"] == "inconclusive"
     final["snapshot"]["semantic"] = [7] * 32

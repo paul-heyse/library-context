@@ -5,6 +5,7 @@ not normalize them into finite packets. This is a renderer lane, never native re
 """
 import json
 import hashlib
+import copy
 from typing import Any
 
 
@@ -18,10 +19,28 @@ def source_case() -> tuple[dict[str, Any], dict[str, Any]]:
                     "interpretation":{"contexts":[],"defaults":[],"qualifications":[],"availability":{"status":"unavailable","reason":"controlled_original_only"}},
                     "original": {"source": source, "artifact": [1] * 16,
                     "start": 0, "end": len(body.encode()), "digest": [0] * 32,
-                    "encoding": "utf-8", "release": [2] * 16, "context": [3] * 16},
+                    "encoding": "raw_bytes", "release": [2] * 16, "context": [3] * 16},
                     "body": {"start": 0, "end": len(body.encode()), "bytes": list(body.encode()), "omitted": 0, "truncated": False},
                     "flow_inventory": section, "source_characterization": section,
                     "status": 0, "derivation": section}}
+    # Hand-authored expected layout for this one tiny controlled DTO. The actual
+    # Rust formatter still owns captured bytes; these maps never supply oracle truth.
+    empty_binding = {"member": None, "signature": None, "variant": None,
+                     "analysis": None, "parameter": None, "field": None}
+    response["delivery"] = {
+        "fields": [
+            {"field": "/content/0/text", "role": "synthetic", "original": None,
+             "binding": empty_binding, "qualifications": [], "dependencies": [],
+             "availability": {"status": "available"}},
+            {"field": "/structuredContent/evidence/body/bytes", "role": "primary",
+             "original": copy.deepcopy(response["evidence"]["original"]),
+             "binding": {**empty_binding, "analysis": [3] * 16}, "qualifications": [],
+             "dependencies": ["/structuredContent/evidence/release", "/structuredContent/evidence/interpretation"],
+             "availability": {"status": "available"}},
+        ],
+        "omissions": [], "ranked_continuation": None,
+        "packing_policy": "controlled_exact_original_page",
+    }
     task = {"id": "actual-rendered-original", "split": "development", "family": "current-mcp-original",
             "public_call": {"tool": "get_evidence", "arguments": {"source": source}},
             "request": {"question": "Read this exact original source page", "context": {}, "allowed_followups": ["get_evidence"]},
