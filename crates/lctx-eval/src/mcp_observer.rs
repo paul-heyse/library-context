@@ -233,6 +233,13 @@ fn search_operations(structured:&Value,groups:&mut Vec<PublicGroup>,references:&
         }
     }Ok(())
 }
+fn continuation_expanded(cursor:&str)->Result<bool,String>{
+    if cursor.len()%2!=0||!cursor.as_bytes().iter().all(u8::is_ascii_hexdigit){return Err("public cursor hex bounds".into());}
+    let bytes=(0..cursor.len()).step_by(2).map(|i|u8::from_str_radix(&cursor[i..i+2],16).map_err(|_|"public cursor hex encoding".to_owned())).collect::<Result<Vec<_>,_>>()?;
+    let UniqueJson(value)=serde_json::from_slice(&bytes).map_err(|e|e.to_string())?;
+    let ordering=identity(field(field(&value,"binding")?,"ordering")?,32)?;
+    if ordering==blake3::hash(b"serving-key-order/v2:default").to_hex().to_string(){Ok(false)}else if ordering==blake3::hash(b"serving-key-order/v2:expanded").to_hex().to_string(){Ok(true)}else{Err("unsupported public continuation ordering".into())}
+}
 pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
     let UniqueJson(root) = serde_json::from_str(bytes).map_err(|e| e.to_string())?;
     let result = if root.get("jsonrpc").is_some() { field(&root, "result")? } else { &root };
@@ -279,7 +286,7 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
         }
         groups.push(PublicGroup { context:context.clone(), evidence: vec![observed(anchor.clone(),if encoding=="native_literal_utf8_slice"{"interpreted_prose"}else{"original_source"},source)] });
         interpretation(evidence,&context,&mut groups)?;
-        if let Some(cursor) = body.get("continuation") { references.push(serde_json::json!({"tool":"get_evidence","arguments":{"source":field(original,"source")?,"page":{"cursor":text(cursor)?,"expanded":true}}}).to_string()); }
+        if let Some(cursor) = body.get("continuation") {let cursor=text(cursor)?;references.push(serde_json::json!({"tool":"get_evidence","arguments":{"source":field(original,"source")?,"page":{"cursor":cursor,"expanded":continuation_expanded(cursor)?}}}).to_string());}
     } else if let Some(operation) = structured.get("operation") {
         tool = Some("get_operation".into());
         if !content.iter().any(|block| block.get("text").and_then(Value::as_str) == Some("get_operation: snapshot-bound result")) { return Err("MCP tool/result shape mismatch".into()); }
@@ -328,6 +335,11 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
     } else if content.iter().any(|b|b.get("text").and_then(Value::as_str)==Some("search_operations: snapshot-bound result")) {
         tool=Some("search_operations".into());search_operations(structured,&mut groups,&mut references)?;
     } else { return Err("unsupported current MCP response class".into()); }
+    if matches!(tool.as_deref(),Some("search_evidence"|"search_operations")) {
+        if let Some(cursor)=structured.get("results").and_then(|r|r.get("continuation")) {
+            let cursor=text(cursor)?;references.push(serde_json::json!({"tool":tool.as_deref(),"arguments":{"page":{"cursor":cursor,"expanded":continuation_expanded(cursor)?}}}).to_string());
+        }
+    }
     if groups.len() > 256 || references.len() > 256 || groups.iter().map(|g| g.evidence.len()).sum::<usize>() > 256 { return Err("current public packet finite bound exceeded".into()); }
     Ok(DecodedPacket { tool, semantic_snapshot, database_identity, groups, references })
 }
@@ -378,7 +390,15 @@ mod tests {
 mod closure_tests {
     use super::*;
     fn packet()->Value{
-        serde_json::json!({"content":[{"type":"text","text":"get_operation: snapshot-bound result"}],"isError":false,"structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},"operation":{"resolution":"unique","packet":{"core":{"member":vec![1;16],"name":"connect","release":{"distribution":"mini","version":"1","input":vec![10;16],"release":vec![11;16]},"literal_values":[{"literal":vec![9;16],"value":{"kind":"integer","decimal":"10"}}],"signatures":[{"signature":vec![12;16],"variant":vec![2;16],"analysis":vec![3;16],"parameters":[{"parameter":vec![4;16],"name":"timeout","default":{"kind":"unknown"}}]}],"interpretation":{"contexts":[{"analysis":vec![3;16],"python_version":"3.14","python_platform":"linux","search_path":["/captured/src"],"site_package_path":[]}],"defaults":[{"signature":vec![12;16],"variant":vec![2;16],"analysis":vec![3;16],"parameter":vec![4;16],"field":null,"subject_name":"timeout","option":vec![15;16],"value":{"kind":"literal","literal":vec![9;16]},"readable":"10","original":null,"qualification":vec![16;16]}],"qualifications":[{"qualification":vec![16;16],"analysis":vec![3;16],"constant":null,"truncated":false,"terms":[[{"analysis":vec![3;16],"predicate":"is truthy","value":true,"evaluation":{"text":"flag","original":{"source":{"kind":"occurrence","occurrence":vec![8;16]},"artifact":vec![7;16],"context":vec![3;16],"release":vec![11;16],"start":0,"end":4,"encoding":"raw_bytes"}}}]]}]}}}}}})
+        let original=serde_json::json!({"source":{"kind":"occurrence","occurrence":vec![8;16]},"artifact":vec![7;16],"context":vec![3;16],"release":vec![11;16],"start":0,"end":4,"encoding":"raw_bytes"});
+        let atom=serde_json::json!({"analysis":vec![3;16],"predicate":"is truthy","value":true,"evaluation":{"text":"flag","original":original}});
+        let q=serde_json::json!({"qualification":vec![16;16],"analysis":vec![3;16],"constant":null,"truncated":false,"terms":[[atom]]});
+        let context=serde_json::json!({"analysis":vec![3;16],"python_version":"3.14","python_platform":"linux","search_path":["/captured/src"],"site_package_path":[]});
+        let default=serde_json::json!({"signature":vec![12;16],"variant":vec![2;16],"analysis":vec![3;16],"parameter":vec![4;16],"field":null,"subject_name":"timeout","option":vec![15;16],"value":{"kind":"literal","literal":vec![9;16]},"readable":"10","original":null,"qualification":vec![16;16]});
+        let interpretation=serde_json::json!({"contexts":[context],"defaults":[default],"qualifications":[q]});
+        let signature=serde_json::json!({"signature":vec![12;16],"variant":vec![2;16],"analysis":vec![3;16],"parameters":[{"parameter":vec![4;16],"name":"timeout","default":{"kind":"unknown"}}]});
+        let core=serde_json::json!({"member":vec![1;16],"name":"connect","release":{"distribution":"mini","version":"1","input":vec![10;16],"release":vec![11;16]},"literal_values":[{"literal":vec![9;16],"value":{"kind":"integer","decimal":"10"}}],"signatures":[signature],"interpretation":interpretation});
+        serde_json::json!({"content":[{"type":"text","text":"get_operation: snapshot-bound result"}],"isError":false,"structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},"operation":{"resolution":"unique","packet":{"core":core}}}})
     }
     #[test]
     fn readable_qualification_and_setup_come_from_final_fields(){
@@ -445,6 +465,13 @@ mod search_tests {
         let mut primary=packet();primary["structuredContent"]["results"]["items"][0]["delivered_windows"][1]["purpose"]=serde_json::json!(0);assert!(decode(&primary.to_string(),&"06".repeat(32)).is_err());
         let mut binding=packet();binding["structuredContent"]["results"]["items"][0]["delivered_windows"][1]["binding"]=serde_json::json!(vec![6;16]);assert!(decode(&binding.to_string(),&"06".repeat(32)).is_err());
         let mut map=packet();map["structuredContent"]["results"]["items"][0]["delivered_windows"][0]["source_maps"][0]["end"]=serde_json::json!(5);assert!(decode(&map.to_string(),&"06".repeat(32)).is_err());
+    }
+    #[test]
+    fn ranked_continuation_preserves_public_ordering_mode(){
+        let mut source=packet();let cursor=serde_json::json!({"binding":{"ordering":blake3::hash(b"serving-key-order/v2:default").as_bytes()}}).to_string();
+        let encoded=cursor.as_bytes().iter().map(|b|format!("{b:02x}")).collect::<String>();source["structuredContent"]["results"]["continuation"]=serde_json::json!(encoded);
+        let decoded=decode(&source.to_string(),&"06".repeat(32)).unwrap();let reference:Value=serde_json::from_str(decoded.references.last().unwrap()).unwrap();assert_eq!(reference["tool"],"search_evidence");assert_eq!(reference["arguments"]["page"]["expanded"],false);assert!(reference["arguments"].get("query").is_none());
+        assert!(continuation_expanded("α").is_err());assert!(continuation_expanded("ab").is_err());
     }
     #[test]
     fn operation_search_names_are_navigation_only(){
