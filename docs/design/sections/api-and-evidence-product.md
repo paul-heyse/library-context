@@ -100,7 +100,7 @@ the single typed semantic model rather than the retired catalog/projection pipel
 | R05 docs/scenarios/evidence roots | Original enclosing context, independent roots and expected-failure intent | C1 evidence/associations and S0 original-source grounding |
 | R06 units, views and witnesses | Finite families, contextual units, family-normalized ranking and winning-unit witnesses | Compiler retrieval construction; native query ranking |
 | R07 strict/discovery/joint support | Explicit completeness domains, conflict and availability; one classifier | Compiler C2 selection; native request/response adapters |
-| R08 agent-task evaluation | Frozen development/confirmation tasks, deployment, usability distinct from differentiation | PR6 paused; §14.12 remains Proposed |
+| R08 evaluation | Primary finite programmatic loop and frozen development comparisons; grounded outer feedback improves system and evaluator | Primary loop Implemented / selected integration pending; protected confirmation and agent differentiation remain separate |
 
 Runtime inspection is a conditional isolated observation for a task blocked by source/evidence
 absence, never request-time import. Native SurrealDB querying and indexed search are selected. Choose operation shapes and indexes
@@ -423,7 +423,7 @@ to qualify, not latency measurements. Natural language nominates candidates but 
 structured matches.
 
 
-**Accepted contextual delivery extension, implementation Proposed (ADR-0131).** A request can
+**Implemented contextual delivery extension; selected native acceptance pending, 2026-10-06 (ADR-0131).** A request can
 state a bounded public evidence demand; private evaluator answers/witnesses are never request
 inputs. Evidence nomination, compatible expansion and context-closed bundle packing are separate
 operations. Member grouping cannot merge incompatible release, variant, setup, control-flow or
@@ -431,7 +431,7 @@ binding contexts. Required identity/signature/qualification remain indivisible u
 32/256 KiB final envelopes. An explicitly unmet demand, omitted optional bundle or partial evidence
 coverage is visible. The actual delivered map describes the final serialized response after all
 Rust/PyO3/FastMCP transformations, including included context, snippets, original references,
-truncation, omission and byte cost. An original reference alone does not assert that its contents
+truncation and omission; final emitted bytes must fit the envelope. An original reference alone does not assert that its contents
 were delivered.
 
 Ranked result continuation uses the bounded NativeSession-owned immutable result cache specified
@@ -470,7 +470,7 @@ The implemented coarse rebuild contract is the baseline for the accepted finer d
 | Ranking/display policy | Serving policy/cursors; unchanged source facts and units need no reinterpretation |
 
 
-**Accepted finer dependency target, implementation Proposed:** changed encoder/model/precision,
+**Implemented finer dependencies; native reconstruction acceptance pending, 2026-10-06:** changed encoder/model/precision,
 exact tokenizer, document preprocessing or actual input bytes require new full values. Changed
 window provenance or source coordinates require fresh attributed uses even when encoder bytes can
 reuse the same winner. Projection changes rebuild their consumer arrays/indexes and E1 results;
@@ -545,7 +545,7 @@ logging models, ANN tuning and distributed deployment need a frozen product task
 
 > Decision: ADR-0130
 
-**Accepted primary loop, implementation Proposed (2026-10-06).** The
+**Implemented primary loop; selected native integration pending, 2026-10-06.** The
 [programmatic evaluation plan](../../plans/programmatic-evaluation-plan_2026-10-06.md) owns independent
 finite task models, compatible witness alternatives, answers across admitted worlds, and information
 actually delivered by the product. It separates source availability, admission, candidate/ranking,

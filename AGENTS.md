@@ -7,7 +7,8 @@ behavioral analyses are enrichment; general semantic completion no longer gates 
 The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
 remain Proposed until implemented. FastMCP operation/brief contracts remain Rust-owned; native serving is implemented; STATUS owns its functional evidence.
 
-**Current work: graph-native audit remediation** (ADR-0128; coordinator §9, 2026-10-06).
+**Current work: combined graph-native remediation, evidence/retrieval and primary evaluation**
+(ADR-0128/0130/0131; coordinators, 2026-10-06).
 The [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md) owns dependencies,
 acceptance and finding disposition. Its §9 and four supporting remediation sections own current
 execution; §7 owns F01–F12. The completed first execution scope is the
@@ -22,18 +23,21 @@ and user-accepted as complete on 2026-10-05, with partial verification recorded 
 The user stopped further tests; this acceptance does not claim all checks passed.
 `lctx compile --artifact-only --output DIR` is the implemented artifact route.
 Ordinary compile verifies native runtime readiness before acquisition and publishes an unselected
-handle. MCP pins a complete read-only snapshot through NativeSession; selection is explicit. Product features pause during
-this cut; STATUS and the coordinator own its current evidence and remaining work.
+handle. MCP pins a complete read-only snapshot through NativeSession; selection is explicit.
+The selected ER/EV extension executes together with remediation; STATUS and the coordinators own
+its current evidence and remaining work.
 
-**Accepted next product design, implementation Proposed (2026-10-06):** the
+**Implemented product extension; integrated acceptance in progress (2026-10-06):** the
 [evidence/retrieval and evaluation coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 and [programmatic evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md) own ER/EV
 scope and the nominated target review's F01–F03. Programmatic evaluation is primary; grounded outer
 agentic feedback improves both system and evaluator. Development optimization uses frozen
 comparison meanings; protected confirmation/gold/heldout never tune or enter production (ADR-0130).
 ADR-0131 selects exact contextual windows/delivery and full4096 values with deliberate1024 search/E1
-projection. These targets are not implemented by document approval. Graph-native remediation
-remains paused; independent finite kernels need no live model or external comparison parity.
+projection. Actual source and targeted receipts establish implementation/acceptance separately.
+Graph-native remediation has resumed. This execution authorizes the local live-Qwen/FastMCP pilot
+and Q1 operator adoption. Independent finite kernels need no live model or external comparison
+parity; protected populations, paid studies and performance remain separately activated.
 
 The pieces:
 - **Extraction:** the accepted code-facts target links independent latest Ruff/ty and native

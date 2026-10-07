@@ -29,7 +29,7 @@ retains the implemented baseline's dated correction/qualification receipt and or
 | Structural analysis, communities, centrality and FCA/RCA | [Analytics (§9–§9.8)](sections/analytics.md) | [lctx-analytics](../../crates/lctx-analytics/src/lib.rs): pure native kernels; `lctx-model` owns settings, contracts and nominal outcomes, no store |
 | Models, L2 fates, summaries, proof identity, registry | [Behavioral analysis (§9.9)](sections/behavioral-analysis.md) | `lctx-model::domain::execution` and `transfer`; `cpg-core::semantic_execution` and `semantic_summaries` adapt completed inputs; explicit unknown boundaries constrain claims |
 | Findings, assertions, briefs, embeddings, retrieval and tools | [Synthesis and serving (§10–§11)](sections/synthesis-and-serving.md) | Model-owned synthesis/retrieval/embedding with `cpg-core` adapters; native serving is implemented; [lctx_mcp](../../python/lctx_mcp/src/lctx_mcp/wire.py) serves the fixed native snapshot through the PyO3 bridge |
-| Publication rules, independent oracles, evaluation | [Validation and evaluation (§8, §12)](sections/validation-and-evaluation.md) | `lctx-model` shared invariants and admitted graph content, `eval/behavior/`, `tests/scripts/test_flow_soundness.py` |
+| Publication rules, independent oracles, evaluation | [Validation and evaluation (§8, §12)](sections/validation-and-evaluation.md) | `lctx-model` shared invariants and admitted graph content; private `lctx-eval`, `scripts/programmatic_eval.py`, stored native numerical replay and `eval/programmatic`; behavioral reference remains separate |
 
 Dependency direction runs from orchestration (`lctx`) through capability owners to the schema and
 semantic contracts in `lctx-model`. Effects (acquisition, persistence, serving) are explicit

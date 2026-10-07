@@ -11,8 +11,8 @@ the independently checked final delivery map. These are concrete supported scena
 findings or a demand for additional accounting, proof machinery or a compatibility runtime.
 
 This is the completed dated assessment of `24a5968ce9810ac705fadbf62830bcb4d4c34975`. Integration is
-continuing; a focused follow-up will inspect the exact correction diff and record resolution or
-remaining limits. This baseline judgment is not a verdict on uninspected later edits. The final
+continuing; the focused follow-up below inspects the correction diff and records its scope and
+remaining runtime limits. This baseline judgment is not a verdict on uninspected later edits. The final
 status read observed later HEAD `e7581be521668bd376934edad7e790368995f852`; it is not this review's
 production baseline.
 
@@ -275,3 +275,24 @@ The next step is coordinator integration of the material corrections, then indep
 of the exact final diff and root's chosen functional evidence. Consequence priority is high for
 wrong delivered meaning and false witness judgments; dependency membership precedes partition/
 delivery refinements even when its immediate consequence is reduced search availability.
+
+## 6. Focused correction follow-up — 2026-10-06
+
+The same independent reviewer inspected the actual corrections through `e2177a82`, including
+the typed primary→context relation and its consumers, exact source-coordinate composition,
+distinct contextual targets before quotas, private provenance joins, opaque predicate refusal,
+and final-map checks. **F01–F06 are adequately corrected at Implemented/static-review strength.**
+No material residual was found in the nominated seams. This dated follow-up supersedes the
+baseline Revise judgment for those inspected corrections, without rewriting its diagnoses.
+
+The final F06 follow-up checked one coherent signature/variant/analysis expansion tuple,
+library/release compatibility and corresponding captured public-call routing for each segment.
+Delivery-map inventory, role, original interval, qualification, dependency and omission checks
+remain separate from semantic witness extraction. Actual operation domain captures supply
+library scope; a captured-call fallback supports controlled captures without that inventory.
+
+The reviewer ran no tests or native captures. Root's current private 28-control pass and later
+native/renderer acceptance belong to coordinator §6, which remains the sole disposition owner.
+Actual rebuilt transport, native result/restore and real-library usefulness claims require their
+own focused evidence. Protected populations, paid agent studies, performance and broader
+graph-audit findings are outside this follow-up.

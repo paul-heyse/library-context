@@ -153,8 +153,11 @@ and an owned persistent fixture.
 
 The stored-vector reference compares exhaustive full4096 and deliberate1024 projection with an
 independent scalar F64 control and canonical ties. Supplied candidate-union diagnostics and controlled
-stage injections identify observed losses without claiming actual native ANN behavior or production
-task success. Development optimization remains under frozen meanings; no production classification
+stage injections identify observed losses without claiming production task success. A private
+native replay adapter pins the existing VIEWER snapshot, exhausts one declared eligible cohort
+up to256 stored rows, and compares actual indexed HNSW nominations with those retained full bytes
+without inference. Oversized or incomplete populations refuse rather than becoming exhaustive
+references. Its selected runtime acceptance remains pending. Development optimization remains under frozen meanings; no production classification
 acts as the expected-answer engine.
 
 Outer agentic evaluation supplies independently grounded system improvements **and** evaluator
