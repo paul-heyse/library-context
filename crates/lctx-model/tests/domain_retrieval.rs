@@ -693,6 +693,11 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
             assert!(stage.reads::<embedding::analytic::AnalysisEmbeddingUse>());
             assert!(stage.writes::<analysis::retrieval::Invocation>());
             assert!(stage.writes::<retrieval::consumption::RetrievalEmbeddingUse>());
+            assert!(stage.writes::<embedding::value::FullValue>());
+            assert!(stage.writes::<embedding::projection::ProjectedValue>());
+            for name in [embedding::value::FullValue::NAME,embedding::projection::ProjectedValue::NAME]{
+                assert!(stage.inputs.iter().any(|i|i.name()==name&&i.prefix()==Some(stages::PublicationBoundary::AnalyticEmbedding)));
+            }
             assert!(
                 stage
                     .inputs
@@ -751,6 +756,7 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Model, vec!["model"]),
         PublicationGroup::new(PublicationBoundary::Summary, vec!["summary"]),
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::AnalyticEmbedding, vec!["e1"]),
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytic"]),
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
     ])

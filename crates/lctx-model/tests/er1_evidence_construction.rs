@@ -104,7 +104,7 @@ fn documentary_source_bindings_require_primary_originals_without_api_nomination(
             d.source.facts.passages.insert(documents::PassageObservation{qualification:q,passage,level:1,heading:Some("Unresolved API heading".into()),heading_path:vec![],text:"Provider interpretation cannot nominate an API".into()}).unwrap();
         }
         root(&mut d,c1::RootSubject::Document{observation:document});let out=retrieval::build::build(&d,&b).unwrap();out.verify_completion(&d,&b).unwrap();
-        assert_eq!(out.units.len(),if with_passage{2}else{1});assert!(!out.bindings.is_empty());
+        assert_eq!(out.units.len(),1);assert!(!out.bindings.is_empty());assert_eq!(out.origins.iter().any(|o|matches!(o,Origin::Passage{..})),with_passage);
         for unit in out.units.iter(){
             assert_eq!(unit.context,id(2));assert!(out.bindings.iter().any(|r|out.parts.get(r.part).unwrap().unit==unit.id()));
         }
