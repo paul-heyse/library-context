@@ -103,7 +103,7 @@ impl Scan<'_> {
                 let role=if matches!(key,"name"|"subject_name"|"title"|"rendered"){DeliveryRole::Primary}else{DeliveryRole::Synthetic};
                 let source=if key=="readable"&&matches!(value.get("value").and_then(|v|v.get("kind")).and_then(Value::as_str),Some("expression"|"factory")){value.get("original").and_then(|e|e.get("original")).and_then(|v|serde_json::from_value(v.clone()).ok())}else{None};
                 self.field(format!("{path}/{key}"),if source.is_some(){DeliveryRole::Primary}else{role},source,binding.clone(),quals.clone(),dependencies.clone(),availability.clone())?;
-            }}
+            }
         }
         if let Some(default)=object.get("default") {if default.is_object(){self.field(format!("{path}/default"),DeliveryRole::Reference,None,binding.clone(),quals.clone(),vec![],unavailable("default_reference_is_not_readable_value_or_condition")?)?;}}
         if object.contains_key("source")&&object.contains_key("artifact")&&object.contains_key("digest") {
