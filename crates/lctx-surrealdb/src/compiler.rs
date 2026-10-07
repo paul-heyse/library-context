@@ -442,10 +442,10 @@ impl NativeCompilerStore {
         if original.len as u64!=remaining.min(d::artifact::ARTIFACT_CHUNK_BYTES as u64) {return Err(ModelError::Conflict("compiler original coverage"));}
         // Reuse the independently checked physical-range reader; retain only one bounded
         // page, and hash it without reconstructing or storing a second raw chunk body.
-        let loader=Loader::new(self.client.clone());let mut hash=ContentHasher::default();let mut offset=0usize;
+        let reader=crate::NativeReader::private(self.client.clone());let mut hash=ContentHasher::default();let mut offset=0usize;
         while offset<original.len {
             let len=(original.len-offset).min(256<<10);
-            let bytes=loader.original_bytes(source,original.start+offset as u64,len).await?;
+            let bytes=reader.original_bytes(source,original.start+offset as u64,len).await?;
             hash.update(&bytes);offset+=len;
         }
         if hash.finish()!=original.digest {return Err(ModelError::Conflict("compiler original digest"));}
