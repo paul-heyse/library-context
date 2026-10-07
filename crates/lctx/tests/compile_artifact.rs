@@ -13,6 +13,55 @@ fn ordinary_compile_requires_native_configuration_before_acquisition() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("native runtime configuration"));
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
 }
+#[tokio::test]
+async fn missing_native_storage_is_refused_without_creating_it_or_acquiring() {
+    use lctx_surrealdb::{RuntimeConfig, reader};
+    use lctx_surrealdb::surrealdb::types::Value;
+    use lctx_model::domain::serving::Name;
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(std::env::var_os("LCTX_SURREAL_TEST_CONFIG").expect("owned native fixture")).unwrap(),
+    ).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    for missing_namespace in [true, false] {
+        let config = RuntimeConfig {
+            endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
+            username: fixture["admin_user"].as_str().unwrap().into(),
+            password: fixture["admin_password"].as_str().unwrap().into(),
+            viewer_username: "fixture_viewer".into(),
+            viewer_password: "unpublished_fixture_viewer".into(),
+            namespace: Name::new(if missing_namespace {
+                format!("uninstalled_namespace_{}", std::process::id())
+            } else {fixture["namespace"].as_str().unwrap().into()}).unwrap(),
+            cache_database: Name::new(format!("uninstalled_cache_{}", std::process::id())).unwrap(),
+            selection: root.path().join("selected.json"),
+        };
+        let path = root.path().join("runtime.json");
+        std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_lctx"))
+            .current_dir(root.path())
+            .args(["compile", "absent", "--through", "facts", "--runtime-config"])
+            .arg(&path).output().unwrap();
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("storage is not installed"));
+        assert!(!root.path().join("libraries").exists());
+        assert!(!config.selection.exists());
+        let client = reader::authenticated(&config.endpoint, &config.root_credentials(), None).await.unwrap();
+        let (sql, group, absent) = if missing_namespace {
+            ("INFO FOR ROOT", "namespaces", config.namespace.as_str())
+        } else {
+            client.use_ns(config.namespace.as_str()).await.unwrap();
+            ("INFO FOR NS", "databases", config.cache_database.as_str())
+        };
+        let mut response = client.query(sql).await.unwrap().check().unwrap();
+        let Value::Object(info) = response.take::<Value>(0).unwrap() else {panic!("native inventory");};
+        let Some(Value::Object(members)) = info.get(group) else {panic!("native inventory group");};
+        assert!(!members.contains_key(absent));
+        client.invalidate().await.unwrap();
+    }
+}
 #[test]
 fn artifact_destination_is_required_and_existing_content_is_preserved() {
     let root = tempfile::tempdir().unwrap();
