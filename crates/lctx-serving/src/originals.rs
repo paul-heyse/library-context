@@ -39,7 +39,7 @@ impl Prepared {
     let artifacts=&self.artifacts;let occurrences=&self.occurrences;let evidence=&self.evidence;
     let mut original = source.clone();
     let mut chosen_context = context;
-    let mut occurrence_slice=None;
+    let mut captured_slice=None;
     if let OriginalReference::Anchor { anchor } = original {
         let anchors = &self.anchors;
         let a = need(&anchors, anchor)?;
@@ -52,12 +52,13 @@ impl Prepared {
                 OriginalReference::Catalog { source: *source }
             }
             retrieval::AnchorSource::Span { span } => OriginalReference::Span { span: *span },
+            retrieval::AnchorSource::SpanSlice {span,start,end}=>{captured_slice=Some((*start,*end));OriginalReference::Span{span:*span}},
             retrieval::AnchorSource::Artifact { artifact } => OriginalReference::Artifact {
                 artifact: *artifact,
             },
             retrieval::AnchorSource::Prose { slice } => OriginalReference::Prose { slice: *slice },
             retrieval::AnchorSource::Occurrence { occurrence }=>OriginalReference::Occurrence {occurrence:*occurrence},
-            retrieval::AnchorSource::OccurrenceSlice {occurrence,start,end}=>{occurrence_slice=Some((*start,*end));OriginalReference::Occurrence {occurrence:*occurrence}},
+            retrieval::AnchorSource::OccurrenceSlice {occurrence,start,end}=>{captured_slice=Some((*start,*end));OriginalReference::Occurrence {occurrence:*occurrence}},
         };
     }
     if let OriginalReference::Catalog { source } = original {
@@ -129,7 +130,7 @@ impl Prepared {
             _ => return Err(ModelError::Schema("original resolution")),
         }
     };
-    let (start,end)=if let Some((a,z))=occurrence_slice {if a<start || z>end || z<a {return Err(ModelError::Schema("original interpretation slice bounds"));}(a,z)}else{(start,end)};
+    let (start,end)=if let Some((a,z))=captured_slice {if a<start || z>end || z<a {return Err(ModelError::Schema("original interpretation slice bounds"));}(a,z)}else{(start,end)};
     let a = need(&artifacts, artifact)?;
     if start < 0 || end < start || end > a.byte_len {
         return Err(ModelError::Schema("original byte bounds"));
@@ -203,7 +204,7 @@ mod controls {
     use super::*;
     fn id<R:Record>(byte:u8)->Id<R>{serde_json::from_value(serde_json::to_value([byte;16]).unwrap()).unwrap()}
     #[test]
-    fn prepared_originals_preserve_occurrence_slices_and_prose_encodings(){
+    fn prepared_originals_preserve_captured_slices_and_prose_encodings(){
         let artifact=source::SourceArtifact::from_bytes(id(1),"fixture.py".into(),b"012345678901234567890123456789").unwrap();
         let occurrence=source::Occurrence{source:artifact.id(),start:4,end:20,syntax_kind:source::SyntaxKind::ModExpression,role:source::OccurrenceRole::Syntax,structural_path:vec![]};
         let unit=retrieval::Unit{input:id(1),context:id(2),family:retrieval::Family::Source,origin:id(3),corpus:id(4),title:"source".into()};
@@ -213,7 +214,7 @@ mod controls {
         let literal=synthesis::documentary::ProseSource::Literal{occurrence:occurrence.id(),literal:id(5)};
         let raw_slice=synthesis::documentary::ProseSlice{source:raw.id(),start:2,end:5};
         let literal_slice=synthesis::documentary::ProseSlice{source:literal.id(),start:2,end:5};
-        let prepared=Prepared{artifacts:vec![artifact],occurrences:vec![occurrence],evidence:vec![],anchors:vec![anchor.clone()],units:vec![unit],anchor_sources:vec![original],catalog_sources:vec![],slices:vec![raw_slice.clone(),literal_slice.clone()],prose_sources:vec![raw,literal],runs:vec![attribution::ProviderRun{provider:id(7),context:id(2),input:id(1),configuration:ContentHash::of(b"run"),requested_families:ContentHash::of(b"families")}],distributions:vec![input::InputDistribution{input:id(1),release:id(6),role:input::DistributionRole::FirstParty}],corpora:vec![]};
+        let mut prepared=Prepared{artifacts:vec![artifact],occurrences:vec![occurrence],evidence:vec![],anchors:vec![anchor.clone()],units:vec![unit],anchor_sources:vec![original],catalog_sources:vec![],slices:vec![raw_slice.clone(),literal_slice.clone()],prose_sources:vec![raw,literal],runs:vec![attribution::ProviderRun{provider:id(7),context:id(2),input:id(1),configuration:ContentHash::of(b"run"),requested_families:ContentHash::of(b"families")}],distributions:vec![input::InputDistribution{input:id(1),release:id(6),role:input::DistributionRole::FirstParty}],corpora:vec![]};
         let range=prepared.range(&OriginalReference::Anchor{anchor:anchor.id()},Some(id(2)),Some(id(6))).unwrap();
         assert_eq!((range.start,range.end,range.context),(7,12,id(2)));
         let range=prepared.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(6))).unwrap();
@@ -222,8 +223,14 @@ mod controls {
         assert_eq!((range.start,range.end,range.encoding.as_str()),(4,20,"native_literal_utf8_slice"));
         assert!(prepared.range(&OriginalReference::Anchor{anchor:anchor.id()},Some(id(9)),Some(id(6))).is_err());
         assert!(prepared.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(9))).is_err());
+        let span=assertion::Evidence::SourceSpan{source:prepared.artifacts[0].id(),start:4,end:20};let span_id=assertion::EvidenceSourceSpanId::of(&span).unwrap();
+        let slice=retrieval::AnchorSource::SpanSlice{span:span_id,start:8,end:11};let slice_anchor=retrieval::OriginalAnchor{unit:prepared.units[0].id(),ordinal:1,original:slice.id()};
+        prepared.evidence.push(span);prepared.anchor_sources.push(slice);prepared.anchors.push(slice_anchor.clone());
+        let range=prepared.range(&OriginalReference::Anchor{anchor:slice_anchor.id()},Some(id(2)),Some(id(6))).unwrap();assert_eq!((range.start,range.end),(8,11));
         let mut invalid=prepared;invalid.anchor_sources=vec![retrieval::AnchorSource::OccurrenceSlice{occurrence:invalid.occurrences[0].id(),start:3,end:12}];invalid.anchors[0].original=invalid.anchor_sources[0].id();
         assert!(invalid.range(&OriginalReference::Anchor{anchor:invalid.anchors[0].id()},Some(id(2)),Some(id(6))).is_err());
+        let outside=retrieval::AnchorSource::SpanSlice{span:span_id,start:3,end:11};invalid.anchors[1].original=outside.id();invalid.anchor_sources.push(outside);
+        assert!(invalid.range(&OriginalReference::Anchor{anchor:invalid.anchors[1].id()},Some(id(2)),Some(id(6))).is_err(),"exact heading slice stays within its captured parent span");
         invalid.distributions=vec![input::InputDistribution{input:id(10),release:id(6),role:input::DistributionRole::FirstParty}];invalid.corpora=vec![input::CorpusLibrary{corpus:id(1),library:id(10)}];
         assert!(invalid.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(6))).is_ok(),"captured corpus mapping retains release attribution");
         invalid.distributions.clear();assert!(invalid.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(6))).is_err(),"missing captured release refuses explicit attribution");
