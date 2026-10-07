@@ -281,8 +281,8 @@ impl RankedResults {
         Ok(())
     }
     /// Bind the final response's metadata to its retained order; page payloads are not duplicated.
-    pub(crate) fn attach(&self, response: &Response) -> Result<(), WireError> {
-        let mut template: serde_json::Value = serde_json::from_str(&response.to_json()?)?;
+    pub(crate) fn attach(&self, encoded_response: &EncodedJson) -> Result<(), WireError> {
+        let mut template: serde_json::Value = serde_json::from_str(encoded_response.as_str())?;
         let Some(token) = template
             .pointer("/results/continuation")
             .and_then(|v| v.as_str())
@@ -527,7 +527,9 @@ mod tests {
             ranking,
         });
         cache.complete(&mut response).unwrap();
-        cache.attach(&response).unwrap();
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(MAX_BYTES * 2).unwrap();
+        let encoded = response.encode_json(&budget, MAX_BYTES).unwrap();
+        cache.attach(&encoded).unwrap();
         response
     }
     fn next(request: &mut Request, response: &Response) {

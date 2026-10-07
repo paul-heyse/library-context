@@ -66,8 +66,8 @@ impl NativeSession {
         request_json: String,
         query_vector_json: Option<String>,
         remaining_deadline_ms: Option<u64>,
-    ) -> PyResult<String> {
-        py.detach(|| {
+    ) -> PyResult<Py<pyo3::types::PyString>> {
+        let encoded = py.detach(|| {
             let service = {
                 let mut state = self.shared.state.lock().map_err(|_| crate::unavailable())?;
                 if state.closing {
@@ -105,9 +105,12 @@ impl NativeSession {
             let remaining =
                 remaining_deadline_ms.unwrap_or(ResourceLimits::default().request_deadline_ms);
             self.runtime
-                .block_on(service.execute_for(&tool, &request_json, vector, unavailable, remaining))
+                .block_on(service.execute_encoded_for(&tool, &request_json, vector, unavailable, remaining))
                 .map_err(crate::error)
-        })
+        })?;
+        let result = pyo3::types::PyString::new(py, encoded.as_str()).unbind();
+        drop(encoded);
+        Ok(result)
     }
     fn handle_json(&self) -> PyResult<String> {
         serde_json::to_string(self.reader.handle()).map_err(|_| crate::unavailable())

@@ -1032,7 +1032,21 @@ mod packing_tests {
                     basis: Nullable(None),
                     qualification: Nullable(None),
                     text: Text::new("x".repeat(18000)).unwrap(),
-                    source_maps: vec![],
+                    source_maps: vec![DeliveredWindowMap {
+                        start: 0,
+                        end: 18000,
+                        original: Nullable(Some(OriginalRange {
+                            source: OriginalReference::Occurrence { occurrence: id(n) },
+                            artifact: id(n),
+                            start: 0,
+                            end: 18000,
+                            digest: ContentHash::of(&vec![b'x'; 18000]),
+                            encoding: Name::new("raw_bytes").unwrap(),
+                            release: id(n),
+                            context: analysis,
+                        })),
+                        availability: Availability::Available {},
+                    }],
                 }],
                 interpretation: InterpretationClosure {
                     contexts: vec![],
@@ -1071,6 +1085,18 @@ mod packing_tests {
             response.mcp_result_len().unwrap()
                 <= ResourceLimits::default().response_bytes(false) as usize - 1024
         );
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(256 * 1024).unwrap();
+        let limit = ResourceLimits::default().response_bytes(false) as usize;
+        let encoded = response.encode_json(&budget, limit).unwrap();
+        assert_eq!(encoded.as_str(), response.to_json().unwrap());
+        let raw: Value = serde_json::from_str(encoded.as_str()).unwrap();
+        let envelope = response.encode_mcp_result(&budget, limit).unwrap();
+        let public: Value = serde_json::from_str(envelope.as_str()).unwrap();
+        assert_eq!(public["structuredContent"], raw);
+        assert_eq!(envelope.as_str().len(), response.mcp_result_len().unwrap());
+        assert_eq!(raw["results"]["items"][0]["delivered_windows"][0]["source_maps"][0]["original"]["end"], 18000);
+        assert!(raw["delivery"]["fields"].as_array().unwrap().iter().any(|field|
+            field["original"]["end"] == 18000 && field["role"] == "reference"));
         let Response::SearchEvidence(r) = response else {
             panic!("route")
         };
