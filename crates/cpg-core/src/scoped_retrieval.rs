@@ -85,27 +85,6 @@ async fn stream(
     }
     Ok(())
 }
-async fn fetch<R: Record>(
-    inputs: &[ValidationInput],
-    tables: &[ClosureTable],
-    session: &SessionContext,
-    id: Id<R>,
-    budget: &ResourceBudget,
-    cancellation: &Cancellation,
-) -> Result<R, ModelError> {
-    let mut rows = Rows::new(budget);
-    let sql = format!(
-        "SELECT * FROM {} WHERE id=X'{}'",
-        alias::<R>(inputs, tables)?,
-        id.hex()
-    );
-    stream(session, &sql, cancellation, |batch| {
-        rows.decode(batch)?;
-        Ok(())
-    })
-    .await?;
-    Ok(build::need(&rows, id)?.clone())
-}
 async fn refuse_rows(
     session: &SessionContext,
     sql: String,
@@ -146,15 +125,28 @@ fn plan(inputs: &[ValidationInput], tables: &[ClosureTable]) -> Result<NominalCl
         }
     }
     let unit = index::<retrieval::Unit>(inputs)?;
-    let corpus = index::<retrieval::CorpusText>(inputs)?;
+    let part=index::<retrieval::ContentPart>(inputs)?;
+    let window=index::<retrieval::SearchWindow>(inputs)?;
     for (member, field, owner) in [
         (index::<retrieval::UnitRoot>(inputs)?, "unit", unit),
         (index::<retrieval::OriginalAnchor>(inputs)?, "unit", unit),
         (index::<retrieval::UnitSubject>(inputs)?, "unit", unit),
-        (index::<retrieval::Fragment>(inputs)?, "corpus", corpus),
+        (part,"unit",unit),(window,"unit",unit),
+        (index::<retrieval::PartSourceMap>(inputs)?,"part",part),
+        (index::<retrieval::WindowPart>(inputs)?,"window",window),
+        (index::<retrieval::WindowSourceMap>(inputs)?,"window",window),
+        (index::<retrieval::WindowBinding>(inputs)?,"window",window),
     ] {
         plan.own(member, field, owner)?;
     }
+    let memberships=build::memberships();
+    for (source,table) in tables.iter().enumerate(){for field in table.relation.fields(){if memberships.contains(&(table.relation.type_id(),field.name())){if let Some((target,_))=field.target(){if let Some(target)=field_target(inputs,source,target)?{plan.own(source,field.name(),target)?;}}}}}
+    for (member,field,owner) in [
+        (index::<documents::DocumentMentionObservation>(inputs)?,"passage",index::<documents::DocumentNode>(inputs)?),
+        (index::<normalized::links::MentionEntityAssessment>(inputs)?,"observation",index::<documents::DocumentMentionObservation>(inputs)?),
+        (index::<normalized::links::MentionEntityCandidate>(inputs)?,"assessment",index::<normalized::links::MentionEntityAssessment>(inputs)?),
+        (index::<catalog::evidence::DocumentAssociation>(inputs)?,"candidate",index::<normalized::links::MentionEntityCandidate>(inputs)?),
+    ]{plan.own(member,field,owner)?;}
     Ok(plan)
 }
 /// Root integrates this declared scope arm in Workspace::validate_scope. Frozen aliases and
@@ -178,6 +170,8 @@ pub(crate) async fn validate_retrieval(
         }) || [
             TypeId::of::<embedding::EmbeddingSpec>(),
             TypeId::of::<embedding::configuration::ServiceConfiguration>(),
+            TypeId::of::<embedding::DocumentRecipe>(),TypeId::of::<embedding::projection::ProjectionDefinition>(),
+            TypeId::of::<embedding::value::FullValue>(),TypeId::of::<embedding::projection::ProjectedValue>(),
             TypeId::of::<analysis::retrieval::InvocationSource>(),
             TypeId::of::<analysis::retrieval::AnalysisInput>(),
         ]
@@ -223,11 +217,14 @@ pub(crate) async fn validate_retrieval(
     }
     let unit = alias::<retrieval::Unit>(inputs, &tables)?;
     let corpus = alias::<retrieval::CorpusText>(inputs, &tables)?;
-    let fragment = alias::<retrieval::Fragment>(inputs, &tables)?;
+    let window = alias::<retrieval::SearchWindow>(inputs, &tables)?;
     let uses = alias::<RetrievalEmbeddingUse>(inputs, &tables)?;
     let invocation = alias::<analysis::retrieval::Invocation>(inputs, &tables)?;
-    refuse_rows(session,format!("SELECT c.id FROM {corpus} c WHERE NOT EXISTS (SELECT 1 FROM {unit} u WHERE u.corpus=c.id) LIMIT 1"),cancellation,"retrieval corpus has no contextual unit").await?;
-    refuse_rows(session,format!("SELECT v.id FROM {uses} v JOIN {invocation} i ON v.invocation=i.id JOIN {fragment} f ON v.fragment=f.id WHERE NOT EXISTS (SELECT 1 FROM {unit} u WHERE u.corpus=f.corpus AND u.input=i.input AND u.context=i.context) LIMIT 1"),cancellation,"retrieval use has no exact owning native frame").await?;
+    refuse_rows(session,format!("SELECT c.id FROM {corpus} c WHERE NOT EXISTS (SELECT 1 FROM {unit} u WHERE u.corpus=c.id) AND NOT EXISTS(SELECT 1 FROM {window} w WHERE w.corpus=c.id) LIMIT 1"),cancellation,"retrieval corpus has no contextual unit").await?;
+    refuse_rows(session,format!("SELECT v.id FROM {uses} v JOIN {invocation} i ON v.invocation=i.id JOIN {window} f ON v.window=f.id WHERE NOT EXISTS (SELECT 1 FROM {unit} u WHERE u.id=f.unit AND u.input=i.input AND u.context=i.context) LIMIT 1"),cancellation,"retrieval use has no exact owning native frame").await?;
+    let actual_roots=alias::<catalog::evidence::EvidenceRoot>(inputs,&tables)?;
+    let unit_roots=alias::<retrieval::UnitRoot>(inputs,&tables)?;
+    refuse_rows(session,format!("SELECT r.id FROM {actual_roots} r WHERE NOT EXISTS (SELECT 1 FROM {unit_roots} x JOIN {unit} u ON x.unit=u.id WHERE x.root=r.id AND u.input=r.input AND u.context=r.context) LIMIT 1"),cancellation,"completed C1 root has no exact contextual retrieval unit").await?;
     if !selected {
         refuse_rows(
             session,
@@ -304,8 +301,8 @@ pub(crate) async fn validate_retrieval(
             }
             let mut unit_uses = Rows::new(budget);
             let sql = format!(
-                "SELECT v.* FROM {uses} v JOIN {fragment} f ON v.fragment=f.id WHERE f.corpus=X'{}' AND v.invocation=X'{}'",
-                owner.corpus.hex(),
+                "SELECT v.* FROM {uses} v JOIN {window} f ON v.window=f.id WHERE f.unit=X'{}' AND v.invocation=X'{}'",
+                owner.id().hex(),
                 parent.id().hex()
             );
             stream(session, &sql, cancellation, |batch| {
@@ -317,13 +314,14 @@ pub(crate) async fn validate_retrieval(
                 &output,
                 parent,
                 if selected {
-                    Some(metadata.selected_spec()?)
+                    Some(metadata.selected_consumption()?)
                 } else {
                     None
                 },
                 &unit_uses,
                 budget,
             )?;
+            metadata.verify_canonical_uses(&unit_uses)?;
         }
     }
     drop(roots);
@@ -355,330 +353,5 @@ pub(crate) async fn validate_retrieval(
         expected.insert(disposition.outcome(parent))?;
     }
     metadata.verify_frames(&invocations, &outcomes, &expected, budget)?;
-    verify_winners(
-        inputs,
-        &tables,
-        session,
-        budget,
-        cancellation,
-        &metadata.specifications,
-    )
-    .await
-}
-async fn verify_winners(
-    inputs: &[ValidationInput],
-    tables: &[ClosureTable],
-    session: &SessionContext,
-    budget: &ResourceBudget,
-    cancellation: &Cancellation,
-    specifications: &Rows<embedding::EmbeddingSpec>,
-) -> Result<(), ModelError> {
-    let analytic = alias::<embedding::analytic::AnalysisEmbeddingUse>(inputs, tables)?;
-    let retrieval = alias::<RetrievalEmbeddingUse>(inputs, tables)?;
-    let sql = format!(
-        "SELECT specification,input,kind,id FROM (SELECT specification,input,0 AS kind,id FROM {analytic} WHERE availability=0 UNION ALL SELECT specification,input,1 AS kind,id FROM {retrieval} WHERE availability=0) request_keys ORDER BY specification,input,kind,id"
-    );
-    let mut keys = crate::sql::query(session, &sql)
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-    let mut group = None;
-    let mut winners = embedding::consumption::Winners::new(budget);
-    let mut tokens = None;
-    let _group = budget.reserve("retrieval-current-winner-key", 128)?;
-    while let Some(batch) = keys.try_next().await.map_err(ModelError::codec)? {
-        cancellation.check()?;
-        let kinds = batch
-            .column_by_name("kind")
-            .and_then(|array| array.as_any().downcast_ref::<arrow_array::Int64Array>())
-            .ok_or(ModelError::Schema("retrieval winner kind"))?;
-        for row in 0..batch.num_rows() {
-            let specification: Id<embedding::EmbeddingSpec> =
-                nominal(bytes(&batch, "specification", row)?)?;
-            let input: ContentHash = nominal(bytes(&batch, "input", row)?)?;
-            if group != Some((specification, input)) {
-                drop(winners);
-                winners = embedding::consumption::Winners::new(budget);
-                group = Some((specification, input));
-                tokens = None;
-            }
-            let spec = build::need(specifications, specification)?.configuration()?;
-            let admitted = if kinds.value(row) == 0 {
-                let use_ = fetch::<embedding::analytic::AnalysisEmbeddingUse>(
-                    inputs,
-                    tables,
-                    session,
-                    nominal(bytes(&batch, "id", row)?)?,
-                    budget,
-                    cancellation,
-                )
-                .await?;
-                let window = fetch::<embedding::text::TextWindow>(
-                    inputs,
-                    tables,
-                    session,
-                    use_.window,
-                    budget,
-                    cancellation,
-                )
-                .await?;
-                let receipt = use_.receipt()?;
-                let admitted = receipt.admitted_tokens;
-                drop(winners.replay(&spec, window.text.as_str(), receipt)?);
-                admitted
-            } else if kinds.value(row) == 1 {
-                let use_ = fetch::<RetrievalEmbeddingUse>(
-                    inputs,
-                    tables,
-                    session,
-                    nominal(bytes(&batch, "id", row)?)?,
-                    budget,
-                    cancellation,
-                )
-                .await?;
-                let fragment = fetch::<retrieval::Fragment>(
-                    inputs,
-                    tables,
-                    session,
-                    use_.fragment,
-                    budget,
-                    cancellation,
-                )
-                .await?;
-                let receipt = use_.receipt()?;
-                let admitted = receipt.admitted_tokens;
-                drop(winners.replay(&spec, fragment.text.as_str(), receipt)?);
-                admitted
-            } else {
-                return Err(ModelError::Schema("retrieval winner kind code"));
-            };
-            if tokens.is_some_and(|previous| previous != admitted) {
-                return Err(build::invalid(
-                    "embedding consumers disagree on exact winning tokens",
-                ));
-            }
-            tokens = Some(admitted);
-        }
-    }
     Ok(())
-}
-
-#[cfg(test)]
-mod controls {
-    use super::*;
-    use datafusion::datasource::MemTable;
-    use std::sync::Arc;
-    fn id<R>(byte: u8) -> Id<R> {
-        nominal(&[byte; 16]).unwrap()
-    }
-    fn fixture() -> (SessionContext, Vec<ValidationInput>, Vec<ClosureTable>) {
-        let model = lctx_model::domain::model().unwrap();
-        let inputs = retrieval::consumption::invariants()
-            .into_iter()
-            .find(|invariant| invariant.name == "retrieval_embedding_consumption_and_winners")
-            .unwrap()
-            .inputs;
-        let session = SessionContext::new();
-        let tables = inputs
-            .iter()
-            .enumerate()
-            .map(|(index, input)| {
-                let relation = model.relation(input.name()).unwrap().clone();
-                let alias = format!("winner_fixture_{index}");
-                let batch = arrow_array::RecordBatch::new_empty(relation.schema().clone());
-                session
-                    .register_table(
-                        alias.as_str(),
-                        Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap()),
-                    )
-                    .unwrap();
-                ClosureTable { relation, alias }
-            })
-            .collect();
-        (session, inputs, tables)
-    }
-    fn install<R: Record>(
-        session: &SessionContext,
-        inputs: &[ValidationInput],
-        tables: &[ClosureTable],
-        rows: &[R],
-    ) {
-        let index = index::<R>(inputs).unwrap();
-        let batch = R::encode(rows).unwrap();
-        session
-            .deregister_table(tables[index].alias.as_str())
-            .unwrap();
-        session
-            .register_table(
-                tables[index].alias.as_str(),
-                Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap()),
-            )
-            .unwrap();
-    }
-    fn spec() -> embedding::Spec {
-        let mut spec = embedding::Spec::parse(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../specs/embedding/qwen3-embedding-8b.json"
-        )))
-        .unwrap();
-        spec.reduction = "none".into();
-        spec.admission = None;
-        spec.source_dimensions = 32768;
-        spec.dimensions = 32768;
-        spec.document_template = "prefix: {text}".into();
-        spec
-    }
-    #[tokio::test]
-    async fn externally_ordered_request_groups_release_winners_and_refuse_changed_tokens_bytes_and_request()
-     {
-        let budget = ResourceBudget::fixed(2 << 20).unwrap();
-        let (session, inputs, tables) = fixture();
-        let spec = spec();
-        let specification = embedding::EmbeddingSpec::new(&spec).unwrap();
-        let mut specifications = Rows::new(&budget);
-        specifications.insert(specification.clone()).unwrap();
-        let mut vector = vec![0.0; 32768];
-        vector[0] = 1.0;
-        vector[2] = -0.0;
-        let mut windows = Vec::new();
-        let mut fragments = Vec::new();
-        let mut analytic = Vec::new();
-        let mut retrieval = Vec::new();
-        for ordinal in 0..64 {
-            let text = format!("exact request {ordinal}");
-            let value = embedding::value::AdmittedValue::new(
-                &spec,
-                &spec.document_text(&text),
-                7,
-                &vector,
-                &budget,
-            )
-            .unwrap();
-            let window = embedding::text::TextWindow {
-                assessment: id(1),
-                ordinal,
-                start: 0,
-                end: text.len() as i64,
-                text: text.clone().into(),
-                content: ContentHash::of(text.as_bytes()),
-            };
-            let fragment = retrieval::Fragment {
-                definition: retrieval::Definition::builtin(true).id(),
-                fragment_bytes: 4096,
-                corpus: id(2),
-                ordinal,
-                start: 0,
-                end: text.len() as i64,
-                digest: ContentHash::of(text.as_bytes()),
-                text: text.into(),
-            };
-            analytic.push(embedding::analytic::AnalysisEmbeddingUse {
-                invocation: id(3),
-                window: window.id(),
-                specification: specification.id(),
-                input: value.input(),
-                availability: embedding::analytic::VectorAvailability::Available,
-                admitted_tokens: Some(7),
-                codec: Some(embedding::value::VALUE_CODEC),
-                value_digest: Some(value.digest()),
-                bytes: Some(EvidenceBytes(value.bytes().to_vec())),
-            });
-            retrieval.push(RetrievalEmbeddingUse {
-                invocation: id(4),
-                fragment: fragment.id(),
-                specification: specification.id(),
-                input: value.input(),
-                availability: embedding::analytic::VectorAvailability::Available,
-                admitted_tokens: Some(7),
-                codec: Some(embedding::value::VALUE_CODEC),
-                value_digest: Some(value.digest()),
-                bytes: Some(EvidenceBytes(value.bytes().to_vec())),
-            });
-            windows.push(window);
-            fragments.push(fragment);
-        }
-        install(&session, &inputs, &tables, &windows);
-        install(&session, &inputs, &tables, &fragments);
-        install(&session, &inputs, &tables, &analytic);
-        install(&session, &inputs, &tables, &retrieval);
-        let cancellation = Cancellation::default();
-        verify_winners(
-            &inputs,
-            &tables,
-            &session,
-            &budget,
-            &cancellation,
-            &specifications,
-        )
-        .await
-        .unwrap();
-        // Same valid vector and exact request, with only admitted token evidence changed.
-        retrieval[0].admitted_tokens = Some(8);
-        install(&session, &inputs, &tables, &retrieval);
-        assert!(
-            verify_winners(
-                &inputs,
-                &tables,
-                &session,
-                &budget,
-                &cancellation,
-                &specifications
-            )
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("winning tokens")
-        );
-        retrieval[0].admitted_tokens = Some(7);
-        let changed = embedding::value::AdmittedValue::new(
-            &spec,
-            &spec.document_text(fragments[0].text.as_str()),
-            7,
-            &{
-                let mut values = vector.clone();
-                values[2] = 0.0;
-                values
-            },
-            &budget,
-        )
-        .unwrap();
-        retrieval[0].bytes = Some(EvidenceBytes(changed.bytes().to_vec()));
-        retrieval[0].value_digest = Some(changed.digest());
-        drop(changed);
-        install(&session, &inputs, &tables, &retrieval);
-        assert!(
-            verify_winners(
-                &inputs,
-                &tables,
-                &session,
-                &budget,
-                &cancellation,
-                &specifications
-            )
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("winning bytes")
-        );
-        retrieval[0].bytes = analytic[0].bytes.clone();
-        retrieval[0].value_digest = analytic[0].value_digest;
-        retrieval[0].input = ContentHash::of(b"different exact request");
-        install(&session, &inputs, &tables, &retrieval);
-        assert!(
-            verify_winners(
-                &inputs,
-                &tables,
-                &session,
-                &budget,
-                &cancellation,
-                &specifications
-            )
-            .await
-            .is_err()
-        );
-        drop(specifications);
-        assert_eq!(budget.reserved(), 0);
-    }
 }

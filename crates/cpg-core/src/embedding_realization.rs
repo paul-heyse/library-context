@@ -183,6 +183,13 @@ impl<'a> Session<'a> {
         self.values.get_mut(&input).expect("seeded full winner").projection_published = true;
         Ok(())
     }
+    /// Local producer binding to an already admitted and published winner; no payload copy.
+    pub fn verify_published(&self,value:&PublishedValue)->Result<(),ModelError>{
+        let slot=self.values.get(&value.input).ok_or_else(||ModelError::Invalid("published winner absent".into()))?;
+        let full=Id::of(&embedding::value::FullValueKey{encoder:self.configuration.row().id(),input:value.input});
+        let projection=Id::of(&embedding::projection::ProjectedValueKey{value:full,definition:self.configuration.projection().id()});
+        if value.value!=full||value.projection!=projection||value.tokens!=slot.tokens||!slot.full_published||!slot.projection_published||self.full_inputs.get(&full)!=Some(&value.input){return Err(ModelError::Invalid("published winner identity/token/closure mismatch".into()));}Ok(())
+    }
     fn bind_full(&mut self, full: Id<FullValue>, input: ContentHash) -> Result<(), ModelError> {
         if let Some(previous) = self.full_inputs.get(&full) {
             if *previous != input { return Err(ModelError::Conflict("canonical full input identity")); }

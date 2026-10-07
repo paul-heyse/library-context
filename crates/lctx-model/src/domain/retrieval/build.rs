@@ -1549,6 +1549,7 @@ pub fn stage(
         .iter()
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
+    outputs.extend([RelationUse::of::<embedding::value::FullValue>(),RelationUse::of::<embedding::projection::ProjectedValue>()]);
     outputs.extend(
         analysis::retrieval::publication_relations()
             .iter()
@@ -1560,6 +1561,10 @@ pub fn stage(
         analysis::AnalysisMethod::Retrieval,
     ));
     requested.retain(|input| !own.contains(input.name()));
+    requested.extend([
+        ValidationInput::of::<embedding::value::FullValue>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding),
+        ValidationInput::of::<embedding::projection::ProjectedValue>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding),
+    ]);
     let inputs = dependency_closure::DependencyClosure::stage_grants(
         model,
         requested,

@@ -8,10 +8,10 @@ use crate::domain::{
     analysis::retrieval::{AnalysisInvocation, AnalysisOutcome},
     embedding::{
         EmbeddingSpec,
-        analytic::{AnalysisEmbeddingUse, VectorAvailability},
+        analytic::VectorAvailability,
         configuration::ServiceConfiguration,
-        consumption::{ValueReceipt, Winners},
-        text::TextWindow,
+        consumption::{ValueIndex, PublishedValue, SelectedConsumption},
+        DocumentRecipe, projection::{ProjectedValue, ProjectionDefinition},
         value,
     },
     normalized::Rows,
@@ -29,65 +29,30 @@ pub struct RetrievalEmbeddingUse {
     pub input: ContentHash,
     pub availability: VectorAvailability,
     pub admitted_tokens: Option<i64>,
-    pub codec: Option<i16>,
-    pub value_digest: Option<ContentHash>,
-    pub bytes: Option<EvidenceBytes>,
+    pub document: Id<DocumentRecipe>,
+    pub value: Option<Id<value::FullValue>>,
+    pub projection: Option<Id<ProjectedValue>>,
 }
 fn validate_use(r: &RetrievalEmbeddingUse) -> Result<(), ModelError> {
-    let value =
-        r.codec == Some(value::VALUE_CODEC) && r.value_digest.is_some() && r.bytes.is_some();
-    let absent = r.codec.is_none() && r.value_digest.is_none() && r.bytes.is_none();
+    let value = r.value.is_some() && r.projection.is_some();
+    let absent = r.value.is_none() && r.projection.is_none();
     let valid = match r.availability {
         VectorAvailability::Available => value && r.admitted_tokens.is_some_and(|n| n >= 0),
         VectorAvailability::ServiceUnavailable => absent && r.admitted_tokens.is_none(),
         VectorAvailability::TokenLimit => absent && r.admitted_tokens.is_some_and(|n| n >= 0),
     };
     if !valid {
-        return Err(invalid("retrieval vector availability and bytes disagree"));
+        return Err(invalid("retrieval vector availability and canonical references disagree"));
     }
     Ok(())
 }
 impl RetrievalEmbeddingUse {
-    pub fn admit_into(
-        rows: &mut Rows<Self>,
-        invocation: Id<AnalysisInvocation>,
-        window: Id<SearchWindow>,
-        specification: &EmbeddingSpec,
-        value: &value::AdmittedValue,
-        b: &ResourceBudget,
-    ) -> Result<Id<Self>, ModelError> {
-        if value.spec() != specification.service_hash {
-            return Err(invalid("retrieval value changed selected specification"));
-        }
-        let _copy = b.reserve(
-            "retrieval-use-copy",
-            size_of::<Self>() + value.bytes().len(),
-        )?;
-        rows.insert(Self {
-            invocation,
-            window,
-            specification: specification.id(),
-            input: value.input(),
-            availability: VectorAvailability::Available,
-            admitted_tokens: Some(value.tokens().into()),
-            codec: Some(value::VALUE_CODEC),
-            value_digest: Some(value.digest()),
-            bytes: Some(EvidenceBytes(value.bytes().to_vec())),
-        })
-    }
-    pub fn receipt(&self) -> Result<ValueReceipt<'_>, ModelError> {
-        self.validate()?;
-        if self.availability != VectorAvailability::Available {
-            return Err(invalid("retrieval vector is unavailable"));
-        }
-        Ok(ValueReceipt {
-            input: self.input,
-            codec: self.codec.unwrap(),
-            digest: self.value_digest.unwrap(),
-            admitted_tokens: u32::try_from(self.admitted_tokens.unwrap())
-                .map_err(ModelError::codec)?,
-            bytes: &self.bytes.as_ref().unwrap().0,
-        })
+    pub fn admit_into(rows:&mut Rows<Self>,invocation:Id<AnalysisInvocation>,window:Id<SearchWindow>,selected:SelectedConsumption<'_>,value:&PublishedValue,b:&ResourceBudget)->Result<Id<Self>,ModelError> {
+        let expected=Id::of(&value::FullValueKey{encoder:selected.encoder.id(),input:value.input});
+        let projection=Id::of(&embedding::projection::ProjectedValueKey{value:expected,definition:selected.projection.id()});
+        if value.value!=expected || value.projection!=projection || value.tokens>2048 || i64::from(value.tokens)>selected.document.max_tokens{return Err(invalid("retrieval value changed selected recipes or window cap"));}
+        let _copy=b.reserve("retrieval-use-copy",size_of::<Self>())?;
+        rows.insert(Self{invocation,window,specification:selected.encoder.id(),document:selected.document.id(),input:value.input,availability:VectorAvailability::Available,admitted_tokens:Some(value.tokens.into()),value:Some(value.value),projection:Some(value.projection)})
     }
 }
 /// Availability is retained once per native frame; no window text or vector survives its unit.
@@ -134,18 +99,18 @@ impl Disposition {
 pub fn verify_uses(
     output: &Output,
     invocation: &AnalysisInvocation,
-    specification: Option<&EmbeddingSpec>,
+    selected: Option<SelectedConsumption<'_>>,
     uses: &Rows<RetrievalEmbeddingUse>,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let Some(specification) = specification else {
+    let Some(selected) = selected else {
         if !uses.is_empty() {
             return Err(invalid("retrieval has unrequested vector uses"));
         }
         return Ok(());
     };
-    let spec = specification.configuration()?;
-    let mut winners = Winners::new(b);
+    let specification=selected.encoder;
+    let spec = selected.document.configuration(specification)?;
     let mut expected = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(b, "retrieval-unit-use-membership");
     for window in output.windows.iter().filter(|window| {
@@ -162,7 +127,7 @@ pub fn verify_uses(
         expected.insert(&mut charge, id)?;
         let row = need(uses, id)?;
         row.validate()?;
-        if row.specification != specification.id() {
+        if row.specification != specification.id() || row.document!=selected.document.id() {
             return Err(invalid("retrieval use changed selected specification"));
         }
         let bound = window
@@ -180,7 +145,9 @@ pub fn verify_uses(
         if window.availability==WindowAvailability::LexicalOnly && row.availability!=VectorAvailability::TokenLimit{return Err(invalid("oversized semantic window cannot admit a vector"));}
         match row.availability {
             VectorAvailability::Available => {
-                drop(winners.replay(&spec, window.text.as_str(), row.receipt()?)?);
+                let expected=Id::of(&value::FullValueKey{encoder:specification.id(),input:row.input});
+                let projection=Id::of(&embedding::projection::ProjectedValueKey{value:expected,definition:selected.projection.id()});
+                if row.value!=Some(expected)||row.projection!=Some(projection)||row.admitted_tokens.is_none_or(|n|n>2048||n>selected.document.max_tokens)||row.admitted_tokens!=window.tokens{return Err(invalid("retrieval canonical reference keys or complete token count differ"));}
             }
             VectorAvailability::TokenLimit
                 if row
@@ -208,8 +175,9 @@ pub struct ConsumptionData {
     pub output: Output,
     pub specifications: Rows<EmbeddingSpec>,
     pub services: Rows<ServiceConfiguration>,
-    pub analytic_uses: Rows<AnalysisEmbeddingUse>,
-    pub windows: Rows<TextWindow>,
+    pub documents: Rows<DocumentRecipe>,
+    pub projections: Rows<ProjectionDefinition>,
+    pub values: ValueIndex,
     pub sources: Rows<crate::domain::analysis::retrieval::InvocationSource>,
     pub parents: Rows<crate::domain::analysis::retrieval::AnalysisInput>,
 }
@@ -220,8 +188,7 @@ impl ConsumptionData {
             output: Output::new(b),
             specifications: Rows::new(b),
             services: Rows::new(b),
-            analytic_uses: Rows::new(b),
-            windows: Rows::new(b),
+            documents: Rows::new(b), projections: Rows::new(b),values:ValueIndex::new(b),
             sources: Rows::new(b),
             parents: Rows::new(b),
         }
@@ -232,8 +199,10 @@ impl ConsumptionData {
         r.extend([
             ValidationInput::of::<EmbeddingSpec>(&["id"]),
             ValidationInput::of::<ServiceConfiguration>(&["id"]),
-            ValidationInput::of::<AnalysisEmbeddingUse>(&["id"]),
-            ValidationInput::of::<TextWindow>(&["id"]),
+            ValidationInput::of::<DocumentRecipe>(&["id"]),
+            ValidationInput::of::<ProjectionDefinition>(&["id"]),
+            ValidationInput::of::<value::FullValue>(&["id"]).at_epoch(stages::PublicationBoundary::Retrieval),
+            ValidationInput::of::<ProjectedValue>(&["id"]).at_epoch(stages::PublicationBoundary::Retrieval),
             ValidationInput::of::<crate::domain::analysis::retrieval::InvocationSource>(&["id"]),
             ValidationInput::of::<crate::domain::analysis::retrieval::AnalysisInput>(&["id"]),
         ]);
@@ -244,7 +213,9 @@ impl ConsumptionData {
             return Ok(true);
         }
         macro_rules! row {($($f:ident:$ty:ty),*)=>{$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*};}
-        row!(specifications:EmbeddingSpec,services:ServiceConfiguration,analytic_uses:AnalysisEmbeddingUse,windows:TextWindow,sources:crate::domain::analysis::retrieval::InvocationSource,parents:crate::domain::analysis::retrieval::AnalysisInput);
+        row!(specifications:EmbeddingSpec,services:ServiceConfiguration,documents:DocumentRecipe,projections:ProjectionDefinition,sources:crate::domain::analysis::retrieval::InvocationSource,parents:crate::domain::analysis::retrieval::AnalysisInput);
+        if n==value::FullValue::NAME {for row in value::FullValue::decode(b)? {let encoder=self.selected_spec()?.clone();let policy=self.policy()?.clone();self.values.admit_full(&row,&encoder,&policy)?;}return Ok(true);}
+        if n==ProjectedValue::NAME {for row in ProjectedValue::decode(b)? {self.values.admit_projection(&row)?;}return Ok(true);}
         Ok(false)
     }
     pub fn visit_input(
@@ -269,6 +240,15 @@ impl ConsumptionData {
             return Err(invalid("retrieval service changed selected specification"));
         }
         Ok(spec)
+    }
+    pub fn document(&self)->Result<&DocumentRecipe,ModelError>{let service=self.services.iter().next().ok_or_else(||invalid("retrieval selected service absent"))?;need(&self.documents,service.document)}
+    pub fn policy(&self)->Result<&ProjectionDefinition,ModelError>{let service=self.services.iter().next().ok_or_else(||invalid("retrieval selected service absent"))?;need(&self.projections,service.projection)}
+    pub fn selected_consumption(&self)->Result<SelectedConsumption<'_>,ModelError>{Ok(SelectedConsumption{encoder:self.selected_spec()?,document:self.document()?,projection:self.policy()?})}
+    pub fn verify_canonical_uses(&self,uses:&Rows<RetrievalEmbeddingUse>)->Result<(),ModelError>{
+        if !self.render.selected()?.embedding_requested {if !uses.is_empty(){return Err(invalid("unrequested canonical retrieval uses"));}return Ok(());}
+        let selected=self.selected_consumption()?;
+        for row in uses.iter(){row.validate()?;if row.specification!=selected.encoder.id()||row.document!=selected.document.id(){return Err(invalid("retrieval canonical use changed recipes"));}if row.availability==VectorAvailability::Available{self.values.verify_use(row.specification,row.input,row.admitted_tokens.unwrap(),row.value.unwrap(),row.projection.unwrap(),selected.projection.id())?;}}
+        Ok(())
     }
     pub fn owns(&self, i: &AnalysisInvocation, f: &SearchWindow) -> bool {
         self.output
@@ -410,16 +390,6 @@ impl ConsumptionData {
         }
         let mut expected_sources = Rows::new(b);
         let mut expected_parents = Rows::new(b);
-        let mut winners = Winners::new(b);
-        // Earlier analytic rows participate in byte equality, not retrieval relevance or requirements.
-        for r in self.analytic_uses.iter() {
-            r.validate()?;
-            if r.availability == VectorAvailability::Available {
-                let spec = need(&self.specifications, r.specification)?.configuration()?;
-                let window = need(&self.windows, r.window)?;
-                drop(winners.replay(&spec, window.text.as_str(), r.receipt()?)?);
-            }
-        }
         for i in invocations.iter() {
             if i.definition != build::definition().1.id()
                 || i.subject.is_some()
@@ -466,48 +436,10 @@ impl ConsumptionData {
             if !selected {
                 continue;
             }
-            let specification = self.selected_spec()?;
-            let spec = specification.configuration()?;
-            for window in self.output.windows.iter().filter(|f| self.owns(i, f)) {
-                let key = RetrievalEmbeddingUseKey {
-                    invocation: i.id(),
-                    window: window.id(),
-                };
-                let id = Id::of(&key);
-                expected.insert(&mut charge, id)?;
-                let row = need(uses, id)?;
-                row.validate()?;
-                if row.specification != specification.id() {
-                    return Err(invalid("retrieval use changed selected specification"));
-                }
-                let bound = window
-                    .text
-                    .as_str()
-                    .len()
-                    .checked_mul(spec.document_template.matches("{text}").count())
-                    .and_then(|n| n.checked_add(spec.document_template.len()))
-                    .and_then(|n| n.checked_mul(2))
-                    .ok_or_else(|| invalid("retrieval request overflow"))?;
-                let _request = b.reserve("retrieval-consumption-request", bound)?;
-                if spec.document_text(window.text.as_str())!=window.input_text.as_str(){return Err(invalid("retrieval complete encoder input differs from selected processing"));}
-                if row.input != value::input_hash(&spec.document_text(window.text.as_str())) {
-                    return Err(invalid("retrieval input differs from completed window"));
-                }
-                if window.availability==WindowAvailability::LexicalOnly && row.availability!=VectorAvailability::TokenLimit{return Err(invalid("oversized semantic window cannot admit a vector"));}
-                match row.availability {
-                    VectorAvailability::Available => {
-                        drop(winners.replay(&spec, window.text.as_str(), row.receipt()?)?);
-                    }
-                    VectorAvailability::TokenLimit
-                        if row
-                            .admitted_tokens
-                            .is_none_or(|n| n <= 2048) =>
-                    {
-                        return Err(invalid("retrieval token refusal within selected cap"));
-                    }
-                    _ => {}
-                }
-            }
+            let mut frame_uses=Rows::new(b);
+            for row in uses.iter().filter(|r|r.invocation==i.id()){frame_uses.insert(row.clone())?;expected.insert(&mut charge,row.id())?;}
+            verify_uses(&self.output,i,Some(self.selected_consumption()?),&frame_uses,b)?;
+
         }
         if !expected_sources.same(&self.sources)
             || !expected_parents.same(&self.parents)
@@ -519,6 +451,7 @@ impl ConsumptionData {
                 "retrieval consumption domain missing or unexpected rows",
             ));
         }
+        self.verify_canonical_uses(uses)?;
         Ok(())
     }
 }
@@ -534,7 +467,7 @@ pub fn invariants() -> Vec<Invariant> {
     ]);
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 3,
+        revision: 4,
         name: "retrieval_embedding_consumption_and_winners",
         inputs,
         create: std::sync::Arc::new(|b| {
