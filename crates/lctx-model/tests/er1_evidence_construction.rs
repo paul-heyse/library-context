@@ -116,7 +116,7 @@ fn documentary_source_bindings_require_primary_originals_without_api_nomination(
         }
         assert!(!out.subjects.iter().any(|s|matches!(s,Subject::Member{..})));
         let mut erased=retrieval::build::build(&d,&b).unwrap();erased.bindings=Rows::new(&b);assert!(erased.verify_completion(&d,&b).is_err(),"original documentary evidence requires its Source binding");
-        let mut injected=retrieval::build::build(&d,&b).unwrap();let context=injected.parts.iter().find(|p|p.purpose==PartPurpose::Context).unwrap().clone();let window=injected.window_parts.iter().find(|w|w.part==context.id()).unwrap().window;
+        let mut injected=retrieval::build::build(&d,&b).unwrap();let context=injected.parts.iter().find(|p|p.purpose==PartPurpose::Context&&injected.window_parts.iter().any(|w|w.part==p.id())).unwrap().clone();let window=injected.window_parts.iter().find(|w|w.part==context.id()).unwrap().window;
         injected.bindings.insert(WindowBinding{window,part:context.id(),subject:Subject::Source{artifact:source.id()}.id(),basis:BindingBasis::Source,qualification:None}).unwrap();
         assert!(injected.verify_completion(&d,&b).is_err(),"title and heading context cannot nominate Source or API evidence");
     }

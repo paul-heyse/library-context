@@ -152,10 +152,10 @@ pub(super) fn parts(d:&Data,out:&mut Output,unit:Id<Unit>,b:&ResourceBudget)->Re
     let origin=need(&out.origins,owner.origin)?.clone();
     let text=need(&out.corpus,owner.corpus)?.text.as_str().to_owned();
     let scope=grain_scope(d,&origin)?.map(|s|out.subjects.insert(s)).transpose()?;
-    let anchors:Vec<_>=out.anchors.iter().filter(|a|a.unit==unit).map(|a|a.original).collect();
+    let mut anchors:Vec<_>=out.anchors.iter().filter(|a|a.unit==unit).collect();anchors.sort_by_key(|a|a.ordinal);
     let mut segments:Vec<(usize,usize,Option<Id<AnchorSource>>,Option<i64>,PartPurpose)>=vec![];
     let mut cursor=0;
-    for original in anchors {
+    for original in anchors.into_iter().map(|a|a.original) {
         let anchor=need(&out.anchor_sources,original)?;
         // Interpreted literal bytes are not the captured source spelling: retain its anchor but
         // do not fabricate a byte-wise identity map.
