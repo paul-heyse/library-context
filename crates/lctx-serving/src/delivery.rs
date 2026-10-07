@@ -242,7 +242,7 @@ mod tests {
     }
     #[test]
     fn evidence_demand_expands_only_actual_primary_member(){
-        let request=decode_request("search_evidence",r#"{"query":"call","page":{"evidence_demand":{"facets":["defaults"],"maximum_followups":2}}}"#,&ResourceLimits::default()).unwrap();
+        let request=decode_request("search_evidence",r#"{"query":"call","families":[],"page":{"evidence_demand":{"facets":["defaults"],"maximum_followups":2}}}"#,&ResourceLimits::default()).unwrap();
         let release=ReleaseIdentity{input:id(2),release:id(3),distribution:Name::new("package").unwrap(),version:Name::new("1").unwrap()};
         let mut scan=Scan{request:&request,map:PacketEvidenceMap{fields:vec![],omissions:vec![],ranked_continuation:Nullable(None),packing_policy:Name::new("test").unwrap()},followups:0,maximum_followups:2,libraries:std::collections::BTreeMap::from([(release.release,vec![Name::new("actual-domain").unwrap()])])};
         let window=serde_json::json!({"window":id::<retrieval::SearchWindow>(4),"member":id::<catalog::CatalogMember>(5),"analysis":id::<attribution::AnalysisContext>(6),"purpose":0,"text":"call","source_maps":[]});
@@ -262,7 +262,7 @@ mod packing_tests {
     fn id<T>(n:u8)->Id<T>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
     #[test]
     fn ranked_envelope_packing_preserves_next_undelivered_offset(){
-        let request=decode_request("search_evidence",r#"{"query":"fragment","page":{"size":3}}"#,&ResourceLimits::default()).unwrap();
+        let request=decode_request("search_evidence",r#"{"query":"fragment","families":[],"page":{"size":3}}"#,&ResourceLimits::default()).unwrap();
         let snapshot=SnapshotHandle{semantic:ContentHash::of(b"s"),realization:ContentHash::of(b"r"),database:DatabaseIdentity{namespace:Name::new("control").unwrap(),database:Name::new("packing").unwrap()}};
         let channels=ChannelState{lexical:true,vector:VectorChannel::Degraded{reason:Name::new("test").unwrap()}};
         let binding=crate::pagination::binding(&request,&snapshot,&channels,"search_evidence","results",None).unwrap();

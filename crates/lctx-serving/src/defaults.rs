@@ -9,7 +9,7 @@ fn partial(reason:&str)->Result<Availability,ModelError> { Ok(Availability::Part
 fn scalar(value:&value::Literal)->Result<Option<String>,ModelError> {
     Ok(match value {
         value::Literal::None=>Some("None".into()), value::Literal::Bool{value}=>Some(if *value{"True"}else{"False"}.into()),
-        value::Literal::Integer{decimal}=>Some(decimal.clone()), value::Literal::String{value}=>Some(serde_json::to_string(value).map_err(ModelError::codec)?),
+        value::Literal::Integer{decimal}=>Some(decimal.clone()), value::Literal::String{value}=>Some(serde_json::to_string(value.as_str()).map_err(ModelError::codec)?),
         value::Literal::Bytes{value}=>Some(format!("bytes(hex={})",hex::encode(&value.0))),
         value::Literal::Float{bits}=>{let v=f64::from_bits(*bits as u64); if v.is_finite(){Some(format!("{v} (IEEE754 bits={:016x})",*bits as u64))}else{None}},
     })
@@ -191,6 +191,9 @@ mod tests {
     fn scalar_meanings_preserve_none_string_and_nonfinite_uncertainty(){
         assert_eq!(scalar(&value::Literal::None).unwrap(),Some("None".into()));
         assert_eq!(scalar(&value::Literal::String{value:"None\nquoted".into()}).unwrap(),Some("\"None\\nquoted\"".into()));
+        assert_eq!(scalar(&value::Literal::String{value:"α\"".into()}).unwrap(),Some("\"α\\\"\"".into()));
+        assert!(serde_json::from_str::<Utf8Text>("[255]").is_err(),"invalid UTF8 cannot become a readable string literal");
+        assert_eq!(scalar(&value::Literal::Bytes{value:EvidenceBytes(vec![255])}).unwrap(),Some("bytes(hex=ff)".into()));
         assert_eq!(scalar(&value::Literal::Float{bits:f64::NAN.to_bits() as i64}).unwrap(),None);
         assert_eq!(scalar(&value::Literal::Bool{value:false}).unwrap(),Some("False".into()));
     }
