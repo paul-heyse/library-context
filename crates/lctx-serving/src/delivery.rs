@@ -149,6 +149,26 @@ fn optional_bundle(request:&Request,response:&mut Response)->Result<bool,WireErr
     macro_rules! remove {($($field:ident),*)=>{match selected{$(stringify!($field)=>omit(&mut packet.$field,request.page().expanded)?,)*_=>unreachable!()}};}
     remove!(access_routes,callable_comparison,contextual_typing,incoming_references,scenarios,deployment,relationships,conflicts,briefs,behavior);Ok(true)
 }
+fn ranked_tail(request:&Request,response:&mut Response)->Result<bool,WireError>{
+    fn trim<T>(page:&mut SectionPage<T>,ranking:&mut Vec<ranking::RankedHit>,extent:&mut SelectionExtent,request:&Request,snapshot:&SnapshotHandle,channels:&ChannelState)->Result<bool,WireError>{
+        if page.items.len()!=ranking.len(){return Err(WireError::Invalid("ranked delivery rows/witnesses mismatch".into()));}
+        if page.items.len()<=1{return Ok(false);}
+        let token=page.continuation.0.as_ref().ok_or_else(||WireError::Continuation("retained ranked continuation required for delivery packing".into()))?;
+        let expected=crate::pagination::binding(request,snapshot,channels,request.tool().name(),"results",None)?;
+        let mut cursor=Cursor::decode(token,&expected)?;
+        let CursorPosition::Ranked{offset,..}=&mut cursor.after else{return Err(WireError::Continuation("ranked packing cursor required".into()));};
+        *offset=offset.checked_sub(1).ok_or_else(||WireError::Continuation("ranked packing offset underflow".into()))?;
+        page.omitted=page.omitted.checked_add(1).ok_or_else(||WireError::Invalid("ranked omission overflow".into()))?;
+        page.items.pop();ranking.pop();page.truncated=true;page.continuation=Optional::supplied(cursor.encode()?);
+        *extent=SelectionExtent::Ranked{returned:page.items.len() as u64};Ok(true)
+    }
+    match response {
+        Response::SearchOperations(r)=>trim(&mut r.results,&mut r.ranking,&mut r.extent,request,&r.snapshot,&r.channels),
+        Response::SearchEvidence(r)=>trim(&mut r.results,&mut r.ranking,&mut r.extent,request,&r.snapshot,&r.channels),
+        Response::SearchCapabilities(r)=>trim(&mut r.results,&mut r.ranking,&mut r.extent,request,&r.snapshot,&r.channels),
+        _=>Ok(false),
+    }
+}
 /// Shared fresh/resumed-page entry point. Core/signatures/interpretation are never pruned.
 /// The actual Python transport additionally admits the complete JSON-RPC envelope and metadata.
 pub fn finalize(request:&Request,response:&mut Response)->Result<(),WireError>{
@@ -160,7 +180,7 @@ pub fn finalize(request:&Request,response:&mut Response)->Result<(),WireError>{
         *response.delivery_mut()=Optional::default();
         let map=evidence_map(request,response)?;*response.delivery_mut()=Optional::supplied(map);
         if response.mcp_result_len()?<=limit{return Ok(());}
-        if !optional_bundle(request,response)?{return Err(WireError::ResourceRefused("indivisible core/closure or demanded bundle exceeds final envelope".into()));}
+        if !optional_bundle(request,response)?&&!ranked_tail(request,response)?{return Err(WireError::ResourceRefused("indivisible core/closure or demanded bundle exceeds final envelope".into()));}
     }
 }
 #[cfg(test)]
@@ -202,5 +222,30 @@ mod tests {
     fn field_interpretation_never_invents_signature() {
         let map=scan(&request(),serde_json::json!({"field":id::<normalized::entities::FieldEntity>(7),"analysis":id::<attribution::AnalysisContext>(6),"signature":null,"variant":null,"parameter":null,"subject_name":"limit","readable":"8"})).unwrap();
         let field=map.fields.iter().find(|v|v.field.as_str().ends_with("/readable")).unwrap();assert_eq!(field.binding.field.0,Some(id(7)));assert!(field.binding.signature.0.is_none());assert!(field.binding.variant.0.is_none());
+    }
+}
+#[cfg(test)]
+mod packing_tests {
+    use super::*;
+    fn id<T>(n:u8)->Id<T>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+    #[test]
+    fn ranked_envelope_packing_preserves_next_undelivered_offset(){
+        let request=decode_request("search_evidence",r#"{"query":"fragment","page":{"size":3}}"#,&ResourceLimits::default()).unwrap();
+        let snapshot=SnapshotHandle{semantic:ContentHash::of(b"s"),realization:ContentHash::of(b"r"),database:DatabaseIdentity{namespace:Name::new("control").unwrap(),database:Name::new("packing").unwrap()}};
+        let channels=ChannelState{lexical:true,vector:VectorChannel::Degraded{reason:Name::new("test").unwrap()}};
+        let binding=crate::pagination::binding(&request,&snapshot,&channels,"search_evidence","results",None).unwrap();
+        let cursor=Cursor{binding:binding.clone(),after:CursorPosition::Ranked{session:ContentHash::of(b"session"),result:ContentHash::of(b"result"),digest:ContentHash::of(b"digest"),offset:3}};
+        let mut items=vec![];let mut rankings=vec![];
+        for n in 1..=3 {
+            let unit=id(n);let analysis=id(n);
+            items.push(EvidenceHit{unit,family:retrieval::Family::Source,title:Name::new("original").unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![DeliveredWindow{window:id(n),part:id(n),analysis,binding:Nullable(None),subject:Nullable(None),basis:Nullable(None),qualification:Nullable(None),text:Text::new("x".repeat(18000)).unwrap(),source_maps:vec![]}],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::Unavailable{reason:Name::new("opaque").unwrap()}}});
+            rankings.push(ranking::RankedHit{target:ranking::Target::Unit{unit},context:analysis,score:1.0/f64::from(n),promoted:false,witnesses:vec![]});
+        }
+        let mut response=Response::SearchEvidence(SearchEvidenceResponse{snapshot,delivery:Optional::default(),domains:vec![],results:SectionPage{availability:Availability::Available{},items,continuation:Optional::supplied(cursor.encode().unwrap()),omitted:0,truncated:false},channels,extent:SelectionExtent::Ranked{returned:3},ranking:rankings});
+        finalize(&request,&mut response).unwrap();assert!(response.mcp_result_len().unwrap()<=ResourceLimits::default().response_bytes(false) as usize-1024);
+        let Response::SearchEvidence(r)=response else{panic!("route")};assert_eq!(r.results.items.len(),1);assert_eq!(r.ranking.len(),1);assert_eq!(r.results.omitted,2);assert!(r.results.truncated);
+        let next=Cursor::decode(r.results.continuation.0.as_ref().unwrap(),&binding).unwrap();
+        assert!(matches!(next.after,CursorPosition::Ranked{session,result,digest,offset:1} if session==ContentHash::of(b"session")&&result==ContentHash::of(b"result")&&digest==ContentHash::of(b"digest")));
+        assert!(r.delivery.0.unwrap().fields.iter().all(|f|!f.field.as_str().contains("/items/1/")));
     }
 }
