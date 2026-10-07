@@ -28,8 +28,8 @@ fn spec() -> Spec {
     r.document_template = "prefix: {text}".into();
     r
 }
-fn fixture(
-    selected: bool,
+fn fixture_text(
+    selected: bool, text:&[u8],
 ) -> (
     ResourceBudget,
     ConsumptionData,
@@ -43,7 +43,6 @@ fn fixture(
         .definitions
         .insert(Definition::builtin(selected))
         .unwrap();
-    let text = b"canonical same source";
     let a = lctx_model::domain::source::SourceArtifact::from_bytes(id(1), "guide.md".into(), text)
         .unwrap();
     d.render.source.core.artifacts.insert(a.clone()).unwrap();
@@ -209,6 +208,7 @@ fn fixture(
     }
     (b, d, i, specification)
 }
+fn fixture(selected:bool)->(ResourceBudget,ConsumptionData,AnalysisInvocation,EmbeddingSpec){fixture_text(selected,b"canonical same source")}
 fn frames(
     d: &ConsumptionData,
     i: &AnalysisInvocation,
@@ -254,7 +254,11 @@ fn request_recipe_reference_token_and_consumption_erasure_refuse(){
 }
 #[test]
 fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_completed(){
-    for selected in [false,true]{let(b,d,i,specification)=fixture(selected);let window=d.output.windows.iter().next().unwrap();for(availability,tokens)in[(VectorAvailability::ServiceUnavailable,None),(VectorAvailability::TokenLimit,Some(2049))]{let mut uses=Rows::new(&b);if selected{uses.insert(RetrievalEmbeddingUse{invocation:i.id(),window:window.id(),specification:specification.id(),document:d.document().unwrap().id(),input:window.encoded_digest,availability,admitted_tokens:tokens,value:None,projection:None}).unwrap();}let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();assert_eq!(outcomes.iter().next().unwrap().status,if selected{analysis::AnalysisStatus::Partial}else{analysis::AnalysisStatus::Completed});assert_eq!(d.output.units.len(),1);}}
+    for selected in [false,true]{for availability in [VectorAvailability::ServiceUnavailable,VectorAvailability::TokenLimit]{
+        let oversized=vec![b'z';3000];let(b,d,i,specification)=if availability==VectorAvailability::TokenLimit{fixture_text(selected,&oversized)}else{fixture(selected)};
+        let window=d.output.windows.iter().next().unwrap();let mut uses=Rows::new(&b);if selected{uses.insert(RetrievalEmbeddingUse{invocation:i.id(),window:window.id(),specification:specification.id(),document:d.document().unwrap().id(),input:window.encoded_digest,availability,admitted_tokens:if availability==VectorAvailability::TokenLimit{window.tokens}else{None},value:None,projection:None}).unwrap();}
+        let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();assert_eq!(outcomes.iter().next().unwrap().status,if selected{analysis::AnalysisStatus::Partial}else{analysis::AnalysisStatus::Completed});assert_eq!(d.output.units.len(),1);
+    }}
 }
 #[test]
 fn foreign_encoder_and_tiny_budget_refuse_reference_publication(){

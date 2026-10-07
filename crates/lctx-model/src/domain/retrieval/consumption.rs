@@ -152,7 +152,7 @@ pub fn verify_uses(
             VectorAvailability::TokenLimit
                 if row
                     .admitted_tokens
-                    .is_none_or(|n| n <= 2048) =>
+                    .is_none_or(|n| n <= 2048) || row.admitted_tokens!=window.tokens =>
             {
                 return Err(invalid("retrieval token refusal within selected cap"));
             }
