@@ -249,7 +249,11 @@ async def capture_public_journey(
         if any(following_facts[key] != facts[key] for key in ("semantic_snapshot", "native_realization", "database_identity")):
             entry["status"] = "stale"
             break
-        part = {**observation, "segments": [following]}
+        # Observe decodes one exact packet against its own actual public origin.
+        # Keep the complete journey in observation; the isolated discovery view
+        # must not inherit the initial search call for a later operation packet.
+        part = {**observation, "segments": [following], "expansions": [],
+                "capture": {**following_facts, "serialization": facts["serialization"], "calls": [public]}}
         try:
             queue.extend((reference, public) for reference in worker.request({"operation": "observe", "observation": part})["public_references"])
         except WorkerError:

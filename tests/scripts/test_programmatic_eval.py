@@ -408,6 +408,53 @@ def test_cursor_replays_actual_public_origin_without_private_expectations():
     assert _continuation_projection(fresh, origin) == fresh
 
 
+@pytest.mark.anyio
+async def test_python_followup_discovery_keeps_each_actual_public_origin(monkeypatch):
+    """Source-only orchestration control; stubs establish no Rust/native acceptance."""
+    import sys
+    from types import SimpleNamespace
+    import programmatic_eval as runner
+    initial = {"tool": "search_operations", "arguments": {"library": "controlled", "query": "connect"}}
+    following = {"tool": "get_operation", "arguments": {"library": "controlled", "operation": {"kind": "member", "member": [1] * 16}}}
+    task = {"public_call": initial, "request": {"allowed_followups": ["get_operation"]},
+            "envelope": {"max_calls": 2, "max_bytes": 32768}}
+    monkeypatch.setitem(sys.modules, "lctx_semantics", SimpleNamespace(wire_decode=lambda *_args: None))
+    monkeypatch.setattr(runner, "_public_projection", lambda value: copy.deepcopy(value["public_call"]))
+    def facts(_task, _raw, calls, lane, timeout):
+        return {"lane": lane, "semantic_snapshot": "fixed-source", "native_realization": "fixed-native",
+                "database_identity": "fixed-database", "serialization": "rust_renderer_result",
+                "wire_identity": "fixed-wire", "calls": calls, "timeout_millis": timeout,
+                "call_limit": 3, "byte_limit": 32768, "precision": "not_requested"}
+    monkeypatch.setattr(runner, "_capture_facts", facts)
+    inspected = []
+    class RoutingWorker:
+        def request(self, request):
+            assert request["operation"] == "observe"
+            packet = copy.deepcopy(request["observation"])
+            inspected.append(packet)
+            if len(inspected) == 1:
+                assert packet["capture"]["calls"] == [initial]
+                return {"public_references": [json.dumps(following)]}
+            assert packet["capture"]["calls"] == [following]
+            assert packet["expansions"] == []
+            assert packet["capture"]["serialization"] == "sdk_result_object"
+            assert json.loads(packet["segments"][0])["captured_tool"] == "get_operation"
+            return {"public_references": []}
+    class Result:
+        def __init__(self, tool):
+            self.tool = tool
+        def model_dump_json(self, **_kwargs):
+            return json.dumps({"isError": False, "captured_tool": self.tool})
+    class SourceClient:
+        async def call_tool_mcp(self, tool, _arguments, **_kwargs):
+            return Result(tool)
+    observed = await runner.capture_public_journey(RoutingWorker(), SourceClient(), task, lane="renderer")
+    assert observed["status"] == "completed"
+    assert observed["capture"]["calls"] == [initial, following]
+    assert len(observed["segments"]) == 2 and len(observed["expansions"]) == 1
+    assert len(inspected) == 2
+
+
 def test_actual_capture_freeze_binds_source_native_wire_budget_precision(worker):
     from programmatic_eval import capture_renderer
     task, response = renderer_source_case()
