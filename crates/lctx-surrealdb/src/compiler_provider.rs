@@ -61,17 +61,26 @@ impl TableProvider for NativeTable {
     }
     async fn scan(&self,_state:&dyn Session,projection:Option<&Vec<usize>>,filters:&[Expr],_limit:Option<usize>)->datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         let schema=match projection {Some(projection)=>Arc::new(self.schema().project(projection)?),None=>self.schema()};
-        let mut bindings=Variables::new(); let mut predicates=Vec::new();
+        let mut bindings=Variables::new(); let mut predicates=Vec::new();let mut preparation=Vec::new();let mut driver=None;
         for (index,filter) in filters.iter().enumerate() {
             if let Some(mut translated)=translate(filter,&self.relation) {
+                if driver.is_none(){driver=translated.driver.take();}
                 // Every translated predicate uses its own value names.
                 let prefix=format!("f{index}_");
                 for (name,value) in translated.values {bindings.insert(format!("{prefix}{name}"),value);}
-                for name in translated.names.into_iter().rev() {translated.sql=translated.sql.replace(&format!("${name}"),&format!("${prefix}{name}"));}
+                for name in translated.names.into_iter().rev() {
+                    translated.sql=translated.sql.replace(&format!("${name}"),&format!("${prefix}{name}"));
+                    for statement in &mut translated.preparation {*statement=statement.replace(&format!("${name}"),&format!("${prefix}{name}"));}
+                }
+                preparation.extend(translated.preparation);
                 predicates.push(format!("({})",translated.sql));
             }
         }
-        let predicate=(!predicates.is_empty()).then(||NativePredicate::Sql{sql:predicates.join(" AND "),bindings});
+        let predicate=(!predicates.is_empty()).then(||{
+            let sql=predicates.join(" AND ");
+            if self.keys.is_empty() && let Some((field,values))=driver {NativePredicate::FieldSql{field,values,sql,bindings,preparation}}
+            else{NativePredicate::Sql{sql,bindings,preparation}}
+        });
         let partition=Arc::new(NativePartition {store:self.store.clone(),view:self.view.clone(),relation:self.relation.clone(),projection:projection.cloned(),schema:schema.clone(),predicate,keys:self.keys.clone(),budget:self.budget.clone(),batch_rows:self.batch_rows});
         // The partition already projects natively. Never layer a rich full-schema read under it.
         let statistics=Arc::new(row_statistics(&schema,self.view.rows,&self.keys,!filters.is_empty()));
@@ -127,7 +136,7 @@ fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:R
             let end=if keys[driver].field.is_some(){keys[driver].keys.len()}else{offset.saturating_add(TRANSFER_ROWS).min(keys[driver].keys.len())};
             let field_keys=keys.iter().filter(|selection|selection.field.is_some()).map(|selection|selection.keys.len()).sum::<usize>();
             let transfer=budget.reserve("native-selected-key-transfer",(end-offset).saturating_mul(192).saturating_add(field_keys.saturating_mul(1536)).saturating_add(4096)).map_err(df_error)?;
-            let mut bindings=Variables::new();let mut predicates=Vec::new();let mut nominal=None;let mut field_driver=None;
+            let mut bindings=Variables::new();let mut predicates=Vec::new();let mut preparation=Vec::new();let mut nominal=None;let mut field_driver=None;
             let mut empty=keys.iter().any(|selection|selection.keys.is_empty());
             if keys[driver].field.is_none(){
                 let selected=keys[driver].keys[offset..end].iter().filter(|key|keys.iter().filter(|selection|selection.field.is_none()).all(|selection|selection.keys.binary_search(key).is_ok())).copied().collect::<Vec<_>>();
@@ -139,16 +148,18 @@ fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:R
                 let values=selection.keys.iter().map(|key|Value::Array(key.iter().map(|byte|Value::Number(Number::Int(i64::from(*byte)))).collect())).collect::<Vec<_>>();
                 if index==driver {field_driver=Some((field.to_string(),values));continue;}
                 bindings.insert(name.clone(),values);
-                predicates.push(format!("scope_keys CONTAINSANY ${name}.map(|$value| '{}|{field}|'+<string>$value)",relation.name()));
+                let scope=format!("closure_selected_scope_{index}");
+                preparation.push(format!("LET ${scope} = ${name}.map(|$value| '{}|{field}|'+<string>$value)",relation.name()));
+                predicates.push(format!("scope_keys CONTAINSANY ${scope}"));
             }
             match predicate {
-                Some(NativePredicate::Sql{sql,bindings:static_bindings})=>{bindings.extend(static_bindings);predicates.push(format!("({sql})"));},
+                Some(NativePredicate::Sql{sql,bindings:static_bindings,preparation:static_preparation})=>{bindings.extend(static_bindings);preparation.extend(static_preparation);predicates.push(format!("({sql})"));},
                 None=>{},
                 _=>return Err(df_error(ModelError::Schema("native table static predicate"))),
             }
             let sql=if predicates.is_empty(){"true".into()}else{predicates.join(" AND ")};
             // Even empty demand checks the exact view/pin through the ordinary native reader.
-            let predicate=if empty {NativePredicate::Keys(vec![])}else if let Some(keys)=nominal {NativePredicate::KeysSql{keys,sql,bindings}}else if let Some((field,values))=field_driver {NativePredicate::FieldSql{field,values,sql,bindings}}else{return Err(df_error(ModelError::Schema("native selected driver")));};
+            let predicate=if empty {NativePredicate::Keys(vec![])}else if let Some(keys)=nominal {NativePredicate::KeysSql{keys,sql,bindings,preparation}}else if let Some((field,values))=field_driver {NativePredicate::FieldSql{field,values,sql,bindings,preparation}}else{return Err(df_error(ModelError::Schema("native selected driver")));};
             let rows=scan_batches(store,view,relation,projection,Some(predicate),budget,batch_rows).await.map_err(df_error)?;
             let rows=rows.map(move |batch|{let _held=&transfer;batch});
             Ok(Some((rows,(end,end==keys[driver].keys.len()))))
@@ -184,7 +195,7 @@ pub async fn scan_batches(store:Arc<NativeCompilerStore>,view:CompletedView,rela
     Ok(Box::pin(RecordBatchStreamAdapter::new(schema,stream)))
 }
 fn df_error(error:ModelError)->datafusion::error::DataFusionError {datafusion::error::DataFusionError::External(Box::new(error))}
-struct Predicate {sql:String,values:Vec<(String,Value)>,names:Vec<String>}
+struct Predicate {sql:String,values:Vec<(String,Value)>,names:Vec<String>,preparation:Vec<String>,driver:Option<(String,Vec<Value>)>}
 fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
     fn field(expr:&Expr,relation:&Relation)->Option<String>{
         let Expr::Column(column)=expr else{return None;};
@@ -205,11 +216,32 @@ fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
             _=>return None,
         })
     }
-    fn walk(expr:&Expr,relation:&Relation,values:&mut Vec<(String,Value)>)->Option<String>{
+    // Only a mandatory conjunct can narrow the candidate universe independently of the full
+    // residual expression. An OR branch alone cannot establish an exact atomic field demand.
+    fn driver(expr:&Expr,relation:&Relation)->Option<(String,Vec<Value>)>{
+        match expr {
+            Expr::BinaryExpr(binary) if binary.op==Operator::And=>driver(&binary.left,relation).or_else(||driver(&binary.right,relation)),
+            Expr::BinaryExpr(binary) if binary.op==Operator::Eq=>{
+                field(&binary.left,relation)?;
+                let Expr::Column(column)=binary.left.as_ref() else{return None;};
+                if !crate::schema::atomic_scope_fields().contains(column.name.as_str()){return None;}
+                Some((column.name.clone(),vec![literal(&binary.right,false)?]))
+            },
+            Expr::InList(list) if !list.negated=>{
+                field(&list.expr,relation)?;
+                let Expr::Column(column)=list.expr.as_ref() else{return None;};
+                if !crate::schema::atomic_scope_fields().contains(column.name.as_str()){return None;}
+                let values=list.list.iter().map(|value|literal(value,false)).collect::<Option<Vec<_>>>()?;
+                Some((column.name.clone(),values))
+            },
+            _=>None,
+        }
+    }
+    fn walk(expr:&Expr,relation:&Relation,values:&mut Vec<(String,Value)>,preparation:&mut Vec<String>)->Option<String>{
         let mut bind=|value|{let name=format!("v{}",values.len());values.push((name.clone(),value));format!("${name}")};
         match expr {
             Expr::BinaryExpr(binary) if matches!(binary.op,Operator::And|Operator::Or)=>{
-                let left=walk(&binary.left,relation,values)?;let right=walk(&binary.right,relation,values)?;
+                let left=walk(&binary.left,relation,values,preparation)?;let right=walk(&binary.right,relation,values,preparation)?;
                 Some(format!("({left}) {} ({right})",if binary.op==Operator::And{"AND"}else{"OR"}))
             }
             Expr::BinaryExpr(binary) if matches!(binary.op,Operator::Eq|Operator::NotEq|Operator::Lt|Operator::LtEq|Operator::Gt|Operator::GtEq)=>{
@@ -218,7 +250,9 @@ fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
                 if binary.op==Operator::Eq && column.starts_with("body.") {
                     let Expr::Column(field)=binary.left.as_ref() else{return None;};
                     if crate::schema::atomic_scope_fields().contains(field.name.as_str()) {
-                        return Some(format!("scope_keys CONTAINS ('{}|{}|'+<string>{bound})",relation.name(),field.name));
+                        let scope=format!("scope{}",preparation.len());
+                        preparation.push(format!("LET ${scope} = '{}|{}|'+<string>{bound}",relation.name(),field.name));
+                        return Some(format!("scope_keys CONTAINS ${scope}"));
                     }
                 }
                 Some(format!("({column} IS NOT NULL AND {column} IS NOT NONE AND {column} {} {bound})",binary.op))
@@ -229,7 +263,12 @@ fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
                 if column.starts_with("body.") {
                     let Expr::Column(field)=list.expr.as_ref() else{return None;};
                     if crate::schema::atomic_scope_fields().contains(field.name.as_str()) {
-                        let predicates=items.into_iter().map(|item|format!("scope_keys CONTAINS ('{}|{}|'+<string>{})",relation.name(),field.name,bind(item))).collect::<Vec<_>>();
+                        let predicates=items.chunks(32).map(|window|{
+                            let bound=bind(Value::Array(window.to_vec().into()));
+                            let scope=format!("scope{}",preparation.len());
+                            preparation.push(format!("LET ${scope} = {bound}.map(|$value| '{}|{}|'+<string>$value)",relation.name(),field.name));
+                            format!("scope_keys CONTAINSANY ${scope}")
+                        }).collect::<Vec<_>>();
                         return Some(if predicates.is_empty(){"false".into()}else{format!("({})",predicates.join(" OR "))});
                     }
                 }
@@ -240,7 +279,9 @@ fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
             _=>None,
         }
     }
-    let mut values=Vec::new();let sql=walk(expr,relation,&mut values)?;let names=values.iter().map(|(name,_)|name.clone()).collect();Some(Predicate{sql,values,names})
+    let mut values=Vec::new();let mut preparation=Vec::new();let sql=walk(expr,relation,&mut values,&mut preparation)?;
+    let names=values.iter().map(|(name,_)|name.clone()).chain((0..preparation.len()).map(|index|format!("scope{index}"))).collect();
+    Some(Predicate{sql,values,names,preparation,driver:driver(expr,relation)})
 }
 
 #[cfg(test)]

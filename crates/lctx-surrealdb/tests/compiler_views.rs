@@ -324,17 +324,26 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
 
     nominal_keys.sort_unstable();
     nominal_keys.dedup();
-    for (table_name,field_selection) in [("nominal_selected",false),("field_selected",true)] {
+    let mut expected_all=releases[..600].to_vec();expected_all.sort_by_key(Record::id);
+    let package_list=packages[10..175].iter().chain(std::iter::once(&missing_package)).map(|package|format!("X'{}'",package.id().hex())).collect::<Vec<_>>().join(",");
+    for (table_name,field_selection) in [("nominal_selected",Some(false)),("field_selected",Some(true)),("all_frozen",None)] {
         let provider=store.table_provider(&frozen,relation.clone(),budget.clone(),37).unwrap();
         let charge=Arc::new(lctx_model::domain::charged::StateCharge::new(&budget,"selected-release-fixture"));
-        let provider=if field_selection {
-            select_field_table(&provider,"package",Arc::new(field_keys.clone()),charge).unwrap().unwrap()
-        } else {
-            select_table(&provider,Arc::new(nominal_keys.clone()),charge).unwrap().unwrap()
+        let provider=match field_selection {
+            Some(true)=>select_field_table(&provider,"package",Arc::new(field_keys.clone()),charge).unwrap().unwrap(),
+            Some(false)=>select_table(&provider,Arc::new(nominal_keys.clone()),charge).unwrap().unwrap(),
+            None=>provider,
         };
         let session=datafusion::prelude::SessionContext::new();
         session.register_table(table_name,provider).unwrap();
-        let batches=session.sql(&format!("SELECT id, version FROM {table_name} WHERE version = '2'")).await.unwrap().collect().await.unwrap();
+        let source=match field_selection {Some(true)=>&expected_fields,Some(false)=>&expected_keys,None=>&expected_all};
+        let cases=[
+            ("version = '2'".to_string(),source.iter().filter(|row|row.version=="2").collect::<Vec<_>>()),
+            (format!("package IN ({package_list}) AND version = '2'"),source.iter().filter(|row|row.version=="2" && packages[10..175].iter().any(|package|package.id()==row.package)).collect()),
+            (format!("(package = X'{}' AND version = '2') OR (package = X'{}' AND version = '3')",packages[11].id().hex(),packages[14].id().hex()),source.iter().filter(|row|(row.package==packages[11].id()&&row.version=="2")||(row.package==packages[14].id()&&row.version=="3")).collect()),
+        ];
+        for (predicate,expected) in cases {
+        let batches=session.sql(&format!("SELECT id, version FROM {table_name} WHERE {predicate}")).await.unwrap().collect().await.unwrap();
         let mut observed=Vec::new();
         for batch in batches {
             assert_eq!(batch.schema().fields().iter().map(|field|field.name().as_str()).collect::<Vec<_>>(),vec!["id","version"]);
@@ -342,8 +351,9 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
             let versions=batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
             for index in 0..batch.num_rows(){observed.push((ids.value(index).to_vec(),versions.value(index).to_owned()));}
         }
-        let expected=if field_selection {&expected_fields}else{&expected_keys}.iter().filter(|row|row.version=="2").map(|row|(row.id().bytes().to_vec(),row.version.clone())).collect::<Vec<_>>();
+        let expected=expected.into_iter().map(|row|(row.id().bytes().to_vec(),row.version.clone())).collect::<Vec<_>>();
         assert_eq!(observed,expected,"projected {table_name} retains exact membership, static filtering and unique sorted output");
+        }
     }
     store.abandon().await.unwrap();
 }

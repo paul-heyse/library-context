@@ -12,11 +12,11 @@ use tokio::sync::Notify;
 #[derive(Clone)]
 pub enum NativePredicate {
     Keys(Vec<[u8;16]>),
-    KeysSql { keys: Vec<[u8;16]>, sql: String, bindings: Variables },
-    FieldSql { field: String, values: Vec<Value>, sql: String, bindings: Variables },
+    KeysSql { keys: Vec<[u8;16]>, sql: String, bindings: Variables, preparation: Vec<String> },
+    FieldSql { field: String, values: Vec<Value>, sql: String, bindings: Variables, preparation: Vec<String> },
     Field { field: String, values: Vec<Value> },
     /// SQL comes only from the finite operation/physical planner; all values remain bindings.
-    Sql { sql: String, bindings: Variables },
+    Sql { sql: String, bindings: Variables, preparation: Vec<String> },
 }
 
 pub struct NativeCompilerStore {
@@ -166,12 +166,13 @@ impl NativeCompilerStore {
         let lease=OperationLease{owner:self.admission.clone(),scan:true,finished:false};
         Ok(CompilerRows{rows:Some(rows),selection:None,store:self.clone(),lease:Some(lease)})
     }
-    fn track_selection(self:&Arc<Self>,keys:SelectionKeys,view:&CompletedView,relation:&Relation,fields:String,predicate:String,bindings:Variables)->Result<CompilerRows,ModelError>{
+    #[allow(clippy::too_many_arguments,reason="A selected stream retains its exact view, projected fields, bound predicate and compact preparation")]
+    fn track_selection(self:&Arc<Self>,keys:SelectionKeys,view:&CompletedView,relation:&Relation,fields:String,predicate:String,bindings:Variables,preparation:Vec<String>)->Result<CompilerRows,ModelError>{
         let owners=self.view_owners(view)?;
         let mut state=self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?;
         state.active=state.active.checked_add(1).ok_or(ModelError::Schema("native operation count"))?;state.scans+=1;
         let lease=OperationLease{owner:self.admission.clone(),scan:true,finished:false};
-        let selection=SelectedRows{keys,owners,relation:relation.name().into(),fields,predicate,bindings,store:self.clone(),lookup:None,payload:None,pending_keys:Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS)};
+        let selection=SelectedRows{keys,owners,relation:relation.name().into(),fields,predicate,bindings,preparation,store:self.clone(),lookup:None,payload:None,pending_keys:Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS)};
         Ok(CompilerRows{rows:None,selection:Some(Box::new(selection)),store:self.clone(),lease:Some(lease)})
     }
     async fn wait_operations(&self,scans_only:bool)->Result<(),ModelError>{
@@ -724,25 +725,27 @@ impl NativeCompilerStore {
         let empty=match &predicate {None=>view.rows==0,Some(NativePredicate::Keys(keys)|NativePredicate::KeysSql{keys,..})=>keys.is_empty(),Some(NativePredicate::Field{values,..}|NativePredicate::FieldSql{values,..})=>values.is_empty(),Some(NativePredicate::Sql{..})=>false};
         let mut explicit_keys=None;
         let mut atomic_field=None;
+        let mut preparation=Vec::new();
         let predicate=match predicate {
             None=>"true".into(),
             Some(NativePredicate::Keys(keys))=>{explicit_keys=Some(keys);"true".into()},
-            Some(NativePredicate::KeysSql{keys,sql,bindings})=>{explicit_keys=Some(keys);b.extend(bindings);sql},
+            Some(NativePredicate::KeysSql{keys,sql,bindings,preparation:prepared})=>{explicit_keys=Some(keys);b.extend(bindings);preparation=prepared;sql},
             Some(NativePredicate::Field{field,values})=>{
                 if !relation.fields().iter().any(|f|f.name()==field) {return Err(ModelError::Conflict("native selected field"));}
                 if relation.name()==d::artifact::ArtifactChunk::NAME && field=="body" {return Err(ModelError::Conflict("original bytes are hydrated after native selection"));}
                 let atomic=crate::schema::atomic_scope_fields().contains(field.as_str()) && !values.iter().any(|value|matches!(value,Value::Null|Value::None));
                 if atomic {atomic_field=Some((field.clone(),values.clone()));}
                 b.insert("values",values);
-                if atomic {b.insert("scope_prefix",format!("{}|{field}|",relation.name()));"scope_keys CONTAINSANY $values.map(|$value| $scope_prefix + <string>$value)".into()}
+                if atomic {b.insert("scope_prefix",format!("{}|{field}|",relation.name()));preparation.push("LET $__compiler_scope_filter = $values.map(|$value| $scope_prefix + <string>$value)".into());"scope_keys CONTAINSANY $__compiler_scope_filter".into()}
                 else {format!("body.`{field}` IN $values")}
             },
-            Some(NativePredicate::FieldSql{field,values,sql,bindings})=>{
+            Some(NativePredicate::FieldSql{field,values,sql,bindings,preparation:prepared})=>{
                 if !relation.fields().iter().any(|f|f.name()==field) || !crate::schema::atomic_scope_fields().contains(field.as_str()) || values.iter().any(|value|matches!(value,Value::Null|Value::None)) {return Err(ModelError::Conflict("native selected atomic field"));}
-                atomic_field=Some((field.clone(),values.clone()));b.extend(bindings);b.insert("values",values);b.insert("scope_prefix",format!("{}|{field}|",relation.name()));
-                format!("scope_keys CONTAINSANY $values.map(|$value| $scope_prefix + <string>$value) AND ({sql})")
+                atomic_field=Some((field.clone(),values.clone()));b.extend(bindings);preparation=prepared;b.insert("values",values);b.insert("scope_prefix",format!("{}|{field}|",relation.name()));
+                preparation.push("LET $__compiler_scope_filter = $values.map(|$value| $scope_prefix + <string>$value)".into());
+                format!("scope_keys CONTAINSANY $__compiler_scope_filter AND ({sql})")
             },
-            Some(NativePredicate::Sql{sql,bindings})=>{b.extend(bindings);sql},
+            Some(NativePredicate::Sql{sql,bindings,preparation:prepared})=>{b.extend(bindings);preparation=prepared;sql},
         };
         let fields=columns.map(|c|c.to_vec()).unwrap_or_else(||relation.schema().fields().iter().map(|f|f.name().clone()).collect());
         let mut projections=Vec::new();
@@ -756,7 +759,7 @@ impl NativeCompilerStore {
         if empty {return Ok(CompilerRows{rows:None,selection:None,store:self.clone(),lease:None});}
         if let Some(mut keys)=explicit_keys {
             keys.sort_unstable();keys.dedup();
-            return self.track_selection(SelectionKeys::Known(keys.into_iter()),view,relation,projections.join(","),predicate,b);
+            return self.track_selection(SelectionKeys::Known(keys.into_iter()),view,relation,projections.join(","),predicate,b,preparation);
         }
         if let Some((field,values))=atomic_field {
             let table=compiler_table(relation.name());
@@ -766,13 +769,16 @@ impl NativeCompilerStore {
             for (index,window) in values.chunks(32).enumerate(){
                 let binding=format!("__compiler_scope_{index}");b.insert(binding.clone(),window.to_vec());
                 let selected=format!("$__compiler_scope_nodes_{index}");
-                sql.push_str(&format!("LET {selected} = (SELECT VALUE id FROM {table} WITH INDEX by_scope WHERE semantic_type=$relation AND scope_keys CONTAINSANY ${binding}.map(|$value| '{}|{field}|'+<string>$value));",relation.name()));
+                // The planner cannot index an inline map expression. Compute this compact
+                // constant first, retaining the same native cast as the scope-key schema.
+                let scope_keys=format!("$__compiler_scope_keys_{index}");
+                sql.push_str(&format!("LET {scope_keys} = ${binding}.map(|$value| '{}|{field}|'+<string>$value); LET {selected} = (SELECT VALUE id FROM {table} WITH INDEX by_scope WHERE semantic_type=$relation AND scope_keys CONTAINSANY {scope_keys});",relation.name()));
                 selections.push(selected);
             }
-            let statements=selections.len()+2;
+            let statements=selections.len()*2+2;
             sql.push_str(&format!("LET $__compiler_scope_nodes = array::distinct(array::flatten([{}])); SELECT semantic_key FROM $__compiler_scope_nodes GROUP BY semantic_key ORDER BY semantic_key",selections.join(",")));
             let rows=self.track_rows(NativeRows::new(final_statement_rows(self.client.query(sql).bind(b.clone()).stream_items().map_err(ModelError::codec)?,statements),statements)?)?;
-            return self.track_selection(SelectionKeys::Native(rows),view,relation,projections.join(","),predicate,b);
+            return self.track_selection(SelectionKeys::Native(rows),view,relation,projections.join(","),predicate,b,preparation);
         }
         // Start with exact selected keys, then fetch their immutable payloads. Membership overlap
         // is deduplicated before rich hydration; private pending rows never enter this query.
@@ -781,8 +787,8 @@ impl NativeCompilerStore {
         // subqueries for every physical row. Only the exact deduplicated membership record IDs
         // become payload targets; projection and original hydration happen after selection.
         b.insert("__compiler_owners",self.view_owners(view)?.iter().map(|id|RecordId::new("compiler_contribution",id.hex())).collect::<Vec<_>>());
-        let mut sql=String::new();
-        let mut statements=0;
+        let mut sql=preparation.iter().map(|statement|format!("{statement};")).collect::<String>();
+        let mut statements=preparation.len();
         let candidate=if selected {
             sql.push_str(&format!("LET $__compiler_candidates = (SELECT VALUE semantic_key FROM {table} WHERE semantic_type=$relation AND ({predicate}));"));
             statements+=1;
@@ -897,6 +903,7 @@ impl MembershipLookup {
 enum SelectionKeys {Known(std::vec::IntoIter<[u8;16]>),Native(CompilerRows)}
 struct SelectedRows {
     keys:SelectionKeys,owners:Vec<ContentHash>,relation:String,fields:String,predicate:String,bindings:Variables,
+    preparation:Vec<String>,
     store:Arc<NativeCompilerStore>,lookup:Option<MembershipLookup>,payload:Option<CompilerRows>,pending_keys:Vec<[u8;16]>,
 }
 impl SelectedRows {
@@ -911,9 +918,11 @@ impl SelectedRows {
                 let nodes=lookup.collect().await?;self.lookup.take();
                 if nodes.is_empty(){continue;}
                 let mut bindings=self.bindings.clone();bindings.insert("__compiler_nodes",nodes.into_values().collect::<Vec<_>>());
-                let sql=format!("SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",self.fields,self.predicate);
-                let stream=self.store.client.query(sql).bind(bindings).stream_items().map_err(ModelError::codec)?;
-                self.payload=Some(self.store.track_rows(NativeRows::new(stream,1)?.with_row_bytes(64<<20))?);
+                let prelude=self.preparation.iter().map(|statement|format!("{statement};")).collect::<String>();
+                let statements=self.preparation.len()+1;
+                let sql=format!("{prelude}SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",self.fields,self.predicate);
+                let stream=final_statement_rows(self.store.client.query(sql).bind(bindings).stream_items().map_err(ModelError::codec)?,statements);
+                self.payload=Some(self.store.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?);
                 continue;
             }
             match &mut self.keys {
@@ -933,9 +942,11 @@ impl SelectedRows {
                 let ids=self.owners.iter().flat_map(|owner|keys.iter().map(|key|membership_id(*owner,&self.relation,key))).collect::<Vec<_>>();
                 let mut bindings=self.bindings.clone();bindings.insert("__compiler_member_ids",ids);bindings.insert("__compiler_keys",keys.iter().map(hex::encode).collect::<Vec<_>>());
                 bindings.insert("__compiler_owners",self.owners.iter().map(|owner|RecordId::new("compiler_contribution",owner.hex())).collect::<Vec<_>>());
-                let sql=format!("LET $__compiler_nodes = (SELECT VALUE node FROM $__compiler_member_ids WHERE relation=$relation AND semantic_key IN $__compiler_keys AND contribution IN $__compiler_owners GROUP BY node); SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",self.fields,self.predicate);
-                let stream=final_statement_rows(self.store.client.query(sql).bind(bindings).stream_items().map_err(ModelError::codec)?,2);
-                self.payload=Some(self.store.track_rows(NativeRows::new(stream,2)?.with_row_bytes(64<<20))?);
+                let prelude=self.preparation.iter().map(|statement|format!("{statement};")).collect::<String>();
+                let statements=self.preparation.len()+2;
+                let sql=format!("{prelude}LET $__compiler_nodes = (SELECT VALUE node FROM $__compiler_member_ids WHERE relation=$relation AND semantic_key IN $__compiler_keys AND contribution IN $__compiler_owners GROUP BY node); SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",self.fields,self.predicate);
+                let stream=final_statement_rows(self.store.client.query(sql).bind(bindings).stream_items().map_err(ModelError::codec)?,statements);
+                self.payload=Some(self.store.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?);
             } else {self.lookup=Some(MembershipLookup::new(self.store.clone(),self.relation.clone(),keys,self.owners.clone()));}
         }
     }
