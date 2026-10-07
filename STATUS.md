@@ -2,11 +2,21 @@
 
 _Updated 2026-10-07 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: persisted graph pivot PG0–PG9 is authorized and in progress.**
+**Current scope: persisted graph pivot PG0–PG9 implementation is paused for design review.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this scope and F01–F05/D01–D04 disposition. [ADR-0133](docs/adr/0133-persisted-graph-compilation.md)
 accepts native persisted compilation and direct sealing. Implementation receipts below are bounded;
 this pivot is not accepted or measured yet.
+
+The requested [correction-causes review](docs/design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md)
+assesses recent implementation failures, architectural causes and existing-library capabilities.
+Its verdict is **Revise**, with six findings and two explicit design choices. It owns its new
+unscheduled findings; the execution plan retains existing scheduled dispositions.
+The review does not authorize remediation or resume the paused acceptance runs.
+
+**Review documentation, 2026-10-07:** **passed** `UV_NO_SYNC=1 just docs-check` (335 pages,
+zero link errors after repairing the stale ADR index and one retired historical source link).
+Product tests/builds/probes **not_run** for this source-and-receipt review; paused edits preserved.
 
 **Integrated on main:** immutable native contributions/views and frozen bindings; complete typed
 codec/Arrow bridge; all compiler frontiers/profiles and selected analytical preparation; native
@@ -42,7 +52,7 @@ owns actual verification and remaining scope.
 - **passed after prerequisite correction:**35 actual Python MCP/native-evaluator selections on
   the retained owned snapshot; first selection33passed/2failed, both fault controls reran passed.
   Persistent restart passed. This is bounded native evidence, not a clean assembled gate.
-- **partial / running:** final compiler, CLI, external publication/transport and actual native
+- **partial / paused:** final compiler, CLI, external publication/transport and actual native
   MCP/programmatic evaluation. No enclosing acceptance or measured speed claim is established.
 
 **Corrections integrated:** locked native planner inspection found that multi-value `IN` could
@@ -75,7 +85,8 @@ The stopped older analytic failure was optional producer replay after compilatio
 admission. Generic fixtures now use semantic admission; selected diagnostics remain explicit.
 S0's missing incoming parameter-link selection is corrected and independently reviewed.
 
-**Next:** resolve restored coverage, then finish targeted both-profile/frontier, direct-seal,
+**Next:** decide the review's corrective direction and plan its selected findings before resuming
+implementation. Remaining acceptance: resolve restored coverage, then finish targeted both-profile/frontier, direct-seal,
 external-state/original transport and actual native/MCP/programmatic evaluation controls;
 resolve independent findings, update dispositions/docs and run applicable leaves.
 All worker ancestry is merged on main, and only the main checkout remains. Fully merged worker
