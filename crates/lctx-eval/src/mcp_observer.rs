@@ -186,12 +186,13 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
         let start = integer(field(body, "start")?)?; let end = integer(field(body, "end")?)?;
         let body_bytes = array(field(body, "bytes")?)?.iter().map(|v| integer(v).and_then(|n| u8::try_from(n).map_err(|_| "public source byte range".into()))).collect::<Result<Vec<_>, String>>()?;
         if end.checked_sub(start) != Some(body_bytes.len() as u64) { return Err("public body byte bounds mismatch".into()); }
-        if !matches!(text(field(original, "encoding")?)?, "utf-8"|"raw_bytes") { return Err("unsupported source encoding".into()); }
+        let encoding=text(field(original,"encoding")?)?;
+        if !matches!(encoding,"utf-8"|"raw_bytes"|"native_literal_utf8_slice"){return Err("unsupported source encoding".into());}
         let source = String::from_utf8(body_bytes).map_err(|_| "source bytes are not UTF-8")?;
         let artifact = identity(field(original, "artifact")?, 16)?;
         let original_start = integer(field(original, "start")?)?;
         let original_end = integer(field(original, "end")?)?;
-        if original_end < original_start || end > original_end - original_start { return Err("public source range mismatch".into()); }
+        if original_end < original_start || (encoding!="native_literal_utf8_slice"&&end > original_end - original_start) { return Err("public source range mismatch".into()); }
         let anchor = serde_json::to_string(field(original, "source")?).map_err(|e| e.to_string())?;
         let context = Assignment::from([
             ("artifact_identity".into(), artifact),
@@ -205,7 +206,7 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
             if identity(field(release,"release")?,16)?!=context["release_identity"]{return Err("source readable release binding disagreement".into());}
             context.insert("release".into(),text(field(release,"version")?)?.into());context.insert("distribution".into(),text(field(release,"distribution")?)?.into());
         }
-        groups.push(PublicGroup { context:context.clone(), evidence: vec![observed(anchor.clone(), "original_source", source)] });
+        groups.push(PublicGroup { context:context.clone(), evidence: vec![observed(anchor.clone(),if encoding=="native_literal_utf8_slice"{"interpreted_prose"}else{"original_source"},source)] });
         interpretation(evidence,&context,&mut groups)?;
         if let Some(cursor) = body.get("continuation") { references.push(serde_json::json!({"tool":"get_evidence","arguments":{"source":field(original,"source")?,"page":{"cursor":text(cursor)?,"expanded":true}}}).to_string()); }
     } else if let Some(operation) = structured.get("operation") {
@@ -326,5 +327,23 @@ mod closure_tests {
         let decoded=decode(&field.to_string(),&"06".repeat(32)).unwrap();let group=decoded.groups.last().unwrap();assert_eq!(group.context["field_identity"],"11".repeat(16));assert!(!group.context.contains_key("signature_identity"));assert_eq!(group.evidence[0].role,"field_name");
         let mut unknown=field;unknown["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["qualifications"][0]["terms"][0][0]["predicate"]=Value::Null;
         assert!(decode(&unknown.to_string(),&"06".repeat(32)).unwrap().groups.last().unwrap().evidence[1].qualifications.is_empty());
+    }
+}
+#[cfg(test)]
+mod originals_tests {
+    use super::*;
+    fn packet(source:Value,encoding:&str,bytes:Vec<u8>)->Value{
+        serde_json::json!({"isError":false,"content":[{"type":"text","text":"get_evidence: snapshot-bound result"}],"structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},"evidence":{"original":{"source":source,"artifact":vec![7;16],"release":vec![11;16],"context":vec![3;16],"start":0,"end":4,"encoding":encoding},"body":{"start":0,"end":bytes.len(),"bytes":bytes}}}})
+    }
+    #[test]
+    fn raw_artifact_and_occurrence_preserve_exact_utf8_source(){
+        for source in [serde_json::json!({"kind":"artifact","artifact":vec![7;16]}),serde_json::json!({"kind":"occurrence","occurrence":vec![8;16]})] {
+            let p=decode(&packet(source,"raw_bytes",b"flag".to_vec()).to_string(),&"06".repeat(32)).unwrap();assert_eq!(p.groups[0].evidence[0].text,"flag");assert_eq!(p.groups[0].evidence[0].role,"original_source");
+        }
+        assert!(decode(&packet(serde_json::json!({"kind":"artifact","artifact":vec![7;16]}),"raw_bytes",vec![255,255,255,255]).to_string(),&"06".repeat(32)).is_err());
+    }
+    #[test]
+    fn interpreted_prose_does_not_claim_original_source_bytes(){
+        let p=decode(&packet(serde_json::json!({"kind":"prose","slice":vec![8;16]}),"native_literal_utf8_slice",b"interpreted text".to_vec()).to_string(),&"06".repeat(32)).unwrap();assert_eq!(p.groups[0].evidence[0].role,"interpreted_prose");
     }
 }
