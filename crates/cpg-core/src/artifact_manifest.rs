@@ -474,21 +474,47 @@ fn projections(
 }
 
 async fn embeddings(
-    workspace:&Workspace, _profile:Profile, charge:&mut charged::StateCharge,
-)->Result<Vec<EmbeddingConsumption>,ModelError> {
-    let completed=workspace.completed_relations()?.iter().map(|r|r.name()).collect::<BTreeSet<_>>();
-    if !completed.contains(d::embedding::value::FullValue::NAME) {return Ok(vec![]);}
-    let mut encoders=BTreeMap::new();
-    visit::<d::embedding::EmbeddingSpec>(workspace,|row| {row.validate()?;charge.grow(64)?;encoders.insert(row.id(),(row.service_hash,row.dimensions));Ok(())})?;
-    let mut vectors=BTreeMap::new();
-    visit::<d::embedding::value::FullValue>(workspace,|row| {
+    workspace: &Workspace,
+    _profile: Profile,
+    charge: &mut charged::StateCharge,
+) -> Result<Vec<EmbeddingConsumption>, ModelError> {
+    let completed = workspace
+        .completed_relations()?
+        .iter()
+        .map(|r| r.name())
+        .collect::<BTreeSet<_>>();
+    if !completed.contains(d::embedding::value::FullValue::NAME) {
+        return Ok(vec![]);
+    }
+    let mut encoders = BTreeMap::new();
+    visit::<d::embedding::EmbeddingSpec>(workspace, |row| {
         row.validate()?;
-        let (encoder,dimensions)=encoders.get(&row.encoder).ok_or_else(||invalid("full winner missing encoder"))?;
-        if row.dimensions!=*dimensions {return Err(invalid("full winner differs from encoder dimensions"));}
-        let value=EmbeddingConsumption {specification:*encoder,text:row.input,dimension:*dimensions as u32,values:row.digest};
-        let key=(value.specification,value.text);
-        if vectors.get(&key).is_some_and(|old|old!=&value) {return Err(invalid("conflicting immutable full winners"));}
-        charge.grow(size_of::<EmbeddingConsumption>()+64)?;vectors.insert(key,value);Ok(())
+        charge.grow(64)?;
+        encoders.insert(row.id(), (row.service_hash, row.dimensions));
+        Ok(())
+    })?;
+    let mut vectors = BTreeMap::new();
+    visit::<d::embedding::value::FullValue>(workspace, |row| {
+        row.validate()?;
+        let (encoder, dimensions) = encoders
+            .get(&row.encoder)
+            .ok_or_else(|| invalid("full winner missing encoder"))?;
+        if row.dimensions != *dimensions {
+            return Err(invalid("full winner differs from encoder dimensions"));
+        }
+        let value = EmbeddingConsumption {
+            specification: *encoder,
+            text: row.input,
+            dimension: *dimensions as u32,
+            values: row.digest,
+        };
+        let key = (value.specification, value.text);
+        if vectors.get(&key).is_some_and(|old| old != &value) {
+            return Err(invalid("conflicting immutable full winners"));
+        }
+        charge.grow(size_of::<EmbeddingConsumption>() + 64)?;
+        vectors.insert(key, value);
+        Ok(())
     })?;
     Ok(vectors.into_values().collect())
 }

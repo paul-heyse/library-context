@@ -87,9 +87,19 @@ macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:i
         _=>Err(WireError::UnknownTool(name.into()))}}
 };}
 #[derive(Serialize)]
-struct McpText<'a>{#[serde(rename="type")] kind:&'a str,text:&'a str}
+struct McpText<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    text: &'a str,
+}
 #[derive(Serialize)]
-struct McpResult<'a,T:Serialize>{content:[McpText<'a>;1],#[serde(rename="structuredContent")]structured:&'a T,#[serde(rename="isError")]error:bool}
+struct McpResult<'a, T: Serialize> {
+    content: [McpText<'a>; 1],
+    #[serde(rename = "structuredContent")]
+    structured: &'a T,
+    #[serde(rename = "isError")]
+    error: bool,
+}
 struct CountBytes(usize);
 impl std::io::Write for CountBytes {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -264,10 +274,14 @@ fn validate_request(request: &Request, limits: &ResourceLimits) -> Result<(), Wi
     if request.page().size == 0 || request.page().size > limits.maximum_page_rows {
         return Err(WireError::ResourceRefused("page rows".into()));
     }
-    if let Some(demand)=&request.page().evidence_demand.0 {
-        if demand.facets.len()>9 || demand.maximum_followups>limits.maximum_page_rows { return Err(WireError::ResourceRefused("evidence demand extent".into())); }
-        let facets:std::collections::BTreeSet<_>=demand.facets.iter().collect();
-        if facets.len()!=demand.facets.len() { return Err(WireError::Invalid("duplicate evidence facet".into())); }
+    if let Some(demand) = &request.page().evidence_demand.0 {
+        if demand.facets.len() > 9 || demand.maximum_followups > limits.maximum_page_rows {
+            return Err(WireError::ResourceRefused("evidence demand extent".into()));
+        }
+        let facets: std::collections::BTreeSet<_> = demand.facets.iter().collect();
+        if facets.len() != demand.facets.len() {
+            return Err(WireError::Invalid("duplicate evidence facet".into()));
+        }
     }
     match request {
         Request::SearchOperations(r) => validate_selection(&r.selection.0, limits)?,

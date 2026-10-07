@@ -809,7 +809,7 @@ fn capability_assertion_status_is_structured_and_visible_without_rewriting_autho
     observed["text"] = json!("Observed access.");
     let capability:CapabilityPacket=serde_json::from_value(json!({"capability":vec![6u8;16],"title":"API","rendered":"Original authored body.\n","assertions":[claim,observed],"originals":[],"availability":{"status":"available"},"unreviewed":true,"documentation_only":true})).unwrap();
     let response = GetCapabilityResponse {
-            delivery: Optional::default(),
+        delivery: Optional::default(),
         snapshot: snapshot_for(7),
         capability,
     };

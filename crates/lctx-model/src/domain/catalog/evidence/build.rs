@@ -497,7 +497,14 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
     }
     for (artifact, context) in scopes.iter() {
         let source = need(&data.core.artifacts, *artifact)?;
-        root(&mut out, source.input, *context, RootSubject::Source { artifact: *artifact })?;
+        root(
+            &mut out,
+            source.input,
+            *context,
+            RootSubject::Source {
+                artifact: *artifact,
+            },
+        )?;
         for usage in data.facts.uses.iter().filter(|r| {
             r.artifact == *artifact
                 && data

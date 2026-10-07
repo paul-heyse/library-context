@@ -10,8 +10,8 @@ pub struct QueryVector {
     pub spec: ContentHash,
     pub input: ContentHash,
     pub vector: Vec<f32>,
-    pub recipe:embedding::QueryRecipe,
-    pub projection:Id<embedding::projection::ProjectionDefinition>,
+    pub recipe: embedding::QueryRecipe,
+    pub projection: Id<embedding::projection::ProjectionDefinition>,
 }
 pub struct NativeService {
     reader: NativeReader,
@@ -121,14 +121,25 @@ impl NativeService {
                     Ok(())
                 })
                 .await?;
-            if let Some(mut response) = self.retained.resume(&request, self.handle(), vector.as_ref())? {
+            if let Some(mut response) =
+                self.retained
+                    .resume(&request, self.handle(), vector.as_ref())?
+            {
                 crate::delivery::finalize(&request, &mut response)?;
                 self.retained.complete(&mut response)?;
-                let len=response.json_len()?;
-                if len as u64>self.limits.response_bytes(request.page().expanded){return Err(WireError::ResourceRefused("complete structured response bytes".into()));}
-                let _response_charge=budget.reserve("native-complete-response",len.saturating_mul(2)).map_err(failure)?;
-                let bytes=response.to_json()?;
-                if tokio::time::Instant::now()>=deadline{return Err(WireError::ResourceRefused("request deadline".into()));}
+                let len = response.json_len()?;
+                if len as u64 > self.limits.response_bytes(request.page().expanded) {
+                    return Err(WireError::ResourceRefused(
+                        "complete structured response bytes".into(),
+                    ));
+                }
+                let _response_charge = budget
+                    .reserve("native-complete-response", len.saturating_mul(2))
+                    .map_err(failure)?;
+                let bytes = response.to_json()?;
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(WireError::ResourceRefused("request deadline".into()));
+                }
                 return Ok(bytes);
             }
             let query = match &request {
@@ -177,15 +188,27 @@ impl NativeService {
                         "query embedding specification or rendered input mismatch".into(),
                     ));
                 }
-                let policies=self.reader.records::<embedding::projection::ProjectionDefinition>(RecordSelection::Keys(vec![*v.projection.bytes()])).await.map_err(failure)?;
-                let policy=policies.first().ok_or_else(||WireError::Invalid("query projection is not admitted".into()))?;
+                let policies = self
+                    .reader
+                    .records::<embedding::projection::ProjectionDefinition>(RecordSelection::Keys(
+                        vec![*v.projection.bytes()],
+                    ))
+                    .await
+                    .map_err(failure)?;
+                let policy = policies
+                    .first()
+                    .ok_or_else(|| WireError::Invalid("query projection is not admitted".into()))?;
                 policy.validate().map_err(failure)?;
-                if policy.dimensions!=1024 || v.recipe.max_tokens>8192 {return Err(WireError::Invalid("unsupported query projection/admission policy".into()));}
+                if policy.dimensions != 1024 || v.recipe.max_tokens > 8192 {
+                    return Err(WireError::Invalid(
+                        "unsupported query projection/admission policy".into(),
+                    ));
+                }
                 VectorChannel::Available {
                     spec: v.spec,
                     query_vector: embedding::value::value_digest(&v.vector),
-                    query_recipe:v.recipe.identity(),
-                    projection:v.projection,
+                    query_recipe: v.recipe.identity(),
+                    projection: v.projection,
                 }
             } else if unavailable && query.is_some() {
                 VectorChannel::Degraded {

@@ -30,11 +30,16 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     let roots: i64 =
         catalog_runtime::one(&fixture, "SELECT count(*) FROM retrieval_unit_roots").await;
     assert!(roots >= units);
-    let parts:i64=catalog_runtime::one(&fixture,"SELECT count(*) FROM retrieval_content_parts").await;
-    let windows:i64=catalog_runtime::one(&fixture,"SELECT count(*) FROM retrieval_search_windows").await;
-    assert!(parts>0 && windows>0);
+    let parts: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM retrieval_content_parts").await;
+    let windows: i64 =
+        catalog_runtime::one(&fixture, "SELECT count(*) FROM retrieval_search_windows").await;
+    assert!(parts > 0 && windows > 0);
     let context_bindings:i64=catalog_runtime::one(&fixture,"SELECT count(*) FROM retrieval_window_bindings b JOIN retrieval_content_parts p ON b.part=p.id WHERE p.purpose=1").await;
-    assert_eq!(context_bindings,0,"context parts cannot nominate applicability");
+    assert_eq!(
+        context_bindings, 0,
+        "context parts cannot nominate applicability"
+    );
     let unrun:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM retrieval_corpus_texts WHERE CAST(text AS VARCHAR) LIKE '%execution=NotRun%'").await;
     assert!(unrun > 0);
 }

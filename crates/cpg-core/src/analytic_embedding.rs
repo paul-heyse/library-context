@@ -9,10 +9,10 @@ use lctx_model::domain::{
     analysis::{self, analytic_embedding::*},
     embedding::{
         analytic::{self, AnalysisEmbeddingUse, ConsumptionData, FrameOutcome, VectorAvailability},
-        text::{TextAssessment, TextAvailability, TextWindow},
-        value,
         consumption::SelectedConsumption,
         projection::ProjectedValue,
+        text::{TextAssessment, TextAvailability, TextWindow},
+        value,
     },
     normalized::Rows,
     stages::*,
@@ -92,7 +92,10 @@ pub async fn produce(
     read!(embedding::text::TextDefinition, metadata.text_definitions);
     read!(embedding::EmbeddingSpec, metadata.specifications);
     read!(embedding::DocumentRecipe, metadata.documents);
-    read!(embedding::projection::ProjectionDefinition, metadata.projections);
+    read!(
+        embedding::projection::ProjectionDefinition,
+        metadata.projections
+    );
     read!(
         embedding::configuration::ServiceConfiguration,
         metadata.services
@@ -231,7 +234,11 @@ pub async fn produce(
                                     &mut uses,
                                     invocation.id(),
                                     window.id(),
-                                    SelectedConsumption { encoder: specification, document, projection },
+                                    SelectedConsumption {
+                                        encoder: specification,
+                                        document,
+                                        projection,
+                                    },
                                     &published,
                                     runtime.budget(),
                                 )?;

@@ -111,7 +111,7 @@ pub async fn get(
         }
     };
     Ok(InspectValuePathsResponse {
-            delivery: Optional::default(),
+        delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         member: r.member,
         paths: crate::pagination::page(

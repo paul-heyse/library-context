@@ -131,7 +131,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     .unwrap();
     let captured = library_fixture(workspace.budget());
     let settings = ContentHash::of(b"native-serving-journey");
-    let fake=FakeEmbedder::new();
+    let fake = FakeEmbedder::new();
     let mut analytics = runtime::settings("api");
     analytics.knn = true;
     let prepared = PreparedCompilation::new(
@@ -189,41 +189,101 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     )
     .await
     .unwrap();
-    let encoder=Id::<embedding::EmbeddingSpec>::of(&embedding::EmbeddingSpecKey{service_hash:fake.spec().hash()});
-    let mut full=reader.records::<embedding::value::FullValue>(RecordSelection::Scope{field:"encoder".into(),values:vec![serde_json::to_value(encoder).unwrap()]}).await.unwrap();
+    let encoder = Id::<embedding::EmbeddingSpec>::of(&embedding::EmbeddingSpecKey {
+        service_hash: fake.spec().hash(),
+    });
+    let mut full = reader
+        .records::<embedding::value::FullValue>(RecordSelection::Scope {
+            field: "encoder".into(),
+            values: vec![serde_json::to_value(encoder).unwrap()],
+        })
+        .await
+        .unwrap();
     full.sort_by_key(Record::id);
-    assert!(!full.is_empty(),"actual compiler must publish canonical full winners");
-    assert!(full.iter().all(|v|v.dimensions==4096&&v.bytes.0.len()==4096*4));
-    let policy=embedding::projection::ProjectionDefinition::initial(fake.spec());
-    let mut projected=reader.records::<embedding::projection::ProjectedValue>(RecordSelection::Scope{field:"definition".into(),values:vec![serde_json::to_value(policy.id()).unwrap()]}).await.unwrap();
+    assert!(
+        !full.is_empty(),
+        "actual compiler must publish canonical full winners"
+    );
+    assert!(
+        full.iter()
+            .all(|v| v.dimensions == 4096 && v.bytes.0.len() == 4096 * 4)
+    );
+    let policy = embedding::projection::ProjectionDefinition::initial(fake.spec());
+    let mut projected = reader
+        .records::<embedding::projection::ProjectedValue>(RecordSelection::Scope {
+            field: "definition".into(),
+            values: vec![serde_json::to_value(policy.id()).unwrap()],
+        })
+        .await
+        .unwrap();
     projected.sort_by_key(Record::id);
-    assert_eq!(projected.len(),full.len(),"all canonical winners have the declared shared projection");
-    for p in &projected {p.verify(full.iter().find(|f|f.id()==p.value).unwrap(),&policy).unwrap();}
-    let mut analytic_uses = reader.records::<embedding::analytic::AnalysisEmbeddingUse>(RecordSelection::Scope {
-        field: "specification".into(), values: vec![serde_json::to_value(encoder).unwrap()],
-    }).await.unwrap();
+    assert_eq!(
+        projected.len(),
+        full.len(),
+        "all canonical winners have the declared shared projection"
+    );
+    for p in &projected {
+        p.verify(full.iter().find(|f| f.id() == p.value).unwrap(), &policy)
+            .unwrap();
+    }
+    let mut analytic_uses = reader
+        .records::<embedding::analytic::AnalysisEmbeddingUse>(RecordSelection::Scope {
+            field: "specification".into(),
+            values: vec![serde_json::to_value(encoder).unwrap()],
+        })
+        .await
+        .unwrap();
     analytic_uses.sort_by_key(Record::id);
     assert!(!analytic_uses.is_empty());
-    assert!(analytic_uses.iter().all(|u| u.availability == embedding::analytic::VectorAvailability::Available
-        && projected.iter().any(|p| Some(p.id()) == u.projection && Some(p.value) == u.value)));
-    let mut results = reader.records::<analytics::TechniqueResult>(RecordSelection::Scope {
-        field: "method".into(), values: vec![serde_json::to_value(analysis::AnalysisMethod::Neighbours).unwrap()],
-    }).await.unwrap();
+    assert!(analytic_uses.iter().all(|u| {
+        u.availability == embedding::analytic::VectorAvailability::Available
+            && projected
+                .iter()
+                .any(|p| Some(p.id()) == u.projection && Some(p.value) == u.value)
+    }));
+    let mut results = reader
+        .records::<analytics::TechniqueResult>(RecordSelection::Scope {
+            field: "method".into(),
+            values: vec![serde_json::to_value(analysis::AnalysisMethod::Neighbours).unwrap()],
+        })
+        .await
+        .unwrap();
     results.sort_by_key(Record::id);
     assert!(!results.is_empty());
-    assert!(results.iter().all(|r| r.selected && r.status == analysis::AnalysisStatus::Completed));
-    let frames = results.iter().map(|r| serde_json::to_value(r.frame).unwrap()).collect::<Vec<_>>();
-    let mut selections = reader.records::<analytics::VectorSelection>(RecordSelection::Scope {
-        field: "frame".into(), values: frames.clone(),
-    }).await.unwrap();
+    assert!(
+        results
+            .iter()
+            .all(|r| r.selected && r.status == analysis::AnalysisStatus::Completed)
+    );
+    let frames = results
+        .iter()
+        .map(|r| serde_json::to_value(r.frame).unwrap())
+        .collect::<Vec<_>>();
+    let mut selections = reader
+        .records::<analytics::VectorSelection>(RecordSelection::Scope {
+            field: "frame".into(),
+            values: frames.clone(),
+        })
+        .await
+        .unwrap();
     selections.sort_by_key(Record::id);
     assert!(selections.iter().any(|s| s.available_windows > 0));
-    let result_ids = results.iter().map(|r| serde_json::to_value(r.id()).unwrap()).collect::<Vec<_>>();
-    let mut neighbours = reader.records::<analytics::Neighbour>(RecordSelection::Scope {
-        field: "result".into(), values: result_ids.clone(),
-    }).await.unwrap();
+    let result_ids = results
+        .iter()
+        .map(|r| serde_json::to_value(r.id()).unwrap())
+        .collect::<Vec<_>>();
+    let mut neighbours = reader
+        .records::<analytics::Neighbour>(RecordSelection::Scope {
+            field: "result".into(),
+            values: result_ids.clone(),
+        })
+        .await
+        .unwrap();
     neighbours.sort_by_key(Record::id);
-    assert!(!neighbours.is_empty(), "chosen E1 policy must produce actual neighbour results");
+    assert!(
+        !neighbours.is_empty(),
+        "chosen E1 policy must produce actual neighbour results"
+    );
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
     let missing = service
         .execute("browse_library", r#"{"library":"absent-library"}"#)
@@ -440,34 +500,84 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     );
     // Canonical full values and policies survive actual backup/re-admission. Restore has no
     // embedder or mutable-cache parameter and reconstructs search arrays from these exact bytes.
-    let backup=scratch.path().join("canonical-values.surql");
-    lctx_publisher::backup::backup(&config,&handle,&backup).await.unwrap();
-    let restored=lctx_publisher::backup::restore(&config,&backup,&lctx_serving::native_definitions()).await.unwrap();
-    assert_eq!(restored.semantic,handle.semantic);
-    let restored_reader=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),restored.clone()).await.unwrap();
-    let mut restored_full=restored_reader.records::<embedding::value::FullValue>(RecordSelection::Scope{field:"encoder".into(),values:vec![serde_json::to_value(encoder).unwrap()]}).await.unwrap();
-    restored_full.sort_by_key(Record::id);assert_eq!(restored_full,full);
-    let mut restored_projected=restored_reader.records::<embedding::projection::ProjectedValue>(RecordSelection::Scope{field:"definition".into(),values:vec![serde_json::to_value(policy.id()).unwrap()]}).await.unwrap();
-    restored_projected.sort_by_key(Record::id);assert_eq!(restored_projected,projected);
-    let mut restored_uses = restored_reader.records::<embedding::analytic::AnalysisEmbeddingUse>(RecordSelection::Scope {
-        field: "specification".into(), values: vec![serde_json::to_value(encoder).unwrap()],
-    }).await.unwrap();
-    restored_uses.sort_by_key(Record::id); assert_eq!(restored_uses, analytic_uses);
-    let mut restored_results = restored_reader.records::<analytics::TechniqueResult>(RecordSelection::Scope {
-        field: "method".into(), values: vec![serde_json::to_value(analysis::AnalysisMethod::Neighbours).unwrap()],
-    }).await.unwrap();
-    restored_results.sort_by_key(Record::id); assert_eq!(restored_results, results);
-    let mut restored_selections = restored_reader.records::<analytics::VectorSelection>(RecordSelection::Scope {
-        field: "frame".into(), values: frames,
-    }).await.unwrap();
-    restored_selections.sort_by_key(Record::id); assert_eq!(restored_selections, selections);
-    let mut restored_neighbours = restored_reader.records::<analytics::Neighbour>(RecordSelection::Scope {
-        field: "result".into(), values: result_ids,
-    }).await.unwrap();
-    restored_neighbours.sort_by_key(Record::id); assert_eq!(restored_neighbours, neighbours);
-    lctx_publisher::inspection::audit(&config,&restored,&lctx_serving::native_definitions()).await.unwrap();
-    restored_reader.client().invalidate().await.unwrap();drop(restored_reader);
-    lctx_publisher::backup::retire(&config,&restored,true).await.unwrap();
+    let backup = scratch.path().join("canonical-values.surql");
+    lctx_publisher::backup::backup(&config, &handle, &backup)
+        .await
+        .unwrap();
+    let restored =
+        lctx_publisher::backup::restore(&config, &backup, &lctx_serving::native_definitions())
+            .await
+            .unwrap();
+    assert_eq!(restored.semantic, handle.semantic);
+    let restored_reader = NativeReader::connect(
+        &config.endpoint,
+        &config.viewer_credentials(),
+        restored.clone(),
+    )
+    .await
+    .unwrap();
+    let mut restored_full = restored_reader
+        .records::<embedding::value::FullValue>(RecordSelection::Scope {
+            field: "encoder".into(),
+            values: vec![serde_json::to_value(encoder).unwrap()],
+        })
+        .await
+        .unwrap();
+    restored_full.sort_by_key(Record::id);
+    assert_eq!(restored_full, full);
+    let mut restored_projected = restored_reader
+        .records::<embedding::projection::ProjectedValue>(RecordSelection::Scope {
+            field: "definition".into(),
+            values: vec![serde_json::to_value(policy.id()).unwrap()],
+        })
+        .await
+        .unwrap();
+    restored_projected.sort_by_key(Record::id);
+    assert_eq!(restored_projected, projected);
+    let mut restored_uses = restored_reader
+        .records::<embedding::analytic::AnalysisEmbeddingUse>(RecordSelection::Scope {
+            field: "specification".into(),
+            values: vec![serde_json::to_value(encoder).unwrap()],
+        })
+        .await
+        .unwrap();
+    restored_uses.sort_by_key(Record::id);
+    assert_eq!(restored_uses, analytic_uses);
+    let mut restored_results = restored_reader
+        .records::<analytics::TechniqueResult>(RecordSelection::Scope {
+            field: "method".into(),
+            values: vec![serde_json::to_value(analysis::AnalysisMethod::Neighbours).unwrap()],
+        })
+        .await
+        .unwrap();
+    restored_results.sort_by_key(Record::id);
+    assert_eq!(restored_results, results);
+    let mut restored_selections = restored_reader
+        .records::<analytics::VectorSelection>(RecordSelection::Scope {
+            field: "frame".into(),
+            values: frames,
+        })
+        .await
+        .unwrap();
+    restored_selections.sort_by_key(Record::id);
+    assert_eq!(restored_selections, selections);
+    let mut restored_neighbours = restored_reader
+        .records::<analytics::Neighbour>(RecordSelection::Scope {
+            field: "result".into(),
+            values: result_ids,
+        })
+        .await
+        .unwrap();
+    restored_neighbours.sort_by_key(Record::id);
+    assert_eq!(restored_neighbours, neighbours);
+    lctx_publisher::inspection::audit(&config, &restored, &lctx_serving::native_definitions())
+        .await
+        .unwrap();
+    restored_reader.client().invalidate().await.unwrap();
+    drop(restored_reader);
+    lctx_publisher::backup::retire(&config, &restored, true)
+        .await
+        .unwrap();
     let retained = std::env::var("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG").ok();
     if let Some(path) = retained {
         let selection = std::path::Path::new(&path).with_extension("selected.json");

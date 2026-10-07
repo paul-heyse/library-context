@@ -72,8 +72,12 @@ impl Data {
             completion_charge: charged::StateCharge::new(b, "retrieval-completion-properties"),
         }
     }
-    pub fn set_tokenizer(&mut self,t:std::sync::Arc<dyn super::partition::Tokenizer>){self.tokenizer=Some(t);}
-    pub fn tokenizer(&self)->Option<&std::sync::Arc<dyn super::partition::Tokenizer>>{self.tokenizer.as_ref()}
+    pub fn set_tokenizer(&mut self, t: std::sync::Arc<dyn super::partition::Tokenizer>) {
+        self.tokenizer = Some(t);
+    }
+    pub fn tokenizer(&self) -> Option<&std::sync::Arc<dyn super::partition::Tokenizer>> {
+        self.tokenizer.as_ref()
+    }
     pub fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
         if self.visit_diagnostic(n, b)? {
             return Ok(true);
@@ -366,11 +370,29 @@ impl Data {
                     && source == self.document_source(*owner)?
                     && self.artifact_bounds(source)?.0 == unit.input
             }
-            (Origin::Definition { member,entity }, S::Member { member:owner }) => member==owner && unit.family==Family::Source && super::construction::definitions(self,*member,unit.context)?.iter().any(|(e,_,_)|e==entity),
-            (Origin::UnavailableDefinition{member},S::Member{member:owner})=>member==owner && unit.family==Family::Source && super::construction::definitions(self,*member,unit.context)?.is_empty(),
-            (Origin::Source{artifact},S::Source{artifact:owner})=>artifact==owner && unit.family==Family::Source && self.artifact_bounds(*artifact)?.0==unit.input,
-            (Origin::Option{option},S::Option{option:owner})=>option==owner && unit.family==Family::ApiOptions,
-            (Origin::Release{release},S::Release{release:owner})=>release==owner && unit.family==Family::DocumentationDeployment,
+            (Origin::Definition { member, entity }, S::Member { member: owner }) => {
+                member == owner
+                    && unit.family == Family::Source
+                    && super::construction::definitions(self, *member, unit.context)?
+                        .iter()
+                        .any(|(e, _, _)| e == entity)
+            }
+            (Origin::UnavailableDefinition { member }, S::Member { member: owner }) => {
+                member == owner
+                    && unit.family == Family::Source
+                    && super::construction::definitions(self, *member, unit.context)?.is_empty()
+            }
+            (Origin::Source { artifact }, S::Source { artifact: owner }) => {
+                artifact == owner
+                    && unit.family == Family::Source
+                    && self.artifact_bounds(*artifact)?.0 == unit.input
+            }
+            (Origin::Option { option }, S::Option { option: owner }) => {
+                option == owner && unit.family == Family::ApiOptions
+            }
+            (Origin::Release { release }, S::Release { release: owner }) => {
+                release == owner && unit.family == Family::DocumentationDeployment
+            }
             (Origin::Brief { brief }, S::Member { member }) => {
                 let seed = need(&self.synthesis.seeds, self.brief_seed(*brief)?)?;
                 let plan = need(&self.synthesis.seed_plans, seed.plan)?;
@@ -549,10 +571,20 @@ impl Data {
             ]),
             c1::RootSubject::Option { .. } => {
                 macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(types.push(TypeId::of::<$ty>());)*};}
-                crate::catalog_inputs!(rows);crate::catalog_outputs!(rows);crate::retrieval_inputs!(rows);
-            },
-            c1::RootSubject::Source{..}=>types.extend([TypeId::of::<syntax::SyntaxPlacement>()]),
-            c1::RootSubject::Release { .. } => types.extend([TypeId::of::<input::Package>(),TypeId::of::<input::Release>(),TypeId::of::<c1::ReleaseDeployment>(),TypeId::of::<c1::CatalogDeployment>(),TypeId::of::<deployment::DeploymentObservation>()]),
+                crate::catalog_inputs!(rows);
+                crate::catalog_outputs!(rows);
+                crate::retrieval_inputs!(rows);
+            }
+            c1::RootSubject::Source { .. } => {
+                types.extend([TypeId::of::<syntax::SyntaxPlacement>()])
+            }
+            c1::RootSubject::Release { .. } => types.extend([
+                TypeId::of::<input::Package>(),
+                TypeId::of::<input::Release>(),
+                TypeId::of::<c1::ReleaseDeployment>(),
+                TypeId::of::<c1::CatalogDeployment>(),
+                TypeId::of::<deployment::DeploymentObservation>(),
+            ]),
         }
         types
     }
@@ -579,12 +611,32 @@ impl Data {
     pub fn completion_types() -> Vec<std::any::TypeId> {
         use std::any::TypeId;
         vec![
-            TypeId::of::<c1::ScenarioSpan>(),TypeId::of::<c1::CatalogDeployment>(),TypeId::of::<deployment::DeploymentObservation>(),
-            TypeId::of::<catalog::CatalogOptionEvidence>(),TypeId::of::<syntax::ParameterSyntaxObservation>(),TypeId::of::<syntax::ClassFieldSyntaxObservation>(),TypeId::of::<normalized::entities::FieldDeclarationLink>(),
-            TypeId::of::<catalog::CatalogCandidate>(),TypeId::of::<catalog::CatalogExposure>(),TypeId::of::<catalog::CatalogOption>(),TypeId::of::<catalog::CatalogDefault>(),
-            TypeId::of::<normalized::entities::EntityRef>(),TypeId::of::<normalized::entities::SymbolEntityCandidate>(),TypeId::of::<normalized::entities::SymbolEntityResolution>(),TypeId::of::<normalized::entities::PublicExposure>(),TypeId::of::<normalized::entities::CallableEntity>(),TypeId::of::<normalized::entities::ClassEntity>(),TypeId::of::<normalized::entities::ParameterEntity>(),
-            TypeId::of::<c1::ScenarioAssociation>(),TypeId::of::<normalized::events::NormalizedCallAlternative>(),TypeId::of::<normalized::events::NormalizedCallEvent>(),
-            TypeId::of::<c1::DocumentAssociation>(),TypeId::of::<normalized::links::MentionEntityCandidate>(),TypeId::of::<normalized::links::MentionEntityAssessment>(),TypeId::of::<documents::DocumentMentionObservation>(),TypeId::of::<c1::ReleaseDeployment>(),
+            TypeId::of::<c1::ScenarioSpan>(),
+            TypeId::of::<c1::CatalogDeployment>(),
+            TypeId::of::<deployment::DeploymentObservation>(),
+            TypeId::of::<catalog::CatalogOptionEvidence>(),
+            TypeId::of::<syntax::ParameterSyntaxObservation>(),
+            TypeId::of::<syntax::ClassFieldSyntaxObservation>(),
+            TypeId::of::<normalized::entities::FieldDeclarationLink>(),
+            TypeId::of::<catalog::CatalogCandidate>(),
+            TypeId::of::<catalog::CatalogExposure>(),
+            TypeId::of::<catalog::CatalogOption>(),
+            TypeId::of::<catalog::CatalogDefault>(),
+            TypeId::of::<normalized::entities::EntityRef>(),
+            TypeId::of::<normalized::entities::SymbolEntityCandidate>(),
+            TypeId::of::<normalized::entities::SymbolEntityResolution>(),
+            TypeId::of::<normalized::entities::PublicExposure>(),
+            TypeId::of::<normalized::entities::CallableEntity>(),
+            TypeId::of::<normalized::entities::ClassEntity>(),
+            TypeId::of::<normalized::entities::ParameterEntity>(),
+            TypeId::of::<c1::ScenarioAssociation>(),
+            TypeId::of::<normalized::events::NormalizedCallAlternative>(),
+            TypeId::of::<normalized::events::NormalizedCallEvent>(),
+            TypeId::of::<c1::DocumentAssociation>(),
+            TypeId::of::<normalized::links::MentionEntityCandidate>(),
+            TypeId::of::<normalized::links::MentionEntityAssessment>(),
+            TypeId::of::<documents::DocumentMentionObservation>(),
+            TypeId::of::<c1::ReleaseDeployment>(),
             TypeId::of::<syntax::SyntaxPlacement>(),
             TypeId::of::<Definition>(),
             TypeId::of::<crate::domain::source::SourceArtifact>(),
@@ -638,7 +690,10 @@ impl Data {
     pub fn inputs() -> Vec<ValidationInput> {
         let mut inputs = Self::mandatory_consumed_inputs(Profile::Behavioral);
         inputs.extend(Self::synthesis_consumed_inputs());
-        inputs.push(ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(PublicationBoundary::Local));
+        inputs.push(
+            ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+                .at_epoch(PublicationBoundary::Local),
+        );
         inputs.sort_by_key(|input| (input.name(), input.prefix()));
         inputs.dedup_by_key(|input| (input.name(), input.prefix()));
         inputs
@@ -661,11 +716,11 @@ crate::retrieval_outputs!(outputs);
 impl Output {
     /// Necessary completion/admission checks operate on immutable semantic records, without
     /// reconstructing upstream producer outputs or replaying the textual renderer.
-    pub fn verify_completion(&self,d:&Data,b:&ResourceBudget)->Result<(),ModelError>{
-        super::construction::verify(self,d,b)
+    pub fn verify_completion(&self, d: &Data, b: &ResourceBudget) -> Result<(), ModelError> {
+        super::construction::verify(self, d, b)
     }
 }
-pub(super) use super::construction::{nominations,nominates_part};
+pub(super) use super::construction::{nominates_part, nominations};
 struct Render {
     text: String,
     anchors: Vec<AnchorSource>,
@@ -771,7 +826,9 @@ fn api(
         .filter(|r| r.member == m.id())
         .collect::<Vec<_>>();
     options.sort_by_key(|r| r.id());
-    for o in options {text.push_str(&option_text(d,o,b)?);}
+    for o in options {
+        text.push_str(&option_text(d, o, b)?);
+    }
     for class in d
         .source
         .catalog
@@ -798,48 +855,50 @@ fn api(
         subjects: vec![Subject::Member { member: m.id() }],
     })
 }
-fn option_text(d:&Data,o:&catalog::CatalogOption,b:&ResourceBudget)->Result<String,ModelError>{
-        let subject = need(&d.source.catalog.subjects, o.subject)?;
-        let default = need(&d.source.catalog.defaults, o.default)?;
-        let label = match subject {
-            catalog::CatalogOptionSubject::Parameter { slot } => {
-                let slot = need(&d.source.core.slots, *slot)?;
-                let p = need(&d.facts.signature_parameters, slot.parameter)?;
-                let shape = need(&d.facts.shapes, p.shape)?;
-                format!(
-                    "effective parameter {} ({})",
-                    shape.name.as_deref().unwrap_or("unnamed"),
-                    shape.kind.label()
-                )
-            }
-            catalog::CatalogOptionSubject::Field { field } => format!(
-                "configuration field {}",
-                need(&d.source.core.fields, *field)?.name
-            ),
-            catalog::CatalogOptionSubject::SourceParameter { .. } => {
-                "original source parameter".into()
-            }
-        };
-        let value = match default {
-            catalog::CatalogDefault::Absent {} => "Absent".into(),
-            catalog::CatalogDefault::Unknown {} => "Unknown".into(),
-            catalog::CatalogDefault::Unavailable {} => "Unavailable".into(),
-            catalog::CatalogDefault::Literal { literal } => {
-                format!(
-                    "Literal {}",
-                    value::presentation::render(
-                        need(&d.facts.literals, *literal)?,
-                        value::presentation::Mode::Human,
-                        None,
-                        b
-                    )?
-                    .map_err(|_| invalid("human literal presentation unavailable"))?
-                    .text
-                )
-            }
-            catalog::CatalogDefault::Expression { .. } => "Unevaluated expression".into(),
-            catalog::CatalogDefault::Factory { .. } => "Factory (not evaluated)".into(),
-        };
+fn option_text(
+    d: &Data,
+    o: &catalog::CatalogOption,
+    b: &ResourceBudget,
+) -> Result<String, ModelError> {
+    let subject = need(&d.source.catalog.subjects, o.subject)?;
+    let default = need(&d.source.catalog.defaults, o.default)?;
+    let label = match subject {
+        catalog::CatalogOptionSubject::Parameter { slot } => {
+            let slot = need(&d.source.core.slots, *slot)?;
+            let p = need(&d.facts.signature_parameters, slot.parameter)?;
+            let shape = need(&d.facts.shapes, p.shape)?;
+            format!(
+                "effective parameter {} ({})",
+                shape.name.as_deref().unwrap_or("unnamed"),
+                shape.kind.label()
+            )
+        }
+        catalog::CatalogOptionSubject::Field { field } => format!(
+            "configuration field {}",
+            need(&d.source.core.fields, *field)?.name
+        ),
+        catalog::CatalogOptionSubject::SourceParameter { .. } => "original source parameter".into(),
+    };
+    let value = match default {
+        catalog::CatalogDefault::Absent {} => "Absent".into(),
+        catalog::CatalogDefault::Unknown {} => "Unknown".into(),
+        catalog::CatalogDefault::Unavailable {} => "Unavailable".into(),
+        catalog::CatalogDefault::Literal { literal } => {
+            format!(
+                "Literal {}",
+                value::presentation::render(
+                    need(&d.facts.literals, *literal)?,
+                    value::presentation::Mode::Human,
+                    None,
+                    b
+                )?
+                .map_err(|_| invalid("human literal presentation unavailable"))?
+                .text
+            )
+        }
+        catalog::CatalogDefault::Expression { .. } => "Unevaluated expression".into(),
+        catalog::CatalogDefault::Factory { .. } => "Factory (not evaluated)".into(),
+    };
     Ok(format!("Option {label}: default={value}\n"))
 }
 struct RenderedIdentity {
@@ -900,8 +959,8 @@ fn add(
             original,
         })?;
     }
-    let parts=super::construction::parts(d,out,unit,b)?;
-    super::partition::construct(d,out,unit,parts,b)?;
+    let parts = super::construction::parts(d, out, unit, b)?;
+    super::partition::construct(d, out, unit, parts, b)?;
     Ok(())
 }
 pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
@@ -979,17 +1038,77 @@ fn render(
                     api(d, m, root.context, b)?,
                     b,
                 )?;
-                let definitions=super::construction::definitions(d,*member,root.context)?;
-                if definitions.is_empty(){
-                    add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::UnavailableDefinition{member:*member},title:format!("{title}: defining source unavailable")},Render{text:format!("Defining source unavailable for {title}; public access does not identify a source body."),anchors:vec![],subjects:vec![Subject::Member{member:*member}]},b)?;
+                let definitions = super::construction::definitions(d, *member, root.context)?;
+                if definitions.is_empty() {
+                    add(
+                        d,
+                        &mut out,
+                        root,
+                        RenderedIdentity {
+                            family: Family::Source,
+                            origin: Origin::UnavailableDefinition { member: *member },
+                            title: format!("{title}: defining source unavailable"),
+                        },
+                        Render {
+                            text: format!(
+                                "Defining source unavailable for {title}; public access does not identify a source body."
+                            ),
+                            anchors: vec![],
+                            subjects: vec![Subject::Member { member: *member }],
+                        },
+                        b,
+                    )?;
                 }
-                for (entity,anchor,exact) in definitions {
-                    let (text,anchors)=if let Some(anchor)=anchor{
-                        let mut text=String::new();let mut anchors=vec![];
-                        for (enclosing,branch) in super::construction::enclosing(d,&anchor,root.context)?{text.push_str(&format!("Enclosing syntax branch {branch:?}\n"));text.push_str(&super::source::read(d,&enclosing,b)?.value);text.push('\n');anchors.push(enclosing);}
-                        let body=super::source::read(d,&anchor,b)?;if body.value.is_empty(){text.push_str("Defining original source is empty (0 bytes).");}else{text.push_str(&body.value);}anchors.push(anchor);(text,anchors)
-                    }else{(format!("Defining alternative {entity:?}; native/external/synthetic source unavailable; exact={exact}"),vec![])};
-                    add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::Definition{member:*member,entity},title:title.clone()},Render{text,anchors,subjects:vec![Subject::Member{member:*member},Subject::Definition{entity}]},b)?;
+                for (entity, anchor, exact) in definitions {
+                    let (text, anchors) = if let Some(anchor) = anchor {
+                        let mut text = String::new();
+                        let mut anchors = vec![];
+                        for (enclosing, branch) in
+                            super::construction::enclosing(d, &anchor, root.context)?
+                        {
+                            text.push_str(&format!("Enclosing syntax branch {branch:?}\n"));
+                            text.push_str(&super::source::read(d, &enclosing, b)?.value);
+                            text.push('\n');
+                            anchors.push(enclosing);
+                        }
+                        let body = super::source::read(d, &anchor, b)?;
+                        if body.value.is_empty() {
+                            text.push_str("Defining original source is empty (0 bytes).");
+                        } else {
+                            text.push_str(&body.value);
+                        }
+                        anchors.push(anchor);
+                        (text, anchors)
+                    } else {
+                        (
+                            format!(
+                                "Defining alternative {entity:?}; native/external/synthetic source unavailable; exact={exact}"
+                            ),
+                            vec![],
+                        )
+                    };
+                    add(
+                        d,
+                        &mut out,
+                        root,
+                        RenderedIdentity {
+                            family: Family::Source,
+                            origin: Origin::Definition {
+                                member: *member,
+                                entity,
+                            },
+                            title: title.clone(),
+                        },
+                        Render {
+                            text,
+                            anchors,
+                            subjects: vec![
+                                Subject::Member { member: *member },
+                                Subject::Definition { entity },
+                            ],
+                        },
+                        b,
+                    )?;
                 }
             }
             c1::RootSubject::Scenario { scenario } => {
@@ -1119,9 +1238,11 @@ fn render(
                     }
                     any = true;
                     let text = super::source::read(d, &anchor, b)?;
-                    let anchors=super::construction::passage_anchors(d,passage,b)?;
-                    let mut contextual=String::new();
-                    for ancestor in anchors.iter().take(anchors.len().saturating_sub(1)){contextual.push_str(&super::source::read(d,ancestor,b)?.value);}
+                    let anchors = super::construction::passage_anchors(d, passage, b)?;
+                    let mut contextual = String::new();
+                    for ancestor in anchors.iter().take(anchors.len().saturating_sub(1)) {
+                        contextual.push_str(&super::source::read(d, ancestor, b)?.value);
+                    }
                     let mut subjects = vec![];
                     for a in d.evidence.document_associations.iter() {
                         let candidate = need(&d.source.facts.mention_candidates, a.candidate)?;
@@ -1153,7 +1274,12 @@ fn render(
                                 .unwrap_or_else(|| artifact.path.clone()),
                         },
                         Render {
-                            text: format!("Heading: {}\n{}{}",passage.heading.as_deref().unwrap_or(&artifact.path),contextual,text.value),
+                            text: format!(
+                                "Heading: {}\n{}{}",
+                                passage.heading.as_deref().unwrap_or(&artifact.path),
+                                contextual,
+                                text.value
+                            ),
                             anchors,
                             subjects,
                         },
@@ -1180,7 +1306,11 @@ fn render(
                                 .unwrap_or_else(|| artifact.path.clone()),
                         },
                         Render {
-                            text: format!("Document: {}\n{}",document.title.as_deref().unwrap_or(&artifact.path),text.value),
+                            text: format!(
+                                "Document: {}\n{}",
+                                document.title.as_deref().unwrap_or(&artifact.path),
+                                text.value
+                            ),
                             anchors: vec![anchor],
                             subjects: vec![],
                         },
@@ -1228,22 +1358,85 @@ fn render(
                 )?;
             }
             c1::RootSubject::Option { option } => {
-                let row=need(&d.source.catalog.options,*option)?;
-                let member=need(&d.source.catalog.members,row.member)?;
-                let mut text=format!("{}\n{}",member_path(d,member)?,option_text(d,row,b)?);
-                let anchors=super::construction::option_anchors(d,row)?;
-                for anchor in &anchors{text.push_str(&super::source::read(d,anchor,b)?.value);text.push('\n');}
+                let row = need(&d.source.catalog.options, *option)?;
+                let member = need(&d.source.catalog.members, row.member)?;
+                let mut text = format!("{}\n{}", member_path(d, member)?, option_text(d, row, b)?);
+                let anchors = super::construction::option_anchors(d, row)?;
+                for anchor in &anchors {
+                    text.push_str(&super::source::read(d, anchor, b)?.value);
+                    text.push('\n');
+                }
 
-                add(d,&mut out,root,RenderedIdentity{family:Family::ApiOptions,origin:Origin::Option{option:*option},title:format!("{} option",member_path(d,member)?)},Render{text,anchors,subjects:vec![Subject::Option{option:*option},Subject::Member{member:row.member}]},b)?;
+                add(
+                    d,
+                    &mut out,
+                    root,
+                    RenderedIdentity {
+                        family: Family::ApiOptions,
+                        origin: Origin::Option { option: *option },
+                        title: format!("{} option", member_path(d, member)?),
+                    },
+                    Render {
+                        text,
+                        anchors,
+                        subjects: vec![
+                            Subject::Option { option: *option },
+                            Subject::Member { member: row.member },
+                        ],
+                    },
+                    b,
+                )?;
             }
             c1::RootSubject::Source { artifact } => {
-                let anchor=AnchorSource::Artifact{artifact:*artifact};let text=super::source::read(d,&anchor,b)?;
-                let source=need(&d.source.core.artifacts,*artifact)?;
-                add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::Source{artifact:*artifact},title:source.path.clone()},Render{text:if text.value.is_empty(){"Original source is empty (0 bytes).".into()}else{text.value},anchors:vec![anchor],subjects:vec![Subject::Source{artifact:*artifact}]},b)?;
+                let anchor = AnchorSource::Artifact {
+                    artifact: *artifact,
+                };
+                let text = super::source::read(d, &anchor, b)?;
+                let source = need(&d.source.core.artifacts, *artifact)?;
+                add(
+                    d,
+                    &mut out,
+                    root,
+                    RenderedIdentity {
+                        family: Family::Source,
+                        origin: Origin::Source {
+                            artifact: *artifact,
+                        },
+                        title: source.path.clone(),
+                    },
+                    Render {
+                        text: if text.value.is_empty() {
+                            "Original source is empty (0 bytes).".into()
+                        } else {
+                            text.value
+                        },
+                        anchors: vec![anchor],
+                        subjects: vec![Subject::Source {
+                            artifact: *artifact,
+                        }],
+                    },
+                    b,
+                )?;
             }
             c1::RootSubject::Release { release } => {
-                let row=need(&d.facts.releases,*release)?;let package=need(&d.facts.packages,row.package)?;
-                add(d,&mut out,root,RenderedIdentity{family:Family::DocumentationDeployment,origin:Origin::Release{release:*release},title:format!("{} {}",package.name,row.version)},Render{text:format!("Distribution {} version {}",package.name,row.version),anchors:vec![],subjects:vec![Subject::Release{release:*release}]},b)?;
+                let row = need(&d.facts.releases, *release)?;
+                let package = need(&d.facts.packages, row.package)?;
+                add(
+                    d,
+                    &mut out,
+                    root,
+                    RenderedIdentity {
+                        family: Family::DocumentationDeployment,
+                        origin: Origin::Release { release: *release },
+                        title: format!("{} {}", package.name, row.version),
+                    },
+                    Render {
+                        text: format!("Distribution {} version {}", package.name, row.version),
+                        anchors: vec![],
+                        subjects: vec![Subject::Release { release: *release }],
+                    },
+                    b,
+                )?;
             }
         }
     }
@@ -1281,7 +1474,10 @@ pub fn memberships() -> Vec<(std::any::TypeId, &'static str)> {
         (TypeId::of::<BriefSource>(), "brief"),
         (TypeId::of::<documents::DocumentNode>(), "passage_span"),
         (TypeId::of::<documents::PassageObservation>(), "passage"),
-        (TypeId::of::<documents::DocumentComponentObservation>(), "passage"),
+        (
+            TypeId::of::<documents::DocumentComponentObservation>(),
+            "passage",
+        ),
     ]
 }
 pub fn invariants() -> Vec<Invariant> {
@@ -1560,7 +1756,10 @@ pub fn stage(
         .iter()
         .map(RelationUse::of_relation)
         .collect::<Vec<_>>();
-    outputs.extend([RelationUse::of::<embedding::value::FullValue>(),RelationUse::of::<embedding::projection::ProjectedValue>()]);
+    outputs.extend([
+        RelationUse::of::<embedding::value::FullValue>(),
+        RelationUse::of::<embedding::projection::ProjectedValue>(),
+    ]);
     outputs.extend(
         analysis::retrieval::publication_relations()
             .iter()
@@ -1573,8 +1772,10 @@ pub fn stage(
     ));
     requested.retain(|input| !own.contains(input.name()));
     requested.extend([
-        ValidationInput::of::<embedding::value::FullValue>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding),
-        ValidationInput::of::<embedding::projection::ProjectedValue>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding),
+        ValidationInput::of::<embedding::value::FullValue>(&["id"])
+            .at_epoch(PublicationBoundary::AnalyticEmbedding),
+        ValidationInput::of::<embedding::projection::ProjectedValue>(&["id"])
+            .at_epoch(PublicationBoundary::AnalyticEmbedding),
     ]);
     let inputs = dependency_closure::DependencyClosure::stage_grants(
         model,
@@ -1596,12 +1797,15 @@ pub fn stage(
         } else {
             Effect::Pure
         },
-        code: ContentHash::of(&[
-            include_bytes!("build.rs").as_slice(),
-            include_bytes!("construction.rs").as_slice(),
-            include_bytes!("partition.rs").as_slice(),
-            include_bytes!("source.rs").as_slice(),
-        ].concat()),
+        code: ContentHash::of(
+            &[
+                include_bytes!("build.rs").as_slice(),
+                include_bytes!("construction.rs").as_slice(),
+                include_bytes!("partition.rs").as_slice(),
+                include_bytes!("source.rs").as_slice(),
+            ]
+            .concat(),
+        ),
         configuration: ContentHash::of(selected.id().bytes()),
     })
 }

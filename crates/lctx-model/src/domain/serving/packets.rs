@@ -654,8 +654,13 @@ packet!(SourceUsagePacket {usage:Id<catalog::evidence::SourceUsage>,event:Id<nor
 packet!(AnalysisContextPacket {analysis:Id<attribution::AnalysisContext>,python_version:Name,python_platform:Name,search_path:Vec<Text<0,8192>>,site_package_path:Vec<Text<0,8192>>,config_digest:ContentHash,environment_digest:ContentHash,lock_digest:Nullable<ContentHash>});
 packet!(OriginalExcerpt {original:OriginalRange,text:Nullable<Text<0,262144>>,availability:Availability});
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
-pub enum DefaultDeclaration { SourceParameter, NativeSignature, DeclaredField, NativeField }
+#[serde(rename_all = "snake_case")]
+pub enum DefaultDeclaration {
+    SourceParameter,
+    NativeSignature,
+    DeclaredField,
+    NativeField,
+}
 packet!(DefaultInterpretation {signature:Nullable<Id<calls::Signature>>,variant:Nullable<Id<normalized::callables::SignatureVariant>>,analysis:Id<attribution::AnalysisContext>,parameter:Nullable<Id<calls::SignatureParameter>>,field:Nullable<Id<normalized::entities::FieldEntity>>,subject_name:Nullable<Name>,option:Nullable<Id<catalog::CatalogOption>>,declaration:DefaultDeclaration,value:DefaultValue,readable:Nullable<Text<0,262144>>,original:Nullable<OriginalExcerpt>,qualification:Nullable<Id<assertion::AssertionQualification>>,availability:Availability,#[doc="Declared defaults are not observations of runtime configuration or caller overrides."] effective_override:Availability});
 packet!(ReadableConditionAtom {atom:Id<conditions::EvaluationAtom>,analysis:Id<attribution::AnalysisContext>,predicate:Nullable<Text<0,8192>>,evaluation:Nullable<OriginalExcerpt>,#[doc="Polarity in the canonical bounded DNF term, not an observed runtime truth."] value:bool,availability:Availability});
 packet!(QualificationInterpretation {qualification:Id<assertion::AssertionQualification>,analysis:Id<attribution::AnalysisContext>,scope:Id<source::CoverageScope>,condition:Id<conditions::Condition>,#[doc="Names canonical true/false constants; nonconstant conditions use readable terms."] constant:Nullable<bool>,terms:Vec<Vec<ReadableConditionAtom>>,truncated:bool,modality:Name,approximation:Name,claim_basis:ClaimBasisPacket,availability:Availability});
@@ -671,23 +676,55 @@ pub struct DeliveryBinding {
     pub field: Nullable<Id<normalized::entities::FieldEntity>>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all="snake_case")]
-pub enum DeliveryRole { Primary, Interpretation, Reference, Synthetic }
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryRole {
+    Primary,
+    Interpretation,
+    Reference,
+    Synthetic,
+}
 packet!(DeliveredEvidence {#[doc="JSON Pointer into the actual final MCP result object. Text pointers identify decoded fields, never raw substring matches."] field:Name,role:DeliveryRole,original:Nullable<OriginalRange>,binding:DeliveryBinding,qualifications:Vec<Id<assertion::AssertionQualification>>,dependencies:Vec<Name>,availability:Availability});
-packet!(DeliveryExpansion {tool:Tool,arguments:serde_json::Value});
+packet!(DeliveryExpansion {
+    tool: Tool,
+    arguments: serde_json::Value
+});
 packet!(DeliveryOmission {field:Name,availability:Availability,expand:Nullable<DeliveryExpansion>});
-packet!(RankedContinuationPolicy {maximum_entries:u32,maximum_retained_bytes:u64,expires_after_seconds:u64,#[doc="Expired, evicted, foreign-session and restarted entries refuse continuation; they never silently rerank."] session_bound:bool,recompute_on_loss:bool});
+packet!(RankedContinuationPolicy {
+    maximum_entries: u32,
+    maximum_retained_bytes: u64,
+    expires_after_seconds: u64,
+    #[doc = "Expired, evicted, foreign-session and restarted entries refuse continuation; they never silently rerank."]
+    session_bound: bool,
+    recompute_on_loss: bool
+});
 packet!(PacketEvidenceMap {fields:Vec<DeliveredEvidence>,omissions:Vec<DeliveryOmission>,ranked_continuation:Nullable<RankedContinuationPolicy>,#[doc="Greedy optional packing uses exact encoded final-envelope cost. Core and interpretation closure remain indivisible."] packing_policy:Name});
 
 impl Default for DeliveryBinding {
-    fn default()->Self { Self {member:Nullable(None),signature:Nullable(None),variant:Nullable(None),analysis:Nullable(None),parameter:Nullable(None),field:Nullable(None)} }
+    fn default() -> Self {
+        Self {
+            member: Nullable(None),
+            signature: Nullable(None),
+            variant: Nullable(None),
+            analysis: Nullable(None),
+            parameter: Nullable(None),
+            field: Nullable(None),
+        }
+    }
 }
 
 impl RankedContinuationPolicy {
-    pub const MAXIMUM_ENTRIES:u32=16;
-    pub const MAXIMUM_RETAINED_BYTES:u64=8*1024*1024;
-    pub const EXPIRES_AFTER_SECONDS:u64=600;
+    pub const MAXIMUM_ENTRIES: u32 = 16;
+    pub const MAXIMUM_RETAINED_BYTES: u64 = 8 * 1024 * 1024;
+    pub const EXPIRES_AFTER_SECONDS: u64 = 600;
 }
 impl Default for RankedContinuationPolicy {
-    fn default()->Self {Self {maximum_entries:Self::MAXIMUM_ENTRIES,maximum_retained_bytes:Self::MAXIMUM_RETAINED_BYTES,expires_after_seconds:Self::EXPIRES_AFTER_SECONDS,session_bound:true,recompute_on_loss:false}}
+    fn default() -> Self {
+        Self {
+            maximum_entries: Self::MAXIMUM_ENTRIES,
+            maximum_retained_bytes: Self::MAXIMUM_RETAINED_BYTES,
+            expires_after_seconds: Self::EXPIRES_AFTER_SECONDS,
+            session_bound: true,
+            recompute_on_loss: false,
+        }
+    }
 }

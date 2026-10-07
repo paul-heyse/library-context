@@ -251,7 +251,9 @@ pub enum RootSubject {
     #[model(code = 5)]
     Release { release: Id<Release> },
     #[model(code = 6)]
-    Source { artifact: Id<crate::domain::source::SourceArtifact> },
+    Source {
+        artifact: Id<crate::domain::source::SourceArtifact>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "catalog_evidence_roots")]

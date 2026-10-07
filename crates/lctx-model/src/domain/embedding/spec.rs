@@ -89,15 +89,19 @@ impl Spec {
             return Err("incompatible embedding specification".to_owned());
         }
         match self.reduction.as_str() {
-            "none" if self.admission.is_none() || self.admission.as_ref().is_some_and(|a| {
-                    a.is_matryoshka
-                        && a.matryoshka_dimensions == [self.dimensions]
-                        && a.use_activation
-                }) => {}
+            "none"
+                if self.admission.is_none()
+                    || self.admission.as_ref().is_some_and(|a| {
+                        a.is_matryoshka
+                            && a.matryoshka_dimensions == [self.dimensions]
+                            && a.use_activation
+                    }) => {}
             _ => return Err("incompatible embedding reduction/admission".to_owned()),
         }
         self.query_recipe().validate()?;
-        if self.document_template.matches("{text}").count()!=1 {return Err("invalid document template".into());}
+        if self.document_template.matches("{text}").count() != 1 {
+            return Err("invalid document template".into());
+        }
         Ok(())
     }
 
@@ -107,30 +111,42 @@ impl Spec {
 
     /// Actual encoder identity. Query/render/projection policy cannot invalidate full winners.
     pub fn hash(&self) -> ContentHash {
-        recipe_hash("encoder/v3", &EncoderRecipe {
-            source_dimensions: self.source_dimensions,
-            admission: &self.admission,
-            model: &self.model,
-            revision: &self.revision,
-            tokenizer_revision: &self.tokenizer_revision,
-            server: &self.server,
-            served_dtype: &self.served_dtype,
-            pooling: &self.pooling,
-            dimensions: self.dimensions,
-            output_dtype: &self.output_dtype,
-            normalization: &self.normalization,
-        })
+        recipe_hash(
+            "encoder/v3",
+            &EncoderRecipe {
+                source_dimensions: self.source_dimensions,
+                admission: &self.admission,
+                model: &self.model,
+                revision: &self.revision,
+                tokenizer_revision: &self.tokenizer_revision,
+                server: &self.server,
+                served_dtype: &self.served_dtype,
+                pooling: &self.pooling,
+                dimensions: self.dimensions,
+                output_dtype: &self.output_dtype,
+                normalization: &self.normalization,
+            },
+        )
     }
     pub fn document_hash(&self) -> ContentHash {
-        recipe_hash("document/v3", &DocumentRecipe {
-            template: &self.document_template,
-            max_tokens: self.max_document_tokens,
-        })
+        recipe_hash(
+            "document/v3",
+            &DocumentRecipe {
+                template: &self.document_template,
+                max_tokens: self.max_document_tokens,
+            },
+        )
     }
-    pub fn query_recipe(&self)->QueryRecipe {
-        QueryRecipe {template:self.query_template.clone(),task:self.query_task.clone(),max_tokens:self.max_query_tokens}
+    pub fn query_recipe(&self) -> QueryRecipe {
+        QueryRecipe {
+            template: self.query_template.clone(),
+            task: self.query_task.clone(),
+            max_tokens: self.max_query_tokens,
+        }
     }
-    pub fn query_hash(&self)->ContentHash {self.query_recipe().identity()}
+    pub fn query_hash(&self) -> ContentHash {
+        self.query_recipe().identity()
+    }
     pub fn configuration_hash(&self) -> ContentHash {
         recipe_hash("embedding-envelope/v3", self)
     }
@@ -164,15 +180,35 @@ struct EncoderRecipe<'a> {
     normalization: &'a str,
 }
 #[derive(Serialize)]
-struct DocumentRecipe<'a> { template: &'a str, max_tokens: u32 }
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize,schemars::JsonSchema)]
+struct DocumentRecipe<'a> {
+    template: &'a str,
+    max_tokens: u32,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct QueryRecipe {pub template:String,pub task:String,pub max_tokens:u32}
+pub struct QueryRecipe {
+    pub template: String,
+    pub task: String,
+    pub max_tokens: u32,
+}
 impl QueryRecipe {
-    pub fn identity(&self)->ContentHash {recipe_hash("query/v3",self)}
-    pub fn text(&self,query:&str)->String {self.template.replace("{task_description}",&self.task).replace("{query}",query)}
-    pub fn validate(&self)->Result<(),String> {
-        if self.max_tokens==0 || self.template.matches("{query}").count()!=1 || self.template.matches("{task_description}").count()!=1 || self.task.trim().is_empty() {return Err("invalid query recipe".into());} Ok(())
+    pub fn identity(&self) -> ContentHash {
+        recipe_hash("query/v3", self)
+    }
+    pub fn text(&self, query: &str) -> String {
+        self.template
+            .replace("{task_description}", &self.task)
+            .replace("{query}", query)
+    }
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_tokens == 0
+            || self.template.matches("{query}").count() != 1
+            || self.template.matches("{task_description}").count() != 1
+            || self.task.trim().is_empty()
+        {
+            return Err("invalid query recipe".into());
+        }
+        Ok(())
     }
 }
 pub(crate) fn recipe_hash<T: Serialize>(kind: &str, recipe: &T) -> ContentHash {
@@ -243,13 +279,17 @@ mod tests {
     #[test]
     fn query_document_and_encoder_changes_have_independent_identities() {
         let spec = Spec::parse(LIVE).unwrap();
-        let mut query = spec.clone(); query.query_task.push_str(" changed");
-        assert_eq!(query.hash(),spec.hash());
-        assert_eq!(query.document_hash(),spec.document_hash());
-        assert_ne!(query.query_hash(),spec.query_hash());
-        let mut document = spec.clone(); document.document_template = "Header\n{text}".into();
-        assert_eq!(document.hash(),spec.hash()); assert_ne!(document.document_hash(),spec.document_hash());
-        let mut encoder=spec.clone(); encoder.revision.push_str(" changed");
-        assert_ne!(encoder.hash(),spec.hash());
+        let mut query = spec.clone();
+        query.query_task.push_str(" changed");
+        assert_eq!(query.hash(), spec.hash());
+        assert_eq!(query.document_hash(), spec.document_hash());
+        assert_ne!(query.query_hash(), spec.query_hash());
+        let mut document = spec.clone();
+        document.document_template = "Header\n{text}".into();
+        assert_eq!(document.hash(), spec.hash());
+        assert_ne!(document.document_hash(), spec.document_hash());
+        let mut encoder = spec.clone();
+        encoder.revision.push_str(" changed");
+        assert_ne!(encoder.hash(), spec.hash());
     }
 }

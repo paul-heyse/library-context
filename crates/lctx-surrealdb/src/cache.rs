@@ -33,7 +33,8 @@ impl NativeEmbeddingCache {
     ) -> Result<BTreeMap<ContentHash, CacheValue>, ModelError> {
         validate_spec(spec)?;
         let spec_hash = spec.hash().hex();
-        let definition = serde_json::to_vec(&EmbeddingSpec::new(spec)?).map_err(ModelError::codec)?;
+        let definition =
+            serde_json::to_vec(&EmbeddingSpec::new(spec)?).map_err(ModelError::codec)?;
         let keys: Vec<_> = keys
             .iter()
             .copied()
@@ -76,7 +77,8 @@ impl NativeEmbeddingCache {
                         "embedding cache key/specification/token admission",
                     ));
                 }
-                let vector = decode_vector(row.bytes.as_ref(), spec.dimensions).map_err(ModelError::Invalid)?;
+                let vector = decode_vector(row.bytes.as_ref(), spec.dimensions)
+                    .map_err(ModelError::Invalid)?;
                 check_vector(&vector, spec.dimensions).map_err(ModelError::Invalid)?;
                 if encode_vector(&vector) != row.bytes.as_ref()
                     || value_digest(&vector).hex() != row.digest
@@ -225,7 +227,8 @@ impl EmbeddingCache for NativeEmbeddingCache {
     ) -> CacheFuture<'a, BTreeMap<ContentHash, CacheValue>> {
         Box::pin(async move {
             validate_spec(spec)?;
-            let definition = serde_json::to_vec(&EmbeddingSpec::new(spec)?).map_err(ModelError::codec)?;
+            let definition =
+                serde_json::to_vec(&EmbeddingSpec::new(spec)?).map_err(ModelError::codec)?;
             // Validate every proposal, including later duplicates, before any effects. The
             // compiler owns text/hash agreement; this effect owner never reconstructs text.
             let mut unique = BTreeMap::<ContentHash, &CacheValue>::new();

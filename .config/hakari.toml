@@ -12,7 +12,7 @@ exact-versions = true
 [final-excludes]
 workspace-members = [
   "cpg-flow", "cpg-core", "cpg-extract", "lctx-analytics", "lctx-embed",
-  "lctx-model", "lctx-model-macros", "lctx-semantics",
+  "lctx-model", "lctx-model-macros", "lctx-semantics", "lctx-eval",
   "lctx-surrealdb", "lctx-publisher", "lctx-serving",
 ]
 # ADR-0118: keep the embedded registry family inside the Pyrefly adapter.

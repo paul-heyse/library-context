@@ -1,9 +1,5 @@
 //! Native operation orchestration over scoped semantic owners.
-use crate::{
-    candidates,
-    records::wire,
-    service::QueryVector,
-};
+use crate::{candidates, records::wire, service::QueryVector};
 use lctx_model::domain::{
     resources::ResourceBudget,
     serving::ranking::{self, CandidateFusion, ChannelBinding, RankingPolicy},
@@ -114,7 +110,7 @@ pub async fn dispatch(
                 )
             };
             Ok(Response::FindOperations(FindOperationsResponse {
-            delivery: Optional::default(),
+                delivery: Optional::default(),
                 snapshot,
                 domains: domains.clone(),
                 supported: group(selection::Outcome::Supported, "supported")?,
@@ -144,7 +140,7 @@ pub async fn dispatch(
                 });
             }
             Ok(Response::CompareOperations(CompareOperationsResponse {
-            delivery: Optional::default(),
+                delivery: Optional::default(),
                 snapshot,
                 domains,
                 operations,
@@ -184,7 +180,7 @@ pub async fn dispatch(
                 }
             };
             Ok(Response::GetOperation(GetOperationResponse {
-            delivery: Optional::default(),
+                delivery: Optional::default(),
                 snapshot,
                 domains,
                 operation,
@@ -193,12 +189,16 @@ pub async fn dispatch(
         Request::BrowseLibrary(r) => browse(reader, r, request, b)
             .await
             .map(Response::BrowseLibrary),
-        Request::SearchOperations(r) => search_operations(reader, r, request, channels, vector, retained, b)
-            .await
-            .map(Response::SearchOperations),
-        Request::SearchEvidence(r) => search_evidence(reader, r, request, channels, vector, retained, b)
-            .await
-            .map(Response::SearchEvidence),
+        Request::SearchOperations(r) => {
+            search_operations(reader, r, request, channels, vector, retained, b)
+                .await
+                .map(Response::SearchOperations)
+        }
+        Request::SearchEvidence(r) => {
+            search_evidence(reader, r, request, channels, vector, retained, b)
+                .await
+                .map(Response::SearchEvidence)
+        }
         Request::SearchCapabilities(r) => {
             search_capabilities(reader, r, request, channels, vector, retained, b)
                 .await
@@ -242,7 +242,8 @@ async fn scores(
             scores.extend(
                 crate::search::vector(
                     reader,
-                    &embedding::projection::project_prefix(&v.vector,1024).map_err(ModelError::Invalid)?,
+                    &embedding::projection::project_prefix(&v.vector, 1024)
+                        .map_err(ModelError::Invalid)?,
                     v.spec,
                     embedding::value::value_digest(&v.vector),
                     v.recipe.identity(),
@@ -259,9 +260,9 @@ async fn scores(
             );
         }
     }
-    if let Some(v)=vector {
-        let full=crate::search::rescore_union(reader,v,&scores,&policy).await?;
-        scores.retain(|row|row.channel==ranking::Channel::Lexical);
+    if let Some(v) = vector {
+        let full = crate::search::rescore_union(reader, v, &scores, &policy).await?;
+        scores.retain(|row| row.channel == ranking::Channel::Lexical);
         scores.extend(full);
     }
     Ok(scores)
@@ -373,7 +374,8 @@ async fn search_operations(
             .selected
             .eligible()
             .filter(|c| {
-                c.member == member && c.analysis == hit.context
+                c.member == member
+                    && c.analysis == hit.context
                     && (promoted.contains(&member)
                         || hit
                             .witnesses
@@ -387,9 +389,10 @@ async fn search_operations(
         }
     }
     let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
+        crate::pagination::ranked(values, request, reader.handle(), channels, retained)
+            .map_err(wire)?;
     Ok(SearchOperationsResponse {
-            delivery: Optional::default(),
+        delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         extent: SelectionExtent::Ranked {
@@ -434,7 +437,9 @@ async fn search_evidence(
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
     let packets = crate::evidence::hits(reader, &ranked, &domains, b).await?;
-    if packets.len()!=ranked.len(){return Err(ModelError::Schema("retained evidence packet count"));}
+    if packets.len() != ranked.len() {
+        return Err(ModelError::Schema("retained evidence packet count"));
+    }
     let mut values = Vec::new();
     for (hit, packet) in ranked.into_iter().zip(packets) {
         let ranking::Target::Unit { unit } = hit.target else {
@@ -447,9 +452,10 @@ async fn search_evidence(
         ));
     }
     let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
+        crate::pagination::ranked(values, request, reader.handle(), channels, retained)
+            .map_err(wire)?;
     Ok(SearchEvidenceResponse {
-            delivery: Optional::default(),
+        delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         extent: SelectionExtent::Ranked {
@@ -495,36 +501,95 @@ async fn search_capabilities(
     )
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
-    let mut unit_rows=std::collections::BTreeMap::new();
-    let unit_keys=ranked.iter().map(|hit|match hit.target{ranking::Target::Unit{unit}=>Ok(*unit.bytes()),_=>Err(ModelError::Schema("capability ranking target"))}).collect::<Result<std::collections::BTreeSet<_>,_>>()?.into_iter().collect::<Vec<_>>();
-    for chunk in unit_keys.chunks(64){for unit in reader.records::<retrieval::Unit>(RecordSelection::Keys(chunk.to_vec())).await?{unit_rows.insert(unit.id(),unit);}}
-    let origin_keys=unit_rows.values().map(|unit|*unit.origin.bytes()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-    let mut origins=std::collections::BTreeMap::new();
-    for chunk in origin_keys.chunks(64){for origin in reader.records::<retrieval::Origin>(RecordSelection::Keys(chunk.to_vec())).await?{origins.insert(origin.id(),origin);}}
-    let mut nominated=Vec::new();let mut seen=std::collections::BTreeSet::new();
-    for hit in ranked {
-        let ranking::Target::Unit{unit}=hit.target else{return Err(ModelError::Schema("capability ranking target"));};
-        let unit=unit_rows.get(&unit).ok_or(ModelError::Schema("capability unit"))?;
-        if unit.context!=hit.context{return Err(ModelError::Conflict("capability hit context"));}
-        if let retrieval::Origin::Brief{brief}=origins.get(&unit.origin).ok_or(ModelError::Schema("capability origin"))? && seen.insert((*brief,hit.context)){nominated.push((hit,*brief));}
-    }
-    let brief_ids=nominated.iter().map(|(_,brief)|*brief).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-    let mut values=Vec::new();
-    for cohort in brief_ids.chunks(64){
-        let data=crate::capability::hydrate(reader,cohort,b).await?;
-        let prepared=crate::capability::Prepared::new(&data,b)?;
-        for brief in cohort {
-            let packet=prepared.packet(*brief,b)?;
-            let key=match graph::target_for_row(derivation::RowRef::of(*brief))?{graph::Target::Assertion(id)=>id.0,graph::Target::Entity(id)=>id.0,_=>return Err(ModelError::Schema("brief graph key"))};
-            for (ordinal,(hit,_)) in nominated.iter().enumerate().filter(|(_,(_,id))|id==brief){values.push((ordinal,hit.clone(),key,packet.clone()));}
+    let mut unit_rows = std::collections::BTreeMap::new();
+    let unit_keys = ranked
+        .iter()
+        .map(|hit| match hit.target {
+            ranking::Target::Unit { unit } => Ok(*unit.bytes()),
+            _ => Err(ModelError::Schema("capability ranking target")),
+        })
+        .collect::<Result<std::collections::BTreeSet<_>, _>>()?
+        .into_iter()
+        .collect::<Vec<_>>();
+    for chunk in unit_keys.chunks(64) {
+        for unit in reader
+            .records::<retrieval::Unit>(RecordSelection::Keys(chunk.to_vec()))
+            .await?
+        {
+            unit_rows.insert(unit.id(), unit);
         }
     }
-    values.sort_by_key(|row|row.0);
-    let values=values.into_iter().map(|(_,hit,key,packet)|(hit,key,packet)).collect();
+    let origin_keys = unit_rows
+        .values()
+        .map(|unit| *unit.origin.bytes())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut origins = std::collections::BTreeMap::new();
+    for chunk in origin_keys.chunks(64) {
+        for origin in reader
+            .records::<retrieval::Origin>(RecordSelection::Keys(chunk.to_vec()))
+            .await?
+        {
+            origins.insert(origin.id(), origin);
+        }
+    }
+    let mut nominated = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for hit in ranked {
+        let ranking::Target::Unit { unit } = hit.target else {
+            return Err(ModelError::Schema("capability ranking target"));
+        };
+        let unit = unit_rows
+            .get(&unit)
+            .ok_or(ModelError::Schema("capability unit"))?;
+        if unit.context != hit.context {
+            return Err(ModelError::Conflict("capability hit context"));
+        }
+        if let retrieval::Origin::Brief { brief } = origins
+            .get(&unit.origin)
+            .ok_or(ModelError::Schema("capability origin"))?
+            && seen.insert((*brief, hit.context))
+        {
+            nominated.push((hit, *brief));
+        }
+    }
+    let brief_ids = nominated
+        .iter()
+        .map(|(_, brief)| *brief)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut values = Vec::new();
+    for cohort in brief_ids.chunks(64) {
+        let data = crate::capability::hydrate(reader, cohort, b).await?;
+        let prepared = crate::capability::Prepared::new(&data, b)?;
+        for brief in cohort {
+            let packet = prepared.packet(*brief, b)?;
+            let key = match graph::target_for_row(derivation::RowRef::of(*brief))? {
+                graph::Target::Assertion(id) => id.0,
+                graph::Target::Entity(id) => id.0,
+                _ => return Err(ModelError::Schema("brief graph key")),
+            };
+            for (ordinal, (hit, _)) in nominated
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, id))| id == brief)
+            {
+                values.push((ordinal, hit.clone(), key, packet.clone()));
+            }
+        }
+    }
+    values.sort_by_key(|row| row.0);
+    let values = values
+        .into_iter()
+        .map(|(_, hit, key, packet)| (hit, key, packet))
+        .collect();
     let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
+        crate::pagination::ranked(values, request, reader.handle(), channels, retained)
+            .map_err(wire)?;
     Ok(SearchCapabilitiesResponse {
-            delivery: Optional::default(),
+        delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         extent: SelectionExtent::Ranked {
@@ -763,7 +828,7 @@ async fn browse(
         }
     }
     Ok(BrowseLibraryResponse {
-            delivery: Optional::default(),
+        delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         scope: r.scope.clone(),

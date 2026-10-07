@@ -405,28 +405,45 @@ fn shared_value_closure_retains_an_earlier_view_while_the_stage_appends_values()
                 purpose: InvariantPurpose::Admission,
                 revision: 1,
                 name: "shared_value_epoch_probe",
-                inputs: vec![ValidationInput::of::<FullProbe>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding)],
+                inputs: vec![
+                    ValidationInput::of::<FullProbe>(&["id"])
+                        .at_epoch(PublicationBoundary::AnalyticEmbedding),
+                ],
                 create: std::sync::Arc::new(|_| Box::new(EpochCheck)),
             }],
             publication_checks: vec![],
         },
-    ).unwrap();
+    )
+    .unwrap();
     let order = PublicationOrder::planning(&[
         PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
         PublicationGroup::new(PublicationBoundary::AnalyticEmbedding, vec!["e1"]),
         PublicationGroup::new(PublicationBoundary::Retrieval, vec!["e0"]),
-    ]).unwrap();
+    ])
+    .unwrap();
     let closure = DependencyClosure::build(
         &model,
-        vec![ValidationInput::of::<FullProbe>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding)],
-        vec![RelationUse::completed::<FullProbe>().at_epoch(PublicationBoundary::AnalyticEmbedding)],
+        vec![
+            ValidationInput::of::<FullProbe>(&["id"])
+                .at_epoch(PublicationBoundary::AnalyticEmbedding),
+        ],
+        vec![
+            RelationUse::completed::<FullProbe>().at_epoch(PublicationBoundary::AnalyticEmbedding),
+        ],
         &[RelationUse::of::<FullProbe>()],
         PublicationBoundary::AnalyticEmbedding,
         LowerLayerPolicy::OmitInferredOrdinaryFacts,
         &order,
-    ).unwrap();
+    )
+    .unwrap();
     assert_eq!(closure.requirements.len(), 1);
-    assert_eq!(closure.requirements[0].prefix(), Some(PublicationBoundary::AnalyticEmbedding));
+    assert_eq!(
+        closure.requirements[0].prefix(),
+        Some(PublicationBoundary::AnalyticEmbedding)
+    );
     assert_eq!(closure.grants.len(), 1);
-    assert_eq!(closure.grants[0].prefix(), Some(PublicationBoundary::AnalyticEmbedding));
+    assert_eq!(
+        closure.grants[0].prefix(),
+        Some(PublicationBoundary::AnalyticEmbedding)
+    );
 }

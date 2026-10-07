@@ -437,9 +437,7 @@ fn validate_upper_dependencies(schedule: &Schedule) -> Result<(), ModelError> {
                 }
                 if let Some(limit) = limit {
                     let boundary = schedule.epoch_for(producer.name).ok_or_else(|| {
-                        ModelError::Invalid(
-                            "shared producer has no publication boundary".into(),
-                        )
+                        ModelError::Invalid("shared producer has no publication boundary".into())
                     })?;
                     if schedule.prefix_for(boundary)?.ordinal() > limit.ordinal() {
                         continue;
@@ -865,11 +863,26 @@ mod publication_tests {
 
     #[test]
     fn value_publication_boundaries_follow_semantic_dependency_order() {
-        let groups: Vec<_> = UpperStage::ALL.into_iter().filter_map(|stage| stage.boundary()).collect();
-        let structural = groups.iter().position(|boundary| *boundary == PublicationBoundary::Structural).unwrap();
-        assert_eq!(groups[structural + 1], PublicationBoundary::AnalyticEmbedding);
+        let groups: Vec<_> = UpperStage::ALL
+            .into_iter()
+            .filter_map(|stage| stage.boundary())
+            .collect();
+        let structural = groups
+            .iter()
+            .position(|boundary| *boundary == PublicationBoundary::Structural)
+            .unwrap();
+        assert_eq!(
+            groups[structural + 1],
+            PublicationBoundary::AnalyticEmbedding
+        );
         assert_eq!(groups[structural + 2], PublicationBoundary::Analytic);
         assert_eq!(groups.last(), Some(&PublicationBoundary::Retrieval));
-        assert!(groups.iter().position(|boundary| *boundary == PublicationBoundary::Local).unwrap() < structural);
+        assert!(
+            groups
+                .iter()
+                .position(|boundary| *boundary == PublicationBoundary::Local)
+                .unwrap()
+                < structural
+        );
     }
 }

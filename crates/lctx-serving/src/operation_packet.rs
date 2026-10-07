@@ -20,14 +20,24 @@ pub async fn get(
     limits: &ResourceLimits,
     b: &ResourceBudget,
 ) -> Result<OperationPacket, ModelError> {
-    let mut requested=r.clone();
-    if let Some(demand)=&r.page.evidence_demand.0 {
+    let mut requested = r.clone();
+    if let Some(demand) = &r.page.evidence_demand.0 {
         for facet in &demand.facets {
-            let section=match facet {EvidenceFacet::Scenarios=>Some(OperationSection::Scenarios),EvidenceFacet::Deployment=>Some(OperationSection::Deployment),EvidenceFacet::Relationships=>Some(OperationSection::Relationships),EvidenceFacet::Behavior=>Some(OperationSection::Behavior),_=>None};
-            if let Some(section)=section {if !requested.sections.contains(&section){requested.sections.push(section);}}
+            let section = match facet {
+                EvidenceFacet::Scenarios => Some(OperationSection::Scenarios),
+                EvidenceFacet::Deployment => Some(OperationSection::Deployment),
+                EvidenceFacet::Relationships => Some(OperationSection::Relationships),
+                EvidenceFacet::Behavior => Some(OperationSection::Behavior),
+                _ => None,
+            };
+            if let Some(section) = section {
+                if !requested.sections.contains(&section) {
+                    requested.sections.push(section);
+                }
+            }
         }
     }
-    let r=&requested;
+    let r = &requested;
     let mut input = OperationCore::binding().lowered().sources;
     for section in &r.sections {
         let kind = match section {
@@ -104,7 +114,7 @@ pub async fn get(
     }
     let source = crate::scope::hydrate_with(reader, roots, &inputs, &fields, b).await?;
     let mut core = crate::core::packet(&source, member, domains, limits, b)?;
-    crate::defaults::read_originals(reader,&mut core.interpretation,request,b).await?;
+    crate::defaults::read_originals(reader, &mut core.interpretation, request, b).await?;
     core.limits.maximum_response_bytes = limits.response_bytes(request.page().expanded);
     let mut data = selection::classification::ClassificationData::new(b);
     let mut output = selection::build::Output::new(b);

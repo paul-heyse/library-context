@@ -613,7 +613,18 @@ async fn verify_transport(
         .iter()
         .map(|value| (value.specification, value.text))
         .collect::<BTreeSet<_>>();
-    let encoder_keys=manifest.embeddings.iter().map(|v| (Id::of(&lctx_model::domain::embedding::EmbeddingSpecKey {service_hash:v.specification}),v.specification)).collect::<BTreeMap<_,_>>();
+    let encoder_keys = manifest
+        .embeddings
+        .iter()
+        .map(|v| {
+            (
+                Id::of(&lctx_model::domain::embedding::EmbeddingSpecKey {
+                    service_hash: v.specification,
+                }),
+                v.specification,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut check = GraphBuilder::new(workspace.budget())?;
     for (file, family) in [
         ("entities.arrow", GraphFamily::Entities),
@@ -705,11 +716,25 @@ async fn verify_transport(
                         }
                         Entity::EmbeddingFullValue(full) => {
                             full.validate()?;
-                            let encoder=encoder_keys.get(&full.encoder).ok_or(ModelError::Conflict("artifact full winner encoder"))?;
-                            let key=(*encoder,full.input);
-                            let position=manifest.embeddings.binary_search_by_key(&key,|v|(v.specification,v.text)).map_err(|_|ModelError::Conflict("artifact full winner membership"))?;
-                            let expected=&manifest.embeddings[position];
-                            if i64::from(expected.dimension)!=full.dimensions || expected.values!=full.digest || !embeddings.remove(&key) {return Err(ModelError::Conflict("artifact full winner differs from manifest"));}
+                            let encoder = encoder_keys
+                                .get(&full.encoder)
+                                .ok_or(ModelError::Conflict("artifact full winner encoder"))?;
+                            let key = (*encoder, full.input);
+                            let position = manifest
+                                .embeddings
+                                .binary_search_by_key(&key, |v| (v.specification, v.text))
+                                .map_err(|_| {
+                                    ModelError::Conflict("artifact full winner membership")
+                                })?;
+                            let expected = &manifest.embeddings[position];
+                            if i64::from(expected.dimension) != full.dimensions
+                                || expected.values != full.digest
+                                || !embeddings.remove(&key)
+                            {
+                                return Err(ModelError::Conflict(
+                                    "artifact full winner differs from manifest",
+                                ));
+                            }
                         }
                         Entity::EmbeddingSpecification(specification) => {
                             let configuration = specification.configuration()?;

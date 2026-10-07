@@ -27,9 +27,9 @@ mod source_usage;
 
 mod candidates;
 mod capability;
-mod evidence;
 pub(crate) mod defaults;
 pub(crate) mod delivery;
+mod evidence;
 mod inspection;
 mod operation_packet;
 mod operations;

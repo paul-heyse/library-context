@@ -41,13 +41,26 @@ async fn run(mode: Mode) {
                 && t.is_some()
                 && c.as_ref().is_some_and(|id| id.len() == 16)
                 && b.as_ref().is_some_and(|id| id.len() == 16)));
-            let full: Vec<(i64, Vec<u8>)> = catalog_runtime::query(&fixture,
-                "SELECT dimensions, bytes FROM embedding_full_values").await;
-            let projected: Vec<(i64, Vec<u8>)> = catalog_runtime::query(&fixture,
-                "SELECT dimensions, bytes FROM embedding_projected_values").await;
+            let full: Vec<(i64, Vec<u8>)> = catalog_runtime::query(
+                &fixture,
+                "SELECT dimensions, bytes FROM embedding_full_values",
+            )
+            .await;
+            let projected: Vec<(i64, Vec<u8>)> = catalog_runtime::query(
+                &fixture,
+                "SELECT dimensions, bytes FROM embedding_projected_values",
+            )
+            .await;
             assert!(!full.is_empty() && !projected.is_empty());
-            assert!(full.iter().all(|(dimensions, bytes)| *dimensions == 4096 && bytes.len() == 16384));
-            assert!(projected.iter().all(|(dimensions, bytes)| *dimensions == 1024 && bytes.len() == 4096));
+            assert!(
+                full.iter()
+                    .all(|(dimensions, bytes)| *dimensions == 4096 && bytes.len() == 16384)
+            );
+            assert!(
+                projected
+                    .iter()
+                    .all(|(dimensions, bytes)| *dimensions == 1024 && bytes.len() == 4096)
+            );
             assert!(outcomes.iter().all(|s| *s == 0));
         }
         Mode::Unavailable => {
@@ -87,7 +100,15 @@ impl Embedder for ContractEmbedder {
     fn endpoint(&self) -> &str {
         self.inner.endpoint()
     }
-    fn document_tokenizer(&self)->Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>>{if matches!(self.mode,Mode::TokenLimit){None}else{self.inner.document_tokenizer()}}
+    fn document_tokenizer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
+        if matches!(self.mode, Mode::TokenLimit) {
+            None
+        } else {
+            self.inner.document_tokenizer()
+        }
+    }
     fn count_tokens<'a>(&'a self, text: &'a str) -> EmbedFuture<'a, usize> {
         match self.mode {
             Mode::TokenLimit => Box::pin(async { Ok(4096) }),
@@ -100,7 +121,13 @@ impl Embedder for ContractEmbedder {
         }
     }
     fn embed<'a>(&'a self, text: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
-        if matches!(self.mode,Mode::Unavailable){return Box::pin(async{Err(cpg_core::CoreError::EmbeddingService("contract service unavailable".into()))});}
+        if matches!(self.mode, Mode::Unavailable) {
+            return Box::pin(async {
+                Err(cpg_core::CoreError::EmbeddingService(
+                    "contract service unavailable".into(),
+                ))
+            });
+        }
         self.inner.embed(text)
     }
 }
@@ -135,7 +162,11 @@ impl Embedder for ChangingContractEmbedder {
     fn endpoint(&self) -> &str {
         self.inner.endpoint()
     }
-    fn document_tokenizer(&self)->Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>>{self.inner.document_tokenizer()}
+    fn document_tokenizer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
+        self.inner.document_tokenizer()
+    }
     fn count_tokens<'a>(&'a self, request: &'a str) -> EmbedFuture<'a, usize> {
         let key = embedding::value::input_hash(request);
         *self.trace.lock().unwrap().tokens.entry(key).or_default() += 1;
@@ -212,7 +243,11 @@ async fn native_catalog_reuses_analytic_winners_and_batches_unique_requests_with
     for key in &overlap {
         assert_eq!(analytic.get(*key), retrieval.get(*key));
     }
-    let specification=embedding::EmbeddingSpec::new(provider.spec()).unwrap().id().bytes().to_vec();
+    let specification = embedding::EmbeddingSpec::new(provider.spec())
+        .unwrap()
+        .id()
+        .bytes()
+        .to_vec();
     let expected = analytic
         .keys()
         .chain(retrieval.keys())
@@ -230,7 +265,10 @@ async fn native_catalog_reuses_analytic_winners_and_batches_unique_requests_with
             .collect::<std::collections::BTreeSet<_>>(),
         expected
     );
-    assert!(trace.tokens.is_empty(),"complete local tokenization needs no token endpoint calls");
+    assert!(
+        trace.tokens.is_empty(),
+        "complete local tokenization needs no token endpoint calls"
+    );
     assert!(
         trace.embeddings.values().all(|count| *count == 1),
         "E1/E0 repeated a service request despite its completed winner"

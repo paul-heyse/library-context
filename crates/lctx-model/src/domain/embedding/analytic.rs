@@ -1,8 +1,8 @@
 //! Nominal analytic vector consumption over the completed original-text owner.
 use super::{
-    EmbeddingSpec, DocumentRecipe, configuration,
+    DocumentRecipe, EmbeddingSpec, configuration,
+    consumption::{PublishedValue, SelectedConsumption, ValueIndex},
     projection::{ProjectedValue, ProjectionDefinition},
-    consumption::{ValueIndex, PublishedValue, SelectedConsumption},
     text,
     text::{TextAvailability, TextWindow},
     value,
@@ -48,10 +48,7 @@ fn validate_use(row: &AnalysisEmbeddingUse) -> Result<(), ModelError> {
     let value = row.value.is_some() && row.projection.is_some();
     let no_value = row.value.is_none() && row.projection.is_none();
     let valid = match row.availability {
-        VectorAvailability::Available => {
-            value
-                && row.admitted_tokens.is_some_and(|v| v >= 0)
-        }
+        VectorAvailability::Available => value && row.admitted_tokens.is_some_and(|v| v >= 0),
         VectorAvailability::ServiceUnavailable => no_value && row.admitted_tokens.is_none(),
         VectorAvailability::TokenLimit => no_value && row.admitted_tokens.is_some_and(|v| v >= 0),
     };
@@ -64,17 +61,41 @@ fn validate_use(row: &AnalysisEmbeddingUse) -> Result<(), ModelError> {
 }
 impl AnalysisEmbeddingUse {
     pub fn admit_into(
-        rows: &mut Rows<Self>, invocation: Id<AnalysisInvocation>, window: Id<TextWindow>,
-        selected: SelectedConsumption<'_>, value: &PublishedValue, budget: &ResourceBudget,
+        rows: &mut Rows<Self>,
+        invocation: Id<AnalysisInvocation>,
+        window: Id<TextWindow>,
+        selected: SelectedConsumption<'_>,
+        value: &PublishedValue,
+        budget: &ResourceBudget,
     ) -> Result<Id<Self>, ModelError> {
-        let expected = Id::of(&value::FullValueKey {encoder:selected.encoder.id(),input:value.input});
-        let projection = Id::of(&super::projection::ProjectedValueKey {value:expected,definition:selected.projection.id()});
-        if value.value != expected || value.projection != projection || i64::from(value.tokens)>selected.document.max_tokens {
-            return Err(invalid("analytic canonical consumption differs from selected recipes"));
+        let expected = Id::of(&value::FullValueKey {
+            encoder: selected.encoder.id(),
+            input: value.input,
+        });
+        let projection = Id::of(&super::projection::ProjectedValueKey {
+            value: expected,
+            definition: selected.projection.id(),
+        });
+        if value.value != expected
+            || value.projection != projection
+            || i64::from(value.tokens) > selected.document.max_tokens
+        {
+            return Err(invalid(
+                "analytic canonical consumption differs from selected recipes",
+            ));
         }
-        let _copy = budget.reserve("analytic-use-copy",size_of::<Self>())?;
-        rows.insert(Self {invocation,window,specification:selected.encoder.id(),document:selected.document.id(),input:value.input,
-            availability:VectorAvailability::Available,admitted_tokens:Some(value.tokens.into()),value:Some(value.value),projection:Some(value.projection)})
+        let _copy = budget.reserve("analytic-use-copy", size_of::<Self>())?;
+        rows.insert(Self {
+            invocation,
+            window,
+            specification: selected.encoder.id(),
+            document: selected.document.id(),
+            input: value.input,
+            availability: VectorAvailability::Available,
+            admitted_tokens: Some(value.tokens.into()),
+            value: Some(value.value),
+            projection: Some(value.projection),
+        })
     }
 }
 /// The nominal outcome depends on availability facts, not retained text or vector payloads.
@@ -194,21 +215,52 @@ impl ConsumptionData {
         }
         Ok(specification)
     }
-    pub fn document(&self)->Result<&DocumentRecipe,ModelError> {
-        let service=self.services.iter().next().ok_or_else(||invalid("missing selected service"))?;
-        self.documents.get(service.document).ok_or_else(||invalid("missing selected document recipe"))
+    pub fn document(&self) -> Result<&DocumentRecipe, ModelError> {
+        let service = self
+            .services
+            .iter()
+            .next()
+            .ok_or_else(|| invalid("missing selected service"))?;
+        self.documents
+            .get(service.document)
+            .ok_or_else(|| invalid("missing selected document recipe"))
     }
-    pub fn policy(&self)->Result<&ProjectionDefinition,ModelError> {
-        let service=self.services.iter().next().ok_or_else(||invalid("missing selected service"))?;
-        self.projections.get(service.projection).ok_or_else(||invalid("missing selected projection policy"))
+    pub fn policy(&self) -> Result<&ProjectionDefinition, ModelError> {
+        let service = self
+            .services
+            .iter()
+            .next()
+            .ok_or_else(|| invalid("missing selected service"))?;
+        self.projections
+            .get(service.projection)
+            .ok_or_else(|| invalid("missing selected projection policy"))
     }
-    pub fn configuration(&self)->Result<super::Spec,ModelError> {self.document()?.configuration(self.specification()?)}
-    pub fn verify_use(&self,row:&AnalysisEmbeddingUse)->Result<(),ModelError> {
-        if row.specification!=self.specification()?.id() || row.document!=self.document()?.id() {return Err(invalid("analytic use changed selected recipes"));}
-        if row.availability==VectorAvailability::Available {
-            self.values.verify_use(row.specification,row.input,row.admitted_tokens.ok_or_else(||invalid("missing admitted tokens"))?,
-                row.value.ok_or_else(||invalid("missing canonical full reference"))?,row.projection.ok_or_else(||invalid("missing projection reference"))?,self.policy()?.id())?;
-            if row.admitted_tokens.is_none_or(|n|n>self.document().map(|d|d.max_tokens).unwrap_or(0)) {return Err(invalid("analytic full winner exceeds document cap"));}
+    pub fn configuration(&self) -> Result<super::Spec, ModelError> {
+        self.document()?.configuration(self.specification()?)
+    }
+    pub fn verify_use(&self, row: &AnalysisEmbeddingUse) -> Result<(), ModelError> {
+        if row.specification != self.specification()?.id() || row.document != self.document()?.id()
+        {
+            return Err(invalid("analytic use changed selected recipes"));
+        }
+        if row.availability == VectorAvailability::Available {
+            self.values.verify_use(
+                row.specification,
+                row.input,
+                row.admitted_tokens
+                    .ok_or_else(|| invalid("missing admitted tokens"))?,
+                row.value
+                    .ok_or_else(|| invalid("missing canonical full reference"))?,
+                row.projection
+                    .ok_or_else(|| invalid("missing projection reference"))?,
+                self.policy()?.id(),
+            )?;
+            if row
+                .admitted_tokens
+                .is_none_or(|n| n > self.document().map(|d| d.max_tokens).unwrap_or(0))
+            {
+                return Err(invalid("analytic full winner exceeds document cap"));
+            }
         }
         Ok(())
     }
@@ -342,8 +394,10 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<configuration::ServiceConfiguration>(&["id"]),
         ValidationInput::of::<DocumentRecipe>(&["id"]),
         ValidationInput::of::<ProjectionDefinition>(&["id"]),
-        ValidationInput::of::<value::FullValue>(&["id"]).at_epoch(stages::PublicationBoundary::AnalyticEmbedding),
-        ValidationInput::of::<ProjectedValue>(&["id"]).at_epoch(stages::PublicationBoundary::AnalyticEmbedding),
+        ValidationInput::of::<value::FullValue>(&["id"])
+            .at_epoch(stages::PublicationBoundary::AnalyticEmbedding),
+        ValidationInput::of::<ProjectedValue>(&["id"])
+            .at_epoch(stages::PublicationBoundary::AnalyticEmbedding),
         ValidationInput::of::<text::TextDefinition>(&["id"]),
         ValidationInput::of::<attribution::ProviderRun>(&["id"]),
         ValidationInput::of::<text::TextAssessment>(&["id"]),
@@ -448,8 +502,14 @@ impl Check {
             return Err(invalid("analytic use changed the selected specification"));
         }
         self.metadata.verify_use(&row)?;
-        let spec=self.metadata.configuration()?;
-        if row.availability==VectorAvailability::TokenLimit && row.admitted_tokens.is_none_or(|n|n<=i64::from(spec.max_document_tokens)) {return Err(invalid("analytic token refusal is within the selected cap"));}
+        let spec = self.metadata.configuration()?;
+        if row.availability == VectorAvailability::TokenLimit
+            && row
+                .admitted_tokens
+                .is_none_or(|n| n <= i64::from(spec.max_document_tokens))
+        {
+            return Err(invalid("analytic token refusal is within the selected cap"));
+        }
         self.dispositions
             .update(&mut self.charge, row.invocation, |disposition| {
                 disposition.consumed(&row)
@@ -497,11 +557,14 @@ impl InvariantCheck for Check {
         each!(TextWindow, row, {
             self.window(row)?;
         });
-        each!(value::FullValue,row,{
-            let encoder=self.metadata.specification()?.clone();let policy=self.metadata.policy()?.clone();
-            self.metadata.values.admit_full(&row,&encoder,&policy)?;
+        each!(value::FullValue, row, {
+            let encoder = self.metadata.specification()?.clone();
+            let policy = self.metadata.policy()?.clone();
+            self.metadata.values.admit_full(&row, &encoder, &policy)?;
         });
-        each!(ProjectedValue,row,{self.metadata.values.admit_projection(&row)?;});
+        each!(ProjectedValue, row, {
+            self.metadata.values.admit_projection(&row)?;
+        });
         each!(AnalysisEmbeddingUse, row, {
             self.consumed(row)?;
         });
@@ -514,7 +577,10 @@ impl InvariantCheck for Check {
             EmbeddingSpec::NAME
                 | configuration::ServiceConfiguration::NAME
                 | text::TextDefinition::NAME
-                | DocumentRecipe::NAME | ProjectionDefinition::NAME | value::FullValue::NAME | ProjectedValue::NAME
+                | DocumentRecipe::NAME
+                | ProjectionDefinition::NAME
+                | value::FullValue::NAME
+                | ProjectedValue::NAME
         ) && self.metadata.visit(name, batch)?
         {
             return Ok(());
@@ -607,7 +673,11 @@ pub fn stage(
     );
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
-    let mut outputs = vec![RelationUse::of::<AnalysisEmbeddingUse>(), RelationUse::of::<value::FullValue>(), RelationUse::of::<ProjectedValue>()];
+    let mut outputs = vec![
+        RelationUse::of::<AnalysisEmbeddingUse>(),
+        RelationUse::of::<value::FullValue>(),
+        RelationUse::of::<ProjectedValue>(),
+    ];
     outputs.extend(
         analysis::analytic_embedding::publication_relations()
             .iter()

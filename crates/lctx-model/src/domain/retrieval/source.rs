@@ -18,9 +18,28 @@ pub fn coordinates(
     original: &AnchorSource,
 ) -> Result<(Id<SourceArtifact>, i64, i64), ModelError> {
     match original {
-        AnchorSource::SpanSlice{span,start,end}=>{let (artifact,a,z)=coordinates(d,&AnchorSource::Span{span:*span})?;if *start<a||*end>z||end<start{return Err(invalid("interpretation slice exceeds captured span"));}Ok((artifact,*start,*end))},
-        AnchorSource::OccurrenceSlice{occurrence,start,end}=>{let r=need(&d.source.core.occurrences,*occurrence)?;if *start<r.start||*end>r.end||end<start{return Err(invalid("interpretation slice exceeds canonical occurrence"));}Ok((r.source,*start,*end))},
-        AnchorSource::Occurrence { occurrence } => { let r=need(&d.source.core.occurrences,*occurrence)?; Ok((r.source,r.start,r.end)) },
+        AnchorSource::SpanSlice { span, start, end } => {
+            let (artifact, a, z) = coordinates(d, &AnchorSource::Span { span: *span })?;
+            if *start < a || *end > z || end < start {
+                return Err(invalid("interpretation slice exceeds captured span"));
+            }
+            Ok((artifact, *start, *end))
+        }
+        AnchorSource::OccurrenceSlice {
+            occurrence,
+            start,
+            end,
+        } => {
+            let r = need(&d.source.core.occurrences, *occurrence)?;
+            if *start < r.start || *end > r.end || end < start {
+                return Err(invalid("interpretation slice exceeds canonical occurrence"));
+            }
+            Ok((r.source, *start, *end))
+        }
+        AnchorSource::Occurrence { occurrence } => {
+            let r = need(&d.source.core.occurrences, *occurrence)?;
+            Ok((r.source, r.start, r.end))
+        }
         AnchorSource::Prose { slice } => {
             let slice = need(&d.synthesis.prose_slices, *slice)?;
             let (artifact, start, end) = match need(&d.synthesis.prose_sources, slice.source)? {
@@ -82,9 +101,15 @@ pub fn coordinates(
 }
 pub fn read(d: &Data, original: &AnchorSource, b: &ResourceBudget) -> Result<Text, ModelError> {
     let (id, start, end) = coordinates(d, original)?;
-    read_range(d,id,start,end,b)
+    read_range(d, id, start, end, b)
 }
-pub fn read_range(d:&Data,id:Id<SourceArtifact>,start:i64,end:i64,b:&ResourceBudget)->Result<Text,ModelError>{
+pub fn read_range(
+    d: &Data,
+    id: Id<SourceArtifact>,
+    start: i64,
+    end: i64,
+    b: &ResourceBudget,
+) -> Result<Text, ModelError> {
     if start < 0 || end < start || end > d.artifact_bounds(id)?.1 {
         return Err(invalid("retrieval original coordinates outside artifact"));
     }
@@ -150,8 +175,13 @@ pub fn root_ranges(
     let mut ranges = Ranges::new(b);
     match need(&d.evidence.subjects, root.subject)? {
         c1::RootSubject::Member { member } => {
-            for (_,anchor,_) in super::construction::definitions(d,*member,root.context)? {
-                if let Some(anchor)=anchor { for (context,_) in super::construction::enclosing(d,&anchor,root.context)?{ranges.add(d,context)?;} ranges.add(d,anchor)?; }
+            for (_, anchor, _) in super::construction::definitions(d, *member, root.context)? {
+                if let Some(anchor) = anchor {
+                    for (context, _) in super::construction::enclosing(d, &anchor, root.context)? {
+                        ranges.add(d, context)?;
+                    }
+                    ranges.add(d, anchor)?;
+                }
             }
         }
         c1::RootSubject::Scenario { scenario } => {
@@ -206,9 +236,20 @@ pub fn root_ranges(
                 },
             )?;
         }
-        c1::RootSubject::Option { option } => {for anchor in super::construction::option_anchors(d,need(&d.source.catalog.options,*option)?)?{ranges.add(d,anchor)?;}},
-        c1::RootSubject::Release { .. } => {},
-        c1::RootSubject::Source{artifact}=>ranges.add(d,AnchorSource::Artifact{artifact:*artifact})?,
+        c1::RootSubject::Option { option } => {
+            for anchor in
+                super::construction::option_anchors(d, need(&d.source.catalog.options, *option)?)?
+            {
+                ranges.add(d, anchor)?;
+            }
+        }
+        c1::RootSubject::Release { .. } => {}
+        c1::RootSubject::Source { artifact } => ranges.add(
+            d,
+            AnchorSource::Artifact {
+                artifact: *artifact,
+            },
+        )?,
     }
     Ok(ranges)
 }

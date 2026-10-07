@@ -91,64 +91,220 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
     .unwrap();
-    let mut second_spec=spec.clone();second_spec.model="independent-fixture-encoder".into();
-    let specifications=[EmbeddingSpec::new(&spec).unwrap(),EmbeddingSpec::new(&second_spec).unwrap()];
-    let document=embedding::DocumentRecipe::new(&spec).unwrap();
-    let policy=embedding::projection::ProjectionDefinition::initial(&spec);
-    let text="discover exact native evidence";
-    let digest=ContentHash::of(text.as_bytes());
-    let mut entities=specifications.iter().cloned().map(Entity::from).collect::<Vec<_>>();
-    entities.extend([Entity::from(document.clone()),Entity::from(policy.clone())]);
-    let mut assertions=Vec::new();let mut members=Vec::new();
-    for name in ["first","second"] {
-        let member=CatalogMember{input:id(1),access:id(2),path:vec![name.into()],name:name.into()};
-        let subject=Subject::Member{member:member.id()};members.push((member.id(),subject.id()));
-        entities.extend([Entity::from(member),Entity::from(subject)]);
+    let mut second_spec = spec.clone();
+    second_spec.model = "independent-fixture-encoder".into();
+    let specifications = [
+        EmbeddingSpec::new(&spec).unwrap(),
+        EmbeddingSpec::new(&second_spec).unwrap(),
+    ];
+    let document = embedding::DocumentRecipe::new(&spec).unwrap();
+    let policy = embedding::projection::ProjectionDefinition::initial(&spec);
+    let text = "discover exact native evidence";
+    let digest = ContentHash::of(text.as_bytes());
+    let mut entities = specifications
+        .iter()
+        .cloned()
+        .map(Entity::from)
+        .collect::<Vec<_>>();
+    entities.extend([Entity::from(document.clone()), Entity::from(policy.clone())]);
+    let mut assertions = Vec::new();
+    let mut members = Vec::new();
+    for name in ["first", "second"] {
+        let member = CatalogMember {
+            input: id(1),
+            access: id(2),
+            path: vec![name.into()],
+            name: name.into(),
+        };
+        let subject = Subject::Member {
+            member: member.id(),
+        };
+        members.push((member.id(), subject.id()));
+        entities.extend([Entity::from(member), Entity::from(subject)]);
     }
-    let mut vector=vec![0f32;4096];vector[0]=1.;vector[1]=-0.;
-    let mut winners=Vec::new();
-    let budget=resources::ResourceBudget::fixed(64*1024*1024).unwrap();
-    for (configuration,encoder) in [(&spec,&specifications[0]),(&second_spec,&specifications[1])] {
-        let admitted=value::AdmittedValue::new(configuration,&configuration.document_text(text),5,&vector,&budget).unwrap();
-        let full=value::FullValue::new(encoder,&admitted).unwrap();
-        let projection=embedding::projection::ProjectedValue::new(&full,&policy).unwrap();
-        winners.push((full.id(),projection.id()));entities.extend([Entity::from(full),Entity::from(projection)]);
+    let mut vector = vec![0f32; 4096];
+    vector[0] = 1.;
+    vector[1] = -0.;
+    let mut winners = Vec::new();
+    let budget = resources::ResourceBudget::fixed(64 * 1024 * 1024).unwrap();
+    for (configuration, encoder) in [
+        (&spec, &specifications[0]),
+        (&second_spec, &specifications[1]),
+    ] {
+        let admitted = value::AdmittedValue::new(
+            configuration,
+            &configuration.document_text(text),
+            5,
+            &vector,
+            &budget,
+        )
+        .unwrap();
+        let full = value::FullValue::new(encoder, &admitted).unwrap();
+        let projection = embedding::projection::ProjectedValue::new(&full, &policy).unwrap();
+        winners.push((full.id(), projection.id()));
+        entities.extend([Entity::from(full), Entity::from(projection)]);
     }
-    let mut units=Vec::new();let mut expected_anchor=Vec::new();
-    entities.push(Entity::from(Origin::Api{member:members[0].0}));
-    for family in [Family::ApiOptions,Family::DocumentationDeployment,Family::Scenario,Family::Source] {
-        let corpus=CorpusText{family,rendering_version:RENDER_VERSION,digest,text:text.into()};entities.push(Entity::from(corpus.clone()));
-        for context in [3,4] {
-            let origin=Origin::Api{member:members[0].0};
-            let unit=Unit{input:id(1),context:id(context),family,origin:origin.id(),corpus:corpus.id(),title:"fixture".into()};
-            units.push(unit.clone());entities.push(Entity::from(unit.clone()));
+    let mut units = Vec::new();
+    let mut expected_anchor = Vec::new();
+    entities.push(Entity::from(Origin::Api {
+        member: members[0].0,
+    }));
+    for family in [
+        Family::ApiOptions,
+        Family::DocumentationDeployment,
+        Family::Scenario,
+        Family::Source,
+    ] {
+        let corpus = CorpusText {
+            family,
+            rendering_version: RENDER_VERSION,
+            digest,
+            text: text.into(),
+        };
+        entities.push(Entity::from(corpus.clone()));
+        for context in [3, 4] {
+            let origin = Origin::Api {
+                member: members[0].0,
+            };
+            let unit = Unit {
+                input: id(1),
+                context: id(context),
+                family,
+                origin: origin.id(),
+                corpus: corpus.id(),
+                title: "fixture".into(),
+            };
+            units.push(unit.clone());
+            entities.push(Entity::from(unit.clone()));
             // A broad unit attachment must never nominate this sibling.
-            assertions.push(Assertion::from_record(UnitSubject{unit:unit.id(),subject:members[1].1}).unwrap());
-            let supported=OriginalAnchor{unit:unit.id(),ordinal:0,original:id(6)};expected_anchor.push(supported.id());
+            assertions.push(
+                Assertion::from_record(UnitSubject {
+                    unit: unit.id(),
+                    subject: members[1].1,
+                })
+                .unwrap(),
+            );
+            let supported = OriginalAnchor {
+                unit: unit.id(),
+                ordinal: 0,
+                original: id(6),
+            };
+            expected_anchor.push(supported.id());
             assertions.push(Assertion::from_record(supported).unwrap());
-            for ordinal in 1..70 {assertions.push(Assertion::from_record(OriginalAnchor{unit:unit.id(),ordinal,original:id(9)}).unwrap());}
+            for ordinal in 1..70 {
+                assertions.push(
+                    Assertion::from_record(OriginalAnchor {
+                        unit: unit.id(),
+                        ordinal,
+                        original: id(9),
+                    })
+                    .unwrap(),
+                );
+            }
             // More than one 64-window/projection frontier exercises cross-batch winner reuse.
             for ordinal in 0..10 {
-                let part=ContentPart{unit:unit.id(),ordinal,purpose:PartPurpose::Primary,scope:Some(members[0].1),qualification:None,digest,text:text.into()};
-                let window=SearchWindow{definition:id(7),unit:unit.id(),ordinal,corpus:corpus.id(),digest,text:text.into(),input_text:spec.document_text(text).into(),tokenizer:Some(ContentHash::of(b"fixture tokenizer")),encoded_digest:value::input_hash(&spec.document_text(text)),tokens:Some(5),availability:WindowAvailability::Ready};
-                entities.extend([Entity::from(part.clone()),Entity::from(window.clone())]);
-                entities.push(Entity::from(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:text.len() as i64}));
-                entities.push(Entity::from(WindowBinding{window:window.id(),part:part.id(),subject:members[0].1,basis:BindingBasis::PublicContract,qualification:None}));
-                entities.push(Entity::from(WindowSourceMap{window:window.id(),ordinal:0,start:0,end:text.len() as i64,part:Some(part.id()),original:Some(id(6)),original_start:Some(0),original_end:Some(text.len() as i64)}));
-                for (index,encoder) in specifications.iter().enumerate() {
-                    assertions.push(Assertion::from_record(RetrievalEmbeddingUse{invocation:id(10+index as u8),window:window.id(),specification:encoder.id(),document:document.id(),input:value::input_hash(&spec.document_text(text)),availability:VectorAvailability::Available,admitted_tokens:Some(5),value:Some(winners[index].0),projection:Some(winners[index].1)}).unwrap());
+                let part = ContentPart {
+                    unit: unit.id(),
+                    ordinal,
+                    purpose: PartPurpose::Primary,
+                    scope: Some(members[0].1),
+                    qualification: None,
+                    digest,
+                    text: text.into(),
+                };
+                let window = SearchWindow {
+                    definition: id(7),
+                    unit: unit.id(),
+                    ordinal,
+                    corpus: corpus.id(),
+                    digest,
+                    text: text.into(),
+                    input_text: spec.document_text(text).into(),
+                    tokenizer: Some(ContentHash::of(b"fixture tokenizer")),
+                    encoded_digest: value::input_hash(&spec.document_text(text)),
+                    tokens: Some(5),
+                    availability: WindowAvailability::Ready,
+                };
+                entities.extend([Entity::from(part.clone()), Entity::from(window.clone())]);
+                entities.push(Entity::from(WindowPart {
+                    window: window.id(),
+                    ordinal: 0,
+                    part: part.id(),
+                    start: 0,
+                    end: text.len() as i64,
+                }));
+                entities.push(Entity::from(WindowBinding {
+                    window: window.id(),
+                    part: part.id(),
+                    subject: members[0].1,
+                    basis: BindingBasis::PublicContract,
+                    qualification: None,
+                }));
+                entities.push(Entity::from(WindowSourceMap {
+                    window: window.id(),
+                    ordinal: 0,
+                    start: 0,
+                    end: text.len() as i64,
+                    part: Some(part.id()),
+                    original: Some(id(6)),
+                    original_start: Some(0),
+                    original_end: Some(text.len() as i64),
+                }));
+                for (index, encoder) in specifications.iter().enumerate() {
+                    assertions.push(
+                        Assertion::from_record(RetrievalEmbeddingUse {
+                            invocation: id(10 + index as u8),
+                            window: window.id(),
+                            specification: encoder.id(),
+                            document: document.id(),
+                            input: value::input_hash(&spec.document_text(text)),
+                            availability: VectorAvailability::Available,
+                            admitted_tokens: Some(5),
+                            value: Some(winners[index].0),
+                            projection: Some(winners[index].1),
+                        })
+                        .unwrap(),
+                    );
                 }
             }
             // Context-only setup text does not create an applicable search occurrence.
-            let setup="setup only not an applicable primary";
-            let part=ContentPart{unit:unit.id(),ordinal:10,purpose:PartPurpose::Context,scope:None,qualification:None,digest:ContentHash::of(setup.as_bytes()),text:setup.into()};
-            let window=SearchWindow{definition:id(7),unit:unit.id(),ordinal:10,corpus:corpus.id(),digest:part.digest,text:setup.into(),input_text:spec.document_text(setup).into(),tokenizer:None,encoded_digest:value::input_hash(&spec.document_text(setup)),tokens:None,availability:WindowAvailability::TokenizerUnavailable};
-            entities.extend([Entity::from(part.clone()),Entity::from(window.clone())]);
-            entities.push(Entity::from(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:setup.len() as i64}));
+            let setup = "setup only not an applicable primary";
+            let part = ContentPart {
+                unit: unit.id(),
+                ordinal: 10,
+                purpose: PartPurpose::Context,
+                scope: None,
+                qualification: None,
+                digest: ContentHash::of(setup.as_bytes()),
+                text: setup.into(),
+            };
+            let window = SearchWindow {
+                definition: id(7),
+                unit: unit.id(),
+                ordinal: 10,
+                corpus: corpus.id(),
+                digest: part.digest,
+                text: setup.into(),
+                input_text: spec.document_text(setup).into(),
+                tokenizer: None,
+                encoded_digest: value::input_hash(&spec.document_text(setup)),
+                tokens: None,
+                availability: WindowAvailability::TokenizerUnavailable,
+            };
+            entities.extend([Entity::from(part.clone()), Entity::from(window.clone())]);
+            entities.push(Entity::from(WindowPart {
+                window: window.id(),
+                ordinal: 0,
+                part: part.id(),
+                start: 0,
+                end: setup.len() as i64,
+            }));
         }
     }
-    loader.entities(&entities).await.unwrap();loader.assertions(&assertions).await.unwrap();
-    loader.entity_references(&entities).await.unwrap();loader.assertion_references(&assertions).await.unwrap();
+    loader.entities(&entities).await.unwrap();
+    loader.assertions(&assertions).await.unwrap();
+    loader.entity_references(&entities).await.unwrap();
+    loader.assertion_references(&assertions).await.unwrap();
     materialize_search(&loader).await.unwrap();
     let tables = [
         "search_api_options",
@@ -160,17 +316,24 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         "vec_occurs",
     ];
     let lexical = rows(&loader, "lex_occurs").await;
-    assert_eq!(lexical.len(),80);
-    let vectors=rows(&loader,"vec_occurs").await;assert_eq!(vectors.len(),160);
-    assert_eq!(rows(&loader,"vector").await.len(),8); // two projections × four input/family cohorts.
-    for table in &tables[..4] {assert_eq!(rows(&loader,table).await.len(),1);}
-    let physical=|value|lctx_surrealdb::loader::json_value(value).unwrap();
-    let first_member=physical(serde_json::to_value(members[0].0).unwrap());
+    assert_eq!(lexical.len(), 80);
+    let vectors = rows(&loader, "vec_occurs").await;
+    assert_eq!(vectors.len(), 160);
+    assert_eq!(rows(&loader, "vector").await.len(), 8); // two projections × four input/family cohorts.
+    for table in &tables[..4] {
+        assert_eq!(rows(&loader, table).await.len(), 1);
+    }
+    let physical = |value| lctx_surrealdb::loader::json_value(value).unwrap();
+    let first_member = physical(serde_json::to_value(members[0].0).unwrap());
     for row in &lexical {
-        let row=row.as_object().unwrap();
-        assert_eq!(row.get("member"),Some(&first_member));
-        assert_ne!(row.get("binding"),Some(&Value::Null));
-        assert!(expected_anchor.iter().any(|a|row.get("anchor")==Some(&physical(serde_json::to_value(a).unwrap()))));
+        let row = row.as_object().unwrap();
+        assert_eq!(row.get("member"), Some(&first_member));
+        assert_ne!(row.get("binding"), Some(&Value::Null));
+        assert!(
+            expected_anchor
+                .iter()
+                .any(|a| row.get("anchor") == Some(&physical(serde_json::to_value(a).unwrap())))
+        );
     }
     reconcile_search(&loader).await.unwrap();
     // Full rows, not just counts/IDs: every family refuses deletion, extra row and changed payload.

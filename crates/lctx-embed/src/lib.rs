@@ -107,7 +107,7 @@ pub struct VllmEmbedder {
     base: String,
     spec: Spec,
     client: reqwest::Client,
-    tokenizer:Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>>,
+    tokenizer: Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>>,
 }
 
 impl VllmEmbedder {
@@ -115,7 +115,7 @@ impl VllmEmbedder {
         Self {
             base: base.trim_end_matches('/').to_owned(),
             spec,
-            tokenizer:None,
+            tokenizer: None,
             // The holistic assessment's D3: a hung service fails the compile rather than hanging it.
             client: reqwest::Client::builder()
                 .connect_timeout(CONNECT_TIMEOUT)
@@ -125,9 +125,16 @@ impl VllmEmbedder {
         }
     }
 
-    pub fn for_compilation(base:&str,spec:Spec,assets:&std::path::Path)->Result<Self,lctx_model::domain::ModelError> {
-        let tokenizer=cpg_core::retrieval_tokenizer::LocalTokenizer::load_verified(assets,&spec)?;
-        let mut client=Self::new(base,spec);client.tokenizer=Some(tokenizer);Ok(client)
+    pub fn for_compilation(
+        base: &str,
+        spec: Spec,
+        assets: &std::path::Path,
+    ) -> Result<Self, lctx_model::domain::ModelError> {
+        let tokenizer =
+            cpg_core::retrieval_tokenizer::LocalTokenizer::load_verified(assets, &spec)?;
+        let mut client = Self::new(base, spec);
+        client.tokenizer = Some(tokenizer);
+        Ok(client)
     }
     async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, CoreError> {
         let url = format!("{}{path}", self.base);
@@ -157,7 +164,11 @@ impl VllmEmbedder {
 }
 
 impl Embedder for VllmEmbedder {
-    fn document_tokenizer(&self)->Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {self.tokenizer.clone()}
+    fn document_tokenizer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
+        self.tokenizer.clone()
+    }
     fn endpoint(&self) -> &str {
         &self.base
     }

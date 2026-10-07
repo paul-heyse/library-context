@@ -3,13 +3,13 @@ pub mod analytic;
 pub mod cache;
 pub mod configuration;
 pub mod consumption;
+pub mod projection;
 pub(crate) mod spec;
 pub mod text;
 pub mod value;
-pub mod projection;
 use super::*;
 use crate::{Domain, DomainCode};
-pub use spec::{MatryoshkaAdmission, Spec, check_vector, QUERY_TEMPLATE, QUERY_TASK, QueryRecipe};
+pub use spec::{MatryoshkaAdmission, QUERY_TASK, QUERY_TEMPLATE, QueryRecipe, Spec, check_vector};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -121,7 +121,7 @@ impl EmbeddingSpec {
             output_dtype: self.output_dtype.clone(),
             normalization: self.normalization.clone(),
             max_document_tokens: 2048,
-            max_query_tokens:8192,
+            max_query_tokens: 8192,
         };
         spec.validate().map_err(ModelError::Invalid)?;
         if spec.hash() != self.service_hash {
@@ -140,32 +140,58 @@ fn validate_spec(row: &EmbeddingSpec) -> Result<(), ModelError> {
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="embedding_document_recipes",validate=validate_document_recipe)]
 pub struct DocumentRecipe {
-    #[model(key)] pub digest: ContentHash,
+    #[model(key)]
+    pub digest: ContentHash,
     pub template: String,
     pub max_tokens: i64,
 }
 impl DocumentRecipe {
     pub fn new(spec: &Spec) -> Result<Self, ModelError> {
         spec.validate().map_err(ModelError::Invalid)?;
-        Ok(Self { digest: spec.document_hash(), template: spec.document_template.clone(), max_tokens: spec.max_document_tokens.into() })
+        Ok(Self {
+            digest: spec.document_hash(),
+            template: spec.document_template.clone(),
+            max_tokens: spec.max_document_tokens.into(),
+        })
     }
     pub fn configuration(&self, encoder: &EmbeddingSpec) -> Result<Spec, ModelError> {
         let mut spec = encoder.configuration()?;
         spec.document_template.clone_from(&self.template);
         spec.max_document_tokens = u32::try_from(self.max_tokens).map_err(ModelError::codec)?;
         spec.validate().map_err(ModelError::Invalid)?;
-        if self.digest != spec.document_hash() { return Err(ModelError::Invalid("document recipe digest mismatch".into())); }
+        if self.digest != spec.document_hash() {
+            return Err(ModelError::Invalid(
+                "document recipe digest mismatch".into(),
+            ));
+        }
         Ok(spec)
     }
 }
-fn validate_document_recipe(row: &DocumentRecipe) -> Result<(),ModelError> {
-    if row.max_tokens <= 0 || row.max_tokens > u32::MAX.into() || row.template.matches("{text}").count()!=1 {
+fn validate_document_recipe(row: &DocumentRecipe) -> Result<(), ModelError> {
+    if row.max_tokens <= 0
+        || row.max_tokens > u32::MAX.into()
+        || row.template.matches("{text}").count() != 1
+    {
         return Err(ModelError::Invalid("invalid document recipe".into()));
     }
     // Same typed recipe serialization as Spec, without encoder dependency.
-    #[derive(serde::Serialize)] struct Recipe<'a> { template: &'a str, max_tokens: u32 }
-    if row.digest != spec::recipe_hash("document/v3", &Recipe {template:&row.template,max_tokens:row.max_tokens as u32}) {
-        return Err(ModelError::Invalid("document recipe digest mismatch".into()));
+    #[derive(serde::Serialize)]
+    struct Recipe<'a> {
+        template: &'a str,
+        max_tokens: u32,
+    }
+    if row.digest
+        != spec::recipe_hash(
+            "document/v3",
+            &Recipe {
+                template: &row.template,
+                max_tokens: row.max_tokens as u32,
+            },
+        )
+    {
+        return Err(ModelError::Invalid(
+            "document recipe digest mismatch".into(),
+        ));
     }
     Ok(())
 }

@@ -2,11 +2,7 @@
 use lctx_model::domain::{
     analysis::retrieval::{AnalysisInvocation, AnalysisOutcome},
     catalog::evidence as c1,
-    embedding::{
-        analytic::VectorAvailability,
-        value::*,
-        *,
-    },
+    embedding::{analytic::VectorAvailability, value::*, *},
     normalized::Rows,
     resources::ResourceBudget,
     retrieval::{self, consumption::*, *},
@@ -29,7 +25,8 @@ fn spec() -> Spec {
     r
 }
 fn fixture_text(
-    selected: bool, text:&[u8],
+    selected: bool,
+    text: &[u8],
 ) -> (
     ResourceBudget,
     ConsumptionData,
@@ -106,24 +103,40 @@ fn fixture_text(
         .unwrap();
     struct FixtureTokenizer;
     impl retrieval::partition::Tokenizer for FixtureTokenizer {
-        fn identity(&self)->ContentHash{ContentHash::of(b"independent-consumption-fixture")}
-        fn encode(&self,text:&str)->Result<retrieval::partition::EncodedInput,ModelError>{
-            let input=format!("prefix: {text}");
-            let offsets=input.char_indices().map(|(a,c)|(a,a+c.len_utf8())).chain(std::iter::once((0,0))).collect::<Vec<_>>();
-            Ok(retrieval::partition::EncodedInput{text:input,body_start:8,body_end:8+text.len(),specials:vec![false;offsets.len()],offsets})
+        fn identity(&self) -> ContentHash {
+            ContentHash::of(b"independent-consumption-fixture")
+        }
+        fn encode(&self, text: &str) -> Result<retrieval::partition::EncodedInput, ModelError> {
+            let input = format!("prefix: {text}");
+            let offsets = input
+                .char_indices()
+                .map(|(a, c)| (a, a + c.len_utf8()))
+                .chain(std::iter::once((0, 0)))
+                .collect::<Vec<_>>();
+            Ok(retrieval::partition::EncodedInput {
+                text: input,
+                body_start: 8,
+                body_end: 8 + text.len(),
+                specials: vec![false; offsets.len()],
+                offsets,
+            })
         }
     }
-    d.render.set_tokenizer(std::sync::Arc::new(FixtureTokenizer));
+    d.render
+        .set_tokenizer(std::sync::Arc::new(FixtureTokenizer));
     d.output = retrieval::build::build(&d.render, &b).unwrap();
     let specification = EmbeddingSpec::new(&spec()).unwrap();
     d.specifications.insert(specification.clone()).unwrap();
-    let document=DocumentRecipe::new(&spec()).unwrap();
-    let policy=embedding::projection::ProjectionDefinition::initial(&spec());
-    d.documents.insert(document.clone()).unwrap();d.projections.insert(policy.clone()).unwrap();
+    let document = DocumentRecipe::new(&spec()).unwrap();
+    let policy = embedding::projection::ProjectionDefinition::initial(&spec());
+    d.documents.insert(document.clone()).unwrap();
+    d.projections.insert(policy.clone()).unwrap();
     d.services
         .insert(configuration::ServiceConfiguration {
             specification: specification.id(),
-            endpoint: "fixture://service".into(),document:document.id(),projection:policy.id(),
+            endpoint: "fixture://service".into(),
+            document: document.id(),
+            projection: policy.id(),
         })
         .unwrap(); // Pure vector replay assumes these nominal earlier parents have completed their own replay;
     // actual store qualification uses the full scheduled S0 producer, never these fixture rows.
@@ -208,7 +221,16 @@ fn fixture_text(
     }
     (b, d, i, specification)
 }
-fn fixture(selected:bool)->(ResourceBudget,ConsumptionData,AnalysisInvocation,EmbeddingSpec){fixture_text(selected,b"canonical same source")}
+fn fixture(
+    selected: bool,
+) -> (
+    ResourceBudget,
+    ConsumptionData,
+    AnalysisInvocation,
+    EmbeddingSpec,
+) {
+    fixture_text(selected, b"canonical same source")
+}
 fn frames(
     d: &ConsumptionData,
     i: &AnalysisInvocation,
@@ -222,48 +244,230 @@ fn frames(
     (rows, outcomes)
 }
 
-fn canonical(d:&ConsumptionData,b:&ResourceBudget)->(FullValue,embedding::projection::ProjectedValue,embedding::consumption::PublishedValue){
-    let window=d.output.windows.iter().next().unwrap();let mut vector=vec![0.0;4096];vector[0]=1.0;vector[2]=-0.0;
-    let admitted=AdmittedValue::new(&spec(),window.input_text.as_str(),window.tokens.unwrap() as u32,&vector,b).unwrap();
-    let full=FullValue::new(d.selected_spec().unwrap(),&admitted).unwrap();let projection=embedding::projection::ProjectedValue::new(&full,d.policy().unwrap()).unwrap();
-    let published=embedding::consumption::PublishedValue{value:full.id(),projection:projection.id(),input:full.input,tokens:full.tokens as u32};(full,projection,published)
+fn canonical(
+    d: &ConsumptionData,
+    b: &ResourceBudget,
+) -> (
+    FullValue,
+    embedding::projection::ProjectedValue,
+    embedding::consumption::PublishedValue,
+) {
+    let window = d.output.windows.iter().next().unwrap();
+    let mut vector = vec![0.0; 4096];
+    vector[0] = 1.0;
+    vector[2] = -0.0;
+    let admitted = AdmittedValue::new(
+        &spec(),
+        window.input_text.as_str(),
+        window.tokens.unwrap() as u32,
+        &vector,
+        b,
+    )
+    .unwrap();
+    let full = FullValue::new(d.selected_spec().unwrap(), &admitted).unwrap();
+    let projection =
+        embedding::projection::ProjectedValue::new(&full, d.policy().unwrap()).unwrap();
+    let published = embedding::consumption::PublishedValue {
+        value: full.id(),
+        projection: projection.id(),
+        input: full.input,
+        tokens: full.tokens as u32,
+    };
+    (full, projection, published)
 }
-fn uses(d:&ConsumptionData,i:&AnalysisInvocation,published:&embedding::consumption::PublishedValue,b:&ResourceBudget)->Rows<RetrievalEmbeddingUse>{let mut uses=Rows::new(b);for window in d.output.windows.iter(){RetrievalEmbeddingUse::admit_into(&mut uses,i.id(),window.id(),d.selected_consumption().unwrap(),published,b).unwrap();}uses}
-fn seed(d:&mut ConsumptionData,full:&FullValue,projection:&embedding::projection::ProjectedValue){let encoder=d.selected_spec().unwrap().clone();let policy=d.policy().unwrap().clone();d.values.admit_full(full,&encoder,&policy).unwrap();d.values.admit_projection(projection).unwrap();}
-#[test]
-fn canonical_companions_roundtrip_preserves_signed_zero_and_reference_only_uses(){
-    let(b,mut d,i,_)=fixture(true);let(full,projection,published)=canonical(&d,&b);
-    let full=FullValue::decode(&FullValue::encode(&[full]).unwrap()).unwrap().pop().unwrap();
-    let projected=embedding::projection::ProjectedValue::decode(&embedding::projection::ProjectedValue::encode(&[projection]).unwrap()).unwrap().pop().unwrap();
-    let vector=decode_vector(&full.bytes.0,4096).unwrap();assert_eq!(vector[2].to_bits(),(-0.0f32).to_bits());assert_eq!(projected.values().unwrap()[2].to_bits(),(-0.0f32).to_bits());
-    seed(&mut d,&full,&projected);let uses=uses(&d,&i,&published,&b);let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();
-    let relation=Relation::of::<RetrievalEmbeddingUse>();let fields=relation.fields();assert!(!fields.iter().any(|f|matches!(f.name(),"bytes"|"codec"|"value_digest")));
+fn uses(
+    d: &ConsumptionData,
+    i: &AnalysisInvocation,
+    published: &embedding::consumption::PublishedValue,
+    b: &ResourceBudget,
+) -> Rows<RetrievalEmbeddingUse> {
+    let mut uses = Rows::new(b);
+    for window in d.output.windows.iter() {
+        RetrievalEmbeddingUse::admit_into(
+            &mut uses,
+            i.id(),
+            window.id(),
+            d.selected_consumption().unwrap(),
+            published,
+            b,
+        )
+        .unwrap();
+    }
+    uses
+}
+fn seed(
+    d: &mut ConsumptionData,
+    full: &FullValue,
+    projection: &embedding::projection::ProjectedValue,
+) {
+    let encoder = d.selected_spec().unwrap().clone();
+    let policy = d.policy().unwrap().clone();
+    d.values.admit_full(full, &encoder, &policy).unwrap();
+    d.values.admit_projection(projection).unwrap();
 }
 #[test]
-fn missing_canonical_companions_refuse_even_when_local_reference_keys_match(){
-    let(b,mut d,i,_)=fixture(true);let(full,projection,published)=canonical(&d,&b);let uses=uses(&d,&i,&published,&b);
-    verify_uses(&d.output,&i,Some(d.selected_consumption().unwrap()),&uses,&b).unwrap();assert!(d.verify_canonical_uses(&uses).is_err());
-    let encoder=d.selected_spec().unwrap().clone();let policy=d.policy().unwrap().clone();d.values.admit_full(&full,&encoder,&policy).unwrap();assert!(d.verify_canonical_uses(&uses).is_err());
-    d.values.admit_projection(&projection).unwrap();d.verify_canonical_uses(&uses).unwrap();let mut forged=projection.clone();forged.source_digest=ContentHash::of(b"foreign full");assert!(d.values.admit_projection(&forged).is_err());
+fn canonical_companions_roundtrip_preserves_signed_zero_and_reference_only_uses() {
+    let (b, mut d, i, _) = fixture(true);
+    let (full, projection, published) = canonical(&d, &b);
+    let full = FullValue::decode(&FullValue::encode(&[full]).unwrap())
+        .unwrap()
+        .pop()
+        .unwrap();
+    let projected = embedding::projection::ProjectedValue::decode(
+        &embedding::projection::ProjectedValue::encode(&[projection]).unwrap(),
+    )
+    .unwrap()
+    .pop()
+    .unwrap();
+    let vector = decode_vector(&full.bytes.0, 4096).unwrap();
+    assert_eq!(vector[2].to_bits(), (-0.0f32).to_bits());
+    assert_eq!(
+        projected.values().unwrap()[2].to_bits(),
+        (-0.0f32).to_bits()
+    );
+    seed(&mut d, &full, &projected);
+    let uses = uses(&d, &i, &published, &b);
+    let (invocations, outcomes) = frames(&d, &i, &uses, &b);
+    d.verify(&invocations, &outcomes, &uses, &b).unwrap();
+    let relation = Relation::of::<RetrievalEmbeddingUse>();
+    let fields = relation.fields();
+    assert!(
+        !fields
+            .iter()
+            .any(|f| matches!(f.name(), "bytes" | "codec" | "value_digest"))
+    );
 }
 #[test]
-fn request_recipe_reference_token_and_consumption_erasure_refuse(){
-    let(b,mut d,i,_)=fixture(true);let(full,projection,published)=canonical(&d,&b);seed(&mut d,&full,&projection);let uses=uses(&d,&i,&published,&b);let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();
-    for case in 0..6{let mut row=uses.iter().next().unwrap().clone();match case{0=>row.input=ContentHash::of(b"foreign"),1=>row.value=Some(id(81)),2=>row.projection=Some(id(82)),3=>row.document=id(83),4=>row.admitted_tokens=Some(0),_=>row.invocation=id(84)};let mut forged=Rows::new(&b);forged.insert(row).unwrap();assert!(d.verify(&invocations,&outcomes,&forged,&b).is_err());}
-    assert!(d.verify(&invocations,&outcomes,&Rows::new(&b),&b).is_err());
+fn missing_canonical_companions_refuse_even_when_local_reference_keys_match() {
+    let (b, mut d, i, _) = fixture(true);
+    let (full, projection, published) = canonical(&d, &b);
+    let uses = uses(&d, &i, &published, &b);
+    verify_uses(
+        &d.output,
+        &i,
+        Some(d.selected_consumption().unwrap()),
+        &uses,
+        &b,
+    )
+    .unwrap();
+    assert!(d.verify_canonical_uses(&uses).is_err());
+    let encoder = d.selected_spec().unwrap().clone();
+    let policy = d.policy().unwrap().clone();
+    d.values.admit_full(&full, &encoder, &policy).unwrap();
+    assert!(d.verify_canonical_uses(&uses).is_err());
+    d.values.admit_projection(&projection).unwrap();
+    d.verify_canonical_uses(&uses).unwrap();
+    let mut forged = projection.clone();
+    forged.source_digest = ContentHash::of(b"foreign full");
+    assert!(d.values.admit_projection(&forged).is_err());
 }
 #[test]
-fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_completed(){
-    for selected in [false,true]{for availability in [VectorAvailability::ServiceUnavailable,VectorAvailability::TokenLimit]{
-        let oversized=vec![b'z';3000];let(b,d,i,specification)=if availability==VectorAvailability::TokenLimit{fixture_text(selected,&oversized)}else{fixture(selected)};
-        let window=d.output.windows.iter().next().unwrap();let mut uses=Rows::new(&b);if selected{uses.insert(RetrievalEmbeddingUse{invocation:i.id(),window:window.id(),specification:specification.id(),document:d.document().unwrap().id(),input:window.encoded_digest,availability,admitted_tokens:if availability==VectorAvailability::TokenLimit{window.tokens}else{None},value:None,projection:None}).unwrap();}
-        let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();assert_eq!(outcomes.iter().next().unwrap().status,if selected{analysis::AnalysisStatus::Partial}else{analysis::AnalysisStatus::Completed});assert_eq!(d.output.units.len(),1);
-    }}
+fn request_recipe_reference_token_and_consumption_erasure_refuse() {
+    let (b, mut d, i, _) = fixture(true);
+    let (full, projection, published) = canonical(&d, &b);
+    seed(&mut d, &full, &projection);
+    let uses = uses(&d, &i, &published, &b);
+    let (invocations, outcomes) = frames(&d, &i, &uses, &b);
+    d.verify(&invocations, &outcomes, &uses, &b).unwrap();
+    for case in 0..6 {
+        let mut row = uses.iter().next().unwrap().clone();
+        match case {
+            0 => row.input = ContentHash::of(b"foreign"),
+            1 => row.value = Some(id(81)),
+            2 => row.projection = Some(id(82)),
+            3 => row.document = id(83),
+            4 => row.admitted_tokens = Some(0),
+            _ => row.invocation = id(84),
+        };
+        let mut forged = Rows::new(&b);
+        forged.insert(row).unwrap();
+        assert!(d.verify(&invocations, &outcomes, &forged, &b).is_err());
+    }
+    assert!(
+        d.verify(&invocations, &outcomes, &Rows::new(&b), &b)
+            .is_err()
+    );
 }
 #[test]
-fn foreign_encoder_and_tiny_budget_refuse_reference_publication(){
-    let(b,d,i,_)=fixture(true);let(_,_,mut published)=canonical(&d,&b);published.value=id(88);let mut uses=Rows::new(&b);assert!(RetrievalEmbeddingUse::admit_into(&mut uses,i.id(),d.output.windows.iter().next().unwrap().id(),d.selected_consumption().unwrap(),&published,&b).is_err());
-    let(_,_,published)=canonical(&d,&b);let tiny=ResourceBudget::fixed(1).unwrap();let mut uses=Rows::new(&tiny);assert!(RetrievalEmbeddingUse::admit_into(&mut uses,i.id(),d.output.windows.iter().next().unwrap().id(),d.selected_consumption().unwrap(),&published,&tiny).is_err());assert!(uses.is_empty());assert_eq!(tiny.reserved(),0);
+fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_completed() {
+    for selected in [false, true] {
+        for availability in [
+            VectorAvailability::ServiceUnavailable,
+            VectorAvailability::TokenLimit,
+        ] {
+            let oversized = vec![b'z'; 3000];
+            let (b, d, i, specification) = if availability == VectorAvailability::TokenLimit {
+                fixture_text(selected, &oversized)
+            } else {
+                fixture(selected)
+            };
+            let window = d.output.windows.iter().next().unwrap();
+            let mut uses = Rows::new(&b);
+            if selected {
+                uses.insert(RetrievalEmbeddingUse {
+                    invocation: i.id(),
+                    window: window.id(),
+                    specification: specification.id(),
+                    document: d.document().unwrap().id(),
+                    input: window.encoded_digest,
+                    availability,
+                    admitted_tokens: if availability == VectorAvailability::TokenLimit {
+                        window.tokens
+                    } else {
+                        None
+                    },
+                    value: None,
+                    projection: None,
+                })
+                .unwrap();
+            }
+            let (invocations, outcomes) = frames(&d, &i, &uses, &b);
+            d.verify(&invocations, &outcomes, &uses, &b).unwrap();
+            assert_eq!(
+                outcomes.iter().next().unwrap().status,
+                if selected {
+                    analysis::AnalysisStatus::Partial
+                } else {
+                    analysis::AnalysisStatus::Completed
+                }
+            );
+            assert_eq!(d.output.units.len(), 1);
+        }
+    }
+}
+#[test]
+fn foreign_encoder_and_tiny_budget_refuse_reference_publication() {
+    let (b, d, i, _) = fixture(true);
+    let (_, _, mut published) = canonical(&d, &b);
+    published.value = id(88);
+    let mut uses = Rows::new(&b);
+    assert!(
+        RetrievalEmbeddingUse::admit_into(
+            &mut uses,
+            i.id(),
+            d.output.windows.iter().next().unwrap().id(),
+            d.selected_consumption().unwrap(),
+            &published,
+            &b
+        )
+        .is_err()
+    );
+    let (_, _, published) = canonical(&d, &b);
+    let tiny = ResourceBudget::fixed(1).unwrap();
+    let mut uses = Rows::new(&tiny);
+    assert!(
+        RetrievalEmbeddingUse::admit_into(
+            &mut uses,
+            i.id(),
+            d.output.windows.iter().next().unwrap().id(),
+            d.selected_consumption().unwrap(),
+            &published,
+            &tiny
+        )
+        .is_err()
+    );
+    assert!(uses.is_empty());
+    assert_eq!(tiny.reserved(), 0);
 }
 #[test]
 fn native_frames_require_exact_synthesis_catalog_parents_even_without_any_briefs() {

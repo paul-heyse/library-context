@@ -1,10 +1,10 @@
 //! Canonical retrieval preparation. Renderings aid discovery; anchors retain semantic authority.
 pub mod build;
+mod construction;
 pub mod consumption;
 pub(crate) mod inventory;
-pub mod source;
 pub mod partition;
-mod construction;
+pub mod source;
 use crate::domain::{
     attribution::AnalysisContext,
     catalog::{self, evidence as c1},
@@ -45,7 +45,8 @@ impl RetrievalDefinition {
     }
 }
 fn validate_definition(r: &RetrievalDefinition) -> Result<(), ModelError> {
-    if r.rendering_version != RENDER_VERSION || r.preferred_tokens != 1024 || r.hard_tokens != 2048 {
+    if r.rendering_version != RENDER_VERSION || r.preferred_tokens != 1024 || r.hard_tokens != 2048
+    {
         return Err(build::invalid(
             "unsupported retrieval renderer or semantic token policy",
         ));
@@ -76,7 +77,10 @@ pub enum Origin {
         brief: Id<crate::domain::synthesis::briefs::Brief>,
     },
     #[model(code = 7)]
-    Definition { member: Id<catalog::CatalogMember>, entity: Id<normalized::entities::EntityRef> },
+    Definition {
+        member: Id<catalog::CatalogMember>,
+        entity: Id<normalized::entities::EntityRef>,
+    },
     #[model(code = 8)]
     Option { option: Id<catalog::CatalogOption> },
     #[model(code = 9)]
@@ -84,7 +88,9 @@ pub enum Origin {
     #[model(code = 10)]
     UnavailableDefinition { member: Id<catalog::CatalogMember> },
     #[model(code = 11)]
-    Source { artifact: Id<crate::domain::source::SourceArtifact> },
+    Source {
+        artifact: Id<crate::domain::source::SourceArtifact>,
+    },
 }
 /// Exact text/family deduplication does not discard any unit's contextual occurrence.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
@@ -132,9 +138,13 @@ pub enum Subject {
     #[model(code = 2)]
     Option { option: Id<catalog::CatalogOption> },
     #[model(code = 3)]
-    Definition { entity: Id<normalized::entities::EntityRef> },
+    Definition {
+        entity: Id<normalized::entities::EntityRef>,
+    },
     #[model(code = 4)]
-    Source { artifact: Id<crate::domain::source::SourceArtifact> },
+    Source {
+        artifact: Id<crate::domain::source::SourceArtifact>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_unit_subjects")]
@@ -163,11 +173,21 @@ pub enum AnchorSource {
         slice: Id<crate::domain::synthesis::documentary::ProseSlice>,
     },
     #[model(code = 4)]
-    Occurrence { occurrence: Id<crate::domain::source::Occurrence> },
+    Occurrence {
+        occurrence: Id<crate::domain::source::Occurrence>,
+    },
     #[model(code = 5)]
-    OccurrenceSlice { occurrence: Id<crate::domain::source::Occurrence>, start:i64, end:i64 },
+    OccurrenceSlice {
+        occurrence: Id<crate::domain::source::Occurrence>,
+        start: i64,
+        end: i64,
+    },
     #[model(code = 6)]
-    SpanSlice { span: assertion::EvidenceSourceSpanId, start:i64, end:i64 },
+    SpanSlice {
+        span: assertion::EvidenceSourceSpanId,
+        start: i64,
+        end: i64,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = "retrieval_original_anchors")]
@@ -190,94 +210,178 @@ pub struct UnitRoot {
 /// Content roles are semantic: context never nominates an applicable target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum PartPurpose { Primary = 0, Context = 1 }
+pub enum PartPurpose {
+    Primary = 0,
+    Context = 1,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum WindowAvailability { Ready = 0, LexicalOnly = 1, TokenizerUnavailable = 2 }
+pub enum WindowAvailability {
+    Ready = 0,
+    LexicalOnly = 1,
+    TokenizerUnavailable = 2,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum BindingBasis { DirectDefinition = 0, PublicContract = 1, ScenarioResolved = 2, ScenarioCandidate = 3, DocumentCandidate = 4, DeclaredRelease = 5, Option = 6, DefinitionCandidate = 7, Source = 8 }
+pub enum BindingBasis {
+    DirectDefinition = 0,
+    PublicContract = 1,
+    ScenarioResolved = 2,
+    ScenarioCandidate = 3,
+    DocumentCandidate = 4,
+    DeclaredRelease = 5,
+    Option = 6,
+    DefinitionCandidate = 7,
+    Source = 8,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_content_parts",validate=validate_part)]
 pub struct ContentPart {
-    #[model(key)] pub unit: Id<Unit>,
-    #[model(key)] pub ordinal: i64,
+    #[model(key)]
+    pub unit: Id<Unit>,
+    #[model(key)]
+    pub ordinal: i64,
     pub purpose: PartPurpose,
     pub scope: Option<Id<Subject>>,
     pub qualification: Option<Id<assertion::AssertionQualification>>,
     pub digest: ContentHash,
     pub text: Utf8Text,
 }
-fn validate_part(r: &ContentPart) -> Result<(),ModelError> {
-    if r.ordinal < 0 || r.text.is_empty() || r.digest != ContentHash::of(r.text.as_str().as_bytes()) { return Err(build::invalid("invalid retrieval content part")); } Ok(())
+fn validate_part(r: &ContentPart) -> Result<(), ModelError> {
+    if r.ordinal < 0 || r.text.is_empty() || r.digest != ContentHash::of(r.text.as_str().as_bytes())
+    {
+        return Err(build::invalid("invalid retrieval content part"));
+    }
+    Ok(())
 }
 /// Interpretation context required by one primary part. The owning Unit fixes input,
 /// analysis and release domain; context never creates an applicability target.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="retrieval_part_contexts")]
+#[model(name = "retrieval_part_contexts")]
 pub struct PartContext {
-    #[model(key)] pub primary: Id<ContentPart>,
-    #[model(key)] pub context: Id<ContentPart>,
+    #[model(key)]
+    pub primary: Id<ContentPart>,
+    #[model(key)]
+    pub context: Id<ContentPart>,
 }
 /// None is an explicit synthetic range, never an inferred original span.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_part_source_maps",validate=validate_part_map)]
 pub struct PartSourceMap {
-    #[model(key)] pub part: Id<ContentPart>,
-    #[model(key)] pub ordinal: i64,
-    pub start: i64, pub end: i64,
+    #[model(key)]
+    pub part: Id<ContentPart>,
+    #[model(key)]
+    pub ordinal: i64,
+    pub start: i64,
+    pub end: i64,
     pub original: Option<Id<AnchorSource>>,
-    pub original_start: Option<i64>, pub original_end: Option<i64>,
+    pub original_start: Option<i64>,
+    pub original_end: Option<i64>,
 }
-fn valid_map(start:i64,end:i64,original:Option<Id<AnchorSource>>,os:Option<i64>,oe:Option<i64>) -> bool {
-    start >= 0 && end > start && match (original,os,oe) { (None,None,None) => true, (Some(_),Some(a),Some(b)) => a>=0 && b-a == end-start, _=>false }
+fn valid_map(
+    start: i64,
+    end: i64,
+    original: Option<Id<AnchorSource>>,
+    os: Option<i64>,
+    oe: Option<i64>,
+) -> bool {
+    start >= 0
+        && end > start
+        && match (original, os, oe) {
+            (None, None, None) => true,
+            (Some(_), Some(a), Some(b)) => a >= 0 && b - a == end - start,
+            _ => false,
+        }
 }
-fn validate_part_map(r:&PartSourceMap)->Result<(),ModelError>{ if r.ordinal<0 || !valid_map(r.start,r.end,r.original,r.original_start,r.original_end){return Err(build::invalid("invalid retrieval part source map"));} Ok(()) }
+fn validate_part_map(r: &PartSourceMap) -> Result<(), ModelError> {
+    if r.ordinal < 0 || !valid_map(r.start, r.end, r.original, r.original_start, r.original_end) {
+        return Err(build::invalid("invalid retrieval part source map"));
+    }
+    Ok(())
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_search_windows",validate=validate_window)]
 pub struct SearchWindow {
-    #[model(key)] pub definition: Id<Definition>,
-    #[model(key)] pub unit: Id<Unit>,
-    #[model(key)] pub ordinal: i64,
+    #[model(key)]
+    pub definition: Id<Definition>,
+    #[model(key)]
+    pub unit: Id<Unit>,
+    #[model(key)]
+    pub ordinal: i64,
     pub corpus: Id<CorpusText>,
     pub digest: ContentHash,
     pub text: Utf8Text,
     pub input_text: Utf8Text,
-    #[model(key)] pub tokenizer: Option<ContentHash>,
-    #[model(key)] pub encoded_digest: ContentHash,
+    #[model(key)]
+    pub tokenizer: Option<ContentHash>,
+    #[model(key)]
+    pub encoded_digest: ContentHash,
     pub tokens: Option<i64>,
     pub availability: WindowAvailability,
 }
-fn validate_window(r:&SearchWindow)->Result<(),ModelError>{
-    if r.ordinal<0 || r.text.is_empty() || r.digest != ContentHash::of(r.text.as_str().as_bytes()) || r.encoded_digest != embedding::value::input_hash(r.input_text.as_str()) || !match r.availability { WindowAvailability::Ready=>r.tokenizer.is_some() && r.tokens.is_some_and(|n| n>0 && n<=2048), WindowAvailability::LexicalOnly=>r.tokenizer.is_some() && r.tokens.is_some_and(|n|n>2048), WindowAvailability::TokenizerUnavailable=>r.tokenizer.is_none() && r.tokens.is_none() } {return Err(build::invalid("invalid semantic search window"));} Ok(())
+fn validate_window(r: &SearchWindow) -> Result<(), ModelError> {
+    if r.ordinal < 0
+        || r.text.is_empty()
+        || r.digest != ContentHash::of(r.text.as_str().as_bytes())
+        || r.encoded_digest != embedding::value::input_hash(r.input_text.as_str())
+        || !match r.availability {
+            WindowAvailability::Ready => {
+                r.tokenizer.is_some() && r.tokens.is_some_and(|n| n > 0 && n <= 2048)
+            }
+            WindowAvailability::LexicalOnly => {
+                r.tokenizer.is_some() && r.tokens.is_some_and(|n| n > 2048)
+            }
+            WindowAvailability::TokenizerUnavailable => r.tokenizer.is_none() && r.tokens.is_none(),
+        }
+    {
+        return Err(build::invalid("invalid semantic search window"));
+    }
+    Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="retrieval_window_parts")]
+#[model(name = "retrieval_window_parts")]
 pub struct WindowPart {
-    #[model(key)] pub window: Id<SearchWindow>,
-    #[model(key)] pub ordinal: i64,
+    #[model(key)]
+    pub window: Id<SearchWindow>,
+    #[model(key)]
+    pub ordinal: i64,
     pub part: Id<ContentPart>,
-    pub start: i64, pub end: i64,
+    pub start: i64,
+    pub end: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="retrieval_window_source_maps",validate=validate_window_map)]
 pub struct WindowSourceMap {
-    #[model(key)] pub window: Id<SearchWindow>,
-    #[model(key)] pub ordinal: i64,
-    pub start: i64, pub end: i64,
+    #[model(key)]
+    pub window: Id<SearchWindow>,
+    #[model(key)]
+    pub ordinal: i64,
+    pub start: i64,
+    pub end: i64,
     pub part: Option<Id<ContentPart>>,
     pub original: Option<Id<AnchorSource>>,
-    pub original_start: Option<i64>, pub original_end: Option<i64>,
+    pub original_start: Option<i64>,
+    pub original_end: Option<i64>,
 }
-fn validate_window_map(r:&WindowSourceMap)->Result<(),ModelError>{if r.ordinal<0 || !valid_map(r.start,r.end,r.original,r.original_start,r.original_end){return Err(build::invalid("invalid retrieval window source map"));}Ok(())}
+fn validate_window_map(r: &WindowSourceMap) -> Result<(), ModelError> {
+    if r.ordinal < 0 || !valid_map(r.start, r.end, r.original, r.original_start, r.original_end) {
+        return Err(build::invalid("invalid retrieval window source map"));
+    }
+    Ok(())
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="retrieval_window_bindings")]
+#[model(name = "retrieval_window_bindings")]
 pub struct WindowBinding {
-    #[model(key)] pub window: Id<SearchWindow>,
-    #[model(key)] pub part: Id<ContentPart>,
-    #[model(key)] pub subject: Id<Subject>,
-    #[model(key)] pub basis: BindingBasis,
-    #[model(key)] pub qualification: Option<Id<assertion::AssertionQualification>>,
+    #[model(key)]
+    pub window: Id<SearchWindow>,
+    #[model(key)]
+    pub part: Id<ContentPart>,
+    #[model(key)]
+    pub subject: Id<Subject>,
+    #[model(key)]
+    pub basis: BindingBasis,
+    #[model(key)]
+    pub qualification: Option<Id<assertion::AssertionQualification>>,
 }
 pub fn definition_relations() -> Vec<Relation> {
     vec![Relation::of::<RetrievalDefinition>()]

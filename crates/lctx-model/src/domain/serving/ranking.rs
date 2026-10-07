@@ -5,7 +5,7 @@ use crate::domain::{
     attribution::AnalysisContext,
     catalog::CatalogMember,
     resources::{Reservation, ResourceBudget},
-    retrieval::{Family, SearchWindow, OriginalAnchor, Unit, ContentPart, WindowBinding},
+    retrieval::{ContentPart, Family, OriginalAnchor, SearchWindow, Unit, WindowBinding},
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -280,7 +280,9 @@ impl CandidateFusion {
             if !targets.contains(&occurrence.target) {
                 return Err(invalid("occurrence outside eligible candidate set"));
             }
-            if matches!(occurrence.target,Target::Member{..}) && occurrence.binding.is_none() {return Err(invalid("member nomination requires actual primary binding"));}
+            if matches!(occurrence.target, Target::Member { .. }) && occurrence.binding.is_none() {
+                return Err(invalid("member nomination requires actual primary binding"));
+            }
             if matches!(occurrence.target, Target::Unit { unit } if unit != occurrence.unit) {
                 return Err(invalid("evidence occurrence belongs to a different unit"));
             }
@@ -374,7 +376,8 @@ impl CandidateFusion {
                 contributing_occurrences: 0,
             })
             .collect();
-        let mut best = BTreeMap::<(i16, Channel, Target, Id<AnalysisContext>), RankingWitness>::new();
+        let mut best =
+            BTreeMap::<(i16, Channel, Target, Id<AnalysisContext>), RankingWitness>::new();
         for ((occurrence, channel), score) in numerical {
             let stat = statistics
                 .iter_mut()
@@ -397,7 +400,12 @@ impl CandidateFusion {
                 snapshot: self.snapshot.clone(),
                 policy: self.policy_identity,
             };
-            let key = (occurrence.family as i16, channel, occurrence.target,occurrence.context);
+            let key = (
+                occurrence.family as i16,
+                channel,
+                occurrence.target,
+                occurrence.context,
+            );
             if best.get(&key).is_none_or(|old| better(&witness, old)) {
                 best.insert(key, witness);
             }
@@ -407,12 +415,15 @@ impl CandidateFusion {
             (a.occurrence.family as i16, a.channel)
                 .cmp(&(b.occurrence.family as i16, b.channel))
                 .then_with(|| b.channel_score.total_cmp(&a.channel_score))
-                .then_with(|| (a.occurrence.target,a.occurrence.context).cmp(&(b.occurrence.target,b.occurrence.context)))
+                .then_with(|| {
+                    (a.occurrence.target, a.occurrence.context)
+                        .cmp(&(b.occurrence.target, b.occurrence.context))
+                })
         });
         let mut previous = None;
         let mut rank = 0u32;
         let mut family_scores = BTreeMap::<(i16, Target, Id<AnalysisContext>), f64>::new();
-        let mut witnesses = BTreeMap::<(Target,Id<AnalysisContext>), Vec<RankingWitness>>::new();
+        let mut witnesses = BTreeMap::<(Target, Id<AnalysisContext>), Vec<RankingWitness>>::new();
         for mut winner in winners {
             let group = (winner.occurrence.family as i16, winner.channel);
             if previous != Some(group) {
@@ -424,10 +435,10 @@ impl CandidateFusion {
                 .ok_or_else(|| invalid("ranking count exceeds u32"))?;
             winner.rank = rank;
             *family_scores
-                .entry((group.0, winner.occurrence.target,winner.occurrence.context))
+                .entry((group.0, winner.occurrence.target, winner.occurrence.context))
                 .or_default() += reciprocal(self.policy.rrf_k, rank);
             witnesses
-                .entry((winner.occurrence.target,winner.occurrence.context))
+                .entry((winner.occurrence.target, winner.occurrence.context))
                 .or_default()
                 .push(winner);
         }
@@ -437,12 +448,12 @@ impl CandidateFusion {
             a.0.0
                 .cmp(&b.0.0)
                 .then_with(|| b.1.total_cmp(&a.1))
-                .then_with(|| (a.0.1,a.0.2).cmp(&(b.0.1,b.0.2)))
+                .then_with(|| (a.0.1, a.0.2).cmp(&(b.0.1, b.0.2)))
         });
-        let mut totals = BTreeMap::<(Target,Id<AnalysisContext>), f64>::new();
+        let mut totals = BTreeMap::<(Target, Id<AnalysisContext>), f64>::new();
         let mut previous_family = None;
         rank = 0;
-        for ((family, target,context), _) in family_order {
+        for ((family, target, context), _) in family_order {
             if previous_family != Some(family) {
                 previous_family = Some(family);
                 rank = 0;
@@ -450,27 +461,31 @@ impl CandidateFusion {
             rank = rank
                 .checked_add(1)
                 .ok_or_else(|| invalid("ranking count exceeds u32"))?;
-            *totals.entry((target,context)).or_default() += reciprocal(self.policy.rrf_k, rank);
+            *totals.entry((target, context)).or_default() += reciprocal(self.policy.rrf_k, rank);
         }
         // Promotion is contextual only where an actual occurrence supplies the witness.
         for occurrence in &self.occurrences {
-            if exact.contains(&occurrence.target) {totals.entry((occurrence.target,occurrence.context)).or_default();}
+            if exact.contains(&occurrence.target) {
+                totals
+                    .entry((occurrence.target, occurrence.context))
+                    .or_default();
+            }
         }
         let mut rows: Vec<_> = totals
             .into_iter()
-            .map(|((target,context), score)| RankedHit {
+            .map(|((target, context), score)| RankedHit {
                 target,
                 context,
                 score,
                 promoted: exact.contains(&target),
-                witnesses: witnesses.remove(&(target,context)).unwrap_or_default(),
+                witnesses: witnesses.remove(&(target, context)).unwrap_or_default(),
             })
             .collect();
         rows.sort_by(|a, b| {
             b.promoted
                 .cmp(&a.promoted)
                 .then_with(|| b.score.total_cmp(&a.score))
-                .then_with(|| (a.target,a.context).cmp(&(b.target,b.context)))
+                .then_with(|| (a.target, a.context).cmp(&(b.target, b.context)))
         });
         Ok(RankedResults {
             rows,

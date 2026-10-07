@@ -3,7 +3,7 @@ use lctx_model::domain::{
     ContentHash, Id,
     attribution::AnalysisContext,
     catalog::CatalogMember,
-    retrieval::{Family, SearchWindow, ContentPart, WindowBinding, OriginalAnchor, Unit},
+    retrieval::{ContentPart, Family, OriginalAnchor, SearchWindow, Unit, WindowBinding},
 };
 use serde::{Deserialize, Serialize};
 use surrealdb::types::RecordId;

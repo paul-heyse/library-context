@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
-from lctx_mcp.__main__ import create_server
 from lctx_semantics import wire_tool_result
 
+from lctx_mcp.__main__ import create_server
 from programmatic_eval import Worker, WorkerError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -54,7 +54,12 @@ async def test_actual_native_final_maps_and_schema_valid_false_pointer(transport
                 ),
                 (
                     "search_evidence",
-                    {"library": library, "query": "carefully", "families": [], "page": {"size": 1, "expanded": True}},
+                    {
+                        "library": library,
+                        "query": "carefully",
+                        "families": [],
+                        "page": {"size": 1, "expanded": True},
+                    },
                 ),
             ]:
                 result = await client.call_tool_mcp(tool, arguments)

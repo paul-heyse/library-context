@@ -348,11 +348,8 @@ impl Workspace {
         // A portable import has only canonical streams and uses the explicitly detached path.
         // Consumer admission remains exact and never substitutes a missing selected epoch.
         self.validate_scope(profile, true, None).await?;
-        for ((boundary, name), relation) in self
-            .frozen_shared
-            .lock()
-            .map_err(|_| poisoned())?
-            .iter()
+        for ((boundary, name), relation) in
+            self.frozen_shared.lock().map_err(|_| poisoned())?.iter()
         {
             inputs
                 .relations
@@ -874,11 +871,7 @@ impl Workspace {
         >,
         ModelError,
     > {
-        let frozen = self
-            .frozen_shared
-            .lock()
-            .map_err(|_| poisoned())?
-            .clone();
+        let frozen = self.frozen_shared.lock().map_err(|_| poisoned())?.clone();
         let mut tables = BTreeMap::new();
         for ((boundary, name), source) in &frozen {
             let table = format!("_frozen_{}_{name}", boundary.name().to_ascii_lowercase());

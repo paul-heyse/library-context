@@ -96,7 +96,10 @@ pub async fn embedding_configuration(
     runtime: &Workspace,
     configuration: Option<&embedding::configuration::Configuration>,
 ) -> Result<(), ModelError> {
-    use embedding::{EmbeddingSpec, DocumentRecipe, projection::ProjectionDefinition, configuration::ServiceConfiguration};
+    use embedding::{
+        DocumentRecipe, EmbeddingSpec, configuration::ServiceConfiguration,
+        projection::ProjectionDefinition,
+    };
     if let Some(configuration) = configuration {
         configuration.check_budget(runtime.budget())?;
     }

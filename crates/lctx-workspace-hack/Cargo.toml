@@ -42,7 +42,7 @@ compact_str = { version = "0.10.0", features = ["serde"] }
 crossbeam-utils = { version = "0.8.23" }
 dashmap = { version = "6.2.1", default-features = false, features = ["rayon", "serde"] }
 digest = { version = "0.10.7", features = ["mac", "std"] }
-either = { version = "1.18.0", default-features = false, features = ["use_std"] }
+either = { version = "1.18.0", features = ["use_std"] }
 fastrand = { version = "2.5.0" }
 flatbuffers = { version = "25.12.19", features = ["serde"] }
 foldhash = { version = "0.2.0" }

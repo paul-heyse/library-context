@@ -14,7 +14,7 @@ use lctx_model::domain::{
     attribution::AnalysisContext,
     catalog::CatalogMember,
     resources::ResourceBudget,
-    retrieval::{Family, SearchWindow, ContentPart, WindowBinding, OriginalAnchor, Unit},
+    retrieval::{ContentPart, Family, OriginalAnchor, SearchWindow, Unit, WindowBinding},
     serving::{identity::SnapshotHandle, ranking::*},
 };
 
@@ -41,7 +41,10 @@ fn occurrence(target: Target, family: Family, u: u8, fragment: u8) -> Occurrence
         window: id(fragment),
         part: id::<ContentPart>(fragment),
         binding: Some(id::<WindowBinding>(fragment)),
-        context: id::<AnalysisContext>(match target {Target::Member{member}=>member.bytes()[0],Target::Unit{unit}=>unit.bytes()[0]}),
+        context: id::<AnalysisContext>(match target {
+            Target::Member { member } => member.bytes()[0],
+            Target::Unit { unit } => unit.bytes()[0],
+        }),
         anchor: Some(id::<OriginalAnchor>(u)),
         family,
     }
@@ -54,7 +57,14 @@ fn bindings(query: &str) -> [ChannelBinding; 2] {
     let policy = RankingPolicy::default();
     [
         ChannelBinding::lexical(&policy, query).unwrap(),
-        ChannelBinding::vector(&policy, ContentHash([3; 32]), ContentHash([4; 32]),ContentHash([5;32]),id(6)).unwrap(),
+        ChannelBinding::vector(
+            &policy,
+            ContentHash([3; 32]),
+            ContentHash([4; 32]),
+            ContentHash([5; 32]),
+            id(6),
+        )
+        .unwrap(),
     ]
 }
 fn prepare(targets: &[Target], occurrences: &[Occurrence]) -> CandidateFusion {
@@ -275,7 +285,8 @@ fn scorer_identity_and_exact_closure_are_checked_without_partial_output() {
         &RankingPolicy::default(),
         ContentHash([3; 32]),
         ContentHash([9; 32]),
-        ContentHash([5;32]),id(6),
+        ContentHash([5; 32]),
+        id(6),
     )
     .unwrap()
     .identity();
@@ -381,15 +392,27 @@ fn channel_identity_binds_policy_query_and_actual_query_vector() {
     );
     assert_ne!(
         channels[1].identity(),
-        ChannelBinding::vector(&policy, ContentHash([8; 32]), ContentHash([4; 32]),ContentHash([5;32]),id(6))
-            .unwrap()
-            .identity()
+        ChannelBinding::vector(
+            &policy,
+            ContentHash([8; 32]),
+            ContentHash([4; 32]),
+            ContentHash([5; 32]),
+            id(6)
+        )
+        .unwrap()
+        .identity()
     );
     assert_ne!(
         channels[1].identity(),
-        ChannelBinding::vector(&policy, ContentHash([3; 32]), ContentHash([8; 32]),ContentHash([5;32]),id(6))
-            .unwrap()
-            .identity()
+        ChannelBinding::vector(
+            &policy,
+            ContentHash([3; 32]),
+            ContentHash([8; 32]),
+            ContentHash([5; 32]),
+            id(6)
+        )
+        .unwrap()
+        .identity()
     );
 }
 
@@ -458,13 +481,27 @@ fn native_analyzer_identity_is_independent_of_fusion_rules() {
 
 #[test]
 fn actual_contexts_remain_independent_through_family_fusion() {
-    let target=member(1);
-    let first=occurrence(target,Family::ApiOptions,2,3);
-    let mut second=occurrence(target,Family::ApiOptions,4,5);
-    second.context=id(9);
-    let p=prepare(&[target],&[first,second]);
-    let result=p.rank(&[score(&p,first,Channel::Lexical,Some(0.0)),score(&p,second,Channel::Vector,Some(0.5))],&[]).unwrap();
-    assert_eq!(result.rows().len(),2);
-    for row in result.rows() {assert!(row.witnesses.iter().all(|w|w.occurrence.context==row.context));}
-    assert_ne!(result.rows()[0].context,result.rows()[1].context);
+    let target = member(1);
+    let first = occurrence(target, Family::ApiOptions, 2, 3);
+    let mut second = occurrence(target, Family::ApiOptions, 4, 5);
+    second.context = id(9);
+    let p = prepare(&[target], &[first, second]);
+    let result = p
+        .rank(
+            &[
+                score(&p, first, Channel::Lexical, Some(0.0)),
+                score(&p, second, Channel::Vector, Some(0.5)),
+            ],
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result.rows().len(), 2);
+    for row in result.rows() {
+        assert!(
+            row.witnesses
+                .iter()
+                .all(|w| w.occurrence.context == row.context)
+        );
+    }
+    assert_ne!(result.rows()[0].context, result.rows()[1].context);
 }

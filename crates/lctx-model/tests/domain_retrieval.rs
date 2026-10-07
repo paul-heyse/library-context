@@ -288,23 +288,35 @@ fn api_corpus_preserves_default_uncertainty_and_exact_values() {
 }
 #[test]
 fn unicode_original_maps_keep_exact_scalar_boundaries_and_reject_forgery() {
-    let (b,mut d,_,_)=fixture();
-    let out=retrieval::build::build(&d,&b).unwrap();
-    out.verify_completion(&d,&b).unwrap();
-    for part in out.parts.iter(){for map in out.part_maps.iter().filter(|m|m.part==part.id()){
-        assert!(part.text.as_str().is_char_boundary(map.start as usize));
-        assert!(part.text.as_str().is_char_boundary(map.end as usize));
-    }}
-    let mut omitted=retrieval::build::build(&d,&b).unwrap();omitted.window_maps=Rows::new(&b);
-    assert!(omitted.verify_completion(&d,&b).is_err());
-    d.facts.definitions=Rows::new(&b);
-    assert!(out.verify_completion(&d,&b).is_err());
+    let (b, mut d, _, _) = fixture();
+    let out = retrieval::build::build(&d, &b).unwrap();
+    out.verify_completion(&d, &b).unwrap();
+    for part in out.parts.iter() {
+        for map in out.part_maps.iter().filter(|m| m.part == part.id()) {
+            assert!(part.text.as_str().is_char_boundary(map.start as usize));
+            assert!(part.text.as_str().is_char_boundary(map.end as usize));
+        }
+    }
+    let mut omitted = retrieval::build::build(&d, &b).unwrap();
+    omitted.window_maps = Rows::new(&b);
+    assert!(omitted.verify_completion(&d, &b).is_err());
+    d.facts.definitions = Rows::new(&b);
+    assert!(out.verify_completion(&d, &b).is_err());
 }
 #[test]
-fn unrequested_embedding_preserves_semantic_lexical_windows_without_tokenizer_assets(){
-    let (b,d,_,_)=fixture();let out=retrieval::build::build(&d,&b).unwrap();
-    assert!(out.windows.iter().all(|w|w.availability==WindowAvailability::TokenizerUnavailable&&w.tokens.is_none()));
-    assert!(out.bindings.iter().all(|r|out.parts.get(r.part).unwrap().purpose==PartPurpose::Primary));
+fn unrequested_embedding_preserves_semantic_lexical_windows_without_tokenizer_assets() {
+    let (b, d, _, _) = fixture();
+    let out = retrieval::build::build(&d, &b).unwrap();
+    assert!(
+        out.windows.iter().all(
+            |w| w.availability == WindowAvailability::TokenizerUnavailable && w.tokens.is_none()
+        )
+    );
+    assert!(
+        out.bindings
+            .iter()
+            .all(|r| out.parts.get(r.part).unwrap().purpose == PartPurpose::Primary)
+    );
 }
 #[test]
 fn all_four_families_preserve_original_setup_execution_and_release_scope() {
@@ -479,11 +491,11 @@ fn all_four_families_preserve_original_setup_execution_and_release_scope() {
             .any(|r| r.text.as_str().contains("execution=NotRun")
                 && r.text.as_str().contains("Setup RuntimeInputs"))
     );
-    assert!(
-        out.corpus
-            .iter()
-            .any(|r| r.text.as_str().contains("# Setup\nwith prepare():\n    run()\n"))
-    );
+    assert!(out.corpus.iter().any(|r| {
+        r.text
+            .as_str()
+            .contains("# Setup\nwith prepare():\n    run()\n")
+    }));
     assert!(
         !out.corpus
             .iter()
@@ -516,13 +528,17 @@ fn replay(d: &Data, out: &Output, b: &ResourceBudget) -> Result<(), ModelError> 
         } else {
             None
         };
-        let input = inputs
-            .iter()
-            .find(|input| {
-                input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
-            })
-            ;
-        let Some(input)=input else {assert!(rows.is_empty(),"nonempty undeclared fixture source {}",R::NAME);return Ok(());};
+        let input = inputs.iter().find(|input| {
+            input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
+        });
+        let Some(input) = input else {
+            assert!(
+                rows.is_empty(),
+                "nonempty undeclared fixture source {}",
+                R::NAME
+            );
+            return Ok(());
+        };
         check.visit_input(
             input,
             &R::encode(&rows.iter().cloned().collect::<Vec<_>>())?,
@@ -597,7 +613,8 @@ fn replay_refuses_forged_text_subjects_anchors_or_coupled_erasure() {
     }
 }
 #[test]
-fn unavailable_definition_retains_boundary_without_inventing_source_read_and_resource_bounds_are_mandatory() {
+fn unavailable_definition_retains_boundary_without_inventing_source_read_and_resource_bounds_are_mandatory()
+ {
     let (b, mut d, _, _) = fixture();
     let tiny = ResourceBudget::fixed(1).unwrap();
     assert!(matches!(
@@ -695,8 +712,12 @@ fn final_stage_has_completed_named_owners_and_exact_immutable_effect() {
             assert!(stage.writes::<retrieval::consumption::RetrievalEmbeddingUse>());
             assert!(stage.writes::<embedding::value::FullValue>());
             assert!(stage.writes::<embedding::projection::ProjectedValue>());
-            for name in [embedding::value::FullValue::NAME,embedding::projection::ProjectedValue::NAME]{
-                assert!(stage.inputs.iter().any(|i|i.name()==name&&i.prefix()==Some(stages::PublicationBoundary::AnalyticEmbedding)));
+            for name in [
+                embedding::value::FullValue::NAME,
+                embedding::projection::ProjectedValue::NAME,
+            ] {
+                assert!(stage.inputs.iter().any(|i| i.name() == name
+                    && i.prefix() == Some(stages::PublicationBoundary::AnalyticEmbedding)));
             }
             assert!(
                 stage

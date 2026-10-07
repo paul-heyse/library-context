@@ -1,10 +1,9 @@
 //! The retained f32 little-endian value recipe, independent of nominal generation row identity.
-use super::{Spec, EmbeddingSpec, check_vector};
+use super::{EmbeddingSpec, Spec, check_vector};
 use crate::Domain;
 use crate::domain::{
-    ContentHash, ModelError,
+    ContentHash, EvidenceBytes, Id, ModelError, Record,
     resources::{Reservation, ResourceBudget},
-    Id, EvidenceBytes, Record,
 };
 use sha2::{Digest as _, Sha256};
 
@@ -14,8 +13,10 @@ pub const VALUE_CODEC: i16 = 1;
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name="embedding_full_values",validate=validate_full)]
 pub struct FullValue {
-    #[model(key)] pub encoder: Id<EmbeddingSpec>,
-    #[model(key)] pub input: ContentHash,
+    #[model(key)]
+    pub encoder: Id<EmbeddingSpec>,
+    #[model(key)]
+    pub input: ContentHash,
     pub dimensions: i64,
     pub tokens: i64,
     pub codec: i16,
@@ -23,23 +24,45 @@ pub struct FullValue {
     pub bytes: EvidenceBytes,
 }
 impl FullValue {
-    pub fn new(encoder:&EmbeddingSpec,value:&AdmittedValue)->Result<Self,ModelError> {
+    pub fn new(encoder: &EmbeddingSpec, value: &AdmittedValue) -> Result<Self, ModelError> {
         encoder.validate()?;
-        if value.spec()!=encoder.service_hash {return Err(ModelError::Invalid("full winner encoder mismatch".into()));}
-        let row=Self {encoder:encoder.id(),input:value.input(),dimensions:encoder.dimensions,tokens:value.tokens().into(),codec:VALUE_CODEC,digest:value.digest(),bytes:EvidenceBytes(value.bytes().to_vec())};
-        row.validate()?; Ok(row)
+        if value.spec() != encoder.service_hash {
+            return Err(ModelError::Invalid("full winner encoder mismatch".into()));
+        }
+        let row = Self {
+            encoder: encoder.id(),
+            input: value.input(),
+            dimensions: encoder.dimensions,
+            tokens: value.tokens().into(),
+            codec: VALUE_CODEC,
+            digest: value.digest(),
+            bytes: EvidenceBytes(value.bytes().to_vec()),
+        };
+        row.validate()?;
+        Ok(row)
     }
-    pub fn verify_encoder(&self,encoder:&EmbeddingSpec)->Result<(),ModelError> {
-        self.validate()?; encoder.validate()?;
-        if self.encoder!=encoder.id() || self.dimensions!=encoder.dimensions {return Err(ModelError::Invalid("full winner has foreign encoder/dimensions".into()));} Ok(())
+    pub fn verify_encoder(&self, encoder: &EmbeddingSpec) -> Result<(), ModelError> {
+        self.validate()?;
+        encoder.validate()?;
+        if self.encoder != encoder.id() || self.dimensions != encoder.dimensions {
+            return Err(ModelError::Invalid(
+                "full winner has foreign encoder/dimensions".into(),
+            ));
+        }
+        Ok(())
     }
 }
-fn validate_full(row:&FullValue)->Result<(),ModelError> {
-    if row.tokens<0 || row.tokens>u32::MAX.into() || row.codec!=VALUE_CODEC {return Err(ModelError::Invalid("invalid full value admission".into()));}
-    let dimensions=u32::try_from(row.dimensions).map_err(ModelError::codec)?;
-    let vector=decode_vector(&row.bytes.0,dimensions).map_err(ModelError::Invalid)?;
-    check_vector(&vector,dimensions).map_err(ModelError::Invalid)?;
-    if value_digest(&vector)!=row.digest {return Err(ModelError::Invalid("full winning digest differs".into()));} Ok(())
+fn validate_full(row: &FullValue) -> Result<(), ModelError> {
+    if row.tokens < 0 || row.tokens > u32::MAX.into() || row.codec != VALUE_CODEC {
+        return Err(ModelError::Invalid("invalid full value admission".into()));
+    }
+    let dimensions = u32::try_from(row.dimensions).map_err(ModelError::codec)?;
+    let vector = decode_vector(&row.bytes.0, dimensions).map_err(ModelError::Invalid)?;
+    check_vector(&vector, dimensions).map_err(ModelError::Invalid)?;
+    if value_digest(&vector) != row.digest {
+        return Err(ModelError::Invalid("full winning digest differs".into()));
+    }
+    Ok(())
 }
 pub fn input_hash(request_text: &str) -> ContentHash {
     ContentHash(Sha256::digest(request_text.as_bytes()).into())
@@ -189,9 +212,18 @@ pub fn decode(
 }
 
 /// Decode the deliberately selected analytical/search representation.
-pub fn decode_projection(row:&super::projection::ProjectedValue,budget:&ResourceBudget)->Result<DecodedValue,ModelError> {
+pub fn decode_projection(
+    row: &super::projection::ProjectedValue,
+    budget: &ResourceBudget,
+) -> Result<DecodedValue, ModelError> {
     row.validate()?;
-    let reservation=budget.reserve("embedding-decoded-projection",size_of::<DecodedValue>()+row.bytes.0.len())?;
-    let values=decode_vector(&row.bytes.0,row.dimensions as u32).map_err(ModelError::Invalid)?;
-    Ok(DecodedValue {values,_reservation:reservation})
+    let reservation = budget.reserve(
+        "embedding-decoded-projection",
+        size_of::<DecodedValue>() + row.bytes.0.len(),
+    )?;
+    let values = decode_vector(&row.bytes.0, row.dimensions as u32).map_err(ModelError::Invalid)?;
+    Ok(DecodedValue {
+        values,
+        _reservation: reservation,
+    })
 }

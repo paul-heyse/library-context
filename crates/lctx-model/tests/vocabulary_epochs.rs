@@ -307,7 +307,8 @@ fn canonical_value_epochs_are_shared_without_becoming_semantic_vocabulary() {
         Relation::of::<Package>(),
         Relation::of::<FullProbe>(),
         Relation::of::<ProjectionProbe>(),
-    ]).unwrap();
+    ])
+    .unwrap();
     let groups = vec![
         PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
         PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
@@ -315,33 +316,81 @@ fn canonical_value_epochs_are_shared_without_becoming_semantic_vocabulary() {
         PublicationGroup::new(PublicationBoundary::Analytic, vec!["analytics"]),
         PublicationGroup::new(PublicationBoundary::Retrieval, vec!["e0"]),
     ];
-    let values = || vec![RelationUse::of::<FullProbe>(), RelationUse::of::<ProjectionProbe>()];
-    let prefix = |boundary| vec![
-        RelationUse::completed::<FullProbe>().at_epoch(boundary),
-        RelationUse::completed::<ProjectionProbe>().at_epoch(boundary),
-    ];
+    let values = || {
+        vec![
+            RelationUse::of::<FullProbe>(),
+            RelationUse::of::<ProjectionProbe>(),
+        ]
+    };
+    let prefix = |boundary| {
+        vec![
+            RelationUse::completed::<FullProbe>().at_epoch(boundary),
+            RelationUse::completed::<ProjectionProbe>().at_epoch(boundary),
+        ]
+    };
     let declarations = vec![
         stage("facts", vec![], vec![RelationUse::of::<Literal>()]),
         stage("structural", vec![], vec![RelationUse::of::<Package>()]),
         stage("e1", vec![], values()),
-        stage("analytics", prefix(PublicationBoundary::AnalyticEmbedding), vec![RelationUse::of::<Literal>()]),
-        stage("e0", prefix(PublicationBoundary::AnalyticEmbedding), values()),
+        stage(
+            "analytics",
+            prefix(PublicationBoundary::AnalyticEmbedding),
+            vec![RelationUse::of::<Literal>()],
+        ),
+        stage(
+            "e0",
+            prefix(PublicationBoundary::AnalyticEmbedding),
+            values(),
+        ),
     ];
-    let build = |stages| Schedule::build_with_publications(&model, stages, &[], Profile::Catalog, groups.clone());
+    let build = |stages| {
+        Schedule::build_with_publications(&model, stages, &[], Profile::Catalog, groups.clone())
+    };
     let schedule = build(declarations.clone()).unwrap();
-    let position = |name| schedule.stages().iter().position(|s| s.name == name).unwrap();
+    let position = |name| {
+        schedule
+            .stages()
+            .iter()
+            .position(|s| s.name == name)
+            .unwrap()
+    };
     assert!(position("structural") < position("e1"));
     assert!(position("e1") < position("analytics"));
     assert!(position("analytics") < position("e0"));
     assert_eq!(PublicationBoundary::AnalyticEmbedding.code(), 19);
     assert_eq!(PublicationBoundary::Retrieval.code(), 18);
-    assert_eq!(schedule.prefix_for(PublicationBoundary::AnalyticEmbedding).unwrap().ordinal(), 2);
-    assert_eq!(schedule.prefix_for(PublicationBoundary::Retrieval).unwrap().ordinal(), 4);
+    assert_eq!(
+        schedule
+            .prefix_for(PublicationBoundary::AnalyticEmbedding)
+            .unwrap()
+            .ordinal(),
+        2
+    );
+    assert_eq!(
+        schedule
+            .prefix_for(PublicationBoundary::Retrieval)
+            .unwrap()
+            .ordinal(),
+        4
+    );
 
     let mut unbounded = declarations.clone();
-    unbounded.iter_mut().find(|s| s.name == "analytics").unwrap().inputs = vec![RelationUse::completed::<FullProbe>()];
-    assert!(build(unbounded).unwrap_err().to_string().contains("explicit closed epoch"));
+    unbounded
+        .iter_mut()
+        .find(|s| s.name == "analytics")
+        .unwrap()
+        .inputs = vec![RelationUse::completed::<FullProbe>()];
+    assert!(
+        build(unbounded)
+            .unwrap_err()
+            .to_string()
+            .contains("explicit closed epoch")
+    );
     let mut self_read = declarations;
-    self_read.iter_mut().find(|s| s.name == "e0").unwrap().inputs = prefix(PublicationBoundary::Retrieval);
+    self_read
+        .iter_mut()
+        .find(|s| s.name == "e0")
+        .unwrap()
+        .inputs = prefix(PublicationBoundary::Retrieval);
     assert!(build(self_read).is_err());
 }

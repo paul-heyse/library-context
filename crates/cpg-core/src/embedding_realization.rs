@@ -11,10 +11,10 @@ use lctx_model::domain::embedding::cache::{CacheValue, EmbeddingCache};
 use lctx_model::domain::{
     embedding::{
         DocumentRecipe, EmbeddingSpec,
-        projection::{ProjectedValue, ProjectionDefinition},
         configuration::{Configuration, ServiceConfiguration},
-        value::{AdmittedValue, FullValue, input_hash},
         consumption::PublishedValue,
+        projection::{ProjectedValue, ProjectionDefinition},
+        value::{AdmittedValue, FullValue, input_hash},
     },
     resources::ResourceBudget,
     *,
@@ -111,9 +111,11 @@ impl<'a> Session<'a> {
         read!(DocumentRecipe, documents);
         read!(ProjectionDefinition, projections);
         drop(session);
-        if specs.len() != 1 || services.len() != 1 || documents.len() != 1 || projections.len() != 1 {
+        if specs.len() != 1 || services.len() != 1 || documents.len() != 1 || projections.len() != 1
+        {
             return Err(ModelError::Invalid(
-                "embedding effect needs one selected encoder, document, projection and service".into(),
+                "embedding effect needs one selected encoder, document, projection and service"
+                    .into(),
             ));
         }
         let configuration = Configuration::from_selected(
@@ -161,72 +163,123 @@ impl<'a> Session<'a> {
         full.verify_encoder(self.configuration.row())?;
         let tokens = u32::try_from(full.tokens).map_err(ModelError::codec)?;
         let decoded = embedding::value::decode(
-            self.configuration.specification(), &full.bytes.0, full.digest, tokens, &self.budget,
+            self.configuration.specification(),
+            &full.bytes.0,
+            full.digest,
+            tokens,
+            &self.budget,
         )?;
         drop(decoded);
         self.insert_payload(full.input, full.digest, tokens, &full.bytes.0)?;
         self.bind_full(full.id(), full.input)?;
-        self.values.get_mut(&full.input).expect("seeded winner").full_published = true;
+        self.values
+            .get_mut(&full.input)
+            .expect("seeded winner")
+            .full_published = true;
         Ok(())
     }
     /// Verify the selected derivation against its already seeded full winner, then retain only
     /// the publication fact. A missing or foreign companion cannot fall back to fresh inference.
     pub fn seed_projection(&mut self, projection: &ProjectedValue) -> Result<(), ModelError> {
         if projection.definition != self.configuration.projection().id() {
-            return Err(ModelError::Invalid("seeded projection has another selected policy".into()));
+            return Err(ModelError::Invalid(
+                "seeded projection has another selected policy".into(),
+            ));
         }
-        let input = *self.full_inputs.get(&projection.value)
-            .ok_or_else(|| ModelError::Invalid("seeded projection lacks canonical full winner".into()))?;
-        let _derive = self.budget.reserve("embedding-seed-projection", self.projection_bytes())?;
+        let input = *self.full_inputs.get(&projection.value).ok_or_else(|| {
+            ModelError::Invalid("seeded projection lacks canonical full winner".into())
+        })?;
+        let _derive = self
+            .budget
+            .reserve("embedding-seed-projection", self.projection_bytes())?;
         let full = self.full_value(input)?;
         projection.verify(&full, self.configuration.projection())?;
-        self.values.get_mut(&input).expect("seeded full winner").projection_published = true;
+        self.values
+            .get_mut(&input)
+            .expect("seeded full winner")
+            .projection_published = true;
         Ok(())
     }
     /// Local producer binding to an already admitted and published winner; no payload copy.
-    pub fn verify_published(&self,value:&PublishedValue)->Result<(),ModelError>{
-        let slot=self.values.get(&value.input).ok_or_else(||ModelError::Invalid("published winner absent".into()))?;
-        let full=Id::of(&embedding::value::FullValueKey{encoder:self.configuration.row().id(),input:value.input});
-        let projection=Id::of(&embedding::projection::ProjectedValueKey{value:full,definition:self.configuration.projection().id()});
-        if value.value!=full||value.projection!=projection||value.tokens!=slot.tokens||!slot.full_published||!slot.projection_published||self.full_inputs.get(&full)!=Some(&value.input){return Err(ModelError::Invalid("published winner identity/token/closure mismatch".into()));}Ok(())
+    pub fn verify_published(&self, value: &PublishedValue) -> Result<(), ModelError> {
+        let slot = self
+            .values
+            .get(&value.input)
+            .ok_or_else(|| ModelError::Invalid("published winner absent".into()))?;
+        let full = Id::of(&embedding::value::FullValueKey {
+            encoder: self.configuration.row().id(),
+            input: value.input,
+        });
+        let projection = Id::of(&embedding::projection::ProjectedValueKey {
+            value: full,
+            definition: self.configuration.projection().id(),
+        });
+        if value.value != full
+            || value.projection != projection
+            || value.tokens != slot.tokens
+            || !slot.full_published
+            || !slot.projection_published
+            || self.full_inputs.get(&full) != Some(&value.input)
+        {
+            return Err(ModelError::Invalid(
+                "published winner identity/token/closure mismatch".into(),
+            ));
+        }
+        Ok(())
     }
     fn bind_full(&mut self, full: Id<FullValue>, input: ContentHash) -> Result<(), ModelError> {
         if let Some(previous) = self.full_inputs.get(&full) {
-            if *previous != input { return Err(ModelError::Conflict("canonical full input identity")); }
+            if *previous != input {
+                return Err(ModelError::Conflict("canonical full input identity"));
+            }
         } else {
-            self.charge.grow(size_of::<Id<FullValue>>() + size_of::<ContentHash>() + 64)?;
+            self.charge
+                .grow(size_of::<Id<FullValue>>() + size_of::<ContentHash>() + 64)?;
             self.full_inputs.insert(full, input);
         }
         Ok(())
     }
     fn projection_bytes(&self) -> usize {
-        (self.configuration.specification().dimensions as usize).saturating_mul(12)
-            .saturating_add((self.configuration.projection().dimensions as usize).saturating_mul(12))
+        (self.configuration.specification().dimensions as usize)
+            .saturating_mul(12)
+            .saturating_add(
+                (self.configuration.projection().dimensions as usize).saturating_mul(12),
+            )
             .saturating_add(4096)
     }
     fn full_value(&mut self, input: ContentHash) -> Result<FullValue, ModelError> {
-        let slot = *self.values.get(&input)
+        let slot = *self
+            .values
+            .get(&input)
             .ok_or_else(|| ModelError::Invalid("canonical full winner absent".into()))?;
         let (bytes, _read) = self.read_payload(slot.payload)?;
         Ok(FullValue {
-            encoder: self.configuration.row().id(), input,
+            encoder: self.configuration.row().id(),
+            input,
             dimensions: i64::from(self.configuration.specification().dimensions),
-            tokens: i64::from(slot.tokens), codec: embedding::value::VALUE_CODEC,
-            digest: slot.digest, bytes: EvidenceBytes(bytes),
+            tokens: i64::from(slot.tokens),
+            codec: embedding::value::VALUE_CODEC,
+            digest: slot.digest,
+            bytes: EvidenceBytes(bytes),
         })
     }
     /// Emit one canonical full/projection pair per winner, independently of window use count.
     /// Both outputs must be declared by the producer, even when every winner was seeded.
     pub async fn publish(
-        &mut self, document: &str, output: &ProducerOutput,
+        &mut self,
+        document: &str,
+        output: &ProducerOutput,
     ) -> Result<PublishedValue, Error> {
         let spec = self.configuration.specification();
-        let bound = document.len()
+        let bound = document
+            .len()
             .checked_mul(spec.document_template.matches("{text}").count())
             .and_then(|n| n.checked_add(spec.document_template.len()))
             .and_then(|n| n.checked_mul(2))
             .ok_or_else(|| ModelError::Invalid("embedding publication request overflow".into()))?;
-        let _request = self.budget.reserve("embedding-publication-request", bound)?;
+        let _request = self
+            .budget
+            .reserve("embedding-publication-request", bound)?;
         let input = input_hash(&spec.document_text(document));
         if !self.values.contains_key(&input) && !self.refusals.contains_key(&input) {
             self.prepare([document]).await?;
@@ -234,26 +287,47 @@ impl<'a> Session<'a> {
         if let Some(refusal) = self.refusals.get(&input).copied() {
             return Err(self.refusal_error(refusal)?);
         }
-        let slot = *self.values.get(&input)
+        let slot = *self
+            .values
+            .get(&input)
             .ok_or_else(|| ModelError::Invalid("canonical publication winner absent".into()))?;
-        let full_id = Id::of(&embedding::value::FullValueKey {encoder:self.configuration.row().id(),input});
-        let projection_id = Id::of(&embedding::projection::ProjectedValueKey {value:full_id,definition:self.configuration.projection().id()});
+        let full_id = Id::of(&embedding::value::FullValueKey {
+            encoder: self.configuration.row().id(),
+            input,
+        });
+        let projection_id = Id::of(&embedding::projection::ProjectedValueKey {
+            value: full_id,
+            definition: self.configuration.projection().id(),
+        });
         if !slot.full_published || !slot.projection_published {
             // Construct payloads only for a new publication; another window receives just IDs.
-            let _derive = self.budget.reserve("embedding-canonical-publication", self.projection_bytes())?;
+            let _derive = self
+                .budget
+                .reserve("embedding-canonical-publication", self.projection_bytes())?;
             let full = self.full_value(input)?;
             let projection = ProjectedValue::new(&full, self.configuration.projection())?;
             if !slot.full_published {
                 output.push(full).await?;
-                self.values.get_mut(&input).expect("winner slot").full_published = true;
+                self.values
+                    .get_mut(&input)
+                    .expect("winner slot")
+                    .full_published = true;
             }
             if !slot.projection_published {
                 output.push(projection).await?;
-                self.values.get_mut(&input).expect("winner slot").projection_published = true;
+                self.values
+                    .get_mut(&input)
+                    .expect("winner slot")
+                    .projection_published = true;
             }
         }
         self.bind_full(full_id, input)?;
-        Ok(PublishedValue { value:full_id, projection:projection_id, input, tokens:slot.tokens })
+        Ok(PublishedValue {
+            value: full_id,
+            projection: projection_id,
+            input,
+            tokens: slot.tokens,
+        })
     }
     fn append(&mut self, bytes: &[u8]) -> Result<PayloadSlot, ModelError> {
         if self.spool.is_none() {
@@ -288,9 +362,20 @@ impl<'a> Session<'a> {
         Ok((bytes, reservation))
     }
     fn insert(&mut self, admitted: AdmittedValue) -> Result<(), ModelError> {
-        self.insert_payload(admitted.input(), admitted.digest(), admitted.tokens(), admitted.bytes())
+        self.insert_payload(
+            admitted.input(),
+            admitted.digest(),
+            admitted.tokens(),
+            admitted.bytes(),
+        )
     }
-    fn insert_payload(&mut self, key: ContentHash, digest: ContentHash, tokens: u32, bytes: &[u8]) -> Result<(), ModelError> {
+    fn insert_payload(
+        &mut self,
+        key: ContentHash,
+        digest: ContentHash,
+        tokens: u32,
+        bytes: &[u8],
+    ) -> Result<(), ModelError> {
         if let Some(previous) = self.values.get(&key).copied() {
             let (previous_bytes, _read) = self.read_payload(previous.payload)?;
             if previous_bytes != bytes || previous.tokens != tokens || previous.digest != digest {
@@ -299,11 +384,19 @@ impl<'a> Session<'a> {
                 ));
             }
         } else {
-            self.charge.grow(size_of::<ContentHash>() + size_of::<WinnerSlot>() + 64)?;
+            self.charge
+                .grow(size_of::<ContentHash>() + size_of::<WinnerSlot>() + 64)?;
             let payload = self.append(bytes)?;
-            self.values.insert(key, WinnerSlot {
-                payload, digest, tokens, full_published: false, projection_published: false,
-            });
+            self.values.insert(
+                key,
+                WinnerSlot {
+                    payload,
+                    digest,
+                    tokens,
+                    full_published: false,
+                    projection_published: false,
+                },
+            );
         }
         Ok(())
     }
@@ -399,7 +492,16 @@ impl<'a> Session<'a> {
                     )
                     .into());
                 }
-                if winner.admitted_tokens>spec.max_document_tokens {self.refuse(*key,Refusal::TokenLimit {tokens:winner.admitted_tokens as usize,limit:spec.max_document_tokens})?;continue;}
+                if winner.admitted_tokens > spec.max_document_tokens {
+                    self.refuse(
+                        *key,
+                        Refusal::TokenLimit {
+                            tokens: winner.admitted_tokens as usize,
+                            limit: spec.max_document_tokens,
+                        },
+                    )?;
+                    continue;
+                }
                 self.insert(AdmittedValue::new(
                     &spec,
                     request,
@@ -409,12 +511,22 @@ impl<'a> Session<'a> {
                 )?)?;
                 continue;
             }
-            let counted=if let Some(tokenizer)=self.embedder.document_tokenizer() {
+            let counted = if let Some(tokenizer) = self.embedder.document_tokenizer() {
                 // Assets compose the complete input; never compose the recipe twice.
-                let (prefix,suffix)=spec.document_template.split_once("{text}").ok_or_else(||ModelError::Invalid("invalid document template".into()))?;
-                let body=request.strip_prefix(prefix).and_then(|s|s.strip_suffix(suffix)).ok_or_else(||ModelError::Invalid("complete encoder input recipe mismatch".into()))?;
+                let (prefix, suffix) = spec
+                    .document_template
+                    .split_once("{text}")
+                    .ok_or_else(|| ModelError::Invalid("invalid document template".into()))?;
+                let body = request
+                    .strip_prefix(prefix)
+                    .and_then(|s| s.strip_suffix(suffix))
+                    .ok_or_else(|| {
+                        ModelError::Invalid("complete encoder input recipe mismatch".into())
+                    })?;
                 Ok(tokenizer.encode(body)?.offsets.len())
-            } else {self.embedder.count_tokens(request).await};
+            } else {
+                self.embedder.count_tokens(request).await
+            };
             match counted {
                 Ok(count) if count <= spec.max_document_tokens as usize => {
                     uncached.push(request.clone());
@@ -693,32 +805,52 @@ mod tests {
     async fn canonical_full_and_projection_seed_retrieval_without_a_second_service_winner() {
         let provider = Changing {
             specification: FakeEmbedder::new().spec().clone(),
-            batches: Default::default(), unavailable: false,
+            batches: Default::default(),
+            unavailable: false,
         };
         let budget = ResourceBudget::fixed(1 << 26).unwrap();
-        let configuration = || Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
+        let configuration =
+            || Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
         let mut analytic = Session::selected(configuration(), &provider, None, &budget).unwrap();
         analytic.realize("same").await.unwrap();
         let (full, projection) = embedding::projection::admit(
-            analytic.configuration.row(), &analytic.active.as_ref().unwrap().1,
+            analytic.configuration.row(),
+            &analytic.active.as_ref().unwrap().1,
             analytic.configuration.projection(),
-        ).unwrap();
+        )
+        .unwrap();
         drop(analytic);
         let mut retrieval = Session::selected(configuration(), &provider, None, &budget).unwrap();
-        assert!(retrieval.seed_projection(&projection).is_err(), "missing full companion refuses");
+        assert!(
+            retrieval.seed_projection(&projection).is_err(),
+            "missing full companion refuses"
+        );
         retrieval.seed_full_value(&full).unwrap();
         retrieval.seed_projection(&projection).unwrap();
-        assert_eq!(retrieval.realize("same").await.unwrap().bytes(), full.bytes.0);
+        assert_eq!(
+            retrieval.realize("same").await.unwrap().bytes(),
+            full.bytes.0
+        );
         assert_eq!(provider.batches.lock().unwrap().len(), 1);
-        assert_ne!(retrieval.realize("different").await.unwrap().digest(), full.digest);
+        assert_ne!(
+            retrieval.realize("different").await.unwrap().digest(),
+            full.digest
+        );
         let mut conflict = full.clone();
         let mut vector = vec![0.0; provider.spec().dimensions as usize];
         vector[0] = -1.0;
         conflict.bytes = EvidenceBytes(embedding::value::encode_vector(&vector));
         conflict.digest = embedding::value::value_digest(&vector);
-        assert!(retrieval.seed_full_value(&conflict).is_err(), "another valid payload cannot replace the winner");
+        assert!(
+            retrieval.seed_full_value(&conflict).is_err(),
+            "another valid payload cannot replace the winner"
+        );
         let mut foreign = projection.clone();
-        foreign.definition = ProjectionDefinition { dimensions: 1, algorithm: embedding::projection::Algorithm::PrefixL2F64F32 }.id();
+        foreign.definition = ProjectionDefinition {
+            dimensions: 1,
+            algorithm: embedding::projection::Algorithm::PrefixL2F64F32,
+        }
+        .id();
         assert!(retrieval.seed_projection(&foreign).is_err());
         let mut changed_projection = projection.clone();
         changed_projection.bytes.0[0] ^= 1;
@@ -730,44 +862,100 @@ mod tests {
     async fn canonical_publication_happens_once_and_seeded_values_emit_only_new_winners() {
         let provider = Changing {
             specification: FakeEmbedder::new().spec().clone(),
-            batches: Default::default(), unavailable: false,
+            batches: Default::default(),
+            unavailable: false,
         };
-        let relations = embedding::configuration_relations().into_iter()
-            .chain([Relation::of::<FullValue>(), Relation::of::<ProjectedValue>()]).collect();
+        let relations = embedding::configuration_relations()
+            .into_iter()
+            .chain([
+                Relation::of::<FullValue>(),
+                Relation::of::<ProjectedValue>(),
+            ])
+            .collect();
         let model = Arc::new(ValidatedModel::declared(relations).unwrap());
         let workspace = Workspace::new(model, Default::default()).unwrap();
         let budget = workspace.budget();
-        let configuration = || Configuration::new(provider.spec(), provider.endpoint(), budget).unwrap();
+        let configuration =
+            || Configuration::new(provider.spec(), provider.endpoint(), budget).unwrap();
         let mut analytic = Session::selected(configuration(), &provider, None, budget).unwrap();
-        let output = workspace.output("e1", stages::Profile::Catalog, ContentHash::of(b"e1"), workspace.inputs("e1", stages::Profile::Catalog, []).unwrap());
+        let output = workspace.output(
+            "e1",
+            stages::Profile::Catalog,
+            ContentHash::of(b"e1"),
+            workspace
+                .inputs("e1", stages::Profile::Catalog, [])
+                .unwrap(),
+        );
         output.declare::<FullValue>().unwrap();
         output.declare::<ProjectedValue>().unwrap();
         let first = analytic.publish("same", &output).await.unwrap();
         let again = analytic.publish("same", &output).await.unwrap();
         assert_eq!(first.value, again.value);
         assert_eq!(first.projection, again.projection);
-        output.finish(stages::ProviderOutcome::Complete).await.unwrap();
-        let full = workspace.relation(FullValue::NAME).unwrap().batches().unwrap().flat_map(|batch| FullValue::decode(&batch.unwrap()).unwrap()).next().unwrap();
-        let projection = workspace.relation(ProjectedValue::NAME).unwrap().batches().unwrap().flat_map(|batch| ProjectedValue::decode(&batch.unwrap()).unwrap()).next().unwrap();
+        output
+            .finish(stages::ProviderOutcome::Complete)
+            .await
+            .unwrap();
+        let full = workspace
+            .relation(FullValue::NAME)
+            .unwrap()
+            .batches()
+            .unwrap()
+            .flat_map(|batch| FullValue::decode(&batch.unwrap()).unwrap())
+            .next()
+            .unwrap();
+        let projection = workspace
+            .relation(ProjectedValue::NAME)
+            .unwrap()
+            .batches()
+            .unwrap()
+            .flat_map(|batch| ProjectedValue::decode(&batch.unwrap()).unwrap())
+            .next()
+            .unwrap();
         assert_eq!(full.dimensions, i64::from(provider.spec().dimensions));
-        assert_eq!(projection.dimensions, i64::from(provider.spec().dimensions.min(1024)));
-        projection.verify(&full, analytic.configuration.projection()).unwrap();
+        assert_eq!(
+            projection.dimensions,
+            i64::from(provider.spec().dimensions.min(1024))
+        );
+        projection
+            .verify(&full, analytic.configuration.projection())
+            .unwrap();
         drop(analytic);
         let mut retrieval = Session::selected(configuration(), &provider, None, budget).unwrap();
         retrieval.seed_full_value(&full).unwrap();
         retrieval.seed_projection(&projection).unwrap();
         // No declarations means an attempted duplicate push fails instead of being deduplicated
         // by workspace ordering, so this proves the Session skips both seeded publications.
-        let no_outputs = workspace.output("no_duplicate", stages::Profile::Catalog, ContentHash::of(b"no_duplicate"), workspace.inputs("no_duplicate", stages::Profile::Catalog, []).unwrap());
+        let no_outputs = workspace.output(
+            "no_duplicate",
+            stages::Profile::Catalog,
+            ContentHash::of(b"no_duplicate"),
+            workspace
+                .inputs("no_duplicate", stages::Profile::Catalog, [])
+                .unwrap(),
+        );
         let replay = retrieval.publish("same", &no_outputs).await.unwrap();
         assert_eq!(replay.value, first.value);
         assert_eq!(replay.projection, first.projection);
-        no_outputs.finish(stages::ProviderOutcome::Complete).await.unwrap();
-        let output = workspace.output("e0", stages::Profile::Catalog, ContentHash::of(b"e0"), workspace.inputs("e0", stages::Profile::Catalog, []).unwrap());
+        no_outputs
+            .finish(stages::ProviderOutcome::Complete)
+            .await
+            .unwrap();
+        let output = workspace.output(
+            "e0",
+            stages::Profile::Catalog,
+            ContentHash::of(b"e0"),
+            workspace
+                .inputs("e0", stages::Profile::Catalog, [])
+                .unwrap(),
+        );
         output.declare::<FullValue>().unwrap();
         output.declare::<ProjectedValue>().unwrap();
         retrieval.publish("new", &output).await.unwrap();
-        output.finish(stages::ProviderOutcome::Complete).await.unwrap();
+        output
+            .finish(stages::ProviderOutcome::Complete)
+            .await
+            .unwrap();
         assert_eq!(workspace.relation(FullValue::NAME).unwrap().rows(), 2);
         assert_eq!(workspace.relation(ProjectedValue::NAME).unwrap().rows(), 2);
         assert_eq!(provider.batches.lock().unwrap().len(), 2);
@@ -777,14 +965,16 @@ mod tests {
         let fake = FakeEmbedder::new();
         let budget = ResourceBudget::fixed(1 << 24).unwrap();
         let mut query_changed = fake.spec().clone();
-        query_changed.query_template = "Independent instruction: {task_description}\nQuery: {query}".into();
+        query_changed.query_template =
+            "Independent instruction: {task_description}\nQuery: {query}".into();
         query_changed.query_task = "different ranking task".into();
         query_changed.max_query_tokens -= 1;
         let configuration = Configuration::new(&query_changed, fake.endpoint(), &budget).unwrap();
         assert!(Session::selected(configuration, &fake, None, &budget).is_ok());
         let mut document_changed = fake.spec().clone();
         document_changed.document_template = "Document: {text}".into();
-        let configuration = Configuration::new(&document_changed, fake.endpoint(), &budget).unwrap();
+        let configuration =
+            Configuration::new(&document_changed, fake.endpoint(), &budget).unwrap();
         assert!(Session::selected(configuration, &fake, None, &budget).is_err());
         let mut encoder_changed = fake.spec().clone();
         encoder_changed.model = "another-encoder".into();

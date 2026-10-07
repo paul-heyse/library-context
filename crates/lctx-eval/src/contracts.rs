@@ -1,16 +1,25 @@
 //! Private evaluation meanings. None of these contracts enter production requests.
-use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub type Assignment = BTreeMap<String, String>;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Intent { Positive, ExpectedFailure, Unknown, NotApplicable }
+pub enum Intent {
+    Positive,
+    ExpectedFailure,
+    Unknown,
+    NotApplicable,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Completeness { Complete, Incomplete, Unsupported }
+pub enum Completeness {
+    Complete,
+    Incomplete,
+    Unsupported,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OracleBasis {
@@ -31,21 +40,42 @@ pub struct PublicRequest {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct Envelope { pub max_calls: usize, pub max_bytes: usize }
+pub struct Envelope {
+    pub max_calls: usize,
+    pub max_bytes: usize,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Witness {
-    Leaf { predicate: String },
-    All { children: Vec<Witness> },
-    Any { children: Vec<Witness> },
-    Exists { variables: Vec<String>, child: Box<Witness> },
+    Leaf {
+        predicate: String,
+    },
+    All {
+        children: Vec<Witness>,
+    },
+    Any {
+        children: Vec<Witness>,
+    },
+    Exists {
+        variables: Vec<String>,
+        child: Box<Witness>,
+    },
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum CandidateStatus { Supported, ExpectedFailure, Unknown, Authored, Skipped }
+pub enum CandidateStatus {
+    Supported,
+    ExpectedFailure,
+    Unknown,
+    Authored,
+    Skipped,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct QualificationRequirement { pub id: String, pub accepted_text: Vec<String> }
+pub struct QualificationRequirement {
+    pub id: String,
+    pub accepted_text: Vec<String>,
+}
 /// Acceptable text is independently authored, never recovered from the renderer.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -76,7 +106,10 @@ pub struct Information {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct FiniteModel { pub worlds: Vec<World>, pub information: Vec<Information> }
+pub struct FiniteModel {
+    pub worlds: Vec<World>,
+    pub information: Vec<Information>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EvaluationTask {
@@ -94,13 +127,26 @@ pub struct EvaluationTask {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Split { Development, Validation }
+pub enum Split {
+    Development,
+    Validation,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum OperationStatus { Completed, Failed, Refused, Stale, BudgetExhausted, Cancelled }
+pub enum OperationStatus {
+    Completed,
+    Failed,
+    Refused,
+    Stale,
+    BudgetExhausted,
+    Cancelled,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ObserverFormat { FinitePacketV1, McpToolResultV1 }
+pub enum ObserverFormat {
+    FinitePacketV1,
+    McpToolResultV1,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Expansion {
@@ -112,10 +158,16 @@ pub struct Expansion {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct PublicCall { pub tool: String, pub arguments: serde_json::Value }
+pub struct PublicCall {
+    pub tool: String,
+    pub arguments: serde_json::Value,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum CaptureLane { Renderer, Native }
+pub enum CaptureLane {
+    Renderer,
+    Native,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CaptureFacts {
@@ -145,15 +197,30 @@ pub struct Observation {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Mode { Immediate, Expandable }
+pub enum Mode {
+    Immediate,
+    Expandable,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Applicability { Applicable, NotApplicable, Unsupported, Incomplete, InvalidTask }
+pub enum Applicability {
+    Applicable,
+    NotApplicable,
+    Unsupported,
+    Incomplete,
+    InvalidTask,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Epistemic {
-    Sufficient, Insufficient, ModelRelativeUnknown, InconsistentModel,
-    InventoryInfeasible, BudgetInfeasible, Inconclusive, NotApplicable,
+    Sufficient,
+    Insufficient,
+    ModelRelativeUnknown,
+    InconsistentModel,
+    InventoryInfeasible,
+    BudgetInfeasible,
+    Inconclusive,
+    NotApplicable,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -170,4 +237,8 @@ pub struct Judgment {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct Case { pub task: EvaluationTask, pub observation: Observation, pub mode: Mode }
+pub struct Case {
+    pub task: EvaluationTask,
+    pub observation: Observation,
+    pub mode: Mode,
+}

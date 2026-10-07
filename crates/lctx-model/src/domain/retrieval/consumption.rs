@@ -7,11 +7,11 @@ use crate::Domain;
 use crate::domain::{
     analysis::retrieval::{AnalysisInvocation, AnalysisOutcome},
     embedding::{
-        EmbeddingSpec,
+        DocumentRecipe, EmbeddingSpec,
         analytic::VectorAvailability,
         configuration::ServiceConfiguration,
-        consumption::{ValueIndex, PublishedValue, SelectedConsumption},
-        DocumentRecipe, projection::{ProjectedValue, ProjectionDefinition},
+        consumption::{PublishedValue, SelectedConsumption, ValueIndex},
+        projection::{ProjectedValue, ProjectionDefinition},
         value,
     },
     normalized::Rows,
@@ -42,17 +42,50 @@ fn validate_use(r: &RetrievalEmbeddingUse) -> Result<(), ModelError> {
         VectorAvailability::TokenLimit => absent && r.admitted_tokens.is_some_and(|n| n >= 0),
     };
     if !valid {
-        return Err(invalid("retrieval vector availability and canonical references disagree"));
+        return Err(invalid(
+            "retrieval vector availability and canonical references disagree",
+        ));
     }
     Ok(())
 }
 impl RetrievalEmbeddingUse {
-    pub fn admit_into(rows:&mut Rows<Self>,invocation:Id<AnalysisInvocation>,window:Id<SearchWindow>,selected:SelectedConsumption<'_>,value:&PublishedValue,b:&ResourceBudget)->Result<Id<Self>,ModelError> {
-        let expected=Id::of(&value::FullValueKey{encoder:selected.encoder.id(),input:value.input});
-        let projection=Id::of(&embedding::projection::ProjectedValueKey{value:expected,definition:selected.projection.id()});
-        if value.value!=expected || value.projection!=projection || value.tokens>2048 || i64::from(value.tokens)>selected.document.max_tokens{return Err(invalid("retrieval value changed selected recipes or window cap"));}
-        let _copy=b.reserve("retrieval-use-copy",size_of::<Self>())?;
-        rows.insert(Self{invocation,window,specification:selected.encoder.id(),document:selected.document.id(),input:value.input,availability:VectorAvailability::Available,admitted_tokens:Some(value.tokens.into()),value:Some(value.value),projection:Some(value.projection)})
+    pub fn admit_into(
+        rows: &mut Rows<Self>,
+        invocation: Id<AnalysisInvocation>,
+        window: Id<SearchWindow>,
+        selected: SelectedConsumption<'_>,
+        value: &PublishedValue,
+        b: &ResourceBudget,
+    ) -> Result<Id<Self>, ModelError> {
+        let expected = Id::of(&value::FullValueKey {
+            encoder: selected.encoder.id(),
+            input: value.input,
+        });
+        let projection = Id::of(&embedding::projection::ProjectedValueKey {
+            value: expected,
+            definition: selected.projection.id(),
+        });
+        if value.value != expected
+            || value.projection != projection
+            || value.tokens > 2048
+            || i64::from(value.tokens) > selected.document.max_tokens
+        {
+            return Err(invalid(
+                "retrieval value changed selected recipes or window cap",
+            ));
+        }
+        let _copy = b.reserve("retrieval-use-copy", size_of::<Self>())?;
+        rows.insert(Self {
+            invocation,
+            window,
+            specification: selected.encoder.id(),
+            document: selected.document.id(),
+            input: value.input,
+            availability: VectorAvailability::Available,
+            admitted_tokens: Some(value.tokens.into()),
+            value: Some(value.value),
+            projection: Some(value.projection),
+        })
     }
 }
 /// Availability is retained once per native frame; no window text or vector survives its unit.
@@ -109,7 +142,7 @@ pub fn verify_uses(
         }
         return Ok(());
     };
-    let specification=selected.encoder;
+    let specification = selected.encoder;
     let spec = selected.document.configuration(specification)?;
     let mut expected = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(b, "retrieval-unit-use-membership");
@@ -127,7 +160,7 @@ pub fn verify_uses(
         expected.insert(&mut charge, id)?;
         let row = need(uses, id)?;
         row.validate()?;
-        if row.specification != specification.id() || row.document!=selected.document.id() {
+        if row.specification != specification.id() || row.document != selected.document.id() {
             return Err(invalid("retrieval use changed selected specification"));
         }
         let bound = window
@@ -138,21 +171,44 @@ pub fn verify_uses(
             .and_then(|n| n.checked_mul(2))
             .ok_or_else(|| invalid("retrieval request overflow"))?;
         let _request = b.reserve("retrieval-consumption-request", bound)?;
-        if spec.document_text(window.text.as_str())!=window.input_text.as_str(){return Err(invalid("retrieval complete encoder input differs from selected processing"));}
+        if spec.document_text(window.text.as_str()) != window.input_text.as_str() {
+            return Err(invalid(
+                "retrieval complete encoder input differs from selected processing",
+            ));
+        }
         if row.input != value::input_hash(&spec.document_text(window.text.as_str())) {
             return Err(invalid("retrieval input differs from completed window"));
         }
-        if window.availability==WindowAvailability::LexicalOnly && row.availability!=VectorAvailability::TokenLimit{return Err(invalid("oversized semantic window cannot admit a vector"));}
+        if window.availability == WindowAvailability::LexicalOnly
+            && row.availability != VectorAvailability::TokenLimit
+        {
+            return Err(invalid("oversized semantic window cannot admit a vector"));
+        }
         match row.availability {
             VectorAvailability::Available => {
-                let expected=Id::of(&value::FullValueKey{encoder:specification.id(),input:row.input});
-                let projection=Id::of(&embedding::projection::ProjectedValueKey{value:expected,definition:selected.projection.id()});
-                if row.value!=Some(expected)||row.projection!=Some(projection)||row.admitted_tokens.is_none_or(|n|n>2048||n>selected.document.max_tokens)||row.admitted_tokens!=window.tokens{return Err(invalid("retrieval canonical reference keys or complete token count differ"));}
+                let expected = Id::of(&value::FullValueKey {
+                    encoder: specification.id(),
+                    input: row.input,
+                });
+                let projection = Id::of(&embedding::projection::ProjectedValueKey {
+                    value: expected,
+                    definition: selected.projection.id(),
+                });
+                if row.value != Some(expected)
+                    || row.projection != Some(projection)
+                    || row
+                        .admitted_tokens
+                        .is_none_or(|n| n > 2048 || n > selected.document.max_tokens)
+                    || row.admitted_tokens != window.tokens
+                {
+                    return Err(invalid(
+                        "retrieval canonical reference keys or complete token count differ",
+                    ));
+                }
             }
             VectorAvailability::TokenLimit
-                if row
-                    .admitted_tokens
-                    .is_none_or(|n| n <= 2048) || row.admitted_tokens!=window.tokens =>
+                if row.admitted_tokens.is_none_or(|n| n <= 2048)
+                    || row.admitted_tokens != window.tokens =>
             {
                 return Err(invalid("retrieval token refusal within selected cap"));
             }
@@ -188,7 +244,9 @@ impl ConsumptionData {
             output: Output::new(b),
             specifications: Rows::new(b),
             services: Rows::new(b),
-            documents: Rows::new(b), projections: Rows::new(b),values:ValueIndex::new(b),
+            documents: Rows::new(b),
+            projections: Rows::new(b),
+            values: ValueIndex::new(b),
             sources: Rows::new(b),
             parents: Rows::new(b),
         }
@@ -201,8 +259,10 @@ impl ConsumptionData {
             ValidationInput::of::<ServiceConfiguration>(&["id"]),
             ValidationInput::of::<DocumentRecipe>(&["id"]),
             ValidationInput::of::<ProjectionDefinition>(&["id"]),
-            ValidationInput::of::<value::FullValue>(&["id"]).at_epoch(stages::PublicationBoundary::Retrieval),
-            ValidationInput::of::<ProjectedValue>(&["id"]).at_epoch(stages::PublicationBoundary::Retrieval),
+            ValidationInput::of::<value::FullValue>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Retrieval),
+            ValidationInput::of::<ProjectedValue>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Retrieval),
             ValidationInput::of::<crate::domain::analysis::retrieval::InvocationSource>(&["id"]),
             ValidationInput::of::<crate::domain::analysis::retrieval::AnalysisInput>(&["id"]),
         ]);
@@ -214,8 +274,20 @@ impl ConsumptionData {
         }
         macro_rules! row {($($f:ident:$ty:ty),*)=>{$(if n==<$ty>::NAME {self.$f.decode(b)?;return Ok(true);})*};}
         row!(specifications:EmbeddingSpec,services:ServiceConfiguration,documents:DocumentRecipe,projections:ProjectionDefinition,sources:crate::domain::analysis::retrieval::InvocationSource,parents:crate::domain::analysis::retrieval::AnalysisInput);
-        if n==value::FullValue::NAME {for row in value::FullValue::decode(b)? {let encoder=self.selected_spec()?.clone();let policy=self.policy()?.clone();self.values.admit_full(&row,&encoder,&policy)?;}return Ok(true);}
-        if n==ProjectedValue::NAME {for row in ProjectedValue::decode(b)? {self.values.admit_projection(&row)?;}return Ok(true);}
+        if n == value::FullValue::NAME {
+            for row in value::FullValue::decode(b)? {
+                let encoder = self.selected_spec()?.clone();
+                let policy = self.policy()?.clone();
+                self.values.admit_full(&row, &encoder, &policy)?;
+            }
+            return Ok(true);
+        }
+        if n == ProjectedValue::NAME {
+            for row in ProjectedValue::decode(b)? {
+                self.values.admit_projection(&row)?;
+            }
+            return Ok(true);
+        }
         Ok(false)
     }
     pub fn visit_input(
@@ -241,13 +313,57 @@ impl ConsumptionData {
         }
         Ok(spec)
     }
-    pub fn document(&self)->Result<&DocumentRecipe,ModelError>{let service=self.services.iter().next().ok_or_else(||invalid("retrieval selected service absent"))?;need(&self.documents,service.document)}
-    pub fn policy(&self)->Result<&ProjectionDefinition,ModelError>{let service=self.services.iter().next().ok_or_else(||invalid("retrieval selected service absent"))?;need(&self.projections,service.projection)}
-    pub fn selected_consumption(&self)->Result<SelectedConsumption<'_>,ModelError>{Ok(SelectedConsumption{encoder:self.selected_spec()?,document:self.document()?,projection:self.policy()?})}
-    pub fn verify_canonical_uses(&self,uses:&Rows<RetrievalEmbeddingUse>)->Result<(),ModelError>{
-        if !self.render.selected()?.embedding_requested {if !uses.is_empty(){return Err(invalid("unrequested canonical retrieval uses"));}return Ok(());}
-        let selected=self.selected_consumption()?;
-        for row in uses.iter(){row.validate()?;if row.specification!=selected.encoder.id()||row.document!=selected.document.id(){return Err(invalid("retrieval canonical use changed recipes"));}if row.availability==VectorAvailability::Available{self.values.verify_use(row.specification,row.input,row.admitted_tokens.unwrap(),row.value.unwrap(),row.projection.unwrap(),selected.projection.id())?;}}
+    pub fn document(&self) -> Result<&DocumentRecipe, ModelError> {
+        let service = self
+            .services
+            .iter()
+            .next()
+            .ok_or_else(|| invalid("retrieval selected service absent"))?;
+        need(&self.documents, service.document)
+    }
+    pub fn policy(&self) -> Result<&ProjectionDefinition, ModelError> {
+        let service = self
+            .services
+            .iter()
+            .next()
+            .ok_or_else(|| invalid("retrieval selected service absent"))?;
+        need(&self.projections, service.projection)
+    }
+    pub fn selected_consumption(&self) -> Result<SelectedConsumption<'_>, ModelError> {
+        Ok(SelectedConsumption {
+            encoder: self.selected_spec()?,
+            document: self.document()?,
+            projection: self.policy()?,
+        })
+    }
+    pub fn verify_canonical_uses(
+        &self,
+        uses: &Rows<RetrievalEmbeddingUse>,
+    ) -> Result<(), ModelError> {
+        if !self.render.selected()?.embedding_requested {
+            if !uses.is_empty() {
+                return Err(invalid("unrequested canonical retrieval uses"));
+            }
+            return Ok(());
+        }
+        let selected = self.selected_consumption()?;
+        for row in uses.iter() {
+            row.validate()?;
+            if row.specification != selected.encoder.id() || row.document != selected.document.id()
+            {
+                return Err(invalid("retrieval canonical use changed recipes"));
+            }
+            if row.availability == VectorAvailability::Available {
+                self.values.verify_use(
+                    row.specification,
+                    row.input,
+                    row.admitted_tokens.unwrap(),
+                    row.value.unwrap(),
+                    row.projection.unwrap(),
+                    selected.projection.id(),
+                )?;
+            }
+        }
         Ok(())
     }
     pub fn owns(&self, i: &AnalysisInvocation, f: &SearchWindow) -> bool {
@@ -436,10 +552,18 @@ impl ConsumptionData {
             if !selected {
                 continue;
             }
-            let mut frame_uses=Rows::new(b);
-            for row in uses.iter().filter(|r|r.invocation==i.id()){frame_uses.insert(row.clone())?;expected.insert(&mut charge,row.id())?;}
-            verify_uses(&self.output,i,Some(self.selected_consumption()?),&frame_uses,b)?;
-
+            let mut frame_uses = Rows::new(b);
+            for row in uses.iter().filter(|r| r.invocation == i.id()) {
+                frame_uses.insert(row.clone())?;
+                expected.insert(&mut charge, row.id())?;
+            }
+            verify_uses(
+                &self.output,
+                i,
+                Some(self.selected_consumption()?),
+                &frame_uses,
+                b,
+            )?;
         }
         if !expected_sources.same(&self.sources)
             || !expected_parents.same(&self.parents)

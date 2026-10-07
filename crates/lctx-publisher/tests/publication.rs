@@ -414,13 +414,12 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
             .await
             .is_err()
     );
-    let analyzer = definitions.lines().find(|line|line.starts_with("DEFINE ANALYZER lctx_discovery ")).expect("selected discovery analyzer").replacen("DEFINE ANALYZER ","DEFINE ANALYZER OVERWRITE ",1);
-    admin
-        .query(analyzer)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    let analyzer = definitions
+        .lines()
+        .find(|line| line.starts_with("DEFINE ANALYZER lctx_discovery "))
+        .expect("selected discovery analyzer")
+        .replacen("DEFINE ANALYZER ", "DEFINE ANALYZER OVERWRITE ", 1);
+    admin.query(analyzer).await.unwrap().check().unwrap();
     lctx_publisher::inspection::audit(&config, &handle, &definitions)
         .await
         .unwrap();

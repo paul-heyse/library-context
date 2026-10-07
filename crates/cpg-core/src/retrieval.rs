@@ -50,33 +50,60 @@ async fn realize(
     service: &mut embedding_realization::Session<'_>,
     b: &resources::ResourceBudget,
 ) -> Result<Rows<RetrievalEmbeddingUse>, ModelError> {
-    let specification=selected.encoder;
+    let specification = selected.encoder;
     let mut uses = Rows::new(b);
     service
         .prepare(
             output
                 .windows
                 .iter()
-                .filter(|window|window.availability==retrieval::WindowAvailability::Ready)
+                .filter(|window| window.availability == retrieval::WindowAvailability::Ready)
                 .map(|window| window.text.as_str()),
         )
         .await
         .map_err(ModelError::codec)?;
     for window in output.windows.iter() {
-        if window.availability==retrieval::WindowAvailability::TokenizerUnavailable{return Err(build::invalid("requested retrieval window lacks exact local tokenizer admission"));}
-        if window.availability==retrieval::WindowAvailability::LexicalOnly{
-            uses.insert(RetrievalEmbeddingUse{invocation:invocation.id(),window:window.id(),specification:specification.id(),input:value::input_hash(window.input_text.as_str()),availability:VectorAvailability::TokenLimit,admitted_tokens:window.tokens,document:selected.document.id(),value:None,projection:None})?;
+        if window.availability == retrieval::WindowAvailability::TokenizerUnavailable {
+            return Err(build::invalid(
+                "requested retrieval window lacks exact local tokenizer admission",
+            ));
+        }
+        if window.availability == retrieval::WindowAvailability::LexicalOnly {
+            uses.insert(RetrievalEmbeddingUse {
+                invocation: invocation.id(),
+                window: window.id(),
+                specification: specification.id(),
+                input: value::input_hash(window.input_text.as_str()),
+                availability: VectorAvailability::TokenLimit,
+                admitted_tokens: window.tokens,
+                document: selected.document.id(),
+                value: None,
+                projection: None,
+            })?;
             continue;
         }
-        if service.configuration().specification().document_text(window.text.as_str())!=window.input_text.as_str(){return Err(build::invalid("selected tokenizer preprocessing differs from actual encoder input"));}
-        match service.publish(window.text.as_str(),publication).await {
+        if service
+            .configuration()
+            .specification()
+            .document_text(window.text.as_str())
+            != window.input_text.as_str()
+        {
+            return Err(build::invalid(
+                "selected tokenizer preprocessing differs from actual encoder input",
+            ));
+        }
+        match service.publish(window.text.as_str(), publication).await {
             Ok(value) => {
                 service.verify_published(&value)?;
                 RetrievalEmbeddingUse::admit_into(
                     &mut uses,
                     invocation.id(),
                     window.id(),
-                    embedding::consumption::SelectedConsumption{encoder:selected.encoder,document:selected.document,projection:selected.projection},
+                    embedding::consumption::SelectedConsumption {
+                        encoder: selected.encoder,
+                        document: selected.document,
+                        projection: selected.projection,
+                    },
                     &value,
                     b,
                 )?;
@@ -109,7 +136,9 @@ async fn realize(
                     input: value::input_hash(&spec.document_text(window.text.as_str())),
                     availability,
                     admitted_tokens,
-                    document:selected.document.id(), value:None, projection:None,
+                    document: selected.document.id(),
+                    value: None,
+                    projection: None,
                 })?;
             }
         }
@@ -134,7 +163,15 @@ pub async fn produce(
         retrieval_preparation::Preparation::prepare(&access, runtime, model, &mut admission)
             .await?;
     let selected = preparation.metadata.selected()?.embedding_requested;
-    if selected {preparation.metadata.set_tokenizer(embedder.and_then(|e|e.document_tokenizer()).ok_or_else(||build::invalid("requested retrieval requires acquired local tokenizer assets"))?);}
+    if selected {
+        preparation.metadata.set_tokenizer(
+            embedder
+                .and_then(|e| e.document_tokenizer())
+                .ok_or_else(|| {
+                    build::invalid("requested retrieval requires acquired local tokenizer assets")
+                })?,
+        );
+    }
     let session = preparation.session();
     let mut data = ConsumptionData::new(b);
     // Configuration is finite authored metadata. E1 text and use rows are read one at a time.
@@ -142,10 +179,10 @@ pub async fn produce(
     load(session, &mut data.specifications, &permit, &mut admission).await?;
     let permit = access.read::<embedding::configuration::ServiceConfiguration>()?;
     load(session, &mut data.services, &permit, &mut admission).await?;
-    let permit=access.read::<embedding::DocumentRecipe>()?;
-    load(session,&mut data.documents,&permit,&mut admission).await?;
-    let permit=access.read::<embedding::projection::ProjectionDefinition>()?;
-    load(session,&mut data.projections,&permit,&mut admission).await?;
+    let permit = access.read::<embedding::DocumentRecipe>()?;
+    load(session, &mut data.documents, &permit, &mut admission).await?;
+    let permit = access.read::<embedding::projection::ProjectionDefinition>()?;
+    load(session, &mut data.projections, &permit, &mut admission).await?;
     let mut service = if selected {
         data.selected_spec()?;
         Some(
@@ -163,16 +200,48 @@ pub async fn produce(
     } else {
         None
     };
-    if let Some(service)=service.as_mut(){
-        let prefix=Some(PublicationBoundary::AnalyticEmbedding);
-        let full=ValidationInput::of::<embedding::value::FullValue>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding);
-        let permit=access.read_at::<embedding::value::FullValue>(prefix)?;
-        let table=access.table_for(&full)?;
-        crate::consumed_rows::stream_query_at(&permit,&full,session,&format!("SELECT * FROM {} ORDER BY id",crate::consumed_rows::identifier(&table)),|_,batch|{for row in embedding::value::FullValue::decode(batch)?{service.seed_full_value(&row)?;}Ok(())}).await?;
-        let projection=ValidationInput::of::<embedding::projection::ProjectedValue>(&["id"]).at_epoch(PublicationBoundary::AnalyticEmbedding);
-        let permit=access.read_at::<embedding::projection::ProjectedValue>(prefix)?;
-        let table=access.table_for(&projection)?;
-        crate::consumed_rows::stream_query_at(&permit,&projection,session,&format!("SELECT * FROM {} ORDER BY id",crate::consumed_rows::identifier(&table)),|_,batch|{for row in embedding::projection::ProjectedValue::decode(batch)?{service.seed_projection(&row)?;}Ok(())}).await?;
+    if let Some(service) = service.as_mut() {
+        let prefix = Some(PublicationBoundary::AnalyticEmbedding);
+        let full = ValidationInput::of::<embedding::value::FullValue>(&["id"])
+            .at_epoch(PublicationBoundary::AnalyticEmbedding);
+        let permit = access.read_at::<embedding::value::FullValue>(prefix)?;
+        let table = access.table_for(&full)?;
+        crate::consumed_rows::stream_query_at(
+            &permit,
+            &full,
+            session,
+            &format!(
+                "SELECT * FROM {} ORDER BY id",
+                crate::consumed_rows::identifier(&table)
+            ),
+            |_, batch| {
+                for row in embedding::value::FullValue::decode(batch)? {
+                    service.seed_full_value(&row)?;
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        let projection = ValidationInput::of::<embedding::projection::ProjectedValue>(&["id"])
+            .at_epoch(PublicationBoundary::AnalyticEmbedding);
+        let permit = access.read_at::<embedding::projection::ProjectedValue>(prefix)?;
+        let table = access.table_for(&projection)?;
+        crate::consumed_rows::stream_query_at(
+            &permit,
+            &projection,
+            session,
+            &format!(
+                "SELECT * FROM {} ORDER BY id",
+                crate::consumed_rows::identifier(&table)
+            ),
+            |_, batch| {
+                for row in embedding::projection::ProjectedValue::decode(batch)? {
+                    service.seed_projection(&row)?;
+                }
+                Ok(())
+            },
+        )
+        .await?;
     }
     let mut frames = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(b, "retrieval-native-frames");
@@ -247,7 +316,15 @@ pub async fn produce(
                             .await?
                     };
                     let uses = if let Some(service) = service.as_mut() {
-                        realize(&mandatory, &invocation, data.selected_consumption()?, &output,service, b).await?
+                        realize(
+                            &mandatory,
+                            &invocation,
+                            data.selected_consumption()?,
+                            &output,
+                            service,
+                            b,
+                        )
+                        .await?
                     } else {
                         Rows::new(b)
                     };

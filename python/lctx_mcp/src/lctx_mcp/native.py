@@ -85,8 +85,12 @@ class NativeExecutor:
                         {
                             "spec": list(bytes.fromhex(self.embedder.spec.hash)),
                             "input": list(hashlib.sha256(text.encode()).digest()),
-                            "recipe": {"template":self.embedder.spec.fields["query_template"],"task":self.embedder.spec.fields["query_task"],"max_tokens":self.embedder.spec.fields["max_query_tokens"]},
-                            "projection":list(bytes.fromhex(self.embedder.spec.projection_id)),
+                            "recipe": {
+                                "template": self.embedder.spec.fields["query_template"],
+                                "task": self.embedder.spec.fields["query_task"],
+                                "max_tokens": self.embedder.spec.fields["max_query_tokens"],
+                            },
+                            "projection": list(bytes.fromhex(self.embedder.spec.projection_id)),
                             "vector": values[0].tolist(),
                         },
                         separators=(",", ":"),

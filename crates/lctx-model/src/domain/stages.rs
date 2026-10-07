@@ -519,8 +519,7 @@ pub fn is_vocabulary(name: &str) -> bool {
 /// Relations whose immutable streams may grow across named publication epochs.
 /// Canonical embedding winners share transport, never semantic vocabulary ownership.
 pub fn is_epoch_shared(name: &str) -> bool {
-    is_vocabulary(name)
-        || matches!(name, "embedding_full_values" | "embedding_projected_values")
+    is_vocabulary(name) || matches!(name, "embedding_full_values" | "embedding_projected_values")
 }
 #[derive(Debug, Clone)]
 pub struct PublicationGroup {

@@ -61,14 +61,16 @@ fn canonical_embedding_spec(text: &str) -> PyResult<String> {
         .map_err(|_| PyValueError::new_err("invalid canonical embedding specification"))
 }
 #[pyfunction]
-fn embedding_recipe_identities(text:&str)->PyResult<String> {
-    let spec=Spec::parse(text).map_err(|_|PyValueError::new_err("invalid embedding recipes"))?;
+fn embedding_recipe_identities(text: &str) -> PyResult<String> {
+    let spec = Spec::parse(text).map_err(|_| PyValueError::new_err("invalid embedding recipes"))?;
     Ok(serde_json::json!({"encoder":spec.hash().hex(),"document":spec.document_hash().hex(),"query":spec.query_hash().hex(),"projection":lctx_model::domain::Record::id(&lctx_model::domain::embedding::projection::ProjectionDefinition::initial(&spec)).hex()}).to_string())
 }
 #[pyfunction]
-fn embedding_projection(full:Vec<f32>,dimensions:u32)->PyResult<Vec<f32>> {
-    lctx_model::domain::embedding::check_vector(&full,full.len() as u32).map_err(PyValueError::new_err)?;
-    lctx_model::domain::embedding::projection::project_prefix(&full,dimensions).map_err(PyValueError::new_err)
+fn embedding_projection(full: Vec<f32>, dimensions: u32) -> PyResult<Vec<f32>> {
+    lctx_model::domain::embedding::check_vector(&full, full.len() as u32)
+        .map_err(PyValueError::new_err)?;
+    lctx_model::domain::embedding::projection::project_prefix(&full, dimensions)
+        .map_err(PyValueError::new_err)
 }
 #[pyfunction]
 fn wire_schema(name: &str, output: bool) -> PyResult<String> {

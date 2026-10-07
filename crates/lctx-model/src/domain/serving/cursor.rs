@@ -10,8 +10,8 @@ pub enum VectorChannel {
     Available {
         spec: ContentHash,
         query_vector: ContentHash,
-        query_recipe:ContentHash,
-        projection:Id<crate::domain::embedding::projection::ProjectionDefinition>,
+        query_recipe: ContentHash,
+        projection: Id<crate::domain::embedding::projection::ProjectionDefinition>,
     },
     Degraded {
         reason: Name,

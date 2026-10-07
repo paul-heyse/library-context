@@ -16,7 +16,11 @@ pub trait Embedder: Send + Sync {
     fn spec(&self) -> &Spec;
     fn endpoint(&self) -> &str;
     /// Exact acquired local complete-document tokenizer, shared by every construction grain.
-    fn document_tokenizer(&self) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> { None }
+    fn document_tokenizer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
+        None
+    }
     /// The number of the served model's tokens in a request text.
     fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize>;
     /// One vector per request text, in order, each checked ([`check_vector`]).
@@ -92,7 +96,11 @@ impl Embedder for FakeEmbedder {
         &self.spec
     }
 
-    fn document_tokenizer(&self) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {Some(std::sync::Arc::new(FakeTokenizer))}
+    fn document_tokenizer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
+        Some(std::sync::Arc::new(FakeTokenizer))
+    }
     fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize> {
         Box::pin(async move { Ok(request_text.len().div_ceil(4)) })
     }
@@ -104,9 +112,26 @@ impl Embedder for FakeEmbedder {
 
 struct FakeTokenizer;
 impl lctx_model::domain::retrieval::partition::Tokenizer for FakeTokenizer {
-    fn identity(&self)->lctx_model::domain::ContentHash {lctx_model::domain::ContentHash::of(b"lctx-fake-tokenizer:bytes/4:v3")}
-    fn encode(&self,text:&str)->Result<lctx_model::domain::retrieval::partition::EncodedInput,lctx_model::domain::ModelError> {
-        let offsets=(0..text.len()).step_by(4).map(|start|(start,(start+4).min(text.len()))).collect::<Vec<_>>();
-        Ok(lctx_model::domain::retrieval::partition::EncodedInput {text:text.into(),body_start:0,body_end:text.len(),specials:vec![false;offsets.len()],offsets})
+    fn identity(&self) -> lctx_model::domain::ContentHash {
+        lctx_model::domain::ContentHash::of(b"lctx-fake-tokenizer:bytes/4:v3")
+    }
+    fn encode(
+        &self,
+        text: &str,
+    ) -> Result<
+        lctx_model::domain::retrieval::partition::EncodedInput,
+        lctx_model::domain::ModelError,
+    > {
+        let offsets = (0..text.len())
+            .step_by(4)
+            .map(|start| (start, (start + 4).min(text.len())))
+            .collect::<Vec<_>>();
+        Ok(lctx_model::domain::retrieval::partition::EncodedInput {
+            text: text.into(),
+            body_start: 0,
+            body_end: text.len(),
+            specials: vec![false; offsets.len()],
+            offsets,
+        })
     }
 }

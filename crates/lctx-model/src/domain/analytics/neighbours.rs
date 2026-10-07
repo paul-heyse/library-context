@@ -99,12 +99,23 @@ impl Prepared {
                         .find(|u| u.invocation == invocation.id() && u.window == window.id())
                         .ok_or_else(|| invalid("admitted analytic window use disappeared"))?;
                     if row.availability == VectorAvailability::Available {
-                        let id=row.projection.ok_or_else(||invalid("missing analytic projection"))?;
-                        if let std::collections::btree_map::Entry::Vacant(entry)=values.entry(id) {
-                            let projection=data.projected_values.get(id).ok_or_else(||invalid("missing admitted projected payload"))?;
-                            entry.insert(std::sync::Arc::new(crate::domain::embedding::value::decode_projection(projection,budget)?));
+                        let id = row
+                            .projection
+                            .ok_or_else(|| invalid("missing analytic projection"))?;
+                        if let std::collections::btree_map::Entry::Vacant(entry) = values.entry(id)
+                        {
+                            let projection = data
+                                .projected_values
+                                .get(id)
+                                .ok_or_else(|| invalid("missing admitted projected payload"))?;
+                            entry.insert(std::sync::Arc::new(
+                                crate::domain::embedding::value::decode_projection(
+                                    projection, budget,
+                                )?,
+                            ));
                         }
-                        let vector=std::sync::Arc::clone(values.get(&id).expect("inserted projection"));
+                        let vector =
+                            std::sync::Arc::clone(values.get(&id).expect("inserted projection"));
                         windows.push(Window {
                             item: key,
                             window: window.id(),
