@@ -404,13 +404,17 @@ mod controls {
     fn unit(corpus:Id<retrieval::CorpusText>)->retrieval::Unit{retrieval::Unit{input:id(1),context:id(2),family:retrieval::Family::Source,origin:id(3),corpus,title:"source".into()}}
     fn window(unit:Id<retrieval::Unit>,corpus:&retrieval::CorpusText)->retrieval::SearchWindow{retrieval::SearchWindow{definition:retrieval::Definition::builtin(false).id(),unit,ordinal:0,corpus:corpus.id(),digest:corpus.digest,text:corpus.text.clone(),input_text:corpus.text.clone(),encoded_digest:embedding::value::input_hash(corpus.text.as_str()),tokenizer:None,tokens:None,availability:retrieval::WindowAvailability::TokenizerUnavailable}}
     #[test]
-    fn original_chunk_batch_excludes_unrelated_bytes_deduplicates_overlap_and_skips_empty_maps(){
+    fn original_chunk_batch_excludes_unrelated_bytes_deduplicates_overlap_and_keeps_empty_source_synthetic(){
         let budget=ResourceBudget::fixed(16<<20).unwrap();let mut data=Data::new(&budget);let mut output=Output::new(&budget);let width=artifact::ARTIFACT_CHUNK_BYTES as i64;
         let source=source::SourceArtifact::from_bytes(id(1),"guide.md".into(),&vec![b'x';artifact::ARTIFACT_CHUNK_BYTES*4]).unwrap();data.source.core.artifacts.insert(source.clone()).unwrap();
         let original=output.anchor_sources.insert(retrieval::AnchorSource::Artifact{artifact:source.id()}).unwrap();
-        for (ordinal,(start,end)) in [(width-1,width+1),(width,width+2),(3*width,3*width+1),(2*width,2*width)].into_iter().enumerate(){output.part_maps.insert(retrieval::PartSourceMap{part:id(4),ordinal:ordinal as i64,start:0,end:end-start,original:Some(original),original_start:Some(start),original_end:Some(end)}).unwrap();}
-        let mut charge=charged::StateCharge::new(&budget,"original-chunk-control");let selected=original_chunk_keys(&data,&output,&mut charge).unwrap();
+        let mut charge=charged::StateCharge::new(&budget,"original-chunk-control");assert!(original_chunk_keys(&data,&output,&mut charge).unwrap().is_empty());
+        for (ordinal,(start,end)) in [(width-1,width+1),(width,width+2),(3*width,3*width+1)].into_iter().enumerate(){output.part_maps.insert(retrieval::PartSourceMap{part:id(4),ordinal:ordinal as i64,start:0,end:end-start,original:Some(original),original_start:Some(start),original_end:Some(end)}).unwrap();}
+        let selected=original_chunk_keys(&data,&output,&mut charge).unwrap();
         let expected=[0,1,3].into_iter().map(|ordinal|Id::<artifact::ArtifactChunk>::of(&artifact::ArtifactChunkKey{artifact:source.id(),ordinal})).collect::<std::collections::BTreeSet<_>>();assert_eq!(&*selected,&expected);
+        data.facts.definitions.insert(retrieval::Definition::builtin(false)).unwrap();let empty=source::SourceArtifact::from_bytes(id(1),"empty.md".into(),b"").unwrap();data.source.core.artifacts.insert(empty.clone()).unwrap();
+        let subject=data.evidence.subjects.insert(catalog::evidence::RootSubject::Source{artifact:empty.id()}).unwrap();data.evidence.roots.insert(catalog::evidence::EvidenceRoot{input:id(1),context:id(2),subject}).unwrap();
+        let empty_output=build::build(&data,&budget).unwrap();empty_output.verify_completion(&data,&budget).unwrap();assert!(empty_output.parts.iter().all(|p|p.purpose==retrieval::PartPurpose::Context));assert!(empty_output.part_maps.iter().all(|m|m.original.is_none()));assert!(original_chunk_keys(&data,&empty_output,&mut charge).unwrap().is_empty());
     }
     #[tokio::test]
     async fn omitted_roots_and_foreign_context_cannot_hide_behind_unit_scopes(){
