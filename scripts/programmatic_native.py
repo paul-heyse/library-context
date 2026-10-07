@@ -143,7 +143,7 @@ def native_numeric_reference(
     for start in range(0, len(keys), 32):
         selected = json.dumps(keys[start:start + 32])
         batch = native.rows(
-            "SELECT semantic_key, encoding::base64::encode(canonical) AS canonical FROM entity "
+            "SELECT semantic_key, encoding::base64::encode(canonical,true) AS canonical FROM entity "
             f"WHERE semantic_type='embedding_full_values' AND semantic_key IN {selected} ORDER BY semantic_key"
         )
         for record in batch:
