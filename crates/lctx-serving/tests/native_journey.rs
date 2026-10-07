@@ -4,6 +4,7 @@ mod runtime;
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},
+    embedding_service::{Embedder, FakeEmbedder},
     workspace::{Workspace, WorkspaceOptions},
 };
 use lctx_model::domain::{admission::Frontier, serving::*, stages::Profile, *};
@@ -130,11 +131,12 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     .unwrap();
     let captured = library_fixture(workspace.budget());
     let settings = ContentHash::of(b"native-serving-journey");
+    let fake=FakeEmbedder::new();
     let prepared = PreparedCompilation::new(
         Frontier::Catalog,
         runtime::settings("api"),
         captured.config().catalog(),
-        None,
+        Some(&fake),
         workspace.budget(),
     )
     .unwrap();
@@ -145,7 +147,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         settings,
         Frontier::Catalog,
         Some(&prepared),
-        None,
+        Some(&fake),
         None,
     )
     .await
@@ -185,6 +187,16 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     )
     .await
     .unwrap();
+    let encoder=Id::<embedding::EmbeddingSpec>::of(&embedding::EmbeddingSpecKey{service_hash:fake.spec().hash()});
+    let mut full=reader.records::<embedding::value::FullValue>(RecordSelection::Scope{field:"encoder".into(),values:vec![serde_json::to_value(encoder).unwrap()]}).await.unwrap();
+    full.sort_by_key(Record::id);
+    assert!(!full.is_empty(),"actual compiler must publish canonical full winners");
+    assert!(full.iter().all(|v|v.dimensions==4096&&v.bytes.0.len()==4096*4));
+    let policy=embedding::projection::ProjectionDefinition::initial(fake.spec());
+    let mut projected=reader.records::<embedding::projection::ProjectedValue>(RecordSelection::Scope{field:"definition".into(),values:vec![serde_json::to_value(policy.id()).unwrap()]}).await.unwrap();
+    projected.sort_by_key(Record::id);
+    assert_eq!(projected.len(),full.len(),"all canonical winners have the declared shared projection");
+    for p in &projected {p.verify(full.iter().find(|f|f.id()==p.value).unwrap(),&policy).unwrap();}
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
     let missing = service
         .execute("browse_library", r#"{"library":"absent-library"}"#)
@@ -399,6 +411,20 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
             .await
             .is_err()
     );
+    // Canonical full values and policies survive actual backup/re-admission. Restore has no
+    // embedder or mutable-cache parameter and reconstructs search arrays from these exact bytes.
+    let backup=scratch.path().join("canonical-values.surql");
+    lctx_publisher::backup::backup(&config,&handle,&backup).await.unwrap();
+    let restored=lctx_publisher::backup::restore(&config,&backup,&lctx_serving::native_definitions()).await.unwrap();
+    assert_eq!(restored.semantic,handle.semantic);
+    let restored_reader=NativeReader::connect(&config.endpoint,&config.viewer_credentials(),restored.clone()).await.unwrap();
+    let mut restored_full=restored_reader.records::<embedding::value::FullValue>(RecordSelection::Scope{field:"encoder".into(),values:vec![serde_json::to_value(encoder).unwrap()]}).await.unwrap();
+    restored_full.sort_by_key(Record::id);assert_eq!(restored_full,full);
+    let mut restored_projected=restored_reader.records::<embedding::projection::ProjectedValue>(RecordSelection::Scope{field:"definition".into(),values:vec![serde_json::to_value(policy.id()).unwrap()]}).await.unwrap();
+    restored_projected.sort_by_key(Record::id);assert_eq!(restored_projected,projected);
+    lctx_publisher::inspection::audit(&config,&restored,&lctx_serving::native_definitions()).await.unwrap();
+    restored_reader.client().invalidate().await.unwrap();drop(restored_reader);
+    lctx_publisher::backup::retire(&config,&restored,true).await.unwrap();
     let retained = std::env::var("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG").ok();
     if let Some(path) = retained {
         let selection = std::path::Path::new(&path).with_extension("selected.json");
