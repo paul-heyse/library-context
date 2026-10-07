@@ -1281,12 +1281,14 @@ mod nominal_closure_controls {
     async fn many_declared_pairs_prepare_without_a_left_deep_union_and_preserve_keys() {
         let (session, tables, releases, package) = fixture();
         let mut plan = NominalClosure::new(tables).unwrap();
-        // Duplicate nominal pairs are legal declarations and must all reach external preparation.
+        // Repeating one follow demand deduplicates its preparation and preserves selected rows.
         for _ in 0..257 {
             plan.follow(0, "package", 1).unwrap();
         }
+        assert_eq!(plan.pairs.len(), 1, "identical follow demands are a set");
         let budget = ResourceBudget::fixed(16 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
+        assert_eq!(edges.0.batches.iter().map(|batch| batch.rows).sum::<usize>(), releases.len());
         let scope = edges
             .grain(0, &id_predicate(releases[0].id()), &budget)
             .await
@@ -1357,30 +1359,41 @@ mod nominal_closure_controls {
         let package = Package {
             name: "bounded-owner".into(),
         };
-        let releases = (0..400)
-            .map(|index| Release {
-                package: package.id(),
-                version: index.to_string(),
-            })
-            .collect::<Vec<_>>();
+        const BINDINGS: usize = 257;
+        const ROWS: usize = 400;
         register(&session, "bounded_packages", std::slice::from_ref(&package));
-        register(&session, "bounded_releases", &releases);
-        let mut plan = NominalClosure::new(vec![
-            ClosureTable {
+        let mut tables = Vec::new();
+        let mut expected_sources = Vec::new();
+        let mut selected = None;
+        for binding in 0..BINDINGS {
+            let releases = (0..ROWS)
+                .map(|index| Release {
+                    package: package.id(),
+                    version: format!("{binding}-{index}"),
+                })
+                .collect::<Vec<_>>();
+            if binding == 0 { selected = Some(releases[0].clone()); }
+            let alias = format!("bounded_releases_{binding}");
+            register(&session, &alias, &releases);
+            let mut ids = releases.iter().map(|row| *row.id().bytes()).collect::<Vec<_>>();
+            ids.sort_unstable();
+            expected_sources.push(ids);
+            tables.push(ClosureTable {
                 relation: Relation::of::<Release>(),
-                alias: "bounded_releases".into(),
-            },
-            ClosureTable {
+                alias,
+            });
+        }
+        tables.push(ClosureTable {
                 relation: Relation::of::<Package>(),
                 alias: "bounded_packages".into(),
-            },
-        ])
-        .unwrap();
-        for _ in 0..257 {
-            plan.follow(0, "package", 1).unwrap();
+        });
+        let selected = selected.unwrap();
+        let mut plan = NominalClosure::new(tables).unwrap();
+        for binding in 0..BINDINGS {
+            plan.follow(binding, "package", BINDINGS).unwrap();
         }
         let edges = plan.prepare(&session, workspace.budget()).await.unwrap();
-        let edge_rows = releases.len() * 257;
+        let edge_rows = ROWS * BINDINGS;
         assert_eq!(
             edges
                 .0
@@ -1389,7 +1402,7 @@ mod nominal_closure_controls {
                 .map(|batch| batch.rows)
                 .sum::<usize>(),
             edge_rows,
-            "all duplicate declared pair rows survive staging and ordering"
+            "all distinct declared edges survive staging and ordering"
         );
         assert_eq!(
             edges.0.batches.len(),
@@ -1402,15 +1415,31 @@ mod nominal_closure_controls {
                 .all(|batch| batch.rows == resources::TRANSFER_ROWS)
         );
         let index_usage = workspace.budget().reserved();
+        let mut cursor = EdgeCursor::new(&edges.0, workspace.budget()).unwrap();
+        let mut seen = 0;
+        for index in 0..edges.0.batches.len() {
+            let batch = cursor.batch(index, workspace.budget()).unwrap();
+            for row in 0..batch.num_rows() {
+                let binding = seen / ROWS;
+                assert_eq!(edge_key(batch, "source_kind", "source_id", row).unwrap(),
+                    (binding as i64, expected_sources[binding][seen % ROWS]));
+                assert_eq!(edge_key(batch, "target_kind", "target_id", row).unwrap(),
+                    (BINDINGS as i64, *package.id().bytes()));
+                seen += 1;
+            }
+        }
+        assert_eq!(seen, edge_rows, "complete edge content is checked in exact sort order");
+        drop(cursor);
+        assert_eq!(workspace.budget().reserved(), index_usage);
         let scope = edges
-            .grain(0, &id_predicate(releases[0].id()), workspace.budget())
+            .grain(0, &id_predicate(selected.id()), workspace.budget())
             .await
             .unwrap();
         assert_eq!(
             decode::<Release>(&scope, 0).await,
-            vec![releases[0].clone()]
+            vec![selected]
         );
-        assert_eq!(decode::<Package>(&scope, 1).await, vec![package]);
+        assert_eq!(decode::<Package>(&scope, BINDINGS).await, vec![package]);
         drop(scope);
         assert_eq!(workspace.budget().reserved(), index_usage);
         drop(edges);
