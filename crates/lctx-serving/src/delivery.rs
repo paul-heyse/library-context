@@ -97,7 +97,8 @@ impl Scan<'_> {
             self.field(format!("{path}/text"),if parse::<retrieval::PartPurpose>(value,"purpose")==Some(retrieval::PartPurpose::Context){DeliveryRole::Interpretation}else{DeliveryRole::Primary},None,binding.clone(),quals.clone(),vec![format!("{path}/source_maps"),format!("{path}/analysis"),format!("{path}/qualification")],Availability::Available{})?;
         }
         let mut dependencies=vec![];
-        if object.contains_key("analysis")&&object.contains_key("variant"){dependencies.push(format!("{path}/analysis"));dependencies.push(format!("{path}/variant"));}
+        if object.get("analysis").is_some_and(|v|!v.is_null())&&object.get("variant").is_some_and(|v|!v.is_null()){dependencies.push(format!("{path}/analysis"));dependencies.push(format!("{path}/variant"));}
+        else if object.contains_key("option")&&object.get("analysis").is_some_and(|v|!v.is_null())&&object.get("field").is_some_and(|v|!v.is_null()){dependencies.push(format!("{path}/analysis"));dependencies.push(format!("{path}/field"));}
         for key in ["name","subject_name","title","rendered","readable","predicate","constant","python_version","python_platform","search_path","site_package_path","distribution","version"]{
             if let Some(v)=object.get(key){if v.is_null(){continue;}
                 let role=if matches!(key,"name"|"subject_name"|"title"|"rendered"){DeliveryRole::Primary}else{DeliveryRole::Synthetic};

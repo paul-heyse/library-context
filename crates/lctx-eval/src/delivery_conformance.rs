@@ -1,6 +1,56 @@
 //! Independently check delivery metadata against the exact final public object.
 //! Successful metadata checks never supply facts to the semantic observer.
 use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+
+struct EvidenceRole {
+    role: &'static str,
+    original: Option<Value>,
+    dependencies: BTreeSet<String>,
+}
+fn required_fields(value: &Value, path: &str, required: &mut BTreeMap<String, EvidenceRole>, omissions: &mut BTreeSet<String>) -> Result<(), String> {
+    if let Some(values) = value.as_array() {
+        for (index, child) in values.iter().enumerate() { required_fields(child, &format!("{path}/{index}"), required, omissions)?; }
+        return Ok(());
+    }
+    let Some(object) = value.as_object() else { return Ok(()); };
+    let mut add = |field: &str, role: &'static str, original: Option<Value>, dependencies: &[&str]| {
+        required.insert(format!("{path}/{field}"), EvidenceRole { role, original, dependencies: dependencies.iter().map(|key|format!("{path}/{key}")).collect() });
+    };
+    if object.contains_key("window") && object.contains_key("part") && object.contains_key("source_maps") {
+        let role = match value["purpose"].as_u64() { Some(0) => "primary", Some(1) => "interpretation", _ => return Err("delivery window purpose is invalid".into()) };
+        if !value["text"].is_string() { return Err("delivery window text is absent".into()); }
+        add("text", role, None, &["source_maps", "analysis", "qualification"]);
+    }
+    if let Some(original) = value.get("original").filter(|v|v.get("source").is_some()) {
+        if value.get("text").is_some_and(Value::is_string) { add("text", "primary", Some(original.clone()), &[]); }
+        else if value.get("text").is_some() { omissions.insert(format!("{path}/text")); }
+        if let Some(body) = value.get("body") {
+            let raw = matches!(original["encoding"].as_str(), Some("raw_bytes" | "utf-8"));
+            let mapped = if raw {
+                let (Some(base), Some(start), Some(end)) = (original["start"].as_u64(), body["start"].as_u64(), body["end"].as_u64()) else { return Err("delivery body source coordinates are absent".into()); };
+                let mut actual = original.clone();
+                actual["start"] = base.checked_add(start).ok_or("delivery body start overflow")?.into();
+                actual["end"] = base.checked_add(end).ok_or("delivery body end overflow")?.into();
+                Some(actual)
+            } else { None };
+            add("body/bytes", if raw { "primary" } else { "synthetic" }, mapped, &["release", "interpretation"]);
+            if body["truncated"].as_bool()==Some(true) || body["omitted"].as_u64().is_some_and(|v|v>0) { omissions.insert(format!("{path}/body")); }
+        }
+    }
+    if value.get("items").is_some_and(Value::is_array) && (value["truncated"].as_bool()==Some(true) || value["omitted"].as_u64().is_some_and(|v|v>0) || value.get("availability").is_some_and(|v|v["status"]!="available")) { omissions.insert(path.into()); }
+    if object.contains_key("option") && object.contains_key("analysis") && value.get("readable").is_some_and(Value::is_string) {
+        let source = if matches!(value["value"]["kind"].as_str(), Some("expression" | "factory")) { value.get("original").and_then(|v|v.get("original")).filter(|v|!v.is_null()).cloned() } else { None };
+        let deps = if value.get("field").is_some_and(|v|!v.is_null()) { vec!["analysis", "field"] } else { vec!["analysis", "variant"] };
+        add("readable", if source.is_some() { "primary" } else { "synthetic" }, source, &deps);
+    }
+    for (key, child) in object {
+        if key == "delivery" { continue; }
+        let key = key.replace('~', "~0").replace('/', "~1");
+        required_fields(child, &format!("{path}/{key}"), required, omissions)?;
+    }
+    Ok(())
+}
 
 fn ancestors<'a>(root: &'a Value, path: &str) -> Result<Vec<&'a Value>, String> {
     if !path.starts_with('/') || path.starts_with("/structuredContent/delivery") {
@@ -41,28 +91,60 @@ fn expansion(root: &Value, path: &str, item: &Value, nodes: &[&Value]) -> Result
     if let Some(cursor) = args.get("page").and_then(|v| v.get("cursor")) {
         let actual = root.pointer(path).and_then(|v|v.get("continuation")).or_else(|| nearest(nodes,"continuation"));
         if actual != Some(cursor) {return Err("delivery expansion cursor differs from actual omitted page".into());}
+        let expected = root["content"][0]["text"].as_str().and_then(|v|v.strip_suffix(": snapshot-bound result"));
+        if expected != Some(tool) { return Err("delivery continuation changes the actual public tool".into()); }
     }
+    let demand = args.get("page").and_then(|v|v.get("evidence_demand")).and_then(|v|v.get("context"));
+    let requested_analysis = demand.and_then(|v|v.get("analysis"));
+    let requested_release = demand.and_then(|v|v.get("release"));
+    let core = nodes.iter().rev().find_map(|v|v.get("core"));
+    let captured_release = nodes.iter().rev().find_map(|v|v.get("release").filter(|r|r.get("version").is_some())).or_else(||core.and_then(|v|v.get("release")));
     if tool == "get_evidence" {
         let source = args.get("source").ok_or("delivery source expansion is missing source")?;
         if !nodes.iter().any(|node| original(&[node], node).is_some_and(|o|o.get("source")==Some(source))) {
             return Err("delivery expansion invents source attribution".into());
         }
+        if let Some(analysis) = requested_analysis {
+            let expected = nodes.iter().rev().find_map(|node|original(&[node],node).and_then(|v|v.get("context")));
+            if expected != Some(analysis) { return Err("delivery source expansion invents analysis attribution".into()); }
+        }
     } else if tool == "get_operation" {
-        let member = args.get("operation").and_then(|v|v.get("member")).ok_or("delivery operation expansion has no member")?;
-        if nearest(nodes,"member") != Some(member) {return Err("delivery expansion invents member attribution".into());}
+        let selector = args.get("operation").ok_or("delivery operation expansion has no selector")?;
+        if let Some(member) = selector.get("member") {
+            if nominal_nearest(nodes,"member").or_else(||core.and_then(|v|v.get("member"))) != Some(member) {return Err("delivery expansion invents member attribution".into());}
+        } else if let Some(path) = selector.get("path") {
+            if core.and_then(|v|v.get("access")).and_then(|v|v.get("path")) != Some(path) {return Err("delivery expansion invents public-path attribution".into());}
+        } else {return Err("delivery operation expansion has no member/path".into());}
         if let Some(analysis) = args.get("page").and_then(|v|v.get("evidence_demand")).and_then(|v|v.get("context")).and_then(|v|v.get("analysis")) {
-            if nearest(nodes,"analysis") != Some(analysis) {return Err("delivery expansion invents analysis attribution".into());}
+            if nominal_nearest(nodes,"analysis") != Some(analysis) && !core.and_then(|v|v.get("interpretation")).and_then(|v|v.get("contexts")).and_then(Value::as_array).is_some_and(|cs|cs.iter().any(|c|c.get("analysis")==Some(analysis))) {return Err("delivery expansion invents analysis attribution".into());}
+        }
+    } else if args.get("page").and_then(|v|v.get("cursor")).is_none() {
+        return Err("delivery omission has no supported evidence expansion".into());
+    }
+    if let Some(release) = requested_release {
+        let matched = captured_release.is_some_and(|v|v.get("version")==Some(release)) || nodes.iter().any(|v|v.get("releases").and_then(Value::as_array).is_some_and(|rs|rs.iter().any(|r|r.get("version")==Some(release))));
+        if !matched { return Err("delivery expansion invents release attribution".into()); }
+    }
+    for key in ["signature", "variant"] {
+        if let Some(value) = demand.and_then(|v|v.get(key)) {
+            if tool=="get_evidence" {return Err("delivery source expansion invents callable binding".into());}
+            if nominal_nearest(nodes,key)!=Some(value) && !core.and_then(|v|v.get("signatures")).and_then(Value::as_array).is_some_and(|signatures|signatures.iter().any(|s|s.get(key)==Some(value) && requested_analysis.is_none_or(|analysis|s.get("analysis")==Some(analysis)))) {return Err("delivery operation expansion invents callable binding".into());}
         }
     }
     Ok(())
 }
 pub fn validate(result: &Value) -> Result<(), String> {
-    let Some(map) = result.get("structuredContent").and_then(|v|v.get("delivery")) else {return Ok(());};
+    let map = result.get("structuredContent").and_then(|v|v.get("delivery")).ok_or("current MCP delivery map is absent")?;
     let fields = map["fields"].as_array().ok_or("delivery map fields are absent")?;
     let omissions = map["omissions"].as_array().ok_or("delivery map omissions are absent")?;
     if fields.len() > 16384 || omissions.len() > 16384 {return Err("delivery map finite bound exceeded".into());}
+    let mut required = BTreeMap::from([("/content/0/text".into(), EvidenceRole { role: "synthetic", original: None, dependencies: BTreeSet::new() })]);
+    let mut required_omissions = BTreeSet::new();
+    required_fields(result.get("structuredContent").ok_or("current MCP structured result is absent")?, "/structuredContent", &mut required, &mut required_omissions)?;
+    let mut seen = BTreeSet::new();
     for item in fields {
         let path = item["field"].as_str().ok_or("delivery field is not a public pointer")?;
+        if !seen.insert(path) { return Err("delivery map has duplicate field pointers".into()); }
         let actual = result.pointer(path).ok_or("delivery map field pointer is absent")?;
         let nodes = ancestors(result,path)?;
         for key in ["member","signature","variant","analysis","parameter","field"] {
@@ -71,6 +153,11 @@ pub fn validate(result: &Value) -> Result<(), String> {
             if supplied != expected {return Err(format!("delivery map {key} binding disagrees with final field"));}
         }
         let role = item["role"].as_str().ok_or("delivery field role is absent")?;
+        if let Some(expected) = required.remove(path) {
+            if role != expected.role || item.get("original").filter(|v|!v.is_null()) != expected.original.as_ref() { return Err("delivery evidence role/source attribution disagrees with final field".into()); }
+            let dependencies = item["dependencies"].as_array().ok_or("delivery dependencies are absent")?.iter().map(|v|v.as_str().map(str::to_owned).ok_or("delivery dependency is not a pointer".to_owned())).collect::<Result<BTreeSet<_>, _>>()?;
+            if dependencies != expected.dependencies || dependencies.len() != item["dependencies"].as_array().unwrap().len() { return Err("delivery evidence dependency closure disagrees with final field".into()); }
+        }
         if !matches!(role,"primary"|"interpretation"|"synthetic"|"reference") {return Err("delivery map role is unknown".into());}
         if let Some(purpose) = nearest(&nodes,"purpose").and_then(Value::as_u64) {
             if path.ends_with("/text") && (purpose==1) != (role=="interpretation") {return Err("delivery map promotes context to primary".into());}
@@ -92,21 +179,24 @@ pub fn validate(result: &Value) -> Result<(), String> {
             if availability["status"]!= "available" && item["availability"]["status"]=="available" {return Err("delivery map upgrades unavailable evidence".into());}
         }
     }
+    if !required.is_empty() { return Err("delivery map omits required readable evidence".into()); }
     for item in omissions {
         let path=item["field"].as_str().ok_or("delivery omission field is absent")?;
+        required_omissions.remove(path);
         let nodes=ancestors(result,path)?;
         let actual=result.pointer(path);
         let available=actual.is_some_and(|v|!v.is_null()&&v.get("omitted").and_then(Value::as_u64).unwrap_or(0)==0&&v.get("truncated").and_then(Value::as_bool)!=Some(true)&&v.get("availability").and_then(|a|a.get("status")).and_then(Value::as_str).is_none_or(|kind|kind=="available"));
         if available {return Err("delivery map omits an available complete field".into());}
         expansion(result,path,item,&nodes)?;
     }
+    if !required_omissions.is_empty() {return Err("delivery map omits actual unavailable or truncated evidence".into());}
     Ok(())
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     fn packet()->Value {
-        serde_json::json!({"content":[{"type":"text","text":"label"}],"structuredContent":{"item":{"member":vec![1;16],"analysis":vec![2;16],"text":"call"},"delivery":{"fields":[{"field":"/structuredContent/item/text","role":"primary","original":null,"binding":{"member":vec![1;16],"analysis":vec![2;16]},"qualifications":[],"dependencies":["/structuredContent/item/analysis"],"availability":{"status":"available"}}],"omissions":[]}}})
+        serde_json::json!({"content":[{"type":"text","text":"label"}],"structuredContent":{"item":{"member":vec![1;16],"analysis":vec![2;16],"text":"call"},"delivery":{"fields":[{"field":"/structuredContent/item/text","role":"primary","original":null,"binding":{"member":vec![1;16],"analysis":vec![2;16]},"qualifications":[],"dependencies":["/structuredContent/item/analysis"],"availability":{"status":"available"}}, {"field":"/content/0/text","role":"synthetic","original":null,"binding":{},"qualifications":[],"dependencies":[],"availability":{"status":"available"}}],"omissions":[]}}})
     }
     #[test]
     fn metadata_is_checked_separately_from_truth() {
@@ -116,5 +206,17 @@ mod tests {
         let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["field"]="/structuredContent/absent".into();assert!(validate(&wrong).is_err());
         let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["dependencies"]=serde_json::json!(["/structuredContent/absent"]);assert!(validate(&wrong).is_err());
         let mut wrong=good;wrong["structuredContent"]["delivery"]["omissions"]=serde_json::json!([{"field":"/structuredContent/item/text","expand":null}]);assert!(validate(&wrong).is_err());
+    }
+    #[test]
+    fn required_window_inventory_and_dependency_roles_cannot_disappear() {
+        let mut good = packet();
+        good["structuredContent"]["item"] = serde_json::json!({"window":vec![3;16],"part":vec![4;16],"purpose":0,"member":vec![1;16],"analysis":vec![2;16],"text":"call","source_maps":[],"qualification":null});
+        good["structuredContent"]["delivery"]["fields"][0]["dependencies"] = serde_json::json!(["/structuredContent/item/source_maps","/structuredContent/item/analysis","/structuredContent/item/qualification"]);
+        validate(&good).unwrap();
+        let mut missing = good.clone(); missing["structuredContent"].as_object_mut().unwrap().remove("delivery"); assert!(validate(&missing).is_err());
+        let mut missing = good.clone(); missing["structuredContent"]["delivery"]["fields"] = serde_json::json!([]); assert!(validate(&missing).is_err());
+        for dependencies in [serde_json::json!([]),serde_json::json!(["/content/0/text"])] {let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["dependencies"]=dependencies;assert!(validate(&wrong).is_err());}
+        for role in ["synthetic","reference","interpretation"] {let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["role"]=role.into();assert!(validate(&wrong).is_err());}
+        let mut duplicate=good.clone();let row=duplicate["structuredContent"]["delivery"]["fields"][0].clone();duplicate["structuredContent"]["delivery"]["fields"].as_array_mut().unwrap().push(row);assert!(validate(&duplicate).is_err());
     }
 }

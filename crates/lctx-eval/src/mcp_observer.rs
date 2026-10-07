@@ -249,6 +249,11 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
     let result = if root.get("jsonrpc").is_some() { field(&root, "result")? } else { &root };
     if field(result, "isError")?.as_bool() != Some(false) { return Err("MCP operation returned error/refusal".into()); }
     crate::delivery_conformance::validate(result)?;
+    decode_fields(result, realization)
+}
+// Semantic extraction remains independently testable; production always validates the final map
+// through decode above. No metadata or expected answers enter this operation.
+fn decode_fields(result: &Value, realization: &str) -> Result<DecodedPacket, String> {
     let content = array(field(result, "content")?)?;
     if content.iter().any(|block| block.get("type").and_then(Value::as_str) != Some("text")) { return Err("unsupported MCP content kind".into()); }
     let structured = field(result, "structuredContent")?;
@@ -317,11 +322,6 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
                 let mut parameter_context = context.clone();
                 parameter_context.insert("parameter_identity".into(), id.clone());
                 if let Some(name) = field(parameter,"name")?.as_str() { meanings.push(observed(id.clone(),"parameter_name", name.into())); }
-                let default = field(parameter,"default")?;
-                if core.get("interpretation").is_none() && default.get("kind").and_then(Value::as_str) == Some("literal") {
-                    let literal_id = identity(field(default,"literal")?,16)?;
-                    if let Some(value) = literals.get(&literal_id).and_then(|v| literal(v).transpose()).transpose()? { meanings.push(observed(id,"declared_literal_default",value)); }
-                }
                 groups.push(PublicGroup { context: parameter_context, evidence: meanings });
             }
         }
@@ -349,8 +349,17 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
 }
 
 #[cfg(test)]
+fn semantic_control(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
+    let UniqueJson(root) = serde_json::from_str(bytes).map_err(|e|e.to_string())?;
+    let result = if root.get("jsonrpc").is_some() { field(&root,"result")? } else { &root };
+    if field(result,"isError")?.as_bool()!=Some(false) {return Err("MCP operation returned error/refusal".into());}
+    decode_fields(result,realization)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use super::semantic_control as decode;
     fn operation() -> Value {
         serde_json::json!({"content":[{"type":"text","text":"get_operation: snapshot-bound result"}],"isError":false,
             "structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},
@@ -393,6 +402,7 @@ mod tests {
 #[cfg(test)]
 mod closure_tests {
     use super::*;
+    use super::semantic_control as decode;
     fn packet()->Value{
         let original=serde_json::json!({"source":{"kind":"occurrence","occurrence":vec![8;16]},"artifact":vec![7;16],"context":vec![3;16],"release":vec![11;16],"start":0,"end":4,"encoding":"raw_bytes"});
         let atom=serde_json::json!({"analysis":vec![3;16],"predicate":"is truthy","value":true,"evaluation":{"text":"flag","original":original}});
@@ -442,6 +452,7 @@ mod closure_tests {
 #[cfg(test)]
 mod originals_tests {
     use super::*;
+    use super::semantic_control as decode;
     fn packet(source:Value,encoding:&str,bytes:Vec<u8>)->Value{
         serde_json::json!({"isError":false,"content":[{"type":"text","text":"get_evidence: snapshot-bound result"}],"structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},"evidence":{"original":{"source":source,"artifact":vec![7;16],"release":vec![11;16],"context":vec![3;16],"start":0,"end":4,"encoding":encoding},"body":{"start":0,"end":bytes.len(),"bytes":bytes}}}})
     }
@@ -460,6 +471,7 @@ mod originals_tests {
 #[cfg(test)]
 mod search_tests {
     use super::*;
+    use super::semantic_control as decode;
     fn packet()->Value {
         let release=serde_json::json!({"input":vec![10;16],"release":vec![11;16],"version":"1","distribution":"mini"});
         let original=serde_json::json!({"source":{"kind":"occurrence","occurrence":vec![7;16]},"artifact":vec![8;16],"release":vec![11;16],"context":vec![3;16],"start":20,"end":24,"encoding":"raw_bytes"});
