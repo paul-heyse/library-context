@@ -105,9 +105,9 @@ async def check_declared_default_and_exact_source(worker, client, library, obser
             ),
         ],
     )
-    original = list(
-        worker.judge([{"task": task, "observation": observation, "mode": "immediate"}])
-    )[0]
+    original = next(
+        iter(worker.judge([{"task": task, "observation": observation, "mode": "immediate"}]))
+    )
     assert original["epistemic"] == "sufficient", original
 
     fixture = (ROOT / "fixtures/python/synthesis_sources/api.py").read_bytes()
@@ -157,7 +157,7 @@ async def check_declared_default_and_exact_source(worker, client, library, obser
     )
     actual = await capture_public_journey(worker, client, source_task, lane="native")
     source_case = {"task": source_task, "observation": actual, "mode": "immediate"}
-    source_judgment = list(worker.judge([source_case]))[0]
+    source_judgment = next(iter(worker.judge([source_case])))
     assert source_judgment["epistemic"] == "sufficient", source_judgment
     source_public = json.loads(actual["segments"][0])["structuredContent"]
     delivered = source_public["evidence"]
@@ -175,7 +175,7 @@ async def check_declared_default_and_exact_source(worker, client, library, obser
     mutant["observation"]["segments"] = [
         wire_tool_result("get_evidence", json.dumps(changed, ensure_ascii=False), True)
     ]
-    judged = list(worker.judge([mutant]))[0]
+    judged = next(iter(worker.judge([mutant])))
     assert judged["scorable"] and judged["epistemic"] == "insufficient", judged
     assert mutation_outcome(source_judgment, judged) == "caught"
 

@@ -452,7 +452,7 @@ def grounded_feedback(
     Rust supplies the typed observation digest; Python never guesses its serialization.
     A disposition is a proposal route, not automatic source truth or implementation.
     """
-    judgment = list(worker.judge([case]))[0]
+    judgment = next(iter(worker.judge([case])))
     proposal = {
         "task_id": case["task"]["id"],
         "packet_digest": judgment["observation_digest"],
@@ -805,10 +805,10 @@ def minimize_mcp(worker: Worker, case: dict[str, Any], max_trials: int = 64) -> 
         or len(case["observation"]["segments"]) != 1
     ):
         raise WorkerError("MCP shrinking supports one immediate capture without expansions")
-    initial = list(worker.judge([case]))[0]
+    initial = next(iter(worker.judge([case])))
 
     def preserves(trial):
-        row = list(worker.judge([trial]))[0]
+        row = next(iter(worker.judge([trial])))
         return (
             row["scorable"]
             and row["epistemic"] == "insufficient"
@@ -1068,7 +1068,7 @@ def main() -> None:
                                     "production_success": False,
                                     "status": "not_supported",
                                     "task_id": case["task"]["id"],
-                                    "reason": "MCP ablation currently requires one immediate capture",
+                                    "reason": "MCP ablation requires one immediate capture",
                                 }
                             )
                         continue
@@ -1076,7 +1076,7 @@ def main() -> None:
                     def preserves(
                         trial: dict[str, Any], expected: dict[str, Any] = original
                     ) -> bool:
-                        row = list(worker.judge([trial]))[0]
+                        row = next(iter(worker.judge([trial])))
                         return (
                             row["epistemic"] == expected["epistemic"]
                             and row["reason"] == expected["reason"]

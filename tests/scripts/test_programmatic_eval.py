@@ -1,4 +1,4 @@
-"""Private finite/numeric controls and current Rust/MCP renderer controls; no inference or protected data."""
+"""Private finite/numeric and Rust/MCP controls; no inference or protected data."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ def test_shrink_preserves_supported_oracle_and_failure_class(worker):
     replace_packet(case, packet)
 
     def preserves(trial):
-        row = list(worker.judge([trial]))[0]
+        row = next(iter(worker.judge([trial])))
         return (
             row["epistemic"] == "insufficient"
             and row["reason"] == "individually readable predicates have incompatible contexts"
@@ -222,7 +222,11 @@ def test_timeout_cancels_the_campaign_process(tmp_path):
     executable.write_text(
         "#!"
         + os.sys.executable
-        + "\nimport json, sys, time\nfor line in sys.stdin:\n if json.loads(line).get('operation') == 'schema':\n  print(json.dumps({'status':'completed','result':{'protocol_version':3,'case':{'$schema':'https://json-schema.org/draft/2020-12/schema'}}}), flush=True)\n else:\n  time.sleep(30)\n"
+        + "\nimport json, sys, time\nfor line in sys.stdin:\n"
+        " if json.loads(line).get('operation') == 'schema':\n"
+        "  print(json.dumps({'status':'completed','result':{'protocol_version':3,"
+        "'case':{'$schema':'https://json-schema.org/draft/2020-12/schema'}}}), flush=True)\n"
+        " else:\n  time.sleep(30)\n"
     )
     executable.chmod(0o700)
     with Worker(executable, timeout=0.2) as process:
@@ -248,7 +252,7 @@ def test_generated_context_population_uses_one_worker(worker, signature, default
             group["context"]["variant"] = variant
             packet["groups"].append(group)
     replace_packet(case, packet)
-    judgment = list(worker.judge([case]))[0]
+    judgment = next(iter(worker.judge([case])))
     # Independent finite set intersection, not the production/reference join kernel.
     assert (judgment["epistemic"] == "sufficient") == bool(signature & default & setup)
 
@@ -266,7 +270,7 @@ def test_generator_shrinks_source_task_context_together(worker):
         return {"source": source, "case": case}
 
     def preserves(generated):
-        row = list(worker.judge([generated["case"]]))[0]
+        row = next(iter(worker.judge([generated["case"]])))
         return row["reason"] == "individually readable predicates have incompatible contexts"
 
     factors = {
@@ -341,7 +345,7 @@ def test_no_overlay_can_relabel_same_actual_foreign_substring(worker):
         list(worker.judge([case]))
     assert case["observation"]["segments"][0] == original_bytes
     del case["observation"]["spans"]
-    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "insufficient"
 
 
 def test_retained_qualification_id_cannot_supply_omitted_condition(worker):
@@ -355,10 +359,10 @@ def test_retained_qualification_id_cannot_supply_omitted_condition(worker):
     condition = {"id": "setup-condition", "text": "Applies only with installed transport"}
     packet["groups"][1]["evidence"][0]["qualifications"].append(condition)
     replace_packet(case, packet)
-    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "sufficient"
     condition["text"] = ""
     replace_packet(case, packet)
-    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "insufficient"
 
 
 def test_frozen_mode_and_explicit_realization_lane_refuse_mismatch(worker):
@@ -377,7 +381,7 @@ def test_frozen_mode_and_explicit_realization_lane_refuse_mismatch(worker):
     packet = public_packet(cases[0])
     packet["realization"] = "foreign"
     replace_packet(cases[0], packet)
-    assert list(worker.judge([cases[0]]))[0]["epistemic"] == "inconclusive"
+    assert next(iter(worker.judge([cases[0]])))["epistemic"] == "inconclusive"
 
 
 @pytest.mark.parametrize("change", ["kernel", "schema"])
@@ -394,12 +398,15 @@ def test_changed_actual_worker_executable_cannot_use_old_freeze(worker, tmp_path
         + os.sys.executable
         + "\nimport json, sys\nschema = json.loads("
         + repr(json.dumps(schema))
-        + ")\nfor line in sys.stdin:\n print(json.dumps({'status':'completed','result':schema}), flush=True)\n"
+        + ")\nfor line in sys.stdin:\n"
+        " print(json.dumps({'status':'completed','result':schema}), flush=True)\n"
     )
     executable.chmod(0o700)
-    with Worker(executable) as different:
-        with pytest.raises(WorkerError, match="actual running kernel/schema"):
-            frozen_judgments(different, frozen, cases, frozen["experiment"], lane="baseline")
+    with (
+        Worker(executable) as different,
+        pytest.raises(WorkerError, match="actual running kernel/schema"),
+    ):
+        frozen_judgments(different, frozen, cases, frozen["experiment"], lane="baseline")
 
 
 def renderer_source_case():
@@ -449,12 +456,12 @@ def test_actual_rust_renderer_source_observation_and_missing_interpretation(work
     assert "structuredContent" in json.loads(observation["segments"][0])
     assert "groups" not in json.loads(observation["segments"][0])
     case = {"task": task, "observation": observation, "mode": "immediate"}
-    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "sufficient"
     # An opaque public qualification ID cannot supply a missing readable condition.
     case["task"]["predicates"][0]["qualifications"] = [
         {"id": "setup", "accepted_text": ["requires installed transport"]}
     ]
-    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "insufficient"
 
 
 @pytest.mark.parametrize(
@@ -475,7 +482,7 @@ def test_actual_rust_renderer_schema_valid_map_mutants_cannot_authorize_truth(wo
     task, response = renderer_source_case()
     observation = capture_renderer(task, response)
     case = {"task": task, "observation": observation, "mode": "immediate"}
-    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "sufficient"
     public = json.loads(observation["segments"][0])
     content = copy.deepcopy(public["content"])
     evidence = copy.deepcopy(public["structuredContent"]["evidence"])
@@ -498,7 +505,7 @@ def test_actual_rust_renderer_schema_valid_map_mutants_cannot_authorize_truth(wo
     assert public["content"] == content
     assert public["structuredContent"]["evidence"] == evidence
     observation["segments"][0] = json.dumps(public, ensure_ascii=False)
-    row = list(worker.judge([case]))[0]
+    row = next(iter(worker.judge([case])))
     assert row["epistemic"] == "inconclusive"
     assert not row["scorable"]
 
@@ -530,7 +537,7 @@ async def test_actual_mcp_capture_uses_public_projection_and_final_sdk_object(wo
     assert sent == [task["public_call"]]
     assert observation["capture"]["lane"] == "renderer"
     assert (
-        list(worker.judge([{"task": task, "observation": observation, "mode": "immediate"}]))[0][
+        next(iter(worker.judge([{"task": task, "observation": observation, "mode": "immediate"}])))[
             "epistemic"
         ]
         == "sufficient"
@@ -736,7 +743,9 @@ async def test_actual_capture_timeout_is_explicit_not_empty_success(worker):
     observation = await capture_public_journey(
         worker, SlowClient(), task, lane="renderer", timeout_seconds=0.005
     )
-    row = list(worker.judge([{"task": task, "observation": observation, "mode": "expandable"}]))[0]
+    row = next(
+        iter(worker.judge([{"task": task, "observation": observation, "mode": "expandable"}]))
+    )
     assert row["execution"] == "failed"
     assert row["epistemic"] == "inconclusive"
     assert not row["scorable"]
@@ -784,7 +793,7 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     final = copy.deepcopy(response)
     final["evidence"]["body"].update({"bytes": body[cut:], "start": cut})
     final["delivery"]["fields"][1]["original"]["start"] = cut
-    # Exact each-page meaning; the independent oracle never authorizes concatenating arbitrary spans.
+    # The independent oracle judges each page; arbitrary spans cannot be concatenated.
     task["predicates"][0]["accepted_text"] = [bytes(body[cut:]).decode()]
     sent = []
 
@@ -801,9 +810,9 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     assert sent[1]["arguments"]["page"]["cursor"] == cursor
     assert observation["capture"]["calls"] == sent
     case = {"task": task, "observation": observation, "mode": "expandable"}
-    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "sufficient"
     case["mode"] = "immediate"
-    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+    assert next(iter(worker.judge([case])))["epistemic"] == "insufficient"
     case["mode"] = "expandable"
     wrong_expansion = copy.deepcopy(case)
     public = json.loads(wrong_expansion["observation"]["segments"][0])
@@ -820,13 +829,13 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     }
     assert public["structuredContent"]["evidence"] == delivered
     wrong_expansion["observation"]["segments"][0] = json.dumps(public, ensure_ascii=False)
-    assert list(worker.judge([wrong_expansion]))[0]["epistemic"] == "inconclusive"
+    assert next(iter(worker.judge([wrong_expansion])))["epistemic"] == "inconclusive"
     case["observation"]["capture"]["calls"][1]["arguments"]["source"]["artifact"] = [8] * 16
-    assert list(worker.judge([case]))[0]["epistemic"] == "inconclusive"
+    assert next(iter(worker.judge([case])))["epistemic"] == "inconclusive"
     final["snapshot"]["semantic"] = [7] * 32
     async with Client(server) as client:
         stale = await capture_public_journey(worker, client, task, lane="renderer")
-    row = list(worker.judge([{"task": task, "observation": stale, "mode": "expandable"}]))[0]
+    row = next(iter(worker.judge([{"task": task, "observation": stale, "mode": "expandable"}])))
     assert row["execution"] == "stale"
     assert not row["scorable"]
 
@@ -836,7 +845,7 @@ def test_unbounded_journey_envelopes_refuse_before_any_public_effect(worker):
 
     case = population()[0]
     case["task"]["envelope"]["max_calls"] = 257
-    assert list(worker.judge([case]))[0]["applicability"] == "invalid_task"
+    assert next(iter(worker.judge([case])))["applicability"] == "invalid_task"
     with pytest.raises(WorkerError, match="bounded public journey"):
         _public_projection(case["task"])
 
@@ -1019,7 +1028,7 @@ def test_actual_mcp_shrink_retains_task_oracle_supported_failure_and_coordinates
     partial["evidence"]["body"].update(bytes=partial["evidence"]["body"]["bytes"][:cut], end=cut)
     partial["delivery"]["fields"][1]["original"]["end"] = cut
     case = {"task": task, "observation": capture_renderer(task, partial), "mode": "immediate"}
-    initial = list(worker.judge([case]))[0]
+    initial = next(iter(worker.judge([case])))
     assert initial["scorable"] and initial["epistemic"] == "insufficient"
     result = minimize_mcp(worker, case, max_trials=16)
     reduced = result["case"]
@@ -1034,7 +1043,7 @@ def test_actual_mcp_shrink_retains_task_oracle_supported_failure_and_coordinates
         bytes(body["bytes"])
         == bytes(response["evidence"]["body"]["bytes"])[body["start"] : body["end"]]
     )
-    assert list(worker.judge([reduced]))[0]["reason"] == initial["reason"]
+    assert next(iter(worker.judge([reduced])))["reason"] == initial["reason"]
     assert result["trials"] <= 16
     with pytest.raises(WorkerError, match="bounded supported"):
         minimize_mcp(worker, case, max_trials=0)
