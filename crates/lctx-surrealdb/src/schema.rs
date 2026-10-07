@@ -36,9 +36,7 @@ fn scalar(field: &Field) -> String {
 }
 fn declaration<R: Record>() -> String { relation_declaration(&Relation::of::<R>()) }
 fn relation_declaration(relation:&Relation) -> String {
-    let fields = relation.fields().iter().cloned()
-        .into_iter()
-        .collect::<Vec<_>>();
+    let fields = relation.fields().to_vec();
     if let Some(sum) = relation.sum().cloned() {
         sum.arms
             .into_iter()

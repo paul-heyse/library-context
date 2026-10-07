@@ -460,8 +460,9 @@ pub async fn get(
         let invocations = rows::<catalog::CatalogMemberInvocation>(&source)?;
         let mut ids=std::collections::BTreeSet::new();
         for link in &links {
-            if let Some(assertion)=assertions.get(link.assertion)? {
-                if invocations.get(assertion.member)?.is_some_and(|invocation|invocation.member==member.id()){ids.insert(link.brief);}
+            if let Some(assertion)=assertions.get(link.assertion)?
+                && invocations.get(assertion.member)?.is_some_and(|invocation|invocation.member==member.id()) {
+                ids.insert(link.brief);
             }
         }
         let mut values = Vec::new();

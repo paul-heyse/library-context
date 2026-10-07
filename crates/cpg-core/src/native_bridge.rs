@@ -10,6 +10,7 @@ use std::{sync::{Arc,Mutex}, time::Duration};
 use tokio::sync::{mpsc, oneshot};
 
 type Request = BoxFuture<'static, ()>;
+type BridgeDrain = Shared<BoxFuture<'static,Result<(),Arc<str>>>>;
 const WAIT: Duration = Duration::from_millis(20);
 
 pub(crate) struct NativeBridge {
@@ -19,7 +20,7 @@ pub(crate) struct NativeBridge {
 }
 struct BridgeThread {
     thread:Option<std::thread::JoinHandle<()>>,
-    joined:Option<Shared<BoxFuture<'static,Result<(),Arc<str>>>>>,
+    joined:Option<BridgeDrain>,
 }
 impl NativeBridge {
     pub(crate) fn new(cancellation: Cancellation) -> Result<Self, ModelError> {

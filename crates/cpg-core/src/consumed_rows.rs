@@ -354,8 +354,9 @@ impl NominalClosure {
         for table in &self.tables {providers.push(session.table_provider(table.alias.as_str()).await.map_err(ModelError::codec)?);}
         let mut native_edges=Vec::with_capacity(self.native.len());
         for (source, target, sql) in &self.pairs {
-            if let Some(edge)=self.native.get(&(*source,*target,sql.clone())) {
-                if lctx_surrealdb::compiler_provider::is_native_table(&providers[edge.table]){native_edges.push(*edge);continue;}
+            if let Some(edge)=self.native.get(&(*source,*target,sql.clone()))
+                && lctx_surrealdb::compiler_provider::is_native_table(&providers[edge.table]) {
+                native_edges.push(*edge);continue;
             }
             // Only detached finite sources and owner-authored contextual pair queries need
             // a compact bulk adjacency universe. Native declared references use the frontier.

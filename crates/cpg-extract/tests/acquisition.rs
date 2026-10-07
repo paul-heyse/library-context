@@ -230,7 +230,7 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
     workspace.validate().await.map_err(|e| e.to_string())?;
     let rows = || -> Result<Rows, ModelError> {
         Ok(Rows {
-            digest: Some(workspace.content()?),
+            digest: Some(workspace.identity()?),
             revisions: all(&workspace)?,
             origins: all(&workspace)?,
             artifacts: all(&workspace)?,

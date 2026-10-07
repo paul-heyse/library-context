@@ -27,7 +27,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let relation=Relation::of::<QualityStep>();
     let row=QualityStep {run:serde_json::from_value(serde_json::json!(vec![3u8;16])).unwrap(),ordinal:0,value:FiniteF64::new(0.5).unwrap()};
     let contribution=store.begin_contribution(spec("quality",&relation)).await.unwrap();
-    store.write_batch(&contribution,&relation,&QualityStep::encode(&[row.clone()]).unwrap()).await.unwrap();
+    store.write_batch(&contribution,&relation,&QualityStep::encode(std::slice::from_ref(&row)).unwrap()).await.unwrap();
     store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&BTreeMap::new()).await.unwrap();
     store.verify_state().await.unwrap();
     let file=tempfile::NamedTempFile::new().unwrap();

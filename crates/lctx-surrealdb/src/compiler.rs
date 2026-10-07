@@ -676,7 +676,8 @@ impl NativeCompilerStore {
         let mut pending=Vec::new();let mut pending_table=None;let mut pending_bytes=0usize;
         loop {
             bytes.clear();let read=file.by_ref().take(d::resources::MAX_ROW_BYTES as u64+1).read_until(b'\n',&mut bytes).map_err(ModelError::codec)?;
-            if read==0 {break;}if read>d::resources::MAX_ROW_BYTES {self.fail();return Err(ModelError::Schema("completed state transport row bound"));}
+            if read==0 {break;}
+            if read>d::resources::MAX_ROW_BYTES {self.fail();return Err(ModelError::Schema("completed state transport row bound"));}
             let row:StateRow=serde_json::from_slice(&bytes).map_err(ModelError::codec)?;
             let table=STATE_TABLES.iter().position(|name|*name==row.table).ok_or(ModelError::Schema("completed state transport table"))?;
             validate_state_row(&row.table,&row.row)?;
@@ -805,6 +806,7 @@ impl Drop for CompilerRows {
     }
 }
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant,reason="Homogeneous canonical-record batches remain contiguous; boxing adds a per-row allocation")]
 enum GraphRow {Entity(d::graph::Entity),Assertion(d::graph::Assertion)}
 #[derive(Serialize,Deserialize)]
 struct MembershipContent {relation:String,semantic_key:String,content:String}
@@ -834,7 +836,7 @@ fn validate_state_row(table:&str,row:&Value)->Result<Option<OriginalBacking>,Mod
         if object.get("completed")!=Some(&Value::Bool(true)) {return Err(ModelError::Conflict("pending contribution cannot be sealed"));}
         let Some(Value::Bytes(bytes))=object.get("descriptor") else{return Err(ModelError::Schema("completed contribution descriptor"));};
         let descriptor:CompletedContribution=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-        if object.get("logical")!=Some(&Value::String(descriptor.identity()?.hex())) || &id.key!=&surrealdb::types::RecordIdKey::String(descriptor.spec.identity()?.hex()) {return Err(ModelError::Conflict("completed contribution identity"));}
+        if object.get("logical")!=Some(&Value::String(descriptor.identity()?.hex())) || id.key!=surrealdb::types::RecordIdKey::String(descriptor.spec.identity()?.hex()) {return Err(ModelError::Conflict("completed contribution identity"));}
         let Some(Value::Bytes(spec))=object.get("spec") else{return Err(ModelError::Schema("completed contribution specification"));};
         if serde_json::from_slice::<ContributionSpec>(spec).map_err(ModelError::codec)? != descriptor.spec {return Err(ModelError::Conflict("completed contribution specification"));}
         check_projection(object,contribution_projection(&descriptor.spec))?;
@@ -842,12 +844,12 @@ fn validate_state_row(table:&str,row:&Value)->Result<Option<OriginalBacking>,Mod
     } else if table=="compiler_view" {
         let Some(Value::Bytes(bytes))=object.get("descriptor") else{return Err(ModelError::Schema("completed view descriptor"));};
         let descriptor:CompletedView=serde_json::from_slice(bytes).map_err(ModelError::codec)?;descriptor.validate()?;
-        if &id.key!=&surrealdb::types::RecordIdKey::String(descriptor.identity.hex()) {return Err(ModelError::Conflict("completed view key"));}
+        if id.key!=surrealdb::types::RecordIdKey::String(descriptor.identity.hex()) {return Err(ModelError::Conflict("completed view key"));}
         check_projection(object,view_projection(&descriptor)?)?;
     } else if table=="compiler_binding" {
         let Some(Value::Bytes(bytes))=object.get("descriptor") else{return Err(ModelError::Schema("completed binding descriptor"));};
         let descriptor:CompletedBinding=serde_json::from_slice(bytes).map_err(ModelError::codec)?;descriptor.validate()?;
-        if &id.key!=&surrealdb::types::RecordIdKey::String(descriptor.key().hex()) {return Err(ModelError::Conflict("completed binding key"));}
+        if id.key!=surrealdb::types::RecordIdKey::String(descriptor.key().hex()) {return Err(ModelError::Conflict("completed binding key"));}
         check_projection(object,binding_projection(&descriptor))?;
     }
     Ok(None)

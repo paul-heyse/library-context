@@ -209,7 +209,6 @@ pub async fn run_profile_with_limits<I: Inspector>(
         limits,
         reverse_providers,
         resources,
-        native_fixture::create_native().await?,
     )
     .await
 }

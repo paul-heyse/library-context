@@ -15,7 +15,8 @@ pub(crate) struct NativeCalls {
 struct NativeCallTask {joined:Shared<BoxFuture<'static,Result<(),Arc<tokio::task::JoinError>>>>,finished:Arc<AtomicBool>}
 struct CallGuard {native:Arc<NativeCompilerStore>,cancellation:Cancellation,finished:bool,done:Option<Arc<AtomicBool>>}
 impl Drop for CallGuard {
-    fn drop(&mut self){if !self.finished{self.native.fail();self.cancellation.cancel();}if let Some(done)=&self.done{done.store(true,Ordering::Release);}}
+    fn drop(&mut self){if !self.finished{self.native.fail();self.cancellation.cancel();}
+        if let Some(done)=&self.done{done.store(true,Ordering::Release);}}
 }
 impl NativeCalls {
     pub(crate) fn new(native:Arc<NativeCompilerStore>,cancellation:Cancellation,budget:&ResourceBudget)->Self{

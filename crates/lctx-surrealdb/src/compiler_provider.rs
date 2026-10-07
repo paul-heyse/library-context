@@ -87,13 +87,12 @@ impl PartitionStream for NativePartition {
         use futures::TryStreamExt;
         let store=self.store.clone();let view=self.view.clone();let relation=self.relation.clone();let projection=self.projection.clone();let predicate=self.predicate.clone();let budget=self.budget.clone();let batch_rows=self.batch_rows;
         let keys=self.keys.clone();
-        let stream=if keys.is_empty(){
+        if keys.is_empty(){
             let stream=futures::stream::once(async move {scan_batches(store,view,relation,projection,predicate,budget,batch_rows).await.map_err(df_error)}).try_flatten();
             Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(),stream)) as SendableRecordBatchStream
         }else{
             selected_batches(store,view,relation,projection,predicate,keys,budget,batch_rows,self.schema.clone())
-        };
-        stream
+        }
     }
 }
 /// A source leaf forwards streaming behavior and publishes the same view/selection cardinality
@@ -259,7 +258,12 @@ mod tests {
         let view=CompletedView::new(Release::NAME.into(),BTreeSet::from([ContentHash::of(b"planning")]),1).unwrap();
         let provider=table_provider(store,view,relation.clone(),ResourceBudget::fixed(4<<20).unwrap(),128).unwrap();
         let session=SessionContext::new();session.register_table("releases",provider).unwrap();
-        let frame=session.sql("SELECT id AS source_id,package AS target_id FROM releases WHERE version='version-0'").await.unwrap();
+        // This foundation cannot depend upward on core's helper. The planning-only control
+        // supplies the same read-only restrictions explicitly, with no connected server.
+        let options=datafusion::execution::context::SQLOptions::new()
+            .with_allow_ddl(false).with_allow_dml(false).with_allow_statements(false);
+        // ast-grep-ignore: sql-through-helper
+        let frame=session.sql_with_options("SELECT id AS source_id,package AS target_id FROM releases WHERE version='version-0'",options).await.unwrap();
         let plan=frame.clone().into_optimized_plan().unwrap();
         let physical=frame.create_physical_plan().await.unwrap();
         assert_eq!(physical.schema().fields().iter().map(|field|field.name().as_str()).collect::<Vec<_>>(),["source_id","target_id"]);

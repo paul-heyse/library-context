@@ -133,7 +133,7 @@ impl BoundedJson {
                 // Geometric small growth, then bounded increments. Never reserve the maximum
                 // eagerly; charge both final storage and the existing bridge-copy allowance.
                 let old = self.bytes.capacity();
-                let increment = old.max(64).min(ENCODING_GROWTH_BYTES);
+                let increment = old.clamp(64, ENCODING_GROWTH_BYTES);
                 let capacity = old.saturating_add(increment).min(self.limit);
                 let charged = capacity.checked_mul(2)
                     .ok_or_else(|| WireError::ResourceRefused(self.refusal.into()))?;

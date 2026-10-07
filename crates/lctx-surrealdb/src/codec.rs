@@ -117,9 +117,9 @@ mod tests {
         for (row,body) in rows.iter().zip(&bodies){assert_eq!(body.semantic_key,match row{Entity::Literal(row)=>hex::encode(row.id().bytes()),Entity::Package(row)=>hex::encode(row.id().bytes()),_=>unreachable!()});}
         let text=bodies[0].body.as_object().unwrap();
         let opaque=bodies[2].body.as_object().unwrap();
-        assert!(text.iter().map(|(_,value)|value).any(|value|value==&Value::from_t("exact 雪\n\0text")));
-        assert!(opaque.iter().map(|(_,value)|value).any(|value|value==&Value::Bytes(Bytes::from(vec![0xff,0,0x80]))));
-        assert!(bodies[3].body.as_object().unwrap().iter().map(|(_,value)|value).filter(|value|matches!(value,Value::Null)).count()>=3);
+        assert!(text.values().any(|value|value==Value::from_t("exact 雪\n\0text")));
+        assert!(opaque.values().any(|value|value==Value::Bytes(Bytes::from(vec![0xff,0,0x80]))));
+        assert!(bodies[3].body.as_object().unwrap().values().filter(|value|matches!(value,Value::Null)).count()>=3);
     }
     #[test]
     fn compiler_record_batch_keeps_opaque_binary_and_typed_id(){

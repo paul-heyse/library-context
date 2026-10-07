@@ -52,8 +52,8 @@ impl Loader {
                     if bytes.saturating_add(next_bytes)>limits.bytes {pending=Some(next);break;}
                     bytes+=next_bytes;window.push(next);
                 }
-                let entities=if family==GraphFamily::Entities {window.iter().map(|actual|decode_entity(actual)).collect::<Result<Vec<_>,_>>()?} else {vec![]};
-                let assertions=if family==GraphFamily::Assertions {window.iter().map(|actual|decode_assertion(actual)).collect::<Result<Vec<_>,_>>()?} else {vec![]};
+                let entities=if family==GraphFamily::Entities {window.iter().map(decode_entity).collect::<Result<Vec<_>,_>>()?} else {vec![]};
+                let assertions=if family==GraphFamily::Assertions {window.iter().map(decode_assertion).collect::<Result<Vec<_>,_>>()?} else {vec![]};
                 let views=if family==GraphFamily::Entities {codec::entity_views(&entities)?} else {codec::assertion_views(&assertions)?};
                 for (index,(actual,view)) in window.into_iter().zip(views).enumerate() {
                 let row = Node::from_value(actual.clone()).map_err(|_| {
@@ -65,7 +65,7 @@ impl Loader {
                     let entity=&entities[index];
                     entity.validate().map_err(crate::reader::canonical_error)?;
                     for (position, reference) in
-                        codec::entity_references(&entity).into_iter().enumerate()
+                        codec::entity_references(entity).into_iter().enumerate()
                     {
                         let target = lctx_model::domain::graph::reference_target(&reference)?.0;
                         remember_external(&mut expected, &target)?;

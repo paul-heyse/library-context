@@ -26,6 +26,9 @@ use std::{
     },
 };
 
+type ProviderDrain = Shared<BoxFuture<'static,Result<(),Arc<str>>>>;
+type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
+
 #[derive(Debug, Clone, Copy)]
 pub struct WorkspaceOptions {
     pub memory_bytes: usize,
@@ -130,7 +133,7 @@ pub struct Workspace {
     cancellation: Cancellation,
     completion_gate: tokio::sync::Mutex<()>,
     compilation_complete: Mutex<Option<CompilationCompletion>>,
-    provider_drains: Mutex<Vec<Shared<BoxFuture<'static,Result<(),Arc<str>>>>>>,
+    provider_drains: Mutex<Vec<ProviderDrain>>,
     checked_premises: Mutex<(std::collections::BTreeSet<ContentHash>, StateCharge)>,
 }
 impl Workspace {
@@ -1450,7 +1453,7 @@ impl CompletedRelation {
     }
 }
 pub struct NativeBatches {
-    receiver: tokio::sync::mpsc::Receiver<Result<(RecordBatch, Box<dyn Reservation>), ModelError>>,
+    receiver: tokio::sync::mpsc::Receiver<ChargedBatch>,
     cancellation: Cancellation,
     charge: Option<Box<dyn Reservation>>,
     done:bool,
@@ -2222,7 +2225,7 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
         let (done, finished) = tokio::sync::oneshot::channel();
         let task = tokio::task::spawn_blocking(move || {
             let result=thread.join().map_err(|_|Arc::<str>::from("provider thread panicked while draining"));
-            let _=done.send(result.as_ref().map(|()|()).map_err(|error|ModelError::Invalid(error.to_string())));
+            let _=done.send(result.as_ref().copied().map_err(|error|ModelError::Invalid(error.to_string())));
             result
         });
         let joined=async move{task.await.map_err(|error|Arc::<str>::from(error.to_string()))?}.boxed().shared();

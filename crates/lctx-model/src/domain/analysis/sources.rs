@@ -3,7 +3,7 @@ use super::invalid;
 use crate::domain::*;
 use std::marker::PhantomData;
 
-/// Metadata from a locally validated immutable producer stream. The compiler supplies this only
+/// Metadata from a locally validated immutable completed input view. The compiler supplies this only
 /// after successful completion; these values describe inputs, not a capability to read a store.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

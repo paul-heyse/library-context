@@ -180,7 +180,7 @@ impl CompletedFrames {
             source.producer().to_owned(),
             source.model(),
             source.implementation(),
-            source.content(),
+            source.view(),
             source.rows().try_into().unwrap(),
         )
     }
@@ -664,7 +664,7 @@ fn conditional_routing_skips_unrelated_and_refuses_malformed_or_foreign_before_m
                 "foreign",
                 original.model(),
                 original.implementation(),
-                original.content(),
+                original.view(),
                 original.rows().try_into().unwrap(),
             )
             .unwrap();
