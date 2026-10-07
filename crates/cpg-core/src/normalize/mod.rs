@@ -1586,7 +1586,7 @@ pub async fn coverage(
     use lctx_model::domain::{normalized::coverage::*, source::SourceArtifact};
     let sources = access.snapshots().collect::<Vec<_>>();
     let profile = access.profile();
-    let evidence = runtime.facts_availability(profile)?;
+    let evidence = runtime.facts_availability_async(profile).await?;
     let session = access.session(runtime).await?;
     let _permit = access.read::<SourceArtifact>()?;
     let table = access.table_at::<SourceArtifact>(None)?;
