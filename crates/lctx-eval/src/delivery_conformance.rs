@@ -15,6 +15,9 @@ fn ancestors<'a>(root: &'a Value, path: &str) -> Result<Vec<&'a Value>, String> 
 fn nearest<'a>(nodes: &[&'a Value], key: &str) -> Option<&'a Value> {
     nodes.iter().rev().find_map(|node| node.get(key).filter(|value| !value.is_null()))
 }
+fn nominal_nearest<'a>(nodes: &[&'a Value], key: &str) -> Option<&'a Value> {
+    nodes.iter().rev().find_map(|node| node.get(key).filter(|value|value.as_array().is_some_and(|bytes|bytes.len()==16 && bytes.iter().all(|v|v.as_u64().is_some_and(|n|n<=255)))))
+}
 fn original<'a>(nodes: &[&'a Value], field: &'a Value) -> Option<&'a Value> {
     if field.get("source").is_some() && field.get("artifact").is_some() { return Some(field); }
     nodes.iter().rev().find_map(|node| node.get("original").and_then(|value| {
@@ -64,7 +67,7 @@ pub fn validate(result: &Value) -> Result<(), String> {
         let nodes = ancestors(result,path)?;
         for key in ["member","signature","variant","analysis","parameter","field"] {
             let supplied = item.get("binding").and_then(|v|v.get(key)).filter(|v|!v.is_null());
-            let expected = nearest(&nodes,key).or_else(|| (key=="analysis").then(||original(&nodes,actual).and_then(|o|o.get("context"))).flatten());
+            let expected = nominal_nearest(&nodes,key).or_else(|| (key=="analysis").then(||original(&nodes,actual).and_then(|o|o.get("context"))).flatten());
             if supplied != expected {return Err(format!("delivery map {key} binding disagrees with final field"));}
         }
         let role = item["role"].as_str().ok_or("delivery field role is absent")?;
@@ -103,7 +106,7 @@ pub fn validate(result: &Value) -> Result<(), String> {
 mod tests {
     use super::*;
     fn packet()->Value {
-        serde_json::json!({"content":[{"type":"text","text":"label"}],"structuredContent":{"item":{"member":[1],"analysis":[2],"text":"call"},"delivery":{"fields":[{"field":"/structuredContent/item/text","role":"primary","original":null,"binding":{"member":[1],"analysis":[2]},"qualifications":[],"dependencies":["/structuredContent/item/analysis"],"availability":{"kind":"available"}}],"omissions":[]}}})
+        serde_json::json!({"content":[{"type":"text","text":"label"}],"structuredContent":{"item":{"member":vec![1;16],"analysis":vec![2;16],"text":"call"},"delivery":{"fields":[{"field":"/structuredContent/item/text","role":"primary","original":null,"binding":{"member":vec![1;16],"analysis":vec![2;16]},"qualifications":[],"dependencies":["/structuredContent/item/analysis"],"availability":{"status":"available"}}],"omissions":[]}}})
     }
     #[test]
     fn metadata_is_checked_separately_from_truth() {
