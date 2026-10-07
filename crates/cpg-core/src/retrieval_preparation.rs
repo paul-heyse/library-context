@@ -28,29 +28,7 @@ fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
         .position(|input| input.type_id() == TypeId::of::<R>())
         .ok_or(ModelError::Schema("E0 scope relation absent"))
 }
-fn target(
-    inputs: &[ValidationInput],
-    source: usize,
-    kind: TypeId,
-) -> Result<Option<usize>, ModelError> {
-    let candidates: Vec<_> = inputs
-        .iter()
-        .enumerate()
-        .filter(|(_, input)| input.type_id() == kind)
-        .map(|(index, _)| index)
-        .collect();
-    if candidates.len() <= 1 {
-        return Ok(candidates.first().copied());
-    }
-    let selected: Vec<_> = candidates
-        .into_iter()
-        .filter(|index| inputs[*index].prefix() == inputs[source].prefix())
-        .collect();
-    if selected.len() != 1 {
-        return Err(ModelError::Conflict("E0 immutable dependency epoch"));
-    }
-    Ok(selected.first().copied())
-}
+
 /// Only this metadata is shared between rendering grains. Originals and output text are released
 /// by the caller after publishing each root or brief.
 pub struct Preparation {
@@ -117,7 +95,7 @@ impl Preparation {
             })
             .collect::<Result<_, ModelError>>()?;
         let (edges, root, brief) =
-            Self::prepare_bound(&inputs, &tables, &session, runtime.budget()).await?;
+            Self::prepare_bound(&inputs, &tables, model, &session, runtime.budget()).await?;
         Ok(Self {
             metadata,
             session,
@@ -131,6 +109,7 @@ impl Preparation {
     async fn prepare_bound(
         inputs: &[ValidationInput],
         tables: &[ClosureTable],
+        model: &ValidatedModel,
         session: &SessionContext,
         budget: &resources::ResourceBudget,
     ) -> Result<(PreparedEdges, usize, usize), ModelError> {
@@ -154,12 +133,13 @@ impl Preparation {
         }
         let memberships = build::memberships();
         let subjects = typed::<c1::RootSubject>(inputs)?;
+        let field_bindings = Data::scoped_field_bindings(model, inputs)?;
         for (source, table) in tables.iter().enumerate() {
-            for field in table.relation.fields() {
+            for (field_index, field) in table.relation.fields().iter().enumerate() {
                 let Some((kind, _)) = field.target() else {
                     continue;
                 };
-                let Some(to) = target(inputs, source, kind)? else {
+                let Some(to) = field_bindings[source][field_index] else {
                     continue;
                 };
                 let values = if field.list() {
@@ -230,7 +210,10 @@ impl Preparation {
         let passage = typed::<documents::PassageObservation>(inputs)?;
         let nodes = typed::<documents::DocumentNode>(inputs)?;
         let evidence = typed::<assertion::Evidence>(inputs)?;
-        let qualifications = typed::<assertion::AssertionQualification>(inputs)?;
+        let qualifications = inputs.iter().position(|input|
+            input.type_id() == TypeId::of::<assertion::AssertionQualification>()
+                && input.prefix() == Some(stages::PublicationBoundary::Facts))
+            .ok_or(ModelError::Conflict("E0 passage Facts qualification reader absent"))?;
         plan.pairs(root,passage,format!("SELECT r.id AS source_id,p.id AS target_id FROM {} r JOIN {} s ON r.subject=s.id JOIN {} d ON s.document_observation=d.id JOIN {} e ON e.sourcespan_source=d.source JOIN {} n ON n.passage_span=e.id JOIN {} p ON p.passage=n.id JOIN {} q ON p.qualification=q.id WHERE q.context=r.context",identifier(&tables[root_table].alias),identifier(&tables[subjects].alias),identifier(&tables[document].alias),identifier(&tables[evidence].alias),identifier(&tables[nodes].alias),identifier(&tables[passage].alias),identifier(&tables[qualifications].alias)))?;
         let mention = typed::<documents::DocumentMentionObservation>(inputs)?;
         let assessments = typed::<normalized::links::MentionEntityAssessment>(inputs)?;
@@ -764,7 +747,7 @@ mod controls {
             .insert(retrieval::Definition::builtin(false))
             .unwrap();
         let (edges, root_index, brief) =
-            Preparation::prepare_bound(&inputs, &tables, &session, &budget)
+            Preparation::prepare_bound(&inputs, &tables, &lctx_model::domain::model().unwrap(), &session, &budget)
                 .await
                 .unwrap();
         let preparation = Preparation {

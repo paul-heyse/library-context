@@ -19,29 +19,7 @@ fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
         .position(|input| input.type_id() == TypeId::of::<R>())
         .ok_or(ModelError::Schema("C0 scoped relation absent"))
 }
-fn target(
-    inputs: &[ValidationInput],
-    source: usize,
-    kind: TypeId,
-) -> Result<Option<usize>, ModelError> {
-    let found: Vec<_> = inputs
-        .iter()
-        .enumerate()
-        .filter(|(_, input)| input.type_id() == kind)
-        .map(|(index, _)| index)
-        .collect();
-    if found.len() <= 1 {
-        return Ok(found.first().copied());
-    }
-    let found: Vec<_> = found
-        .into_iter()
-        .filter(|index| inputs[*index].prefix() == inputs[source].prefix())
-        .collect();
-    if found.len() != 1 {
-        return Err(ModelError::Conflict("C0 immutable dependency epoch"));
-    }
-    Ok(found.first().copied())
-}
+
 fn membership(source: TypeId, field: &str, kind: TypeId) -> bool {
     use normalized::{callable_aspects::*, callables::*, entities::*, links::*};
     let pair = |member: TypeId, owner: &str| source == member && field == owner;
@@ -131,11 +109,12 @@ impl CatalogScopes {
                 })
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
-        Self::prepare_bound(inputs, tables, session, budget).await
+        Self::prepare_bound(inputs, tables, model, session, budget).await
     }
     async fn prepare_bound(
         inputs: Vec<ValidationInput>,
         tables: Vec<ClosureTable>,
+        model: &ValidatedModel,
         session: &SessionContext,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
@@ -162,12 +141,13 @@ impl CatalogScopes {
                 identifier(&tables[exposures].alias)
             ),
         )?;
+        let field_bindings = CatalogData::scoped_field_bindings(model, &inputs)?;
         for (source, table) in tables.iter().enumerate() {
-            for field in table.relation.fields() {
+            for (field_index, field) in table.relation.fields().iter().enumerate() {
                 let Some((kind, _)) = field.target() else {
                     continue;
                 };
-                let Some(to) = target(&inputs, source, kind)? else {
+                let Some(to) = field_bindings[source][field_index] else {
                     continue;
                 };
                 let values = if field.list() {
@@ -374,7 +354,7 @@ mod controls {
         }
         let expected = catalog::build::build(&all, &budget).unwrap();
         drop(all);
-        let prepared = CatalogScopes::prepare_bound(inputs.clone(), tables, &session, &budget)
+        let prepared = CatalogScopes::prepare_bound(inputs.clone(), tables, &lctx_model::domain::model().unwrap(), &session, &budget)
             .await
             .unwrap();
         let mut actual = catalog::build::CatalogOutput::new(&budget);

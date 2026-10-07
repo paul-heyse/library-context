@@ -460,6 +460,7 @@ pub(super) fn parts(
         .transpose()?;
     let mut anchors: Vec<_> = out.anchors.iter().filter(|a| a.unit == unit).collect();
     anchors.sort_by_key(|a| a.ordinal);
+    let has_anchors = !anchors.is_empty();
     let mut segments: Vec<(
         usize,
         usize,
@@ -523,11 +524,8 @@ pub(super) fn parts(
             None,
             if matches!(
                 origin,
-                Origin::Api { .. }
-                    | Origin::Brief { .. }
-                    | Origin::Option { .. }
-                    | Origin::Release { .. }
-            ) {
+                Origin::Api { .. } | Origin::Brief { .. } | Origin::Release { .. }
+            ) || (matches!(origin, Origin::Option { .. }) && !has_anchors) {
                 PartPurpose::Primary
             } else {
                 PartPurpose::Context

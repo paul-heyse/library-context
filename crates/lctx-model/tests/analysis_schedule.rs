@@ -3,6 +3,10 @@ use lctx_model::domain::{analysis, stages::*, *};
 #[test]
 fn upper_frontiers_have_one_actual_writer_for_every_relation() {
     let model = model().unwrap();
+    catalog::build::CatalogData::scoped_field_bindings(
+        &model, &catalog::build::CatalogData::validation_inputs()).unwrap();
+    retrieval::build::Data::scoped_field_bindings(
+        &model, &retrieval::build::Data::inputs()).unwrap();
     let b = resources::ResourceBudget::fixed(1 << 28).unwrap();
     let catalog = models::Catalog::committed().unwrap();
     let settings = analysis::settings::AnalyticsConfiguration {
@@ -166,6 +170,10 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
                 PublicationGroup::new(PublicationBoundary::Model, vec!["apply_models"]),
                 PublicationGroup::new(PublicationBoundary::Summary, vec!["analyze_summaries"]),
                 PublicationGroup::new(PublicationBoundary::Structural, vec!["analyze_structural"]),
+                PublicationGroup::new(
+                    PublicationBoundary::AnalyticEmbedding,
+                    vec!["analytic_embedding"],
+                ),
                 PublicationGroup::new(PublicationBoundary::Analytic, vec!["analyze_analytic"]),
             ];
             if target == analysis::frontier::Target::Catalog {
@@ -196,6 +204,10 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
                 groups.push(PublicationGroup::new(
                     PublicationBoundary::Synthesis,
                     vec!["synthesis"],
+                ));
+                groups.push(PublicationGroup::new(
+                    PublicationBoundary::Retrieval,
+                    vec!["retrieval"],
                 ));
             }
             let schedule =

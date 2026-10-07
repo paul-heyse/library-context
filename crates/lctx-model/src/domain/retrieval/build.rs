@@ -698,6 +698,20 @@ impl Data {
         inputs.dedup_by_key(|input| (input.name(), input.prefix()));
         inputs
     }
+    /// E0 follows only companions consumed by its root/brief property readers. Documentary
+    /// qualifications are S0-owned and are not used when reading canonical prose and anchors.
+    /// Qualification condition/assumption rows are not renderer inputs; context/scope remain FKs.
+    pub fn scoped_field_bindings(
+        model: &ValidatedModel,
+        inputs: &[ValidationInput],
+    ) -> Result<Vec<Vec<Option<usize>>>, ModelError> {
+        catalog::build::scoped_field_bindings(model, inputs, &Self::inputs(), |source, field| {
+            (source.type_id() == std::any::TypeId::of::<synthesis::documentary::DocumentaryConclusion>()
+                && field.name() == "qualification")
+                || (source.type_id() == std::any::TypeId::of::<assertion::AssertionQualification>()
+                    && matches!(field.name(), "condition" | "assumptions"))
+        })
+    }
     pub fn selected(&self) -> Result<&Definition, ModelError> {
         if self.facts.definitions.len() != 1 {
             return Err(invalid("retrieval needs one completed authored definition"));
