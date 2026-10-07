@@ -58,7 +58,7 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
             .inputs(
                 "embedding_consumer",
                 Profile::Catalog,
-                [EmbeddingSpec::NAME, ServiceConfiguration::NAME],
+                [EmbeddingSpec::NAME, ServiceConfiguration::NAME,embedding::DocumentRecipe::NAME,embedding::projection::ProjectionDefinition::NAME],
             )
             .unwrap();
         let result =

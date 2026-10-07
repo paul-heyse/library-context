@@ -359,6 +359,7 @@ impl cpg_core::embedding_service::Embedder for Changing {
     fn endpoint(&self) -> &str {
         cpg_core::embedding_service::Embedder::endpoint(&self.inner)
     }
+    fn document_tokenizer(&self)->Option<Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {cpg_core::embedding_service::Embedder::document_tokenizer(&self.inner)}
     fn count_tokens<'a>(
         &'a self,
         _: &'a str,
@@ -445,10 +446,13 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
     facts.push(text_definition.clone()).await.unwrap();
     let specification = EmbeddingSpec::new(provider.spec()).unwrap();
     facts.push(specification.clone()).await.unwrap();
+    let document=embedding::DocumentRecipe::new(provider.spec()).unwrap();
+    let projection=embedding::projection::ProjectionDefinition::initial(provider.spec());
+    facts.push(document.clone()).await.unwrap();facts.push(projection.clone()).await.unwrap();
     facts
         .push(ServiceConfiguration {
             specification: specification.id(),
-            endpoint: provider.endpoint().into(),
+            endpoint: provider.endpoint().into(),document:document.id(),projection:projection.id(),
         })
         .await
         .unwrap();
@@ -578,7 +582,7 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
         for row in AnalysisEmbeddingUse::decode(&batch.unwrap()).unwrap() {
             assert_eq!(row.availability, VectorAvailability::Available);
             count += 1;
-            let receipt = (row.admitted_tokens, row.value_digest, row.bytes);
+            let receipt = (row.admitted_tokens, row.value, row.projection);
             if let Some(first) = receipts.insert(row.input, receipt.clone()) {
                 assert_eq!(first, receipt);
             }
@@ -586,9 +590,11 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
     }
     assert_eq!(count, 280);
     assert_eq!(receipts.len(), 20);
+    assert_eq!(workspace.completed::<embedding::value::FullValue>().unwrap().rows(),20);
+    assert_eq!(workspace.completed::<embedding::projection::ProjectedValue>().unwrap().rows(),20);
     {
         let calls = provider.calls.lock().unwrap();
-        assert_eq!(calls.1, 20);
+        assert_eq!(calls.1, 0,"local complete-input tokenizer avoids service token calls");
         assert!(calls.0.values().all(|count| *count == 1));
         assert!(calls.2.iter().all(|count| *count <= 64));
     }
@@ -603,39 +609,10 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
         .into_iter()
         .find(|invariant| invariant.purpose == InvariantPurpose::Admission)
         .unwrap();
-    let inspection = workspace
-        .inputs(
-            "receipt-inspection",
-            stages::Profile::Catalog,
-            invariant.inputs.iter().map(ValidationInput::name),
-        )
-        .unwrap();
-    let session = inspection.session(&workspace).await.unwrap();
-    let mut check = (invariant.create)(workspace.budget());
-    use futures::TryStreamExt;
-    for declaration in &invariant.inputs {
-        let table = inspection.table_for(declaration).unwrap();
-        let ordering = declaration
-            .order()
-            .iter()
-            .map(|field| format!("\"{field}\""))
-            .collect::<Vec<_>>()
-            .join(",");
-        let query = format!("SELECT * FROM \"{table}\" ORDER BY {ordering}");
-        let mut stream = session
-            .sql(&query)
-            .await
-            .unwrap()
-            .execute_stream()
-            .await
-            .unwrap();
-        while let Some(batch) = stream.try_next().await.unwrap() {
-            check.visit_input(declaration, &batch).unwrap();
-        }
-    }
+    workspace.freeze_inputs(stages::PublicationBoundary::AnalyticEmbedding).unwrap();
+    let mut check=(invariant.create)(workspace.budget());
+    for declaration in &invariant.inputs{let source=workspace.input_relation(declaration).unwrap();for batch in source.batches().unwrap(){check.visit_input(declaration,&batch.unwrap()).unwrap();}}
     check.finish().unwrap();
-    drop(session);
-    drop(inspection);
     assert!(
         workspace.budget().reserved() < 1 << 20,
         "frame text/vector transfers and private winner payloads are released"
