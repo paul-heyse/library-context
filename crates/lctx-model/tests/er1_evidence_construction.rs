@@ -92,3 +92,32 @@ fn setup_only_scenario_has_context_maps_and_navigation_without_primary_binding()
 fn empty_original_source_keeps_honest_context_and_no_primary_binding(){
     let(b,mut d)=base(false);let source=artifact(&mut d,"","empty.py");root(&mut d,c1::RootSubject::Source{artifact:source.id()});let out=retrieval::build::build(&d,&b).unwrap();out.verify_completion(&d,&b).unwrap();assert_eq!(out.units.len(),1);assert!(out.parts.iter().all(|p|p.purpose==PartPurpose::Context));assert!(out.bindings.is_empty());assert!(out.windows.iter().all(|w|w.text.as_str().contains("empty (0 bytes)")));assert_eq!(out.anchors.len(),1);
 }
+
+#[test]
+fn documentary_source_bindings_require_primary_originals_without_api_nomination(){
+    for with_passage in [false,true]{
+        let(b,mut d)=base(false);let source=artifact(&mut d,"# Unresolved API heading\n\nActual documentary body.\n","guide.md");let q=qualification(&mut d,&source);
+        let document=d.source.facts.documents.insert(documents::DocumentObservation{qualification:q,source:source.id(),title:Some("Unresolved API title".into()),parsed:true}).unwrap();
+        if with_passage{
+            let span=Evidence::SourceSpan{source:source.id(),start:0,end:source.byte_len};let span_id=EvidenceSourceSpanId::of(&span).unwrap();d.source.facts.canonical_evidence.insert(span).unwrap();
+            let node=documents::DocumentNode::Passage{span:span_id,ordinal:0};let passage=documents::DocumentNodePassageId::of(&node).unwrap();d.source.facts.nodes.insert(node).unwrap();
+            d.source.facts.passages.insert(documents::PassageObservation{qualification:q,passage,level:1,heading:Some("Unresolved API heading".into()),heading_path:vec![],text:"Provider interpretation cannot nominate an API".into()}).unwrap();
+        }
+        root(&mut d,c1::RootSubject::Document{observation:document});let out=retrieval::build::build(&d,&b).unwrap();out.verify_completion(&d,&b).unwrap();
+        assert_eq!(out.units.len(),if with_passage{2}else{1});assert!(!out.bindings.is_empty());
+        for unit in out.units.iter(){
+            assert_eq!(unit.context,id(2));assert!(out.bindings.iter().any(|r|out.parts.get(r.part).unwrap().unit==unit.id()));
+        }
+        for binding in out.bindings.iter(){
+            assert_eq!(out.subjects.get(binding.subject),Some(&Subject::Source{artifact:source.id()}));assert_eq!(binding.basis,BindingBasis::Source);
+            let part=out.parts.get(binding.part).unwrap();assert_eq!(part.purpose,PartPurpose::Primary);assert!(part.text.as_str().contains("Actual documentary body"));
+            assert!(out.part_maps.iter().any(|m|m.part==part.id()&&m.original.is_some()));
+            if matches!(out.origins.get(out.units.get(part.unit).unwrap().origin),Some(Origin::Passage{..})){assert_eq!(binding.qualification,Some(q));}
+        }
+        assert!(!out.subjects.iter().any(|s|matches!(s,Subject::Member{..})));
+        let mut erased=retrieval::build::build(&d,&b).unwrap();erased.bindings=Rows::new(&b);assert!(erased.verify_completion(&d,&b).is_err(),"original documentary evidence requires its Source binding");
+        let mut injected=retrieval::build::build(&d,&b).unwrap();let context=injected.parts.iter().find(|p|p.purpose==PartPurpose::Context).unwrap().clone();let window=injected.window_parts.iter().find(|w|w.part==context.id()).unwrap().window;
+        injected.bindings.insert(WindowBinding{window,part:context.id(),subject:Subject::Source{artifact:source.id()}.id(),basis:BindingBasis::Source,qualification:None}).unwrap();
+        assert!(injected.verify_completion(&d,&b).is_err(),"title and heading context cannot nominate Source or API evidence");
+    }
+}

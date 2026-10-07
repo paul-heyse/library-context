@@ -92,6 +92,8 @@ pub(super) fn nominations(d:&Data,out:&Output,unit:Id<Unit>)->Result<Vec<Nominat
         },
         Origin::Passage{observation}=>{
             let passage=need(&d.source.facts.passages,*observation)?;
+            let source=super::source::coordinates(d,&AnchorSource::Span{span:need(&d.source.facts.nodes,passage.passage.id())?.span()})?;
+            push(Subject::Source{artifact:source.0},BindingBasis::Source,Some(passage.qualification),Some(source));
             for a in d.evidence.document_associations.iter(){
                 let candidate=need(&d.source.facts.mention_candidates,a.candidate)?;
                 let assessment=need(&d.source.facts.mention_assessments,candidate.assessment)?;
@@ -107,7 +109,8 @@ pub(super) fn nominations(d:&Data,out:&Output,unit:Id<Unit>)->Result<Vec<Nominat
         Origin::Option{option}=>{let row=need(&d.source.catalog.options,*option)?;push(Subject::Option{option:*option},BindingBasis::Option,None,None);push(Subject::Member{member:row.member},BindingBasis::Option,None,None);},
         Origin::Source{artifact}=>push(Subject::Source{artifact:*artifact},BindingBasis::Source,None,None),
         Origin::Release{release}=>push(Subject::Release{release:*release},BindingBasis::DeclaredRelease,None,None),
-        Origin::Original{..}|Origin::Document{..}|Origin::UnavailableDefinition{..}=>{},
+        Origin::Document{observation}=>{let artifact=d.document_source(*observation)?;push(Subject::Source{artifact},BindingBasis::Source,None,Some((artifact,0,d.artifact_bounds(artifact)?.1)));},
+        Origin::Original{..}|Origin::UnavailableDefinition{..}=>{},
     }
     Ok(result)
 }
@@ -120,7 +123,7 @@ pub(super) fn nominates_part(d:&Data,out:&Output,part:&ContentPart,n:&Nomination
             let source=need(&out.anchor_sources,original)?;
             if super::source::coordinates(d,source)?.0==artifact {
                 let a=map.original_start.unwrap();let z=map.original_end.unwrap();
-                let defining=matches!(n.basis,BindingBasis::DirectDefinition|BindingBasis::DefinitionCandidate);
+                let defining=matches!(n.basis,BindingBasis::DirectDefinition|BindingBasis::DefinitionCandidate|BindingBasis::Source);
                 if (defining&&a>=start&&z<=end)||(!defining&&a<=start&&z>=end){return Ok(true);}
             }
         }
