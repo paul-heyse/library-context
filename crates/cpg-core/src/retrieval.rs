@@ -6,7 +6,7 @@ use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use datafusion::execution::context::SessionContext;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, FutureExt};
 use lctx_model::domain::{
     analysis::{self, retrieval::*},
     embedding::{analytic::VectorAvailability, value},
@@ -52,6 +52,7 @@ async fn realize(
 ) -> Result<Rows<RetrievalEmbeddingUse>, ModelError> {
     let specification = selected.encoder;
     let mut uses = Rows::new(b);
+    // Erase the borrowed iterator future before composing the stage (rustc #100013).
     service
         .prepare(
             output
@@ -60,6 +61,7 @@ async fn realize(
                 .filter(|window| window.availability == retrieval::WindowAvailability::Ready)
                 .map(|window| window.text.as_str()),
         )
+        .boxed()
         .await
         .map_err(ModelError::codec)?;
     for window in output.windows.iter() {

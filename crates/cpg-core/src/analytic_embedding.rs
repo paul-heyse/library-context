@@ -4,7 +4,7 @@ use crate::{
     embedding_service::Embedder,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::TryStreamExt;
+use futures::{TryStreamExt, FutureExt};
 use lctx_model::domain::{
     analysis::{self, analytic_embedding::*},
     embedding::{
@@ -222,8 +222,10 @@ pub async fn produce(
                         decode_allowance::<TextWindow>(&batch)?,
                     )?;
                     let windows = TextWindow::decode(&batch)?;
+                    // Erase the borrowed iterator future before composing the stage (rustc #100013).
                     service
                         .prepare(windows.iter().map(|window| window.text.as_str()))
+                        .boxed()
                         .await
                         .map_err(ModelError::codec)?;
                     for window in &windows {

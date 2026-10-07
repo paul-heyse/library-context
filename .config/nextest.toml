@@ -9,3 +9,9 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 [[profile.default.overrides]]
 filter = 'test(behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins)'
 slow-timeout = { period = "60s", terminate-after = 15 }
+
+# This selected control admits and explicitly exports all four frontiers in both profiles.
+# Its finite native journey needs the same orchestration allowance as the behavioral journey.
+[[profile.default.overrides]]
+filter = 'test(both_profiles_admit_every_frontier_and_export_exact_originals)'
+slow-timeout = { period = "60s", terminate-after = 15 }

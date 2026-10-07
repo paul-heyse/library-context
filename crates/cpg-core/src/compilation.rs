@@ -7,6 +7,7 @@ use crate::{
     workspace::{ProducerOutput, Workspace},
 };
 use cpg_extract::bundle::{CapturedInputs, ProviderStage};
+use futures::{FutureExt, future::BoxFuture};
 use lctx_model::domain::{
     admission::Frontier,
     analysis::{
@@ -496,13 +497,69 @@ async fn freeze_completed_inputs(
     Ok(())
 }
 
-/// Execute all selected compiler owners into completed local streams. Publication is a separate
+/// Execute all selected compiler owners into exact completed native views. Publication is a separate
 /// consumer of the admitted graph artifact and is intentionally absent from this API.
 #[allow(
     clippy::too_many_arguments,
     reason = "The compiler entry point keeps capture, profile, frontier, prepared configuration and optional embedding dependencies explicit"
 )]
 pub async fn compile(
+    workspace: &Arc<Workspace>,
+    captured: Arc<CapturedInputs>,
+    profile: Profile,
+    configuration: ContentHash,
+    frontier: Frontier,
+    prepared: Option<&PreparedCompilation>,
+    embedder: Option<&dyn Embedder>,
+    cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
+) -> Result<(), ModelError> {
+    boxed_driver(
+        workspace,
+        captured,
+        profile,
+        configuration,
+        frontier,
+        prepared,
+        embedder,
+        cache,
+    )
+    .await
+}
+
+// Keep construction and polling of the full compiler future inside this library boundary.
+#[inline(never)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The private driver preserves the explicit compiler entry point dependencies"
+)]
+fn boxed_driver<'a>(
+    workspace: &'a Arc<Workspace>,
+    captured: Arc<CapturedInputs>,
+    profile: Profile,
+    configuration: ContentHash,
+    frontier: Frontier,
+    prepared: Option<&'a PreparedCompilation>,
+    embedder: Option<&'a dyn Embedder>,
+    cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    compile_driver(
+        workspace,
+        captured,
+        profile,
+        configuration,
+        frontier,
+        prepared,
+        embedder,
+        cache,
+    )
+    .boxed()
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The private driver preserves the explicit compiler entry point dependencies"
+)]
+async fn compile_driver(
     workspace: &Arc<Workspace>,
     captured: Arc<CapturedInputs>,
     profile: Profile,
