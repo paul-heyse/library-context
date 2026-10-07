@@ -188,7 +188,10 @@ pub struct ClosureTable {
 pub struct NominalClosure {
     tables: Vec<ClosureTable>,
     pairs: BTreeSet<(usize, usize, String)>,
+    native:BTreeMap<(usize,usize,String),NativeEdge>,
 }
+#[derive(Clone,Copy)]
+struct NativeEdge{source:usize,target:usize,table:usize,field:&'static str,reverse:bool}
 impl NominalClosure {
     pub fn new(tables: Vec<ClosureTable>) -> Result<Self, ModelError> {
         if tables.is_empty() || tables.iter().any(|table| table.alias.is_empty()) {
@@ -199,6 +202,7 @@ impl NominalClosure {
         Ok(Self {
             tables,
             pairs: BTreeSet::new(),
+            native:BTreeMap::new(),
         })
     }
     /// Follow a declared nominal field. Target selection is explicit, so two vocabulary epochs
@@ -225,6 +229,8 @@ impl NominalClosure {
             identifier(&from.alias),
             identifier(field)
         );
+        let edge=NativeEdge{source,target,table:source,field:descriptor.name(),reverse:false};
+        self.native.insert((source,target,sql.clone()),edge);
         self.pairs.insert((source, target, sql));
         Ok(())
     }
@@ -244,6 +250,8 @@ impl NominalClosure {
             identifier(&from.alias),
             identifier(owner_field)
         );
+        let field=from.relation.fields().iter().find(|descriptor|descriptor.name()==owner_field).expect("validated owner field").name();
+        self.native.insert((owner,member,sql.clone()),NativeEdge{source:owner,target:member,table:member,field,reverse:true});
         self.pairs.insert((owner, member, sql));
         Ok(())
     }
@@ -340,7 +348,17 @@ impl NominalClosure {
         let mut staged =
             FileWriter::try_new(File::create(&pending).map_err(ModelError::codec)?, &schema)
                 .map_err(ModelError::codec)?;
+        let mut provider_charge=charged::StateCharge::new(budget,"semantic-edge-provider-bindings");
+        provider_charge.grow(self.tables.len().saturating_mul(size_of::<std::sync::Arc<dyn datafusion::catalog::TableProvider>>()).saturating_add(self.native.len().saturating_mul(size_of::<NativeEdge>())))?;
+        let mut providers=Vec::with_capacity(self.tables.len());
+        for table in &self.tables {providers.push(session.table_provider(table.alias.as_str()).await.map_err(ModelError::codec)?);}
+        let mut native_edges=Vec::with_capacity(self.native.len());
         for (source, target, sql) in &self.pairs {
+            if let Some(edge)=self.native.get(&(*source,*target,sql.clone())) {
+                if lctx_surrealdb::compiler_provider::is_native_table(&providers[edge.table]){native_edges.push(*edge);continue;}
+            }
+            // Only detached finite sources and owner-authored contextual pair queries need
+            // a compact bulk adjacency universe. Native declared references use the frontier.
             let frame = crate::sql::query(&session, &Self::pair_sql(*source, *target, sql))
                 .await
                 .map_err(ModelError::codec)?;
@@ -436,9 +454,6 @@ impl NominalClosure {
                 .with_catalog_list(catalogs)
                 .build(),
         );
-        index_charge.grow(self.tables.len().saturating_mul(size_of::<std::sync::Arc<dyn datafusion::catalog::TableProvider>>()))?;
-        let mut providers=Vec::with_capacity(self.tables.len());
-        for table in &self.tables {providers.push(session.table_provider(table.alias.as_str()).await.map_err(ModelError::codec)?);}
         Ok(PreparedEdges(std::sync::Arc::new(EdgeSource {
             session,
             path,
@@ -446,6 +461,8 @@ impl NominalClosure {
             reader_allowance,
             tables: self.tables.clone(),
             providers,
+            native_edges,
+            _provider_charge:provider_charge,
             _index_charge: index_charge,
             _directory: directory,
         })))
@@ -579,6 +596,8 @@ struct EdgeSource {
     reader_allowance: usize,
     tables: Vec<ClosureTable>,
     providers:Vec<std::sync::Arc<dyn datafusion::catalog::TableProvider>>,
+    native_edges:Vec<NativeEdge>,
+    _provider_charge:charged::StateCharge,
     _index_charge: charged::StateCharge,
     _directory: tempfile::TempDir,
 }
@@ -740,6 +759,35 @@ impl<'a> EdgeCursor<'a> {
 #[derive(Clone)]
 pub struct PreparedEdges(std::sync::Arc<EdgeSource>);
 impl PreparedEdges {
+    /// Project one declared native reference over a relation-qualified frontier. The captured
+    /// provider is the exact physical table epoch; target namespace remains owner-declared.
+    async fn native_targets(&self,edge:NativeEdge,keys:std::sync::Arc<Vec<[u8;16]>>,charge:std::sync::Arc<charged::StateCharge>,mut accept:impl FnMut([u8;16])->Result<(),ModelError>)->Result<(),ModelError>{
+        use arrow_array::{Array,FixedSizeBinaryArray};
+        let provider=&self.0.providers[edge.table];
+        let selected=if edge.reverse {
+            lctx_surrealdb::compiler_provider::select_field_table(provider,edge.field,keys.clone(),charge)?
+        }else{lctx_surrealdb::compiler_provider::select_table(provider,keys.clone(),charge)?}.ok_or(ModelError::Schema("native nominal edge binding"))?;
+        let schema=selected.schema();
+        let projection=vec![schema.index_of("id").map_err(ModelError::codec)?,schema.index_of(edge.field).map_err(ModelError::codec)?];
+        let state=self.0.session.state();
+        let plan=selected.scan(&state,Some(&projection),&[],None).await.map_err(ModelError::codec)?;
+        let mut stream=plan.execute(0,self.0.session.task_ctx()).map_err(ModelError::codec)?;
+        while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
+            let ids=batch.column_by_name("id").and_then(|column|column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("native nominal source key"))?;
+            let fields=batch.column_by_name(edge.field).and_then(|column|column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("native nominal target key"))?;
+            for row in 0..batch.num_rows(){
+                if fields.is_null(row){continue;}
+                if ids.is_null(row){return Err(ModelError::Schema("native nominal source key null"));}
+                let id:[u8;16]=ids.value(row).try_into().map_err(|_|ModelError::Schema("native nominal source width"))?;
+                let field:[u8;16]=fields.value(row).try_into().map_err(|_|ModelError::Schema("native nominal target width"))?;
+                let (source,target)=if edge.reverse{(field,id)}else{(id,field)};
+                if keys.binary_search(&source).is_err(){return Err(ModelError::Conflict("native nominal frontier mismatch"));}
+                accept(target)?;
+            }
+            tokio::task::yield_now().await;
+        }
+        Ok(())
+    }
     /// Compute compact keys for one explicitly selected grain. An unsupported root remains
     /// selected, and visited complete nominal keys terminate cycles before another edge read.
     pub async fn grain(
@@ -809,16 +857,35 @@ impl PreparedEdges {
         }
         drop(roots);
         let mut cursor = EdgeCursor::new(&self.0, budget)?;
-        while let Some(key) = pending.take_last(&mut traversal_charge) {
-            cursor.targets(key, budget, |target| {
-                if target.0 < 0 || target.0 as usize >= self.0.tables.len() {
-                    return Err(ModelError::Schema("nominal edge target namespace absent"));
+        while !pending.is_empty() {
+            let count=pending.len().min(lctx_surrealdb::compiler_provider::REFERENCE_KEYS);
+            let mut frontier_charge=charged::StateCharge::new(budget,"semantic-grain-native-frontier");
+            frontier_charge.grow(count.saturating_mul(64).saturating_add(4096))?;
+            let mut frontier=Vec::with_capacity(count);
+            for _ in 0..count{frontier.push(pending.take_last(&mut traversal_charge).expect("finite frontier count"));}
+            frontier.sort_unstable();
+            for key in &frontier {
+                cursor.targets(*key,budget,|target|{
+                    if target.0<0||target.0 as usize>=self.0.tables.len(){return Err(ModelError::Schema("nominal edge target namespace absent"));}
+                    if visited.insert(&mut traversal_charge,target)?{pending.push(&mut traversal_charge,target)?;}Ok(())
+                })?;
+            }
+            let frontier_charge=std::sync::Arc::new(frontier_charge);
+            let mut offset=0;
+            while offset<frontier.len(){
+                let kind=frontier[offset].0;
+                let end=offset+frontier[offset..].partition_point(|key|key.0==kind);
+                let keys=std::sync::Arc::new(frontier[offset..end].iter().map(|(_,key)|*key).collect::<Vec<_>>());
+                let first=self.0.native_edges.partition_point(|edge|(edge.source as i64)<kind);
+                let last=self.0.native_edges.partition_point(|edge|(edge.source as i64)<=kind);
+                for edge in &self.0.native_edges[first..last]{
+                    self.native_targets(*edge,keys.clone(),frontier_charge.clone(),|key|{
+                        let target=(edge.target as i64,key);
+                        if visited.insert(&mut traversal_charge,target)?{pending.push(&mut traversal_charge,target)?;}Ok(())
+                    }).await?;
                 }
-                if visited.insert(&mut traversal_charge, target)? {
-                    pending.push(&mut traversal_charge, target)?;
-                }
-                Ok(())
-            })?;
+                offset=end;
+            }
             tokio::task::yield_now().await;
         }
         drop(cursor);

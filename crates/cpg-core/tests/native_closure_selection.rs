@@ -37,6 +37,11 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime(){
     assert_eq!(statistics.num_rows,Precision::Exact(releases.len()+1));
     let mut plan=NominalClosure::new(vec![ClosureTable{relation:release_relation,alias:"releases".into()},ClosureTable{relation:package_relation,alias:"packages".into()}]).unwrap();
     plan.follow(0,"package",1).unwrap();plan.own(0,"package",1).unwrap();plan.own(0,"package",1).unwrap();
+    plan.pairs(0,1,"SELECT id AS source_id,package AS target_id FROM releases WHERE version='version-0'".into()).unwrap();
+    // Corrupt an unrelated physical reference with a schema-valid negative integer. A bulk
+    // native topology scan would try to decode it; the selected owner frontier must not.
+    let mut vars=lctx_surrealdb::surrealdb::types::Variables::new();vars.insert("key",huge.id().hex());vars.insert("wrong",vec![-1i64;16]);
+    store.client().query("UPDATE entity SET body.package=$wrong WHERE semantic_type='releases' AND semantic_key=$key RETURN NONE").bind(vars).await.unwrap().check().unwrap();
     let edges=plan.prepare(&session,&closure_budget).await.unwrap();
     let scope=edges.grain(1,&format!("id=X'{}'",package.id().hex()),&closure_budget).await.unwrap();
     let selected=scope.select(0).unwrap();assert_eq!(scope.select(0).unwrap(),selected);
@@ -52,6 +57,8 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime(){
     let mut actual=Vec::new();while let Some(batch)=stream.try_next().await.unwrap(){actual.extend(Release::decode(&batch).unwrap());}
     assert_eq!(actual,releases,"selected windows preserve semantic key order and exclude unrelated and pending payloads");
     drop(stream);assert_eq!(closure_budget.reserved(),0);
+    let mut vars=lctx_surrealdb::surrealdb::types::Variables::new();vars.insert("key",huge.id().hex());vars.insert("package",huge.package.bytes().to_vec());
+    store.client().query("UPDATE entity SET body.package=$package WHERE semantic_type='releases' AND semantic_key=$key RETURN NONE").bind(vars).await.unwrap().check().unwrap();
     let projected_scope=plan.prepare(&session,&closure_budget).await.unwrap().grain(1,&format!("id=X'{}'",unrelated.id().hex()),&closure_budget).await.unwrap();
     let batches=projected_scope.session().sql(&format!("SELECT id FROM ({}) selected",projected_scope.select(0).unwrap())).await.unwrap().collect().await.unwrap();
     assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),1);

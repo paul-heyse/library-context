@@ -17,7 +17,7 @@ pub fn table_provider(store: Arc<NativeCompilerStore>, view: CompletedView, rela
     Ok(Arc::new(NativeTable { store, view, relation, budget, batch_rows, keys:vec![] }))
 }
 #[derive(Clone)]
-struct SelectedKeys {keys:Arc<Vec<[u8;16]>>, _charge:Arc<StateCharge>}
+struct SelectedKeys {keys:Arc<Vec<[u8;16]>>, field:Option<&'static str>, _charge:Arc<StateCharge>}
 #[derive(Clone)]
 struct NativeTable { keys:Vec<SelectedKeys>, store: Arc<NativeCompilerStore>, view: CompletedView, relation: Relation, budget: ResourceBudget, batch_rows: usize }
 /// Bind sorted, distinct nominal keys before payload selection. The existing key owner charge
@@ -26,11 +26,21 @@ struct NativeTable { keys:Vec<SelectedKeys>, store: Arc<NativeCompilerStore>, vi
 pub fn select_table(provider:&Arc<dyn TableProvider>,keys:Arc<Vec<[u8;16]>>,charge:Arc<StateCharge>)->Result<Option<Arc<dyn TableProvider>>,ModelError> {
     let Some(source)=provider.downcast_ref::<NativeTable>() else{return Ok(None);};
     if keys.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Schema("native selected keys must be sorted and distinct"));}
-    let mut selected=source.clone();selected.keys.push(SelectedKeys{keys,_charge:charge});Ok(Some(Arc::new(selected)))
+    let mut selected=source.clone();selected.keys.push(SelectedKeys{keys,field:None,_charge:charge});Ok(Some(Arc::new(selected)))
+}
+/// One-hop ownership uses a bounded frontier and the relation's declared atomic reference.
+/// Larger frontiers are split by the shared closure executor before this binding is created.
+pub const REFERENCE_KEYS:usize=1024;
+pub fn is_native_table(provider:&Arc<dyn TableProvider>)->bool{provider.downcast_ref::<NativeTable>().is_some()}
+pub fn select_field_table(provider:&Arc<dyn TableProvider>,field:&str,keys:Arc<Vec<[u8;16]>>,charge:Arc<StateCharge>)->Result<Option<Arc<dyn TableProvider>>,ModelError>{
+    let Some(source)=provider.downcast_ref::<NativeTable>() else{return Ok(None);};
+    let descriptor=source.relation.fields().iter().find(|descriptor|descriptor.name()==field).ok_or(ModelError::Schema("native one-hop field"))?;
+    if descriptor.target().is_none()||descriptor.list()||!crate::schema::atomic_scope_fields().contains(descriptor.name())||keys.len()>REFERENCE_KEYS||keys.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Schema("native one-hop atomic frontier"));}
+    let mut selected=source.clone();selected.keys.push(SelectedKeys{keys,field:Some(descriptor.name()),_charge:charge});Ok(Some(Arc::new(selected)))
 }
 fn row_statistics(schema:&SchemaRef,rows:u64,keys:&[SelectedKeys],filtered:bool)->Statistics {
     let mut statistics=Statistics::new_unknown(schema.as_ref());
-    statistics.num_rows=if filtered {Precision::Absent} else if keys.is_empty(){usize::try_from(rows).map(Precision::Exact).unwrap_or(Precision::Absent)}else{
+    statistics.num_rows=if filtered || keys.iter().any(|selection|selection.field.is_some()) {Precision::Absent} else if keys.is_empty(){usize::try_from(rows).map(Precision::Exact).unwrap_or(Precision::Absent)}else{
         let upper=keys.iter().map(|selection|selection.keys.len()).min().unwrap_or(0);
         Precision::Inexact(usize::try_from(rows).map_or(upper,|rows|rows.min(upper)))
     };
@@ -110,20 +120,32 @@ fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:R
     use futures::{StreamExt,TryStreamExt};
     // Every selection is sorted and distinct; disjoint windows preserve native semantic-key
     // order. Choose the smallest demand and intersect any nested selection before transfer.
-    let driver=keys.iter().enumerate().min_by_key(|(_,selection)|selection.keys.len()).map(|(index,_)|index).expect("selected key owner");
+    let driver=keys.iter().enumerate().filter(|(_,selection)|selection.field.is_none()).min_by_key(|(_,selection)|selection.keys.len()).map(|(index,_)|index).unwrap_or(0);
     let windows=futures::stream::try_unfold((0usize,false),move |(offset,done)|{
         let store=store.clone();let view=view.clone();let relation=relation.clone();let projection=projection.clone();let predicate=predicate.clone();let keys=keys.clone();let budget=budget.clone();
         async move {
             if done{return Ok::<_,datafusion::error::DataFusionError>(None);}
             let end=offset.saturating_add(TRANSFER_ROWS).min(keys[driver].keys.len());
-            let transfer=budget.reserve("native-selected-key-transfer",(end-offset).saturating_mul(192).saturating_add(4096)).map_err(df_error)?;
-            let selected=keys[driver].keys[offset..end].iter().filter(|key|keys.iter().all(|selection|selection.keys.binary_search(key).is_ok())).map(hex::encode).collect::<Vec<_>>();
-            let mut bindings=Variables::new();bindings.insert("closure_selected_keys",selected);
-            let sql=match predicate {
-                Some(NativePredicate::Sql{sql,bindings:static_bindings})=>{bindings.extend(static_bindings);format!("semantic_key IN $closure_selected_keys AND ({sql})")},
-                None=>"semantic_key IN $closure_selected_keys".into(),
+            let field_keys=keys.iter().filter(|selection|selection.field.is_some()).map(|selection|selection.keys.len()).sum::<usize>();
+            let transfer=budget.reserve("native-selected-key-transfer",(end-offset).saturating_mul(192).saturating_add(field_keys.saturating_mul(1536)).saturating_add(4096)).map_err(df_error)?;
+            let mut bindings=Variables::new();let mut predicates=Vec::new();
+            if keys[driver].field.is_none(){
+                let selected=keys[driver].keys[offset..end].iter().filter(|key|keys.iter().filter(|selection|selection.field.is_none()).all(|selection|selection.keys.binary_search(key).is_ok())).map(hex::encode).collect::<Vec<_>>();
+                bindings.insert("closure_selected_keys",selected);predicates.push("semantic_key IN $closure_selected_keys".to_owned());
+            }
+            for (index,selection) in keys.iter().enumerate(){
+                let Some(field)=selection.field else{continue;};
+                let name=format!("closure_selected_fields_{index}");
+                let values=selection.keys.iter().map(|key|Value::Array(key.iter().map(|byte|Value::Number(Number::Int(i64::from(*byte)))).collect())).collect::<Vec<_>>();
+                bindings.insert(name.clone(),values);
+                predicates.push(format!("scope_keys CONTAINSANY ${name}.map(|$value| '{}|{field}|'+<string>$value)",relation.name()));
+            }
+            match predicate {
+                Some(NativePredicate::Sql{sql,bindings:static_bindings})=>{bindings.extend(static_bindings);predicates.push(format!("({sql})"));},
+                None=>{},
                 _=>return Err(df_error(ModelError::Schema("native table static predicate"))),
-            };
+            }
+            let sql=predicates.join(" AND ");
             // Even empty demand checks the exact view/pin through the ordinary native reader.
             let rows=scan_batches(store,view,relation,projection,Some(NativePredicate::Sql{sql,bindings}),budget,batch_rows).await.map_err(df_error)?;
             let rows=rows.map(move |batch|{let _held=&transfer;batch});
@@ -193,7 +215,7 @@ fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
                 let bound=bind(value);
                 if binary.op==Operator::Eq && column.starts_with("body.") {
                     let Expr::Column(field)=binary.left.as_ref() else{return None;};
-                    if crate::schema::SCOPE_FIELDS.contains(&field.name.as_str()) {
+                    if crate::schema::atomic_scope_fields().contains(field.name.as_str()) {
                         return Some(format!("scope_keys CONTAINS ('{}|{}|'+<string>{bound})",relation.name(),field.name));
                     }
                 }
@@ -204,7 +226,7 @@ fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
                 let items=list.list.iter().map(|value|literal(value,column=="semantic_key")).collect::<Option<Vec<_>>>()?;
                 if column.starts_with("body.") {
                     let Expr::Column(field)=list.expr.as_ref() else{return None;};
-                    if crate::schema::SCOPE_FIELDS.contains(&field.name.as_str()) {
+                    if crate::schema::atomic_scope_fields().contains(field.name.as_str()) {
                         let predicates=items.into_iter().map(|item|format!("scope_keys CONTAINS ('{}|{}|'+<string>{})",relation.name(),field.name,bind(item))).collect::<Vec<_>>();
                         return Some(if predicates.is_empty(){"false".into()}else{format!("({})",predicates.join(" OR "))});
                     }
