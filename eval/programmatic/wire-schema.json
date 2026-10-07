@@ -1,6 +1,6 @@
 {
   "protocol_version": 3,
-  "kernel_source_revision": "a6f56abca774c5150540fecb253d559173d87c26ce6c0c333195f05bf24870d8",
+  "kernel_source_revision": "9969ee9d56fdca7b3d6e8a2649d8c4cead3603db3a867c32fd568e6060188231",
   "request": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Request",

@@ -1040,14 +1040,12 @@ mod tests {
     use super::*;
     #[test]
     fn nominal_source_identity_ignores_field_order_and_preserves_values() {
-        let first: Value = serde_json::from_str(
-            r#"{"kind":"artifact","artifact":[1,2],"nested":{"z":2,"a":1}}"#,
-        )
-        .unwrap();
-        let second: Value = serde_json::from_str(
-            r#"{"nested":{"a":1,"z":2},"artifact":[1,2],"kind":"artifact"}"#,
-        )
-        .unwrap();
+        let first: Value =
+            serde_json::from_str(r#"{"kind":"artifact","artifact":[1,2],"nested":{"z":2,"a":1}}"#)
+                .unwrap();
+        let second: Value =
+            serde_json::from_str(r#"{"nested":{"a":1,"z":2},"artifact":[1,2],"kind":"artifact"}"#)
+                .unwrap();
         assert_eq!(source_key(&first).unwrap(), source_key(&second).unwrap());
         let mut foreign = second;
         foreign["artifact"] = serde_json::json!([2, 1]);
