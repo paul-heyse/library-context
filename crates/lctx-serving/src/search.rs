@@ -70,9 +70,9 @@ pub async fn lexical(
         let sql = format!(
             r#"RETURN {{
  LET $input_keys=$inputs.map(|$v|<string>$v);
- LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND array::len((SELECT VALUE id FROM lex_occurs WHERE in=$parent.id AND eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier};
+ LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND array::len((SELECT VALUE id FROM $parent.id->lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier};
  LET $scores=object::from_entries($documents.map(|$v|[<string>$v.id,$v.score]));
- LET $occurrences=SELECT *, $scores[<string>in] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND (in IN $documents.id OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $occurrences=SELECT *, $scores[<string>in] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND ($scores[<string>in]!=NONE OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
  LET $ranked=SELECT {target} AS target,context,{{a:!(exact_name=$query OR exact_path=$query OR exact_option=$query),b:-score,c:occurrence_key,hit:{{score:score,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}}}} AS rank FROM $occurrences;
  LET $grouped=SELECT target,context,rank FROM $ranked GROUP BY target,context;
  LET $winners=SELECT target,context,array::first(array::sort(rank)) AS winner FROM $grouped;
@@ -428,6 +428,6 @@ pub fn vector_selection_sql(tier: usize) -> Result<String, ModelError> {
         return Err(ModelError::Invalid("unsupported candidate tier".into()));
     }
     Ok(format!(
-        r"SELECT id,1.0-vector::distance::knn() AS score FROM vector WHERE encoder_hash=$encoder_hash AND policy_key=$policy_key AND family=$family AND library_input IN $input_keys AND array::len((SELECT VALUE id FROM vec_occurs WHERE in=$parent.id AND eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 AND embedding <|{tier},{tier}|> $vector"
+        r"SELECT id,1.0-vector::distance::knn() AS score FROM vector WHERE encoder_hash=$encoder_hash AND policy_key=$policy_key AND family=$family AND library_input IN $input_keys AND array::len((SELECT VALUE id FROM $parent.id->vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 AND embedding <|{tier},{tier}|> $vector"
     ))
 }
