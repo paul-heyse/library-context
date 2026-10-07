@@ -955,8 +955,13 @@ def test_actual_renderer_ceiling_uses_independent_source_inventory(worker):
 def test_actual_mcp_shrink_retains_task_oracle_supported_failure_and_coordinates(worker):
     from programmatic_eval import capture_renderer
     task, response = renderer_source_case()
-    task["predicates"][0]["qualifications"] = [{"id": "setup", "accepted_text": ["requires installed transport"]}]
-    case = {"task": task, "observation": capture_renderer(task, response), "mode": "immediate"}
+    # The independently authored task requires the entire captured source. Start
+    # with a truthful contiguous partial candidate, then preserve that same loss.
+    partial = copy.deepcopy(response)
+    cut = len(partial["evidence"]["body"]["bytes"]) // 2
+    partial["evidence"]["body"].update(bytes=partial["evidence"]["body"]["bytes"][:cut], end=cut)
+    partial["delivery"]["fields"][1]["original"]["end"] = cut
+    case = {"task": task, "observation": capture_renderer(task, partial), "mode": "immediate"}
     initial = list(worker.judge([case]))[0]
     assert initial["scorable"] and initial["epistemic"] == "insufficient"
     result = minimize_mcp(worker, case, max_trials=16)
