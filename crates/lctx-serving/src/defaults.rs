@@ -49,7 +49,8 @@ pub fn closure(source:&CanonicalBatches, core:&OperationCore, budget:&ResourceBu
                         if q.context!=signature.analysis {continue;}
                         (DefaultDeclaration::SourceParameter,Some(row.qualification),row.default)
                     },
-                    catalog::CatalogOptionEvidence::NativeParameter{..}=>{
+                    catalog::CatalogOptionEvidence::NativeParameter{slot}=>{
+                        if parameter.slot.0!=Some(*slot){return Err(ModelError::Conflict("native parameter default slot"));}
                         let qualification=signature.native.0.map(|id|need(&native_signatures,id).map(|row|row.qualification)).transpose()?;
                         if qualification.is_some_and(|id|quals.iter().any(|q|q.id()==id&&q.context!=signature.analysis)){continue;}
                         (DefaultDeclaration::NativeSignature,qualification,None)
@@ -134,7 +135,8 @@ pub fn qualified(source:&CanonicalBatches, analyses:BTreeSet<Id<attribution::Ana
         let constant=if diagram.is_true(){Some(true)}else if diagram.is_false(){Some(false)}else{None};
         values.push(QualificationInterpretation{qualification:q.id(),analysis:q.context,scope:q.scope,condition:q.condition,constant:Nullable(constant),terms,truncated:rendered.truncated,modality:Name::new(match q.modality{attribution::Modality::Definite=>"definite",attribution::Modality::Candidate=>"candidate",attribution::Modality::Potential=>"potential"}).map_err(wire)?,approximation:Name::new(match q.approximation{assertion::Approximation::Exact=>"exact",assertion::Approximation::Over=>"over",assertion::Approximation::Under=>"under",assertion::Approximation::Mixed=>"mixed",assertion::Approximation::Unknown=>"unknown"}).map_err(wire)?,claim_basis:claims.basis(q.id())?,availability:if constant.is_some()&&!rendered.truncated{Availability::Available{}}else{partial("condition_readability_pending")?}});
     }
-    Ok(InterpretationClosure{contexts:analyses.iter().map(|id|context(need(&contexts,*id)?)).collect::<Result<_,_>>()?,defaults:vec![],qualifications:values,availability:Availability::Available{}})
+    let availability=if !analyses.is_empty()&&values.iter().all(|q|matches!(q.availability,Availability::Available{})){Availability::Available{}}else{partial("interpretation_has_missing_context_or_opaque_conditions")?};
+    Ok(InterpretationClosure{contexts:analyses.iter().map(|id|context(need(&contexts,*id)?)).collect::<Result<_,_>>()?,defaults:vec![],qualifications:values,availability})
 }
 /// Read all nominated exact originals in bounded unions. No per-default/atom network loop.
 pub async fn read_originals(reader:&NativeReader,closure:&mut InterpretationClosure,request:&Request,budget:&ResourceBudget)->Result<(),ModelError> {
