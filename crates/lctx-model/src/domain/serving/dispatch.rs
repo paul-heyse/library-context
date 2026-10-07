@@ -2,6 +2,7 @@
 use super::identity::{RequestIdentity, WireIdentity};
 use super::*;
 use crate::domain::{KeySink, selection};
+use crate::domain::resources::{Reservation, ResourceBudget};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -49,16 +50,14 @@ macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:i
             let summary=format!("{}: snapshot-bound result",self.tool().name()); let mut writer=CountBytes(0);
             match self{$(Self::$variant(response)=>serde_json::to_writer(&mut writer,&McpResult{content:[McpText{kind:"text",text:&summary}],structured:response,error:false})?),*};Ok(writer.0)
         }
-        pub fn mcp_result_json(&self)->Result<String,WireError>{
+        pub fn encode_mcp_result(&self,budget:&ResourceBudget,limit:usize)->Result<EncodedJson,WireError>{
             let summary=format!("{}: snapshot-bound result",self.tool().name());
-            match self{$(Self::$variant(response)=>Ok(serde_json::to_string(&McpResult{content:[McpText{kind:"text",text:&summary}],structured:response,error:false})?)),*}
+            match self{$(Self::$variant(response)=>encode_json(&McpResult{content:[McpText{kind:"text",text:&summary}],structured:response,error:false},budget,limit,"final MCP envelope bytes")),*}
         }
         pub fn delivery_mut(&mut self)->&mut Optional<PacketEvidenceMap>{match self{$(Self::$variant(response)=>&mut response.delivery),*}}
-        /// Count canonical wire bytes without allocating a response buffer.
-        pub fn json_len(&self)->Result<usize,WireError>{
-            let mut writer=CountBytes(0);
-            match self{$(Self::$variant(response)=>serde_json::to_writer(&mut writer,response)?),*}
-            Ok(writer.0)
+        /// Encode the final raw response once, retaining its allocation charge until transport.
+        pub fn encode_json(&self,budget:&ResourceBudget,limit:usize)->Result<EncodedJson,WireError>{
+            match self{$(Self::$variant(response)=>encode_json(response,budget,limit,"complete structured response bytes")),*}
         }
     }
     pub fn decode_request(name:&str,raw:&str,limits:&ResourceLimits)->Result<Request,WireError>{
@@ -100,6 +99,153 @@ struct McpResult<'a, T: Serialize> {
     #[serde(rename = "isError")]
     error: bool,
 }
+/// Final wire bytes and their live reservation. Transports borrow these bytes while copying;
+/// Rust callers that take ownership of the String explicitly release the reservation.
+#[derive(Debug)]
+pub struct EncodedJson {
+    bytes: String,
+    _charge: Box<dyn Reservation>,
+}
+impl EncodedJson {
+    pub fn as_str(&self) -> &str {
+        &self.bytes
+    }
+    pub fn into_string(self) -> String {
+        self.bytes
+    }
+}
+const ENCODING_GROWTH_BYTES: usize = 8 * 1024;
+struct BoundedJson {
+    bytes: Vec<u8>,
+    charge: Box<dyn Reservation>,
+    limit: usize,
+    refusal: &'static str,
+    failure: Option<WireError>,
+}
+impl BoundedJson {
+    fn append(&mut self, bytes: &[u8]) -> Result<(), WireError> {
+        let end = self.bytes.len().checked_add(bytes.len())
+            .filter(|end| *end <= self.limit)
+            .ok_or_else(|| WireError::ResourceRefused(self.refusal.into()))?;
+        let mut remaining = bytes;
+        while self.bytes.len() < end {
+            if self.bytes.len() == self.bytes.capacity() {
+                // Geometric small growth, then bounded increments. Never reserve the maximum
+                // eagerly; charge both final storage and the existing bridge-copy allowance.
+                let old = self.bytes.capacity();
+                let increment = old.max(64).min(ENCODING_GROWTH_BYTES);
+                let capacity = old.saturating_add(increment).min(self.limit);
+                let charged = capacity.checked_mul(2)
+                    .ok_or_else(|| WireError::ResourceRefused(self.refusal.into()))?;
+                self.charge.try_resize(charged).map_err(|_| {
+                    WireError::Failure(PublicFailure::new(FailureKind::ResourceRefused))
+                })?;
+                self.bytes.try_reserve_exact(capacity - self.bytes.len())
+                    .map_err(|_| WireError::ResourceRefused("response allocation".into()))?;
+            }
+            let count = remaining.len().min(self.bytes.capacity() - self.bytes.len());
+            self.bytes.extend_from_slice(&remaining[..count]);
+            remaining = &remaining[count..];
+        }
+        Ok(())
+    }
+}
+impl std::io::Write for BoundedJson {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if let Err(error) = self.append(bytes) {
+            self.failure = Some(error);
+            return Err(std::io::Error::other("bounded response encoding refused"));
+        }
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+fn encode_json<T: Serialize>(value: &T, budget: &ResourceBudget, limit: usize, refusal: &'static str) -> Result<EncodedJson, WireError> {
+    let charge = budget.reserve("native-complete-response", 0)
+        .map_err(|_| WireError::Failure(PublicFailure::new(FailureKind::ResourceRefused)))?;
+    let mut writer = BoundedJson { bytes: Vec::new(), charge, limit, refusal, failure: None };
+    if let Err(error) = serde_json::to_writer(&mut writer, value) {
+        return Err(writer.failure.take().unwrap_or_else(|| error.into()));
+    }
+    let bytes = String::from_utf8(writer.bytes)
+        .map_err(|error| WireError::Invalid(error.to_string()))?;
+    Ok(EncodedJson { bytes, _charge: writer.charge })
+}
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn bounded_encoding_preserves_exact_utf8_escaping_null_and_numeric_bytes() {
+        let value = serde_json::json!({
+            "text": "é🦀\n\t\"\\",
+            "null": null,
+            "integer": u64::MAX,
+            "number": 1.25,
+            "large": "α\\\n".repeat(9000),
+        });
+        let expected = serde_json::to_string(&value).unwrap();
+        for limit in [expected.len(), expected.len() + 1] {
+            let budget = ResourceBudget::fixed((limit + ENCODING_GROWTH_BYTES) * 2).unwrap();
+            let encoded = encode_json(&value, &budget, limit, "exact cap").unwrap();
+            assert_eq!(encoded.as_str(), expected);
+            assert!(budget.reserved() >= encoded.as_str().len() * 2);
+            assert!(budget.reserved() <= limit * 2);
+            drop(encoded);
+            assert_eq!(budget.reserved(), 0);
+        }
+        let budget = ResourceBudget::fixed(expected.len() * 2).unwrap();
+        assert!(matches!(
+            encode_json(&value, &budget, expected.len() - 1, "exact cap"),
+            Err(WireError::ResourceRefused(message)) if message == "exact cap"
+        ));
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn reservation_refusal_precedes_buffer_growth_and_releases_on_drop() {
+        let budget = ResourceBudget::fixed(128).unwrap();
+        let mut writer = BoundedJson {
+            bytes: Vec::new(),
+            charge: budget.reserve("test-response", 0).unwrap(),
+            limit: 65536,
+            refusal: "exact cap",
+            failure: None,
+        };
+        writer.write_all(&[b'x'; 64]).unwrap();
+        assert_eq!(writer.bytes.capacity(), 64);
+        assert_eq!(budget.reserved(), 128);
+        assert!(writer.write_all(b"x").is_err());
+        assert_eq!(writer.bytes.len(), 64);
+        assert_eq!(writer.bytes.capacity(), 64);
+        assert!(matches!(writer.failure,
+            Some(WireError::Failure(PublicFailure { kind: FailureKind::ResourceRefused, .. }))));
+        drop(writer);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn small_output_does_not_reserve_configured_maximum_and_serializes_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Once(AtomicUsize);
+        impl Serialize for Once {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                assert_eq!(self.0.fetch_add(1, Ordering::Relaxed), 0);
+                serializer.serialize_str("small")
+            }
+        }
+        let budget = ResourceBudget::fixed(128).unwrap();
+        let value = Once(AtomicUsize::new(0));
+        let encoded = encode_json(&value, &budget, 256 * 1024, "exact cap").unwrap();
+        assert_eq!(encoded.as_str(), "\"small\"");
+        assert_eq!(budget.peak(), Some(128));
+        drop(encoded);
+        assert_eq!(budget.reserved(), 0);
+    }
+}
 struct CountBytes(usize);
 impl std::io::Write for CountBytes {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -137,11 +283,15 @@ pub fn schema_for<T: JsonSchema>(output: bool) -> Value {
 }
 /// The complete structured result is accompanied by concise discovery text, never copied into it.
 pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, WireError> {
+    Ok(encode_tool_result(name, raw, expanded)?.into_string())
+}
+/// Keep the bounded final MCP encoding charged until the bridge has copied its bytes.
+pub fn encode_tool_result(name: &str, raw: &str, expanded: bool) -> Result<EncodedJson, WireError> {
     let limits = ResourceLimits::default();
     let response = decode_response(name, raw, expanded, &limits)?;
-    let encoded = response.mcp_result_json()?;
-    admit_envelope(&encoded, expanded)?;
-    Ok(encoded)
+    let budget = ResourceBudget::fixed(limits.request_bytes as usize)
+        .map_err(|_| WireError::Failure(PublicFailure::new(FailureKind::ResourceRefused)))?;
+    response.encode_mcp_result(&budget, limits.response_bytes(expanded) as usize)
 }
 /// Apply the byte contract to the transport's actual serialized envelope, including text,
 /// structured data and protocol metadata. Admission precedes any JSON allocation.

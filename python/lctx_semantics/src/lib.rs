@@ -1,7 +1,7 @@
 //! Pure canonical serving schemas and wire validation; semantic requests run in their model owner.
 mod session;
 use lctx_model::domain::{embedding::Spec, serving};
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{exceptions::PyValueError, prelude::*, types::PyString};
 pyo3::create_exception!(
     lctx_semantics,
     NativeFailure,
@@ -22,7 +22,7 @@ fn error(e: serving::WireError) -> PyErr {
     public_error(e.public_failure())
 }
 fn response_error(e: serving::WireError) -> PyErr {
-    let kind = if matches!(e, serving::WireError::ResourceRefused(_)) {
+    let kind = if e.public_failure().kind == serving::FailureKind::ResourceRefused {
         serving::FailureKind::ResourceRefused
     } else {
         serving::FailureKind::Corrupt
@@ -98,9 +98,12 @@ fn wire_resources() -> PyResult<String> {
 }
 #[pyfunction]
 #[pyo3(signature=(name,raw,expanded=false))]
-fn wire_tool_result(py: Python<'_>, name: &str, raw: &str, expanded: bool) -> PyResult<String> {
-    py.detach(|| serving::tool_result(name, raw, expanded))
-        .map_err(response_error)
+fn wire_tool_result(py: Python<'_>, name: &str, raw: &str, expanded: bool) -> PyResult<Py<PyString>> {
+    let encoded = py.detach(|| serving::encode_tool_result(name, raw, expanded))
+        .map_err(response_error)?;
+    let result = PyString::new(py, encoded.as_str()).unbind();
+    drop(encoded);
+    Ok(result)
 }
 #[pyfunction]
 #[pyo3(signature=(encoded,expanded=false))]
