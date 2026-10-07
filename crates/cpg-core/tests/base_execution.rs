@@ -394,3 +394,6 @@ async fn exact_exception_handlers_preserve_order_and_runtime_completion() {
     )
     .await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

@@ -196,8 +196,8 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
             memory_bytes: memory,
             batch_rows,
             partitions: 1,
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let output = workspace.output(
         "analytic-fixture",
@@ -206,6 +206,7 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
         workspace
             .inputs("analytic-fixture", stages::Profile::Catalog, [])
             .unwrap(),
+    { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::analytic_text_inputs!(inventory); inventory },
     );
     let mut names = Vec::new();
     macro_rules! emit {($($field:ident:$ty:ty,)*)=>{$(names.push(<$ty>::NAME);output.declare::<$ty>().unwrap();for row in data.$field.iter() {output.push(row.clone()).await.unwrap();})*};}
@@ -225,6 +226,7 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
         stages::Profile::Catalog,
         ContentHash::of(b"text"),
         inputs.clone(),
+        [TextDefinition::NAME,TextSubject::NAME,TextAssessment::NAME,TextWindow::NAME],
     );
     let definition = TextDefinition {
         requested,
@@ -313,8 +315,8 @@ async fn source_subject_closure_renders_exact_parameters_docstring_and_windows_a
     let first = run(&data, true, 8 << 20, 1024).await;
     let second = run(&data, true, 8 << 20, 1).await;
     assert_eq!(
-        first.completed::<TextWindow>().unwrap().content(),
-        second.completed::<TextWindow>().unwrap().content()
+        first.completed::<TextWindow>().unwrap().view_identity(),
+        second.completed::<TextWindow>().unwrap().view_identity()
     );
     assert!(first.completed::<TextWindow>().unwrap().rows() > 1);
 }
@@ -417,8 +419,8 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
             memory_bytes: 4 << 20,
             batch_rows: 8,
             partitions: 1,
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let facts = workspace.output(
         "embedding-fixture",
@@ -427,6 +429,7 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
         workspace
             .inputs("embedding-fixture", stages::Profile::Catalog, [])
             .unwrap(),
+    { let mut inventory=vec![AnalysisDefinition::NAME,MethodParameters::NAME]; macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(inventory.push(<$ty>::NAME);)*};} lctx_model::expected_domain_inputs!(inventory); lctx_model::analytic_consumption_inputs!(inventory); inventory },
     );
     let mut names = std::collections::BTreeSet::new();
     macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(if names.insert(<$ty>::NAME) {facts.declare::<$ty>().unwrap();})*};}
@@ -567,6 +570,9 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
         stages::Profile::Catalog,
         ContentHash::of(b"embedding"),
         inputs.clone(),
+        { let mut inventory=vec![AnalysisEmbeddingUse::NAME,embedding::value::FullValue::NAME,embedding::projection::ProjectedValue::NAME];
+          macro_rules! inventory {($($record:ident,)*)=>{$(inventory.push(analysis::analytic_embedding::$record::NAME);)*};}
+          lctx_model::analysis_publication!(inventory); inventory },
     );
     cpg_core::analytic_embedding::produce(
         inputs,
@@ -717,3 +723,6 @@ async fn multi_source_documentary_and_dependency_scopes_keep_original_bytes_and_
         "two release declarations and documentary passage, without the dependency declaration"
     );
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

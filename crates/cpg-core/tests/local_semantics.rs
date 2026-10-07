@@ -233,3 +233,6 @@ fn catalog_local_keeps_expected_metadata_out_of_unrequested_domain_state() {
         "Catalog still retains its declared provider metadata"
     );
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

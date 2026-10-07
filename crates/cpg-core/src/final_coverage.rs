@@ -43,8 +43,8 @@ pub async fn produce(
     let records = frontier::derive(&data, target, budget)?;
     match target {
         Target::Analysis => {
-            output.declare::<frontier::AnalysisAssessment>()?;
-            output.declare::<frontier::AnalysisMember>()?;
+            output.declare_async::<frontier::AnalysisAssessment>().await?;
+            output.declare_async::<frontier::AnalysisMember>().await?;
             for row in records.analysis.iter() {
                 output.push(row.clone()).await?;
             }
@@ -53,8 +53,8 @@ pub async fn produce(
             }
         }
         Target::Catalog => {
-            output.declare::<frontier::CatalogAssessment>()?;
-            output.declare::<frontier::CatalogMember>()?;
+            output.declare_async::<frontier::CatalogAssessment>().await?;
+            output.declare_async::<frontier::CatalogMember>().await?;
             for row in records.catalog.iter() {
                 output.push(row.clone()).await?;
             }

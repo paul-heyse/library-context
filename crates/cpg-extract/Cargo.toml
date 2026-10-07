@@ -50,6 +50,7 @@ tokio = { workspace = true, features = ["sync"] }
 blake3.workspace = true
 
 [dev-dependencies]
+lctx-surrealdb = { path = "../lctx-surrealdb" }
 ruff_ranged_value.workspace = true
 ty_ide.workspace = true
 ty_project.workspace = true

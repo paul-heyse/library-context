@@ -1,4 +1,4 @@
-//! Independent native facts producers into immutable completed workspace streams.
+//! Independent facts producers into exact persisted completed contribution views.
 use crate::workspace::{ProducerOutput, Workspace, WorkspaceOptions};
 use cpg_extract::bundle::{self, CapturedInputs, ProviderStage};
 use lctx_model::domain::{
@@ -9,8 +9,7 @@ use lctx_model::domain::{
 use std::sync::Arc;
 
 /// Run the production facts providers, accepting their enumeration in any order. Dependency
-/// ordering is computed from declarations; runtime reads bind exact immutable inputs, with no
-/// store, stage grants, or execution receipts.
+/// ordering is computed from declarations; runtime reads bind exact persisted completed inputs.
 pub async fn compile_facts(
     workspace: &Arc<Workspace>,
     captured: &Arc<CapturedInputs>,
@@ -83,6 +82,7 @@ pub async fn inspect(
     captured: Arc<CapturedInputs>,
     options: WorkspaceOptions,
     profile: Profile,
+    native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
 ) -> Result<(Arc<ValidatedModel>, Arc<Workspace>), ModelError> {
     inspect_with(
         captured,
@@ -90,6 +90,7 @@ pub async fn inspect(
         profile,
         providers(ContentHash::of(b"facts-inspection")),
         TransferLimits::default(),
+        native,
     )
     .await
 }
@@ -99,10 +100,11 @@ pub async fn inspect_with(
     profile: Profile,
     providers: Vec<Box<dyn ProviderStage<ProducerOutput>>>,
     limits: TransferLimits,
+    native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
 ) -> Result<(Arc<ValidatedModel>, Arc<Workspace>), ModelError> {
     let model = Arc::new(lctx_model::domain::model()?);
     let workspace =
-        Workspace::with_budget(model.clone(), options, captured.config().budget().clone())?;
+        Workspace::with_budget(model.clone(), options, captured.config().budget().clone(), native)?;
     compile_facts(&workspace, &captured, profile, providers, limits).await?;
     Ok((model, workspace))
 }
@@ -114,9 +116,10 @@ pub async fn inspect_with_budget(
     providers: Vec<Box<dyn ProviderStage<ProducerOutput>>>,
     limits: TransferLimits,
     budget: lctx_model::domain::resources::ResourceBudget,
+    native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
 ) -> Result<(Arc<ValidatedModel>, Arc<Workspace>), ModelError> {
     let model = Arc::new(lctx_model::domain::model()?);
-    let workspace = Workspace::with_budget(model.clone(), options, budget)?;
+    let workspace = Workspace::with_budget(model.clone(), options, budget, native)?;
     compile_facts(&workspace, &captured, profile, providers, limits).await?;
     workspace.validate().await?;
     Ok((model, workspace))

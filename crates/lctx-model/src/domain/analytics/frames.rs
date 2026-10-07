@@ -133,6 +133,10 @@ pub fn verify_with_policy(
             }
             count += 1;
         }
+        if !build::requested(s) {
+            expected.extend(build::not_requested(d, &frame, &c.invocations, b, attributes)?)?;
+            continue;
+        }
         let assessment = need(&d.graphs.assessments, sf.invocation_graph)?;
         let mut headers = d
             .graphs

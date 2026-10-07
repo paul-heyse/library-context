@@ -15,7 +15,7 @@ async fn normalized_is_self_contained_and_repeatable() {
         )
         .await;
         if profile == Profile::Behavioral {
-            let content = fixture.workspace.content().unwrap();
+            let content = fixture.workspace.identity().unwrap();
             if let Some(previous) = previous {
                 assert_eq!(previous, content);
             }
@@ -47,7 +47,8 @@ async fn empty_captured_scope_completes_explicit_no_scope_and_empty_snapshots() 
     use cpg_extract::{acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput};
     use std::sync::Arc;
     let workspace =
-        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default()).unwrap();
+        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default(), crate::native_fixture::store()
+).unwrap();
     let captured = Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
             CapturedInput::capture(
@@ -98,3 +99,6 @@ async fn empty_captured_scope_completes_explicit_no_scope_and_empty_snapshots() 
     .await;
     assert_eq!(count, 4);
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

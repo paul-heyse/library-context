@@ -100,3 +100,6 @@ async fn behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins() {
     .await;
     assert_eq!(suppress, 0);
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

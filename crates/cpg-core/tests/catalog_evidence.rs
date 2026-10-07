@@ -94,3 +94,6 @@ async fn contextual_catalog_preserves_original_roots() {
 async fn behavioral_contextual_catalog_retains_earlier_locations_without_heap_state() {
     run(Profile::Behavioral).await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

@@ -252,14 +252,14 @@ pub async fn produce(
     let mut outcomes = Rows::new(b);
     let mut receipts = Rows::new(b);
     let (_, definition) = build::definition();
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::retrieval::$record>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::retrieval::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
-    output.declare::<RetrievalEmbeddingUse>()?;
-    output.declare::<embedding::value::FullValue>()?;
-    output.declare::<embedding::projection::ProjectedValue>()?;
+    output.declare_async::<RetrievalEmbeddingUse>().await?;
+    output.declare_async::<embedding::value::FullValue>().await?;
+    output.declare_async::<embedding::projection::ProjectedValue>().await?;
     // Declare the complete owner output once, including genuinely empty families.
     // Each root then contributes rows to these same publications.
-    macro_rules! mandatory_publication {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! mandatory_publication {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::retrieval_outputs!(mandatory_publication);
     for (input, context) in frames.iter() {
         let mut ids = Vec::with_capacity(2);

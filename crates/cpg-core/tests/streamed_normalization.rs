@@ -435,8 +435,8 @@ async fn run(data: &mut RelationData, memory: usize, batch_rows: usize) -> Arc<W
             memory_bytes: memory,
             batch_rows,
             partitions: 1,
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let facts = workspace.output(
         "scoped-fixture",
@@ -445,6 +445,7 @@ async fn run(data: &mut RelationData, memory: usize, batch_rows: usize) -> Arc<W
         workspace
             .inputs("scoped-fixture", Profile::Catalog, [])
             .unwrap(),
+    { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty => $family:ident,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_entity_inputs!(inventory); lctx_model::normalized_relation_inputs!(inventory); inventory },
     );
     let mut names = std::collections::BTreeSet::new();
     macro_rules! facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(if names.insert(<$ty>::NAME) { facts.declare::<$ty>().unwrap();for row in data.facts.$field.iter() {facts.push(row.clone()).await.unwrap();} })* }; }
@@ -523,7 +524,7 @@ async fn multi_input_cross_module_scopes_preserve_exact_outputs_and_release_prem
     let mut tiny_batches = dataset(&budget);
     let first = run(&mut ordinary, 32 << 20, 1024).await;
     let second = run(&mut tiny_batches, 32 << 20, 1).await;
-    macro_rules! compare { ($($field:ident: $ty:ty,)*) => { $(assert_eq!(first.completed::<$ty>().unwrap().content(),second.completed::<$ty>().unwrap().content());)* }; }
+    macro_rules! compare { ($($field:ident: $ty:ty,)*) => { $(assert_eq!(first.completed::<$ty>().unwrap().view_identity(),second.completed::<$ty>().unwrap().view_identity());)* }; }
     lctx_model::normalized_entity_outputs!(compare);
     lctx_model::normalized_relation_outputs!(compare);
     drop(ordinary);
@@ -555,7 +556,8 @@ async fn empty_completed_scopes_finish_without_diagnostic_replay() {
 async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_budget() {
     async fn run_wide(options: WorkspaceOptions) -> Vec<(&'static str, ContentHash, u64)> {
         let model = Arc::new(model().unwrap());
-        let workspace = Workspace::new(model.clone(), options).unwrap();
+        let workspace = Workspace::new(model.clone(), options, crate::native_fixture::store()
+).unwrap();
         let facts = workspace.output(
             "wide-scope-fixture",
             Profile::Catalog,
@@ -563,6 +565,7 @@ async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_bud
             workspace
                 .inputs("wide-scope-fixture", Profile::Catalog, [])
                 .unwrap(),
+        { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty => $family:ident,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_entity_inputs!(inventory); inventory },
         );
         macro_rules! declare { ($($field:ident: $ty:ty => $family:ident,)*) => { $(facts.declare::<$ty>().unwrap();)* }; }
         lctx_model::normalized_entity_inputs!(declare);
@@ -656,7 +659,7 @@ async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_bud
         let mut contents = Vec::new();
         macro_rules! contents { ($($field:ident: $ty:ty,)*) => { $(
             let completed = workspace.completed::<$ty>().unwrap();
-            contents.push((<$ty>::NAME, completed.content(), completed.rows()));
+            contents.push((<$ty>::NAME, completed.view_identity(), completed.rows()));
         )* }; }
         lctx_model::normalized_entity_outputs!(contents);
         contents
@@ -678,3 +681,6 @@ async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_bud
         "canonical normalization output changes with memory/partition configuration"
     );
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

@@ -75,3 +75,6 @@ async fn run(profile: Profile) {
 async fn mandatory_catalog_uses_completed_normalized_contracts() {
     run(Profile::Catalog).await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

@@ -324,7 +324,7 @@ pub async fn entities(
         syntax::ClassFieldSyntaxObservation,
     };
     let session = access.session(runtime).await?;
-    macro_rules! declare { ($($field:ident: $ty:ty,)*) => { $(output.declare::<$ty>()?;)* }; }
+    macro_rules! declare { ($($field:ident: $ty:ty,)*) => { $(output.declare_async::<$ty>().await?;)* }; }
     lctx_model::normalized_entity_outputs!(declare);
     let mut owners = entity_normalization::OwnershipSweep::new(runtime.budget());
     // Merge compact module keys with the structural stream. A rich occurrence-side hash join
@@ -920,7 +920,7 @@ pub async fn relations(
         value::*,
     };
     let session = access.session(runtime).await?;
-    macro_rules! declare { ($($field:ident: $ty:ty,)*) => { $(output.declare::<$ty>()?;)* }; }
+    macro_rules! declare { ($($field:ident: $ty:ty,)*) => { $(output.declare_async::<$ty>().await?;)* }; }
     lctx_model::normalized_relation_outputs!(declare);
     let roots = [
         (ReferenceObservation::NAME, RelationKernel::Reference),
@@ -982,7 +982,7 @@ pub async fn callables(
         calls::Signature, normalized::callable_normalization, normalized::entities::CallableEntity,
         types::NativeOverloadObservation,
     };
-    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::normalized_callable_outputs!(declare);
     let session = access.session(runtime).await?;
     for (kernel, root) in [
@@ -1111,7 +1111,7 @@ pub async fn aspects(
         runtime.budget(),
     )
     .await?;
-    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::callable_aspect_outputs!(declare);
     for (index, root) in prepared.roots.iter().enumerate() {
         let filter = if index == 2 {
@@ -1199,7 +1199,7 @@ pub(crate) async fn receivers_produced(
     let declaration = ValidationInput::of::<calls::CallTarget>(&["id"]);
     let _permit = access.read_at::<calls::CallTarget>(declaration.prefix())?;
     let table = access.table_for(&declaration)?;
-    macro_rules! declare {($($field:ident: $ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident: $ty:ty,)*) => {$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::normalized_receiver_outputs!(declare);
     let mut stream = crate::sql::query(
         &session,
@@ -1273,7 +1273,7 @@ pub(crate) async fn events_produced(
     .1;
     let mut seen: charged::ChargedSet<EventKey> = Default::default();
     let mut charge = charged::StateCharge::new(runtime.budget(), "event-root-keys");
-    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::normalized_event_outputs!(declare);
     // Every provider site, target and resolution is a root, including unsupported/empty sets.
     // Compact deduplication roots the complete qualified domain exactly once.
@@ -1493,7 +1493,7 @@ pub(crate) async fn bindings_prepared(
         runtime.budget(),
     )?
     .1;
-    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::normalized_binding_outputs!(declare);
     let input = ValidationInput::of::<normalized::events::NormalizedCallEvent>(&["id"]);
     let _permit = access.read_at::<normalized::events::NormalizedCallEvent>(input.prefix())?;
@@ -1560,7 +1560,7 @@ pub async fn projections(
     })*};}
     lctx_model::projection_inputs!(read);
     let prepared = data.prepare(runtime.budget())?;
-    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::projection_outputs!(declare);
     for key in prepared.keys() {
         let rows = crate::stage_runtime::borrowed_cpu(access.name(), || {
@@ -1609,12 +1609,12 @@ pub async fn coverage(
     }
     drop(stream);
     drop(session);
-    output.declare::<NormalizationComputation>()?;
-    output.declare::<NormalizationOutputReceipt>()?;
-    output.declare::<NormalizationCoverage>()?;
-    output.declare::<NormalizationPremise>()?;
-    output.declare::<NormalizationEvidenceSet>()?;
-    output.declare::<NormalizationEvidenceMember>()?;
+    output.declare_async::<NormalizationComputation>().await?;
+    output.declare_async::<NormalizationOutputReceipt>().await?;
+    output.declare_async::<NormalizationCoverage>().await?;
+    output.declare_async::<NormalizationPremise>().await?;
+    output.declare_async::<NormalizationEvidenceSet>().await?;
+    output.declare_async::<NormalizationEvidenceMember>().await?;
     let prepared = CoveragePreparation::new(&evidence, &artifacts, runtime.budget())?;
     for record in prepared.evidence_records() {
         runtime.cancellation().check()?;
@@ -1673,7 +1673,7 @@ pub async fn coverage(
                     computation: id,
                     relation: relation.name().into(),
                     rows: source.rows(),
-                    content: source.content(),
+                    view: source.view(),
                 })
                 .await?;
         }

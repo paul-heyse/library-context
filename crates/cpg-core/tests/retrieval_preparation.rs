@@ -43,3 +43,6 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     let unrun:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM retrieval_corpus_texts WHERE CAST(text AS VARCHAR) LIKE '%execution=NotRun%'").await;
     assert!(unrun > 0);
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

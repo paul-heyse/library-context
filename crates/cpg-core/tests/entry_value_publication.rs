@@ -217,3 +217,6 @@ async fn local_entry_and_stability_derive_from_native_completed_sources() {
 async fn local_replay_refuses_forged_existing_native_entry_premise() {
     run(true).await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

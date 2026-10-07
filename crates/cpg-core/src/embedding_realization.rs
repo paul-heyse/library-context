@@ -873,7 +873,8 @@ mod tests {
             ])
             .collect();
         let model = Arc::new(ValidatedModel::declared(relations).unwrap());
-        let workspace = Workspace::new(model, Default::default()).unwrap();
+        let workspace = Workspace::new(model, Default::default(), crate::test_native::store()
+).unwrap();
         let budget = workspace.budget();
         let configuration =
             || Configuration::new(provider.spec(), provider.endpoint(), budget).unwrap();
@@ -885,6 +886,7 @@ mod tests {
             workspace
                 .inputs("e1", stages::Profile::Catalog, [])
                 .unwrap(),
+        [<FullValue>::NAME, <ProjectedValue>::NAME],
         );
         output.declare::<FullValue>().unwrap();
         output.declare::<ProjectedValue>().unwrap();
@@ -933,6 +935,7 @@ mod tests {
             workspace
                 .inputs("no_duplicate", stages::Profile::Catalog, [])
                 .unwrap(),
+        [],
         );
         let replay = retrieval.publish("same", &no_outputs).await.unwrap();
         assert_eq!(replay.value, first.value);
@@ -948,6 +951,7 @@ mod tests {
             workspace
                 .inputs("e0", stages::Profile::Catalog, [])
                 .unwrap(),
+        [<FullValue>::NAME, <ProjectedValue>::NAME],
         );
         output.declare::<FullValue>().unwrap();
         output.declare::<ProjectedValue>().unwrap();

@@ -16,18 +16,14 @@ use std::{
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
-fn visit<R: Record>(
-    workspace: &Workspace,
-    mut accept: impl FnMut(&R) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    for batch in workspace
-        .completed::<R>()?
-        .read::<R>(workspace.model().clone(), workspace.budget().clone())?
-    {
-        let batch = batch?;
-        for row in batch.rows() {
-            accept(row)?;
-        }
+async fn visit<R:Record>(workspace:&Workspace,mut accept:impl FnMut(&R)->Result<(),ModelError>)->Result<(),ModelError>{
+    use futures::TryStreamExt;
+    let source=workspace.completed::<R>()?;
+    let mut stream=workspace.native().scan_batches(source.view(),&Relation::of::<R>(),None,None,workspace.budget(),workspace.options().batch_rows).await?;
+    while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
+        workspace.cancellation().check()?;
+        let batch=Batch::<R>::read(workspace.model(),&batch,workspace.budget())?;
+        for row in batch.rows(){accept(row)?;}
     }
     Ok(())
 }
@@ -74,7 +70,7 @@ fn settings(workspace: &Workspace, acquisition: ContentHash) -> Result<ContentHa
     for name in names {
         if completed.contains(name) {
             sink.part(b"relation", name.as_bytes());
-            workspace.relation(name)?.content().encode(&mut sink);
+            workspace.relation(name)?.view_identity().encode(&mut sink);
         }
     }
     Ok(sink.finish())
@@ -97,30 +93,7 @@ pub async fn populate(
             + originals.len() * size_of::<Original>()
             + families.len() * size_of::<FamilyContent>(),
     )?;
-    let mut producers = BTreeMap::new();
-    for relation in workspace.completed_relations()? {
-        let configuration = relation.configuration().ok_or_else(|| {
-            invalid(format!(
-                "{} has no declared producer configuration",
-                relation.name()
-            ))
-        })?;
-        let value = ProducerImplementation {
-            producer: relation.producer().into(),
-            implementation: relation.implementation(),
-            configuration,
-        };
-        if let Some(old) = producers.get(&value.producer) {
-            if old != &value {
-                return Err(invalid(
-                    "conflicting producer implementation or configuration",
-                ));
-            }
-        } else {
-            charge.grow(size_of::<ProducerImplementation>() + value.producer.len() + 32)?;
-            producers.insert(value.producer.clone(), value);
-        }
-    }
+    let producers=producer_inventory(workspace,&mut charge).await?;
     let outcomes = semantic_outcomes(
         workspace,
         frontier,
@@ -128,8 +101,8 @@ pub async fn populate(
         acquisition_config,
         &captures,
         &mut charge,
-    )?;
-    let projections = projections(workspace, frontier, &mut charge)?;
+    ).await?;
+    let projections = projections(workspace, frontier, &mut charge).await?;
     let embeddings = embeddings(workspace, profile, &mut charge).await?;
     captures.sort_unstable();
     if captures.windows(2).any(|w| w[0] == w[1]) {
@@ -145,11 +118,12 @@ pub async fn populate(
     }
     let manifest = Manifest {
         format_version: ARTIFACT_FORMAT_VERSION,
+        completed_state: workspace.native().completed_state().await?,
         frontier,
         profile,
         captures,
         semantic_contract: graph::semantic_contract(workspace.model()),
-        producers: producers.into_values().collect(),
+        producers,
         settings: settings(workspace, acquisition_config)?,
         families,
         required_outcomes: outcomes.keys().cloned().collect(),
@@ -162,9 +136,25 @@ pub async fn populate(
     Ok((manifest, charge))
 }
 
+pub(crate) async fn producer_inventory(workspace:&Workspace,charge:&mut charged::StateCharge)->Result<Vec<ProducerImplementation>,ModelError>{
+    let mut producers = BTreeMap::new();
+    for contribution in workspace.native().contributions().await? {
+        let spec=contribution.spec;
+        let configuration=spec.configuration.ok_or_else(||invalid(format!("{} has no declared producer configuration",spec.producer)))?;
+        let value=ProducerImplementation{producer:spec.producer,implementation:spec.implementation,configuration};
+        if let Some(old)=producers.get(&value.producer) {
+            if old!=&value{return Err(invalid("conflicting producer implementation or configuration"));}
+        } else {
+            charge.grow(size_of::<ProducerImplementation>()+value.producer.len()+32)?;
+            producers.insert(value.producer.clone(),value);
+        }
+    }
+    Ok(producers.into_values().collect())
+}
+
 /// Canonical outcome membership is derived from retained captures, profile, definitions and
 /// nominal invocations. Transport metadata never supplies its own expected key universe.
-fn semantic_outcomes(
+async fn semantic_outcomes(
     workspace: &Workspace,
     frontier: Frontier,
     profile: Profile,
@@ -172,7 +162,7 @@ fn semantic_outcomes(
     captures: &[EntityId],
     charge: &mut charged::StateCharge,
 ) -> Result<BTreeMap<OutcomeKey, Outcome>, ModelError> {
-    let available = workspace.facts_availability(profile)?;
+    let available = workspace.facts_availability_async(profile).await?;
     let reporting = crate::facts::providers(acquisition_config)
         .into_iter()
         .flat_map(|provider| {
@@ -228,7 +218,7 @@ fn semantic_outcomes(
                 detail: row.reason.map(|reason| format!("{reason:?}")),
             },
         )
-    })?;
+    }).await?;
     if !expected.is_empty() {
         return Err(invalid("missing native outcome"));
     }
@@ -238,7 +228,7 @@ fn semantic_outcomes(
             charge.grow(size_of::<Id<d::analysis::AnalysisDefinition>>() + 32)?;
             definitions.insert(row.id());
             Ok(())
-        })?;
+        }).await?;
     }
     let capture_set = captures.iter().copied().collect::<BTreeSet<_>>();
     macro_rules! upper {
@@ -279,7 +269,7 @@ fn semantic_outcomes(
                     return Err(invalid("duplicate analysis invocation"));
                 }
                 Ok(())
-            })?;
+            }).await?;
             visit::<d::analysis::$owner::AnalysisOutcome>(workspace, |row| {
                 let key = invocations
                     .remove(&row.invocation)
@@ -300,7 +290,7 @@ fn semantic_outcomes(
                         detail: row.reason.map(|reason| format!("{reason:?}")),
                     },
                 )
-            })?;
+            }).await?;
             if !invocations.is_empty() {
                 return Err(invalid(concat!(
                     stringify!($owner),
@@ -330,7 +320,7 @@ fn semantic_outcomes(
     }
     Ok(outcomes)
 }
-pub(crate) fn verify_outcomes(
+pub(crate) async fn verify_outcomes(
     workspace: &Workspace,
     manifest: &Manifest,
 ) -> Result<(), ModelError> {
@@ -342,7 +332,7 @@ pub(crate) fn verify_outcomes(
         manifest.settings,
         &manifest.captures,
         &mut charge,
-    )?;
+    ).await?;
     if actual.keys().cloned().collect::<Vec<_>>() != manifest.required_outcomes
         || actual.into_values().collect::<Vec<_>>() != manifest.outcomes
     {
@@ -353,7 +343,7 @@ pub(crate) fn verify_outcomes(
     Ok(())
 }
 
-fn projections(
+async fn projections(
     workspace: &Workspace,
     frontier: Frontier,
     charge: &mut charged::StateCharge,
@@ -365,13 +355,13 @@ fn projections(
     visit::<d::projection::ProjectionSourceAssessment>(workspace, |row| {
         names.insert(row.projection);
         Ok(())
-    })?;
+    }).await?;
     let mut definitions = BTreeMap::new();
     if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
         visit::<d::analysis::ProjectionDefinition>(workspace, |row| {
             definitions.insert(row.id(), row.clone());
             Ok(())
-        })?;
+        }).await?;
     }
     let mut uses = BTreeMap::<d::projection::ProjectionName, KeySink>::new();
     let completed = workspace
@@ -398,7 +388,7 @@ fn projections(
                     );
                     row.content_digest().encode(sink);
                     Ok(())
-                })?;
+                }).await?;
             }
         };
     }
@@ -440,7 +430,7 @@ fn projections(
             membership.part(b"relation", source.as_bytes());
             workspace
                 .relation(source)?
-                .content()
+                .view_identity()
                 .encode(&mut membership);
         }
         if let Some(selected) = uses.remove(&name) {
@@ -492,7 +482,7 @@ async fn embeddings(
         charge.grow(64)?;
         encoders.insert(row.id(), (row.service_hash, row.dimensions));
         Ok(())
-    })?;
+    }).await?;
     let mut vectors = BTreeMap::new();
     visit::<d::embedding::value::FullValue>(workspace, |row| {
         row.validate()?;
@@ -515,6 +505,6 @@ async fn embeddings(
         charge.grow(size_of::<EmbeddingConsumption>() + 64)?;
         vectors.insert(key, value);
         Ok(())
-    })?;
+    }).await?;
     Ok(vectors.into_values().collect())
 }

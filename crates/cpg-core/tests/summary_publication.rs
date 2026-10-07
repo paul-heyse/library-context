@@ -338,3 +338,6 @@ async fn assert_conditional_atom_summary(
 async fn capture_timing_stable_entries_reach_actual_finite_summaries() {
     run_fixture(Profile::Behavioral, "stable_capture_shapes").await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

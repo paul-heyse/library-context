@@ -476,8 +476,8 @@ fn completed_input_declaration(schedule: &Schedule, declaration: &Stage) -> Stag
     selected
 }
 /// Freeze only completed shared descriptors, once all statically named producers for a
-/// boundary finish. No stage grant, receipt, mutable publication epoch or store is involved.
-fn freeze_completed_inputs(
+/// boundary finish. Persist each exact binding before making its in-memory selector visible.
+async fn freeze_completed_inputs(
     workspace: &Workspace,
     schedule: &Schedule,
     completed: &std::collections::BTreeSet<&'static str>,
@@ -490,7 +490,7 @@ fn freeze_completed_inputs(
         if !group.stages.iter().all(|name| completed.contains(name)) {
             break;
         }
-        workspace.freeze_inputs(group.epoch)?;
+        workspace.freeze_inputs_async(group.epoch).await?;
         frozen.insert(group.epoch);
     }
     Ok(())
@@ -512,6 +512,7 @@ pub async fn compile(
     embedder: Option<&dyn Embedder>,
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
+    workspace.native().set_frontier(frontier)?;
     let model = workspace.model();
     let capture_identity = workspace.captures(&captured)?;
     let providers = facts::providers(configuration);
@@ -541,7 +542,7 @@ pub async fn compile(
         .collect();
     facts::compile_facts(workspace, &captured, profile, providers, Default::default()).await?;
     drop(captured);
-    workspace.facts_availability(profile)?;
+    workspace.facts_availability_async(profile).await?;
     let mut completed = schedule
         .stages()
         .iter()
@@ -549,7 +550,7 @@ pub async fn compile(
         .map(|stage| stage.name)
         .collect();
     let mut frozen = Default::default();
-    freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
+    freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
     let mut binding_application = None;
     let mut receiver_authority = None;
     let mut event_authority = None;
@@ -603,7 +604,7 @@ pub async fn compile(
             _ => normalization.run(access, output, workspace, model).await?,
         }
         completed.insert(declaration.name);
-        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
+        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
     }
     drop(event_authority);
     drop(receiver_authority);
@@ -647,7 +648,9 @@ pub async fn compile(
         let binding = UpperStage::resolve(declaration.name)?;
         let prepared =
             prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
-        if !binding.graphs(profile).is_empty() && graphs.is_none() {
+        if !binding.graphs(profile).is_empty()
+            && (binding != UpperStage::Analytic || analytics::build::requested(prepared.settings()))
+            && graphs.is_none() {
             graphs = Some(
                 PreparedGraphs::load(
                     &access,
@@ -817,7 +820,7 @@ pub async fn compile(
                     output,
                     workspace,
                     model,
-                    graphs.as_ref().expect("prepared selected graphs"),
+                    graphs.as_ref(),
                 )
                 .await?
             }
@@ -850,7 +853,7 @@ pub async fn compile(
             }
         }
         completed.insert(declaration.name);
-        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen)?;
+        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
     }
     workspace
         .finish_compilation(capture_identity, frontier, profile, configuration)

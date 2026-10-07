@@ -145,8 +145,8 @@ pub async fn apply(
     } else {
         None
     };
-    macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    macro_rules! declare{($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<owner::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(
         execution::closed_targets::ClosedTargetAssessment,
@@ -510,8 +510,8 @@ mod selected_catalog_controls {
                 memory_bytes: 128 << 20,
                 partitions: 1,
                 batch_rows: 16,
-            },
-        )
+            }, crate::test_native::store()
+)
         .unwrap();
         let parsed = models::Catalog::parse(
             "external.toml",
@@ -534,6 +534,7 @@ mod selected_catalog_controls {
             Profile::Behavioral,
             ContentHash::of(b"catalog-selection-control"),
             access,
+        [<models::ModelCatalog>::NAME],
         );
         output.declare::<models::ModelCatalog>().unwrap();
         output.push(catalog.clone()).await.unwrap();

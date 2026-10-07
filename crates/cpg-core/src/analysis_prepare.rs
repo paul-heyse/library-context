@@ -20,7 +20,7 @@ pub async fn configuration(
     configuration.check_budget(runtime.budget())?;
     macro_rules! write {
         ($ty:ty,$rows:expr) => {{
-            output.declare::<$ty>()?;
+            output.declare_async::<$ty>().await?;
             for row in $rows.iter() {
                 output.push(row.clone()).await?;
             }
@@ -76,11 +76,11 @@ pub async fn native_inventory(
     drop(session);
     let rows = inventory.collect()?;
     drop(inventory);
-    output.declare::<NativeAssertionPremise>()?;
+    output.declare_async::<NativeAssertionPremise>().await?;
     for row in rows.premises.iter() {
         output.push(row.clone()).await?;
     }
-    output.declare::<NativeQualification>()?;
+    output.declare_async::<NativeQualification>().await?;
     for row in rows.qualifications.iter() {
         output.push(row.clone()).await?;
     }
@@ -103,10 +103,10 @@ pub async fn embedding_configuration(
     if let Some(configuration) = configuration {
         configuration.check_budget(runtime.budget())?;
     }
-    output.declare::<EmbeddingSpec>()?;
-    output.declare::<ServiceConfiguration>()?;
-    output.declare::<DocumentRecipe>()?;
-    output.declare::<ProjectionDefinition>()?;
+    output.declare_async::<EmbeddingSpec>().await?;
+    output.declare_async::<ServiceConfiguration>().await?;
+    output.declare_async::<DocumentRecipe>().await?;
+    output.declare_async::<ProjectionDefinition>().await?;
     if let Some(configuration) = configuration {
         output.push(configuration.row().clone()).await?;
         output.push(configuration.service().clone()).await?;

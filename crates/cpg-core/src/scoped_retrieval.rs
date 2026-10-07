@@ -244,17 +244,7 @@ fn original_chunk_keys(
                     "original chunk selection exceeds its anchor",
                 ));
             }
-            if start == end {
-                continue;
-            }
-            let first = start / artifact::ARTIFACT_CHUNK_BYTES as i64;
-            let last = (end - 1) / artifact::ARTIFACT_CHUNK_BYTES as i64;
-            for ordinal in first..=last {
-                selected.insert(
-                    charge,
-                    Id::of(&artifact::ArtifactChunkKey { artifact, ordinal }),
-                )?;
-            }
+            crate::original_demands::union_range(&mut selected,charge,artifact,start,end)?;
         }
     }
     Ok(selected)
@@ -406,26 +396,10 @@ pub(crate) async fn validate_retrieval(
             let mut chunk_charge =
                 charged::StateCharge::new(budget, "retrieval-completion-original-chunks");
             let selected_chunks = original_chunk_keys(&data, &output, &mut chunk_charge)?;
-            if !selected_chunks.is_empty() {
-                chunk_charge.grow(selected_chunks.len().checked_mul(128).ok_or_else(|| {
-                    build::invalid("retrieval original chunk query size overflow")
-                })?)?;
-                let selected = selected_chunks
-                    .iter()
-                    .map(|key| format!("X'{}'", key.hex()))
-                    .collect::<Vec<_>>()
-                    .join(",");
-                stream(
-                    session,
-                    &format!("SELECT * FROM {chunks} WHERE id IN ({selected})"),
-                    cancellation,
-                    |batch| {
-                        data.facts.chunks.decode(batch)?;
-                        Ok(())
-                    },
-                )
-                .await?;
-            }
+            crate::original_demands::stream_selected(session,&chunks,&selected_chunks,budget,|batch| {
+                cancellation.check()?;
+                data.facts.chunks.decode(batch)
+            }).await?;
             output.verify_completion(&data, budget)?;
             let owner = build::need(&output.units, id)?;
             let mut parents = invocations.iter().filter(|invocation| {

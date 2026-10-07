@@ -175,8 +175,8 @@ async fn both_profiles_use_the_real_facts_frontier(case: &str) {
                     memory_bytes: resources.limit(),
                     ..Default::default()
                 },
-                resources.clone(),
-            )?;
+                resources.clone(), crate::native_fixture::store()
+)?;
             cpg_core::facts::compile_facts(
                 &workspace,
                 &capture(case, profile, &resources),
@@ -187,7 +187,7 @@ async fn both_profiles_use_the_real_facts_frontier(case: &str) {
             .await?;
             workspace.validate().await?;
             workspace.facts_availability(profile)?;
-            workspace.content()
+            workspace.identity()
         }
         .await;
         match result {
@@ -214,8 +214,8 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
                         partitions,
                         batch_rows,
                     },
-                    resources.clone(),
-                )
+                    resources.clone(), crate::native_fixture::store()
+)
                 .unwrap();
                 cpg_core::facts::compile_facts(
                     &workspace,
@@ -227,7 +227,7 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
                 .await
                 .unwrap();
                 workspace.validate().await.unwrap();
-                contents.push(workspace.content().unwrap());
+                contents.push(workspace.identity().unwrap());
                 drop(workspace);
                 assert_eq!(resources.reserved(), 0);
             }
@@ -235,3 +235,6 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
         }
     }
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

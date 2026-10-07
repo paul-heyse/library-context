@@ -149,11 +149,11 @@ pub async fn produce(
     } else {
         None
     };
-    macro_rules! common {($($record:ident,)*)=>{$(output.declare::<analysis::analytic_embedding::$record>()?;)*};}
+    macro_rules! common {($($record:ident,)*)=>{$(output.declare_async::<analysis::analytic_embedding::$record>().await?;)*};}
     lctx_model::analysis_publication!(common);
-    output.declare::<AnalysisEmbeddingUse>()?;
-    output.declare::<value::FullValue>()?;
-    output.declare::<ProjectedValue>()?;
+    output.declare_async::<AnalysisEmbeddingUse>().await?;
+    output.declare_async::<value::FullValue>().await?;
+    output.declare_async::<ProjectedValue>().await?;
     let _assessments = access.read::<TextAssessment>()?;
     let _windows = access.read::<TextWindow>()?;
     let assessments = access.table_for(&ValidationInput::of::<TextAssessment>(&["id"]))?;

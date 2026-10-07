@@ -73,3 +73,6 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
         "inline templates never acquire authored assertion authority"
     );
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

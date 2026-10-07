@@ -53,6 +53,7 @@ async fn contribute(workspace: &Arc<Workspace>, producer: &'static str, value: P
         Profile::Catalog,
         ContentHash::of(producer.as_bytes()),
         inputs,
+    [<Place>::NAME],
     );
     output.declare::<Place>().unwrap();
     output.push(value).await.unwrap();
@@ -72,7 +73,8 @@ fn values(inputs: &CompletedInputs) -> Vec<Place> {
 #[tokio::test]
 async fn later_vocabulary_contributions_do_not_widen_declared_facts_inputs() {
     let workspace =
-        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default()).unwrap();
+        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default(), crate::native_fixture::store()
+).unwrap();
     let first = place("native");
     contribute(&workspace, "native_places", first.clone()).await;
     let declaration = consumer(Some(PublicationBoundary::Facts));
@@ -127,7 +129,8 @@ async fn later_vocabulary_contributions_do_not_widen_declared_facts_inputs() {
 #[tokio::test]
 async fn missing_relation_at_a_frozen_boundary_cannot_fall_back_to_latest() {
     let workspace =
-        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default()).unwrap();
+        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default(), crate::native_fixture::store()
+).unwrap();
     workspace.freeze_inputs(PublicationBoundary::Facts).unwrap();
     contribute(&workspace, "late_places", place("late")).await;
     assert_eq!(
@@ -152,7 +155,8 @@ async fn missing_relation_at_a_frozen_boundary_cannot_fall_back_to_latest() {
 #[tokio::test]
 async fn distinct_completed_views_remain_selectable_together() {
     let workspace =
-        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default()).unwrap();
+        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default(), crate::native_fixture::store()
+).unwrap();
     contribute(&workspace, "native_places", place("native")).await;
     workspace.freeze_inputs(PublicationBoundary::Facts).unwrap();
     contribute(&workspace, "model_places", place("model")).await;
@@ -176,7 +180,7 @@ async fn distinct_completed_views_remain_selectable_together() {
         .unwrap();
     assert_eq!(facts.source().rows(), 1);
     assert_eq!(model.source().rows(), 2);
-    assert_ne!(facts.source().content(), model.source().content());
+    assert_ne!(facts.source().view(), model.source().view());
     let session = inputs.session(&workspace).await.unwrap();
     for (boundary, expected) in [
         (PublicationBoundary::Facts, 1),
@@ -234,6 +238,7 @@ async fn publish_values(
         Profile::Catalog,
         ContentHash::of(producer.as_bytes()),
         inputs,
+    [<FullWinner>::NAME, <ProjectedWinner>::NAME],
     );
     output.declare::<FullWinner>()?;
     output.declare::<ProjectedWinner>()?;
@@ -266,8 +271,8 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
         WorkspaceOptions {
             batch_rows: 1,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     publish_values(
         &workspace,
@@ -308,7 +313,7 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
     assert_eq!(frozen.relation::<ProjectedWinner>().unwrap().rows(), 2);
     assert_eq!(latest.relation::<FullWinner>().unwrap().rows(), 3);
     assert_eq!(latest.relation::<ProjectedWinner>().unwrap().rows(), 3);
-    let content = latest.relation::<FullWinner>().unwrap().content();
+    let content = latest.relation::<FullWinner>().unwrap().view_identity();
     let error = publish_values(&workspace, "conflict", &[("shared", "changed")])
         .await
         .unwrap_err();
@@ -317,14 +322,14 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
         "{error}"
     );
     assert_eq!(
-        workspace.relation(FullWinner::NAME).unwrap().content(),
+        workspace.relation(FullWinner::NAME).unwrap().view_identity(),
         content
     );
     assert_eq!(
-        frozen.relation::<FullWinner>().unwrap().content(),
-        original.content()
+        frozen.relation::<FullWinner>().unwrap().view_identity(),
+        original.view_identity()
     );
-    let projected_content = latest.relation::<ProjectedWinner>().unwrap().content();
+    let projected_content = latest.relation::<ProjectedWinner>().unwrap().view_identity();
     let output = workspace.output(
         "projection_conflict",
         Profile::Catalog,
@@ -332,6 +337,7 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
         workspace
             .inputs("projection_conflict", Profile::Catalog, [])
             .unwrap(),
+    [<ProjectedWinner>::NAME],
     );
     output.declare::<ProjectedWinner>().unwrap();
     output
@@ -347,7 +353,10 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
         "{error}"
     );
     assert_eq!(
-        workspace.relation(ProjectedWinner::NAME).unwrap().content(),
+        workspace.relation(ProjectedWinner::NAME).unwrap().view_identity(),
         projected_content
     );
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

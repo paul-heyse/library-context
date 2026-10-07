@@ -88,10 +88,10 @@ pub async fn produce(
     } else {
         None
     };
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<owner::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
 
-    macro_rules! declarations{($($f:ident:$t:ty,)*)=>{$(output.declare::<$t>()?;)*};}
+    macro_rules! declarations{($($f:ident:$t:ty,)*)=>{$(output.declare_async::<$t>().await?;)*};}
     lctx_model::summary_outputs!(declarations);
     lctx_model::summary_vocabulary!(declarations);
     let mut frames = charged::ChargedSet::default();

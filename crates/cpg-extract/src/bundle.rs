@@ -96,6 +96,19 @@ pub trait ProviderSink: Send + Sync + 'static {
     fn contribute<R: Record>(&self, batch: Batch<R>) -> Result<(), ModelError>;
     /// Record the outcome after all writes drain. Workspace completion/admission belongs to the compiler.
     fn finish(&self, outcome: ProviderOutcome) -> Result<(), ModelError>;
+    /// Wake blocked read/write methods when the caller abandons the provider.
+    fn cancel(&self) {}
+    /// Retain the interrupted thread's drainage under the attempt owner when applicable.
+    fn drain_provider(&self, thread: std::thread::JoinHandle<()>) -> oneshot::Receiver<Result<(), ModelError>> {
+        let (done, finished) = oneshot::channel();
+        let join = move || { let _ = done.send(thread.join().map_err(|_| ModelError::Invalid("provider thread panicked while draining".into()))); };
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn_blocking(join);
+        } else {
+            join();
+        }
+        finished
+    }
 }
 
 /// A provider declares its semantic input/output inventory and effect.
@@ -349,8 +362,8 @@ impl<S: ProviderSink + 'static> StageContext<S> {
 }
 
 /// Run an actual native provider with explicit completed inputs and attempt-local output.
-/// Dropping the future signals cancellation and joins the provider thread; no native work can
-/// outlive the workspace or expose a completed artifact after cancellation.
+/// Dropping the future signals cancellation and registers the provider thread for drainage.
+/// The attempt owner drains registered work before releasing native ownership.
 #[allow(
     clippy::too_many_arguments,
     reason = "Explicit provider effects and captured inputs"
@@ -382,7 +395,7 @@ pub async fn run_provider<S: ProviderSink>(
         budget,
         limits,
         captured,
-        sink,
+        sink: sink.clone(),
         cancelled: cancelled.clone(),
         attacher: None,
         outputs: Vec::new(),
@@ -402,27 +415,32 @@ pub async fn run_provider<S: ProviderSink>(
             let _ = done.send(result);
         })
         .map_err(|error| ModelError::infrastructure(Infrastructure::Io, error))?;
-    let drain = ProviderDrain {
+    let mut drain = ProviderDrain {
         cancelled,
         thread: Some(thread),
+        sink,
     };
     let result = finished.await.unwrap_or_else(|_| {
         Err(ModelError::Invalid(format!(
             "the {name} provider ended without a result"
         )))
     });
-    drop(drain);
+    if result.is_err() { drain.sink.cancel(); }
+    let thread = drain.thread.take().expect("owned provider thread");
+    drain.sink.drain_provider(thread).await.map_err(ModelError::codec)??;
     result
 }
-struct ProviderDrain {
+struct ProviderDrain<S: ProviderSink> {
     cancelled: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    sink: Arc<S>,
 }
-impl Drop for ProviderDrain {
+impl<S: ProviderSink> Drop for ProviderDrain<S> {
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Release);
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            self.sink.cancel();
+            self.sink.drain_provider(thread);
         }
     }
 }

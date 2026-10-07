@@ -36,6 +36,41 @@ pub fn selected(s: &AnalyticsConfiguration, m: analysis::AnalysisMethod) -> bool
         _ => false,
     }
 }
+/// Resolve analytic demand before topology, vectors or attribute preparation.
+pub fn requested(s: &AnalyticsConfiguration) -> bool {
+    METHODS.into_iter().any(|method| selected(s, method))
+}
+
+/// Total owned outcomes for an unrequested frame, using only its frozen authored metadata.
+pub fn not_requested(
+    d: &Data,
+    f: &AnalyticFrame,
+    invocations: &Rows<owner::Invocation>,
+    b: &ResourceBudget,
+    attributes: policy::AttributePolicy,
+) -> Result<Output, ModelError> {
+    let settings = d.configuration()?;
+    if requested(settings) { return Err(invalid("requested analytic needs selected inputs")); }
+    let sf = need(&d.structural.frames, f.structural)?;
+    let parent = need(&d.structural_invocations, sf.invocation)?;
+    if sf.configuration != settings.id() || f.configuration != settings.id() {
+        return Err(invalid("analytic configuration is foreign to structural frame"));
+    }
+    let mut out = Output::new(b);
+    out.frames.insert(f.clone())?;
+    for method in METHODS {
+        let (parameters, definition) = definition_with_attribute_policy(settings, method, attributes)?;
+        if d.parameters.get(parameters.id()) != Some(&parameters)
+            || d.definitions.get(definition.id()) != Some(&definition)
+        { return Err(invalid("analytic canonical authored definition absent")); }
+        let mut candidates = invocations.iter().filter(|row| row.definition == definition.id()
+            && row.input == parent.input && row.context == parent.context && row.subject.is_none());
+        let invocation = candidates.next().ok_or_else(|| invalid("analytic invocation missing"))?;
+        if candidates.next().is_some() { return Err(invalid("analytic invocation ambiguous")); }
+        out.results.insert(result(f, invocation, method, settings))?;
+    }
+    Ok(out)
+}
 pub fn capability(m: analysis::AnalysisMethod) -> Result<analysis::AnalysisCapability, ModelError> {
     Ok(match m {
         analysis::AnalysisMethod::PageRank => analysis::AnalysisCapability::PageRank,
@@ -170,6 +205,56 @@ impl Data {
         });
         inputs
     }
+    /// Resolve the union of enabled method and community-layer demands before preparation.
+    /// Field names below select the existing typed inventories, including the shared parameter,
+    /// decorator and type correspondence dependencies used by attribute production.
+    pub fn demanded_inputs(profile: stages::Profile, settings: &AnalyticsConfiguration) -> Vec<ValidationInput> {
+        let mut names = BTreeSet::from([AnalyticsConfiguration::NAME, analysis::AnalysisDefinition::NAME,
+            analysis::MethodParameters::NAME, structural::StructuralFrame::NAME, analysis::structural::Invocation::NAME]);
+        if !requested(settings) {
+            return Self::consumed_inputs(profile).into_iter().filter(|input| names.contains(input.name())).collect();
+        }
+        names.extend([structural::ScopeMember::NAME, structural::PublicCandidate::NAME,
+            projection::ProjectionSourceAssessment::NAME]);
+        let mut native = BTreeSet::new();
+        let mut extra = BTreeSet::new();
+        if settings.communities {
+            names.extend([structural::UsageSite::NAME, structural::UsageEvidence::NAME]);
+            native.extend(["event_events", "owners"]);
+        }
+        let concepts = settings.fca || settings.rca;
+        if concepts || (settings.communities && settings.type_layer) {
+            native.extend(["refs", "callables", "entity_classes", "occurrences", "artifacts", "qualifications",
+                "terms", "type_observations", "symbol_resolutions", "symbols", "placements", "parameter_declarations",
+                "parameters", "signatures", "shapes", "entity_declarations", "callable_variants", "callable_slots"]);
+            extra.extend(["parameter_syntax", "type_sequences", "type_members", "callable_type_slots", "uses"]);
+        }
+        if concepts {
+            native.extend(["owners", "decorators", "references", "reference_assessments", "reference_candidates",
+                "reference_targets", "lexical_resolutions", "native_signatures", "signature_types", "signature_type_subjects"]);
+            extra.extend(["members", "class_metadata", "metadata_supports", "class_members", "member_supports", "record_options",
+                "native_signature_supports", "port_supports", "captures", "capture_supports", "exits", "exit_supports",
+                "terminals", "terminal_supports"]);
+        }
+        if settings.rca {
+            names.insert(structural::handoffs::Handoff::NAME);
+            native.extend(["event_alternatives", "event_alternative_sources", "targets"]);
+        }
+        if settings.communities && settings.mention_layer {
+            native.extend(["relation_mention_entity_assessments", "relation_mention_entity_candidates", "entity_exposure_candidates",
+                "mentions", "qualifications", "scopes", "modules", "artifacts", "symbol_resolutions", "symbols"]);
+            extra.extend(["uses", "corpus_libraries"]);
+        }
+        if settings.knn || (settings.communities && settings.knn_layer) {
+            names.extend(vector_inputs().into_iter().map(|input| input.name()));
+            extra.extend(["uses", "text_subjects", "embedding_invocations", "embedding_outcomes", "embedding_uses"]);
+        }
+        macro_rules! selected_native {($($field:ident:$ty:ty,)*)=>{$(if native.contains(stringify!($field)){names.insert(<$ty>::NAME);})*};}
+        crate::normalized_binding_inputs!(selected_native);
+        macro_rules! selected_extra {($($field:ident:$ty:ty,)*)=>{$(if extra.contains(stringify!($field)){names.insert(<$ty>::NAME);})*};}
+        crate::analytic_extra_inputs!(selected_extra);
+        Self::consumed_inputs(profile).into_iter().filter(|input| names.contains(input.name())).collect()
+    }
     /// A named complete analytical frame uses its own E1 domain while native evidence keeps
     /// exact dependency runs. This does not infer or rewrite a consumer's frame from its rows.
     pub fn visit_frame_input(
@@ -297,6 +382,9 @@ pub fn produce_with_policy(
     attributes: policy::AttributePolicy,
 ) -> Result<Output, ModelError> {
     let s = d.configuration()?;
+    if !requested(s) {
+        return not_requested(d, f, invocations, b, attributes);
+    }
     let sf = need(&d.structural.frames, f.structural)?;
     let parent = need(&d.structural_invocations, sf.invocation)?;
     if sf.configuration != s.id()
@@ -432,8 +520,7 @@ pub fn produce_with_policy(
     let mut nearest = methods
         .remove(&(analysis::AnalysisMethod::Neighbours as i16))
         .unwrap();
-    let layer_invocation = s
-        .knn_layer
+    let layer_invocation = (s.communities && s.knn_layer)
         .then_some(methods[&(analysis::AnalysisMethod::Communities as i16)].invocation);
     let prepared = super::vectors::produce(
         d,
@@ -818,4 +905,50 @@ pub fn stage(
         code: ContentHash::of(include_bytes!("build.rs")),
         configuration: key.finish(),
     })
+}
+
+#[cfg(test)]
+mod demand_tests {
+    use super::*;
+    fn configuration() -> AnalyticsConfiguration {
+        AnalyticsConfiguration {module_prefixes:vec![],public_roots:vec![],configured_seeds:vec![],depth:1,vertices:16,arcs:32,witnesses:1,brief_budget:1,
+            communities:false,pagerank:false,fca:false,rca:false,knn:false,type_layer:false,mention_layer:false,knn_layer:false}
+    }
+    #[test]
+    fn preparation_uses_resolved_technique_and_layer_demand() {
+        let mut settings=configuration();
+        for profile in stages::Profile::ALL {
+            assert!(!requested(&settings));
+            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            assert!(!names.contains(embedding::value::FullValue::NAME));
+            assert!(!names.contains(types::TypeTerm::NAME));
+            settings.pagerank=true;
+            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            assert!(names.contains(structural::ScopeMember::NAME));
+            assert!(!names.contains(embedding::value::FullValue::NAME));
+            assert!(!names.contains(types::TypeTerm::NAME));
+            settings.communities=true;
+            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            assert!(names.contains(structural::UsageEvidence::NAME));
+            assert!(!names.contains(types::TypeTerm::NAME));
+            assert!(!names.contains(documents::DocumentMentionObservation::NAME));
+            assert!(!names.contains(embedding::value::FullValue::NAME));
+            settings.type_layer=true;
+            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            assert!(names.contains(types::TypeTerm::NAME));
+            assert!(!names.contains(documents::DocumentMentionObservation::NAME));
+            settings.mention_layer=true;
+            assert!(Data::demanded_inputs(profile,&settings).iter().any(|input|input.name()==documents::DocumentMentionObservation::NAME));
+            settings.knn_layer=true;
+            assert!(Data::demanded_inputs(profile,&settings).iter().any(|input|input.name()==embedding::value::FullValue::NAME));
+            settings=configuration();
+            settings.fca=true;
+            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            assert!(names.contains(types::TypeTerm::NAME));
+            assert!(names.contains(captures::CaptureObservation::NAME));
+            assert!(!names.contains(documents::DocumentMentionObservation::NAME));
+            assert!(!names.contains(embedding::value::FullValue::NAME));
+            settings=configuration();
+        }
+    }
 }

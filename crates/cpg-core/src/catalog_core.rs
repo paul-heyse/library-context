@@ -77,10 +77,10 @@ pub async fn produce(
             "catalog requires its completed authored definition".into(),
         ));
     }
-    macro_rules! declare_outputs {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare_outputs {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::catalog_outputs!(declare_outputs);
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::catalog_core::$record>()?;)*};}
+    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::catalog_core::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(catalog::CatalogMemberInvocation);
     let mut frames = charged::ChargedSet::default();

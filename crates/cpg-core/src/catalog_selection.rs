@@ -417,10 +417,10 @@ pub async fn produce(
             "C2 requires its completed authored definition".into(),
         ));
     }
-    macro_rules! declare_outputs {($($f:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare_outputs {($($f:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::catalog_selection_outputs!(declare_outputs);
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::selection::$record>()?;)*};}
+    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::selection::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(selection::SelectionInvocation);
     let mut invocations = Rows::new(runtime.budget());

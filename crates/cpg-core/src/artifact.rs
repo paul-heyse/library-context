@@ -2,8 +2,7 @@
 use crate::workspace::Workspace;
 use datafusion::{
     arrow::{
-        array::{Array, BinaryArray, FixedSizeBinaryArray, Int16Array, UInt32Array, UInt64Array},
-        compute::take,
+        array::{Array, BinaryArray, FixedSizeBinaryArray, Int16Array, UInt64Array},
         datatypes::{DataType, Field, Schema},
         ipc::writer::FileWriter,
         record_batch::RecordBatch,
@@ -12,7 +11,7 @@ use datafusion::{
     prelude::SessionContext,
 };
 use futures::TryStreamExt;
-use lctx_model::domain::{ContentHash, HeapSize, Id, ModelError, Record, Relation, graph::*};
+use lctx_model::domain::{ContentHash, HeapSize, Id, ModelError, Record, graph::*};
 use lctx_model::domain::{charged::StateCharge, resources::ResourceBudget};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -136,31 +135,18 @@ impl FamilyWriter {
         Ok(self.path)
     }
 }
-/// Construction remains private until producer completeness and semantic closure have succeeded.
-struct GraphBuilder {
-    directory: tempfile::TempDir,
-    entities: FamilyWriter,
-    assertions: FamilyWriter,
-    references: ReferenceWriter,
-    derivations: Vec<GraphDerivation>,
-    derivation_charge: StateCharge,
+/// Explicit transport validation retains compact reference and proof metadata only.
+struct TransportCheck {
+    directory:tempfile::TempDir,
+    references:ReferenceWriter,
+    derivations:Vec<GraphDerivation>,
+    derivation_charge:StateCharge,
 }
-impl GraphBuilder {
-    fn new(budget: &ResourceBudget) -> Result<Self, ModelError> {
-        let directory = tempfile::tempdir().map_err(ModelError::codec)?;
-        let entities = FamilyWriter::new(directory.path().join("entities-pending.arrow"), budget)?;
-        let assertions =
-            FamilyWriter::new(directory.path().join("assertions-pending.arrow"), budget)?;
-        let references =
-            ReferenceWriter::new(&directory.path().join("references-pending.arrow"), budget)?;
-        Ok(Self {
-            directory,
-            entities,
-            assertions,
-            references,
-            derivations: vec![],
-            derivation_charge: StateCharge::new(budget, "graph-derivation-topology"),
-        })
+impl TransportCheck {
+    fn new(budget:&ResourceBudget)->Result<Self,ModelError>{
+        let directory=tempfile::tempdir().map_err(ModelError::codec)?;
+        let references=ReferenceWriter::new(&directory.path().join("references-pending.arrow"),budget)?;
+        Ok(Self{directory,references,derivations:Vec::new(),derivation_charge:StateCharge::new(budget,"graph-derivation-topology")})
     }
     fn derivation(&mut self, value: Option<GraphDerivation>) -> Result<(), ModelError> {
         if let Some(value) = value {
@@ -212,40 +198,6 @@ impl GraphBuilder {
         }
         Ok(())
     }
-    // Fresh lowering completes intrinsic nominal aliases where normalization owns endpoints.
-    // Facts retain their actual vocabulary without publishing undeclared normalized records.
-    // Transport verification and semantic import never repair missing aliases.
-    fn lower_entity(
-        &mut self,
-        value: &Entity,
-        frontier: lctx_model::domain::admission::Frontier,
-    ) -> Result<(), ModelError> {
-        use lctx_model::domain::admission::Frontier;
-        self.entity(value)?;
-        if matches!(
-            frontier,
-            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
-        ) && let Some(endpoint) = value.canonical_place_endpoint()
-        {
-            self.entity(&endpoint)?;
-        }
-        Ok(())
-    }
-    fn entity(&mut self, value: &Entity) -> Result<(), ModelError> {
-        self.entity_references(value)?;
-        self.entities.push(PendingRow {
-            id: value.id().0,
-            content: value.content(),
-            payload: serde_json::to_vec(value).map_err(ModelError::codec)?,
-            kind: value.kind() as i16,
-            source_length: if let Entity::Source(source) = value {
-                Some(source.byte_len as u64)
-            } else {
-                None
-            },
-            subtype: value.subtype(),
-        })
-    }
     fn assertion_references(&mut self, value: &Assertion) -> Result<(), ModelError> {
         value.validate()?;
         self.derivation(value.declared_derivation())?;
@@ -259,119 +211,18 @@ impl GraphBuilder {
         }
         Ok(())
     }
-    fn assertion(&mut self, value: &Assertion) -> Result<(), ModelError> {
-        self.assertion_references(value)?;
-        self.assertions.push(PendingRow {
-            id: value.id().0,
-            content: value.content(),
-            payload: serde_json::to_vec(value).map_err(ModelError::codec)?,
-            kind: value.kind as i16,
-            source_length: None,
-            subtype: None,
-        })
-    }
-}
-async fn order(
-    context: &SessionContext,
-    pending: &Path,
-    output: &Path,
-    family: GraphFamily,
-    budget: &ResourceBudget,
-) -> Result<FamilyContent, ModelError> {
-    let name = match family {
-        GraphFamily::Entities => "pending_entities",
-        GraphFamily::Assertions => "pending_assertions",
-        _ => return Err(ModelError::Invalid("unsupported graph stream".into())),
-    };
-    context
-        .register_arrow(
-            name,
-            pending.to_string_lossy(),
-            ArrowReadOptions::default().schema(&schema()),
-        )
-        .await
-        .map_err(ModelError::codec)?;
-    let result = async {
-        let mut stream = crate::sql::query(context, &format!("SELECT * FROM {name} ORDER BY id"))
-            .await
-            .map_err(ModelError::codec)?
-            .execute_stream()
-            .await
-            .map_err(ModelError::codec)?;
-        let mut writer =
-            FileWriter::try_new(File::create(output).map_err(ModelError::codec)?, &schema())
-                .map_err(ModelError::codec)?;
-        let mut hasher = FamilyHasher::new(family);
-        let mut previous_payload: Option<Vec<u8>> = None;
-        let mut previous_charge = budget.reserve("graph-artifact-previous-payload", 0)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            let _ordered_copy = budget.reserve(
-                "graph-artifact-ordered-copy",
-                lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(2),
-            )?;
-            let mut selected = Vec::new();
-            let ids = batch
-                .column(0)
-                .as_any()
-                .downcast_ref::<FixedSizeBinaryArray>()
-                .ok_or(ModelError::Schema("graph"))?;
-            let contents = batch
-                .column(1)
-                .as_any()
-                .downcast_ref::<FixedSizeBinaryArray>()
-                .ok_or(ModelError::Schema("graph"))?;
-            let payloads = batch
-                .column(2)
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .ok_or(ModelError::Schema("graph"))?;
-            for index in 0..batch.num_rows() {
-                let id = ContentHash(ids.value(index).try_into().map_err(ModelError::codec)?);
-                let content = ContentHash(
-                    contents
-                        .value(index)
-                        .try_into()
-                        .map_err(ModelError::codec)?,
-                );
-                if hasher.push(id, content)? {
-                    selected.push(index as u32);
-                    previous_charge.try_resize(payloads.value(index).len())?;
-                    previous_payload = Some(payloads.value(index).to_vec());
-                } else if previous_payload.as_deref() != Some(payloads.value(index)) {
-                    return Err(ModelError::Conflict("graph canonical payload"));
-                }
-            }
-            if !selected.is_empty() {
-                let indices = UInt32Array::from(selected);
-                let columns = batch
-                    .columns()
-                    .iter()
-                    .map(|c| take(c.as_ref(), &indices, None).map_err(ModelError::codec))
-                    .collect::<Result<Vec<_>, _>>()?;
-                writer
-                    .write(&RecordBatch::try_new(schema(), columns).map_err(ModelError::codec)?)
-                    .map_err(ModelError::codec)?;
-            }
-        }
-        writer.finish().map_err(ModelError::codec)?;
-        writer
-            .into_inner()
-            .map_err(ModelError::codec)?
-            .sync_all()
-            .map_err(ModelError::codec)?;
-        Ok(hasher.finish())
-    }
-    .await;
-    context.deregister_table(name).map_err(ModelError::codec)?;
-    result
 }
 /// Immutable admitted content. The constructor is private: callers cannot label pending output admitted.
 pub struct AdmittedArtifact {
-    directory: tempfile::TempDir,
+    workspace: Arc<Workspace>,
+    original_keys: Vec<(Id<lctx_model::domain::source::SourceArtifact>, Original)>,
     manifest: Manifest,
     _manifest_charge: StateCharge,
 }
 impl AdmittedArtifact {
+    pub fn native(&self) -> &Arc<lctx_surrealdb::compiler::NativeCompilerStore> { self.workspace.native() }
+    pub async fn entities(&self)->Result<futures::stream::BoxStream<'static,Result<Entity,ModelError>>,ModelError>{crate::native_canonical::entities(self.workspace.clone()).await}
+    pub async fn assertions(&self)->Result<futures::stream::BoxStream<'static,Result<Assertion,ModelError>>,ModelError>{crate::native_canonical::assertions(self.workspace.clone()).await}
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -386,7 +237,7 @@ impl AdmittedArtifact {
         Ok(())
     }
     /// Create a fresh destination using private staging on its filesystem. Never overwrite an existing artifact.
-    pub fn export(&self, destination: &Path) -> Result<(), ModelError> {
+    pub async fn export(&self, destination: &Path) -> Result<(), ModelError> {
         if destination.exists() {
             return Err(ModelError::Invalid(
                 "artifact destination already exists".into(),
@@ -401,17 +252,52 @@ impl AdmittedArtifact {
             .prefix(".lctx-artifact-")
             .tempdir_in(parent)
             .map_err(ModelError::codec)?;
-        for entry in std::fs::read_dir(self.directory.path()).map_err(ModelError::codec)? {
-            let entry = entry.map_err(ModelError::codec)?;
-            if entry.file_type().map_err(ModelError::codec)?.is_file() {
-                let path = staged.path().join(entry.file_name());
-                std::fs::copy(entry.path(), &path).map_err(ModelError::codec)?;
-                File::open(path)
-                    .map_err(ModelError::codec)?
-                    .sync_all()
-                    .map_err(ModelError::codec)?;
-            }
+        let budget=self.workspace.budget();
+        let mut entity_file=FamilyWriter::new(staged.path().join("entities.arrow"),budget)?;
+        let mut entities=self.entities().await?;
+        while let Some(row)=entities.try_next().await? {
+            entity_file.push(PendingRow{id:row.id().0,content:row.content(),payload:serde_json::to_vec(&row).map_err(ModelError::codec)?,kind:row.kind() as i16,
+                source_length:if let Entity::Source(source)=&row{Some(source.byte_len as u64)}else{None},subtype:row.subtype()})?;
         }
+        entity_file.finish()?;
+        let mut assertion_file=FamilyWriter::new(staged.path().join("assertions.arrow"),budget)?;
+        let mut assertions=self.assertions().await?;
+        while let Some(row)=assertions.try_next().await? {
+            assertion_file.push(PendingRow{id:row.id().0,content:row.content(),payload:serde_json::to_vec(&row).map_err(ModelError::codec)?,kind:row.kind as i16,source_length:None,subtype:None})?;
+        }
+        assertion_file.finish()?;
+        use lctx_model::domain::{artifact::ArtifactChunk,Relation};
+        use lctx_surrealdb::{compiler::NativePredicate,surrealdb::types::{Value,Number}};
+        use std::io::Write;
+        let chunk_view=self.workspace.completed::<ArtifactChunk>()?;
+        for (artifact,original) in &self.original_keys {
+            let mut file=File::create(staged.path().join(format!("original-{}.bin",original.source.0.hex()))).map_err(ModelError::codec)?;
+            let value=Value::Array(artifact.bytes().iter().map(|byte|Value::Number(Number::Int(i64::from(*byte)))).collect::<Vec<_>>().into());
+            let predicate=NativePredicate::Field{field:"artifact".into(),values:vec![value]};
+            let mut stream=self.native().scan_batches(chunk_view.view(),&Relation::of::<ArtifactChunk>(),None,Some(predicate),budget,128).await?;
+            let mut ordinal=0;let mut length=0u64;let mut content=lctx_model::domain::ContentHasher::default();
+            while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
+                self.workspace.cancellation().check()?;
+                let _decode=budget.reserve("artifact-original-decode",lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(2))?;
+                // Full nominal keys sort independently of ordinal. Selected body chunks are
+                // positioned by their authored ordinal and integrity is checked per chunk.
+                for row in ArtifactChunk::decode(&batch)? {
+                    use std::io::{Seek,SeekFrom};
+                    file.seek(SeekFrom::Start(u64::try_from(row.ordinal).map_err(ModelError::codec)?*lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64)).map_err(ModelError::codec)?;
+                    file.write_all(&row.body.0).map_err(ModelError::codec)?;
+                    ordinal+=1;
+                }
+            }
+            file.sync_all().map_err(ModelError::codec)?;
+            let mut input=File::open(staged.path().join(format!("original-{}.bin",original.source.0.hex()))).map_err(ModelError::codec)?;
+            let _buffer=budget.reserve("artifact-original-hash",65536)?;let mut buffer=vec![0;65536];
+            use std::io::Read;
+            loop{let count=input.read(&mut buffer).map_err(ModelError::codec)?;if count==0{break;}content.update(&buffer[..count]);length+=count as u64;}
+            let expected_chunks=original.byte_len.div_ceil(lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64);
+            if length!=original.byte_len || content.finish()!=original.content || ordinal!=expected_chunks{return Err(ModelError::Conflict("artifact original bytes"));}
+        }
+        let state=self.native().export_state(&staged.path().join("completed-state.jsonl")).await?;
+        if state!=self.manifest.completed_state{return Err(ModelError::Conflict("admitted completed state changed"));}
         let manifest_file = staged.path().join("manifest.json");
         std::fs::write(
             &manifest_file,
@@ -460,10 +346,12 @@ impl AdmittedArtifact {
 /// unchanged throughout verification and consumption; native publication reconciles its own copy.
 /// The private absolute path prevents later working-directory changes from changing the input.
 pub struct VerifiedExport {
+    workspace: Arc<Workspace>,
     path: PathBuf,
     manifest: Manifest,
 }
 impl VerifiedExport {
+    pub fn native(&self) -> &Arc<lctx_surrealdb::compiler::NativeCompilerStore> { self.workspace.native() }
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -625,7 +513,7 @@ async fn verify_transport(
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let mut check = GraphBuilder::new(workspace.budget())?;
+    let mut check = TransportCheck::new(workspace.budget())?;
     for (file, family) in [
         ("entities.arrow", GraphFamily::Entities),
         ("assertions.arrow", GraphFamily::Assertions),
@@ -817,15 +705,7 @@ async fn verify_transport(
         return Err(ModelError::Conflict("artifact embedding membership"));
     }
     admit_graph_derivations(&check.derivations)?;
-    let GraphBuilder {
-        directory,
-        entities,
-        assertions,
-        references,
-        ..
-    } = check;
-    entities.finish()?;
-    assertions.finish()?;
+    let TransportCheck{directory,references,..}=check;
     references.finish()?;
     let base = workspace
         .inputs("artifact-transport-verification", manifest.profile, [])?
@@ -869,125 +749,7 @@ async fn verify_transport(
     if expected.is_none() {
         readmit_detached(&path, &manifest, workspace).await?;
     }
-    Ok(VerifiedExport { path, manifest })
-}
-
-/// Pure semantic admission of detached canonical records. No provider or producer is rerun.
-/// The caller still owns byte/reference transport reconciliation and immutable input lifetime.
-pub struct SemanticImport {
-    workspace: Arc<Workspace>,
-    output: crate::workspace::ProducerOutput,
-}
-impl SemanticImport {
-    pub fn new(runtime: &Arc<Workspace>, manifest: &Manifest) -> Result<Self, ModelError> {
-        use lctx_model::domain::admission::Frontier;
-        let profile = manifest.profile;
-        let declarations = match manifest.frontier {
-            Frontier::Facts => lctx_model::domain::facts_relations(),
-            Frontier::Normalized => lctx_model::domain::normalized_relations(),
-            Frontier::Analysis => lctx_model::domain::analysis_frontier_relations(),
-            Frontier::Catalog => lctx_model::domain::catalog_frontier_relations(),
-            Frontier::Conformance => {
-                return Err(ModelError::Frontier(
-                    "diagnostic import is not a complete artifact".into(),
-                ));
-            }
-        };
-        let names = declarations
-            .iter()
-            .map(Relation::name)
-            .collect::<BTreeSet<_>>();
-        let workspace = Workspace::with_budget(
-            runtime.model().clone(),
-            runtime.options(),
-            runtime.budget().clone(),
-        )?;
-        let output = workspace.output(
-            "detached-semantic-import",
-            profile,
-            lctx_model::domain::implementation_digest(),
-            workspace.inputs("detached-semantic-import", profile, [])?,
-        );
-        macro_rules! declare { ($($variant:ident:$ty:path),* $(,)?) => {$(if names.contains(<$ty>::NAME) { output.declare::<$ty>()?; })*}; }
-        lctx_model::graph_entity_records!(declare);
-        lctx_model::graph_assertion_records!(declare);
-        // Original bytes are retained semantic inputs. Their model chunking is reconstructed
-        // mechanically from the validated byte stream, independent of transport framing.
-        output.declare::<lctx_model::domain::artifact::ArtifactChunk>()?;
-        Ok(Self { workspace, output })
-    }
-    pub fn entity(&self, value: Entity) -> Result<(), ModelError> {
-        macro_rules! push_entity { ($($variant:ident:$ty:path),* $(,)?) => {
-        fn entity(output: &crate::workspace::ProducerOutput, entity: Entity) -> Result<(), ModelError> {
-            match entity { $(Entity::$variant(row) => output.push_sync(row),)* }
-        }
-    }; }
-        lctx_model::graph_entity_records!(push_entity);
-        entity(&self.output, value)
-    }
-    pub fn assertion(&self, value: Assertion) -> Result<(), ModelError> {
-        use lctx_model::domain::{Record, graph::record};
-        macro_rules! push_assertion { ($($variant:ident:$ty:path),* $(,)?) => {
-        fn assertion(output: &crate::workspace::ProducerOutput, assertion: Assertion) -> Result<(), ModelError> {
-            if let Some(source) = &assertion.source {
-                match source.domain() { $(<$ty>::NAME => output.push_sync(record::assertion_record::<$ty>(&assertion)?),)*
-                    _ => Err(ModelError::Schema("undeclared detached assertion record")) }
-            } else { Err(ModelError::Schema("detached assertion has no semantic record")) }
-        }
-    }; }
-        lctx_model::graph_assertion_records!(push_assertion);
-        assertion(&self.output, value)
-    }
-    pub fn original_stream(
-        &self,
-        source: &lctx_model::domain::source::SourceArtifact,
-        input: &mut impl std::io::Read,
-    ) -> Result<(), ModelError> {
-        use lctx_model::domain::artifact::{ARTIFACT_CHUNK_BYTES, ArtifactChunk, ArtifactVerifier};
-        let _buffer = self.workspace.budget().reserve(
-            "detached-original-transfer",
-            ARTIFACT_CHUNK_BYTES.saturating_mul(3),
-        )?;
-        let mut buffer = vec![0u8; ARTIFACT_CHUNK_BYTES];
-        let mut verifier = ArtifactVerifier::new(source)?;
-        let mut ordinal = 0;
-        loop {
-            self.workspace.cancellation().check()?;
-            let mut count = 0;
-            while count < buffer.len() {
-                let next = input
-                    .read(&mut buffer[count..])
-                    .map_err(ModelError::codec)?;
-                if next == 0 {
-                    break;
-                }
-                count += next;
-            }
-            if count == 0 {
-                break;
-            }
-            let chunk = ArtifactChunk {
-                artifact: source.id(),
-                ordinal,
-                body: lctx_model::domain::EvidenceBytes(buffer[..count].to_vec()),
-            };
-            verifier.push(&chunk)?;
-            self.output.push_sync(chunk)?;
-            ordinal += 1;
-        }
-        verifier.finish()
-    }
-    pub async fn finish(self, manifest: &Manifest) -> Result<(), ModelError> {
-        self.output
-            .finish(lctx_model::domain::stages::ProviderOutcome::Complete)
-            .await?;
-        self.workspace.facts_availability(manifest.profile)?;
-        self.workspace.admit_semantics(manifest.profile).await?;
-        self.workspace
-            .admit_frontier(manifest.frontier, manifest.profile)
-            .await?;
-        crate::artifact_manifest::verify_outcomes(&self.workspace, manifest)
-    }
+    Ok(VerifiedExport { workspace: workspace.clone(), path, manifest })
 }
 
 async fn readmit_detached(
@@ -995,47 +757,44 @@ async fn readmit_detached(
     manifest: &Manifest,
     runtime: &Arc<Workspace>,
 ) -> Result<(), ModelError> {
-    let admission = SemanticImport::new(runtime, manifest)?;
+    let loader=Arc::new(lctx_surrealdb::Loader::new(runtime.native().shared_client()));
     for (file, entities) in [("entities.arrow", true), ("assertions.arrow", false)] {
-        let reader = datafusion::arrow::ipc::reader::FileReader::try_new(
-            File::open(path.join(file)).map_err(ModelError::codec)?,
-            None,
-        )
-        .map_err(ModelError::codec)?;
+        let reader = datafusion::arrow::ipc::reader::FileReader::try_new(File::open(path.join(file)).map_err(ModelError::codec)?, None).map_err(ModelError::codec)?;
         for batch in reader {
             runtime.cancellation().check()?;
             let batch = batch.map_err(ModelError::codec)?;
-            let _decode = runtime.budget().reserve(
-                "detached-semantic-decode",
-                lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(4),
-            )?;
-            let payloads = batch
-                .column(2)
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .ok_or(ModelError::Schema("graph artifact"))?;
-            for index in 0..batch.num_rows() {
-                if entities {
-                    let entity: Entity =
-                        serde_json::from_slice(payloads.value(index)).map_err(ModelError::codec)?;
-                    if let Entity::Source(source) = &entity {
-                        let mut original = File::open(path.join(format!(
-                            "original-{}.bin",
-                            EntityId::of(source.id()).0.hex()
-                        )))
-                        .map_err(ModelError::codec)?;
-                        admission.original_stream(source, &mut original)?;
-                    }
-                    admission.entity(entity)?;
-                } else {
-                    admission.assertion(
-                        serde_json::from_slice(payloads.value(index)).map_err(ModelError::codec)?,
-                    )?;
-                }
+            let _decode = runtime.budget().reserve("detached-semantic-decode", lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(4))?;
+            let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().ok_or(ModelError::Schema("graph artifact"))?;
+            if entities {
+                let rows = (0..batch.num_rows()).map(|index| serde_json::from_slice::<Entity>(payloads.value(index)).map_err(ModelError::codec)).collect::<Result<Vec<_>, _>>()?;
+                let loader=loader.clone();
+                runtime.native_call(async move{loader.entities(&rows).await}).await?;
+            } else {
+                let rows = (0..batch.num_rows()).map(|index| serde_json::from_slice::<Assertion>(payloads.value(index)).map_err(ModelError::codec)).collect::<Result<Vec<_>, _>>()?;
+                let loader=loader.clone();
+                runtime.native_call(async move{loader.assertions(&rows).await}).await?;
             }
         }
     }
-    admission.finish(manifest).await
+    for original in &manifest.originals {
+        let mut file=File::open(path.join(format!("original-{}.bin",original.source.0.hex()))).map_err(ModelError::codec)?;
+        let loader=loader.clone();let original=original.clone();
+        runtime.native_call(async move{loader.original_stream(original.source.0,original.content,original.byte_len,&mut file).await}).await?;
+    }
+    let native=runtime.native().clone();let path=path.join("completed-state.jsonl");let state=manifest.completed_state.clone();
+    runtime.native_call(async move{native.import_state(&path,&state).await}).await?;
+    runtime.restore(manifest.profile).await?;
+    verify_restored(runtime, manifest).await
+}
+
+/// Admit a detached native realization against its exact restored completed bindings.
+pub async fn verify_restored(runtime: &Arc<Workspace>, manifest: &Manifest) -> Result<(), ModelError> {
+    let mut charge=StateCharge::new(runtime.budget(),"restored-producer-inventory");
+    if crate::artifact_manifest::producer_inventory(runtime,&mut charge).await?!=manifest.producers{return Err(ModelError::Conflict("restored contribution producer inventory"));}
+    runtime.facts_availability_async(manifest.profile).await?;
+    runtime.admit_semantics(manifest.profile).await?;
+    runtime.admit_frontier(manifest.frontier, manifest.profile).await?;
+    crate::artifact_manifest::verify_outcomes(runtime, manifest).await
 }
 
 fn verify_projections(
@@ -1240,165 +999,39 @@ async fn reference_closure(
     result
 }
 
-/// Lower completed semantic owners into a small number of typed graph streams and admit them.
-/// Native publication consumes this immutable result; it does not supply compiler working memory.
+/// Admit one completed native authority. Portable files are produced only by explicit export.
 pub async fn admit(
-    workspace: &Arc<Workspace>,
-    captured: &cpg_extract::bundle::CapturedInputs,
-    frontier: lctx_model::domain::admission::Frontier,
-    profile: lctx_model::domain::stages::Profile,
-    settings: ContentHash,
-) -> Result<AdmittedArtifact, ModelError> {
-    use lctx_model::domain::{ContentHasher, Record};
-    use std::io::{Read, Write};
+    workspace:&Arc<Workspace>,captured:&cpg_extract::bundle::CapturedInputs,
+    frontier:lctx_model::domain::admission::Frontier,profile:lctx_model::domain::stages::Profile,settings:ContentHash,
+)->Result<AdmittedArtifact,ModelError>{
     workspace.cancellation().check()?;
-    workspace.require_compilation(captured, frontier, profile, settings)?;
-    // Coverage has an independent obligation universe derived from acquired artifacts and profile.
-    // Merely having a collection of well-shaped graph records is insufficient.
-    workspace.facts_availability(profile)?;
-    let _checked = workspace.admit_semantics(profile).await?;
-    workspace.admit_frontier(frontier, profile).await?;
-    let mut builder = GraphBuilder::new(workspace.budget())?;
-    macro_rules! emit_entities {
-        ($($variant:ident: $record:path),* $(,)?)=>{$(
-            if let Ok(source)=workspace.completed::<$record>() {
-                for batch in source.read::<$record>(workspace.model().clone(),workspace.budget().clone())? {
-                    workspace.cancellation().check()?;
-                    for row in batch?.rows() {builder.lower_entity(&Entity::from(row.clone()),frontier)?;}
-                }
-            }
-        )*};
+    workspace.require_compilation(captured,frontier,profile,settings)?;
+    workspace.facts_availability_async(profile).await?;
+    workspace.admit_semantics(profile).await?;
+    workspace.admit_frontier(frontier,profile).await?;
+    let lookup=crate::native_canonical::Lookup::load(workspace).await?;
+    let mut derivations=Vec::new();let mut proof_charge=StateCharge::new(workspace.budget(),"native-final-derivations");
+    let mut family=FamilyHasher::new(GraphFamily::Entities);
+    let mut entities=crate::native_canonical::entities(workspace.clone()).await?;
+    while let Some(row)=entities.try_next().await?{
+        admit_entity(&row,&lookup)?;family.push(row.id().0,row.content())?;
+        if let Some(proof)=row.derivation()?{proof_charge.grow(size_of::<GraphDerivation>()+proof.premises.len()*(size_of::<Target>()+128)+256)?;derivations.push(proof);}
     }
-    macro_rules! emit_assertions {
-        ($($variant:ident: $record:path),* $(,)?)=>{$(
-            if let Ok(source)=workspace.completed::<$record>() {
-                for batch in source.read::<$record>(workspace.model().clone(),workspace.budget().clone())? {
-                    workspace.cancellation().check()?;
-                    for row in batch?.rows() {builder.assertion(&Assertion::from_record(row.clone())?)?;}
-                }
-            }
-        )*};
+    let entities_content=family.finish();
+    let mut family=FamilyHasher::new(GraphFamily::Assertions);
+    let mut assertions=crate::native_canonical::assertions(workspace.clone()).await?;
+    while let Some(row)=assertions.try_next().await?{
+        admit_assertion(&row,&lookup)?;family.push(row.id().0,row.content())?;
+        if let Some(proof)=row.declared_derivation(){proof_charge.grow(size_of::<GraphDerivation>()+proof.premises.len()*(size_of::<Target>()+128)+256)?;derivations.push(proof);}
     }
-    lctx_model::graph_entity_records!(emit_entities);
-    lctx_model::graph_assertion_records!(emit_assertions);
-    admit_graph_derivations(&builder.derivations)?;
-    let GraphBuilder {
-        directory,
-        entities,
-        assertions,
-        references,
-        ..
-    } = builder;
-    let pending_entities = entities.finish()?;
-    let pending_assertions = assertions.finish()?;
-    references.finish()?;
-    let entities_path = directory.path().join("entities.arrow");
-    let assertions_path = directory.path().join("assertions.arrow");
-    let base = workspace
-        .inputs("graph-admission", profile, [])?
-        .session(workspace)
-        .await?;
-    // Merge joins operate on ordered streams and spillable sorting, avoiding full resident indexes.
-    let context = SessionContext::new_with_config_rt(
-        base.copied_config()
-            .set_bool("datafusion.optimizer.prefer_hash_join", false),
-        base.runtime_env(),
-    );
-    let entities_content = order(
-        &context,
-        &pending_entities,
-        &entities_path,
-        GraphFamily::Entities,
-        workspace.budget(),
-    )
-    .await?;
-    let assertions_content = order(
-        &context,
-        &pending_assertions,
-        &assertions_path,
-        GraphFamily::Assertions,
-        workspace.budget(),
-    )
-    .await?;
-    reference_closure(
-        &context,
-        &entities_path,
-        &assertions_path,
-        &directory.path().join("references-pending.arrow"),
-    )
-    .await?;
-    let mut captures = Vec::new();
-    let mut originals = Vec::new();
-    let _buffer_charge = workspace
-        .budget()
-        .reserve("artifact-original-copy", 65536)?;
-    let mut buffer = vec![0u8; 65536];
-    for acquired in captured.inputs() {
-        let frozen = acquired.captured();
-        captures.push(EntityId::of(frozen.revision().id()));
-        for source in frozen.artifacts() {
-            let id = EntityId::of(source.id());
-            let mut input =
-                File::open(frozen.root().join(&source.path)).map_err(ModelError::codec)?;
-            let mut output = File::create(
-                directory
-                    .path()
-                    .join(format!("original-{}.bin", id.0.hex())),
-            )
-            .map_err(ModelError::codec)?;
-            let mut content = ContentHasher::default();
-            let mut byte_len = 0u64;
-            loop {
-                workspace.cancellation().check()?;
-                let count = input.read(&mut buffer).map_err(ModelError::codec)?;
-                if count == 0 {
-                    break;
-                }
-                output
-                    .write_all(&buffer[..count])
-                    .map_err(ModelError::codec)?;
-                content.update(&buffer[..count]);
-                byte_len += count as u64;
-            }
-            if content.finish() != source.content || byte_len != source.byte_len as u64 {
-                return Err(ModelError::Invalid(
-                    "original bytes changed after capture".into(),
-                ));
-            }
-            output.sync_all().map_err(ModelError::codec)?;
-            originals.push(Original {
-                source: id,
-                content: source.content,
-                byte_len,
-            });
-        }
+    let assertions_content=family.finish();admit_graph_derivations(&derivations)?;drop(derivations);drop(proof_charge);drop(lookup);
+    let mut captures=Vec::new();let mut original_keys=Vec::new();
+    for acquired in captured.inputs(){let frozen=acquired.captured();captures.push(EntityId::of(frozen.revision().id()));
+        for source in frozen.artifacts(){original_keys.push((source.id(),Original{source:EntityId::of(source.id()),content:source.content,byte_len:source.byte_len as u64}));}
     }
-    captures.sort();
-    captures.dedup();
-    originals.sort_by_key(|o| o.source);
-    originals.dedup();
-    let (manifest, manifest_charge) = crate::artifact_manifest::populate(
-        workspace,
-        frontier,
-        profile,
-        settings,
-        captures,
-        originals,
-        vec![entities_content, assertions_content],
-    )
-    .await?;
-    manifest.validate()?;
-    for path in [
-        pending_entities,
-        pending_assertions,
-        directory.path().join("references-pending.arrow"),
-    ] {
-        std::fs::remove_file(path).map_err(ModelError::codec)?;
-    }
-    workspace.cancellation().check()?;
-    Ok(AdmittedArtifact {
-        directory,
-        manifest,
-        _manifest_charge: manifest_charge,
-    })
+    captures.sort();captures.dedup();original_keys.sort_by_key(|(_,original)|original.source);original_keys.dedup();
+    let originals=original_keys.iter().map(|(_,original)|original.clone()).collect();
+    let (manifest,mut manifest_charge)=crate::artifact_manifest::populate(workspace,frontier,profile,settings,captures,originals,vec![entities_content,assertions_content]).await?;
+    manifest.validate()?;manifest_charge.grow(original_keys.len()*(size_of::<Id<lctx_model::domain::source::SourceArtifact>>()+size_of::<Original>()))?;
+    Ok(AdmittedArtifact{workspace:workspace.clone(),original_keys,manifest,_manifest_charge:manifest_charge})
 }

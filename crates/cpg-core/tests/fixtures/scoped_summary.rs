@@ -53,8 +53,8 @@ async fn actual_summary_matches_complete_finite_whole_operation() {
             memory_bytes: 1 << 30,
             partitions: 1,
             batch_rows: 7,
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let captured = runtime::capture("scoped_source_execution", profile, workspace.budget());
     let configuration = ContentHash::of(b"scoped-summary-oracle");

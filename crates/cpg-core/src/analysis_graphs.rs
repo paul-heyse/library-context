@@ -101,6 +101,7 @@ impl PreparedGraphs {
         let mut charge = StateCharge::new(budget, "prepared-analysis-graphs");
         charge.grow(size_of::<Self>())?;
         let mut graphs: Vec<PreparedProjection> = Vec::new();
+        let mut keys = BTreeSet::new();
         for assessment in assessments.iter() {
             runtime.cancellation().check()?;
             let key = ProjectionKey {
@@ -108,9 +109,10 @@ impl PreparedGraphs {
                 context: assessment.context,
                 name: assessment.projection,
             };
-            if graphs.iter().any(|p| p.graph.key() == key) {
+            if !keys.insert(key) {
                 return Err(invalid("ambiguous prepared graph identity"));
             }
+            charge.grow(size_of::<ProjectionKey>() + 96)?;
             // Each encoded representation has the lifetime of this hydration only. Retaining
             // every selected graph's chunks alongside the compact topology duplicates the
             // entire collection and can crowd out the next graph's legitimate allocation.
@@ -195,9 +197,9 @@ impl PreparedGraphs {
     ) -> Result<&'a MaterializedGraph, ModelError> {
         self.admit(access, runtime)?;
         self.graphs
-            .iter()
-            .find(|p| p.graph.key() == key)
-            .map(|p| &p.graph)
+            .binary_search_by_key(&key, |projection| projection.graph.key())
+            .ok()
+            .map(|index| &self.graphs[index].graph)
             .ok_or_else(|| invalid("projection was not prepared for this collection"))
     }
     /// Availability remains independent of successful hydration and algorithm execution.
@@ -209,9 +211,9 @@ impl PreparedGraphs {
     ) -> Result<&'a ProjectionSourceAssessment, ModelError> {
         self.admit(access, runtime)?;
         self.graphs
-            .iter()
-            .find(|p| p.graph.key() == key)
-            .map(|p| &p.assessment)
+            .binary_search_by_key(&key, |projection| projection.graph.key())
+            .ok()
+            .map(|index| &self.graphs[index].assessment)
             .ok_or_else(|| invalid("projection was not prepared for this collection"))
     }
 }
