@@ -159,14 +159,15 @@ impl NativeCompilerStore {
         loop {
             let notification=self.admission.changed.notified();tokio::pin!(notification);notification.as_mut().enable();
             {let state=self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?;
-             if if scans_only {state.scans==0}else{state.active==0}{return Ok(());}}
+             let finished=if scans_only {state.scans==0}else{state.active==0};if finished{return Ok(());}}
             notification.await;
         }
     }
     async fn wait_scans(&self)->Result<(),ModelError>{self.wait_operations(true).await}
     pub async fn abandon(&self)->Result<(),ModelError>{
         self.drain().await?;
-        if self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?.uncertain {
+        let uncertain={self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?.uncertain};
+        if uncertain {
             let _=self.client.invalidate().await;
             return Err(ModelError::infrastructure(Infrastructure::Unconfirmed,format!("cancelled native operation left owned unselected database {}",self.database.as_str())));
         }
