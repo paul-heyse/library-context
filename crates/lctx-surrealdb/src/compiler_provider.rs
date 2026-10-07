@@ -124,20 +124,20 @@ fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:R
         let store=store.clone();let view=view.clone();let relation=relation.clone();let projection=projection.clone();let predicate=predicate.clone();let keys=keys.clone();let budget=budget.clone();
         async move {
             if done{return Ok::<_,datafusion::error::DataFusionError>(None);}
-            let end=offset.saturating_add(TRANSFER_ROWS).min(keys[driver].keys.len());
+            let end=if keys[driver].field.is_some(){keys[driver].keys.len()}else{offset.saturating_add(TRANSFER_ROWS).min(keys[driver].keys.len())};
             let field_keys=keys.iter().filter(|selection|selection.field.is_some()).map(|selection|selection.keys.len()).sum::<usize>();
             let transfer=budget.reserve("native-selected-key-transfer",(end-offset).saturating_mul(192).saturating_add(field_keys.saturating_mul(1536)).saturating_add(4096)).map_err(df_error)?;
-            let mut bindings=Variables::new();let mut predicates=Vec::new();
+            let mut bindings=Variables::new();let mut predicates=Vec::new();let mut nominal=None;let mut field_driver=None;
             let mut empty=keys.iter().any(|selection|selection.keys.is_empty());
             if keys[driver].field.is_none(){
-                let selected=keys[driver].keys[offset..end].iter().filter(|key|keys.iter().filter(|selection|selection.field.is_none()).all(|selection|selection.keys.binary_search(key).is_ok())).map(hex::encode).collect::<Vec<_>>();
-                empty|=selected.is_empty();
-                bindings.insert("closure_selected_keys",selected);predicates.push("semantic_key IN $closure_selected_keys".to_owned());
+                let selected=keys[driver].keys[offset..end].iter().filter(|key|keys.iter().filter(|selection|selection.field.is_none()).all(|selection|selection.keys.binary_search(key).is_ok())).copied().collect::<Vec<_>>();
+                empty|=selected.is_empty();nominal=Some(selected);
             }
             for (index,selection) in keys.iter().enumerate(){
                 let Some(field)=selection.field else{continue;};
                 let name=format!("closure_selected_fields_{index}");
                 let values=selection.keys.iter().map(|key|Value::Array(key.iter().map(|byte|Value::Number(Number::Int(i64::from(*byte)))).collect())).collect::<Vec<_>>();
+                if index==driver {field_driver=Some((field.to_string(),values));continue;}
                 bindings.insert(name.clone(),values);
                 predicates.push(format!("scope_keys CONTAINSANY ${name}.map(|$value| '{}|{field}|'+<string>$value)",relation.name()));
             }
@@ -146,9 +146,9 @@ fn selected_batches(store:Arc<NativeCompilerStore>,view:CompletedView,relation:R
                 None=>{},
                 _=>return Err(df_error(ModelError::Schema("native table static predicate"))),
             }
-            let sql=predicates.join(" AND ");
+            let sql=if predicates.is_empty(){"true".into()}else{predicates.join(" AND ")};
             // Even empty demand checks the exact view/pin through the ordinary native reader.
-            let predicate=if empty {NativePredicate::Keys(vec![])}else{NativePredicate::Sql{sql,bindings}};
+            let predicate=if empty {NativePredicate::Keys(vec![])}else if let Some(keys)=nominal {NativePredicate::KeysSql{keys,sql,bindings}}else if let Some((field,values))=field_driver {NativePredicate::FieldSql{field,values,sql,bindings}}else{return Err(df_error(ModelError::Schema("native selected driver")));};
             let rows=scan_batches(store,view,relation,projection,Some(predicate),budget,batch_rows).await.map_err(df_error)?;
             let rows=rows.map(move |batch|{let _held=&transfer;batch});
             Ok(Some((rows,(end,end==keys[driver].keys.len()))))
