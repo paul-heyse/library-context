@@ -1,4 +1,4 @@
-"""Pure private evaluator controls. No services, adapters, inference or protected data."""
+"""Private finite/numeric controls and current Rust/MCP renderer controls; no inference or protected data."""
 
 from __future__ import annotations
 
@@ -156,7 +156,7 @@ def test_freeze_binds_actual_tasks_and_blocks_changed_yardstick(worker):
 
 def test_timeout_cancels_the_campaign_process(tmp_path):
     executable = tmp_path / "hung-worker"
-    executable.write_text("#!" + os.sys.executable + "\nimport json, sys, time\nfor line in sys.stdin:\n if json.loads(line).get('operation') == 'schema':\n  print(json.dumps({'status':'completed','result':{'protocol_version':2,'case':{'$schema':'https://json-schema.org/draft/2020-12/schema'}}}), flush=True)\n else:\n  time.sleep(30)\n")
+    executable.write_text("#!" + os.sys.executable + "\nimport json, sys, time\nfor line in sys.stdin:\n if json.loads(line).get('operation') == 'schema':\n  print(json.dumps({'status':'completed','result':{'protocol_version':3,'case':{'$schema':'https://json-schema.org/draft/2020-12/schema'}}}), flush=True)\n else:\n  time.sleep(30)\n")
     executable.chmod(0o700)
     with Worker(executable, timeout=0.2) as process:
         with pytest.raises(WorkerError, match="timeout"):
@@ -284,3 +284,161 @@ def test_changed_actual_worker_executable_cannot_use_old_freeze(worker, tmp_path
     with Worker(executable) as different:
         with pytest.raises(WorkerError, match="actual running kernel/schema"):
             frozen_judgments(different, frozen, cases, frozen["experiment"], lane="baseline")
+
+
+def renderer_source_case():
+    path = ROOT / "eval/programmatic/renderer_cases.py"
+    spec = importlib.util.spec_from_file_location("private_renderer_cases", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.source_case()
+
+
+def test_numeric_stored4096_projection1024_reference_needs_no_encoder(worker):
+    from programmatic_eval import stored_vector_reference
+    query = [0.0] * 4096
+    query[0] = query[1024] = 1.0
+    wrong = query.copy()
+    wrong[1024] = -1.0
+    result = stored_vector_reference(worker, {
+        "policy": {"full_dimensions": 4096, "projection_dimensions": 1024, "block_rows": 1, "k": 1},
+        "query": query, "vectors": [{"id": "z-best", "values": query, "eligible": True},
+                                     {"id": "a-tie", "values": wrong, "eligible": True}],
+        "nominated_ids": ["a-tie"],
+    })
+    assert result["full"][0]["id"] == "z-best"
+    assert result["projected"][0]["id"] == "a-tie"
+    assert result["missing_from_union"] == ["z-best"]
+    assert "no native ANN" in result["nomination_basis"]
+
+
+def test_actual_rust_renderer_source_observation_and_missing_interpretation(worker):
+    from programmatic_eval import capture_renderer
+    task, response = renderer_source_case()
+    observation = capture_renderer(task, response)
+    assert "structuredContent" in json.loads(observation["segments"][0])
+    assert "groups" not in json.loads(observation["segments"][0])
+    case = {"task": task, "observation": observation, "mode": "immediate"}
+    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    # An opaque public qualification ID cannot supply a missing readable condition.
+    case["task"]["predicates"][0]["qualifications"] = [{"id": "setup", "accepted_text": ["requires installed transport"]}]
+    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
+@pytest.mark.anyio
+async def test_actual_mcp_capture_uses_public_projection_and_final_sdk_object(worker):
+    from fastmcp import Client, FastMCP
+    from lctx_mcp.wire import register
+    from programmatic_eval import capture_public_journey
+    task, response = renderer_source_case()
+    sent = []
+    class ControlledDtoRenderer:
+        async def execute(self, tool, arguments):
+            sent.append({"tool": tool, "arguments": arguments})
+            return json.dumps(response)
+    server = FastMCP("private renderer control", dereference_schemas=False)
+    register(server, ControlledDtoRenderer())
+    async with Client(server) as client:
+        observation = await capture_public_journey(worker, client, task, lane="renderer")
+    assert sent == [task["public_call"]]
+    assert observation["capture"]["lane"] == "renderer"
+    assert list(worker.judge([{"task": task, "observation": observation, "mode": "immediate"}]))[0]["epistemic"] == "sufficient"
+    assert json.loads(observation["segments"][0])["structuredContent"]["evidence"]["body"]["bytes"] == response["evidence"]["body"]["bytes"]
+
+
+def test_actual_public_projection_rejects_private_fields_before_effects():
+    from programmatic_eval import _public_projection
+    from lctx_semantics import NativeFailure
+    task, _ = renderer_source_case()
+    task["public_call"]["arguments"]["expected_anchor"] = "private-leak"
+    with pytest.raises(NativeFailure):
+        _public_projection(task)
+
+
+def test_actual_capture_freeze_binds_source_native_wire_budget_precision(worker):
+    from programmatic_eval import capture_renderer
+    task, response = renderer_source_case()
+    observation = capture_renderer(task, response)
+    capture = observation["capture"]
+    case = {"task": task, "observation": observation, "mode": "immediate"}
+    realization = {"observation_realization": observation["realization"], "source": capture["semantic_snapshot"],
+                   "native": capture["native_realization"], "encoder": "not_requested", "scorer": "source-renderer",
+                   "settings": {"wire_identity": capture["wire_identity"], "database_identity": capture["database_identity"], "lane": capture["lane"], "serialization": capture["serialization"], "timeout_millis": capture["timeout_millis"]}}
+    frozen = prepare_comparison(worker, [case], "renderer-1", realization, realization, [], {"metrics": "epistemic", "numeric_precision_ties": "not_requested"})
+    assert frozen_judgments(worker, frozen, [case], frozen["experiment"], lane="baseline")[0]["scorable"]
+    for field, value in [("semantic_snapshot", "foreign"), ("native_realization", "foreign"), ("wire_identity", "foreign"), ("database_identity", "foreign"), ("byte_limit", 1), ("precision", "unknown"), ("lane", "native"), ("timeout_millis", 1), ("serialization", "foreign")]:
+        changed = copy.deepcopy(case)
+        changed["observation"]["capture"][field] = value
+        with pytest.raises(WorkerError):
+            frozen_judgments(worker, frozen, [changed], frozen["experiment"], lane="baseline")
+
+
+@pytest.mark.anyio
+async def test_actual_capture_timeout_is_explicit_not_empty_success(worker):
+    from programmatic_eval import capture_public_journey
+    import asyncio
+    task, _ = renderer_source_case()
+    class SlowClient:
+        async def call_tool_mcp(self, *_args, **_kwargs):
+            await asyncio.sleep(1)
+    observation = await capture_public_journey(worker, SlowClient(), task, lane="renderer", timeout_seconds=0.005)
+    row = list(worker.judge([{"task": task, "observation": observation, "mode": "expandable"}]))[0]
+    assert row["execution"] == "failed"
+    assert row["epistemic"] == "inconclusive"
+    assert not row["scorable"]
+
+
+@pytest.mark.anyio
+async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(worker):
+    from fastmcp import Client, FastMCP
+    from lctx_mcp.wire import register
+    from programmatic_eval import capture_public_journey
+    task, response = renderer_source_case()
+    initial = copy.deepcopy(response)
+    body = response["evidence"]["body"]["bytes"]
+    cut = 12
+    initial["evidence"]["body"].update({"bytes": body[:cut], "end": cut, "continuation": "public-next", "truncated": True, "omitted": len(body) - cut})
+    final = copy.deepcopy(response)
+    final["evidence"]["body"].update({"bytes": body[cut:], "start": cut})
+    # Exact each-page meaning; the independent oracle never authorizes concatenating arbitrary spans.
+    task["predicates"][0]["accepted_text"] = [bytes(body[cut:]).decode()]
+    sent = []
+    class ControlledPages:
+        async def execute(self, tool, arguments):
+            sent.append({"tool": tool, "arguments": arguments})
+            return json.dumps(final if "cursor" in arguments.get("page", {}) else initial)
+    server = FastMCP("private current pagination control", dereference_schemas=False)
+    register(server, ControlledPages())
+    async with Client(server) as client:
+        observation = await capture_public_journey(worker, client, task, lane="renderer")
+    assert len(sent) == 2
+    assert sent[1]["arguments"]["page"]["cursor"] == "public-next"
+    assert observation["capture"]["calls"] == sent
+    case = {"task": task, "observation": observation, "mode": "expandable"}
+    assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"
+    case["mode"] = "immediate"
+    assert list(worker.judge([case]))[0]["epistemic"] == "insufficient"
+    case["mode"] = "expandable"
+    case["observation"]["capture"]["calls"][1]["arguments"]["source"]["artifact"] = [8] * 16
+    assert list(worker.judge([case]))[0]["epistemic"] == "inconclusive"
+    final["snapshot"]["semantic"] = [7] * 32
+    async with Client(server) as client:
+        stale = await capture_public_journey(worker, client, task, lane="renderer")
+    row = list(worker.judge([{"task": task, "observation": stale, "mode": "expandable"}]))[0]
+    assert row["execution"] == "stale"
+    assert not row["scorable"]
+
+
+def test_unbounded_journey_envelopes_refuse_before_any_public_effect(worker):
+    from programmatic_eval import _public_projection
+    case = population()[0]
+    case["task"]["envelope"]["max_calls"] = 257
+    assert list(worker.judge([case]))[0]["applicability"] == "invalid_task"
+    with pytest.raises(WorkerError, match="bounded public journey"):
+        _public_projection(case["task"])

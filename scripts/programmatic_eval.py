@@ -7,6 +7,8 @@ are exact response captures; this module does not render expected production tex
 from __future__ import annotations
 
 import argparse
+import asyncio
+import math
 import copy
 import hashlib
 import json
@@ -42,7 +44,7 @@ class Worker:
         self.pending = bytearray()
         try:
             self.schema = self.request({"operation": "schema"})
-            if self.schema.get("protocol_version") != 2 or self.schema["case"]["$schema"] != "https://json-schema.org/draft/2020-12/schema":
+            if self.schema.get("protocol_version") != 3 or self.schema["case"]["$schema"] != "https://json-schema.org/draft/2020-12/schema":
                 raise WorkerError("unsupported generated wire schema")
         except BaseException:
             self.close()
@@ -115,6 +117,135 @@ class Worker:
 
 
 
+
+def _public_projection(task: dict[str, Any]) -> dict[str, Any]:
+    if not 0 <= task["envelope"]["max_calls"] <= 256 or not 0 <= task["envelope"]["max_bytes"] <= MAX_LINE:
+        raise WorkerError("unsupported bounded public journey envelope")
+    from lctx_semantics import wire_decode
+    call = copy.deepcopy(task["public_call"])
+    if call is None or set(call) != {"tool", "arguments"}:
+        raise WorkerError("task requires an explicit public tool/arguments projection")
+    # Production admission rejects private fields before any client effect. Never send task/oracle.
+    wire_decode(call["tool"], json.dumps(call["arguments"], ensure_ascii=False))
+    return call
+
+
+def _capture_facts(task: dict[str, Any], raw: str, calls: list[dict[str, Any]], lane: str, timeout_millis: int) -> dict[str, Any]:
+    from lctx_semantics import wire_tool
+    result = json.loads(raw)
+    snapshot = result["structuredContent"]["snapshot"]
+    identity = json.loads(wire_tool(calls[0]["tool"]))["wire_identity"]
+    return {"lane": lane, "semantic_snapshot": bytes(snapshot["semantic"]).hex(),
+            "native_realization": bytes(snapshot["realization"]).hex(),
+            "database_identity": json.dumps(snapshot["database"], sort_keys=True, separators=(",", ":")),
+            "serialization": "rust_renderer_result",
+            "wire_identity": bytes(identity).hex(), "calls": calls,
+            "timeout_millis": timeout_millis, "call_limit": task["envelope"]["max_calls"] + 1,
+            "byte_limit": task["envelope"]["max_bytes"], "precision": "not_requested"}
+
+
+def capture_renderer(task: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    """Actual Rust final MCP formatter; controlled DTO input, never a native-store claim."""
+    from lctx_semantics import wire_tool_result
+    call = _public_projection(task)
+    expanded = call["arguments"].get("page", {}).get("expanded", False)
+    raw = wire_tool_result(call["tool"], json.dumps(response, ensure_ascii=False), expanded)
+    facts = _capture_facts(task, raw, [call], "renderer", 20000)
+    return {"capture": facts, "realization": facts["native_realization"], "segments": [raw],
+            "observer_format": "mcp_tool_result_v1", "expansions": [], "status": "completed", "failure": None}
+
+
+async def capture_public_journey(
+    worker: Worker, client: Any, task: dict[str, Any], *, lane: str,
+    timeout_seconds: float = 20.0,
+) -> dict[str, Any]:
+    """Actual MCP public calls, exact SDK result object/content, deterministic visible follow-ups.
+
+    The caller owns a pinned client/session. SDK object bytes are retained; this does
+    not claim access to raw JSON-RPC frames. Only public projection and visible refs
+    guide calls; no expected anchors/witness/worlds influence navigation.
+    """
+    from lctx_semantics import wire_decode
+    from fastmcp.exceptions import McpError
+    if lane not in ("renderer", "native"):
+        raise WorkerError("capture lane must name actual renderer or native readiness")
+    if not math.isfinite(timeout_seconds) or timeout_seconds < 0.001 or timeout_seconds > 60.0:
+        raise WorkerError("public journey timeout must be finite in 1..60000 milliseconds")
+    initial = _public_projection(task)
+    deadline = time.monotonic() + timeout_seconds
+    async def call_public(call):
+        wire_decode(call["tool"], json.dumps(call["arguments"], ensure_ascii=False))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("public journey deadline")
+        result = await asyncio.wait_for(client.call_tool_mcp(call["tool"], call["arguments"], timeout=remaining), remaining)
+        return result.model_dump_json(by_alias=True, exclude_none=True)
+    calls = [initial]
+    try:
+        raw = await call_public(initial)
+    except (TimeoutError, OSError, McpError) as error:
+        return {"capture": None, "realization": "unavailable", "segments": [],
+                "observer_format": "mcp_tool_result_v1", "expansions": [], "status": "failed", "failure": type(error).__name__}
+    if json.loads(raw).get("isError", False):
+        return {"capture": None, "realization": "unavailable", "segments": [raw],
+                "observer_format": "mcp_tool_result_v1", "expansions": [], "status": "failed", "failure": "MCP initial call returned error"}
+    facts = _capture_facts(task, raw, calls, lane, int(timeout_seconds * 1000))
+    facts["serialization"] = "sdk_result_object"
+    observation = {"capture": facts, "realization": facts["native_realization"], "segments": [raw],
+                   "observer_format": "mcp_tool_result_v1", "expansions": [], "status": "completed", "failure": None}
+    if len(raw.encode()) > task["envelope"]["max_bytes"]:
+        return observation  # Judge reports infeasible delivery; no follow-up is attempted.
+    try:
+        queue = list(worker.request({"operation": "observe", "observation": observation})["public_references"])
+    except WorkerError as error:
+        observation["status"] = "failed"
+        observation["failure"] = str(error)
+        return observation
+    seen: set[str] = set()
+    while queue and len(observation["expansions"]) < task["envelope"]["max_calls"]:
+        reference = queue.pop(0)
+        if reference in seen:
+            continue
+        seen.add(reference)
+        public = json.loads(reference)
+        if public["tool"] not in task["request"]["allowed_followups"]:
+            continue
+        entry = {"reference": reference, "operation": public["tool"], "realization": observation["realization"], "status": "completed", "response_segment": None}
+        calls.append(public)
+        try:
+            following = await call_public(public)
+        except (TimeoutError, OSError, McpError):
+            entry["status"] = "refused"
+            observation["expansions"].append(entry)
+            break
+        entry["response_segment"] = len(observation["segments"])
+        observation["segments"].append(following)
+        observation["expansions"].append(entry)
+        if json.loads(following).get("isError", False):
+            entry["status"] = "failed"
+            break
+        if sum(len(segment.encode()) for segment in observation["segments"]) > task["envelope"]["max_bytes"]:
+            entry["status"] = "budget_exhausted"
+            break
+        following_facts = _capture_facts(task, following, calls, lane, facts["timeout_millis"])
+        entry["realization"] = following_facts["native_realization"]
+        if any(following_facts[key] != facts[key] for key in ("semantic_snapshot", "native_realization", "database_identity")):
+            entry["status"] = "stale"
+            break
+        part = {**observation, "segments": [following]}
+        try:
+            queue.extend(worker.request({"operation": "observe", "observation": part})["public_references"])
+        except WorkerError:
+            entry["status"] = "failed"
+            break
+    return observation
+
+
+def stored_vector_reference(worker: Worker, input_data: dict[str, Any]) -> dict[str, Any]:
+    """Private bounded stored-value numeric lane. It never starts inference or ANN."""
+    return worker.request({"operation": "numeric", "input": input_data})
+
+
 def grounded_feedback(
     worker: Worker, case: dict[str, Any], current_revision: str,
     grounding: str, causes: list[str], proposed_change: str,
@@ -169,7 +300,7 @@ def prepare_comparison(
         "wire_schema": content_digest(schema),
         "task_population": content_digest([{"task": case["task"], "mode": case["mode"]} for case in cases]),
         "split_keys": content_digest(groups),
-        "public_requests": content_digest([case["task"]["request"] for case in cases]),
+        "public_requests": content_digest([{"request":case["task"]["request"], "call":case["task"]["public_call"]} for case in cases]),
         "oracle": content_digest([case["task"]["oracle"] for case in cases]),
         "journey_limits": content_digest([case["task"]["envelope"] for case in cases]),
         "completeness_applicability": content_digest([
@@ -202,6 +333,19 @@ def frozen_judgments(
     selected = frozen["experiment"][lane]["observation_realization"]
     if not selected or any(case["observation"]["realization"] != selected for case in cases):
         raise WorkerError("captured observation realization differs from selected comparison lane")
+    realization = frozen["experiment"][lane]
+    for case in cases:
+        capture = case["observation"].get("capture")
+        if capture is not None:
+            if capture["semantic_snapshot"] != realization["source"] or capture["native_realization"] != realization["native"] or capture["wire_identity"] != realization["settings"].get("wire_identity") or capture["database_identity"] != realization["settings"].get("database_identity"):
+                raise WorkerError("actual source/native/wire capture identity differs from frozen lane")
+            for field in ("lane", "serialization", "timeout_millis"):
+                if capture[field] != realization["settings"].get(field):
+                    raise WorkerError("actual capture lane/serialization/time budget differs from frozen lane")
+            if capture["byte_limit"] != case["task"]["envelope"]["max_bytes"] or capture["call_limit"] != case["task"]["envelope"]["max_calls"] + 1:
+                raise WorkerError("actual journey budget differs from frozen meaning")
+            if content_digest(capture["precision"]) != meanings["numeric_precision_ties"]:
+                raise WorkerError("actual capture precision differs from frozen meaning")
     worker.request({"operation": "admit", "frozen": frozen, "experiment": experiment})
     return list(worker.judge(cases))
 

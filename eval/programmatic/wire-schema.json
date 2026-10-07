@@ -1,6 +1,6 @@
 {
-  "protocol_version": 2,
-  "kernel_source_revision": "1cdd56a29cc514ca9cdcb4f6ae3725e67398473af013f1baf8bb2d0ae3594d6d",
+  "protocol_version": 3,
+  "kernel_source_revision": "1c91d80a51ebf5400594da6768595abcd0a53a553b937cc50a161545f04585df",
   "request": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Request",
@@ -17,6 +17,40 @@
           "operation"
         ],
         "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "input": {
+            "$ref": "#/$defs/Input"
+          },
+          "operation": {
+            "type": "string",
+            "const": "numeric"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "input"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "observation": {
+            "$ref": "#/$defs/Observation"
+          },
+          "operation": {
+            "type": "string",
+            "const": "observe"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "observation"
+        ]
       },
       {
         "type": "object",
@@ -116,6 +150,279 @@
       }
     ],
     "$defs": {
+      "Input": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "$ref": "#/$defs/Policy"
+          },
+          "query": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          "vectors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/StoredVector"
+            }
+          },
+          "nominated_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "policy",
+          "query",
+          "vectors",
+          "nominated_ids"
+        ]
+      },
+      "Policy": {
+        "type": "object",
+        "properties": {
+          "full_dimensions": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "projection_dimensions": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "block_rows": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "k": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "full_dimensions",
+          "projection_dimensions",
+          "block_rows",
+          "k"
+        ]
+      },
+      "StoredVector": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          "eligible": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "values",
+          "eligible"
+        ]
+      },
+      "Observation": {
+        "type": "object",
+        "properties": {
+          "capture": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CaptureFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "realization": {
+            "type": "string"
+          },
+          "segments": {
+            "description": "Exact UTF-8 emitted bytes, initial response at index zero.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observer_format": {
+            "$ref": "#/$defs/ObserverFormat"
+          },
+          "expansions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Expansion"
+            }
+          },
+          "status": {
+            "$ref": "#/$defs/OperationStatus"
+          },
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "realization",
+          "segments",
+          "observer_format",
+          "expansions",
+          "status"
+        ]
+      },
+      "CaptureFacts": {
+        "type": "object",
+        "properties": {
+          "lane": {
+            "$ref": "#/$defs/CaptureLane"
+          },
+          "semantic_snapshot": {
+            "type": "string"
+          },
+          "native_realization": {
+            "type": "string"
+          },
+          "database_identity": {
+            "type": "string"
+          },
+          "serialization": {
+            "type": "string"
+          },
+          "wire_identity": {
+            "type": "string"
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/PublicCall"
+            }
+          },
+          "timeout_millis": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "call_limit": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "byte_limit": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "precision": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "lane",
+          "semantic_snapshot",
+          "native_realization",
+          "database_identity",
+          "serialization",
+          "wire_identity",
+          "calls",
+          "timeout_millis",
+          "call_limit",
+          "byte_limit",
+          "precision"
+        ]
+      },
+      "CaptureLane": {
+        "type": "string",
+        "enum": [
+          "renderer",
+          "native"
+        ]
+      },
+      "PublicCall": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "arguments": true
+        },
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "arguments"
+        ]
+      },
+      "ObserverFormat": {
+        "type": "string",
+        "enum": [
+          "finite_packet_v1",
+          "mcp_tool_result_v1"
+        ]
+      },
+      "Expansion": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "realization": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/OperationStatus"
+          },
+          "response_segment": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "reference",
+          "operation",
+          "realization",
+          "status"
+        ]
+      },
+      "OperationStatus": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "failed",
+          "refused",
+          "stale",
+          "budget_exhausted",
+          "cancelled"
+        ]
+      },
       "Case": {
         "type": "object",
         "properties": {
@@ -139,6 +446,16 @@
       "EvaluationTask": {
         "type": "object",
         "properties": {
+          "public_call": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PublicCall"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -542,96 +859,6 @@
           "fact",
           "value",
           "predicate"
-        ]
-      },
-      "Observation": {
-        "type": "object",
-        "properties": {
-          "realization": {
-            "type": "string"
-          },
-          "segments": {
-            "description": "Exact UTF-8 emitted bytes, initial response at index zero.",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "observer_format": {
-            "$ref": "#/$defs/ObserverFormat"
-          },
-          "expansions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/Expansion"
-            }
-          },
-          "status": {
-            "$ref": "#/$defs/OperationStatus"
-          },
-          "failure": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "realization",
-          "segments",
-          "observer_format",
-          "expansions",
-          "status"
-        ]
-      },
-      "ObserverFormat": {
-        "type": "string",
-        "enum": [
-          "finite_packet_v1"
-        ]
-      },
-      "Expansion": {
-        "type": "object",
-        "properties": {
-          "reference": {
-            "type": "string"
-          },
-          "operation": {
-            "type": "string"
-          },
-          "realization": {
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/$defs/OperationStatus"
-          },
-          "response_segment": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "uint",
-            "minimum": 0
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "reference",
-          "operation",
-          "realization",
-          "status"
-        ]
-      },
-      "OperationStatus": {
-        "type": "string",
-        "enum": [
-          "completed",
-          "failed",
-          "refused",
-          "stale",
-          "budget_exhausted",
-          "cancelled"
         ]
       },
       "Mode": {
@@ -926,6 +1153,16 @@
       "EvaluationTask": {
         "type": "object",
         "properties": {
+          "public_call": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PublicCall"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -984,6 +1221,20 @@
           "intent",
           "oracle",
           "predicates"
+        ]
+      },
+      "PublicCall": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "arguments": true
+        },
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "arguments"
         ]
       },
       "Split": {
@@ -1334,6 +1585,16 @@
       "Observation": {
         "type": "object",
         "properties": {
+          "capture": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CaptureFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "realization": {
             "type": "string"
           },
@@ -1372,10 +1633,79 @@
           "status"
         ]
       },
+      "CaptureFacts": {
+        "type": "object",
+        "properties": {
+          "lane": {
+            "$ref": "#/$defs/CaptureLane"
+          },
+          "semantic_snapshot": {
+            "type": "string"
+          },
+          "native_realization": {
+            "type": "string"
+          },
+          "database_identity": {
+            "type": "string"
+          },
+          "serialization": {
+            "type": "string"
+          },
+          "wire_identity": {
+            "type": "string"
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/PublicCall"
+            }
+          },
+          "timeout_millis": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "call_limit": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "byte_limit": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          },
+          "precision": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "lane",
+          "semantic_snapshot",
+          "native_realization",
+          "database_identity",
+          "serialization",
+          "wire_identity",
+          "calls",
+          "timeout_millis",
+          "call_limit",
+          "byte_limit",
+          "precision"
+        ]
+      },
+      "CaptureLane": {
+        "type": "string",
+        "enum": [
+          "renderer",
+          "native"
+        ]
+      },
       "ObserverFormat": {
         "type": "string",
         "enum": [
-          "finite_packet_v1"
+          "finite_packet_v1",
+          "mcp_tool_result_v1"
         ]
       },
       "Expansion": {
@@ -1535,6 +1865,96 @@
           "unknown",
           "authored",
           "skipped"
+        ]
+      }
+    }
+  },
+  "numeric_result": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "ResultRows",
+    "type": "object",
+    "properties": {
+      "full": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/Hit"
+        }
+      },
+      "projected": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/Hit"
+        }
+      },
+      "candidate_union_rescored": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/Hit"
+        }
+      },
+      "missing_after_projection": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "missing_from_union": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "eligible_rows": {
+        "type": "integer",
+        "format": "uint",
+        "minimum": 0
+      },
+      "precision": {
+        "type": "string"
+      },
+      "ties": {
+        "type": "string"
+      },
+      "supplied_population_complete": {
+        "type": "boolean"
+      },
+      "reference_domain": {
+        "type": "string"
+      },
+      "nomination_basis": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "full",
+      "projected",
+      "candidate_union_rescored",
+      "missing_after_projection",
+      "missing_from_union",
+      "eligible_rows",
+      "precision",
+      "ties",
+      "supplied_population_complete",
+      "reference_domain",
+      "nomination_basis"
+    ],
+    "$defs": {
+      "Hit": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "score"
         ]
       }
     }

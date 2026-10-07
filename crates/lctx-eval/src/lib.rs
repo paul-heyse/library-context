@@ -2,6 +2,8 @@
 pub mod contracts;
 pub mod experiment;
 pub mod observer;
+pub mod mcp_observer;
+pub mod numeric;
 pub mod witness;
 use std::collections::{BTreeMap, BTreeSet};
 use contracts::*;
@@ -20,6 +22,7 @@ fn result(case: &Case, applicability: Applicability, epistemic: Epistemic, reaso
 
 pub fn validate_task(task: &EvaluationTask) -> Result<(), String> {
     if task.id.is_empty() || task.family.is_empty() || task.oracle.supported_domain.is_empty() || task.oracle.revision.is_empty() || task.oracle.input_digest.is_empty() || task.request.question.is_empty() { return Err("missing task/oracle/public request identity or supported domain".into()); }
+    if task.envelope.max_calls > MAX_FINITE_ITEMS || task.envelope.max_bytes > 4 * 1024 * 1024 { return Err("unsupported bounded public journey envelope".into()); }
     if task.predicates.len() > 16 || task.model.as_ref().is_some_and(|m| m.worlds.len() > MAX_FINITE_ITEMS || m.information.len() > MAX_FINITE_ITEMS) { return Err("finite model bound exceeded".into()); }
     let names: BTreeSet<_> = task.predicates.iter().map(|p| p.name.clone()).collect();
     if names.len() != task.predicates.len() { return Err("duplicate predicate".into()); }
@@ -37,10 +40,19 @@ pub fn validate_task(task: &EvaluationTask) -> Result<(), String> {
     Ok(())
 }
 
-fn observed_packets(case: &Case) -> Result<Vec<observer::FinitePacket>, String> {
+fn observed_packets(case: &Case) -> Result<Vec<observer::DecodedPacket>, String> {
     let observation = &case.observation;
     if observation.segments.is_empty() { return Err("missing exact initial bytes".into()); }
     if observation.segments.len() > MAX_FINITE_ITEMS || observation.expansions.len() > MAX_FINITE_ITEMS { return Err("observation finite bound exceeded".into()); }
+    if matches!(observation.observer_format, ObserverFormat::McpToolResultV1) {
+        let capture = observation.capture.as_ref().ok_or("MCP capture facts are required")?;
+        if capture.native_realization != observation.realization || capture.calls.is_empty() || capture.timeout_millis == 0 || capture.calls.len() > capture.call_limit || capture.calls.len() != observation.expansions.len() + 1 || capture.call_limit != case.task.envelope.max_calls + 1 || capture.byte_limit != case.task.envelope.max_bytes { return Err("MCP capture identity/journey bounds mismatch".into()); }
+        for (index, expansion) in observation.expansions.iter().enumerate() {
+            let actual = &capture.calls[index + 1];
+            if expansion.operation != actual.tool || serde_json::from_str::<serde_json::Value>(&expansion.reference).ok() != serde_json::to_value(actual).ok() { return Err("captured follow-up differs from independently visible public reference".into()); }
+        }
+        if case.task.public_call.as_ref().is_none_or(|call| serde_json::to_value(call).ok() != serde_json::to_value(&capture.calls[0]).ok()) { return Err("captured initial public request differs from task projection".into()); }
+    }
     let mut active = BTreeSet::from([0]);
     let mut packets = vec![observer::decode(&observation.observer_format, &observation.segments[0], &observation.realization)?];
     if case.mode == Mode::Expandable {
@@ -55,6 +67,11 @@ fn observed_packets(case: &Case) -> Result<Vec<observer::FinitePacket>, String> 
             packets.push(observer::decode(&observation.observer_format, &observation.segments[segment], &observation.realization)?);
             active.insert(segment);
         }
+    }
+    if let Some(capture) = &observation.capture {
+        if packets[0].tool.as_ref() != Some(&capture.calls[0].tool) { return Err("captured initial response differs from requested public tool".into()); }
+        if case.mode == Mode::Expandable && packets.iter().zip(&capture.calls).any(|(packet,call)| packet.tool.as_ref() != Some(&call.tool)) { return Err("captured response differs from requested public tool".into()); }
+        if packets.iter().any(|packet| packet.semantic_snapshot.as_ref() != Some(&capture.semantic_snapshot) || packet.database_identity.as_ref() != Some(&capture.database_identity)) { return Err("MCP semantic snapshot differs from capture".into()); }
     }
     if packets.iter().flat_map(|packet| &packet.groups).map(|group| group.evidence.len()).sum::<usize>() > MAX_FINITE_ITEMS { return Err("observed campaign evidence bound exceeded".into()); }
     let bytes: usize = active.iter().map(|index| observation.segments[*index].len()).sum();

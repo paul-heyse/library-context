@@ -21,7 +21,7 @@ def evidence(text: str, anchor: str, role: str, variant: str = "A") -> dict[str,
 
 def observation(groups: list[dict[str, Any]]) -> dict[str, Any]:
     packet = {"realization": "finite-render-1", "groups": copy.deepcopy(groups), "references": []}
-    return {"realization": "finite-render-1", "segments": [json.dumps(packet, ensure_ascii=False)],
+    return {"capture": None, "realization": "finite-render-1", "segments": [json.dumps(packet, ensure_ascii=False)],
             "observer_format": "finite_packet_v1", "expansions": [],
             "status": "completed", "failure": None}
 
@@ -46,7 +46,7 @@ def base_case() -> dict[str, Any]:
     requirements = [predicate("signature", ["def connect(timeout=None)"]),
                     predicate("default", ["default timeout is 10", "timeout defaults to ten"]),
                     predicate("setup", ["requires installed transport"])]
-    task = {"id": "compatible", "split": "development", "family": "context-conjunction",
+    task = {"public_call": None, "id": "compatible", "split": "development", "family": "context-conjunction",
             "request": {"question": "How do I call connect with its default?",
                         "context": {"release": "1"}, "allowed_followups": ["section"]},
             "envelope": {"max_calls": 2, "max_bytes": 4096}, "intent": "positive",

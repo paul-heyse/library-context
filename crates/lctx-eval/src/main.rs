@@ -9,6 +9,8 @@ const MAX_BATCH: usize = 32;
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 enum Request {
     Schema,
+    Numeric { input: lctx_eval::numeric::Input },
+    Observe { observation: Observation },
     Judge { cases: Vec<Case> },
     Freeze { experiment: Experiment },
     Admit { frozen: Freeze, experiment: Experiment },
@@ -21,6 +23,11 @@ enum Response { Completed { result: serde_json::Value }, Failed { reason: String
 fn run(request: Request) -> Result<serde_json::Value, String> {
     let value = match request {
         Request::Schema => Ok(wire_schema()),
+        Request::Numeric { input } => serde_json::to_value(lctx_eval::numeric::evaluate(&input)?),
+        Request::Observe { observation } => {
+            let packet = lctx_eval::observer::decode(&observation.observer_format, observation.segments.first().ok_or("missing initial capture bytes")?, &observation.realization)?;
+            Ok(serde_json::json!({"semantic_snapshot":packet.semantic_snapshot,"public_references":packet.references}))
+        },
         Request::Judge { cases } => {
             if cases.is_empty() || cases.len() > MAX_BATCH { return Err("batch must contain 1..32 cases".into()); }
             serde_json::to_value(cases.iter().map(lctx_eval::judge).collect::<Vec<_>>())
@@ -33,11 +40,11 @@ fn run(request: Request) -> Result<serde_json::Value, String> {
 }
 fn wire_schema() -> serde_json::Value {
     let mut source = blake3::Hasher::new();
-    for input in [include_str!("../Cargo.toml"), include_str!("contracts.rs"), include_str!("witness.rs"), include_str!("experiment.rs"), include_str!("lib.rs"), include_str!("observer.rs"), include_str!("main.rs")] {
+    for input in [include_str!("../Cargo.toml"), include_str!("contracts.rs"), include_str!("witness.rs"), include_str!("experiment.rs"), include_str!("lib.rs"), include_str!("observer.rs"), include_str!("mcp_observer.rs"), include_str!("numeric.rs"), include_str!("main.rs")] {
         source.update(&(input.len() as u64).to_le_bytes());
         source.update(input.as_bytes());
     }
-    serde_json::json!({"protocol_version": 2, "kernel_source_revision": source.finalize().to_hex().to_string(), "request": schemars::schema_for!(Request), "response": schemars::schema_for!(Response), "case": schemars::schema_for!(Case), "finite_packet": schemars::schema_for!(lctx_eval::observer::FinitePacket), "judgment": schemars::schema_for!(Judgment), "experiment": schemars::schema_for!(Experiment)})
+    serde_json::json!({"protocol_version": 3, "kernel_source_revision": source.finalize().to_hex().to_string(), "request": schemars::schema_for!(Request), "response": schemars::schema_for!(Response), "case": schemars::schema_for!(Case), "finite_packet": schemars::schema_for!(lctx_eval::observer::FinitePacket), "numeric_result": schemars::schema_for!(lctx_eval::numeric::ResultRows), "judgment": schemars::schema_for!(Judgment), "experiment": schemars::schema_for!(Experiment)})
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().nth(1).as_deref() == Some("--schema") {

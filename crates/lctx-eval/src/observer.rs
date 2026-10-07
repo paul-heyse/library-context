@@ -47,9 +47,20 @@ fn unique_context<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<A
     deserializer.deserialize_map(ContextVisitor)
 }
 
-pub fn decode(format: &ObserverFormat, bytes: &str, realization: &str) -> Result<FinitePacket, String> {
+/// Internal decoded facts shared by observers; never serialized as a substitute MCP response.
+pub struct DecodedPacket {
+    pub tool: Option<String>,
+    pub semantic_snapshot: Option<String>,
+    pub database_identity: Option<String>,
+    pub groups: Vec<PublicGroup>,
+    pub references: Vec<String>,
+}
+
+pub fn decode(format: &ObserverFormat, bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
+    if matches!(format, ObserverFormat::McpToolResultV1) { return crate::mcp_observer::decode(bytes, realization); }
     let packet: FinitePacket = match format {
         ObserverFormat::FinitePacketV1 => serde_json::from_str(bytes).map_err(|e| format!("invalid captured public packet: {e}"))?,
+        ObserverFormat::McpToolResultV1 => unreachable!("MCP has its own independent decoder"),
     };
     if packet.realization != realization { return Err("captured packet realization mismatch".into()); }
     if packet.groups.len() > 256 || packet.groups.iter().map(|g| g.evidence.len()).sum::<usize>() > 256 || packet.references.len() > 256 { return Err("captured public packet finite bound exceeded".into()); }
@@ -61,5 +72,5 @@ pub fn decode(format: &ObserverFormat, bytes: &str, realization: &str) -> Result
             if ids.len() != evidence.qualifications.len() { return Err("duplicate public qualification identity".into()); }
         }
     }
-    Ok(packet)
+    Ok(DecodedPacket { tool: None, semantic_snapshot: None, database_identity: None, groups: packet.groups, references: packet.references })
 }

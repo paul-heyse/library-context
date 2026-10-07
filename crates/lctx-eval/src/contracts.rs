@@ -80,6 +80,7 @@ pub struct FiniteModel { pub worlds: Vec<World>, pub information: Vec<Informatio
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EvaluationTask {
+    pub public_call: Option<PublicCall>,
     pub id: String,
     pub split: Split,
     pub family: String,
@@ -99,7 +100,7 @@ pub enum Split { Development, Validation }
 pub enum OperationStatus { Completed, Failed, Refused, Stale, BudgetExhausted, Cancelled }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ObserverFormat { FinitePacketV1 }
+pub enum ObserverFormat { FinitePacketV1, McpToolResultV1 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Expansion {
@@ -111,7 +112,29 @@ pub struct Expansion {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct PublicCall { pub tool: String, pub arguments: serde_json::Value }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureLane { Renderer, Native }
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureFacts {
+    pub lane: CaptureLane,
+    pub semantic_snapshot: String,
+    pub native_realization: String,
+    pub database_identity: String,
+    pub serialization: String,
+    pub wire_identity: String,
+    pub calls: Vec<PublicCall>,
+    pub timeout_millis: u64,
+    pub call_limit: usize,
+    pub byte_limit: usize,
+    pub precision: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Observation {
+    pub capture: Option<CaptureFacts>,
     pub realization: String,
     /// Exact UTF-8 emitted bytes, initial response at index zero.
     pub segments: Vec<String>,
