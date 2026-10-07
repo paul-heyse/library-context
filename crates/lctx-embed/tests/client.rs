@@ -286,3 +286,21 @@ fn responses_are_judged_as_the_shared_corpus_says() {
         assert_eq!(accepted, case["accept"].as_bool().unwrap(), "{name}");
     }
 }
+
+/// Explicit live parity: acquired local assets, complete inputs, Unicode byte offsets and no
+/// saved truncation. This is endpoint agreement, not a claim about retrieval quality.
+#[tokio::test]
+async fn live_local_tokenizer_parity() {
+    let Some(url)=std::env::var_os("LCTX_EMBED_URL") else {return;};
+    let assets=std::env::var_os("LCTX_EMBEDDING_ASSETS").map(std::path::PathBuf::from).expect("live tokenizer assets selected explicitly");
+    let spec=qwen_spec();let client=VllmEmbedder::for_compilation(&url.to_string_lossy(),spec.clone(),&assets).unwrap();
+    let tokenizer=client.document_tokenizer().unwrap();
+    for body in ["HTTPServer snake_case.call: default=None".into(),"é e\u{301} 🦀\n参数".into(),"k ".repeat(5000)] {
+        let encoded=tokenizer.encode(&body).unwrap();let count=client.count_tokens(&encoded.text).await.unwrap();
+        assert_eq!(encoded.offsets.len(),count,"complete local input agrees with selected endpoint");
+        for ((start,end),special) in encoded.offsets.iter().zip(&encoded.specials) {
+            if !special {assert!(encoded.text.is_char_boundary(*start)&&encoded.text.is_char_boundary(*end));}
+        }
+        if body.len()>4096 {assert!(count>4096,"saved tokenizer truncation must be disabled");}
+    }
+}
