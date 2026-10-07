@@ -4,9 +4,9 @@
 //! while that stream remains open; each request is an owned task rather than a serial actor
 //! operation. Shutdown wakes callers and drains submitted operations before releasing the runtime.
 use crate::workspace::Cancellation;
-use futures::future::BoxFuture;
+use futures::{FutureExt,future::{BoxFuture,Shared}};
 use lctx_model::domain::ModelError;
-use std::{sync::Mutex, time::Duration};
+use std::{sync::{Arc,Mutex}, time::Duration};
 use tokio::sync::{mpsc, oneshot};
 
 type Request = BoxFuture<'static, ()>;
@@ -15,7 +15,11 @@ const WAIT: Duration = Duration::from_millis(20);
 pub(crate) struct NativeBridge {
     requests: mpsc::Sender<Request>,
     cancellation: Cancellation,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread: Mutex<BridgeThread>,
+}
+struct BridgeThread {
+    thread:Option<std::thread::JoinHandle<()>>,
+    joined:Option<Shared<BoxFuture<'static,Result<(),Arc<str>>>>>,
 }
 impl NativeBridge {
     pub(crate) fn new(cancellation: Cancellation) -> Result<Self, ModelError> {
@@ -49,7 +53,7 @@ impl NativeBridge {
                 });
             })
             .map_err(ModelError::codec)?;
-        Ok(Self { requests, cancellation, thread: Mutex::new(Some(thread)) })
+        Ok(Self { requests, cancellation, thread: Mutex::new(BridgeThread{thread:Some(thread),joined:None}) })
     }
     /// The future owns its bounded, budget-charged arguments until acknowledgement.
     pub(crate) fn call<T: Send + 'static>(
@@ -88,12 +92,18 @@ impl NativeBridge {
     /// No runtime worker waits inline for an actor thread. Caller invokes this before cleanup.
     pub(crate) async fn drain(&self) -> Result<(), ModelError> {
         self.cancellation.cancel();
-        let thread = self.thread.lock().map_err(|_| closed())?.take();
-        if let Some(thread) = thread {
-            tokio::task::spawn_blocking(move || thread.join())
-                .await.map_err(ModelError::codec)?
-                .map_err(|_| closed())?;
-        }
+        let joined={
+            let mut owned=self.thread.lock().map_err(|_|closed())?;
+            if let Some(thread)=owned.thread.take(){
+                let task=tokio::task::spawn_blocking(move || thread.join());
+                owned.joined=Some(async move{
+                    task.await.map_err(|error|Arc::<str>::from(error.to_string()))?
+                        .map_err(|_|Arc::<str>::from("native bridge thread panicked"))
+                }.boxed().shared());
+            }
+            owned.joined.clone()
+        };
+        if let Some(joined)=joined{joined.await.map_err(|error|ModelError::Invalid(error.to_string()))?;}
         Ok(())
     }
 }
@@ -101,7 +111,7 @@ impl Drop for NativeBridge {
     fn drop(&mut self) {
         self.cancellation.cancel();
         if let Ok(thread) = self.thread.get_mut()
-            && let Some(thread) = thread.take()
+            && let Some(thread) = thread.thread.take()
         {
             // Explicit drainage is required by the attempt owner. This fallback keeps an
             // interrupted owner from synchronously blocking a runtime worker in its destructor.
@@ -126,6 +136,23 @@ mod tests {
         let bridge = NativeBridge::new(Cancellation::default()).unwrap();
         assert_eq!(bridge.call(async { Ok(17) }).unwrap(), 17);
         bridge.drain().await.unwrap();
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn interrupted_drain_retains_actor_join_for_retry() {
+        let bridge=Arc::new(NativeBridge::new(Cancellation::default()).unwrap());
+        let entered=Arc::new(tokio::sync::Notify::new());
+        let completed=Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let call_owner=bridge.clone();let call_entered=entered.clone();let call_completed=completed.clone();
+        let request=std::thread::spawn(move ||call_owner.call(async move{
+            call_entered.notify_one();tokio::time::sleep(Duration::from_millis(80)).await;
+            call_completed.store(true,std::sync::atomic::Ordering::Release);Ok::<(),ModelError>(())
+        }));
+        entered.notified().await;
+        let first_owner=bridge.clone();let first=tokio::spawn(async move{first_owner.drain().await});
+        tokio::time::sleep(Duration::from_millis(5)).await;first.abort();assert!(first.await.is_err());
+        bridge.drain().await.unwrap();
+        assert!(completed.load(std::sync::atomic::Ordering::Acquire));
+        assert!(request.join().unwrap().is_err());
     }
     #[tokio::test(flavor = "current_thread")]
     async fn cancellation_wakes_a_blocked_method_and_drains_its_future() {
