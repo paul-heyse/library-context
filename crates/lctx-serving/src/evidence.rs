@@ -214,17 +214,20 @@ pub async fn hits(reader:&NativeReader, hits:&[ranking::RankedHit], domains:&[Li
 fn source_range(data:&CanonicalBatches, source:&retrieval::AnchorSource, analysis:Id<attribution::AnalysisContext>, release:Id<input::Release>)->Result<OriginalRange,ModelError>{
     let reference=match source {
         retrieval::AnchorSource::Original{source}=>OriginalReference::Catalog{source:*source},
-        retrieval::AnchorSource::Span{span}=>OriginalReference::Span{span:*span},
+        retrieval::AnchorSource::Span{span}|retrieval::AnchorSource::SpanSlice{span,..}=>OriginalReference::Span{span:*span},
         retrieval::AnchorSource::Artifact{artifact}=>OriginalReference::Artifact{artifact:*artifact},
         retrieval::AnchorSource::Prose{slice}=>OriginalReference::Prose{slice:*slice},
         retrieval::AnchorSource::Occurrence{occurrence}|retrieval::AnchorSource::OccurrenceSlice{occurrence,..}=>OriginalReference::Occurrence{occurrence:*occurrence},
     };
     let mut range=crate::originals::range(data,&reference,Some(analysis),Some(release))?;
-    if let retrieval::AnchorSource::OccurrenceSlice{start,end,..}=source {
-        if *start<0||*end<*start||(*start as u64)<range.start||(*end as u64)>range.end{return Err(ModelError::Schema("delivered occurrence slice bounds"));}
-        range.start=*start as u64;range.end=*end as u64;
+    if let retrieval::AnchorSource::OccurrenceSlice{start,end,..}|retrieval::AnchorSource::SpanSlice{start,end,..}=source {
+        restrict_source_range(&mut range,*start,*end)?;
     }
     Ok(range)
+}
+fn restrict_source_range(range:&mut OriginalRange,start:i64,end:i64)->Result<(),ModelError>{
+    if start<0||end<start||(start as u64)<range.start||(end as u64)>range.end{return Err(ModelError::Schema("delivered captured source slice bounds"));}
+    range.start=start as u64;range.end=end as u64;Ok(())
 }
 fn fragment<'a>(text:&'a str,start:i64,end:i64)->Result<&'a str,ModelError>{
     if start<0||end<=start{return Err(ModelError::Schema("delivered window fragment bounds"));}
@@ -355,6 +358,13 @@ async fn derivations(
 mod tests {
     use super::*;
     fn id<T>(n:u8)->Id<T>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+    #[test]
+    fn delivered_heading_slice_stays_within_captured_span(){
+        let range=OriginalRange{source:OriginalReference::Span{span:id(1)},artifact:id(2),start:7,end:29,digest:ContentHash::of(b"captured source"),encoding:Name::new("raw_bytes").unwrap(),release:id(3),context:id(4)};
+        let mut exact=range.clone();restrict_source_range(&mut exact,7,16).unwrap();
+        assert_eq!((exact.start,exact.end),(7,16));assert_eq!(exact.source,range.source);assert_eq!((exact.release,exact.context),(range.release,range.context));
+        for (start,end) in [(-1,8),(6,16),(8,30),(16,8)] {let mut invalid=range.clone();assert!(restrict_source_range(&mut invalid,start,end).is_err());assert_eq!(invalid,range);}
+    }
     #[test]
     fn unicode_context_and_second_primary_use_part_local_coordinates(){
         let unit=id::<retrieval::Unit>(1);let window=id::<retrieval::SearchWindow>(2);
