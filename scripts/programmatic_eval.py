@@ -942,7 +942,15 @@ def main() -> None:
         minimized = []
         if args.minimize:
             for case, original in zip(cases, judgments, strict=True):
-                if original["epistemic"] == "insufficient":
+                if original["scorable"] and original["epistemic"] == "insufficient":
+                    if case["observation"]["observer_format"] == "mcp_tool_result_v1":
+                        if case["mode"] == "immediate" and not case["observation"]["expansions"]:
+                            minimized.append(minimize_mcp(worker, case))
+                        else:
+                            minimized.append({"diagnostic_only": True, "production_success": False,
+                                "status": "not_supported", "task_id": case["task"]["id"],
+                                "reason": "MCP ablation currently requires one immediate capture"})
+                        continue
 
                     def preserves(
                         trial: dict[str, Any], expected: dict[str, Any] = original
