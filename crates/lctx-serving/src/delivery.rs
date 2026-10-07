@@ -10,8 +10,7 @@ fn binding(value:&Value,inherited:&DeliveryBinding)->DeliveryBinding {
 }
 fn expansion(request:&Request,cursor:Option<CursorToken>)->Result<DeliveryExpansion,WireError> {
     let mut json:Value=serde_json::from_str(&request.to_json()?)?;
-    json["page"]["expanded"]=Value::Bool(true);
-    if let Some(cursor)=cursor{json["page"]["cursor"]=serde_json::to_value(cursor)?;}
+    if let Some(cursor)=cursor{json["page"]["cursor"]=serde_json::to_value(cursor)?;}else{json["page"]["expanded"]=Value::Bool(true);}
     Ok(DeliveryExpansion{tool:request.tool(),arguments:json})
 }
 struct Scan<'a>{request:&'a Request,map:PacketEvidenceMap,followups:u32,maximum_followups:u32,libraries:std::collections::BTreeMap<Id<input::Release>,Vec<Name>>}
@@ -222,6 +221,7 @@ mod tests {
         let field=map.fields.iter().find(|f|f.field.as_str().ends_with("/body/bytes")).unwrap();
         assert_eq!(field.binding.analysis.0,Some(id(4)));assert_eq!(field.original.0.as_ref().map(|v|(v.start,v.end)),Some((12,15)));
         assert_eq!(map.omissions[0].expand.0.as_ref().unwrap().arguments["page"]["cursor"],"ab");
+        assert_eq!(map.omissions[0].expand.0.as_ref().unwrap().arguments["page"]["expanded"],false);
     }
     #[test]
     fn interpreted_prose_has_no_original_byte_map() {
