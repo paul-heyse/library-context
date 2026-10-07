@@ -1,7 +1,6 @@
 //! Exact original source addresses and captured attribution; bytes remain in the native store.
-use crate::records::{need, rows, wire};
+use crate::records::{need, rows, wire, Prepared as CanonicalPrepared,PacketRows};
 use lctx_model::domain::{serving::*, *};
-use lctx_surrealdb::batches::CanonicalBatches;
 pub fn target(source: &OriginalReference) -> Result<graph::Target, ModelError> {
     Ok(match source {
         OriginalReference::Catalog { source } => {
@@ -24,21 +23,21 @@ pub fn target(source: &OriginalReference) -> Result<graph::Target, ModelError> {
 }
 /// One typed original-address view for a bounded packet cohort.
 pub struct Prepared {
-    artifacts: Vec<source::SourceArtifact>,
-    occurrences: Vec<source::Occurrence>,
-    evidence: Vec<assertion::Evidence>,
-    anchors: Vec<retrieval::OriginalAnchor>,
-    units: Vec<retrieval::Unit>,
-    anchor_sources: Vec<retrieval::AnchorSource>,
-    catalog_sources: Vec<catalog::evidence::OriginalSource>,
-    slices: Vec<synthesis::documentary::ProseSlice>,
-    prose_sources: Vec<synthesis::documentary::ProseSource>,
-    runs: Vec<attribution::ProviderRun>,
-    distributions: Vec<input::InputDistribution>,
-    corpora: Vec<input::CorpusLibrary>,
+    artifacts: PacketRows<source::SourceArtifact>,
+    occurrences: PacketRows<source::Occurrence>,
+    evidence: PacketRows<assertion::Evidence>,
+    anchors: PacketRows<retrieval::OriginalAnchor>,
+    units: PacketRows<retrieval::Unit>,
+    anchor_sources: PacketRows<retrieval::AnchorSource>,
+    catalog_sources: PacketRows<catalog::evidence::OriginalSource>,
+    slices: PacketRows<synthesis::documentary::ProseSlice>,
+    prose_sources: PacketRows<synthesis::documentary::ProseSource>,
+    runs: PacketRows<attribution::ProviderRun>,
+    distributions: PacketRows<input::InputDistribution>,
+    corpora: PacketRows<input::CorpusLibrary>,
 }
 impl Prepared {
-    pub fn new(data: &CanonicalBatches) -> Result<Self, ModelError> {
+    pub fn new(data: &CanonicalPrepared<'_>) -> Result<Self, ModelError> {
         Ok(Self {
             artifacts: rows(data)?,
             occurrences: rows(data)?,
@@ -195,9 +194,8 @@ impl Prepared {
             return Err(ModelError::Schema("original byte bounds"));
         }
         let runs = &self.runs;
-        let contexts = runs
+        let contexts = runs.select_for("input",&[a.input])?
             .iter()
-            .filter(|r| r.input == a.input)
             .map(|r| r.context)
             .collect::<std::collections::BTreeSet<_>>();
         if context.is_some_and(|c| !contexts.contains(&c)) {
@@ -223,15 +221,11 @@ impl Prepared {
         };
         let distributions = &self.distributions;
         let corpora = &self.corpora;
-        let releases = distributions
+        let mut captured_inputs=corpora.select_for("corpus",&[a.input])?.iter().map(|corpus|corpus.library).collect::<Vec<_>>();
+        captured_inputs.push(a.input);
+        let releases = distributions.select_for("input",&captured_inputs)?
             .iter()
-            .filter(|d| {
-                (d.input == a.input
-                    || corpora
-                        .iter()
-                        .any(|c| c.corpus == a.input && c.library == d.input))
-                    && d.role == input::DistributionRole::FirstParty
-            })
+            .filter(|d| d.role == input::DistributionRole::FirstParty)
             .map(|d| d.release)
             .collect::<std::collections::BTreeSet<_>>();
         let release = match release {
@@ -263,7 +257,7 @@ impl Prepared {
     }
 }
 pub fn range(
-    data: &CanonicalBatches,
+    data: &CanonicalPrepared<'_>,
     source: &OriginalReference,
     context: Option<Id<attribution::AnalysisContext>>,
     release: Option<Id<input::Release>>,
@@ -273,6 +267,9 @@ pub fn range(
 #[cfg(test)]
 mod controls {
     use super::*;
+    fn packet<R:Record>(rows:Vec<R>)->PacketRows<R>{PacketRows::new(rows,&lctx_model::domain::resources::ResourceBudget::fixed(1<<20).unwrap()).unwrap()}
+    fn append<R:Record>(rows:&mut PacketRows<R>,row:R){let mut values=rows.rows().to_vec();values.push(row);*rows=packet(values);}
+    fn change<R:Record>(rows:&mut PacketRows<R>,edit:impl FnOnce(&mut Vec<R>)){let mut values=rows.rows().to_vec();edit(&mut values);*rows=packet(values);}
     fn id<R: Record>(byte: u8) -> Id<R> {
         serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
     }
@@ -328,28 +325,28 @@ mod controls {
             end: 5,
         };
         let mut prepared = Prepared {
-            artifacts: vec![artifact],
-            occurrences: vec![occurrence],
-            evidence: vec![],
-            anchors: vec![anchor.clone()],
-            units: vec![unit],
-            anchor_sources: vec![original],
-            catalog_sources: vec![],
-            slices: vec![raw_slice.clone(), literal_slice.clone()],
-            prose_sources: vec![raw, literal],
-            runs: vec![attribution::ProviderRun {
+            artifacts: packet(vec![artifact]),
+            occurrences: packet(vec![occurrence]),
+            evidence: packet(vec![]),
+            anchors: packet(vec![anchor.clone()]),
+            units: packet(vec![unit]),
+            anchor_sources: packet(vec![original]),
+            catalog_sources: packet(vec![]),
+            slices: packet(vec![raw_slice.clone(), literal_slice.clone()]),
+            prose_sources: packet(vec![raw, literal]),
+            runs: packet(vec![attribution::ProviderRun {
                 provider: id(7),
                 context: id(2),
                 input: id(1),
                 configuration: ContentHash::of(b"run"),
                 requested_families: ContentHash::of(b"families"),
-            }],
-            distributions: vec![input::InputDistribution {
+            }]),
+            distributions: packet(vec![input::InputDistribution {
                 input: id(1),
                 release: id(6),
                 role: input::DistributionRole::FirstParty,
-            }],
-            corpora: vec![],
+            }]),
+            corpora: packet(vec![]),
         };
         let range = prepared
             .range(
@@ -389,7 +386,7 @@ mod controls {
         );
         let mut other_run = prepared.runs[0].clone();
         other_run.context = id(9);
-        prepared.runs.push(other_run);
+        append(&mut prepared.runs,other_run);
         assert!(
             prepared
                 .range(
@@ -428,9 +425,9 @@ mod controls {
             ordinal: 1,
             original: slice.id(),
         };
-        prepared.evidence.push(span);
-        prepared.anchor_sources.push(slice);
-        prepared.anchors.push(slice_anchor.clone());
+        append(&mut prepared.evidence,span);
+        append(&mut prepared.anchor_sources,slice);
+        append(&mut prepared.anchors,slice_anchor.clone());
         let range = prepared
             .range(
                 &OriginalReference::Anchor {
@@ -442,12 +439,13 @@ mod controls {
             .unwrap();
         assert_eq!((range.start, range.end), (8, 11));
         let mut invalid = prepared;
-        invalid.anchor_sources = vec![retrieval::AnchorSource::OccurrenceSlice {
+        invalid.anchor_sources = packet(vec![retrieval::AnchorSource::OccurrenceSlice {
             occurrence: invalid.occurrences[0].id(),
             start: 3,
             end: 12,
-        }];
-        invalid.anchors[0].original = invalid.anchor_sources[0].id();
+        }]);
+        let original=invalid.anchor_sources[0].id();
+        change(&mut invalid.anchors,|rows|rows[0].original=original);
         assert!(
             invalid
                 .range(
@@ -464,8 +462,8 @@ mod controls {
             start: 3,
             end: 11,
         };
-        invalid.anchors[1].original = outside.id();
-        invalid.anchor_sources.push(outside);
+        change(&mut invalid.anchors,|rows|rows[1].original=outside.id());
+        append(&mut invalid.anchor_sources,outside);
         assert!(
             invalid
                 .range(
@@ -478,15 +476,15 @@ mod controls {
                 .is_err(),
             "exact heading slice stays within its captured parent span"
         );
-        invalid.distributions = vec![input::InputDistribution {
+        invalid.distributions = packet(vec![input::InputDistribution {
             input: id(10),
             release: id(6),
             role: input::DistributionRole::FirstParty,
-        }];
-        invalid.corpora = vec![input::CorpusLibrary {
+        }]);
+        invalid.corpora = packet(vec![input::CorpusLibrary {
             corpus: id(1),
             library: id(10),
-        }];
+        }]);
         assert!(
             invalid
                 .range(
@@ -499,7 +497,7 @@ mod controls {
                 .is_ok(),
             "captured corpus mapping retains release attribution"
         );
-        invalid.distributions.clear();
+        invalid.distributions=packet(vec![]);
         assert!(
             invalid
                 .range(
@@ -512,7 +510,7 @@ mod controls {
                 .is_err(),
             "missing captured release refuses explicit attribution"
         );
-        invalid.runs.clear();
+        invalid.runs=packet(vec![]);
         assert!(
             invalid
                 .range(

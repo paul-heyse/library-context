@@ -1,7 +1,7 @@
 //! Existing authored briefs and fully attributed assertions; no synthesis runs in serving.
 use crate::{
     claims::Claims,
-    records::{rows, wire},
+    records::{rows, wire,Prepared as CanonicalPrepared,PacketRows},
 };
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
@@ -13,6 +13,7 @@ pub async fn get(
     budget: &ResourceBudget,
 ) -> Result<CapabilityPacket, ModelError> {
     let data = hydrate(reader, &[id], budget).await?;
+    let data=CanonicalPrepared::new(&data,budget);
     Prepared::new(&data, budget)?.packet(id, budget)
 }
 /// Hydrate one finite union of nominated briefs, with the same canonical owned closure as get.
@@ -36,25 +37,20 @@ pub async fn hydrate(
         .collect::<Result<Vec<_>, _>>()?;
     crate::scope::hydrate_with(reader, roots, &inputs, &fields, budget).await
 }
-type Index<R> = std::collections::BTreeMap<Id<R>, R>;
-fn index<R: Record>(data: &CanonicalBatches) -> Result<Index<R>, ModelError> {
-    let mut result = Index::new();
-    for row in rows::<R>(data)? {
-        if result.insert(row.id(), row).is_some() {
-            return Err(ModelError::Conflict("capability companion identity"));
-        }
-    }
+type Index<R> = PacketRows<R>;
+fn index<R: Record>(data: &CanonicalPrepared<'_>) -> Result<Index<R>, ModelError> {
+    let result=rows::<R>(data)?;result.require_unique()?;
     Ok(result)
 }
 fn need<R: Record>(rows: &Index<R>, id: Id<R>) -> Result<&R, ModelError> {
-    rows.get(&id)
+    rows.get(id)?
         .ok_or(ModelError::Schema("capability companion"))
 }
 /// Decode claim and packet companions once per bounded union, then lower individual briefs.
 pub struct Prepared {
     briefs: Index<synthesis::briefs::Brief>,
     documents: Index<synthesis::briefs::BriefDocument>,
-    claims: Claims,
+    claims: std::sync::Arc<Claims>,
     assertions: Index<synthesis::assertions::ProgrammaticAssertion>,
     supports: Index<synthesis::assertions::ProgrammaticAssertionSupport>,
     sources: Index<synthesis::assertions::AssertionSource>,
@@ -64,11 +60,11 @@ pub struct Prepared {
     terminal: synthesis::terminal::Data,
     summary: synthesis::summary::Data,
     documentary: Index<synthesis::documentary::DocumentaryConclusion>,
-    original_links: Vec<synthesis::briefs::BriefSource>,
+    original_links: PacketRows<synthesis::briefs::BriefSource>,
     originals: crate::originals::Prepared,
 }
 impl Prepared {
-    pub fn new(data: &CanonicalBatches, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    pub fn new(data: &CanonicalPrepared<'_>, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut terminal = synthesis::terminal::Data::new(budget);
         let mut summary = synthesis::summary::Data::new(budget);
         for (name, batch) in &data.batches {
@@ -78,7 +74,7 @@ impl Prepared {
         Ok(Self {
             briefs: index(data)?,
             documents: index(data)?,
-            claims: Claims::new(data, budget)?,
+            claims: data.claims()?,
             assertions: index(data)?,
             supports: index(data)?,
             sources: index(data)?,
@@ -99,10 +95,9 @@ impl Prepared {
     ) -> Result<CapabilityPacket, ModelError> {
         let briefs = &self.briefs;
         let brief = need(briefs, id)?;
-        let mut documents = self
-            .documents
-            .values()
-            .filter(|p| p.brief == id)
+        let selected_documents=self.documents.select_for("brief",&[id])?;
+        let mut documents = selected_documents
+            .iter()
             .collect::<Vec<_>>();
         documents.sort_by_key(|p| p.ordinal);
         let _bytes = budget.reserve(
@@ -129,10 +124,9 @@ impl Prepared {
         let sources = &self.sources;
         let member_invocations = &self.invocations;
         let members = &self.members;
-        let mut links = self
-            .links
-            .values()
-            .filter(|a| a.brief == id)
+        let selected_links=self.links.select_for("brief",&[id])?;
+        let mut links = selected_links
+            .iter()
             .collect::<Vec<_>>();
         links.sort_by_key(|a| a.ordinal);
         let mut packets = Vec::new();
@@ -148,7 +142,7 @@ impl Prepared {
             let input = need(members, need(member_invocations, assertion.member)?.member)?.input;
             let mut attribution = Vec::new();
             let mut terminal_packet = None;
-            for support in supports.values().filter(|s| s.assertion == assertion.id()) {
+            for support in &supports.select_for("assertion",&[assertion.id()])? {
                 let source = need(sources, support.source)?;
                 let target = match source {
                     synthesis::assertions::AssertionSource::Documentary { conclusion } => {
@@ -211,7 +205,7 @@ impl Prepared {
         }
         let docs = &self.documentary;
         let mut originals = Vec::new();
-        for source in self.original_links.iter().filter(|s| s.brief == id) {
+        for source in &self.original_links.select_for("brief",&[id])? {
             let doc = need(docs, source.documentary)?;
             let q = claims
                 .qualifications
@@ -323,6 +317,7 @@ mod controls {
         )
         .await
         .unwrap();
+        let data=CanonicalPrepared::new(&data,&budget);
         let prepared = Prepared::new(&data, &budget).unwrap();
         for (brief, text) in &briefs {
             let packet = prepared.packet(brief.id(), &budget).unwrap();

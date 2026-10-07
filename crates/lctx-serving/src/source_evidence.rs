@@ -1,7 +1,9 @@
 //! Pure evidence lowering over one already-scoped canonical native selection.
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
 use lctx_surrealdb::batches::CanonicalBatches;
-use std::{any::Any, collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
+pub use crate::records::PacketRows;
+use crate::records::Prepared;
 #[derive(Debug)]
 pub enum EvidenceError {
     Contract,
@@ -24,98 +26,27 @@ impl From<EvidenceError> for ModelError {
         }
     }
 }
-pub struct PacketRows<R: Record> {
-    rows: Vec<R>,
-    _reservation: Box<dyn lctx_model::domain::resources::Reservation>,
-}
-impl<R: Record> PacketRows<R> {
-    pub fn rows(&self) -> &[R] {
-        &self.rows
-    }
-}
 pub struct NativePackets<'a> {
-    source: &'a CanonicalBatches,
+    source: Arc<Prepared<'a>>,
     pub(crate) budget: ResourceBudget,
     pub(crate) charge: charged::StateCharge,
-    cache: BTreeMap<&'static str, Box<dyn Any + Send + Sync>>,
-    claims: crate::claims::Claims,
+    claims: Arc<crate::claims::Claims>,
 }
 impl<'a> NativePackets<'a> {
-    pub fn new(source: &'a CanonicalBatches, budget: &ResourceBudget) -> Result<Self, ModelError> {
-        Ok(Self {
-            source,
-            budget: budget.clone(),
-            charge: charged::StateCharge::new(budget, "native-evidence-packets"),
-            cache: BTreeMap::new(),
-            claims: crate::claims::Claims::new(source, budget)?,
-        })
+    pub fn new(source:&'a CanonicalBatches,budget:&ResourceBudget)->Result<Self,ModelError>{
+        Self::from_prepared(Arc::new(Prepared::new(source,budget)))
     }
-    fn rows<R: Record>(&mut self) -> Result<Arc<Vec<R>>, EvidenceError> {
-        if !self.cache.contains_key(R::NAME) {
-            let rows = crate::records::rows::<R>(self.source)?;
-            for row in &rows {
-                self.charge.admit(row)?;
-            }
-            self.charge
-                .grow(rows.capacity() * std::mem::size_of::<R>())?;
-            self.cache.insert(R::NAME, Box::new(Arc::new(rows)));
-        }
-        self.cache
-            .get(R::NAME)
-            .and_then(|v| v.downcast_ref::<Arc<Vec<R>>>())
-            .cloned()
-            .ok_or(EvidenceError::Contract)
+    pub fn from_prepared(source:Arc<Prepared<'a>>)->Result<Self,ModelError>{
+        let budget=source.budget().clone();let claims=source.claims()?;
+        Ok(Self{source,budget:budget.clone(),charge:charged::StateCharge::new(&budget,"native-evidence-packets"),claims})
     }
-    fn selected<R: Record>(&self, rows: Vec<R>) -> Result<PacketRows<R>, EvidenceError> {
-        let bytes = rows
-            .iter()
-            .map(HeapSize::heap_bytes)
-            .sum::<usize>()
-            .saturating_add(rows.capacity() * std::mem::size_of::<R>());
-        Ok(PacketRows {
-            rows,
-            _reservation: self
-                .budget
-                .reserve("native-evidence-selected-rows", bytes)?,
-        })
+    pub(crate) async fn read_ids<R:Record>(&mut self,ids:&[Id<R>])->Result<PacketRows<R>,EvidenceError>{
+        Ok(self.source.rows::<R>()?.select_ids(ids)?)
     }
-    pub(crate) async fn read_ids<R: Record>(
-        &mut self,
-        ids: &[Id<R>],
-    ) -> Result<PacketRows<R>, EvidenceError> {
-        let all = self.rows::<R>()?;
-        self.selected(
-            all.iter()
-                .filter(|r| ids.contains(&r.id()))
-                .cloned()
-                .collect(),
-        )
+    pub(crate) async fn read_for<R:Record,T:Record>(&mut self,field:&str,ids:&[Id<T>])->Result<PacketRows<R>,EvidenceError>{
+        Ok(self.source.rows::<R>()?.select_for(field,ids)?)
     }
-    pub(crate) async fn read_for<R: Record, T: Record>(
-        &mut self,
-        field: &str,
-        ids: &[Id<T>],
-    ) -> Result<PacketRows<R>, EvidenceError> {
-        if !R::fields().iter().any(|f| f.name() == field) {
-            return Err(EvidenceError::Model(ModelError::Invalid(format!(
-                "native evidence field missing: {}.{field}",
-                R::NAME
-            ))));
-        }
-        let all = self.rows::<R>()?;
-        self.selected(
-            all.iter()
-                .filter(|r| {
-                    r.references().iter().any(|reference| {
-                        reference.field == field
-                            && reference.target == T::NAME
-                            && ids.iter().any(|id| id.bytes() == &reference.key)
-                    })
-                })
-                .cloned()
-                .collect(),
-        )
-    }
+
     pub(crate) async fn claim_basis(
         &mut self,
         q: &assertion::AssertionQualification,
@@ -146,7 +77,7 @@ pub fn owner_inputs() -> Vec<ValidationInput> {
 }
 /// Lower all indivisible selected records before independently paging either section.
 pub async fn sections(
-    source: &CanonicalBatches,
+    source: Arc<Prepared<'_>>,
     range: &OriginalRange,
     request: &Request,
     snapshot: &SnapshotHandle,
@@ -159,7 +90,7 @@ pub async fn sections(
     ),
     ModelError,
 > {
-    let mut packets = NativePackets::new(source, budget)?;
+    let mut packets = NativePackets::from_prepared(source)?;
     let flows = packets
         .flow_inventory(range, usize::MAX)
         .await

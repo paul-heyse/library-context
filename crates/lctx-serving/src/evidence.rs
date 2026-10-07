@@ -1,11 +1,11 @@
 //! Original byte reads and graph derivations are independent of retrieval rank.
-use crate::records::{need, rows, wire};
+use crate::records::{need, rows, wire, Prepared};
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
 use lctx_surrealdb::{
     NativeReader,
-    batches::{CanonicalBatches, CanonicalNode},
+    batches::CanonicalNode,
     reader::target_id,
 };
 use surrealdb::types::Variables;
@@ -46,6 +46,7 @@ pub async fn get(
         b,
     )
     .await?;
+    let data=std::sync::Arc::new(Prepared::new(&data,b));
     let demand = request.page().evidence_demand.0.as_ref();
     let context = demand.and_then(|d| d.context.analysis.0);
     let prepared = crate::originals::Prepared::new(&data)?;
@@ -74,15 +75,15 @@ pub async fn get(
     };
     let body = body(reader, &data, &original, request, channels, limits, b).await?;
     let (flow_inventory, source_characterization) =
-        crate::source_evidence::sections(&data, &original, request, reader.handle(), channels, b)
+        crate::source_evidence::sections(data.clone(), &original, request, reader.handle(), channels, b)
             .await?;
     let derivation = derivations(reader, &original, request, channels, b).await?;
     let artifact = need(&rows::<source::SourceArtifact>(&data)?, original.artifact)?.clone();
     let release_row = need(&rows::<input::Release>(&data)?, original.release)?.clone();
     let package = need(&rows::<input::Package>(&data)?, release_row.package)?.clone();
     let corpora = rows::<input::CorpusLibrary>(&data)?;
-    let captures = rows::<input::InputDistribution>(&data)?
-        .into_iter()
+    let captures = rows::<input::InputDistribution>(&data)?.select_for("release",&[original.release])?
+        .iter()
         .filter(|d| {
             d.release == original.release
                 && d.role == input::DistributionRole::FirstParty
@@ -103,9 +104,8 @@ pub async fn get(
         version: Name::new(release_row.version).map_err(wire)?,
     };
     let analyses = std::collections::BTreeSet::from([original.context]);
-    let qids = rows::<assertion::AssertionQualification>(&data)?
-        .into_iter()
-        .filter(|q| q.context == original.context)
+    let qids = rows::<assertion::AssertionQualification>(&data)?.select_for("context",&[original.context])?
+        .iter()
         .map(|q| q.id())
         .collect();
     let mut interpretation =
@@ -124,7 +124,7 @@ pub async fn get(
 }
 async fn body(
     reader: &NativeReader,
-    data: &CanonicalBatches,
+    data: &Prepared<'_>,
     range: &OriginalRange,
     request: &Request,
     channels: &ChannelState,
@@ -269,12 +269,13 @@ pub async fn hits(
         b,
     )
     .await?;
+    let data=Prepared::new(&data,b);
     hits.iter()
         .map(|hit| hit_packet(&data, hit, domains, b))
         .collect()
 }
 fn source_range(
-    data: &CanonicalBatches,
+    data: &Prepared<'_>,
     source: &retrieval::AnchorSource,
     analysis: Id<attribution::AnalysisContext>,
     release: Id<input::Release>,
@@ -335,7 +336,7 @@ fn part_fragment<'a>(
     fragment(part.text.as_str(), window_part.start, window_part.end)
 }
 fn hit_packet(
-    data: &CanonicalBatches,
+    data: &Prepared<'_>,
     hit: &ranking::RankedHit,
     domains: &[LibraryDomainPacket],
     b: &ResourceBudget,
@@ -388,13 +389,14 @@ fn hit_packet(
                 "context part cannot be primary evidence",
             ));
         }
-        if !window_parts
+        let selected_window_parts=window_parts.select_for("window",&[o.window])?;
+        if !selected_window_parts
             .iter()
-            .any(|p| p.window == o.window && p.part == o.part)
+            .any(|p| p.part == o.part)
         {
             return Err(ModelError::Schema("ranked part absent from window"));
         }
-        for wp in window_parts.iter().filter(|p| p.window == o.window) {
+        for wp in &selected_window_parts {
             let part = need(&parts, wp.part)?;
             if wp.part != o.part && part.purpose != retrieval::PartPurpose::Context {
                 continue;
@@ -436,9 +438,9 @@ fn hit_packet(
                 None
             };
             let mut source_maps = vec![];
-            for map in maps
+            for map in maps.select_for("part",&[wp.part])?
                 .iter()
-                .filter(|m| m.part == wp.part && m.start < wp.end && m.end > wp.start)
+                .filter(|m| m.start < wp.end && m.end > wp.start)
             {
                 let start = map.start.max(wp.start);
                 let end = map.end.min(wp.end);

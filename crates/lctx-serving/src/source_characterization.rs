@@ -22,10 +22,7 @@ fn native_text(value: String) -> Result<Text<0, 16384>, Error> {
         .map_err(|_| Error::ResourceRefused("indivisible native source characterization text"))
 }
 fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
-    batch
-        .rows()
-        .iter()
-        .find(|r| r.id() == id)
+    batch.get(id)?
         .cloned()
         .ok_or_else(|| {
             Error::Model(ModelError::Invalid(format!(

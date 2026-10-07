@@ -5,7 +5,7 @@ use lctx_model::domain::{
     assertion::*, attribution::*, flow::*, flow_inventory::*, serving::*, source::Occurrence, *,
 };
 fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<&R, Error> {
-    batch.rows().iter().find(|r| r.id() == id).ok_or_else(|| {
+    batch.get(id)?.ok_or_else(|| {
         Error::Model(ModelError::Invalid(format!(
             "required native evidence row missing: {}",
             R::NAME
@@ -55,32 +55,20 @@ impl NativePackets<'_> {
             "flow-inventory-grant-selection",
             inventories.rows().len().saturating_add(1) * 128,
         )?;
+        let qualifications=self.read_ids::<AssertionQualification>(&inventories.iter().map(|inventory|inventory.qualification).collect::<Vec<_>>()).await?;
         for inventory in inventories.rows() {
-            let qualifications = self
-                .read_ids::<AssertionQualification>(&[inventory.qualification])
-                .await?;
             let qualification = required(&qualifications, inventory.qualification)?;
             if qualification.context == grant.context {
-                selected.push(inventory);
+                let use_=required(&uses,inventory.use_)?;
+                let occurrence=required(&occurrences,use_.occurrence)?;
+                selected.push(((occurrence.start,occurrence.end,inventory.id()),inventory));
             }
         }
-        selected.sort_by_key(|i| {
-            let use_ = uses
-                .rows()
-                .iter()
-                .find(|u| u.id() == i.use_)
-                .expect("inventory use supplied");
-            let o = occurrences
-                .rows()
-                .iter()
-                .find(|o| o.id() == use_.occurrence)
-                .expect("grant occurrence supplied");
-            (o.start, o.end, i.id())
-        });
+        selected.sort_by_key(|(key,_)|*key);
         let total = selected.len();
         let mut items = Vec::new();
         let mut partial = false;
-        for inventory in selected.into_iter().take(maximum) {
+        for (_,inventory) in selected.into_iter().take(maximum) {
             let candidates = self
                 .read_for::<FlowUseCandidate, FlowUseInventoryObservation>(
                     "inventory",

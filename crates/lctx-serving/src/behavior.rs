@@ -1,13 +1,12 @@
 //! Model-qualified summary packets over one native canonical dependency selection.
 use crate::{
-    records::{need, rows, wire},
+    records::{need, rows, wire, Prepared},
     source_evidence::NativePackets,
 };
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
-use lctx_surrealdb::batches::CanonicalBatches;
 use std::collections::BTreeSet;
 pub async fn packets(
-    source: &CanonicalBatches,
+    source: &std::sync::Arc<Prepared<'_>>,
     member: Id<catalog::CatalogMember>,
     budget: &ResourceBudget,
 ) -> Result<(Availability, Vec<BehaviorPacket>), ModelError> {
@@ -15,15 +14,11 @@ pub async fn packets(
     let members = rows::<catalog::CatalogMember>(source)?;
     let input = need(&members, member)?.input;
     let links = rows::<catalog::CatalogMemberInvocation>(source)?;
-    let links = links
-        .into_iter()
-        .filter(|link| link.member == member)
+    let links = links.select_for("member",&[member])?
+        .iter()
         .map(|link| link.id())
         .collect::<BTreeSet<_>>();
-    let facets = rows::<synthesis::summary::SummaryFacet>(source)?
-        .into_iter()
-        .filter(|f| f.member.is_some_and(|member| links.contains(&member)))
-        .collect::<Vec<_>>();
+    let facets = rows::<synthesis::summary::SummaryFacet>(source)?.select_for("member",&links.iter().copied().collect::<Vec<_>>())?;
     let invocations = rows::<analysis::summary::AnalysisInvocation>(source)?;
     let selected = invocations
         .iter()
@@ -68,8 +63,8 @@ pub async fn packets(
     let models = rows::<models::ModelCatalog>(source)?;
     let conditions = rows::<conditions::Condition>(source)?;
     let nodes = rows::<conditions::ConditionNode>(source)?;
-    let claims = crate::claims::Claims::new(source, budget)?;
-    let mut native = NativePackets::new(source, budget)?;
+    let claims = source.claims()?;
+    let mut native = NativePackets::from_prepared(source.clone())?;
     let mut packets = Vec::new();
     for facet in facets.iter().filter(|facet| facet.qualification.is_some()) {
         let conclusion = need(&conclusions, facet.conclusion)?;
