@@ -135,18 +135,37 @@ regions; composed summary/coverage/serving challenges remain separately scoped S
 **Accepted** (ADR-0071) for the structured behavioral evaluation; gold scoring is
 **Implemented** as a record of brief retrieval.
 
-**Accepted target, implementation Proposed, 2026-10-06 (ADR-0130): programmatic evaluation is
-primary.** Independent private tasks/oracles judge actually delivered information and bounded
-public expansion, compatible contextual witnesses and supported finite worlds. The primary loop
-shrinks failures, separates numerical/channel/delivery losses and optimizes development settings
-under frozen meanings. It does not use production classification as its own expected-answer engine.
+**Implemented private programmatic loop; selected runtime integration pending, 2026-10-06
+(ADR-0130).** The offline `lctx-eval` crate, outside the production CLI/PyO3 dependency closure,
+owns compatible All/Any/Exists witnesses, satisfiable-first finite worlds, explicit applicability
+and operation statuses, and versioned experiments. The bounded long-lived JSONL worker and Python
+development runner generate and shrink private cases against independently grounded expectations.
+Empty or unsupported domains cannot report successful sufficiency.
+
+The fixed observers independently decode exact final public MCP objects for selected operation,
+original-evidence and search responses. Readable predicates, actual release/context/signature
+containers and source attribution establish witnesses; producer delivery maps cannot authorize
+truth. Separate conformance checks reject maps that disagree with actual delivered fields, source
+ranges or bindings. Bounded navigation follows visible public references and records attempted
+calls; private expected fields never enter those calls. Renderer controls establish local transport
+and interpretation behavior only; actual native journeys require the rebuilt development extension
+and an owned persistent fixture.
+
+The stored-vector reference compares exhaustive full4096 and deliberate1024 projection with an
+independent scalar F64 control and canonical ties. Supplied candidate-union diagnostics and controlled
+stage injections identify observed losses without claiming actual native ANN behavior or production
+task success. Development optimization remains under frozen meanings; no production classification
+acts as the expected-answer engine.
 
 Outer agentic evaluation supplies independently grounded system improvements **and** evaluator
 model/coverage/observation/judgment revisions. Agent success/failure alone is not truth. Freeze each
 comparison's meanings/population; changed meanings establish an explicit revision/new baseline or
 stratum, with same-packet rejudgment where applicable. [The dedicated plan](../../plans/programmatic-evaluation-plan_2026-10-06.md)
 develops these contracts; [the combined coordinator](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
-owns its findings. Pure finite/serializer work need not wait for live inference or native acceptance.
+owns its findings. On 2026-10-06 the source-bound private worker's focused Python selection passed;
+six selected actual renderer/MCP controls remain blocked by the stale development extension. The
+dedicated plan records exact commands and scope. Pure finite/serializer work need not wait for live
+inference or native acceptance.
 
 Protected confirmation/gold/heldout never tune parameters and remain isolated; private truth never
 enters production compilation, embeddings, retrieval or query prompts. Authorized development

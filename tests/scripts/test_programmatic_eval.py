@@ -417,7 +417,12 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     initial = copy.deepcopy(response)
     body = response["evidence"]["body"]["bytes"]
     cut = 12
-    initial["evidence"]["body"].update({"bytes": body[:cut], "end": cut, "continuation": "public-next", "truncated": True, "omitted": len(body) - cut})
+    # Same ordering-bearing hex JSON as the Rust renderer control. This controlled
+    # renderer does not assert native snapshot/request binding or cursor admission.
+    # BLAKE3("serving-key-order/v2:default"), computed with locked blake3 1.8.5.
+    ordering = bytes.fromhex("6ade0dd88d6cb7bc982071c22a05cca2b25c1db2268561ad0d3fe9691b8aceb2")
+    cursor = json.dumps({"binding": {"ordering": list(ordering)}}).encode().hex()
+    initial["evidence"]["body"].update({"bytes": body[:cut], "end": cut, "continuation": cursor, "truncated": True, "omitted": len(body) - cut})
     final = copy.deepcopy(response)
     final["evidence"]["body"].update({"bytes": body[cut:], "start": cut})
     # Exact each-page meaning; the independent oracle never authorizes concatenating arbitrary spans.
@@ -432,7 +437,7 @@ async def test_actual_mcp_continuation_is_visible_bounded_and_source_scoped(work
     async with Client(server) as client:
         observation = await capture_public_journey(worker, client, task, lane="renderer")
     assert len(sent) == 2
-    assert sent[1]["arguments"]["page"]["cursor"] == "public-next"
+    assert sent[1]["arguments"]["page"]["cursor"] == cursor
     assert observation["capture"]["calls"] == sent
     case = {"task": task, "observation": observation, "mode": "expandable"}
     assert list(worker.judge([case]))[0]["epistemic"] == "sufficient"

@@ -1,6 +1,6 @@
 {
   "protocol_version": 3,
-  "kernel_source_revision": "1c91d80a51ebf5400594da6768595abcd0a53a553b937cc50a161545f04585df",
+  "kernel_source_revision": "661a01c350f26403e48f43bb0c49e57d877fb9d23f9c42fa56c31330266a3af0",
   "request": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "Request",
@@ -1816,6 +1816,14 @@
           "anchor": {
             "type": "string"
           },
+          "provenance": {
+            "description": "Evidence-instance coordinates authenticate this leaf, never constrain semantic joins.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {}
+          },
           "role": {
             "type": "string"
           },
@@ -1849,6 +1857,14 @@
           },
           "text": {
             "type": "string"
+          },
+          "attributes": {
+            "description": "Preserved public epistemic qualifiers; readable source is not definite behavior.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {}
           }
         },
         "additionalProperties": false,

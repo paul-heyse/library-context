@@ -284,6 +284,31 @@ implemented grounded feedback/version operations. It does not establish broad na
 usefulness, comparative superiority, live checkpoint quality or measured performance.
 The coordinator owns finding closure and remaining conditional investigations.
 
-Authoring evidence: static review/capability/source work completed, 2026-10-06. Functional tests,
-live numerical/agent studies, native runtime checks, sealed populations and performance campaigns
-not_run. Exact commands/outcomes enter the current checkpoint only after actual execution.
+**Implemented bounded private instrument, 2026-10-06:** `crates/lctx-eval` owns finite witness/world
+kernels, independent exhaustive controls, fixed finite/public-MCP observers, numerical references,
+freeze/admission and grounded feedback operations. `scripts/programmatic_eval.py` supplies one
+bounded batched JSONL worker, development generation/shrinking, public request/journey capture and
+observed-stage diagnosis. `eval/programmatic` contains only private development populations and
+the generated source-bound schema. The selected MCP decoder preserves actual enclosing contexts,
+readable qualification/default/setup meaning and source coordinates; a separate map-conformance
+check cannot supply missing witness truth. Supported original, operation and search lanes have
+fixed decoders, rather than producer evidence-map or oracle-configured field overlays.
+
+Comparison admission binds actual running kernel/schema revisions, task mode, public request
+digest, realization lane/source/native/wire identity and journey/precision settings. Changed
+meanings require a new baseline; grounded feedback can propose system changes and private evaluator
+revisions independently. The scalar F64 full4096/projection reference and supplied-union diagnostics
+are pure numerical controls, not native ANN or live encoder measurements.
+
+Selected verification, 2026-10-06, source `65aaba69` plus the continuation fixture correction:
+
+| Command | Outcome and scope |
+|---|---|
+| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q -k 'not actual_'` (shared prepared environment) | **passed**, 18 selected tests including independent finite populations, semantic mutants/shrinking, world-status refusal, numerical reference and frozen worker/schema/mode/lane negative controls |
+| `LCTX_EVAL_WORKER=/home/paul/library-context/target/release/lctx-eval uv run --no-sync pytest tests/scripts/test_programmatic_eval.py -q` | Six actual renderer/MCP controls **blocked** by the stale development extension: import lacks `embedding_recipe_identities`; passing private controls do not establish those routes |
+| `target/release/lctx-eval --schema` | Generated private schema refreshed from the source-bound worker; schema equality included in the selected Python controls |
+
+Actual rebuilt renderer/native journeys, actual native ANN stage observations, live numerical/agent
+studies, protected populations and performance campaigns remain **not_run** at this checkpoint.
+The coordinator owns integration receipts, finding disposition and acceptance; this bounded
+instrument and its focused controls do not close all EV obligations.
