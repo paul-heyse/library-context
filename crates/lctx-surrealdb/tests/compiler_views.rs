@@ -18,6 +18,58 @@ fn spec(producer: &str, relation: &Relation) -> ContributionSpec {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
+    use lctx_model::domain::{FiniteF64, ModelError, analytics::QualityStep};
+    use lctx_surrealdb::surrealdb::types::{Number, Value, Variables};
+    let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config=RuntimeConfig::read(&path).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let relation=Relation::of::<QualityStep>();
+    let row=QualityStep {run:serde_json::from_value(serde_json::json!(vec![3u8;16])).unwrap(),ordinal:0,value:FiniteF64::new(0.5).unwrap()};
+    let contribution=store.begin_contribution(spec("quality",&relation)).await.unwrap();
+    store.write_batch(&contribution,&relation,&QualityStep::encode(&[row.clone()]).unwrap()).await.unwrap();
+    store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&BTreeMap::new()).await.unwrap();
+    store.verify_state().await.unwrap();
+    let file=tempfile::NamedTempFile::new().unwrap();
+    let state=store.export_state(file.path()).await.unwrap();
+    assert_eq!(state.backing_rows,1);
+    let restored=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    restored.import_state(file.path(),&state).await.unwrap();
+    restored.abandon().await.unwrap();
+
+    store.client().query("UPDATE compiler_record SET body.value=2.0f").await.unwrap().check().unwrap();
+    assert!(matches!(store.verify_state().await,Err(ModelError::Conflict("compiler backing canonical body"))));
+    assert!(matches!(store.completed_state().await,Err(ModelError::Conflict("compiler backing canonical body"))));
+    store.client().query("UPDATE compiler_record SET body.value=0.5f").await.unwrap().check().unwrap();
+    let mut bindings=Variables::new();bindings.insert("key","00".repeat(16));
+    store.client().query("UPDATE compiler_record SET semantic_key=$key").bind(bindings).await.unwrap().check().unwrap();
+    assert!(matches!(store.verify_state().await,Err(ModelError::Conflict("compiler backing typed identity"))));
+    assert!(matches!(store.completed_state().await,Err(ModelError::Conflict("compiler backing typed identity"))));
+    let mut bindings=Variables::new();bindings.insert("key",row.id().hex());
+    store.client().query("UPDATE compiler_record SET semantic_key=$key").bind(bindings).await.unwrap().check().unwrap();
+    assert_eq!(store.completed_state().await.unwrap(),state);
+
+    // External transport must reject the row before trusting even an outer state identity.
+    #[derive(serde::Serialize,serde::Deserialize)]
+    struct Envelope {table:String,row:Value}
+    let text=std::fs::read_to_string(file.path()).unwrap();
+    let mut envelopes=text.lines().map(|line|serde_json::from_str::<Envelope>(line).unwrap()).collect::<Vec<_>>();
+    for envelope in &mut envelopes {
+        if envelope.table=="compiler_record" {
+            let Value::Object(object)=&mut envelope.row else{panic!("backing object");};
+            let Some(Value::Object(body))=object.get_mut("body") else{panic!("backing body");};
+            body.insert("value",Value::Number(Number::Float(2.0)));
+        }
+    }
+    let text=envelopes.iter().map(|row|serde_json::to_string(row).unwrap()+"\n").collect::<String>();
+    std::fs::write(file.path(),text).unwrap();
+    let altered=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    assert!(matches!(altered.import_state(file.path(),&state).await,Err(ModelError::Conflict("compiler backing canonical body"))));
+    altered.abandon().await.unwrap();
+    store.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn pending_overlap_frozen_selection_and_state_transport() {
     let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
     let config = RuntimeConfig::read(&path).unwrap();
@@ -91,6 +143,26 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     let mut response=store.client().query("SELECT VALUE body FROM compiler_record").await.unwrap().check().unwrap();
     let metadata:Vec<lctx_surrealdb::surrealdb::types::Value>=response.take(0).unwrap();
     assert!(metadata.iter().all(|body|matches!(body,lctx_surrealdb::surrealdb::types::Value::Object(object) if !object.contains_key("body"))));
+    store.verify_state().await.unwrap();
+    let state=store.completed_state().await.unwrap();
+    store.client().query("UPDATE compiler_record SET body.ordinal=1").await.unwrap().check().unwrap();
+    assert!(matches!(store.verify_state().await,Err(lctx_model::domain::ModelError::Conflict("compiler original metadata"))));
+    assert!(matches!(store.completed_state().await,Err(lctx_model::domain::ModelError::Conflict("compiler original metadata"))));
+    store.client().query("UPDATE compiler_record SET body.ordinal=0").await.unwrap().check().unwrap();
+    assert_eq!(store.completed_state().await.unwrap(),state);
+    // Metadata is intact; the independently read physical byte owner must still agree.
+    let mut response=store.client().query("SELECT * FROM original_chunk ORDER BY start LIMIT 1").await.unwrap().check().unwrap();
+    let physical:Vec<lctx_surrealdb::surrealdb::types::Value>=response.take(0).unwrap();
+    let lctx_surrealdb::surrealdb::types::Value::Object(chunk)=&physical[0] else{panic!("physical chunk");};
+    let Some(lctx_surrealdb::surrealdb::types::Value::Bytes(original))=chunk.get("bytes") else{panic!("physical bytes");};
+    let mut changed=original.to_vec();changed[0]^=1;
+    let mut bindings=lctx_surrealdb::surrealdb::types::Variables::new();
+    bindings.insert("id",chunk.get("id").unwrap().clone());bindings.insert("bytes",lctx_surrealdb::surrealdb::types::Bytes::from(changed.clone()));bindings.insert("content",ContentHash::of(&changed).hex());
+    store.client().query("UPDATE $id SET bytes=$bytes,content=$content").bind(bindings).await.unwrap().check().unwrap();
+    assert!(matches!(store.verify_state().await,Err(lctx_model::domain::ModelError::Conflict("compiler original digest"))));
+    let mut bindings=lctx_surrealdb::surrealdb::types::Variables::new();
+    bindings.insert("id",chunk.get("id").unwrap().clone());bindings.insert("bytes",original.clone());bindings.insert("content",ContentHash::of(original).hex());
+    store.client().query("UPDATE $id SET bytes=$bytes,content=$content").bind(bindings).await.unwrap().check().unwrap();
     let other=store.begin_contribution(spec("conflict",&relation)).await.unwrap();
     let mut altered=row;altered.body.0[0]^=1;
     assert!(store.write_batch(&other,&relation,&ArtifactChunk::encode(&[altered]).unwrap()).await.is_err());

@@ -396,6 +396,14 @@ impl NativeCompilerStore {
         result
     }
     async fn verify_state_inner(self:&Arc<Self>)->Result<(),ModelError> {
+        // Cold audit/import must reconcile the fixed non-graph backing itself, before
+        // comparing membership claims. Ordinary completed-view reads carry their validity.
+        let mut backing=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM compiler_record ORDER BY id").stream_items().map_err(ModelError::codec)?,1)?)?;
+        while let Some(row)=backing.next().await? {
+            if let Some(original)=validate_state_row("compiler_record",&row)? {
+                self.verify_original_backing(&original).await?;
+            }
+        }
         let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT VALUE id FROM compiler_membership WHERE node.semantic_type IS NONE OR node.semantic_type != relation OR node.semantic_key != semantic_key OR node.content != content OR contribution.completed != true LIMIT 1").stream_items().map_err(ModelError::codec)?,1)?)?;
         if rows.next().await?.is_some(){return Err(ModelError::Conflict("completed membership backing/visibility"));}
         let mut descriptors=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM compiler_contribution ORDER BY id").stream_items().map_err(ModelError::codec)?,1)?)?;
@@ -422,6 +430,25 @@ impl NativeCompilerStore {
             self.validate_view_contributions(std::slice::from_ref(&view)).await?;
         }
         for binding in self.bindings_inner().await? {self.registered_view(&binding.view).await?;}
+        Ok(())
+    }
+    async fn verify_original_backing(&self,original:&OriginalBacking)->Result<(),ModelError> {
+        let source=d::graph::EntityId::of(original.artifact);
+        let mut bindings=Variables::new();bindings.insert("id",RecordId::new("original",source.0.hex()));
+        let mut response=self.client.query("SELECT VALUE byte_len FROM $id").bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let lengths:Vec<i64>=response.take(0).map_err(ModelError::codec)?;
+        let [length]=lengths.as_slice() else{return Err(ModelError::Conflict("compiler original header"));};
+        let remaining=u64::try_from(*length).map_err(ModelError::codec)?.checked_sub(original.start).ok_or(ModelError::Conflict("compiler original coverage"))?;
+        if original.len as u64!=remaining.min(d::artifact::ARTIFACT_CHUNK_BYTES as u64) {return Err(ModelError::Conflict("compiler original coverage"));}
+        // Reuse the independently checked physical-range reader; retain only one bounded
+        // page, and hash it without reconstructing or storing a second raw chunk body.
+        let loader=Loader::new(self.client.clone());let mut hash=ContentHasher::default();let mut offset=0usize;
+        while offset<original.len {
+            let len=(original.len-offset).min(256<<10);
+            let bytes=loader.original_bytes(source,original.start+offset as u64,len).await?;
+            hash.update(&bytes);offset+=len;
+        }
+        if hash.finish()!=original.digest {return Err(ModelError::Conflict("compiler original digest"));}
         Ok(())
     }
     async fn registered_view(self:&Arc<Self>,view:&CompletedView)->Result<(),ModelError> {
@@ -689,11 +716,13 @@ const STATE_TABLES:[&str;6]=["compiler_contribution","compiler_membership","comp
 #[derive(Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StateRow {table:String,row:Value}
-fn validate_state_row(table:&str,row:&Value)->Result<(),ModelError> {
+fn validate_state_row(table:&str,row:&Value)->Result<Option<OriginalBacking>,ModelError> {
     let object=value_object(row).ok_or(ModelError::Schema("completed state object"))?;
     let Some(Value::RecordId(id))=object.get("id") else{return Err(ModelError::Schema("completed state key"));};
     if id.table.as_str()!=table {return Err(ModelError::Schema("completed state table/key"));}
-    if table=="compiler_contribution" {
+    if table=="compiler_record" {
+        return validate_compiler_backing(object,id);
+    } else if table=="compiler_contribution" {
         if object.get("completed")!=Some(&Value::Bool(true)) {return Err(ModelError::Conflict("pending contribution cannot be sealed"));}
         let Some(Value::Bytes(bytes))=object.get("descriptor") else{return Err(ModelError::Schema("completed contribution descriptor"));};
         let descriptor:CompletedContribution=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
@@ -713,7 +742,64 @@ fn validate_state_row(table:&str,row:&Value)->Result<(),ModelError> {
         if &id.key!=&surrealdb::types::RecordIdKey::String(descriptor.key().hex()) {return Err(ModelError::Conflict("completed binding key"));}
         check_projection(object,binding_projection(&descriptor))?;
     }
-    Ok(())
+    Ok(None)
+}
+
+struct OriginalBacking {artifact:Id<d::source::SourceArtifact>,start:u64,len:usize,digest:ContentHash}
+/// The closed compiler-only union has two declared arms. Decode their nominal fields
+/// through the model, never through the stored semantic key or membership digest.
+fn validate_compiler_backing(row:&Object,id:&RecordId)->Result<Option<OriginalBacking>,ModelError> {
+    let Some(Value::Object(body))=row.get("body") else{return Err(ModelError::Schema("compiler backing body"));};
+    let Some(Value::String(name))=body.get("__type") else{return Err(ModelError::Schema("compiler backing type"));};
+    let (key,original)=if name==d::analytics::QualityStep::NAME {
+        require_backing_fields(body,&["__type","run","ordinal","value"])?;
+        let Some(Value::Number(surrealdb::types::Number::Float(value)))=body.get("value") else{return Err(ModelError::Schema("compiler backing finite float"));};
+        let step=d::analytics::QualityStep {
+            run:decode_backing_id(body,"run")?,ordinal:backing_integer(body,"ordinal")?,value:FiniteF64::new(*value)?,
+        };
+        step.validate()?;
+        if step.value.get().to_bits()!=value.to_bits() {return Err(ModelError::Conflict("compiler backing declared body"));}
+        (*step.id().bytes(),None)
+    } else if name==d::artifact::ArtifactChunk::NAME {
+        require_backing_fields(body,&["__type","artifact","ordinal","original","start","len","digest"])?;
+        let artifact:Id<d::source::SourceArtifact>=decode_backing_id(body,"artifact")?;
+        let ordinal=backing_integer(body,"ordinal")?;
+        let start=u64::try_from(backing_integer(body,"start")?).map_err(ModelError::codec)?;
+        let len=usize::try_from(backing_integer(body,"len")?).map_err(ModelError::codec)?;
+        let Some(Value::String(digest))=body.get("digest") else{return Err(ModelError::Schema("compiler original digest"));};
+        let digest_bytes:[u8;32]=hex::decode(digest).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("compiler original digest width"))?;
+        let digest_hash=ContentHash(digest_bytes);
+        if u64::try_from(ordinal).ok().and_then(|ordinal|ordinal.checked_mul(d::artifact::ARTIFACT_CHUNK_BYTES as u64))!=Some(start)
+            || len==0 || len>d::artifact::ARTIFACT_CHUNK_BYTES || digest_hash.hex()!=*digest
+            || body.get("original")!=Some(&Value::RecordId(RecordId::new("original",d::graph::EntityId::of(artifact).0.hex()))) {
+            return Err(ModelError::Conflict("compiler original metadata"));
+        }
+        let key=Id::<d::artifact::ArtifactChunk>::of(&d::artifact::ArtifactChunkKey{artifact,ordinal});
+        (*key.bytes(),Some(OriginalBacking{artifact,start,len,digest:digest_hash}))
+    } else {return Err(ModelError::Schema("undeclared compiler backing type"));};
+    let mut sink=KeySink::new("compiler-backing-key/v1");name.encode(&mut sink);sink.part(b"key",&key);
+    if row.get("semantic_type")!=Some(&Value::String(name.clone())) || row.get("semantic_key")!=Some(&Value::String(hex::encode(key)))
+        || *id!=RecordId::new("compiler_record",sink.finish().hex()) {
+        return Err(ModelError::Conflict("compiler backing typed identity"));
+    }
+    let Some(Value::Bytes(canonical))=row.get("canonical") else{return Err(ModelError::Schema("compiler backing canonical bytes"));};
+    let canonical_body:Value=serde_json::from_slice(canonical).map_err(ModelError::codec)?;
+    if canonical_body!=Value::Object(body.clone()) || canonical.as_ref()!=serde_json::to_vec(&Value::Object(body.clone())).map_err(ModelError::codec)?.as_slice() {
+        return Err(ModelError::Conflict("compiler backing canonical body"));
+    }
+    if row.get("content")!=Some(&Value::String(ContentHash::of(canonical).hex())) {return Err(ModelError::Conflict("compiler backing content"));}
+    Ok(original)
+}
+fn require_backing_fields(body:&Object,fields:&[&str])->Result<(),ModelError> {
+    if body.len()!=fields.len() || fields.iter().any(|field|!body.contains_key(*field)) {return Err(ModelError::Schema("compiler backing closed body"));}Ok(())
+}
+fn backing_integer(body:&Object,field:&str)->Result<i64,ModelError> {
+    match body.get(field) {Some(Value::Number(surrealdb::types::Number::Int(value)))=>Ok(*value),_=>Err(ModelError::Schema("compiler backing declared integer"))}
+}
+fn decode_backing_id<T:Record>(body:&Object,field:&str)->Result<Id<T>,ModelError> {
+    let Some(Value::Array(values))=body.get(field) else{return Err(ModelError::Schema("compiler backing nominal bytes"));};
+    if values.len()!=16 || values.iter().any(|value|!matches!(value,Value::Number(surrealdb::types::Number::Int(value)) if u8::try_from(*value).is_ok())) {return Err(ModelError::Schema("compiler backing nominal bytes"));}
+    Ok(SerdeWrapper::<Id<T>>::from_value(Value::Array(values.clone())).map_err(ModelError::codec)?.0)
 }
 
 fn contribution_projection(spec:&ContributionSpec)->Object {
