@@ -147,6 +147,17 @@ fn inventory(
     Ok(())
 }
 
+fn signature_observations(
+    subjects: &PacketRows<types::SignatureTypeSubject>,
+    observations: &PacketRows<types::SignatureTypeObservation>,
+    subject: types::SignatureTypeSubject,
+) -> Result<PacketRows<types::SignatureTypeObservation>, ModelError> {
+    // Sum ports have canonical variant identities. Their semantic reference roles are
+    // distinct from the flattened Arrow columns declared by the sum's physical schema.
+    let selected=subjects.select_ids(&[subject.id()])?;
+    observations.select_for("subject",&selected.iter().map(Record::id).collect::<Vec<_>>())
+}
+
 pub async fn hydrate(
     reader: &NativeReader,
     member: &catalog::CatalogMember,
@@ -266,8 +277,7 @@ pub fn packet(
             let mut terms = Vec::new();
             let mut evidence = Vec::new();
             if !subjects_checked{for observation in &signature_types{need(&subjects,observation.subject)?;}subjects_checked=true;}
-            let parameter_subjects=subjects.select_for("parameter",&[parameter.id()])?;
-            let parameter_observations=signature_types.select_for("subject",&parameter_subjects.iter().map(Record::id).collect::<Vec<_>>())?;
+            let parameter_observations=signature_observations(&subjects,&signature_types,types::SignatureTypeSubject::Parameter{parameter:parameter.id()})?;
             for observation in &parameter_observations {
                 let q = claims
                     .qualifications
@@ -398,8 +408,7 @@ pub fn packet(
             });
         }
         if !subjects_checked{for observation in &signature_types{need(&subjects,observation.subject)?;}subjects_checked=true;}
-        let return_subjects=subjects.select_for("signature",&[signature.id()])?;
-        let return_observations=signature_types.select_for("subject",&return_subjects.iter().map(Record::id).collect::<Vec<_>>())?;
+        let return_observations=signature_observations(&subjects,&signature_types,types::SignatureTypeSubject::Return{signature:signature.id()})?;
         for observation in &return_observations {
             let q = claims
                 .qualifications
@@ -608,6 +617,22 @@ mod tests {
             "interpretation":{"contexts":[],"defaults":[],"qualifications":[],"availability":{"status":"not_requested"}},
             "limits":{"maximum_page_rows":100,"maximum_response_bytes":32768,"signature_indivisible":true}
         })).unwrap()
+    }
+    #[test]
+    fn signature_typing_selection_distinguishes_sum_ports_and_preserves_observations() {
+        let parameter=types::SignatureTypeSubject::Parameter{parameter:id(8)};
+        let returned=types::SignatureTypeSubject::Return{signature:id(8)};
+        let other=types::SignatureTypeSubject::Parameter{parameter:id(9)};
+        let first=types::SignatureTypeObservation{qualification:id(10),subject:parameter.id(),term:id(11),scope:id(12)};
+        let alternative=types::SignatureTypeObservation{qualification:id(13),term:id(14),..first.clone()};
+        let return_type=types::SignatureTypeObservation{subject:returned.id(),term:id(15),..first.clone()};
+        let unrelated=types::SignatureTypeObservation{subject:other.id(),term:id(16),..first.clone()};
+        let subjects=packet_rows(vec![returned.clone(),other,parameter.clone()]);
+        let observations=packet_rows(vec![unrelated,alternative.clone(),return_type.clone(),first.clone()]);
+        assert_eq!(signature_observations(&subjects,&observations,parameter.clone()).unwrap().rows(),&[alternative,first]);
+        assert_eq!(signature_observations(&subjects,&observations,returned).unwrap().rows(),&[return_type]);
+        assert!(signature_observations(&subjects,&observations,types::SignatureTypeSubject::Parameter{parameter:id(17)}).unwrap().is_empty());
+        assert!(signature_observations(&packet_rows(vec![]),&observations,parameter).unwrap().is_empty());
     }
     #[test]
     fn emitted_core_inventory_excludes_unrelated_values_and_foreign_presentations() {
