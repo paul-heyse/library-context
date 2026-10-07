@@ -2,6 +2,7 @@
 //! govern reads. Canonical graph payloads and query fields are immutable mechanical forms.
 use crate::{Loader, RuntimeConfig, reader::{self, NativeRows}};
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
+use futures::{FutureExt, future::BoxFuture};
 use lctx_model::domain::{self as d, *, completed::*, admission::Frontier, stages::ProviderOutcome};
 use serde::{Deserialize, Serialize};
 use std::{collections::{BTreeMap}, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
@@ -200,11 +201,18 @@ impl NativeCompilerStore {
         Ok(id)
     }
     pub async fn write_batch(self:&Arc<Self>,contribution:&ContentHash,relation:&Relation,batch:&RecordBatch)->Result<(),ModelError> {
-        let lease=self.admit(false)?;
-        let result=self.write_batch_inner(contribution,relation,batch).await;
-        lease.finish();
-        if result.is_err(){self.fail();}
-        result
+        self.boxed_write_batch(contribution,relation,batch).await
+    }
+    // Keep all declared-record lowering and its poll frame inside the native library.
+    #[inline(never)]
+    fn boxed_write_batch<'a>(self:&'a Arc<Self>,contribution:&'a ContentHash,relation:&'a Relation,batch:&'a RecordBatch)->BoxFuture<'a,Result<(),ModelError>> {
+        async move {
+            let lease=self.admit(false)?;
+            let result=self.write_batch_inner(contribution,relation,batch).await;
+            lease.finish();
+            if result.is_err(){self.fail();}
+            result
+        }.boxed()
     }
     async fn write_batch_inner(self:&Arc<Self>,contribution:&ContentHash,relation:&Relation,batch:&RecordBatch)->Result<(),ModelError> {
         self.check_failed()?;
