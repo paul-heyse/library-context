@@ -20,6 +20,19 @@ memory threshold is a guard rather than an RSS cap; retain synchronous durabilit
 maintenance. Host-derived defaults can exceed an intended container allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a 512 MiB tracked-memory threshold and a 1 GiB container limit. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
 options, persistent restart and readiness checks. It never inspects the operator store.
 
+**Inspected, 2026-10-06:** the installed `/home/paul/.surrealdb/surreal` CLI reports
+`3.3.0`; `surreal start --help` accepts an explicit durable store path and uses best-effort
+planning by default. The pinned 3.3.0 source also enables a cross-transaction definition cache
+(`SURREAL_DATASTORE_CACHE_SIZE`, default 1,000 entries) and a process-shared HNSW vector cache
+(`SURREAL_HNSW_CACHE_SIZE`, default 256 MiB). Retain these caches; size them together with
+RocksDB and request memory for the deployment. The HNSW graph is loaded separately and is not
+bounded by the vector-cache setting. The [index documentation](https://surrealdb.com/docs/reference/query-language/statements/define/indexes)
+describes that distinction. Persistent storage preserves data and indexes across restart;
+in-memory caches warm again. Neither establishes a query-speed claim. Our readers share their
+pinned SDK client, and ranked continuations reuse their retained candidate pool rather than
+rerunning discovery. Caching complements bounded indexed queries; it does not replace removal
+of repeated correlated scans. No general result cache or duplicate canonical store is required.
+
 Keep `build/native/runtime.json` outside Git and mode 0600. Its closed fields are:
 
 ```json
