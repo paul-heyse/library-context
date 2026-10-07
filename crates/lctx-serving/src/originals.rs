@@ -33,6 +33,7 @@ pub fn range(
     let evidence = rows::<assertion::Evidence>(data)?;
     let mut original = source.clone();
     let mut chosen_context = context;
+    let mut occurrence_slice=None;
     if let OriginalReference::Anchor { anchor } = original {
         let anchors = rows::<retrieval::OriginalAnchor>(data)?;
         let a = need(&anchors, anchor)?;
@@ -49,6 +50,8 @@ pub fn range(
                 artifact: *artifact,
             },
             retrieval::AnchorSource::Prose { slice } => OriginalReference::Prose { slice: *slice },
+            retrieval::AnchorSource::Occurrence { occurrence }=>OriginalReference::Occurrence {occurrence:*occurrence},
+            retrieval::AnchorSource::OccurrenceSlice {occurrence,start,end}=>{occurrence_slice=Some((*start,*end));OriginalReference::Occurrence {occurrence:*occurrence}},
         };
     }
     if let OriginalReference::Catalog { source } = original {
@@ -120,6 +123,7 @@ pub fn range(
             _ => return Err(ModelError::Schema("original resolution")),
         }
     };
+    let (start,end)=if let Some((a,z))=occurrence_slice {if a<start || z>end || z<a {return Err(ModelError::Schema("original interpretation slice bounds"));}(a,z)}else{(start,end)};
     let a = need(&artifacts, artifact)?;
     if start < 0 || end < start || end > a.byte_len {
         return Err(ModelError::Schema("original byte bounds"));
