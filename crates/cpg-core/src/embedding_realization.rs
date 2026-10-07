@@ -777,8 +777,9 @@ mod tests {
         let fake = FakeEmbedder::new();
         let budget = ResourceBudget::fixed(1 << 24).unwrap();
         let mut query_changed = fake.spec().clone();
-        query_changed.query_template = "Independent query: {text}".into();
+        query_changed.query_template = "Independent instruction: {task_description}\nQuery: {query}".into();
         query_changed.query_task = "different ranking task".into();
+        query_changed.max_query_tokens -= 1;
         let configuration = Configuration::new(&query_changed, fake.endpoint(), &budget).unwrap();
         assert!(Session::selected(configuration, &fake, None, &budget).is_ok());
         let mut document_changed = fake.spec().clone();
