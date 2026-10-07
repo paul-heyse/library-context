@@ -106,6 +106,8 @@ code_schema!(
     normalized::entities::PublicPathKnowledge,
     catalog::evidence::DiagnosticUseStatus,
     retrieval::Family,
+    retrieval::PartPurpose,
+    retrieval::BindingBasis,
     analysis::policy::EvidenceStatus,
     analysis::policy::AssertionKind,
     analysis::policy::BriefSection,

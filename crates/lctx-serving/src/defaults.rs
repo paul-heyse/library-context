@@ -14,6 +14,17 @@ fn scalar(value:&value::Literal)->Result<Option<String>,ModelError> {
         value::Literal::Float{bits}=>{let v=f64::from_bits(*bits as u64); if v.is_finite(){Some(format!("{v} (IEEE754 bits={:016x})",*bits as u64))}else{None}},
     })
 }
+fn readable_predicate(predicate:&value::Predicate,literals:&[value::Literal])->Result<Option<String>,ModelError>{
+    Ok(match predicate {
+        value::Predicate::IsNone=>Some("is None".into()),value::Predicate::Truthy=>Some("is truthy".into()),
+        value::Predicate::IsValue{value}=>scalar(need(literals,*value)?)?.map(|v|format!("is {v}")),
+        value::Predicate::Equals{value}=>scalar(need(literals,*value)?)?.map(|v|format!("equals {v}")),
+        // class_expression currently has no admitted operand-source binding. Its opaque
+        // producer spelling/identity is not a readable captured class operand.
+        value::Predicate::IsInstance{..}|value::Predicate::TypeIs{..}=>None,
+        _=>None,
+    })
+}
 fn context(row:&attribution::AnalysisContext)->Result<AnalysisContextPacket,ModelError> {
     Ok(AnalysisContextPacket{analysis:row.id(),python_version:Name::new(row.python_version.clone()).map_err(wire)?,python_platform:Name::new(row.python_platform.clone()).map_err(wire)?,search_path:row.search_path.iter().cloned().map(Text::new).collect::<Result<_,_>>().map_err(wire)?,site_package_path:row.site_package_path.iter().cloned().map(Text::new).collect::<Result<_,_>>().map_err(wire)?,config_digest:row.config_digest,environment_digest:row.environment_digest,lock_digest:Nullable(row.lock_digest)})
 }
@@ -119,15 +130,7 @@ pub fn qualified(source:&CanonicalBatches, analyses:BTreeSet<Id<attribution::Ana
             for (id,value) in term {
                 let atom=need(&atoms,id)?;
                 if atom.context!=q.context {return Err(ModelError::Conflict("readable condition atom context"));}
-                let predicate=match need(&predicates,atom.predicate)? {
-                    value::Predicate::IsNone=>Some("is None".into()),value::Predicate::Truthy=>Some("is truthy".into()),
-                    value::Predicate::IsValue{value}=>scalar(need(&literals,*value)?)?.map(|v|format!("is {v}")),
-                    value::Predicate::Equals{value}=>scalar(need(&literals,*value)?)?.map(|v|format!("equals {v}")),
-                    value::Predicate::IsInstance{class_expression}=>Some(format!("isinstance of {class_expression}")),
-                    value::Predicate::TypeIs{class_expression}=>Some(format!("type is {class_expression}")),
-                    // Indirect/native/opaque predicates need additional admitted interpretation.
-                    _=>None,
-                };
+                let predicate=readable_predicate(need(&predicates,atom.predicate)?,&literals)?;
                 readable.push(ReadableConditionAtom{atom:id,analysis:atom.context,predicate:Nullable(predicate.map(Text::new).transpose().map_err(wire)?),evaluation:Nullable(Some(excerpt(source,atom.evaluation,atom.context,release)?)),value,availability:unavailable("condition_source_not_yet_read_or_predicate_opaque")?});
             }
             terms.push(readable);
@@ -178,6 +181,12 @@ pub async fn read_originals(reader:&NativeReader,closure:&mut InterpretationClos
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn opaque_class_operand_never_becomes_readable_predicate(){
+        assert_eq!(readable_predicate(&value::Predicate::IsInstance{class_expression:"opaque-id-0123456789".into()},&[]).unwrap(),None);
+        assert_eq!(readable_predicate(&value::Predicate::TypeIs{class_expression:"opaque-id-0123456789".into()},&[]).unwrap(),None);
+        assert_eq!(readable_predicate(&value::Predicate::Truthy,&[]).unwrap(),Some("is truthy".into()));
+    }
     #[test]
     fn scalar_meanings_preserve_none_string_and_nonfinite_uncertainty(){
         assert_eq!(scalar(&value::Literal::None).unwrap(),Some("None".into()));
