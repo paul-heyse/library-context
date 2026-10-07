@@ -1,7 +1,7 @@
 //! Necessary stream admission checks canonical companions and exact nominal window membership.
 #[path="fixtures/embedding_consumption.rs"] mod fixture;
 use fixture::*;
-use lctx_model::domain::{embedding::{analytic::*,text::*,*},resources::ResourceBudget,*};
+use lctx_model::domain::{embedding::{text::*,*},resources::ResourceBudget,*};
 #[test]
 fn streamed_consumption_admits_actual_full_projection_before_references() {
  let b=ResourceBudget::fixed(8<<20).unwrap();let f=fixture(&b,true);let(full,p,published)=winner(&f,&b);let uses=consume(&f,&published,&b);let(_,outcomes)=outcomes(&f,&uses,&b);let mut check=admission(&f,&b);
@@ -14,6 +14,6 @@ fn stream_refuses_missing_companions_rewritten_uses_and_duplicate_membership() {
 }
 #[test]
 fn canonical_streaming_window_boundaries_preserve_unicode() {
- let b=ResourceBudget::fixed(8<<20).unwrap();let f=fixture(&b,true);let text="αβ\n🦀🦀\nlast";let definition=TextDefinition {window_bytes:6,..TextDefinition::builtin()};
+ let b=ResourceBudget::fixed(8<<20).unwrap();let text="αβ\n🦀🦀\nlast";let definition=TextDefinition {window_bytes:6,..TextDefinition::builtin()};
  let rows=embedding::text::windows(text,definition.window_bytes as usize,&b).unwrap();let assembled=rows.iter().map(|(_,text)|text).collect::<String>();assert_eq!(assembled,text);
 }

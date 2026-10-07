@@ -4,9 +4,9 @@ use serde::Serialize;
 use std::io::{self, Write};
 use std::{collections::BTreeMap, sync::{Mutex, atomic::{AtomicU64, Ordering}}, time::{Duration, Instant, SystemTime}};
 
-const MAX_ENTRIES: usize = 16;
-const MAX_BYTES: usize = 8 * 1024 * 1024;
-const LIFETIME: Duration = Duration::from_secs(600);
+const MAX_ENTRIES: usize = RankedContinuationPolicy::MAXIMUM_ENTRIES as usize;
+const MAX_BYTES: usize = RankedContinuationPolicy::MAXIMUM_RETAINED_BYTES as usize;
+const LIFETIME: Duration = Duration::from_secs(RankedContinuationPolicy::EXPIRES_AFTER_SECONDS);
 static SESSION: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) struct RankedResults { session:ContentHash, state:Mutex<State>, lifetime:Duration }
@@ -141,7 +141,8 @@ mod tests {
         let values=(1..=3).map(|n| {let unit=id::<retrieval::Unit>(n);let ranking=ranking::RankedHit {target:ranking::Target::Unit {unit},context:id::<AnalysisContext>(n),score:1.0/f64::from(n),promoted:false,witnesses:vec![]};
             (ranking,ContentHash::of(&[n]),EvidenceHit {unit,family:retrieval::Family::Source,title:Name::new(format!("original{n}")).unwrap(),originals:vec![],associated_members:vec![]})}).collect();
         let (results,ranking)=cache.page(values,request,&handle(),&channels()).unwrap();
-        let response=Response::SearchEvidence(SearchEvidenceResponse {snapshot:handle(),domains:vec![],extent:SelectionExtent::Ranked {returned:1},results,channels:channels(),ranking});cache.attach(&response).unwrap();response
+        let response=Response::SearchEvidence(SearchEvidenceResponse {
+            delivery: Optional::default(),snapshot:handle(),domains:vec![],extent:SelectionExtent::Ranked {returned:1},results,channels:channels(),ranking});cache.attach(&response).unwrap();response
     }
     fn next(request:&mut Request,response:&Response) {
         let Request::SearchEvidence(request)=request else {unreachable!()};let Response::SearchEvidence(response)=response else {unreachable!()};request.page.cursor=response.results.continuation.clone();

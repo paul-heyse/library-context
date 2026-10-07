@@ -121,7 +121,8 @@ impl NativeService {
                     Ok(())
                 })
                 .await?;
-            if let Some(response) = self.retained.resume(&request, self.handle(), vector.as_ref())? {
+            if let Some(mut response) = self.retained.resume(&request, self.handle(), vector.as_ref())? {
+                crate::delivery::finalize(&request, &mut response)?;
                 return response.to_json();
             }
             let query = match &request {
@@ -192,7 +193,7 @@ impl NativeService {
                 vector: vector_state,
             };
             crate::pagination::validate(&request, self.handle(), &channels)?;
-            let response = crate::operations::dispatch(
+            let mut response = crate::operations::dispatch(
                 &self.reader,
                 &request,
                 &channels,
@@ -203,6 +204,7 @@ impl NativeService {
             )
             .await
             .map_err(failure)?;
+            crate::delivery::finalize(&request, &mut response)?;
             let len = response.json_len()?;
             if len as u64 > self.limits.response_bytes(request.page().expanded) {
                 return Err(WireError::ResourceRefused(

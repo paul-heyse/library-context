@@ -1,3 +1,4 @@
+#![allow(dead_code, reason="Shared fixture helpers serve separate consumption and streaming controls")]
 use lctx_model::domain::{analysis::analytic_embedding::{AnalysisInvocation,AnalysisOutcome},embedding::{self,projection,analytic::*,consumption::*,text::*,value::*,*},normalized::Rows,resources::ResourceBudget,*};
 pub fn id<T>(n:u8)->Id<T> {serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
 pub struct Fixture {pub data:ConsumptionData,pub invocation:AnalysisInvocation,pub window:TextWindow,pub encoder:EmbeddingSpec,pub document:DocumentRecipe,pub policy:projection::ProjectionDefinition,pub spec:Spec}

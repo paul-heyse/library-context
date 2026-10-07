@@ -14,7 +14,9 @@ def source_case() -> tuple[dict[str, Any], dict[str, Any]]:
     section = {"availability": {"status": "not_requested"}, "items": [], "omitted": 0, "truncated": False}
     response = {"snapshot": {"semantic": [5] * 32, "realization": [6] * 32,
                              "database": {"namespace": "control", "database": "renderer"}},
-                "evidence": {"original": {"source": source, "artifact": [1] * 16,
+                "evidence": {"release":{"input":[2]*16,"release":[2]*16,"distribution":"controlled-source","version":"1"},
+                    "interpretation":{"contexts":[],"defaults":[],"qualifications":[],"availability":{"status":"unavailable","reason":"controlled_original_only"}},
+                    "original": {"source": source, "artifact": [1] * 16,
                     "start": 0, "end": len(body.encode()), "digest": [0] * 32,
                     "encoding": "utf-8", "release": [2] * 16, "context": [3] * 16},
                     "body": {"start": 0, "end": len(body.encode()), "bytes": list(body.encode()), "omitted": 0, "truncated": False},

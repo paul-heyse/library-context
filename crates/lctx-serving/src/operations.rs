@@ -75,10 +75,12 @@ pub async fn dispatch(
     let snapshot = reader.handle().clone();
     match request {
         Request::GetCapability(r) => Ok(Response::GetCapability(GetCapabilityResponse {
+            delivery: Optional::default(),
             snapshot,
             capability: crate::capability::get(reader, r.capability, b).await?,
         })),
         Request::GetEvidence(r) => Ok(Response::GetEvidence(GetEvidenceResponse {
+            delivery: Optional::default(),
             snapshot,
             evidence: crate::evidence::get(reader, &r.source, request, channels, limits, b).await?,
         })),
@@ -112,6 +114,7 @@ pub async fn dispatch(
                 )
             };
             Ok(Response::FindOperations(FindOperationsResponse {
+            delivery: Optional::default(),
                 snapshot,
                 domains: domains.clone(),
                 supported: group(selection::Outcome::Supported, "supported")?,
@@ -141,6 +144,7 @@ pub async fn dispatch(
                 });
             }
             Ok(Response::CompareOperations(CompareOperationsResponse {
+            delivery: Optional::default(),
                 snapshot,
                 domains,
                 operations,
@@ -180,6 +184,7 @@ pub async fn dispatch(
                 }
             };
             Ok(Response::GetOperation(GetOperationResponse {
+            delivery: Optional::default(),
                 snapshot,
                 domains,
                 operation,
@@ -384,6 +389,7 @@ async fn search_operations(
     let (results, ranking) =
         crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
     Ok(SearchOperationsResponse {
+            delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         extent: SelectionExtent::Ranked {
@@ -441,6 +447,7 @@ async fn search_evidence(
     let (results, ranking) =
         crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
     Ok(SearchEvidenceResponse {
+            delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         extent: SelectionExtent::Ranked {
@@ -516,6 +523,7 @@ async fn search_capabilities(
     let (results, ranking) =
         crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
     Ok(SearchCapabilitiesResponse {
+            delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         extent: SelectionExtent::Ranked {
@@ -754,6 +762,7 @@ async fn browse(
         }
     }
     Ok(BrowseLibraryResponse {
+            delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         scope: r.scope.clone(),

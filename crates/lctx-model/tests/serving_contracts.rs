@@ -438,7 +438,7 @@ fn operation_response(parameters: usize) -> Value {
             "release":{"input":id,"release":id,"distribution":"fastmcp","version":"4.0.5"},
             "access":{"module":id,"path":["FastMCP","run"],"exposures":[id],"candidates":[id],"basis":null},
             "invocations":[],"signatures":[{"signature":id,"role":0,"native":null,"variant":id,"analysis":id,"form":0,"adjustment":0,"parameters":vec![parameter.clone();parameters],"effective_parameters":vec![parameter;parameters],"return_types":[],"return_evidence":[],"typing":[],"complete":true}],
-            "signature_knowledge":0,"options":[],"literal_values":[],"type_presentations":[],"limits":{"maximum_page_rows":100,"maximum_response_bytes":32768,"signature_indivisible":true}},
+            "signature_knowledge":0,"options":[],"literal_values":[],"type_presentations":[],"interpretation":{"contexts":[],"defaults":[],"qualifications":[],"availability":{"status":"unavailable","reason":"controlled_fixture"}},"limits":{"maximum_page_rows":100,"maximum_response_bytes":32768,"signature_indivisible":true}},
         "callable_comparison":absent,"contextual_typing":absent,"incoming_references":absent,"access_routes":absent,"scenarios":absent,"deployment":absent,"relationships":absent,"conflicts":absent,"briefs":absent,"behavior":absent
     }}})
 }
@@ -809,6 +809,7 @@ fn capability_assertion_status_is_structured_and_visible_without_rewriting_autho
     observed["text"] = json!("Observed access.");
     let capability:CapabilityPacket=serde_json::from_value(json!({"capability":vec![6u8;16],"title":"API","rendered":"Original authored body.\n","assertions":[claim,observed],"originals":[],"availability":{"status":"available"},"unreviewed":true,"documentation_only":true})).unwrap();
     let response = GetCapabilityResponse {
+            delivery: Optional::default(),
         snapshot: snapshot_for(7),
         capability,
     };
