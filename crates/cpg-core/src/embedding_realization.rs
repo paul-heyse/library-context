@@ -401,7 +401,13 @@ impl<'a> Session<'a> {
                 )?)?;
                 continue;
             }
-            match self.embedder.count_tokens(request).await {
+            let counted=if let Some(tokenizer)=self.embedder.document_tokenizer() {
+                // Assets compose the complete input; never compose the recipe twice.
+                let (prefix,suffix)=spec.document_template.split_once("{text}").ok_or_else(||ModelError::Invalid("invalid document template".into()))?;
+                let body=request.strip_prefix(prefix).and_then(|s|s.strip_suffix(suffix)).ok_or_else(||ModelError::Invalid("complete encoder input recipe mismatch".into()))?;
+                Ok(tokenizer.encode(body)?.offsets.len())
+            } else {self.embedder.count_tokens(request).await};
+            match counted {
                 Ok(count) if count <= spec.max_document_tokens as usize => {
                     uncached.push(request.clone());
                     tokens.push(count as u32);

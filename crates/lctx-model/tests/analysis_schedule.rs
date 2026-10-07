@@ -235,11 +235,13 @@ fn fixture_publication_order() -> lctx_model::domain::stages::PublicationOrder {
                 4,
                 lctx_model::domain::stages::PublicationBoundary::Structural,
             ),
-            (5, lctx_model::domain::stages::PublicationBoundary::Analytic),
+            (5, lctx_model::domain::stages::PublicationBoundary::AnalyticEmbedding),
+            (6, lctx_model::domain::stages::PublicationBoundary::Analytic),
             (
-                6,
+                7,
                 lctx_model::domain::stages::PublicationBoundary::Synthesis,
             ),
+            (8, lctx_model::domain::stages::PublicationBoundary::Retrieval),
         ],
     )
     .unwrap()

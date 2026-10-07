@@ -69,7 +69,8 @@ impl Options {
                     None => lctx_embed::qwen_spec(),
                 };
                 spec.validate().map_err(anyhow::Error::msg)?;
-                Some(Box::new(lctx_embed::VllmEmbedder::new(endpoint, spec)))
+                let assets=std::env::var_os("LCTX_EMBEDDING_ASSETS").map(PathBuf::from).unwrap_or_else(||PathBuf::from("/home/paul/wheelhouse/gpu-stack/models/Qwen3-Embedding-8B-NVFP4-r2"));
+                Some(Box::new(lctx_embed::VllmEmbedder::for_compilation(endpoint, spec,&assets)?))
             }
         };
         Ok(Some(Upper { settings, embedder }))

@@ -5,8 +5,7 @@
 //!   client can be held to the same bytes (`specs/embedding/request_bodies.json`, E2).
 //! - Every response is checked: the vector count, the index mapping, the length, finiteness and
 //!   unit norm, and the served model. The versioned spec owns dimensions and MRL admission.
-//! - Token counts come from the service's own tokenizer (`POST /tokenize`, attached for every
-//!   runner in vLLM 0.30.0), so no Rust tokenizer is needed.
+//! - Compiler construction uses exact acquired local tokenizer assets; `/tokenize` is the live parity oracle.
 //! - An unreachable service is an error naming the URL: a compile asked for live vectors is
 //!   `blocked` without the service, never silently fake.
 
@@ -108,6 +107,7 @@ pub struct VllmEmbedder {
     base: String,
     spec: Spec,
     client: reqwest::Client,
+    tokenizer:Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>>,
 }
 
 impl VllmEmbedder {
@@ -115,6 +115,7 @@ impl VllmEmbedder {
         Self {
             base: base.trim_end_matches('/').to_owned(),
             spec,
+            tokenizer:None,
             // The holistic assessment's D3: a hung service fails the compile rather than hanging it.
             client: reqwest::Client::builder()
                 .connect_timeout(CONNECT_TIMEOUT)
@@ -124,6 +125,10 @@ impl VllmEmbedder {
         }
     }
 
+    pub fn for_compilation(base:&str,spec:Spec,assets:&std::path::Path)->Result<Self,lctx_model::domain::ModelError> {
+        let tokenizer=cpg_core::retrieval_tokenizer::LocalTokenizer::load_verified(assets,&spec)?;
+        let mut client=Self::new(base,spec);client.tokenizer=Some(tokenizer);Ok(client)
+    }
     async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, CoreError> {
         let url = format!("{}{path}", self.base);
         let response = self
@@ -152,6 +157,7 @@ impl VllmEmbedder {
 }
 
 impl Embedder for VllmEmbedder {
+    fn document_tokenizer(&self)->Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {self.tokenizer.clone()}
     fn endpoint(&self) -> &str {
         &self.base
     }
