@@ -20,3 +20,6 @@ fn consumed_inventory_refuses_unloaded_rows_and_releases_its_reservation() {
     );
     assert_eq!(budget.reserved(), 0);
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

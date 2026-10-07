@@ -90,3 +90,6 @@ fn prepared_schedules_bind_canonical_values_to_completed_producer_epochs() {
         }
     }
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

@@ -596,7 +596,8 @@ mod call_scope_controls {
     #[tokio::test]
     async fn event_grain_keeps_orphans_and_declared_skew_without_unrelated_source_payload() {
         let model = Arc::new(model().unwrap());
-        let runtime = Workspace::new(model.clone(), WorkspaceOptions::default()).unwrap();
+        let runtime = Workspace::new(model.clone(), WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
         let artifact =
             SourceArtifact::from_bytes(nominal(1), "selected.py".into(), b"call").unwrap();
         let unrelated = SourceArtifact::from_bytes(
@@ -696,6 +697,7 @@ mod call_scope_controls {
             Profile::Catalog,
             ContentHash::of(b"call-scope-control"),
             access,
+        { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_event_inputs!(inventory); inventory },
         );
         macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>().unwrap();)*};}
         lctx_model::normalized_event_inputs!(declare);

@@ -1245,8 +1245,8 @@ mod nominal_closure_controls {
                 memory_bytes: 8 << 20,
                 partitions: 1,
                 batch_rows: 16,
-            },
-        )
+            }, crate::test_native::store()
+)
         .unwrap();
         let session = workspace
             .inputs("edge-pool-control", Profile::Catalog, std::iter::empty())

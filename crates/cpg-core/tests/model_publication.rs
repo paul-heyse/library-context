@@ -63,3 +63,6 @@ async fn behavioral_models_consume_actual_enriched_calls() {
 async fn catalog_models_are_explicitly_not_requested() {
     run(Profile::Catalog).await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

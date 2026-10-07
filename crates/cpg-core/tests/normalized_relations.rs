@@ -94,3 +94,6 @@ async fn catalog_normalizes_completed_facts_with_explicitly_unrequested_flow() {
 async fn behavioral_normalizes_completed_facts_including_exact_test_operands() {
     run(Profile::Behavioral).await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

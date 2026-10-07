@@ -10,8 +10,8 @@ use std::sync::Arc;
 async fn completed_input_sessions_are_isolated_and_detached_queries_retain_sources() {
     let workspace = Workspace::new(
         Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap()),
-        WorkspaceOptions::default(),
-    )
+        WorkspaceOptions::default(), crate::native_fixture::store()
+)
     .unwrap();
     let empty = workspace.inputs("source", Profile::Catalog, []).unwrap();
     let output = workspace.output(
@@ -19,6 +19,7 @@ async fn completed_input_sessions_are_isolated_and_detached_queries_retain_sourc
         Profile::Catalog,
         ContentHash::of(b"source"),
         empty.clone(),
+    [<Package>::NAME],
     );
     output.declare::<Package>().unwrap();
     output
@@ -50,8 +51,8 @@ async fn compute_and_external_reservations_share_one_compiler_pool() {
             memory_bytes: 32 * 1024 * 1024,
             partitions: 1,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let budget = workspace.budget().clone();
     let empty = workspace.inputs("compute", Profile::Catalog, []).unwrap();
@@ -87,3 +88,6 @@ async fn compute_and_external_reservations_share_one_compiler_pool() {
     drop(workspace);
     assert_eq!(budget.reserved(), 0);
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

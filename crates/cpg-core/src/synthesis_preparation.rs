@@ -5,13 +5,13 @@ pub async fn publish_documentary(
     output: &mut ProducerOutput,
     rows: &Output,
 ) -> Result<(), ModelError> {
-    output.declare::<synthesis::documentary::DocumentaryConclusion>()?;
-    output.declare::<synthesis::documentary::DocumentaryBoundary>()?;
-    output.declare::<synthesis::documentary_templates::ComponentBoundary>()?;
-    output.declare::<synthesis::documentary::ProseSlice>()?;
-    output.declare::<synthesis::documentary::ProseSource>()?;
-    output.declare::<synthesis::documentary::DocumentarySource>()?;
-    output.declare::<assertion::AssertionQualification>()?;
+    output.declare_async::<synthesis::documentary::DocumentaryConclusion>().await?;
+    output.declare_async::<synthesis::documentary::DocumentaryBoundary>().await?;
+    output.declare_async::<synthesis::documentary_templates::ComponentBoundary>().await?;
+    output.declare_async::<synthesis::documentary::ProseSlice>().await?;
+    output.declare_async::<synthesis::documentary::ProseSource>().await?;
+    output.declare_async::<synthesis::documentary::DocumentarySource>().await?;
+    output.declare_async::<assertion::AssertionQualification>().await?;
     for row in rows.sources.iter() {
         output.push(row.clone()).await?;
     }

@@ -165,10 +165,10 @@ pub async fn publish(
     definition: TextDefinition,
 ) -> Result<(), ModelError> {
     definition.validate()?;
-    output.declare::<TextDefinition>()?;
-    output.declare::<TextSubject>()?;
-    output.declare::<TextAssessment>()?;
-    output.declare::<TextWindow>()?;
+    output.declare_async::<TextDefinition>().await?;
+    output.declare_async::<TextSubject>().await?;
+    output.declare_async::<TextAssessment>().await?;
+    output.declare_async::<TextWindow>().await?;
     output.push(definition.clone()).await?;
     if !definition.requested {
         return output.finish(ProviderOutcome::Complete).await;

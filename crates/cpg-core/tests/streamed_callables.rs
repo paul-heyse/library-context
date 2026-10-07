@@ -211,8 +211,8 @@ async fn run(data: &CallableData, memory: usize, batch_rows: usize) -> Arc<Works
             memory_bytes: memory,
             batch_rows,
             partitions: 1,
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let facts = workspace.output(
         "callable-fixture",
@@ -221,6 +221,7 @@ async fn run(data: &CallableData, memory: usize, batch_rows: usize) -> Arc<Works
         workspace
             .inputs("callable-fixture", stages::Profile::Catalog, [])
             .unwrap(),
+    { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_callable_inputs!(inventory); inventory },
     );
     macro_rules! emit {($($field:ident:$ty:ty,)*)=>{$(facts.declare::<$ty>().unwrap();for row in data.$field.iter() {facts.push(row.clone()).await.unwrap();})*};}
     lctx_model::normalized_callable_inputs!(emit);
@@ -538,7 +539,7 @@ async fn complete_native_overload_and_slot_groups_match_oracle_across_batch_size
     signatures(&mut data, &budget, &symbol, &q);
     let first = run(&data, 8 << 20, 1024).await;
     let second = run(&data, 8 << 20, 1).await;
-    macro_rules! compare {($($field:ident:$ty:ty,)*)=>{$(assert_eq!(first.completed::<$ty>().unwrap().content(),second.completed::<$ty>().unwrap().content());)*};}
+    macro_rules! compare {($($field:ident:$ty:ty,)*)=>{$(assert_eq!(first.completed::<$ty>().unwrap().view_identity(),second.completed::<$ty>().unwrap().view_identity());)*};}
     lctx_model::normalized_callable_outputs!(compare);
     assert_eq!(first.completed::<SignatureVariant>().unwrap().rows(), 4);
     assert_eq!(first.completed::<SignatureSlotType>().unwrap().rows(), 2);
@@ -925,3 +926,6 @@ async fn decorator_container_keeps_all_direct_children_before_recognition() {
         run(&data, 4 << 20, 1).await;
     }
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

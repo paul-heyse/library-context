@@ -26,7 +26,7 @@ pub async fn produce(
     output: ProducerOutput,
     runtime: &Workspace,
     model: &Arc<ValidatedModel>,
-    graphs: &PreparedGraphs,
+    graphs: Option<&PreparedGraphs>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
         access.profile(),
@@ -67,31 +67,33 @@ pub async fn produce(
     lctx_model::expected_domain_inputs!(inventory);
     consumed.finish(access.name())?;
     let settings = data.configuration()?.clone();
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<owner::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
-    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::analytic_outputs!(declare);
-    output.declare::<assertion::AssertionQualification>()?;
-    output.declare::<conditions::Condition>()?;
-    output.declare::<conditions::ConditionNode>()?;
+    output.declare_async::<assertion::AssertionQualification>().await?;
+    output.declare_async::<conditions::Condition>().await?;
+    output.declare_async::<conditions::ConditionNode>().await?;
     let mut roots = normalized::Rows::new(runtime.budget());
     for frame in data.structural.frames.iter() {
         roots.insert(frame.clone())?;
     }
-    let scopes = crate::analytical_scopes::FrameScopes::prepare(
+    let requested = build::requested(&settings);
+    let scopes = if requested { Some(crate::analytical_scopes::FrameScopes::prepare(
         &access,
         &session,
         model,
-        build::Data::consumed_inputs(access.profile()),
+        build::Data::demanded_inputs(access.profile(), &settings),
         crate::analytical_scopes::Kind::Analytic,
         runtime.budget(),
     )
-    .await?;
+    .await?) } else { None };
     drop(session);
-    drop(data);
+    let metadata = data;
     for sf in roots.iter() {
-        let grain = scopes.grain(sf.id(), runtime.budget()).await?;
         let mut data = build::Data::new(runtime.budget());
+        if let Some(scopes) = &scopes {
+        let grain = scopes.grain(sf.id(), runtime.budget()).await?;
         // Parent is fixed metadata. Native dependencies can name other provider runs; they
         // cannot widen the E1 consumer's expected invocation domain into another frame.
         let mut parent_rows =
@@ -110,6 +112,13 @@ pub async fn produce(
         macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(scopes.read::<$ty>(&access,&grain,|input,batch|data.visit_frame_input(input,batch,frame_parent.input,frame_parent.context)).await?;)*};}
         decoder_inputs!(scoped);
         drop(grain);
+        } else {
+            data.structural.frames.insert(sf.clone())?;
+            macro_rules! metadata {($($field:ident),*)=>{$(for row in metadata.$field.iter(){data.$field.insert(row.clone())?;})*};}
+            metadata!(settings, definitions, parameters);
+            data.structural_invocations.insert(metadata.structural_invocations.get(sf.invocation)
+                .ok_or(ModelError::Schema("analytic selected parent"))?.clone())?;
+        }
         let mut context = frames::Context::new(runtime.budget());
         let mut receipts = normalized::Rows::new(runtime.budget());
         let mut projections = normalized::Rows::new(runtime.budget());
@@ -159,7 +168,8 @@ pub async fn produce(
             structural: sf.id(),
             configuration: settings.id(),
         };
-        let graph = graphs.graph(
+        let produced = if requested {
+        let graph = graphs.ok_or(ModelError::Schema("requested analytic graph owner"))?.graph(
             &access,
             runtime,
             projection::normalization::ProjectionKey {
@@ -168,9 +178,13 @@ pub async fn produce(
                 name: projection::ProjectionName::CallableInvocation,
             },
         )?;
-        results.extend(crate::stage_runtime::borrowed_cpu(access.name(), || {
+        crate::stage_runtime::borrowed_cpu(access.name(), || {
             build::produce(&data, &frame, &context.invocations, graph, runtime.budget())
-        })?)?;
+        })?
+        } else {
+            build::not_requested(&data, &frame, &context.invocations, runtime.budget(), semantic::policy::RETAINED.attributes)?
+        };
+        results.extend(produced)?;
 
         macro_rules! write {
             ($t:ty,$rows:expr) => {{

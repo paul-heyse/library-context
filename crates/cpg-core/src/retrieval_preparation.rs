@@ -454,32 +454,11 @@ impl Preparation {
         budget: &resources::ResourceBudget,
     ) -> Result<(), ModelError> {
         let input = ValidationInput::of::<artifact::ArtifactChunk>(&["id"]);
-        let table = access.table_for(&input)?;
-        let permit = access.read::<artifact::ArtifactChunk>()?;
-        for (artifact, start, end) in ranges.iter() {
-            if start == end {
-                continue;
-            }
-            let first = *start as usize / artifact::ARTIFACT_CHUNK_BYTES;
-            let last = (*end as usize - 1) / artifact::ARTIFACT_CHUNK_BYTES;
-            let sql = format!(
-                "SELECT * FROM {} WHERE artifact=X'{}' AND ordinal BETWEEN {first} AND {last}",
-                identifier(&table),
-                artifact.hex()
-            );
-            crate::consumed_rows::stream_query_at(
-                &permit,
-                &input,
-                &self.session,
-                &sql,
-                |_, batch| {
-                    data.facts.chunks.decode(batch)?;
-                    Ok(())
-                },
-            )
-            .await?;
-        }
-        let _ = budget;
+        let table=identifier(&access.table_for(&input)?);
+        let mut charge=charged::StateCharge::new(budget,"retrieval-original-demand-union");
+        let mut keys=charged::ChargedSet::default();
+        for (artifact,start,end) in ranges.iter(){crate::original_demands::union_range(&mut keys,&mut charge,*artifact,*start,*end)?;}
+        crate::original_demands::stream_selected(&self.session,&table,&keys,budget,|batch|data.facts.chunks.decode(batch)).await?;
         Ok(())
     }
     pub async fn render_root(

@@ -1,11 +1,7 @@
-//! Private spillable compilation workspace. Completed inputs are immutable IPC streams.
-//!
-//! Producers write bounded batches. A completed relation is globally ordered and deduplicated
-//! before it becomes visible; interrupted writes never enter the completed-input map.
-use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
+//! Private persisted compilation workspace with exact immutable contribution views.
+//! DataFusion scratch is spillable and derived; native memberships own completed inputs.
+use arrow_array::RecordBatch;
 use datafusion::{
-    arrow::ipc::{reader::FileReader, writer::FileWriter},
-    execution::options::ArrowReadOptions,
     execution::{
         disk_manager::{DiskManagerBuilder, DiskManagerMode},
         memory_pool::{MemoryConsumer, MemoryPool, MemoryReservation},
@@ -24,12 +20,9 @@ use lctx_model::domain::{
 use std::{
     any::Any,
     collections::BTreeMap,
-    fs::File,
-    io::Seek,
-    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -50,17 +43,32 @@ impl Default for WorkspaceOptions {
 }
 /// Cancellation is cooperative between bounded I/O/compute batches. Owned tasks must be drained
 /// by their caller before releasing the workspace.
+#[derive(Default)]
+struct CancellationState {
+    cancelled: AtomicBool,
+    notify: tokio::sync::Notify,
+}
 #[derive(Clone, Default)]
-pub struct Cancellation(Arc<AtomicBool>);
+pub struct Cancellation(Arc<CancellationState>);
 impl Cancellation {
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::Release);
+        self.0.cancelled.store(true, Ordering::Release);
+        self.0.notify.notify_waiters();
     }
     pub fn check(&self) -> Result<(), ModelError> {
-        if self.0.load(Ordering::Acquire) {
+        if self.0.cancelled.load(Ordering::Acquire) {
             Err(ModelError::Invalid("compilation cancelled".into()))
         } else {
             Ok(())
+        }
+    }
+    pub(crate) async fn cancelled(&self) {
+        loop {
+            let notified = self.0.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.0.cancelled.load(Ordering::Acquire) { return; }
+            notified.await;
         }
     }
 }
@@ -106,6 +114,9 @@ pub struct Workspace {
     options: WorkspaceOptions,
     budget: ResourceBudget,
     model: Arc<ValidatedModel>,
+    native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
+    bridge: Arc<crate::native_bridge::NativeBridge>,
+    native_calls:Arc<crate::native_calls::NativeCalls>,
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
     frozen_shared: Mutex<
         BTreeMap<
@@ -116,15 +127,17 @@ pub struct Workspace {
             Arc<CompletedRelation>,
         >,
     >,
-    next: AtomicU64,
     cancellation: Cancellation,
     completion_gate: tokio::sync::Mutex<()>,
     compilation_complete: Mutex<Option<CompilationCompletion>>,
+    provider_drains: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    checked_premises: Mutex<(std::collections::BTreeSet<ContentHash>, StateCharge)>,
 }
 impl Workspace {
     pub fn new(
         model: Arc<ValidatedModel>,
         options: WorkspaceOptions,
+        native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
     ) -> Result<Arc<Self>, ModelError> {
         if options.memory_bytes == 0 || options.partitions == 0 || options.batch_rows == 0 {
             return Err(ModelError::Invalid(
@@ -150,21 +163,27 @@ impl Workspace {
                 "datafusion.execution.sort_in_place_threshold_bytes",
                 (options.memory_bytes / 8).min(1 << 20),
             );
+        let budget = ResourceBudget::from_pool(Arc::new(WorkspacePool { memory: runtime.memory_pool.clone(), limit: options.memory_bytes }))?;
+        let checked_premises = Mutex::new((Default::default(), StateCharge::new(&budget, "compiler-validity-premises")));
+        let cancellation = Cancellation::default();
+        let bridge = Arc::new(crate::native_bridge::NativeBridge::new(cancellation.clone())?);
+        let native_calls=Arc::new(crate::native_calls::NativeCalls::new(native.clone(),cancellation.clone(),&budget));
         Ok(Arc::new(Self {
             files: Arc::new(WorkspaceFiles { directory }),
             context: SessionContext::new_with_config_rt(config, runtime.clone()),
             options,
-            budget: ResourceBudget::from_pool(Arc::new(WorkspacePool {
-                memory: runtime.memory_pool.clone(),
-                limit: options.memory_bytes,
-            }))?,
+            budget,
             model,
+            native,
+            bridge,
+            native_calls,
             completed: Mutex::default(),
             frozen_shared: Mutex::default(),
-            next: AtomicU64::new(0),
-            cancellation: Cancellation::default(),
+            cancellation,
             completion_gate: tokio::sync::Mutex::new(()),
             compilation_complete: Mutex::default(),
+            provider_drains: Mutex::default(),
+            checked_premises,
         }))
     }
     /// Reuse a captured native configuration's pool. DataFusion allocations and typed retained
@@ -173,13 +192,14 @@ impl Workspace {
         model: Arc<ValidatedModel>,
         options: WorkspaceOptions,
         budget: ResourceBudget,
+        native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
     ) -> Result<Arc<Self>, ModelError> {
         if options.memory_bytes != budget.limit() {
             return Err(ModelError::Invalid(
                 "workspace memory differs from supplied pool".into(),
             ));
         }
-        let mut workspace = Self::new(model, options)?;
+        let mut workspace = Self::new(model, options, native)?;
         let owner = Arc::get_mut(&mut workspace).expect("new workspace has one owner");
         let pool = Arc::new(BudgetMemoryPool {
             budget: budget.clone(),
@@ -193,8 +213,57 @@ impl Workspace {
             .build_arc()
             .map_err(ModelError::codec)?;
         owner.context = SessionContext::new_with_config_rt(owner.context.copied_config(), runtime);
+        owner.checked_premises = Mutex::new((Default::default(), StateCharge::new(&budget, "compiler-validity-premises")));
+        owner.native_calls=Arc::new(crate::native_calls::NativeCalls::new(owner.native.clone(),owner.cancellation.clone(),&budget));
         owner.budget = budget;
         Ok(workspace)
+    }
+    /// Restore the exact current and frozen bindings after independent native state import.
+    pub async fn restore(&self, profile: Profile) -> Result<(), ModelError> {
+        self.writable()?;
+        if !self.completed.lock().map_err(|_| poisoned())?.is_empty()
+            || !self.frozen_shared.lock().map_err(|_| poisoned())?.is_empty()
+        { return Err(ModelError::Conflict("native restoration requires an empty workspace")); }
+        let contributions=self.native.contributions().await?;
+        let mut output_names=std::collections::BTreeSet::new();
+        for contribution in contributions {
+            contribution.identity()?;
+            let spec=contribution.spec;
+            if spec.model!=self.model.digest() || spec.profile!=profile{return Err(ModelError::Conflict("restored contribution model or profile"));}
+            for input in spec.inputs {
+                if input.model()!=self.model.digest() || input.rows()<0 || self.model.relation(input.relation()).is_none(){return Err(ModelError::Conflict("restored contribution dependency model"));}
+            }
+            for output in spec.outputs {
+                if self.model.relation(&output).is_none(){return Err(ModelError::Schema("restored contribution output relation"));}
+                output_names.insert(output);
+            }
+        }
+        let bindings = self.native.bindings().await?;
+        let current_names=bindings.iter().filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.relation.clone()).collect::<std::collections::BTreeSet<_>>();
+        if current_names!=output_names{return Err(ModelError::Conflict("restored current output binding inventory"));}
+        let mut completed = BTreeMap::new(); let mut frozen = BTreeMap::new();
+        for binding in bindings {
+            binding.validate()?;
+            if binding.source.model() != self.model.digest() { return Err(ModelError::Conflict("restored compiler model")); }
+            let relation = self.model.relation(binding.source.relation()).ok_or(ModelError::Schema("restored compiler relation"))?.clone();
+            let name = relation.name();
+            if binding.configuration.is_some() || binding.source!=lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&relation,self.model.digest(),&binding.view)?{return Err(ModelError::Conflict("restored neutral completed view binding"));}
+            let source = Arc::new(CompletedRelation {
+                relation, producer: binding.source.producer().into(), implementation: binding.source.implementation(),
+                configuration: binding.configuration, contract: binding.source.model(), rows: binding.view.rows,
+                view: binding.view, native: self.native.clone(), bridge: self.bridge.clone(), budget: self.budget.clone(),
+                batch_rows: self.options.batch_rows, cancellation: self.cancellation.clone(), inputs: Arc::from([]), profile,
+                contribution: lctx_model::domain::stages::is_epoch_shared(name), snapshot: binding.source, _files: self.files.clone(),
+            });
+            if let Some(boundary) = binding.boundary {
+                let boundary = lctx_model::domain::stages::PublicationBoundary::ALL.into_iter().find(|candidate| candidate.name() == boundary)
+                    .ok_or(ModelError::Schema("restored compiler boundary"))?;
+                if frozen.insert((boundary, name), source).is_some() { return Err(ModelError::Conflict("duplicate frozen restored binding")); }
+            } else if completed.insert(name, source).is_some() { return Err(ModelError::Conflict("duplicate current restored binding")); }
+        }
+        *self.completed.lock().map_err(|_| poisoned())? = completed;
+        *self.frozen_shared.lock().map_err(|_| poisoned())? = frozen;
+        Ok(())
     }
     fn writable(&self) -> Result<(), ModelError> {
         if self
@@ -219,7 +288,7 @@ impl Workspace {
         let _gate = self.completion_gate.lock().await;
         self.cancellation.check()?;
         self.writable()?;
-        let content = self.content()?;
+        let content = self.identity()?;
         *self.compilation_complete.lock().map_err(|_| poisoned())? = Some(CompilationCompletion {
             frontier,
             profile,
@@ -247,7 +316,7 @@ impl Workspace {
             profile,
             configuration,
             captures: self.captures(captured)?,
-            content: self.content()?,
+            content: self.identity()?,
         };
         if self
             .compilation_complete
@@ -276,17 +345,19 @@ impl Workspace {
         }
         Ok((rows, charge))
     }
-    pub fn facts_availability(
-        &self,
-        profile: Profile,
-    ) -> Result<lctx_model::domain::admission::ScopedAvailability, ModelError> {
-        use lctx_model::domain::{
-            admission::{Expected, FrontierContract, ScopedAvailability},
-            attribution::ProviderCoverage,
-            input::{ArtifactUse, InputRevision},
-            source::{CoverageScope, SourceArtifact},
-            stages::Schedule,
-        };
+    async fn coverage_rows_async<R:Record>(&self)->Result<(Vec<R>,StateCharge),ModelError>{
+        let source=self.completed::<R>()?;
+        let mut stream=self.native.scan_batches(source.view(),&Relation::of::<R>(),None,None,&self.budget,self.options.batch_rows).await?;
+        let mut rows=Vec::new();let mut charge=StateCharge::new(&self.budget,"facts-coverage-input");
+        while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
+            self.cancellation.check()?;
+            let batch=Batch::<R>::read(&self.model,&batch,&self.budget)?;
+            for row in batch.rows(){charge.grow(row.row_bytes()+size_of::<R>())?;rows.push(row.clone());}
+        }
+        Ok((rows,charge))
+    }
+    fn availability_from_rows(&self,profile:Profile,inputs:&[lctx_model::domain::input::InputRevision],artifacts:&[lctx_model::domain::source::SourceArtifact],uses:&[lctx_model::domain::input::ArtifactUse],scope_rows:Vec<lctx_model::domain::source::CoverageScope>,rows:&[lctx_model::domain::attribution::ProviderCoverage])->Result<lctx_model::domain::admission::ScopedAvailability,ModelError>{
+        use lctx_model::domain::{admission::{Expected,FrontierContract,ScopedAvailability},stages::Schedule};
         let providers = crate::facts::providers(ContentHash::of(b"facts-coverage-contract"));
         let schedule = Schedule::build(
             &self.model,
@@ -295,23 +366,33 @@ impl Workspace {
             profile,
         )?;
         let contract = FrontierContract::facts(&self.model, profile)?.preflight(&schedule)?;
-        let (inputs, _inputs) = self.coverage_rows::<InputRevision>()?;
-        let (artifacts, _artifacts) = self.coverage_rows::<SourceArtifact>()?;
-        let (uses, _uses) = self.coverage_rows::<ArtifactUse>()?;
-        let expected = contract
-            .expected_coverage(&inputs, &artifacts, &uses)?
-            .into_keys()
-            .collect::<std::collections::BTreeSet<Expected>>();
-        let (scope_rows, _scopes) = self.coverage_rows::<CoverageScope>()?;
-        let scopes = scope_rows.into_iter().map(|r| (r.id(), r)).collect();
-        let (rows, _rows) = self.coverage_rows::<ProviderCoverage>()?;
-        ScopedAvailability::from_completed(profile, &expected, &rows, &scopes, &self.budget)
+        let expected=contract.expected_coverage(inputs,artifacts,uses)?.into_keys().collect::<std::collections::BTreeSet<Expected>>();
+        let scopes=scope_rows.into_iter().map(|row|(row.id(),row)).collect();
+        ScopedAvailability::from_completed(profile,&expected,rows,&scopes,&self.budget)
+    }
+    pub fn facts_availability(&self,profile:Profile)->Result<lctx_model::domain::admission::ScopedAvailability,ModelError>{
+        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
+        let (inputs,_inputs)=self.coverage_rows::<InputRevision>()?;
+        let (artifacts,_artifacts)=self.coverage_rows::<SourceArtifact>()?;
+        let (uses,_uses)=self.coverage_rows::<ArtifactUse>()?;
+        let (scopes,_scopes)=self.coverage_rows::<CoverageScope>()?;
+        let (rows,_rows)=self.coverage_rows::<ProviderCoverage>()?;
+        self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)
+    }
+    pub async fn facts_availability_async(&self,profile:Profile)->Result<lctx_model::domain::admission::ScopedAvailability,ModelError>{
+        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
+        let (inputs,_inputs)=self.coverage_rows_async::<InputRevision>().await?;
+        let (artifacts,_artifacts)=self.coverage_rows_async::<SourceArtifact>().await?;
+        let (uses,_uses)=self.coverage_rows_async::<ArtifactUse>().await?;
+        let (scopes,_scopes)=self.coverage_rows_async::<CoverageScope>().await?;
+        let (rows,_rows)=self.coverage_rows_async::<ProviderCoverage>().await?;
+        self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)
     }
     /// Semantic content over the actual completed typed streams, independent of IPC bytes.
-    pub fn content(&self) -> Result<ContentHash, ModelError> {
-        let mut sink = lctx_model::domain::KeySink::new("compiler-workspace-content/v1");
+    pub fn identity(&self) -> Result<ContentHash, ModelError> {
+        let mut sink = lctx_model::domain::KeySink::new("compiler-workspace-view-set/v1");
         for relation in self.completed_relations()? {
-            sink.part(relation.name().as_bytes(), &relation.content().0);
+            sink.part(relation.name().as_bytes(), &relation.view_identity().0);
         }
         Ok(sink.finish())
     }
@@ -381,7 +462,7 @@ impl Workspace {
             None => self.inputs("artifact-admission", profile, names.iter().copied())?,
         };
         let session = inputs.session(self).await?;
-        self.validate_references(&session, &relations).await?;
+        self.validate_references(&session, &relations, &inputs).await?;
         // Catalog explicitly leaves native flow unrequested. Empty premises come from that
         // provider declaration, never from arbitrary missing requested relations.
         let mut unrequested = std::collections::BTreeSet::new();
@@ -435,6 +516,10 @@ impl Workspace {
                 .invariants_for_scope_with_premises(&names, &unrequested)?
         };
         for invariant in checks {
+            let premise = self.validation_premise(&invariant, selected, &unrequested, profile)?;
+            if let Some(premise) = premise
+                && self.checked_premises.lock().map_err(|_| poisoned())?.0.contains(&premise)
+            { continue; }
             let mut check = (invariant.create)(self.budget());
             let execution_scope = check.execution_scope();
             if let Some(scope) = &execution_scope {
@@ -459,7 +544,8 @@ impl Workspace {
                     nonempty |= batch.num_rows() != 0;
                 }
                 if !nonempty {
-                    continue;
+                    self.remember_premise(premise)?;
+                continue;
                 }
             }
             let normalization_scope = check.normalization_scope();
@@ -504,7 +590,8 @@ impl Workspace {
                         }
                     }
                     if !nonempty {
-                        continue;
+                    self.remember_premise(premise)?;
+                continue;
                     }
                 }
             }
@@ -548,6 +635,7 @@ impl Workspace {
                     &self.cancellation,
                 )
                 .await?;
+                self.remember_premise(premise)?;
                 continue;
             }
             if let Some(scope) = projection_scope {
@@ -579,6 +667,7 @@ impl Workspace {
                     &self.cancellation,
                 )
                 .await?;
+                self.remember_premise(premise)?;
                 continue;
             }
             if let Some(scope) = normalization_scope {
@@ -644,6 +733,7 @@ impl Workspace {
                         .await?
                     }
                 }
+                self.remember_premise(premise)?;
                 continue;
             }
             if let Some(scope) = execution_scope {
@@ -675,6 +765,7 @@ impl Workspace {
                     &self.cancellation,
                 )
                 .await?;
+                self.remember_premise(premise)?;
                 continue;
             }
             if let Some(scope) = check.aspect_scope() {
@@ -707,6 +798,7 @@ impl Workspace {
                     &self.cancellation,
                 )
                 .await?;
+                self.remember_premise(premise)?;
                 continue;
             }
             if let Some(scope) = check.inventory_scope() {
@@ -738,6 +830,7 @@ impl Workspace {
                     &self.cancellation,
                 )
                 .await?;
+                self.remember_premise(premise)?;
                 continue;
             }
             if let Some(scope) = check.support_scope() {
@@ -769,6 +862,7 @@ impl Workspace {
                     &self.cancellation,
                 )
                 .await?;
+                self.remember_premise(premise)?;
                 continue;
             }
             for input in &invariant.inputs {
@@ -808,8 +902,42 @@ impl Workspace {
                 }
             }
             check.finish()?;
+            self.remember_premise(premise)?;
         }
-        self.content()
+        self.identity()
+    }
+    fn validation_premise(&self, invariant: &lctx_model::domain::Invariant,
+        selected: Option<&CompletedInputs>, unrequested: &std::collections::BTreeSet<&'static str>, profile: Profile,
+    ) -> Result<Option<ContentHash>, ModelError> {
+        use lctx_model::domain::Key;
+        let mut sink = lctx_model::domain::KeySink::new("compiler-checked-premises/v1");
+        self.model.digest().encode(&mut sink);
+        invariant.digest().encode(&mut sink);
+        profile.name().to_string().encode(&mut sink);
+        for input in &invariant.inputs {
+            if unrequested.contains(input.name()) {
+                sink.part(b"unrequested", input.name().as_bytes());
+                continue;
+            }
+            let relation = if let Some(selected) = selected {
+                selected.relations.get(&(input.name(), input.prefix())).cloned().or_else(|| {
+                    let mut choices = selected.relations.iter().filter(|((name, _), _)| *name == input.name()).map(|(_, relation)| relation);
+                    let first = choices.next()?;
+                    choices.all(|other| other.view == first.view).then(|| first.clone())
+                })
+            } else { self.input_relation(input).ok() };
+            let Some(relation) = relation else { return Ok(None); };
+            relation.view.identity.encode(&mut sink);
+            relation.snapshot.identity().encode(&mut sink);
+        }
+        Ok(Some(sink.finish()))
+    }
+    fn remember_premise(&self, premise: Option<ContentHash>) -> Result<(), ModelError> {
+        if let Some(premise) = premise {
+            let mut checked = self.checked_premises.lock().map_err(|_| poisoned())?;
+            if !checked.0.contains(&premise) { checked.1.grow(128)?; checked.0.insert(premise); }
+        }
+        Ok(())
     }
     /// Independent frontier obligations use the actual profile and retained capture/method
     /// definitions. They require no producer replay or historical publication receipts.
@@ -875,14 +1003,7 @@ impl Workspace {
         let mut tables = BTreeMap::new();
         for ((boundary, name), source) in &frozen {
             let table = format!("_frozen_{}_{name}", boundary.name().to_ascii_lowercase());
-            session
-                .register_arrow(
-                    &table,
-                    source.path.to_string_lossy(),
-                    ArrowReadOptions::default().schema(source.relation.schema().as_ref()),
-                )
-                .await
-                .map_err(ModelError::codec)?;
+            session.register_table(&table, self.native.table_provider(&source.view, source.relation.clone(), self.budget.clone(), self.options.batch_rows)?).map_err(ModelError::codec)?;
             tables.insert((*boundary, *name), table);
         }
         Ok(tables)
@@ -975,182 +1096,44 @@ impl Workspace {
         }
         Ok(())
     }
-    async fn validate_references(
-        &self,
-        session: &SessionContext,
-        relations: &[Arc<CompletedRelation>],
-    ) -> Result<(), ModelError> {
-        use arrow_array::{
-            Int16Array,
-            builder::{FixedSizeBinaryBuilder, Int16Builder, StringBuilder},
-        };
-        use arrow_schema::{DataType, Field, Schema};
-        let target_schema = Arc::new(Schema::new(vec![
-            Field::new("relation", DataType::Utf8, false),
-            Field::new("id", DataType::FixedSizeBinary(16), false),
-            Field::new("subtype", DataType::Int16, true),
-        ]));
-        let refs_schema = Arc::new(Schema::new(vec![
-            Field::new("source", DataType::Utf8, false),
-            Field::new("field", DataType::Utf8, false),
-            Field::new("target", DataType::Utf8, false),
-            Field::new("id", DataType::FixedSizeBinary(16), false),
-            Field::new("subtype", DataType::Int16, true),
-        ]));
-        let target_path = self.path("nominal-keys", "validation");
-        let refs_path = self.path("nominal-references", "validation");
-        let mut targets = FileWriter::try_new(
-            File::create(&target_path).map_err(ModelError::codec)?,
-            &target_schema,
-        )
-        .map_err(ModelError::codec)?;
-        let mut references = FileWriter::try_new(
-            File::create(&refs_path).map_err(ModelError::codec)?,
-            &refs_schema,
-        )
-        .map_err(ModelError::codec)?;
-        let mut source_names = StringBuilder::new();
-        let mut fields = StringBuilder::new();
-        let mut target_names = StringBuilder::new();
-        let mut ids = FixedSizeBinaryBuilder::new(16);
-        let mut tags = Int16Builder::new();
-        let mut count = 0;
-        let _buffer = self.budget.reserve(
-            "nominal-reference-transfer",
-            self.options.batch_rows.saturating_mul(1024),
-        )?;
-        macro_rules! flush_refs {
-            () => {{
-                if count > 0 {
-                    let batch = RecordBatch::try_new(
-                        refs_schema.clone(),
-                        vec![
-                            Arc::new(source_names.finish()),
-                            Arc::new(fields.finish()),
-                            Arc::new(target_names.finish()),
-                            Arc::new(ids.finish()),
-                            Arc::new(tags.finish()),
-                        ],
-                    )
-                    .map_err(ModelError::codec)?;
-                    references.write(&batch).map_err(ModelError::codec)?;
-                    count = 0;
-                }
-            }};
-        }
-        // Each completed batch is decoded once for its namespace keys and declared nominal fields.
+    async fn validate_references(&self, session:&SessionContext, relations:&[Arc<CompletedRelation>], inputs:&CompletedInputs) -> Result<(),ModelError> {
+        let quote=|name:&str|format!("\"{}\"",name.replace('"',"\"\""));
         for source in relations {
-            for batch in source.batches()? {
-                self.cancellation.check()?;
-                let batch = batch.map_err(ModelError::codec)?;
-                let _input = self.budget.reserve(
-                    "nominal-reference-input",
-                    lctx_model::domain::logical_batch_bytes(&batch)?,
-                )?;
-                let row_ids = batch
-                    .column_by_name("id")
-                    .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
-                    .ok_or(ModelError::Schema(source.name()))?;
-                let subtype = source
-                    .relation
-                    .sum()
-                    .map(|sum| {
-                        batch
-                            .column_by_name(sum.tag)
-                            .and_then(|c| c.as_any().downcast_ref::<Int16Array>())
-                            .ok_or(ModelError::Schema(source.name()))
-                    })
-                    .transpose()?;
-                let mut names = StringBuilder::new();
-                let mut key_ids = FixedSizeBinaryBuilder::new(16);
-                let mut key_tags = Int16Builder::new();
-                for row in 0..batch.num_rows() {
-                    names.append_value(source.name());
-                    key_ids
-                        .append_value(row_ids.value(row))
-                        .map_err(ModelError::codec)?;
-                    if let Some(tags) = subtype {
-                        key_tags.append_value(tags.value(row));
-                    } else {
-                        key_tags.append_null();
-                    }
+            for field in source.relation.fields().iter().filter(|field|!field.list()) {
+                let Some((_,target))=field.target() else {continue;};
+                let targets=inputs.relations.iter().filter(|((name,_),_)|*name==target).collect::<Vec<_>>();
+                let target_source=targets.first().map(|(_,source)|*source);
+                let mut key=lctx_model::domain::KeySink::new("compiler-reference-premise/v1");
+                key.part(b"model",&self.model.digest().0);
+                key.part(b"source",&source.view_identity().0);
+                key.part(b"field",field.name().as_bytes());
+                let target_views=targets.iter().map(|(_,source)|source.view_identity()).collect::<std::collections::BTreeSet<_>>();
+                for view in target_views {key.part(b"target",&view.0);}
+                if targets.is_empty(){key.part(b"missing-target",target.as_bytes());}
+                let premise=key.finish();
+                if self.checked_premises.lock().map_err(|_|poisoned())?.0.contains(&premise){continue;}
+                let source_key=inputs.relations.iter().find(|(_,bound)|bound.view==source.view).map(|(key,_)|key).ok_or(ModelError::Schema("selected reference source binding"))?;
+                let source_name=quote(&CompletedInputs::table(source_key.0,source_key.1));let field_name=quote(field.name());
+                let sql=if let Some(target_source)=target_source {
+                    let subtype=if let Some(tag)=field.subtype() {
+                        let tag_field=target_source.relation.sum().ok_or(ModelError::Schema("nominal subtype target"))?.tag;
+                        format!(" OR t.{} IS NULL OR t.{}<>{tag}",quote(tag_field),quote(tag_field))
+                    } else {String::new()};
+                    let target_tables=targets.iter().map(|((name,prefix),_)|format!("SELECT * FROM {}",quote(&CompletedInputs::table(name,*prefix)))).collect::<Vec<_>>().join(" UNION ALL ");
+                    format!("SELECT s.{field_name} FROM {source_name} s LEFT JOIN ({target_tables}) t ON s.{field_name}=t.id WHERE s.{field_name} IS NOT NULL AND (t.id IS NULL{subtype}) LIMIT 1")
+                } else {format!("SELECT {field_name} FROM {source_name} WHERE {field_name} IS NOT NULL LIMIT 1")};
+                let mut stream=crate::sql::query(session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
+                    self.cancellation.check()?;
+                    if batch.num_rows()>0 {return Err(ModelError::Invalid(format!("missing or wrong-subtype nominal reference {}.{} -> {target}",source.name(),field.name())));}
                 }
-                targets
-                    .write(
-                        &RecordBatch::try_new(
-                            target_schema.clone(),
-                            vec![
-                                Arc::new(names.finish()),
-                                Arc::new(key_ids.finish()),
-                                Arc::new(key_tags.finish()),
-                            ],
-                        )
-                        .map_err(ModelError::codec)?,
-                    )
-                    .map_err(ModelError::codec)?;
-                for field in source.relation.fields().iter().filter(|f| !f.list()) {
-                    let Some((_, target)) = field.target() else {
-                        continue;
-                    };
-                    let column = batch
-                        .column_by_name(field.name())
-                        .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
-                        .ok_or(ModelError::Schema(source.name()))?;
-                    for row in 0..batch.num_rows() {
-                        if column.is_null(row) {
-                            continue;
-                        }
-                        source_names.append_value(source.name());
-                        fields.append_value(field.name());
-                        target_names.append_value(target);
-                        ids.append_value(column.value(row))
-                            .map_err(ModelError::codec)?;
-                        if let Some(tag) = field.subtype() {
-                            tags.append_value(tag);
-                        } else {
-                            tags.append_null();
-                        }
-                        count += 1;
-                        if count >= self.options.batch_rows {
-                            flush_refs!();
-                        }
-                    }
-                }
-            }
-        }
-        flush_refs!();
-        debug_assert_eq!(count, 0);
-        targets.finish().map_err(ModelError::codec)?;
-        references.finish().map_err(ModelError::codec)?;
-        drop(targets);
-        drop(references);
-        drop(_buffer);
-        session
-            .register_arrow(
-                "_nominal_targets",
-                target_path.to_string_lossy(),
-                ArrowReadOptions::default().schema(&target_schema),
-            )
-            .await
-            .map_err(ModelError::codec)?;
-        session
-            .register_arrow(
-                "_nominal_references",
-                refs_path.to_string_lossy(),
-                ArrowReadOptions::default().schema(&refs_schema),
-            )
-            .await
-            .map_err(ModelError::codec)?;
-        let mut stream=crate::sql::query(session,"SELECT r.source,r.field,r.target FROM _nominal_references r LEFT JOIN _nominal_targets t ON r.target=t.relation AND r.id=t.id WHERE t.id IS NULL OR (r.subtype IS NOT NULL AND (t.subtype IS NULL OR r.subtype<>t.subtype)) LIMIT 1").await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            if batch.num_rows() > 0 {
-                return Err(ModelError::Invalid(format!(
-                    "missing or wrong-subtype nominal reference: {batch:?}"
-                )));
+                self.remember_premise(Some(premise))?;
             }
         }
         Ok(())
     }
+    pub(crate) async fn native_call<T:Send+'static>(&self,future:impl Future<Output=Result<T,ModelError>>+Send+'static)->Result<T,ModelError>{self.native_calls.call(future).await}
+    pub fn native(&self) -> &Arc<lctx_surrealdb::compiler::NativeCompilerStore> { &self.native }
     pub fn budget(&self) -> &ResourceBudget {
         &self.budget
     }
@@ -1163,11 +1146,14 @@ impl Workspace {
     pub fn cancellation(&self) -> Cancellation {
         self.cancellation.clone()
     }
-    fn path(&self, relation: &str, suffix: &str) -> PathBuf {
-        self.files.directory.path().join(format!(
-            "{}-{relation}-{suffix}.arrow",
-            self.next.fetch_add(1, Ordering::Relaxed)
-        ))
+    /// Drain abandoned provider threads before discarding attempt-owned native state.
+    pub async fn drain(&self)->Result<(),ModelError>{
+        self.cancellation.cancel();
+        let drains=std::mem::take(&mut *self.provider_drains.lock().map_err(|_|poisoned())?);
+        let mut error=None;
+        for task in drains{if let Err(failure)=task.await{error.get_or_insert_with(||ModelError::codec(failure));}}
+        for result in [self.bridge.drain().await,self.native_calls.drain().await,self.native.drain().await]{if let Err(failure)=result{error.get_or_insert(failure);}}
+        error.map_or(Ok(()),Err)
     }
     pub fn completed<R: Record>(&self) -> Result<Arc<CompletedRelation>, ModelError> {
         self.relation(R::NAME)
@@ -1230,6 +1216,19 @@ impl Workspace {
     }
     /// Bind each declared semantic boundary to immutable shared streams. Only small
     /// descriptors are retained; later contributions cannot widen an earlier producer's inputs.
+    pub async fn freeze_inputs_async(&self,boundary:lctx_model::domain::stages::PublicationBoundary)->Result<(),ModelError>{
+        let _completion=self.completion_gate.lock().await;
+        if self.frozen_shared.lock().map_err(|_|poisoned())?.keys().any(|(existing,_)|*existing==boundary){return Err(ModelError::Conflict("compiler input boundary already frozen"));}
+        let sources=self.completed.lock().map_err(|_|poisoned())?.iter().filter(|(name,_)|lctx_model::domain::stages::is_epoch_shared(name)).map(|(name,source)|(*name,source.clone())).collect::<Vec<_>>();
+        for (_,source) in &sources {
+            let native=self.native.clone();
+            let binding=lctx_model::domain::completed::CompletedBinding{boundary:Some(boundary.name().into()),source:source.snapshot(),view:source.view.clone(),configuration:None};
+            self.native_calls.call(async move{native.bind(binding).await}).await?;
+        }
+        let mut frozen=self.frozen_shared.lock().map_err(|_|poisoned())?;
+        for (name,source) in sources{frozen.insert((boundary,name),source);}
+        Ok(())
+    }
     pub fn freeze_inputs(
         &self,
         boundary: lctx_model::domain::stages::PublicationBoundary,
@@ -1245,6 +1244,12 @@ impl Workspace {
             .iter()
             .filter(|(name, _)| lctx_model::domain::stages::is_epoch_shared(name))
         {
+            let native = self.native.clone();
+            let binding = lctx_model::domain::completed::CompletedBinding {
+                boundary: Some(boundary.name().into()), source: source.snapshot(), view: source.view.clone(), configuration: None,
+            };
+            let calls=self.native_calls.clone();
+            self.bridge.call(async move{calls.call(async move{native.bind(binding).await}).await})?;
             frozen.insert((boundary, *name), source.clone());
         }
         Ok(())
@@ -1305,13 +1310,17 @@ impl Workspace {
             relations,
         })
     }
+    /// Plan the complete relation inventory before registering or writing a contribution.
+    /// An empty inventory is a metadata-only contribution, never an unknown inventory.
     pub fn output(
         self: &Arc<Self>,
         name: &'static str,
         profile: Profile,
         implementation: ContentHash,
         inputs: CompletedInputs,
+        outputs: impl IntoIterator<Item = &'static str>,
     ) -> ProducerOutput {
+        let outputs: std::collections::BTreeSet<_> = outputs.into_iter().collect();
         ProducerOutput {
             workspace: self.clone(),
             name,
@@ -1319,10 +1328,12 @@ impl Workspace {
             implementation,
             configuration: None,
             inputs,
-            expected: None,
-            allowed: None,
+            expected: outputs.clone(),
+            allowed: outputs,
             writers: Mutex::default(),
             outcome: Mutex::new(None),
+            contribution: Mutex::new(None),
+            registration: tokio::sync::Mutex::new(()),
             failed: AtomicBool::new(false),
         }
     }
@@ -1332,85 +1343,12 @@ impl Workspace {
         profile: Profile,
         inputs: CompletedInputs,
     ) -> ProducerOutput {
-        let mut output = self.output(declaration.name, profile, declaration.code, inputs);
+        let mut output = self.output(declaration.name, profile, declaration.code, inputs, declaration.outputs.iter().chain(&declaration.contributes).map(|relation| relation.name()));
         output.configuration = Some(declaration.configuration);
-        output.expected = Some(declaration.outputs.iter().map(|r| r.name()).collect());
-        output.allowed = Some(
-            declaration
-                .outputs
-                .iter()
-                .chain(&declaration.contributes)
-                .map(|r| r.name())
-                .collect(),
-        );
+        output.expected = declaration.outputs.iter().map(|r| r.name()).collect();
         output
     }
-    async fn order(
-        &self,
-        producer: &'static str,
-        implementation: ContentHash,
-        configuration: Option<ContentHash>,
-        pending: PendingRelation,
-        inputs: Arc<[lctx_model::domain::analysis::sources::SourceSnapshot]>,
-        profile: Profile,
-    ) -> Result<Arc<CompletedRelation>, ModelError> {
-        self.cancellation.check()?;
-        let name = pending.relation.name();
-        let path = self.path(name, "complete");
-        // Only compact identity/IPC coordinates enter external sorting. Rich original rows
-        // remain in immutable pending files and are gathered into bounded output batches.
-        let mut sources = vec![crate::ordered_stream::Source {
-            path: pending.path.clone(),
-            blocks: pending.blocks.clone(),
-        }];
-        if let Ok(previous) = self.relation(name) {
-            if pending.contribution || previous.contribution {
-                sources.push(crate::ordered_stream::Source {
-                    path: previous.path.clone(),
-                    blocks: previous.blocks.clone(),
-                });
-            } else {
-                return Err(ModelError::Invalid(format!(
-                    "completed output {name} already has an owner"
-                )));
-            }
-        }
-        let index = self.path(name, "order-index");
-        let (rows, content, blocks) = crate::ordered_stream::order(
-            &pending.relation,
-            sources,
-            &self.context,
-            self.budget(),
-            &self.cancellation,
-            &index,
-            &path,
-            self.options.batch_rows,
-        )
-        .await?;
-        self.cancellation.check()?;
-        Ok(Arc::new(CompletedRelation {
-            relation: pending.relation,
-            producer,
-            implementation,
-            configuration,
-            contract: self.model.digest(),
-            content,
-            rows,
-            inputs,
-            profile,
-            contribution: pending.contribution,
-            snapshot: (pending.snapshot)(
-                producer,
-                self.model.digest(),
-                implementation,
-                content,
-                rows,
-            )?,
-            path,
-            blocks,
-            _files: self.files.clone(),
-        }))
-    }
+
 }
 fn poisoned() -> ModelError {
     ModelError::Invalid("workspace ownership poisoned".into())
@@ -1418,15 +1356,18 @@ fn poisoned() -> ModelError {
 
 /// A stream descriptor, not a resident collection or a database read capability.
 pub struct CompletedRelation {
-    blocks: Arc<[usize]>,
     relation: Relation,
-    producer: &'static str,
+    producer: String,
     implementation: ContentHash,
     configuration: Option<ContentHash>,
     contract: ContentHash,
-    content: ContentHash,
     rows: u64,
-    path: PathBuf,
+    view: lctx_model::domain::completed::CompletedView,
+    native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
+    bridge: Arc<crate::native_bridge::NativeBridge>,
+    budget: ResourceBudget,
+    batch_rows: usize,
+    cancellation: Cancellation,
     inputs: Arc<[lctx_model::domain::analysis::sources::SourceSnapshot]>,
     profile: Profile,
     contribution: bool,
@@ -1437,17 +1378,15 @@ impl CompletedRelation {
     pub fn name(&self) -> &'static str {
         self.relation.name()
     }
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-    pub fn content(&self) -> ContentHash {
-        self.content
+    pub fn view(&self) -> &lctx_model::domain::completed::CompletedView { &self.view }
+    pub fn view_identity(&self) -> ContentHash {
+        self.view.identity
     }
     pub fn rows(&self) -> u64 {
         self.rows
     }
-    pub fn producer(&self) -> &'static str {
-        self.producer
+    pub fn producer(&self) -> &str {
+        &self.producer
     }
     pub fn implementation(&self) -> ContentHash {
         self.implementation
@@ -1461,9 +1400,37 @@ impl CompletedRelation {
     pub fn snapshot(&self) -> lctx_model::domain::analysis::sources::SourceSnapshot {
         self.snapshot.clone()
     }
-    pub fn batches(&self) -> Result<FileReader<File>, ModelError> {
-        FileReader::try_new(File::open(&self.path).map_err(ModelError::codec)?, None)
-            .map_err(ModelError::codec)
+    pub fn batches(&self) -> Result<NativeBatches, ModelError> {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let native = self.native.clone(); let view = self.view.clone(); let relation = self.relation.clone();
+        let budget = self.budget.clone(); let batch_rows = self.batch_rows;
+        let cancellation = self.cancellation.clone();
+        self.bridge.launch(Box::pin(async move {
+            let result = async {
+                let mut stream = native.scan_batches(&view, &relation, None, None, &budget, batch_rows).await?;
+                loop {
+                    let batch=tokio::select! {
+                        ()=cancellation.cancelled()=>return Ok(()),
+                        batch=stream.try_next()=>batch.map_err(ModelError::codec)?,
+                    };
+                    let Some(batch)=batch else{break;};
+                    cancellation.check()?;
+                    let charge=budget.reserve("native-provider-handoff",lctx_model::domain::logical_batch_bytes(&batch)?)?;
+                    tokio::select! {
+                        ()=cancellation.cancelled()=>return Ok(()),
+                        result=sender.send(Ok((batch,charge)))=>if result.is_err(){return Ok(());},
+                    }
+                }
+                Ok::<(), ModelError>(())
+            }.await;
+            if let Err(error)=result {
+                tokio::select! {
+                    ()=cancellation.cancelled()=>{},
+                    _=sender.send(Err(error))=>{},
+                }
+            }
+        }))?;
+        Ok(NativeBatches { receiver, cancellation: self.cancellation.clone(), charge: None, done:false })
     }
     pub fn read<R: Record>(
         &self,
@@ -1482,8 +1449,30 @@ impl CompletedRelation {
         })
     }
 }
+pub struct NativeBatches {
+    receiver: tokio::sync::mpsc::Receiver<Result<(RecordBatch, Box<dyn Reservation>), ModelError>>,
+    cancellation: Cancellation,
+    charge: Option<Box<dyn Reservation>>,
+    done:bool,
+}
+impl Iterator for NativeBatches {
+    type Item = Result<RecordBatch, ModelError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done{return None;}
+        self.charge = None;
+        loop {
+            if let Err(error) = self.cancellation.check() { self.receiver.close(); self.done=true; return Some(Err(error)); }
+            match self.receiver.try_recv() {
+                Ok(Ok((batch, charge))) => { self.charge = Some(charge); return Some(Ok(batch)); },
+                Ok(Err(error)) => { self.receiver.close(); self.done=true; return Some(Err(error)); },
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {self.done=true;return None;},
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+        }
+    }
+}
 pub struct TypedBatches<R: Record> {
-    reader: FileReader<File>,
+    reader: NativeBatches,
     model: Arc<ValidatedModel>,
     budget: ResourceBudget,
     marker: std::marker::PhantomData<R>,
@@ -1691,7 +1680,7 @@ impl CompletedInputs {
         let source = sources.next().ok_or_else(|| {
             ModelError::Invalid(format!("{} lacks explicit input {}", self.name, R::NAME))
         })?;
-        if sources.any(|other| other.path != source.path) {
+        if sources.any(|other| other.view.identity != source.view.identity) {
             return Err(ModelError::Invalid(format!(
                 "{} must select a completed view of {}",
                 self.name,
@@ -1732,10 +1721,10 @@ impl CompletedInputs {
         source: &CompletedRelation,
     ) -> Result<lctx_model::domain::analysis::sources::CompletedInput<R>, ModelError> {
         lctx_model::domain::analysis::sources::CompletedInput::new(
-            source.producer(),
-            source.contract(),
-            source.implementation(),
-            source.content(),
+            source.snapshot.producer(),
+            source.snapshot.model(),
+            source.snapshot.implementation(),
+            source.view_identity(),
             source.rows(),
         )
     }
@@ -1762,7 +1751,7 @@ impl CompletedInputs {
         } else {
             self.relations
                 .iter()
-                .find(|((name, _), source)| *name == R::NAME && source.path == selected.path)
+                .find(|((name, _), source)| *name == R::NAME && source.view.identity == selected.view.identity)
                 .map(|((_, prefix), _)| *prefix)
                 .expect("selected declared source")
         };
@@ -1783,14 +1772,7 @@ impl CompletedInputs {
         );
         for ((name, prefix), source) in &self.relations {
             let table = Self::table(name, *prefix);
-            context
-                .register_arrow(
-                    &table,
-                    source.path.to_string_lossy(),
-                    ArrowReadOptions::default().schema(source.relation.schema().as_ref()),
-                )
-                .await
-                .map_err(ModelError::codec)?;
+            context.register_table(&table, workspace.native.table_provider(&source.view, source.relation.clone(), workspace.budget.clone(), workspace.options.batch_rows)?).map_err(ModelError::codec)?;
         }
         // A plain typed read is available only when every declared selector names the same
         // immutable stream. Distinct semantic views require their qualified alias.
@@ -1806,66 +1788,31 @@ impl CompletedInputs {
                 .filter(|((candidate, _), _)| *candidate == name)
                 .map(|(_, source)| source);
             let source = sources.next().expect("declared input");
-            if sources.all(|other| other.path == source.path) {
-                context
-                    .register_arrow(
-                        name,
-                        source.path.to_string_lossy(),
-                        ArrowReadOptions::default().schema(source.relation.schema().as_ref()),
-                    )
-                    .await
-                    .map_err(ModelError::codec)?;
+            if sources.all(|other| other.view.identity == source.view.identity) {
+                context.register_table(name, workspace.native.table_provider(&source.view, source.relation.clone(), workspace.budget.clone(), workspace.options.batch_rows)?).map_err(ModelError::codec)?;
             }
         }
         Ok(context)
     }
 }
 
-type SnapshotBuilder =
-    fn(
-        &str,
-        ContentHash,
-        ContentHash,
-        ContentHash,
-        u64,
-    ) -> Result<lctx_model::domain::analysis::sources::SourceSnapshot, ModelError>;
-fn snapshot<R: Record>(
-    producer: &str,
-    contract: ContentHash,
-    implementation: ContentHash,
-    content: ContentHash,
-    rows: u64,
-) -> Result<lctx_model::domain::analysis::sources::SourceSnapshot, ModelError> {
-    Ok(
-        lctx_model::domain::analysis::sources::CompletedInput::<R>::new(
-            producer,
-            contract,
-            implementation,
-            content,
-            rows,
-        )?
-        .snapshot(),
-    )
-}
 struct PendingRelation {
-    blocks: Arc<[usize]>,
     relation: Relation,
-    path: PathBuf,
     contribution: bool,
-    snapshot: SnapshotBuilder,
 }
 trait ErasedWriter: Send {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn close(
         self: Box<Self>,
-        model: &ValidatedModel,
-        budget: &ResourceBudget,
-    ) -> Result<PendingRelation, ModelError>;
+        model: Arc<ValidatedModel>,
+        budget: ResourceBudget,
+    ) -> futures::future::BoxFuture<'static,Result<PendingRelation, ModelError>>;
 }
 struct Writer<R: Record> {
-    blocks: Vec<usize>,
-    ipc: FileWriter<File>,
-    path: PathBuf,
+    native_calls:Arc<crate::native_calls::NativeCalls>,
+    native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
+    bridge: Arc<crate::native_bridge::NativeBridge>,
+    producer: ContentHash,
     pending: Vec<R>,
     bytes: usize,
     charge: Box<dyn Reservation>,
@@ -1874,20 +1821,9 @@ struct Writer<R: Record> {
 }
 impl<R: Record> Writer<R> {
     fn write_arrow(&mut self, batch: &RecordBatch) -> Result<(), ModelError> {
-        let before = self
-            .ipc
-            .get_mut()
-            .stream_position()
-            .map_err(ModelError::codec)?;
-        self.ipc.write(batch).map_err(ModelError::codec)?;
-        let after = self
-            .ipc
-            .get_mut()
-            .stream_position()
-            .map_err(ModelError::codec)?;
-        self.blocks
-            .push(usize::try_from(after - before).map_err(ModelError::codec)?);
-        Ok(())
+        let native = self.native.clone(); let producer = self.producer; let relation = Relation::of::<R>(); let batch = batch.clone();
+        let calls=self.native_calls.clone();
+        self.bridge.call(async move{calls.call(async move{native.write_batch(&producer,&relation,&batch).await}).await})
     }
     fn flush(&mut self, model: &ValidatedModel, budget: &ResourceBudget) -> Result<(), ModelError> {
         if !self.pending.is_empty() {
@@ -1905,24 +1841,15 @@ impl<R: Record> ErasedWriter for Writer<R> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-    fn close(
-        mut self: Box<Self>,
-        model: &ValidatedModel,
-        budget: &ResourceBudget,
-    ) -> Result<PendingRelation, ModelError> {
-        self.flush(model, budget)?;
-        self.ipc.finish().map_err(ModelError::codec)?;
-        self.ipc
-            .into_inner()
-            .map_err(ModelError::codec)?
-            .sync_all()
-            .map_err(ModelError::codec)?;
-        Ok(PendingRelation {
-            blocks: self.blocks.into(),
-            relation: Relation::of::<R>(),
-            path: self.path,
-            contribution: self.contribution,
-            snapshot: snapshot::<R>,
+    fn close(mut self: Box<Self>, model: Arc<ValidatedModel>, budget: ResourceBudget) -> futures::future::BoxFuture<'static,Result<PendingRelation,ModelError>> {
+        Box::pin(async move {
+            if !self.pending.is_empty() {
+                let charge=std::mem::replace(&mut self.charge,budget.reserve(R::NAME,0)?);
+                let batch=Batch::with_reservation(&model,std::mem::take(&mut self.pending),charge)?;
+                let native=self.native.clone();let producer=self.producer;
+                self.native_calls.call(async move{native.write_batch(&producer,&Relation::of::<R>(),batch.arrow()).await}).await?;
+            }
+            Ok(PendingRelation{relation:Relation::of::<R>(),contribution:self.contribution})
         })
     }
 }
@@ -1934,10 +1861,12 @@ pub struct ProducerOutput {
     implementation: ContentHash,
     configuration: Option<ContentHash>,
     inputs: CompletedInputs,
-    expected: Option<std::collections::BTreeSet<&'static str>>,
-    allowed: Option<std::collections::BTreeSet<&'static str>>,
+    expected: std::collections::BTreeSet<&'static str>,
+    allowed: std::collections::BTreeSet<&'static str>,
     writers: Mutex<BTreeMap<&'static str, Box<dyn ErasedWriter>>>,
     outcome: Mutex<Option<ProviderOutcome>>,
+    contribution: Mutex<Option<ContentHash>>,
+    registration: tokio::sync::Mutex<()>,
     failed: AtomicBool,
 }
 impl ProducerOutput {
@@ -1972,6 +1901,26 @@ impl ProducerOutput {
         }
         result
     }
+    /// Asynchronous compiler consumers register natively without blocking their runtime.
+    pub async fn declare_async<R:Record>(&self)->Result<(),ModelError>{
+        let _registration=self.registration.lock().await;
+        self.check()?;
+        let absent=self.contribution.lock().map_err(|_|poisoned())?.is_none();
+        if absent {
+            let descriptor=lctx_model::domain::completed::ContributionSpec{
+                producer:self.name.into(),profile:self.profile,model:self.workspace.model.digest(),implementation:self.implementation,
+                configuration:self.configuration,inputs:self.inputs.snapshots().collect(),
+                outputs:self.allowed.iter().map(|name|(*name).to_owned()).collect(),
+            };
+            let native=self.workspace.native.clone();
+            let result=self.workspace.native_calls.call(async move{native.begin_contribution(descriptor).await}).await;
+            match result {
+                Ok(id)=>*self.contribution.lock().map_err(|_|poisoned())?=Some(id),
+                Err(error)=>{self.failed.store(true,Ordering::Release);return Err(error);}
+            }
+        }
+        self.declare::<R>()
+    }
     pub fn declare<R: Record>(&self) -> Result<(), ModelError> {
         self.declare_kind::<R>(lctx_model::domain::stages::is_epoch_shared(R::NAME))
     }
@@ -1980,11 +1929,7 @@ impl ProducerOutput {
     }
     fn declare_kind_inner<R: Record>(&self, contribution: bool) -> Result<(), ModelError> {
         self.check()?;
-        if self
-            .allowed
-            .as_ref()
-            .is_some_and(|names| !names.contains(R::NAME))
-        {
+        if !self.allowed.contains(R::NAME) {
             self.failed.store(true, Ordering::Release);
             return Err(ModelError::Invalid(format!(
                 "{} did not declare {}",
@@ -2000,18 +1945,23 @@ impl ProducerOutput {
                 R::NAME
             )));
         }
-        let path = self.workspace.path(R::NAME, "pending");
-        let ipc = FileWriter::try_new(
-            File::create(&path).map_err(ModelError::codec)?,
-            R::schema().as_ref(),
-        )
-        .map_err(ModelError::codec)?;
+        let mut contribution_id = self.contribution.lock().map_err(|_| poisoned())?;
+        let producer = if let Some(id) = *contribution_id { id } else {
+            let native = self.workspace.native.clone();
+            let descriptor = lctx_model::domain::completed::ContributionSpec {
+                producer: self.name.into(), profile: self.profile, model: self.workspace.model.digest(),
+                implementation: self.implementation, configuration: self.configuration,
+                inputs: self.inputs.snapshots().collect(),
+                outputs: self.allowed.iter().map(|name| (*name).to_owned()).collect(),
+            };
+            let calls=self.workspace.native_calls.clone();
+            let id=self.workspace.bridge.call(async move{calls.call(async move{native.begin_contribution(descriptor).await}).await})?;
+            *contribution_id = Some(id); id
+        };
         writers.insert(
             R::NAME,
             Box::new(Writer::<R> {
-                blocks: Vec::new(),
-                ipc,
-                path,
+                native_calls:self.workspace.native_calls.clone(),native: self.workspace.native.clone(), bridge: self.workspace.bridge.clone(), producer,
                 pending: Vec::new(),
                 bytes: 0,
                 charge: self.workspace.budget().reserve(R::NAME, 0)?,
@@ -2055,7 +2005,31 @@ impl ProducerOutput {
         self.write(batch)
     }
     pub async fn push<R: Record>(&self, row: R) -> Result<(), ModelError> {
-        self.push_sync(row)
+        let result=async {
+            self.check()?; row.validate()?;
+            let transfer={
+                let mut writers=self.writers.lock().map_err(|_|poisoned())?;
+                let writer=writers.get_mut(R::NAME).and_then(|writer|writer.as_any_mut().downcast_mut::<Writer<R>>()).ok_or(ModelError::Schema("undeclared async output"))?;
+                let bytes=row.row_bytes();
+                if bytes>writer.limits.max_row {return Err(ModelError::Invalid(format!("{} exceeds row limit",R::NAME)));}
+                let transfer=if !writer.pending.is_empty() && (writer.pending.len()>=writer.limits.rows || writer.bytes.saturating_add(bytes)>writer.limits.bytes) {
+                    let charge=std::mem::replace(&mut writer.charge,self.workspace.budget.reserve(R::NAME,0)?);
+                    let batch=Batch::with_reservation(&self.workspace.model,std::mem::take(&mut writer.pending),charge)?;
+                    writer.bytes=0;
+                    Some((writer.producer,batch))
+                } else {None};
+                writer.charge.try_resize(writer.charge.size().saturating_add(bytes))?;
+                writer.pending.push(row); writer.bytes+=bytes;
+                transfer
+            };
+            if let Some((producer,batch))=transfer {
+                let native=self.workspace.native.clone();
+                self.workspace.native_calls.call(async move{native.write_batch(&producer,&Relation::of::<R>(),batch.arrow()).await}).await?;
+            }
+            Ok(())
+        }.await;
+        if result.is_err(){self.failed.store(true,Ordering::Release);}
+        result
     }
     pub fn push_sync<R: Record>(&self, row: R) -> Result<(), ModelError> {
         let result = (|| {
@@ -2121,8 +2095,7 @@ impl ProducerOutput {
         let _completion = self.workspace.completion_gate.lock().await;
         self.workspace.writable()?;
         let writers = self.writers.into_inner().map_err(|_| poisoned())?;
-        if let Some(expected) = &self.expected
-            && let Some(name) = expected.iter().find(|name| !writers.contains_key(**name))
+        if let Some(name) = self.expected.iter().find(|name| !writers.contains_key(**name))
         {
             return Err(ModelError::Invalid(format!(
                 "{} omitted completed output {name}",
@@ -2130,26 +2103,59 @@ impl ProducerOutput {
             )));
         }
         let input_snapshots: Arc<[_]> = self.inputs.snapshots().collect::<Vec<_>>().into();
-        // Seal every pending typed batch before external ordering starts. Keeping the other
-        // output writers alive here otherwise retains unrelated rich rows during each sort.
-        let pending = writers
-            .into_values()
-            .map(|writer| writer.close(&self.workspace.model, self.workspace.budget()))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Flush bounded pending typed batches directly before completing exact native memberships.
+        let mut pending=Vec::new();
+        for writer in writers.into_values() {
+            pending.push(writer.close(self.workspace.model.clone(),self.workspace.budget.clone()).await?);
+        }
+        {
+            for name in &self.allowed {
+                if !pending.iter().any(|source| source.relation.name() == *name) {
+                    let relation = self.workspace.model.relation(name).ok_or(ModelError::Schema("declared native contribution relation"))?.clone();
+                    pending.push(PendingRelation { relation, contribution: true });
+                }
+            }
+        }
+        let id = match self.contribution.into_inner().map_err(|_| poisoned())? {
+            Some(id) => id,
+            None => {
+                let descriptor=lctx_model::domain::completed::ContributionSpec {
+                    producer:self.name.into(),profile:self.profile,model:self.workspace.model.digest(),implementation:self.implementation,
+                    configuration:self.configuration,inputs:self.inputs.snapshots().collect(),
+                    outputs:self.allowed.iter().map(|name|(*name).to_owned()).collect(),
+                };
+                let native=self.workspace.native.clone();
+                self.workspace.native_calls.call(async move{native.begin_contribution(descriptor).await}).await?
+            }
+        };
+        let previous = self.workspace.completed.lock().map_err(|_| poisoned())?.iter()
+            .map(|(name, source)| ((*name).to_owned(), source.view.clone())).collect();
+        for source in &pending {
+            if let Ok(previous) = self.workspace.relation(source.relation.name())
+                && !source.contribution && !previous.contribution
+            { return Err(ModelError::Invalid(format!("completed output {} already has an owner", source.relation.name()))); }
+        }
+        let outputs = pending.iter().map(|source| source.relation.clone()).collect::<Vec<_>>();
+        let outcome = self.outcome.into_inner().map_err(|_| poisoned())?.expect("checked producer outcome");
+        let native=self.workspace.native.clone();
+        let views=self.workspace.native_calls.call(async move{native.complete_contribution(id,outcome,&outputs,&previous).await}).await?;
         let mut completed = Vec::new();
         for pending in pending {
-            completed.push(
-                self.workspace
-                    .order(
-                        self.name,
-                        self.implementation,
-                        self.configuration,
-                        pending,
-                        input_snapshots.clone(),
-                        self.profile,
-                    )
-                    .await?,
-            );
+            let name = pending.relation.name();
+            let view = views.get(name).ok_or(ModelError::Schema("completed native output absent"))?.clone();
+            completed.push(Arc::new(CompletedRelation {
+                snapshot: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&pending.relation,self.workspace.model.digest(),&view)?,
+                relation: pending.relation, producer: self.name.into(), implementation: self.implementation, configuration: self.configuration,
+                contract: self.workspace.model.digest(), rows: view.rows, view,
+                native: self.workspace.native.clone(), bridge: self.workspace.bridge.clone(), budget: self.workspace.budget.clone(),
+                batch_rows: self.workspace.options.batch_rows, cancellation: self.workspace.cancellation.clone(),
+                inputs: input_snapshots.clone(), profile: self.profile, contribution: pending.contribution, _files: self.workspace.files.clone(),
+            }));
+        }
+        for source in &completed {
+            let native=self.workspace.native.clone();
+            let binding=lctx_model::domain::completed::CompletedBinding{boundary:None,source:source.snapshot(),view:source.view.clone(),configuration:None};
+            self.workspace.native_calls.call(async move{native.bind(binding).await}).await?;
         }
         self.workspace.cancellation.check()?;
         let mut visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
@@ -2211,6 +2217,15 @@ impl Reservation for WorkspaceReservation {
 }
 
 impl cpg_extract::bundle::ProviderSink for ProducerOutput {
+    fn cancel(&self) { self.workspace.cancellation.cancel(); }
+    fn drain_provider(&self, thread: std::thread::JoinHandle<()>) -> tokio::sync::oneshot::Receiver<Result<(), ModelError>> {
+        let (done, finished) = tokio::sync::oneshot::channel();
+        let task = tokio::task::spawn_blocking(move || {
+            let _ = done.send(thread.join().map_err(|_| ModelError::Invalid("provider thread panicked while draining".into())));
+        });
+        self.workspace.provider_drains.lock().expect("provider drainage ownership").push(task);
+        finished
+    }
     fn read<R: Record>(
         &self,
     ) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError> {
@@ -2248,8 +2263,8 @@ mod tests {
                 memory_bytes: memory,
                 partitions: 1,
                 batch_rows: batch,
-            },
-        )
+            }, crate::test_native::store()
+)
         .unwrap();
         let inputs = workspace.inputs("packages", Profile::Catalog, []).unwrap();
         let output = workspace.output(
@@ -2257,6 +2272,7 @@ mod tests {
             Profile::Catalog,
             ContentHash::of(b"fixture"),
             inputs,
+        [<Package>::NAME],
         );
         output.declare::<Package>().unwrap();
         let rows: Vec<_> = (0..20000)
@@ -2280,7 +2296,7 @@ mod tests {
     async fn canonical_stream_is_independent_of_batching_order_and_memory_limit() {
         let ordinary = packages(64 << 20, 4096, false).await;
         let constrained = packages(2 << 20, 128, true).await;
-        assert_eq!(ordinary.content(), constrained.content());
+        assert_eq!(ordinary.view_identity(), constrained.view_identity());
         assert_eq!(constrained.rows(), 20000);
         let mut last = None;
         let mut rows = 0;
@@ -2295,13 +2311,44 @@ mod tests {
         assert_eq!(rows, 20000);
     }
     #[tokio::test]
+    async fn manual_output_inventory_is_closed_and_empty_inventory_is_metadata_only() {
+        let workspace=Workspace::new(model(),WorkspaceOptions::default(),crate::test_native::store()).unwrap();
+        let output=workspace.output("metadata-only",Profile::Catalog,ContentHash::of(b"metadata-only"),workspace.inputs("metadata-only",Profile::Catalog,[]).unwrap(),[]);
+        output.finish(ProviderOutcome::Complete).await.unwrap();
+        let contributions=workspace.native().contributions().await.unwrap();
+        assert_eq!(contributions.len(),1);
+        assert!(contributions[0].spec.outputs.is_empty());
+        assert!(contributions[0].outputs.is_empty());
+        assert!(workspace.completed::<Package>().is_err());
+        let refused=workspace.output("undeclared",Profile::Catalog,ContentHash::of(b"undeclared"),workspace.inputs("undeclared",Profile::Catalog,[]).unwrap(),[]);
+        assert!(refused.declare::<Package>().is_err());
+        assert!(refused.finish(ProviderOutcome::Complete).await.is_err());
+        workspace.drain().await.unwrap();
+    }
+    #[tokio::test]
+    async fn cancellation_drains_an_idle_full_native_handoff() {
+        let workspace=Workspace::new(model(),WorkspaceOptions{batch_rows:1,..Default::default()},crate::test_native::store()).unwrap();
+        let output=workspace.output("idle-handoff",Profile::Catalog,ContentHash::of(b"idle-handoff"),workspace.inputs("idle-handoff",Profile::Catalog,[]).unwrap(), [<Package>::NAME]);
+        output.declare_async::<Package>().await.unwrap();
+        for name in ["one","two","three"] {output.push(Package{name:name.into()}).await.unwrap();}
+        output.finish(ProviderOutcome::Complete).await.unwrap();
+        let relation=workspace.completed::<Package>().unwrap();
+        let mut batches=relation.batches().unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::timeout(std::time::Duration::from_secs(5),workspace.drain()).await.unwrap().unwrap();
+        assert!(batches.next().unwrap().is_err());
+        assert!(batches.next().is_none());
+    }
+    #[tokio::test]
     async fn cancellation_and_incomplete_output_never_become_completed() {
-        let workspace = Workspace::new(model(), WorkspaceOptions::default()).unwrap();
+        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
         let output = workspace.output(
             "packages",
             Profile::Catalog,
             ContentHash::of(b"fixture"),
             workspace.inputs("packages", Profile::Catalog, []).unwrap(),
+        [<Package>::NAME],
         );
         output.declare::<Package>().unwrap();
         output
@@ -2318,7 +2365,8 @@ mod tests {
     #[tokio::test]
     async fn omitted_declared_outputs_and_ignored_row_refusals_never_complete() {
         use lctx_model::domain::stages::{Effect, RelationUse, Stage};
-        let workspace = Workspace::new(model(), WorkspaceOptions::default()).unwrap();
+        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
         let declaration = Stage {
             name: "packages",
             inputs: vec![],
@@ -2344,8 +2392,8 @@ mod tests {
                 memory_bytes: 4096,
                 ..Default::default()
             },
-            budget,
-        )
+            budget, crate::test_native::store()
+)
         .unwrap();
         let output = constrained.output(
             "packages",
@@ -2354,6 +2402,7 @@ mod tests {
             constrained
                 .inputs("packages", Profile::Catalog, [])
                 .unwrap(),
+        [<Package>::NAME],
         );
         output.declare::<Package>().unwrap();
         assert!(
@@ -2372,14 +2421,15 @@ mod tests {
         use lctx_model::domain::{input::InputRevision, source::SourceArtifact};
         let workspace = Workspace::new(
             Arc::new(lctx_model::domain::model().unwrap()),
-            WorkspaceOptions::default(),
-        )
+            WorkspaceOptions::default(), crate::test_native::store()
+)
         .unwrap();
         let output = workspace.output(
             "source",
             Profile::Catalog,
             ContentHash::of(b"fixture"),
             workspace.inputs("source", Profile::Catalog, []).unwrap(),
+        [<Package>::NAME, <SourceArtifact>::NAME],
         );
         output.declare::<Package>().unwrap();
         output.declare::<SourceArtifact>().unwrap();
@@ -2411,12 +2461,14 @@ mod tests {
     }
     #[tokio::test]
     async fn ordinary_owner_adopts_native_contributions_then_refuses_another_owner() {
-        let workspace = Workspace::new(model(), WorkspaceOptions::default()).unwrap();
+        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
         let contributed = workspace.output(
             "native",
             Profile::Catalog,
             ContentHash::of(b"native"),
             workspace.inputs("native", Profile::Catalog, []).unwrap(),
+        [<Package>::NAME],
         );
         let batch = Batch::new(
             workspace.model(),
@@ -2434,6 +2486,7 @@ mod tests {
             Profile::Catalog,
             ContentHash::of(b"assembly"),
             workspace.inputs("assembly", Profile::Catalog, []).unwrap(),
+        [<Package>::NAME],
         );
         owner.declare::<Package>().unwrap();
         owner.finish(ProviderOutcome::Complete).await.unwrap();
@@ -2443,6 +2496,7 @@ mod tests {
             Profile::Catalog,
             ContentHash::of(b"duplicate"),
             workspace.inputs("duplicate", Profile::Catalog, []).unwrap(),
+        [<Package>::NAME],
         );
         duplicate.declare::<Package>().unwrap();
         assert!(duplicate.finish(ProviderOutcome::Complete).await.is_err());
@@ -2459,12 +2513,14 @@ mod tests {
                 .unwrap(),
         );
         for valid in [true, false] {
-            let workspace = Workspace::new(model.clone(), WorkspaceOptions::default()).unwrap();
+            let workspace = Workspace::new(model.clone(), WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
             let output = workspace.output(
                 "release",
                 Profile::Catalog,
                 ContentHash::of(b"fixture"),
                 workspace.inputs("release", Profile::Catalog, []).unwrap(),
+            [<Package>::NAME, <Release>::NAME],
             );
             output.declare::<Package>().unwrap();
             output.declare::<Release>().unwrap();
@@ -2488,7 +2544,7 @@ mod tests {
                 .await
                 .unwrap();
             output.finish(ProviderOutcome::Complete).await.unwrap();
-            let content = workspace.content().unwrap();
+            let content = workspace.identity().unwrap();
             let admitted = workspace.validate().await;
             if valid {
                 assert_eq!(admitted.unwrap(), content);
@@ -2498,13 +2554,15 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn completed_input_keeps_files_alive_and_later_contributions_do_not_change_it() {
-        let workspace = Workspace::new(model(), WorkspaceOptions::default()).unwrap();
+    async fn completed_input_keeps_native_membership_alive_and_later_contributions_do_not_change_it() {
+        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
         let output = workspace.output(
             "packages",
             Profile::Catalog,
             ContentHash::of(b"fixture"),
             workspace.inputs("packages", Profile::Catalog, []).unwrap(),
+        [<Package>::NAME],
         );
         output.declare::<Package>().unwrap();
         output.push(Package { name: "one".into() }).await.unwrap();
@@ -2518,6 +2576,7 @@ mod tests {
             Profile::Catalog,
             ContentHash::of(b"fixture"),
             workspace.inputs("more", Profile::Catalog, []).unwrap(),
+        [<Package>::NAME],
         );
         let batch = Batch::new(
             workspace.model(),
@@ -2529,15 +2588,13 @@ mod tests {
         drop(batch);
         next.finish(ProviderOutcome::Complete).await.unwrap();
         assert_eq!(
-            bound.relation::<Package>().unwrap().content(),
-            original.content()
+            bound.relation::<Package>().unwrap().view_identity(),
+            original.view_identity()
         );
         assert_eq!(original.rows(), 1);
         assert_eq!(workspace.completed::<Package>().unwrap().rows(), 2);
-        let path = original.path().to_path_buf();
         drop(bound);
         drop(workspace);
-        assert!(path.exists());
         assert_eq!(
             original
                 .batches()
@@ -2549,7 +2606,6 @@ mod tests {
             1
         );
         drop(original);
-        assert!(!path.exists());
     }
 }
 
@@ -2603,8 +2659,8 @@ mod empty_execution_admission_controls {
     async fn complete_empty_execution_root_needs_no_unrequested_parent_streams() {
         let workspace = Workspace::new(
             Arc::new(lctx_model::domain::model().unwrap()),
-            WorkspaceOptions::default(),
-        )
+            WorkspaceOptions::default(), crate::test_native::store()
+)
         .unwrap();
         let inputs = workspace
             .inputs("empty-source-headers", Profile::Catalog, [])
@@ -2614,6 +2670,7 @@ mod empty_execution_admission_controls {
             Profile::Catalog,
             ContentHash::of(b"empty-header-control"),
             inputs,
+        [<SourceCallHeader>::NAME],
         );
         output.declare::<SourceCallHeader>().unwrap();
         output.finish(ProviderOutcome::Complete).await.unwrap();

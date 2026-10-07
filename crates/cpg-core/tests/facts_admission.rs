@@ -16,8 +16,8 @@ async fn compile(
             memory_bytes: budget.limit(),
             ..Default::default()
         },
-        budget,
-    )
+        budget, crate::native_fixture::store()
+)
     .unwrap();
     cpg_core::facts::compile_facts(
         &workspace,
@@ -131,6 +131,30 @@ async fn syntax_failure_and_no_document_scope_have_distinct_availability() {
     );
 }
 
+#[tokio::test]
+async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
+    for profile in Profile::ALL {
+        let resources=budget();
+        let capture=captured(b"def f(x):\n    \"\"\"Return x.\"\"\"\n    return x\n",true,profile,&resources);
+        let workspace=Workspace::with_budget(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:resources.limit(),batch_rows:17,..Default::default()},resources,crate::native_fixture::store()).unwrap();
+        let providers=cpg_core::facts::providers(ContentHash::of(b"real-native-predecessor"))
+            .into_iter().filter(|provider|[cpg_extract::acquisition::ACQUIRE,cpg_extract::pyrefly_stage::PYREFLY,cpg_extract::document_parser::DOCUMENTS].contains(&provider.declaration(profile).name)).collect();
+        cpg_core::facts::compile_facts(&workspace,&capture,profile,providers,Default::default()).await.unwrap();
+        assert!(!rows::<lctx_model::domain::documents::PassageObservation>(&workspace).is_empty());
+        let completed=workspace.native().contributions().await.unwrap();
+        let predecessor=completed.iter().find(|row|row.spec.producer==cpg_extract::pyrefly_stage::PYREFLY).unwrap();
+        let documents=completed.iter().find(|row|row.spec.producer==cpg_extract::document_parser::DOCUMENTS).unwrap();
+        let relation=lctx_model::domain::syntax::DeclarationObservation::NAME;
+        let source=documents.spec.inputs.iter().find(|source|source.relation()==relation).unwrap();
+        let view=workspace.completed::<lctx_model::domain::syntax::DeclarationObservation>().unwrap();
+        assert_eq!(source.view(),view.view_identity());
+        assert!(view.view().contributions.contains(&predecessor.identity().unwrap()));
+        let native=workspace.native().completed_state().await.unwrap();
+        assert_eq!(native.contributions,3);
+        workspace.drain().await.unwrap();
+    }
+}
+
 fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
     workspace
         .completed::<R>()
@@ -140,3 +164,6 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
         .flat_map(|batch| R::decode(&batch.unwrap()).unwrap())
         .collect()
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

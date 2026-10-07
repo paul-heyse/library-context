@@ -162,8 +162,8 @@ pub async fn evaluate_base(
     } else {
         None
     };
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
+    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<publication::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(
         EvaluationRun,
@@ -504,8 +504,8 @@ pub async fn complete_base(
     macro_rules! expected {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     consumed.finish(access.name())?;
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<completion_publication::$record>()?;)*};}
+    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<completion_publication::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(
         CompletionRun,
@@ -862,8 +862,8 @@ pub async fn prepare_source_calls(
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     consumed.finish(access.name())?;
-    macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    macro_rules! declare{($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<owner::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(
         SourceCallRun,
@@ -1241,8 +1241,8 @@ pub async fn enrich(
     macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
     lctx_model::expected_domain_inputs!(expected);
     consumed.finish(access.name())?;
-    macro_rules! declare{($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<owner::$record>()?;)*};}
+    macro_rules! declare{($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<owner::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare!(
         ExecutionRun,
@@ -1519,6 +1519,7 @@ mod produced_authority_controls {
             Profile::Catalog,
             ContentHash::of(name.as_bytes()),
             runtime.inputs(name, Profile::Catalog, []).unwrap(),
+        [<SourceArtifact>::NAME],
         );
         output.declare::<SourceArtifact>().unwrap();
         output.push(artifact).await.unwrap();
@@ -1527,7 +1528,8 @@ mod produced_authority_controls {
     #[tokio::test]
     async fn producer_borrow_refuses_foreign_attempt_profile_and_changed_descriptor() {
         let model = Arc::new(model().unwrap());
-        let runtime = Workspace::new(model.clone(), WorkspaceOptions::default()).unwrap();
+        let runtime = Workspace::new(model.clone(), WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
         let artifact = SourceArtifact::from_bytes(nominal(1), "source.py".into(), b"x").unwrap();
         publish(&runtime, "first", artifact.clone()).await;
         let selected = runtime
@@ -1540,7 +1542,8 @@ mod produced_authority_controls {
             source_payloads: None,
         };
         assert_eq!(*produced.borrow(&selected, &runtime).unwrap(), 7);
-        let other = Workspace::new(model, WorkspaceOptions::default()).unwrap();
+        let other = Workspace::new(model, WorkspaceOptions::default(), crate::test_native::store()
+).unwrap();
         publish(&other, "same-content", artifact).await;
         let foreign = other
             .inputs("consumer", Profile::Catalog, [SourceArtifact::NAME])
@@ -1561,6 +1564,7 @@ mod produced_authority_controls {
             Profile::Catalog,
             ContentHash::of(b"second"),
             runtime.inputs("second", Profile::Catalog, []).unwrap(),
+        [<SourceArtifact>::NAME],
         );
         let batch = Batch::new(
             runtime.model(),

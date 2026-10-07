@@ -1,4 +1,4 @@
-//! Actual native compilation admits graph streams without a database or a publication transaction.
+//! Actual persisted compilation admits completed native graph views before publication.
 #[path = "fixtures/catalog_runtime.rs"]
 mod runtime;
 #[path = "fixtures/scoped_source_execution.rs"]
@@ -25,8 +25,8 @@ async fn compiled(
             memory_bytes: memory,
             partitions: 1,
             batch_rows,
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let captured = runtime::capture("catalog_core", profile, workspace.budget());
     let prepared = matches!(frontier, Frontier::Analysis | Frontier::Catalog).then(|| {
@@ -89,7 +89,7 @@ async fn both_profiles_admit_every_frontier_and_export_exact_originals() {
             assert!(!manifest.required_outcomes.is_empty());
             let root = tempfile::tempdir().unwrap();
             let output = root.path().join("graph");
-            admitted.export(&output).unwrap();
+            admitted.export(&output).await.unwrap();
             assert!(output.join("manifest.json").is_file());
             assert!(output.join("entities.arrow").is_file());
             for original in &manifest.originals {
@@ -100,7 +100,7 @@ async fn both_profiles_admit_every_frontier_and_export_exact_originals() {
                 assert_eq!(ContentHash::of(&bytes), original.content);
             }
             let marker = std::fs::read(output.join("manifest.json")).unwrap();
-            assert!(admitted.export(&output).is_err());
+            assert!(admitted.export(&output).await.is_err());
             assert_eq!(std::fs::read(output.join("manifest.json")).unwrap(), marker);
         }
     }
@@ -119,12 +119,12 @@ async fn transported_graph_refuses_missing_and_tampered_originals() {
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let root = tempfile::tempdir().unwrap();
     let output = root.path().join("graph");
-    admitted.export(&output).unwrap();
+    admitted.export(&output).await.unwrap();
     admitted.verify_export(&output, &resources).await.unwrap();
     let original = &admitted.manifest().originals[0];
     let file = output.join(format!("original-{}.bin", original.source.0.hex()));
@@ -145,8 +145,8 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
     assert!(
@@ -183,8 +183,8 @@ async fn artifact_identity_includes_exact_consumed_embedding_values() {
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let captured = runtime::capture("normalized_relations", Profile::Catalog, workspace.budget());
     let mut settings = runtime::settings("analytic_text");
@@ -232,7 +232,7 @@ async fn artifact_identity_includes_exact_consumed_embedding_values() {
     );
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("vector-graph");
-    admitted.export(&destination).unwrap();
+    admitted.export(&destination).await.unwrap();
     admitted
         .verify_export(&destination, &workspace)
         .await
@@ -247,8 +247,8 @@ async fn completed_compilation_binds_frontier_captures_and_configuration() {
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
     let configuration = ContentHash::of(b"completed-facts-fixture");
@@ -316,6 +316,7 @@ async fn completed_compilation_binds_frontier_captures_and_configuration() {
         Profile::Catalog,
         configuration,
         workspace.inputs("late", Profile::Catalog, []).unwrap(),
+        [<Package as lctx_model::domain::Record>::NAME],
     );
     assert!(late.declare::<Package>().is_err());
     assert!(late.finish(ProviderOutcome::Complete).await.is_err());
@@ -368,8 +369,8 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let captured = runtime::capture("analytic_optional", Profile::Catalog, workspace.budget());
     let mut settings = runtime::settings("api");
@@ -409,7 +410,7 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("selected-graph");
-    admitted.export(&destination).unwrap();
+    admitted.export(&destination).await.unwrap();
     admitted
         .verify_export(&destination, &workspace)
         .await
@@ -531,8 +532,8 @@ async fn raw_original_bytes_and_half_open_span_survive_artifact_transport() {
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let input = tempfile::tempdir().unwrap();
     let raw = b"a\x00\xff\xfez\r\n";
@@ -619,7 +620,7 @@ async fn raw_original_bytes_and_half_open_span_survive_artifact_transport() {
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
     let destination = directory.path().join("raw-graph");
-    admitted.export(&destination).unwrap();
+    admitted.export(&destination).await.unwrap();
     admitted
         .verify_export(&destination, &workspace)
         .await
@@ -665,12 +666,12 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let root = tempfile::tempdir().unwrap();
     let output = root.path().join("graph");
-    admitted.export(&output).unwrap();
+    admitted.export(&output).await.unwrap();
     admitted.verify_export(&output, &workspace).await.unwrap();
     let manifest = admitted.manifest().clone();
     drop(admitted);
@@ -898,12 +899,12 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("graph");
-    admitted.export(&output).unwrap();
+    admitted.export(&output).await.unwrap();
     artifact::verify_export(&output, &runtime).await.unwrap();
     let file = output.join("assertions.arrow");
     let reader = FileReader::try_new(File::open(&file).unwrap(), None).unwrap();
@@ -999,7 +1000,7 @@ async fn remediation_detached_admission_all_frontiers_and_profiles_without_produ
             let admitted = compiled(profile, frontier, 1 << 30, 128).await;
             let directory = tempfile::tempdir().unwrap();
             let export = directory.path().join("export");
-            admitted.export(&export).unwrap();
+            admitted.export(&export).await.unwrap();
             let semantic = admitted.manifest().content();
             drop(admitted);
             // This workspace has no providers, captured inputs, producer receipts or grants.
@@ -1009,8 +1010,8 @@ async fn remediation_detached_admission_all_frontiers_and_profiles_without_produ
                     memory_bytes: 1 << 30,
                     batch_rows: 31,
                     ..Default::default()
-                },
-            )
+                }, crate::native_fixture::store()
+)
             .unwrap();
             let imported = artifact::verify_export(&export, &importer)
                 .await
@@ -1026,7 +1027,7 @@ async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_doma
     let admitted = compiled(Profile::Catalog, Frontier::Facts, 1 << 30, 128).await;
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
-    admitted.export(&export).unwrap();
+    admitted.export(&export).await.unwrap();
     let mut manifest: Manifest =
         serde_json::from_slice(&std::fs::read(export.join("manifest.json")).unwrap()).unwrap();
     let count = manifest.outcomes.len();
@@ -1052,8 +1053,8 @@ async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_doma
         WorkspaceOptions {
             memory_bytes: 1 << 30,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let error = match artifact::verify_export(&export, &importer).await {
         Ok(_) => panic!("foreign outcome domain admitted"),
@@ -1278,7 +1279,7 @@ mod enriched_graph_adversaries {
         let admitted = compiled(Profile::Catalog, Frontier::Analysis, 1 << 30, 128).await;
         let directory = tempfile::tempdir().unwrap();
         let export = directory.path().join("export");
-        admitted.export(&export).unwrap();
+        admitted.export(&export).await.unwrap();
         drop(admitted);
         let (entities, assertions) = graph(&export);
         let mut actual = compact(&entities, &assertions);
@@ -1366,7 +1367,7 @@ mod enriched_graph_adversaries {
         let admitted = compiled(Profile::Catalog, Frontier::Analysis, 1 << 30, 128).await;
         let directory = tempfile::tempdir().unwrap();
         let export = directory.path().join("export");
-        admitted.export(&export).unwrap();
+        admitted.export(&export).await.unwrap();
         drop(admitted);
         let importer = || {
             Workspace::new(
@@ -1374,8 +1375,8 @@ mod enriched_graph_adversaries {
                 WorkspaceOptions {
                     memory_bytes: 1 << 30,
                     ..Default::default()
-                },
-            )
+                }, crate::native_fixture::store()
+)
             .unwrap()
         };
         artifact::verify_export(&export, &importer()).await.unwrap();
@@ -1435,7 +1436,7 @@ async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
     let admitted = compiled(Profile::Behavioral, frontier, 1 << 30, 128).await;
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
-    admitted.export(&export).unwrap();
+    admitted.export(&export).await.unwrap();
     let semantic = admitted.manifest().content();
     drop(admitted);
     let importer = Workspace::new(
@@ -1444,8 +1445,8 @@ async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
             memory_bytes: 1 << 30,
             batch_rows: 31,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let imported = artifact::verify_export(&export, &importer)
         .await
@@ -1495,3 +1496,6 @@ async fn remediation_detached_behavioral_catalog_with_upper_place_endpoints() {
 async fn remediation_detached_behavioral_facts_without_normalized_place_endpoints() {
     detached_behavioral_upper_place_endpoints(Frontier::Facts).await;
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

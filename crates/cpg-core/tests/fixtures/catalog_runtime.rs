@@ -2,7 +2,7 @@
     dead_code,
     reason = "Shared fixture runner serves focused compiler controls"
 )]
-//! Fixture inputs run through the actual store-free compiler; assertions inspect completed IPC.
+//! Fixture inputs run through the actual persisted compiler; assertions inspect completed native views.
 use cpg_core::{
     compilation::{self, PreparedCompilation},
     embedding_service::Embedder,
@@ -99,8 +99,8 @@ pub async fn compile(
             memory_bytes: 1 << 30,
             partitions: 2,
             ..Default::default()
-        },
-    )
+        }, crate::native_fixture::store()
+)
     .unwrap();
     let captured = capture(case, profile, workspace.budget());
     let prepared = matches!(frontier, Frontier::Analysis | Frontier::Catalog).then(|| {

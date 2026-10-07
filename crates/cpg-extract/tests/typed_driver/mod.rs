@@ -3,8 +3,8 @@
     reason = "Shared contract fixtures expose helpers to multiple targeted suites"
 )]
 //! Shared driver for the typed producer suites: a fixture tree is acquired and run through
-//! the native production providers into immutable spillable compiler streams. Inspection reads
-//! completed outputs after producers finish; it never intercepts writes or supplies another store.
+//! the native production providers into exact immutable native compiler views. Inspection reads
+//! completed outputs after producers finish; it reads the owned disposable compiler store.
 use cpg_core::workspace::{ProducerOutput, Workspace, WorkspaceOptions};
 use cpg_extract::{
     acquisition::{Acquire, AcquiredInput},
@@ -209,6 +209,7 @@ pub async fn run_profile_with_limits<I: Inspector>(
         limits,
         reverse_providers,
         resources,
+        native_fixture::create_native().await?,
     )
     .await
 }
@@ -246,14 +247,18 @@ pub async fn run_profile_with_budget<I: Inspector>(
             ..WorkspaceOptions::default()
         },
         resources,
+        native_fixture::create_native().await?,
     )?;
     cpg_core::facts::compile_facts(&workspace, &captured, profile, providers, limits).await?;
     workspace.validate().await?;
     observe(&workspace, &inspect.tables())?;
-    workspace.content()
+    workspace.identity()
 }
 
 /// The artifact at `path` among `artifacts`.
 pub fn artifact<'a>(artifacts: &'a [SourceArtifact], path: &str) -> &'a SourceArtifact {
     artifacts.iter().find(|a| a.path == path).unwrap()
 }
+
+#[path="../fixtures/native.rs"]
+mod native_fixture;

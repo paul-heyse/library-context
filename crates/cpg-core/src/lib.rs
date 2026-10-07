@@ -1,4 +1,4 @@
-//! Store-free semantic graph compilation; publication and serving are separate consumers.
+//! Persisted semantic graph compilation and exact completed-view admission.
 
 pub mod analysis_bindings;
 pub mod analysis_graphs;
@@ -62,13 +62,21 @@ pub mod semantic_models;
 
 pub mod semantic_summaries;
 
-/// Store-free attempt workspace and immutable completed inputs.
+/// Private native attempt workspace and immutable completed memberships.
 pub mod workspace;
 
-mod ordered_stream;
+mod native_bridge;
+mod native_calls;
+mod documentary_spool;
+mod original_demands;
+mod native_canonical;
 
 pub mod artifact;
 
 mod artifact_manifest;
 
 mod analytical_scopes;
+
+#[cfg(test)]
+#[path = "../tests/fixtures/native.rs"]
+mod test_native;

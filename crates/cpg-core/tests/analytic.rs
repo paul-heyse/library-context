@@ -674,3 +674,6 @@ async fn replay_controls(fixture: &catalog_runtime::Fixture) {
         );
     }
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

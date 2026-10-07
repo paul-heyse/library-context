@@ -637,9 +637,9 @@ pub async fn produce(
     let (_, definition) = synthesis::build::definition();
     let settings = data.frames.configuration()?;
     let parents = synthesis::frames::parents(&data.frames, runtime.budget())?;
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<analysis::synthesis::$record>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::synthesis::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
     declare!(
         synthesis::seeds::SeedPlan,
         synthesis::seeds::ConfiguredSeedDecision,
@@ -661,11 +661,12 @@ pub async fn produce(
         synthesis::briefs::BriefDocument,
         synthesis::briefs::BriefOmission
     );
-    macro_rules! declare_rows {($($field:ident:$ty:ty,)*)=>{$(if <$ty>::NAME!=assertion::AssertionQualification::NAME{output.declare::<$ty>()?;})*};}
+    macro_rules! declare_rows {($($field:ident:$ty:ty,)*)=>{$(if <$ty>::NAME!=assertion::AssertionQualification::NAME{output.declare_async::<$ty>().await?;})*};}
     lctx_model::synthesis_pattern_outputs!(declare_rows);
     lctx_model::synthesis_observation_outputs!(declare_rows);
     let scopes =
         SynthesisScopes::prepare(&access, model, &session, &parents, runtime.budget()).await?;
+    let mut documentary_spool = crate::documentary_spool::DocumentarySpool::new(runtime.budget())?;
     let mut requests = synthesis::seeds::ConfiguredRequests::new(runtime.budget());
     let mut summaries = synthesis::documentary::LiteralSummaries::new(runtime.budget());
     let mut emission = charged::ChargedSet::default();
@@ -720,6 +721,7 @@ pub async fn produce(
             let docs = synthesis::documentary::build(&grain.documentary, runtime.budget())?;
             requests.observe(&grain.documentary, settings, runtime.budget())?;
             summaries.observe(&docs)?;
+            documentary_spool.append(id, &docs)?;
             if docs
                 .conclusions
                 .iter()
@@ -852,7 +854,7 @@ pub async fn produce(
             .load(&access, &scope, LoadPhase::Member, runtime.budget())
             .await?;
         drop(scope);
-        let docs = synthesis::documentary::build(&grain.documentary, runtime.budget())?;
+        let docs = documentary_spool.read(id)?;
         let assertions = synthesis::assertions::build_all(
             &grain.documentary,
             &docs,
@@ -916,6 +918,7 @@ pub async fn produce(
         drop(docs);
         drop(grain);
     }
+    drop(documentary_spool);
     drop(emission);
     drop(emission_charge);
     drop(requests);

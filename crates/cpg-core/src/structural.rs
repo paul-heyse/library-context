@@ -118,15 +118,15 @@ pub async fn produce(
 
     let settings = context.configuration()?.clone();
     let parents = frames::parents(&data, runtime.budget())?;
-    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare::<owner::$record>()?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{fn common_type(type_id: std::any::TypeId)->bool {false $(||type_id==std::any::TypeId::of::<owner::$record>())*} $(output.declare_async::<owner::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
-    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(if !common_type(std::any::TypeId::of::<$ty>()){output.declare::<$ty>()?;})*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(if !common_type(std::any::TypeId::of::<$ty>()){output.declare_async::<$ty>().await?;})*};}
     lctx_model::structural_outputs!(declare);
-    output.declare::<assertion::AssertionQualification>()?;
-    output.declare::<conditions::Condition>()?;
-    output.declare::<conditions::ConditionNode>()?;
-    output.declare::<assumptions::AssumptionSet>()?;
-    output.declare::<assumptions::AssumptionSetMember>()?;
+    output.declare_async::<assertion::AssertionQualification>().await?;
+    output.declare_async::<conditions::Condition>().await?;
+    output.declare_async::<conditions::ConditionNode>().await?;
+    output.declare_async::<assumptions::AssumptionSet>().await?;
+    output.declare_async::<assumptions::AssumptionSetMember>().await?;
     let scopes = crate::analytical_scopes::FrameScopes::prepare(
         &access,
         &session,

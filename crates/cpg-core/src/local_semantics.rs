@@ -99,8 +99,8 @@ pub async fn run(
     } else {
         None
     };
-    macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare::<publication::$record>()?;)*};}
+    macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
+    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<publication::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     declare_publication!(
         publication::AnalysisDiagnostic,
@@ -108,7 +108,7 @@ pub async fn run(
         publication::AnalysisObligation,
         publication::DischargeEvidence
     );
-    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare::<$ty>()?;)*};}
+    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
     lctx_model::local_semantic_outputs!(declare);
     lctx_model::local_theory_outputs!(declare);
     lctx_model::local_field_outputs!(declare);

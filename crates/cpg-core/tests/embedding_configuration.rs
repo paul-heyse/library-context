@@ -24,8 +24,8 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
             WorkspaceOptions {
                 memory_bytes: 1 << 24,
                 ..Default::default()
-            },
-        )
+            }, crate::native_fixture::store()
+)
         .unwrap();
         let budget = workspace.budget().clone();
         let configuration = selected
@@ -38,6 +38,7 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
             Profile::Catalog,
             ContentHash::of(b"configuration"),
             empty.clone(),
+            embedding::configuration_relations().into_iter().map(|relation| relation.name()),
         );
         analysis_prepare::embedding_configuration(
             empty.clone(),
@@ -89,11 +90,12 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
             Profile::Catalog,
             ContentHash::of(b"second"),
             empty,
+        [<EmbeddingSpec>::NAME],
         );
         duplicate.declare::<EmbeddingSpec>().unwrap();
         assert!(duplicate.finish(ProviderOutcome::Complete).await.is_err());
         let unchanged = workspace.completed::<EmbeddingSpec>().unwrap();
-        assert_eq!(unchanged.content(), original.content());
+        assert_eq!(unchanged.view_identity(), original.view_identity());
         assert_eq!(unchanged.rows(), original.rows());
         drop(original);
         drop(unchanged);
@@ -103,3 +105,6 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
         assert_eq!(budget.reserved(), 0);
     }
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;

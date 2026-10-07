@@ -111,3 +111,6 @@ async fn null_required_payload_cannot_cross_the_typed_record_boundary() {
             .is_err()
     );
 }
+
+#[path = "fixtures/native.rs"]
+mod native_fixture;
