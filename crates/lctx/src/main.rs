@@ -1,5 +1,5 @@
 //! `lctx` acquires pinned library inputs and compiles admitted graph artifacts.
-//! `compile --artifact-only --output DIR` writes a store-free artifact; ordinary compilation
+//! `compile --artifact-only --output DIR` exports a native-backed artifact; ordinary compilation
 //! publishes an immutable native snapshot without changing the selected handle.
 
 mod compile;
