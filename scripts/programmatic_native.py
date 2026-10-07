@@ -126,8 +126,8 @@ def native_numeric_reference(
     if cohort is None:
         found = native.rows(
             "SELECT <string>id AS vector_id, encoder_hash, policy_key, library_input, family "
-            "FROM vector WHERE array::len((SELECT VALUE id FROM vec_occurs "
-            "WHERE in=$parent.id AND eligible=true LIMIT 1))>0 ORDER BY vector_id LIMIT 1"
+            "FROM vector WHERE array::len((SELECT VALUE id FROM $parent.id->vec_occurs "
+            "WHERE eligible=true LIMIT 1))>0 ORDER BY vector_id LIMIT 1"
         )
         if not found:
             raise WorkerError("native reference has no eligible admitted vector cohort")
@@ -152,7 +152,7 @@ def native_numeric_reference(
         + f" AND family={cohort['family']}"
     )
     eligibility = (
-        "array::len((SELECT VALUE id FROM vec_occurs WHERE in=$parent.id AND eligible=true "
+        "array::len((SELECT VALUE id FROM $parent.id->vec_occurs WHERE eligible=true "
         f"AND family={cohort['family']} "
         f"AND scope_input={_quoted(cohort['library_input'])} LIMIT 1))>0"
     )
@@ -188,7 +188,10 @@ def native_numeric_reference(
     # is the declared1024 prefix of the retained full winner, with one F32 rounding.
     for row in rows:
         prefix = full[row["full_key"]][:1024]
-        length = math.sqrt(sum(value * value for value in prefix))
+        squared_length = 0.0
+        for value in prefix:
+            squared_length += value * value
+        length = math.sqrt(squared_length)
         if not length or len(row["embedding"]) != 1024:
             raise WorkerError("native reference has invalid projected values")
         projected = [struct.unpack("<f", struct.pack("<f", value / length))[0] for value in prefix]

@@ -447,3 +447,138 @@ fn shared_value_closure_retains_an_earlier_view_while_the_stage_appends_values()
         Some(PublicationBoundary::AnalyticEmbedding)
     );
 }
+
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "closure_value_use")]
+struct ValueUseProbe {
+    #[model(key)]
+    value: Id<FullProbe>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "embedding_projected_values")]
+struct ProjectionProbe {
+    #[model(key)]
+    value: Id<FullProbe>,
+}
+fn value_order() -> PublicationOrder {
+    PublicationOrder::planning(&[
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["facts"]),
+        PublicationGroup::new(PublicationBoundary::Structural, vec!["structural"]),
+        PublicationGroup::new(PublicationBoundary::AnalyticEmbedding, vec!["e1"]),
+        PublicationGroup::new(PublicationBoundary::Retrieval, vec!["e0"]),
+    ]).unwrap()
+}
+#[test]
+fn canonical_parent_views_propagate_without_collapsing_views_or_orders() {
+    let model = ValidatedModel::declared(vec![
+        Relation::of::<FullProbe>(), Relation::of::<ProjectionProbe>(),
+    ]).unwrap();
+    let closure = DependencyClosure::build(
+        &model,
+        vec![
+            ValidationInput::of::<ProjectionProbe>(&["id"])
+                .at_epoch(PublicationBoundary::AnalyticEmbedding),
+            ValidationInput::of::<ProjectionProbe>(&["value", "id"])
+                .at_epoch(PublicationBoundary::Retrieval),
+        ], vec![], &[], PublicationBoundary::Structural,
+        LowerLayerPolicy::OmitInferredOrdinaryFacts, &value_order(),
+    ).unwrap();
+    for epoch in [PublicationBoundary::AnalyticEmbedding, PublicationBoundary::Retrieval] {
+        for name in [FullProbe::NAME, ProjectionProbe::NAME] {
+            assert!(closure.grants.iter().any(|g| g.name() == name && g.prefix() == Some(epoch)));
+        }
+    }
+    assert_eq!(closure.grants.len(), 4);
+    assert!(closure.requirements.iter().any(|r| r.name() == ProjectionProbe::NAME
+        && r.prefix() == Some(PublicationBoundary::Retrieval) && r.order() == ["value", "id"]));
+}
+#[test]
+fn ordinary_canonical_foreign_keys_require_an_unambiguous_declared_view() {
+    let model = ValidatedModel::declared(vec![
+        Relation::of::<FullProbe>(), Relation::of::<ValueUseProbe>(),
+    ]).unwrap();
+    for epochs in [vec![], vec![PublicationBoundary::AnalyticEmbedding],
+        vec![PublicationBoundary::AnalyticEmbedding, PublicationBoundary::Retrieval]]
+    {
+        let mut roots = vec![ValidationInput::of::<ValueUseProbe>(&["id"])];
+        roots.extend(epochs.iter().map(|epoch|
+            ValidationInput::of::<FullProbe>(&["id"]).at_epoch(*epoch)));
+        let result = DependencyClosure::build(&model, roots, vec![], &[],
+            PublicationBoundary::Structural, LowerLayerPolicy::OmitInferredOrdinaryFacts,
+            &value_order());
+        if epochs.len() == 1 {
+            let closure = result.unwrap();
+            assert!(closure.grants.iter().any(|g| g.name() == FullProbe::NAME
+                && g.prefix() == Some(PublicationBoundary::AnalyticEmbedding)));
+            assert!(!closure.grants.iter().any(|g| g.prefix() == Some(PublicationBoundary::Structural)));
+        } else {
+            assert!(matches!(result, Err(ModelError::Invalid(_))));
+        }
+    }
+}
+#[test]
+fn actual_embedding_use_owner_selects_e1_despite_other_declared_value_views() {
+    use embedding::{analytic::AnalysisEmbeddingUse, projection::ProjectedValue, value::FullValue};
+    let model = model().unwrap();
+    for extra_view in [false, true] {
+    let mut direct = vec![];
+    if extra_view {
+        for epoch in [PublicationBoundary::AnalyticEmbedding, PublicationBoundary::Retrieval] {
+            direct.push(RelationUse::completed::<FullValue>().at_epoch(epoch));
+            direct.push(RelationUse::completed::<ProjectedValue>().at_epoch(epoch));
+        }
+    }
+    let closure = DependencyClosure::build(
+        &model,
+        vec![ValidationInput::of::<AnalysisEmbeddingUse>(&["id"])],
+        direct,
+        &[], PublicationBoundary::Structural,
+        LowerLayerPolicy::OmitInferredOrdinaryFacts, &value_order(),
+    ).unwrap();
+    for name in [FullValue::NAME, ProjectedValue::NAME] {
+        assert!(closure.grants.iter().any(|g| g.name() == name
+            && g.prefix() == Some(PublicationBoundary::AnalyticEmbedding)));
+        assert_eq!(closure.grants.iter().any(|g| g.name() == name
+            && g.prefix() == Some(PublicationBoundary::Retrieval)), extra_view);
+        assert!(!closure.grants.iter().any(|g| g.name() == name
+            && g.prefix() == Some(PublicationBoundary::Structural)));
+    }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name="closure_ambiguous_owner", invariant_refs=ambiguous_owner_refs)]
+struct AmbiguousOwnerProbe {
+    #[model(key)]
+    value: Id<FullProbe>,
+}
+fn ambiguous_owner_refs() -> Vec<&'static str> {
+    vec!["closure_ambiguous_owner_views"]
+}
+#[test]
+fn ambiguous_owner_views_refuse_instead_of_falling_back_to_a_unique_caller_view() {
+    let model = ValidatedModel::validate(
+        vec![Relation::of::<AmbiguousOwnerProbe>(), Relation::of::<FullProbe>()],
+        ValidationDefinitions {
+            invariants: vec![Invariant {
+                purpose: InvariantPurpose::Admission,
+                revision: 1,
+                name: "closure_ambiguous_owner_views",
+                inputs: [PublicationBoundary::AnalyticEmbedding, PublicationBoundary::Retrieval]
+                    .into_iter().map(|epoch| ValidationInput::of::<FullProbe>(&["id"])
+                        .at_epoch(epoch)).collect(),
+                create: std::sync::Arc::new(|_| Box::new(EpochCheck)),
+            }],
+            publication_checks: vec![],
+        },
+    ).unwrap();
+    let result = DependencyClosure::build(&model,
+        vec![ValidationInput::of::<AmbiguousOwnerProbe>(&["id"]),
+            ValidationInput::of::<FullProbe>(&["id"])
+                .at_epoch(PublicationBoundary::AnalyticEmbedding)],
+        vec![], &[], PublicationBoundary::Structural,
+        LowerLayerPolicy::OmitInferredOrdinaryFacts, &value_order());
+    assert!(matches!(result, Err(ModelError::Invalid(message))
+        if message == "ambiguous canonical dependency view: embedding_full_values"));
+}

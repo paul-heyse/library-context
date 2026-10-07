@@ -93,9 +93,34 @@ impl DependencyClosure {
             .map(|r| r.name())
             .collect();
         let facts: BTreeSet<_> = facts_relations().iter().map(Relation::name).collect();
+        // Canonical value views are selected by exact typed roots, independently of the
+        // vocabulary checkpoint. Keep all declared views; inference cannot choose by recency.
+        let mut declared_views = BTreeMap::<_, BTreeSet<_>>::new();
+        for (name, epoch) in roots.iter().map(|r| (r.name(), r.prefix()))
+            .chain(direct.iter().map(|r| (r.name(), r.prefix())))
+        {
+            if is_epoch_shared(name) && !is_vocabulary(name) && let Some(epoch) = epoch {
+                declared_views.entry(name).or_default().insert(epoch);
+            }
+        }
+        let selected_view = |name, views: Option<&BTreeSet<PublicationBoundary>>| {
+            match views {
+                Some(views) if views.len() == 1 => Ok(*views.first().expect("one view")),
+                Some(_) => Err(ModelError::Invalid(format!(
+                    "ambiguous canonical dependency view: {name}"
+                ))),
+                None => Err(ModelError::Invalid(format!(
+                    "canonical dependency needs an explicit view: {name}"
+                ))),
+            }
+        };
         let resolve = |mut input: ValidationInput| -> Result<ValidationInput, ModelError> {
             if is_epoch_shared(input.name()) {
-                let epoch = input.prefix().unwrap_or(vocabulary);
+                let epoch = match input.prefix() {
+                    Some(epoch) => epoch,
+                    None if is_vocabulary(input.name()) => vocabulary,
+                    None => selected_view(input.name(), declared_views.get(input.name()))?,
+                };
                 input = input.at_epoch(epoch);
                 order.resolve(input.prefix().expect("resolved epoch"))?;
             } else if input.prefix().is_some() {
@@ -128,6 +153,21 @@ impl DependencyClosure {
                 continue;
             }
             let row = relation(input.name())?;
+            // An ordinary relation's attached invariant names the authoritative companion
+            // views for its foreign keys. Resolve locally before considering caller roots.
+            let mut owner_views = BTreeMap::<_, BTreeSet<_>>::new();
+            let mut premises = Vec::new();
+            for id in row.invariant_refs() {
+                let invariant = model.invariant(id)?;
+                for required in &invariant.inputs {
+                    if is_epoch_shared(required.name()) && !is_vocabulary(required.name())
+                        && let Some(epoch) = required.prefix()
+                    {
+                        owner_views.entry(required.name()).or_default().insert(epoch);
+                    }
+                    premises.push(required.clone());
+                }
+            }
             for target in row
                 .fields()
                 .iter()
@@ -144,16 +184,21 @@ impl DependencyClosure {
                 {
                     continue;
                 }
-                pending.push(resolve(ValidationInput::of_relation(
-                    relation(target)?,
-                    &["id"],
-                ))?);
-            }
-            for id in row.invariant_refs() {
-                let invariant = model.invariant(id)?;
-                for required in &invariant.inputs {
-                    pending.push(resolve(required.clone())?);
+                let mut target_input = ValidationInput::of_relation(relation(target)?, &["id"]);
+                if is_epoch_shared(target) && !is_vocabulary(target) {
+                    let epoch = if is_epoch_shared(input.name()) && !is_vocabulary(input.name()) {
+                        input.prefix().expect("resolved canonical parent view")
+                    } else if !is_epoch_shared(input.name()) && owner_views.contains_key(target) {
+                        selected_view(target, owner_views.get(target))?
+                    } else {
+                        selected_view(target, declared_views.get(target))?
+                    };
+                    target_input = target_input.at_epoch(epoch);
                 }
+                pending.push(resolve(target_input)?);
+            }
+            for required in premises {
+                pending.push(resolve(required)?);
             }
             requirements.push(input);
         }
@@ -167,7 +212,12 @@ impl DependencyClosure {
                 )));
             }
             if is_epoch_shared(grant.name()) {
-                grant = grant.at_epoch(grant.prefix().unwrap_or(vocabulary));
+                let epoch = match grant.prefix() {
+                    Some(epoch) => epoch,
+                    None => resolve(ValidationInput::of_relation(relation(grant.name())?, &["id"]))?
+                        .prefix().expect("resolved shared grant"),
+                };
+                grant = grant.at_epoch(epoch);
             }
             merge(&mut grants, grant, order)?;
         }
