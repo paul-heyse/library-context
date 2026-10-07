@@ -20,17 +20,22 @@ pub struct Upper {
     pub embedder: Option<Box<dyn Embedder>>,
 }
 impl Options {
-    pub fn prepare(&self, through: &str, library: &Path) -> anyhow::Result<Option<Upper>> {
-        if !matches!(through, "analysis" | "catalog") {
-            if self.techniques.is_some()
+    pub fn validate_frontier(&self, through: &str) -> anyhow::Result<()> {
+        if !matches!(through, "analysis" | "catalog")
+            && (self.techniques.is_some()
                 || self.embedder.is_some()
                 || self.embedding_endpoint.is_some()
-                || self.embedding_spec.is_some()
-            {
-                anyhow::bail!(
-                    "techniques and embedding options require --through analysis or catalog"
-                );
-            }
+                || self.embedding_spec.is_some())
+        {
+            anyhow::bail!(
+                "techniques and embedding options require --through analysis or catalog"
+            );
+        }
+        Ok(())
+    }
+    pub fn prepare(&self, through: &str, library: &Path) -> anyhow::Result<Option<Upper>> {
+        self.validate_frontier(through)?;
+        if !matches!(through, "analysis" | "catalog") {
             return Ok(None);
         }
         let techniques = Techniques::parse(self.techniques.as_deref().unwrap_or("default"))?;

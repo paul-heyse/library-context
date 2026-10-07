@@ -39,6 +39,7 @@ pub async fn compile(
     {
         anyhow::bail!("library name must be one normalized path component");
     }
+    options.validate_frontier(frontier.name())?;
     let runtime = crate::newnative::config(match &target {
         Target::Artifact(_, config) | Target::Native(config) => config,
     })?;
