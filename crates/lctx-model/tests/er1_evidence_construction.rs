@@ -54,6 +54,10 @@ fn complete_input_headers_specials_semantic_splits_and_indivisible_refusal(){
 fn source_roots_preserve_standalone_material_and_context_cannot_bind(){
     let (b,mut d)=base(false);let source=artifact(&mut d,"import helper\n","standalone.py");root(&mut d,c1::RootSubject::Source{artifact:source.id()});let out=retrieval::build::build(&d,&b).unwrap();out.verify_completion(&d,&b).unwrap();assert_eq!(out.units.len(),1);assert!(out.bindings.iter().all(|r|matches!(out.subjects.get(r.subject),Some(Subject::Source{..}))));
     let mut injected=retrieval::build::build(&d,&b).unwrap();let part=injected.parts.iter().next().unwrap().clone();let window=injected.windows.iter().next().unwrap().id();let subject=injected.subjects.iter().next().unwrap().id();let mut parts=Rows::new(&b);parts.insert(ContentPart{purpose:PartPurpose::Context,..part.clone()}).unwrap();injected.parts=parts;injected.bindings.insert(WindowBinding{window,part:part.id(),subject,basis:BindingBasis::Source,qualification:None}).unwrap();assert!(injected.verify_completion(&d,&b).is_err());
+    let mut erased=retrieval::build::build(&d,&b).unwrap();let mut parts=Rows::new(&b);for part in erased.parts.iter(){parts.insert(ContentPart{purpose:PartPurpose::Context,..part.clone()}).unwrap();}erased.parts=parts;
+    let mut maps=Rows::new(&b);for map in erased.part_maps.iter(){maps.insert(PartSourceMap{original:None,original_start:None,original_end:None,..map.clone()}).unwrap();}erased.part_maps=maps;
+    let mut maps=Rows::new(&b);for map in erased.window_maps.iter(){maps.insert(WindowSourceMap{original:None,original_start:None,original_end:None,..map.clone()}).unwrap();}erased.window_maps=maps;erased.bindings=Rows::new(&b);
+    assert!(erased.verify_completion(&d,&b).is_err(),"joint source-map/context/binding erasure cannot relabel required original bytes synthetic");
     d.facts.chunks=Rows::new(&b);assert!(out.verify_completion(&d,&b).is_err(),"original maps require exact admitted source chunks without producer replay");
 }
 #[test]

@@ -269,6 +269,27 @@ fn role_matches(d:&Data,out:&Output,part:&ContentPart)->Result<bool,ModelError>{
     Ok(part.purpose==expected)
 }
 
+fn expected_originals(d:&Data,unit:&Unit,origin:&Origin)->Result<Option<Vec<AnchorSource>>,ModelError>{
+    let anchors=match origin{
+        Origin::Source{artifact}=>vec![AnchorSource::Artifact{artifact:*artifact}],
+        Origin::Definition{member,entity}=>{let (_,anchor,_)=definitions(d,*member,unit.context)?.into_iter().find(|(candidate,_,_)|candidate==entity).ok_or_else(||invalid("defining source candidate absent"))?;let anchor=anchor.ok_or_else(||invalid("defining source original unavailable"))?;let mut headers=enclosing(d,&anchor,unit.context)?.into_iter().map(|(anchor,_)|anchor).collect::<Vec<_>>();headers.push(anchor);headers},
+        Origin::Scenario{scenario}=>{let mut spans=d.evidence.spans.iter().filter(|r|r.scenario==*scenario).collect::<Vec<_>>();spans.sort_by_key(|r|(r.ordinal,r.id()));spans.into_iter().map(|r|AnchorSource::Original{source:r.source}).collect()},
+        Origin::Document{observation}=>vec![AnchorSource::Artifact{artifact:d.document_source(*observation)?}],
+        Origin::Passage{observation}=>vec![AnchorSource::Span{span:need(&d.source.facts.nodes,need(&d.source.facts.passages,*observation)?.passage.id())?.span()}],
+        Origin::Deployment{deployment}=>vec![AnchorSource::Span{span:need(&d.source.facts.deployment,need(&d.evidence.deployments,*deployment)?.observation)?.span}],
+        Origin::Option{option}=>option_anchors(d,need(&d.source.catalog.options,*option)?)?,
+        Origin::Api{..}|Origin::Release{..}|Origin::UnavailableDefinition{..}=>vec![],
+        Origin::Brief{..}=>return Ok(None),
+        Origin::Original{..}=>return Err(invalid("legacy original origin cannot own evidence")),
+    };Ok(Some(anchors))
+}
+fn verify_original_domain(d:&Data,out:&Output,unit:&Unit)->Result<(),ModelError>{
+    let Some(expected)=expected_originals(d,unit,need(&out.origins,unit.origin)?)?else{return Ok(());};
+    let mut actual=out.anchors.iter().filter(|a|a.unit==unit.id()).collect::<Vec<_>>();actual.sort_by_key(|a|a.ordinal);
+    if actual.len()!=expected.len()||actual.iter().zip(&expected).enumerate().any(|(ordinal,(a,e))|a.ordinal!=ordinal as i64||a.original!=e.id()){return Err(invalid("retrieval original anchor domain differs from source owner"));}
+    for anchor in expected{let (_,start,end)=super::source::coordinates(d,&anchor)?;let mut ranges=vec![];for map in out.part_maps.iter().filter(|map|map.original==Some(anchor.id())&&out.parts.get(map.part).is_some_and(|p|p.unit==unit.id())){map.validate()?;ranges.push((map.original_start.ok_or_else(||invalid("original map start missing"))?,map.original_end.ok_or_else(||invalid("original map end missing"))?));}ranges.sort_unstable();let mut cursor=start;for(a,z)in ranges{if a>cursor||a<start||z>end{return Err(invalid("retrieval original map coverage differs from source owner"));}cursor=cursor.max(z);}if cursor!=end{return Err(invalid("retrieval required original content omitted or relabeled synthetic"));}}
+    Ok(())
+}
 pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelError>{
     let definition=d.selected()?;
     definition.validate()?;
@@ -283,6 +304,7 @@ pub(super) fn verify(out:&Output,d:&Data,b:&ResourceBudget)->Result<(),ModelErro
     let mut used_corpus=std::collections::BTreeSet::new();
     for unit in out.units.iter(){
         if !rooted.contains(&unit.id()){return Err(invalid("retrieval unit lacks contextual root"));}
+        verify_original_domain(d,out,unit)?;
         let corpus=need(&out.corpus,unit.corpus)?;used_corpus.insert(corpus.id());
         if unit.family!=corpus.family{return Err(invalid("retrieval unit family differs from corpus"));}
         let mut parts:Vec<_>=out.parts.iter().filter(|p|p.unit==unit.id()).collect();parts.sort_by_key(|p|p.ordinal);

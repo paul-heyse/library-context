@@ -577,6 +577,8 @@ impl Data {
     pub fn completion_types() -> Vec<std::any::TypeId> {
         use std::any::TypeId;
         vec![
+            TypeId::of::<c1::ScenarioSpan>(),TypeId::of::<c1::CatalogDeployment>(),TypeId::of::<deployment::DeploymentObservation>(),
+            TypeId::of::<catalog::CatalogOptionEvidence>(),TypeId::of::<syntax::ParameterSyntaxObservation>(),TypeId::of::<syntax::ClassFieldSyntaxObservation>(),TypeId::of::<normalized::entities::FieldDeclarationLink>(),
             TypeId::of::<catalog::CatalogCandidate>(),TypeId::of::<catalog::CatalogExposure>(),TypeId::of::<catalog::CatalogOption>(),TypeId::of::<catalog::CatalogDefault>(),
             TypeId::of::<normalized::entities::EntityRef>(),TypeId::of::<normalized::entities::SymbolEntityCandidate>(),TypeId::of::<normalized::entities::SymbolEntityResolution>(),TypeId::of::<normalized::entities::PublicExposure>(),TypeId::of::<normalized::entities::CallableEntity>(),TypeId::of::<normalized::entities::ClassEntity>(),TypeId::of::<normalized::entities::ParameterEntity>(),
             TypeId::of::<c1::ScenarioAssociation>(),TypeId::of::<normalized::events::NormalizedCallAlternative>(),TypeId::of::<normalized::events::NormalizedCallEvent>(),
