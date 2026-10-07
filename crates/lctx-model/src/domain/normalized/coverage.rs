@@ -624,8 +624,8 @@ pub fn assemble(
         for relation in &stage.outputs {
             let source = sources
                 .iter()
-                .find(|s| s.relation() == relation.name() && s.producer() == stage.name)
-                .ok_or_else(|| invalid("normalization output has no completed producer receipt"))?;
+                .find(|s| s.relation() == relation.name())
+                .ok_or_else(|| invalid("normalization output has no completed relation view"))?;
             out.receipts.insert(NormalizationOutputReceipt {
                 computation,
                 relation: relation.name().into(),
@@ -686,6 +686,35 @@ mod streamed_coverage_controls {
             serde::de::value::Error,
         >::new([byte; 16].into_iter()))
         .unwrap()
+    }
+    #[test]
+    fn normalization_receipts_use_exact_neutral_completed_views() {
+        use crate::domain::{analysis::sources::SourceSnapshot,completed::CompletedView};
+        for profile in [Profile::Catalog,Profile::Behavioral] {
+            let budget=resources::ResourceBudget::fixed(8<<20).unwrap();
+            let evidence=ScopedAvailability::from_completed(profile,&std::collections::BTreeSet::new(),&[],&BTreeMap::new(),&budget).unwrap();
+            let artifacts=ArtifactInputIndex::new(&budget);
+            let mut sources=BTreeMap::new();
+            let relations=crate::domain::catalog_frontier_relations();
+            for capability in Capability::ALL {
+                for usage in capability.producer(profile).outputs {
+                    let relation=relations.iter().find(|relation|relation.name()==usage.name()).unwrap();
+                    let view=CompletedView::new(relation.name().into(),std::collections::BTreeSet::from([ContentHash::of(relation.name().as_bytes())]),0).unwrap();
+                    let source=SourceSnapshot::of_completed_view(relation,ContentHash::of(b"neutral-coverage-model"),&view).unwrap();
+                    sources.insert(relation.name(),source);
+                }
+            }
+            let snapshots=sources.values().cloned().collect::<Vec<_>>();
+            let output=assemble(profile,&evidence,&artifacts,&snapshots,&budget).unwrap();
+            assert_eq!(output.receipts.iter().count(),Capability::ALL.iter().map(|capability|capability.producer(profile).outputs.len()).sum::<usize>());
+            for receipt in output.receipts.iter() {
+                let source=&sources[receipt.relation.as_str()];
+                assert_eq!((receipt.rows,receipt.view),(source.rows(),source.view()));
+                let computation=output.computations.get(receipt.computation).unwrap();
+                assert_eq!(computation.producer,computation.capability.producer(profile).name);
+                assert_ne!(source.producer(),computation.producer);
+            }
+        }
     }
     #[test]
     fn primitive_artifact_projection_omits_rich_labels_and_scope_fold_keeps_input_domains() {

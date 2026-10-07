@@ -1,5 +1,5 @@
 //! Closed physical schemas generated from the selected canonical graph vocabulary.
-use lctx_model::domain::{ContentHash, Field, Record, Scalar};
+use lctx_model::domain::{ContentHash, Field, Record, Relation, Scalar};
 use std::collections::BTreeSet;
 fn scalar(field: &Field) -> String {
     let ty = match field.scalar() {
@@ -34,15 +34,16 @@ fn scalar(field: &Field) -> String {
         ty
     }
 }
-fn declaration<R: Record>() -> String {
-    let fields = R::fields()
+fn declaration<R: Record>() -> String { relation_declaration(&Relation::of::<R>()) }
+fn relation_declaration(relation:&Relation) -> String {
+    let fields = relation.fields().iter().cloned()
         .into_iter()
         .collect::<Vec<_>>();
-    if let Some(sum) = R::sum() {
+    if let Some(sum) = relation.sum().cloned() {
         sum.arms
             .into_iter()
             .map(|arm| {
-                let mut parts = vec![format!("__type: '{}'", R::NAME)];
+                let mut parts = vec![format!("__type: '{}'", relation.name())];
                 for field in &fields {
                     let ty = if field.name() == sum.tag {
                         arm.code.to_string()
@@ -64,7 +65,7 @@ fn declaration<R: Record>() -> String {
             .collect::<Vec<_>>()
             .join(" | ")
     } else {
-        let mut parts = vec![format!("__type: '{}'", R::NAME)];
+        let mut parts = vec![format!("__type: '{}'", relation.name())];
         parts.extend(
             fields
                 .iter()
@@ -135,14 +136,32 @@ pub fn atomic_scope_fields()->&'static std::collections::BTreeSet<&'static str> 
         macro_rules! collect_registry {($($variant:ident:$ty:ty,)*)=>{$(collect::<$ty>(&mut fields);)*};}
         lctx_model::graph_entity_records!(collect_registry);
         lctx_model::graph_assertion_records!(collect_registry);
-        collect::<lctx_model::domain::analytics::QualityStep>(&mut fields);
-        collect::<lctx_model::domain::artifact::ArtifactChunk>(&mut fields);
+        for relation in compiler_relations() {
+            fields.extend(relation.fields().iter().filter(|field|field.target().is_some() && !field.list()).map(|field|field.name()));
+        }
         fields
     })
 }
-/// Non-graph compiler backing has a closed model-generated body, just like graph records.
+/// All model-required families without a graph lowering share one closed native backing.
+/// Derive this inventory from the same declarations that own compiler model membership.
+pub(crate) fn compiler_relations()->&'static [Relation] {
+    static RELATIONS:std::sync::OnceLock<Vec<Relation>>=std::sync::OnceLock::new();
+    RELATIONS.get_or_init(||{
+        let mut graph=BTreeSet::new();
+        macro_rules! collect {($($variant:ident:$ty:ty,)*)=>{$(graph.insert(<$ty>::NAME);)*};}
+        lctx_model::graph_entity_records!(collect);
+        lctx_model::graph_assertion_records!(collect);
+        let mut relations=lctx_model::domain::catalog_frontier_relations().into_iter().filter(|relation|!graph.contains(relation.name())).collect::<Vec<_>>();
+        relations.sort_by_key(Relation::name);relations.dedup_by_key(|relation|relation.name());relations
+    })
+}
+/// Original bytes have their own physical owner; all other private families retain declared fields.
 pub fn compiler_record_schema() -> String {
-    let shapes = [declaration::<lctx_model::domain::analytics::QualityStep>(), "{__type:'artifact_chunks', artifact:array<int,16>, ordinal:int, original:record<original>, start:int, len:int, digest:string}".into()];
+    let shapes=compiler_relations().iter().map(|relation|{
+        if relation.name()==lctx_model::domain::artifact::ArtifactChunk::NAME {
+            "{__type:'artifact_chunks', artifact:array<int,16>, ordinal:int, original:record<original>, start:int, len:int, digest:string}".to_string()
+        } else {relation_declaration(relation)}
+    }).collect::<Vec<_>>();
     let mut sql=format!("DEFINE TABLE compiler_record SCHEMAFULL; DEFINE FIELD semantic_type ON compiler_record TYPE string; DEFINE FIELD semantic_key ON compiler_record TYPE string; DEFINE FIELD content ON compiler_record TYPE string; DEFINE FIELD canonical ON compiler_record TYPE bytes; DEFINE FIELD body ON compiler_record TYPE {}; DEFINE INDEX compiler_record_key ON compiler_record FIELDS semantic_type,semantic_key UNIQUE;", shapes.join(" | "));
     sql.push_str(&scope_schema("compiler_record"));
     sql
@@ -193,6 +212,11 @@ mod tests {
         let compiler=compiler_record_schema();
         assert!(compiler.contains("__type:'artifact_chunks'"));assert!(compiler.contains("original:record<original>"));assert!(compiler.contains("artifact:array<int,16>"));
         assert!(compiler.contains(&declaration::<lctx_model::domain::analytics::QualityStep>()));
+        assert!(compiler.contains(&declaration::<lctx_model::domain::projection::ProjectionSnapshot>()));
+        assert!(compiler.contains(&declaration::<lctx_model::domain::projection::ProjectionSnapshotChunk>()));
+        for relation in compiler_relations() {
+            if relation.name()!=lctx_model::domain::artifact::ArtifactChunk::NAME {assert!(compiler.contains(&relation_declaration(relation)));}
+        }
         assert!(compiler.contains("scope_keys"));assert!(compiler.contains("ON compiler_record"));assert!(!compiler.contains("FLEXIBLE"));
     }
 }

@@ -1661,11 +1661,11 @@ pub async fn coverage(
             let source = sources
                 .iter()
                 .find(|source| {
-                    source.relation() == relation.name() && source.producer() == stage.name
+                    source.relation() == relation.name()
                 })
                 .ok_or_else(|| {
                     ModelError::Frontier(
-                        "normalization output has no completed producer receipt".into(),
+                        "normalization output has no completed relation view".into(),
                     )
                 })?;
             output

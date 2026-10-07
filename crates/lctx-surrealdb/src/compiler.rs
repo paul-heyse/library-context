@@ -250,7 +250,7 @@ impl NativeCompilerStore {
             let (node,content,canonical,kind,subtype)=match graph {
                 Some(GraphRow::Entity(row))=>(RecordId::new("entity",row.id().0.hex()),row.content(),serde_json::to_vec(&row).map_err(ModelError::codec)?,Some(row.kind() as i64),row.subtype()),
                 Some(GraphRow::Assertion(row))=>(RecordId::new("assertion",row.id().0.hex()),row.content(),serde_json::to_vec(&row).map_err(ModelError::codec)?,Some(row.kind as i64),None),
-                None=>{ let bytes=serde_json::to_vec(&body).map_err(ModelError::codec)?; let mut sink=KeySink::new("compiler-backing-key/v1"); relation.name().to_string().encode(&mut sink); sink.part(b"key",ids.value(i)); (RecordId::new("compiler_record",sink.finish().hex()),ContentHash::of(&bytes),bytes,None,None) }
+                None=>{ if !crate::schema::compiler_relations().iter().any(|declared|declared.name()==relation.name()) {return Err(ModelError::Schema("undeclared compiler backing type"));} let bytes=serde_json::to_vec(&body).map_err(ModelError::codec)?; let mut sink=KeySink::new("compiler-backing-key/v1"); relation.name().to_string().encode(&mut sink); sink.part(b"key",ids.value(i)); (RecordId::new("compiler_record",sink.finish().hex()),ContentHash::of(&bytes),bytes,None,None) }
             };
             let mut physical=Object::new(); physical.insert("id",node.clone()); physical.insert("semantic_type",relation.name().to_string()); physical.insert("semantic_key",key.clone()); physical.insert("content",content.hex()); physical.insert("canonical",Bytes::from(canonical)); physical.insert("body",body);
             if let Some(kind)=kind {physical.insert("kind",kind);physical.insert("subtype",subtype.map(Value::from_t).unwrap_or(Value::Null));}
@@ -422,12 +422,15 @@ impl NativeCompilerStore {
     async fn verify_state_inner(self:&Arc<Self>)->Result<(),ModelError> {
         // Cold audit/import must reconcile the fixed non-graph backing itself, before
         // comparing membership claims. Ordinary completed-view reads carry their validity.
-        let mut backing=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM compiler_record ORDER BY id").stream_items().map_err(ModelError::codec)?,1)?)?;
+        let mut backing=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM compiler_record ORDER BY id").stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(d::resources::MAX_ROW_BYTES))?;
+        let mut pending=Vec::new();let mut pending_bytes=0;
         while let Some(row)=backing.next().await? {
             if let Some(original)=validate_state_row("compiler_record",&row)? {
                 self.verify_original_backing(&original).await?;
             }
+            admit_backing_row(&mut pending,&mut pending_bytes,row)?;
         }
+        validate_backing_batch(&pending)?;
         let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT VALUE id FROM compiler_membership WHERE node.semantic_type IS NONE OR node.semantic_type != relation OR node.semantic_key != semantic_key OR node.content != content OR contribution.completed != true LIMIT 1").stream_items().map_err(ModelError::codec)?,1)?)?;
         if rows.next().await?.is_some(){return Err(ModelError::Conflict("completed membership backing/visibility"));}
         let mut descriptors=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM compiler_contribution ORDER BY id").stream_items().map_err(ModelError::codec)?,1)?)?;
@@ -577,17 +580,25 @@ impl NativeCompilerStore {
         result
     }
     async fn completed_state_inner(self:&Arc<Self>)->Result<CompletedStateIdentity,ModelError> {
+        self.state_identity_inner(true).await
+    }
+    // Import has just independently validated the actual stored type slices. Its checksum
+    // pass still checks every framing/canonical row, without repeating model reconstruction.
+    async fn state_identity_inner(self:&Arc<Self>,validate_backing:bool)->Result<CompletedStateIdentity,ModelError> {
         self.wait_scans().await?;
         let mut sink=KeySink::new("native-completed-state/v1");
         let mut counts=[0u64;6];
         for (i,table) in STATE_TABLES.iter().enumerate() {
             table.to_string().encode(&mut sink);
-            let mut rows=self.track_rows(NativeRows::new(self.client.query(format!("SELECT * FROM {table} ORDER BY id")).stream_items().map_err(ModelError::codec)?,1)?)?;
+            let mut rows=self.track_rows(NativeRows::new(self.client.query(format!("SELECT * FROM {table} ORDER BY id")).stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(d::resources::MAX_ROW_BYTES))?;
+            let mut pending=Vec::new();let mut pending_bytes=0;
             while let Some(row)=rows.next().await? {
                 validate_state_row(table,&row)?;
                 sink.part(b"row",&serde_json::to_vec(&row).map_err(ModelError::codec)?);
                 counts[i]=counts[i].checked_add(1).ok_or(ModelError::Schema("completed state row count"))?;
+                if validate_backing && *table=="compiler_record" {admit_backing_row(&mut pending,&mut pending_bytes,row)?;}
             }
+            if validate_backing && *table=="compiler_record" {validate_backing_batch(&pending)?;}
         }
         Ok(CompletedStateIdentity {format_version:STATE_FORMAT_VERSION,contributions:counts[0],memberships:counts[1],backing_rows:counts[3],content:sink.finish()})
     }
@@ -603,7 +614,7 @@ impl NativeCompilerStore {
         let expected=self.completed_state_inner().await?;
         let mut file=std::io::BufWriter::new(std::fs::File::create(path).map_err(ModelError::codec)?);
         for table in STATE_TABLES {
-            let mut rows=self.track_rows(NativeRows::new(self.client.query(format!("SELECT * FROM {table} ORDER BY id")).stream_items().map_err(ModelError::codec)?,1)?)?;
+            let mut rows=self.track_rows(NativeRows::new(self.client.query(format!("SELECT * FROM {table} ORDER BY id")).stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(d::resources::MAX_ROW_BYTES))?;
             while let Some(row)=rows.next().await? {
                 serde_json::to_writer(&mut file,&StateRow{table:table.into(),row}).map_err(ModelError::codec)?;
                 file.write_all(b"\n").map_err(ModelError::codec)?;
@@ -627,8 +638,8 @@ impl NativeCompilerStore {
         let mut bytes=Vec::new();let mut previous:Option<(usize,String)>=None;
         let mut pending=Vec::new();let mut pending_table=None;let mut pending_bytes=0usize;
         loop {
-            bytes.clear();let read=file.by_ref().take((64<<20)+1).read_until(b'\n',&mut bytes).map_err(ModelError::codec)?;
-            if read==0 {break;}if read>64<<20 {self.fail();return Err(ModelError::Schema("completed state transport row bound"));}
+            bytes.clear();let read=file.by_ref().take(d::resources::MAX_ROW_BYTES as u64+1).read_until(b'\n',&mut bytes).map_err(ModelError::codec)?;
+            if read==0 {break;}if read>d::resources::MAX_ROW_BYTES {self.fail();return Err(ModelError::Schema("completed state transport row bound"));}
             let row:StateRow=serde_json::from_slice(&bytes).map_err(ModelError::codec)?;
             let table=STATE_TABLES.iter().position(|name|*name==row.table).ok_or(ModelError::Schema("completed state transport table"))?;
             validate_state_row(&row.table,&row.row)?;
@@ -636,19 +647,21 @@ impl NativeCompilerStore {
             if previous.as_ref().is_some_and(|previous|previous >= &(table,id.clone())) {return Err(ModelError::Conflict("completed state transport order"));}
             previous=Some((table,id));
             let weight=read.max(crate::loader::native_bytes(&row.row));
-            if weight>d::resources::TRANSFER_BYTES {return Err(ModelError::Limit{owner:"completed-state-import",limit:"transfer bytes",observed:weight,bound:d::resources::TRANSFER_BYTES});}
+            if weight>d::resources::MAX_ROW_BYTES {return Err(ModelError::Limit{owner:"completed-state-import",limit:"row bytes",observed:weight,bound:d::resources::MAX_ROW_BYTES});}
             if !pending.is_empty() && (pending_table!=Some(table) || pending.len()>=d::resources::TRANSFER_ROWS || pending_bytes.saturating_add(weight)>d::resources::TRANSFER_BYTES){
                 self.insert_state_batch(pending_table.expect("nonempty state batch"),std::mem::take(&mut pending)).await?;pending_bytes=0;
             }
             pending_table=Some(table);pending_bytes+=weight;pending.push(row.row);
+            if pending_bytes>=d::resources::TRANSFER_BYTES {self.insert_state_batch(table,std::mem::take(&mut pending)).await?;pending_bytes=0;}
         }
         if !pending.is_empty(){self.insert_state_batch(pending_table.expect("nonempty state batch"),pending).await?;}
-        if &self.completed_state_inner().await? != expected {self.fail();return Err(ModelError::Conflict("completed state transport identity"));}
         self.verify_state_inner().await?;
+        if &self.state_identity_inner(false).await? != expected {self.fail();return Err(ModelError::Conflict("completed state transport identity"));}
         Ok(())
     }
     async fn insert_state_batch(self:&Arc<Self>,table:usize,rows:Vec<Value>)->Result<(),ModelError>{
         let table=STATE_TABLES.get(table).ok_or(ModelError::Schema("completed state batch table"))?;
+        if *table=="compiler_record" {validate_backing_batch(&rows)?;}
         Loader::new(self.client.clone()).insert(table,rows,false).await
     }
     pub async fn scan_rows(self:&Arc<Self>,view:&CompletedView,relation:&Relation,columns:Option<&[String]>,predicate:Option<NativePredicate>)->Result<CompilerRows,ModelError> {
@@ -684,7 +697,7 @@ impl NativeCompilerStore {
         if projections.is_empty() {projections.push("semantic_key AS __row".into());}
         // Start with exact selected keys, then fetch their immutable payloads. Membership overlap
         // is deduplicated before rich hydration; private pending rows never enter this query.
-        let table=if relation.name()==d::analytics::QualityStep::NAME || relation.name()==d::artifact::ArtifactChunk::NAME {"compiler_record"} else if relation_is_entity(relation.name()) {"entity"} else {"assertion"};
+        let table=if crate::schema::compiler_relations().iter().any(|declared|declared.name()==relation.name()) {"compiler_record"} else if relation_is_entity(relation.name()) {"entity"} else {"assertion"};
         // Resolve compact candidates and completed owners once, rather than reevaluating nested
         // subqueries for every physical row. Only the exact deduplicated membership record IDs
         // become payload targets; projection and original hydration happen after selection.
@@ -793,21 +806,11 @@ fn validate_state_row(table:&str,row:&Value)->Result<Option<OriginalBacking>,Mod
 }
 
 struct OriginalBacking {artifact:Id<d::source::SourceArtifact>,start:u64,len:usize,digest:ContentHash}
-/// The closed compiler-only union has two declared arms. Decode their nominal fields
-/// through the model, never through the stored semantic key or membership digest.
+/// Check closed per-row framing. Bounded ordinary type slices independently validate model keys.
 fn validate_compiler_backing(row:&Object,id:&RecordId)->Result<Option<OriginalBacking>,ModelError> {
     let Some(Value::Object(body))=row.get("body") else{return Err(ModelError::Schema("compiler backing body"));};
     let Some(Value::String(name))=body.get("__type") else{return Err(ModelError::Schema("compiler backing type"));};
-    let (key,original)=if name==d::analytics::QualityStep::NAME {
-        require_backing_fields(body,&["__type","run","ordinal","value"])?;
-        let Some(Value::Number(surrealdb::types::Number::Float(value)))=body.get("value") else{return Err(ModelError::Schema("compiler backing finite float"));};
-        let step=d::analytics::QualityStep {
-            run:decode_backing_id(body,"run")?,ordinal:backing_integer(body,"ordinal")?,value:FiniteF64::new(*value)?,
-        };
-        step.validate()?;
-        if step.value.get().to_bits()!=value.to_bits() {return Err(ModelError::Conflict("compiler backing declared body"));}
-        (*step.id().bytes(),None)
-    } else if name==d::artifact::ArtifactChunk::NAME {
+    let (key,original)=if name==d::artifact::ArtifactChunk::NAME {
         require_backing_fields(body,&["__type","artifact","ordinal","original","start","len","digest"])?;
         let artifact:Id<d::source::SourceArtifact>=decode_backing_id(body,"artifact")?;
         let ordinal=backing_integer(body,"ordinal")?;
@@ -823,7 +826,16 @@ fn validate_compiler_backing(row:&Object,id:&RecordId)->Result<Option<OriginalBa
         }
         let key=Id::<d::artifact::ArtifactChunk>::of(&d::artifact::ArtifactChunkKey{artifact,ordinal});
         (*key.bytes(),Some(OriginalBacking{artifact,start,len,digest:digest_hash}))
-    } else {return Err(ModelError::Schema("undeclared compiler backing type"));};
+    } else {
+        let relation=crate::schema::compiler_relations().iter().find(|relation|relation.name()==name).ok_or(ModelError::Schema("undeclared compiler backing type"))?;
+        let fields=std::iter::once("__type").chain(relation.fields().iter().map(|field|field.name())).collect::<Vec<_>>();
+        require_backing_fields(body,&fields)?;
+        let Some(Value::String(key))=row.get("semantic_key") else{return Err(ModelError::Schema("compiler backing semantic key"));};
+        let key:[u8;16]=hex::decode(key).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("compiler backing semantic key width"))?;
+        // This checks physical framing only. The bounded type slice below independently
+        // recomputes ordinary-record nominal keys through the model callback.
+        (key,None)
+    };
     let mut sink=KeySink::new("compiler-backing-key/v1");name.encode(&mut sink);sink.part(b"key",&key);
     if row.get("semantic_type")!=Some(&Value::String(name.clone())) || row.get("semantic_key")!=Some(&Value::String(hex::encode(key)))
         || *id!=RecordId::new("compiler_record",sink.finish().hex()) {
@@ -887,4 +899,44 @@ fn hydrate_original_row(value:Value)->Result<Value,ModelError> {
     }
     if bytes.len()!=len || ContentHash::of(&bytes).hex()!=digest {return Err(ModelError::Conflict("original typed chunk integrity"));}
     row.insert("body",Bytes::from(bytes));Ok(Value::Object(row))
+}
+
+/// One bounded cold-state window, grouped through existing model callbacks. Hot writes and
+/// completed-view reads carry their validated typed ownership and never take this audit route.
+fn validate_backing_batch(rows:&[Value])->Result<(),ModelError> {
+    let mut groups=BTreeMap::<&str,Vec<&Object>>::new();
+    for row in rows {
+        let object=value_object(row).ok_or(ModelError::Schema("compiler backing row"))?;
+        let Some(Value::String(name))=object.get("semantic_type") else{return Err(ModelError::Schema("compiler backing semantic type"));};
+        if name!=d::artifact::ArtifactChunk::NAME {groups.entry(name).or_default().push(object);}
+    }
+    let budget=d::resources::ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
+    for (name,mut rows) in groups {
+        let relation=crate::schema::compiler_relations().iter().find(|relation|relation.name()==name).ok_or(ModelError::Schema("undeclared compiler backing type"))?;
+        rows.sort_by_key(|row|match row.get("semantic_key"){Some(Value::String(key))=>key.as_str(),_=>""});
+        let mut builder=crate::projected_arrow::ProjectedBuilder::new(relation.clone(),relation.schema().clone(),&budget)?;
+        for row in &rows {
+            let Some(Value::Object(body))=row.get("body") else{return Err(ModelError::Schema("compiler backing body"));};
+            let mut fields=body.clone();fields.insert("id",row.get("semantic_key").ok_or(ModelError::Schema("compiler backing semantic key"))?.clone());
+            builder.push(Value::Object(fields))?;
+        }
+        let batch=relation.canonical(&builder.finish()?).map_err(|_|ModelError::Conflict("compiler backing typed identity"))?;
+        let ids=batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().ok_or(ModelError::Schema("compiler backing nominal column"))?;
+        let bodies=crate::codec::batch_bodies(relation,&batch)?;
+        if batch.num_rows()!=rows.len(){return Err(ModelError::Conflict("compiler backing type slice"));}
+        for (index,(row,body)) in rows.iter().zip(bodies).enumerate() {
+            if row.get("semantic_key")!=Some(&Value::String(hex::encode(ids.value(index)))) {return Err(ModelError::Conflict("compiler backing typed identity"));}
+            let Some(Value::Bytes(canonical))=row.get("canonical") else{return Err(ModelError::Schema("compiler backing canonical bytes"));};
+            if canonical.as_ref()!=serde_json::to_vec(&body).map_err(ModelError::codec)?.as_slice() {return Err(ModelError::Conflict("compiler backing declared body"));}
+        }
+    }
+    Ok(())
+}
+fn admit_backing_row(pending:&mut Vec<Value>,bytes:&mut usize,row:Value)->Result<(),ModelError> {
+    let weight=crate::loader::native_bytes(&row);
+    if weight>d::resources::MAX_ROW_BYTES {return Err(ModelError::Schema("compiler backing row bound"));}
+    if !pending.is_empty() && (pending.len()>=d::resources::TRANSFER_ROWS || bytes.saturating_add(weight)>d::resources::TRANSFER_BYTES) {
+        validate_backing_batch(pending)?;pending.clear();*bytes=0;
+    }
+    *bytes=bytes.saturating_add(weight);pending.push(row);Ok(())
 }
