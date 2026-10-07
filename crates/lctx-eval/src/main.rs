@@ -10,23 +10,23 @@ const MAX_BATCH: usize = 32;
 enum Request {
     Schema,
     Numeric {
-        input: lctx_eval::numeric::Input,
+        input: Box<lctx_eval::numeric::Input>,
     },
     Observe {
-        observation: Observation,
+        observation: Box<Observation>,
     },
     Judge {
         cases: Vec<Case>,
     },
     Freeze {
-        experiment: Experiment,
+        experiment: Box<Experiment>,
     },
     Admit {
-        frozen: Freeze,
-        experiment: Experiment,
+        frozen: Box<Freeze>,
+        experiment: Box<Experiment>,
     },
     Feedback {
-        proposal: FeedbackProposal,
+        proposal: Box<FeedbackProposal>,
         current_revision: String,
     },
     Rejudge {
@@ -63,7 +63,7 @@ fn run(request: Request) -> Result<serde_json::Value, String> {
             }
             serde_json::to_value(cases.iter().map(lctx_eval::judge).collect::<Vec<_>>())
         }
-        Request::Freeze { experiment } => serde_json::to_value(freeze(experiment)?),
+        Request::Freeze { experiment } => serde_json::to_value(freeze(*experiment)?),
         Request::Admit { frozen, experiment } => {
             admit(&frozen, &experiment)?;
             Ok(serde_json::json!({"admitted": true}))

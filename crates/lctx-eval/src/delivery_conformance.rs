@@ -229,7 +229,8 @@ fn expansion(
     let args = expand["arguments"]
         .as_object()
         .ok_or("delivery expansion has no public arguments")?;
-    if let Some(cursor) = args.get("page").and_then(|v| v.get("cursor")) {
+    let cursor = args.get("page").and_then(|v| v.get("cursor"));
+    if let Some(cursor) = cursor {
         let actual = root
             .pointer(path)
             .and_then(|v| v.get("continuation"))
@@ -244,6 +245,29 @@ fn expansion(
             return Err("delivery continuation changes the actual public tool".into());
         }
     }
+    // A page-wide search continuation has no enclosing hit release. Its scope comes
+    // from the actual call and named domain captures, never an arbitrary child hit.
+    let continuation_origin = cursor.is_some()
+        && matches!(tool, "search_evidence" | "search_operations")
+        && origin.is_some_and(|call| {
+            call.tool == tool
+                && args.get("library").is_some()
+                && call.arguments.get("library") == args.get("library")
+        });
+    let continuation_releases = root["structuredContent"]["domains"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|domain| continuation_origin && domain.get("name") == args.get("library"))
+        .flat_map(|domain| {
+            domain
+                .get("captures")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|capture| capture.get("release"))
+        .collect::<Vec<_>>();
     let demand = args
         .get("page")
         .and_then(|v| v.get("evidence_demand"))
@@ -301,16 +325,14 @@ fn expansion(
             .and_then(|v| v.get("evidence_demand"))
             .and_then(|v| v.get("context"))
             .and_then(|v| v.get("analysis"))
+            && nominal_nearest(nodes, "analysis") != Some(analysis)
+            && !core
+                .and_then(|v| v.get("interpretation"))
+                .and_then(|v| v.get("contexts"))
+                .and_then(Value::as_array)
+                .is_some_and(|cs| cs.iter().any(|c| c.get("analysis") == Some(analysis)))
         {
-            if nominal_nearest(nodes, "analysis") != Some(analysis)
-                && !core
-                    .and_then(|v| v.get("interpretation"))
-                    .and_then(|v| v.get("contexts"))
-                    .and_then(Value::as_array)
-                    .is_some_and(|cs| cs.iter().any(|c| c.get("analysis") == Some(analysis)))
-            {
-                return Err("delivery expansion invents analysis attribution".into());
-            }
+            return Err("delivery expansion invents analysis attribution".into());
         }
     } else if args.get("page").and_then(|v| v.get("cursor")).is_none() {
         return Err("delivery omission has no supported evidence expansion".into());
@@ -321,7 +343,19 @@ fn expansion(
                 v.get("releases")
                     .and_then(Value::as_array)
                     .is_some_and(|rs| rs.iter().any(|r| r.get("version") == Some(release)))
-            });
+            })
+            || (!continuation_releases.is_empty()
+                && origin.is_some_and(|call| {
+                    call.arguments
+                        .get("page")
+                        .and_then(|v| v.get("evidence_demand"))
+                        .and_then(|v| v.get("context"))
+                        .and_then(|v| v.get("release"))
+                        == Some(release)
+                })
+                && continuation_releases
+                    .iter()
+                    .any(|r| r.get("version") == Some(release)));
         if !matched {
             return Err("delivery expansion invents release attribution".into());
         }
@@ -370,7 +404,8 @@ fn expansion(
                             .is_some_and(|captures| {
                                 captures.iter().any(|capture| {
                                     capture.get("release").is_some_and(|release| {
-                                        releases.contains(&release)
+                                        (releases.contains(&release)
+                                            || continuation_releases.contains(&release))
                                             && requested_release.is_none_or(|version| {
                                                 release.get("version") == Some(version)
                                             })
@@ -496,10 +531,11 @@ pub fn validate_for_call(result: &Value, origin: Option<&PublicCall>) -> Result<
         ) {
             return Err("delivery map role is unknown".into());
         }
-        if let Some(purpose) = nearest(&nodes, "purpose").and_then(Value::as_u64) {
-            if path.ends_with("/text") && (purpose == 1) != (role == "interpretation") {
-                return Err("delivery map promotes context to primary".into());
-            }
+        if let Some(purpose) = nearest(&nodes, "purpose").and_then(Value::as_u64)
+            && path.ends_with("/text")
+            && (purpose == 1) != (role == "interpretation")
+        {
+            return Err("delivery map promotes context to primary".into());
         }
         if role == "primary" && !actual.is_string() && !path.ends_with("/body/bytes") {
             return Err("delivery map reference is not primary readable evidence".into());
@@ -544,12 +580,11 @@ pub fn validate_for_call(result: &Value, origin: Option<&PublicCall>) -> Result<
         {
             return Err("delivery map qualification differs from actual field".into());
         }
-        if let Some(availability) = nodes.last().and_then(|v| v.get("availability")) {
-            if availability["status"] != "available"
-                && item["availability"]["status"] == "available"
-            {
-                return Err("delivery map upgrades unavailable evidence".into());
-            }
+        if let Some(availability) = nodes.last().and_then(|v| v.get("availability"))
+            && availability["status"] != "available"
+            && item["availability"]["status"] == "available"
+        {
+            return Err("delivery map upgrades unavailable evidence".into());
         }
     }
     if !required.is_empty() {
@@ -681,5 +716,63 @@ mod tests {
             arguments: serde_json::json!({"library":"mini"}),
         };
         validate_for_call(&good, Some(&origin)).unwrap();
+    }
+    #[test]
+    fn search_page_continuation_keeps_actual_origin_and_named_capture_scope() {
+        let mut good = packet();
+        good["content"][0]["text"] = "search_evidence: snapshot-bound result".into();
+        let release = serde_json::json!({"input":vec![10;16],"release":vec![11;16],"distribution":"mini","version":"1"});
+        good["structuredContent"]["domains"] = serde_json::json!([
+            {"name":"mini","captures":[{"release":release}]},
+            {"name":"other","captures":[{"release":{"input":vec![20;16],"release":vec![21;16],"distribution":"other","version":"2"}}]}
+        ]);
+        good["structuredContent"]["results"] = serde_json::json!({"items":[],"continuation":"7b7d","omitted":1,"truncated":true,"availability":{"status":"available"}});
+        let arguments = serde_json::json!({"library":"mini","query":"captured","page":{"cursor":"7b7d","expanded":true,"evidence_demand":{"context":{"release":"1"}}}});
+        good["structuredContent"]["delivery"]["omissions"] = serde_json::json!([{"field":"/structuredContent/results","availability":{"status":"partial"},"expand":{"tool":"search_evidence","arguments":arguments}}]);
+        let origin = PublicCall {
+            tool: "search_evidence".into(),
+            arguments: serde_json::json!({"library":"mini","query":"captured","page":{"evidence_demand":{"context":{"release":"1"}}}}),
+        };
+        validate_for_call(&good, Some(&origin)).unwrap();
+        assert!(
+            validate(&good).is_err(),
+            "metadata alone cannot supply the originating library"
+        );
+        for (pointer, value) in [
+            (
+                "/structuredContent/delivery/omissions/0/expand/arguments/library",
+                serde_json::json!("other"),
+            ),
+            (
+                "/structuredContent/delivery/omissions/0/expand/arguments/page/cursor",
+                serde_json::json!("ffff"),
+            ),
+            (
+                "/structuredContent/delivery/omissions/0/expand/tool",
+                serde_json::json!("search_operations"),
+            ),
+            (
+                "/structuredContent/delivery/omissions/0/expand/arguments/page/evidence_demand/context/release",
+                serde_json::json!("2"),
+            ),
+            (
+                "/structuredContent/domains/0/name",
+                serde_json::json!("foreign"),
+            ),
+            (
+                "/structuredContent/domains/0/captures/0/release/version",
+                serde_json::json!("foreign"),
+            ),
+        ] {
+            let mut wrong = good.clone();
+            *wrong.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                validate_for_call(&wrong, Some(&origin)).is_err(),
+                "{pointer}"
+            );
+        }
+        let mut wrong = good.clone();
+        wrong["structuredContent"]["domains"][0]["captures"] = serde_json::json!([]);
+        assert!(validate_for_call(&wrong, Some(&origin)).is_err());
     }
 }

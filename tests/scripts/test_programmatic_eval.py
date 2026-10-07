@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 from hypothesis import given, settings
@@ -643,7 +644,7 @@ async def test_python_followup_discovery_keeps_each_actual_public_origin(monkeyp
     inspected = []
 
     class RoutingWorker:
-        def request(self, request):
+        def request(self, request: dict[str, Any]) -> dict[str, list[str]]:
             assert request["operation"] == "observe"
             packet = copy.deepcopy(request["observation"])
             inspected.append(packet)

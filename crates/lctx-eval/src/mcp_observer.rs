@@ -716,7 +716,7 @@ fn search_operations(
     Ok(())
 }
 fn continuation_expanded(cursor: &str) -> Result<bool, String> {
-    if cursor.len() % 2 != 0 || !cursor.as_bytes().iter().all(u8::is_ascii_hexdigit) {
+    if !cursor.len().is_multiple_of(2) || !cursor.as_bytes().iter().all(u8::is_ascii_hexdigit) {
         return Err("public cursor hex bounds".into());
     }
     let bytes = (0..cursor.len())
@@ -996,14 +996,12 @@ fn decode_fields(result: &Value, realization: &str) -> Result<DecodedPacket, Str
     if matches!(
         tool.as_deref(),
         Some("search_evidence" | "search_operations")
-    ) {
-        if let Some(cursor) = structured
-            .get("results")
-            .and_then(|r| r.get("continuation"))
-        {
-            let cursor = text(cursor)?;
-            references.push(serde_json::json!({"tool":tool.as_deref(),"arguments":{"page":{"cursor":cursor,"expanded":continuation_expanded(cursor)?}}}).to_string());
-        }
+    ) && let Some(cursor) = structured
+        .get("results")
+        .and_then(|r| r.get("continuation"))
+    {
+        let cursor = text(cursor)?;
+        references.push(serde_json::json!({"tool":tool.as_deref(),"arguments":{"page":{"cursor":cursor,"expanded":continuation_expanded(cursor)?}}}).to_string());
     }
     if groups.len() > 256
         || references.len() > 256

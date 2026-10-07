@@ -19,7 +19,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 MAX_LINE = 4 * 1024 * 1024
 MAX_BATCH = 32
@@ -27,6 +27,12 @@ MAX_BATCH = 32
 
 class WorkerError(RuntimeError):
     """Explicit transport/admission failure, never a task score."""
+
+
+class ObservationWorker(Protocol):
+    """The request exchange used by public capture; no process ownership is required."""
+
+    def request(self, value: dict[str, Any], /) -> Any: ...
 
 
 class Worker:
@@ -203,7 +209,7 @@ def _continuation_projection(reference: dict[str, Any], origin: dict[str, Any]) 
 
 
 async def capture_public_journey(
-    worker: Worker,
+    worker: ObservationWorker,
     client: Any,
     task: dict[str, Any],
     *,
@@ -261,7 +267,7 @@ async def capture_public_journey(
         }
     facts = _capture_facts(task, raw, calls, lane, int(timeout_seconds * 1000))
     facts["serialization"] = "sdk_result_object"
-    observation = {
+    observation: dict[str, Any] = {
         "capture": facts,
         "realization": facts["native_realization"],
         "segments": [raw],
@@ -292,7 +298,7 @@ async def capture_public_journey(
         public = _continuation_projection(json.loads(reference), origin)
         if public["tool"] not in task["request"]["allowed_followups"]:
             continue
-        entry = {
+        entry: dict[str, Any] = {
             "reference": reference,
             "operation": public["tool"],
             "realization": observation["realization"],
