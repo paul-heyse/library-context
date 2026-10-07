@@ -133,3 +133,18 @@ def test_compiler_selections_reference_current_binaries():
         for family in ("store", "serving")
         for command in FAMILIES[family].commands
     )
+
+
+def test_explicit_native_targets_replace_family_defaults():
+    from native_controls import compiler_packages
+
+    for boundary, package in (
+        ("compiler", "cpg-core"),
+        ("compiler-cli", "lctx"),
+        ("providers", "cpg-extract"),
+    ):
+        for selected in (["--lib"], ["--test", "chosen"], ["--test=chosen"]):
+            assert compiler_packages(boundary, selected) == ["-p", package]
+        defaults = compiler_packages(boundary, ["-E", "test(chosen)"])
+        assert defaults[:2] == ["-p", package]
+        assert len(defaults) > 2

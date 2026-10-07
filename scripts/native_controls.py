@@ -12,6 +12,20 @@ from build_environment import ROOT, normalized_env
 from surrealdb_fixture import fixture
 
 
+def compiler_packages(boundary: str, filters: list[str]) -> list[str]:
+    defaults = {
+        "compiler": ["-p", "cpg-core", "--lib", "--tests"],
+        "compiler-cli": ["-p", "lctx", "--bin", "lctx", "--test", "acquire", "--test", "compile_artifact"],
+        "providers": ["-p", "cpg-extract", "--lib", "--test", "acquisition", "--test", "bundle", "--test", "harness", "--test", "typed_conformance", "--test", "typed_flow", "--test", "typed_calls", "--test", "native_overload_origins", "--test", "typed_ruff_context"],
+    }[boundary]
+    target_options = {"--lib", "--test", "--tests", "--bin", "--bins", "--example", "--examples", "--bench", "--benches", "--all-targets"}
+    # Explicit Cargo targets replace family defaults; Nextest filters alone still select
+    # within the family's ordinary targets. Combining --tests with --test builds all tests.
+    if any(argument.split("=", 1)[0] in target_options for argument in filters):
+        return defaults[:2]
+    return defaults
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("boundary", choices=("store", "serving", "mcp", "compiler", "compiler-cli", "providers"))
@@ -48,11 +62,7 @@ def main() -> int:
             env["LCTX_REMEDIATION_CLI_BIN"] = str(ROOT / "target" / "release" / "lctx")
 
         if options.boundary in {"compiler", "compiler-cli", "providers"}:
-            packages={
-                "compiler":["-p","cpg-core","--lib","--tests"],
-                "compiler-cli":["-p","lctx","--bin","lctx","--test","acquire","--test","compile_artifact"],
-                "providers":["-p","cpg-extract","--lib","--test","acquisition","--test","bundle","--test","harness","--test","typed_conformance","--test","typed_flow","--test","typed_calls","--test","native_overload_origins","--test","typed_ruff_context"],
-            }[options.boundary]
+            packages = compiler_packages(options.boundary, filters)
             return run(["cargo","nextest","run","--release","--no-fail-fast","--no-tests=fail",*packages,*filters])
         if options.boundary != "mcp":
             packages = (
