@@ -5,7 +5,7 @@ use lctx_model::domain::{
     catalog::CatalogMember,
     retrieval::{Family, SearchWindow, ContentPart, WindowBinding, OriginalAnchor, Unit},
     embedding::{projection::ProjectionDefinition,value::FullValue},
-    embedding::EmbeddingSpec,
+    embedding::EmbeddingSpec, Record,
     serving::{SnapshotHandle, ranking::*},
 };
 use lctx_surrealdb::NativeReader;
@@ -176,41 +176,56 @@ pub async fn vector(
         .collect()
 }
 
-/// Score only the nominated lexical/projected union with its immutable full4096 winner.
-/// A compact key map deduplicates hydration; no per-window copy or encoder request is made.
+#[derive(Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FullLink { full_key:String, family:Family, witness:NativeHit }
+/// Fetch the exact nominated frontier in coarse indexed batches, then hydrate each immutable
+/// full winner once. Payload lifetime is one 64-row batch; only scalar scores survive it.
 pub async fn rescore_union(reader:&NativeReader,query:&crate::QueryVector,nominated:&[CandidateScore],policy:&RankingPolicy)->Result<Vec<CandidateScore>,ModelError>{
     use std::collections::{BTreeMap,BTreeSet};
     if query.vector.len()!=4096 || query.vector.iter().any(|v|!v.is_finite()) {return Err(ModelError::Invalid("full query vector shape".into()));}
     let channel=ChannelBinding::vector(policy,query.spec,lctx_model::domain::embedding::value::value_digest(&query.vector),query.recipe.identity(),query.projection)?;
-    let mut keys=BTreeMap::new();
     let occurrences=nominated.iter().map(|row|row.occurrence).collect::<BTreeSet<_>>();
-    for occurrence in occurrences {
+    let member_mode=occurrences.first().is_some_and(|o|matches!(o.target,Target::Member{..}));
+    if occurrences.iter().any(|o|matches!(o.target,Target::Member{..})!=member_mode){return Err(ModelError::Invalid("mixed rescore target modes".into()));}
+    let occurrences=occurrences.into_iter().collect::<Vec<_>>();
+    let mut keys=BTreeMap::new();
+    for chunk in occurrences.chunks(128) {
         let mut vars=Variables::new();
-        vars.insert("window",binding(occurrence.window)?);vars.insert("part",binding(occurrence.part)?);
-        vars.insert("binding",binding(occurrence.binding)?);vars.insert("unit",binding(occurrence.unit)?);
-        vars.insert("context",binding(occurrence.context)?);vars.insert("family",occurrence.family as i16);
-        vars.insert("member",binding(match occurrence.target {Target::Member{member}=>Some(member),Target::Unit{..}=>None})?);
+        let window_keys=chunk.iter().map(|o|binding(o.window).map(|v|lctx_surrealdb::reconciliation::scope_string(&v))).collect::<Result<BTreeSet<_>,_>>()?;
+        vars.insert("window_keys",binding(window_keys)?);
+        vars.insert("units",binding(chunk.iter().map(|o|o.unit).collect::<BTreeSet<_>>())?);
+        vars.insert("tuples",binding(chunk.iter().map(|o|serde_json::json!([o.unit,o.window,o.part,o.binding,o.context,o.anchor,o.family as i16])).collect::<Vec<_>>())?);
         vars.insert("encoder",query.spec.hex());vars.insert("policy",query.projection.hex());
-        let rows:Vec<String>=reader.query("SELECT VALUE in.full_key FROM vec_occurs WHERE eligible=true AND window=$window AND part=$part AND binding=$binding AND unit=$unit AND context=$context AND family=$family AND (member=$member OR $member=NULL) AND in.encoder_hash=$encoder AND in.policy_key=$policy AND in.family=$family AND in.library_input=scope_input GROUP BY in.full_key ORDER BY in.full_key",vars).await?;
-        if rows.len()>1 {return Err(ModelError::Conflict("window has competing full winners"));}
-        if let Some(key)=rows.first() {keys.insert(occurrence,key.clone());}
+        let rows:Vec<FullLink>=reader.query("SELECT in.full_key AS full_key,family,{score:0.0,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor} AS witness FROM vec_occurs WHERE eligible=true AND scope_window IN $window_keys AND unit IN $units AND [unit,window,part,binding,context,anchor,family] IN $tuples AND in.encoder_hash=$encoder AND in.policy_key=$policy AND in.family=family AND in.library_input=scope_input ORDER BY occurrence_key,in.full_key",vars).await?;
+        for row in rows {
+            let occurrence=candidate(reader.handle(),row.witness,row.family,channel,member_mode)?.occurrence;
+            if !chunk.contains(&occurrence){return Err(ModelError::Conflict("rescore frontier changed exact lineage"));}
+            if keys.insert(occurrence,row.full_key.clone()).is_some_and(|old|old!=row.full_key){return Err(ModelError::Conflict("window has competing full winners"));}
+        }
     }
-    let mut scores=BTreeMap::new();
-    for key in keys.values().collect::<BTreeSet<_>>() {
-        let mut vars=Variables::new();vars.insert("key",key.clone());
-        let mut values=reader.record_stream::<FullValue>("semantic_key=$key",vars,"semantic_key")?;
-        let full=values.next().await?.ok_or(ModelError::Schema("nominated full winner"))?;
-        if values.next().await?.is_some() || full.dimensions!=4096 {return Err(ModelError::Conflict("nominated full winner shape"));}
-        let encoder=reader.records::<EmbeddingSpec>(lctx_surrealdb::RecordSelection::Keys(vec![*full.encoder.bytes()])).await?;
-        let encoder=encoder.first().filter(|_|encoder.len()==1).ok_or(ModelError::Schema("nominated encoder"))?;
-        full.verify_encoder(encoder)?;
-        if encoder.service_hash!=query.spec {return Err(ModelError::Conflict("nominated encoder differs from query"));}
-        let full=lctx_model::domain::embedding::value::decode_vector(&full.bytes.0,4096).map_err(ModelError::Invalid)?;
-        let dot=full.iter().zip(&query.vector).map(|(a,b)|f64::from(*a)*f64::from(*b)).sum::<f64>();
-        let norm=full.iter().map(|v|f64::from(*v).powi(2)).sum::<f64>().sqrt()*query.vector.iter().map(|v|f64::from(*v).powi(2)).sum::<f64>().sqrt();
-        let score=dot/norm;
-        if !score.is_finite() {return Err(ModelError::Invalid("nonfinite full winner rescore".into()));}
-        scores.insert(key.clone(),score);
+    let full_keys=keys.values().cloned().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    let mut scores=BTreeMap::new();let mut encoders=BTreeMap::new();
+    let query_norm=query.vector.iter().map(|v|f64::from(*v).powi(2)).sum::<f64>().sqrt();
+    for chunk in full_keys.chunks(64) {
+        let ids=chunk.iter().map(|key|hex::decode(key).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("full winner key"))).collect::<Result<Vec<[u8;16]>,_>>()?;
+        let values=reader.records::<FullValue>(lctx_surrealdb::RecordSelection::Keys(ids)).await?;
+        if values.len()!=chunk.len() || values.iter().map(|full|full.id().hex()).collect::<BTreeSet<_>>() != chunk.iter().cloned().collect(){return Err(ModelError::Schema("nominated full winner"));}
+        let missing=values.iter().map(|v|v.encoder).filter(|id|!encoders.contains_key(id)).collect::<BTreeSet<_>>();
+        for encoder in reader.records::<EmbeddingSpec>(lctx_surrealdb::RecordSelection::Keys(missing.iter().map(|id|*id.bytes()).collect())).await? {
+            encoders.insert(encoder.id(),encoder);
+        }
+        for full in values {
+            let encoder=encoders.get(&full.encoder).ok_or(ModelError::Schema("nominated encoder"))?;
+            full.verify_encoder(encoder)?;
+            if encoder.service_hash!=query.spec || full.dimensions!=4096 {return Err(ModelError::Conflict("nominated encoder differs from query"));}
+            let values=lctx_model::domain::embedding::value::decode_vector(&full.bytes.0,4096).map_err(ModelError::Invalid)?;
+            let dot=values.iter().zip(&query.vector).map(|(a,b)|f64::from(*a)*f64::from(*b)).sum::<f64>();
+            let norm=values.iter().map(|v|f64::from(*v).powi(2)).sum::<f64>().sqrt()*query_norm;
+            let score=dot/norm;
+            if !score.is_finite(){return Err(ModelError::Invalid("nonfinite full winner rescore".into()));}
+            scores.insert(full.id().hex(),score);
+        }
     }
     Ok(keys.into_iter().map(|(occurrence,key)|CandidateScore{snapshot:reader.handle().clone(),occurrence,channel:Channel::Vector,channel_identity:channel.identity(),score:Some(scores[&key])}).collect())
 }

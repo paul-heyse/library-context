@@ -88,6 +88,8 @@ pub const SCOPE_FIELDS: &[&str] = &[
     "invocation",
     "domain",
     "unit",
+    "window",
+    "entity",
     "corpus",
     "fragment",
     "specification",

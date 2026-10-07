@@ -9,7 +9,7 @@ use lctx_model::domain::{
 };
 use lctx_publisher::{materialize_search, reconcile_search};
 use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
-use lctx_surrealdb::{Credentials, Loader, NativeReader, reader};
+use lctx_surrealdb::{Credentials, Loader, reader};
 fn id<R: Record>(byte: u8) -> Id<R> {
     serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
 }
@@ -126,23 +126,24 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
             let supported=OriginalAnchor{unit:unit.id(),ordinal:0,original:id(6)};expected_anchor.push(supported.id());
             assertions.push(Assertion::from_record(supported).unwrap());
             for ordinal in 1..70 {assertions.push(Assertion::from_record(OriginalAnchor{unit:unit.id(),ordinal,original:id(9)}).unwrap());}
-            for ordinal in 0..2 {
+            // More than one 64-window/projection frontier exercises cross-batch winner reuse.
+            for ordinal in 0..10 {
                 let part=ContentPart{unit:unit.id(),ordinal,purpose:PartPurpose::Primary,scope:Some(members[0].1),qualification:None,digest,text:text.into()};
                 let window=SearchWindow{definition:id(7),unit:unit.id(),ordinal,corpus:corpus.id(),digest,text:text.into(),input_text:spec.document_text(text).into(),tokenizer:Some(ContentHash::of(b"fixture tokenizer")),encoded_digest:value::input_hash(&spec.document_text(text)),tokens:Some(5),availability:WindowAvailability::Ready};
                 entities.extend([Entity::from(part.clone()),Entity::from(window.clone())]);
-                assertions.push(Assertion::from_record(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:text.len() as i64}).unwrap());
-                assertions.push(Assertion::from_record(WindowBinding{window:window.id(),part:part.id(),subject:members[0].1,basis:BindingBasis::PublicContract,qualification:None}).unwrap());
-                assertions.push(Assertion::from_record(WindowSourceMap{window:window.id(),ordinal:0,start:0,end:text.len() as i64,part:Some(part.id()),original:Some(id(6)),original_start:Some(0),original_end:Some(text.len() as i64)}).unwrap());
+                entities.push(Entity::from(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:text.len() as i64}));
+                entities.push(Entity::from(WindowBinding{window:window.id(),part:part.id(),subject:members[0].1,basis:BindingBasis::PublicContract,qualification:None}));
+                entities.push(Entity::from(WindowSourceMap{window:window.id(),ordinal:0,start:0,end:text.len() as i64,part:Some(part.id()),original:Some(id(6)),original_start:Some(0),original_end:Some(text.len() as i64)}));
                 for (index,encoder) in specifications.iter().enumerate() {
                     assertions.push(Assertion::from_record(RetrievalEmbeddingUse{invocation:id(10+index as u8),window:window.id(),specification:encoder.id(),document:document.id(),input:value::input_hash(&spec.document_text(text)),availability:VectorAvailability::Available,admitted_tokens:Some(5),value:Some(winners[index].0),projection:Some(winners[index].1)}).unwrap());
                 }
             }
             // Context-only setup text does not create an applicable search occurrence.
             let setup="setup only not an applicable primary";
-            let part=ContentPart{unit:unit.id(),ordinal:2,purpose:PartPurpose::Context,scope:None,qualification:None,digest:ContentHash::of(setup.as_bytes()),text:setup.into()};
-            let window=SearchWindow{definition:id(7),unit:unit.id(),ordinal:2,corpus:corpus.id(),digest:part.digest,text:setup.into(),input_text:spec.document_text(setup).into(),tokenizer:None,encoded_digest:value::input_hash(&spec.document_text(setup)),tokens:None,availability:WindowAvailability::TokenizerUnavailable};
+            let part=ContentPart{unit:unit.id(),ordinal:10,purpose:PartPurpose::Context,scope:None,qualification:None,digest:ContentHash::of(setup.as_bytes()),text:setup.into()};
+            let window=SearchWindow{definition:id(7),unit:unit.id(),ordinal:10,corpus:corpus.id(),digest:part.digest,text:setup.into(),input_text:spec.document_text(setup).into(),tokenizer:None,encoded_digest:value::input_hash(&spec.document_text(setup)),tokens:None,availability:WindowAvailability::TokenizerUnavailable};
             entities.extend([Entity::from(part.clone()),Entity::from(window.clone())]);
-            assertions.push(Assertion::from_record(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:setup.len() as i64}).unwrap());
+            entities.push(Entity::from(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:setup.len() as i64}));
         }
     }
     loader.entities(&entities).await.unwrap();loader.assertions(&assertions).await.unwrap();
@@ -158,8 +159,8 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         "vec_occurs",
     ];
     let lexical = rows(&loader, "lex_occurs").await;
-    assert_eq!(lexical.len(),16);
-    let vectors=rows(&loader,"vec_occurs").await;assert_eq!(vectors.len(),32);
+    assert_eq!(lexical.len(),80);
+    let vectors=rows(&loader,"vec_occurs").await;assert_eq!(vectors.len(),160);
     assert_eq!(rows(&loader,"vector").await.len(),8); // two projections × four input/family cohorts.
     for table in &tables[..4] {assert_eq!(rows(&loader,table).await.len(),1);}
     let physical=|value|lctx_surrealdb::loader::json_value(value).unwrap();
