@@ -109,7 +109,7 @@ async fn native_codec_graph_search_and_immutable_winners() {
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
     .unwrap();
-    let mut vector = vec![0f32; 1024];
+    let mut vector = vec![0f32; usize::try_from(spec.dimensions).unwrap()];
     vector[0] = 1.;
     let first = CacheValue {
         input_hash: ContentHash::of(b"text"),
@@ -246,13 +246,16 @@ async fn native_binary_backed_text_matches_closed_schema() {
         .await
         .unwrap();
     assert_eq!(titles, vec!["Usage scenario 雪".to_owned()]);
-    let literal_bodies: Vec<Value> = native
-        .query(
-            "SELECT VALUE body FROM entity WHERE semantic_type='literal_values' ORDER BY subtype",
-            Variables::new(),
-        )
+    // Raw SDK values retain bytes/null tags; the reader's SerdeWrapper route serves ordinary
+    // serde models and cannot decode Value's separately tagged serde representation.
+    let mut response = native
+        .client()
+        .query("SELECT VALUE body FROM entity WHERE semantic_type='literal_values' ORDER BY subtype")
         .await
+        .unwrap()
+        .check()
         .unwrap();
+    let literal_bodies: Vec<Value> = response.take(0).unwrap();
     assert_eq!(literal_bodies.len(), 2);
     let textual=literal_bodies[0].as_object().unwrap();
     let opaque_body=literal_bodies[1].as_object().unwrap();
