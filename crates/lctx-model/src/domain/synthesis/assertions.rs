@@ -144,7 +144,7 @@ pub struct ProgrammaticAssertionSupport {
     pub source: Id<AssertionSource>,
 }
 macro_rules! output_rows{($apply:ident)=>{$apply!{assertions:ProgrammaticAssertion,templates:AssertionTemplate,sources:AssertionSource,supports:ProgrammaticAssertionSupport,}};}
-macro_rules! output{($($field:ident:$ty:ty,)*)=>{pub struct Output{$(pub $field:Rows<$ty>,)*}impl Output{pub fn new(b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$field.decode(b)?;return Ok(true);})*Ok(false)}pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}pub fn matches(&self,expected:&Self)->Result<(),ModelError>{$(if !self.$field.same(&expected.$field){return Err(invalid(concat!("programmatic assertion closure differs: ",stringify!($field))));})*Ok(())}}};}
+macro_rules! output{($($field:ident:$ty:ty,)*)=>{pub struct Output{$(pub $field:Rows<$ty>,)*}impl Output{pub fn new(b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$field.decode(b)?;return Ok(true);})*Ok(false)}pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}pub fn matches(&self,expected:&Self)->Result<(),ModelError>{$(if !self.$field.same(&expected.$field){return Err(invalid(format!("programmatic assertion closure differs: {}: {}",stringify!($field),self.$field.difference(&expected.$field))));})*Ok(())}}};}
 output_rows!(output);
 fn invalid(s: impl Into<String>) -> ModelError {
     ModelError::Invalid(s.into())
@@ -1331,7 +1331,7 @@ mod tests {
         use crate::domain::{
             normalized::entities::ParameterEntity, source::*, structural::controls::*,
         };
-        let original = "flag
+        let original = "flag: bool = False
 True
 not flag
 raise ValueError('flag required')
@@ -1352,16 +1352,24 @@ raise ValueError('flag required')
                 })
                 .unwrap()
         };
-        let parameter = occurrence(0, 4, SyntaxKind::Parameter);
-        let argument = occurrence(5, 9, SyntaxKind::ExprBooleanLiteral);
-        let test = occurrence(10, 18, SyntaxKind::ExprUnaryOp);
-        let raised = occurrence(19, original.len() as i64 - 1, SyntaxKind::StmtRaise);
+        let parameter = occurrence(0, original.find('\n').unwrap() as i64, SyntaxKind::Parameter);
+        let argument_start=original.find("True").unwrap() as i64;
+        let argument = occurrence(argument_start, argument_start+4, SyntaxKind::ExprBooleanLiteral);
+        let test_start=original.find("not flag").unwrap() as i64;
+        let test = occurrence(test_start, test_start+8, SyntaxKind::ExprUnaryOp);
+        let raised = occurrence(original.find("raise ").unwrap() as i64, original.len() as i64 - 1, SyntaxKind::StmtRaise);
         let formal = c
             .parameter_entities
             .insert(ParameterEntity::Source {
                 declaration: parameter,
             })
             .unwrap();
+        assert_eq!(parameter_text(&d,&c,formal,q.context,&b).unwrap(),"flag: bool = False");
+        let named_shape=d.parameter_shapes.insert(calls::ParameterShape{name:Some("flag".into()),kind:calls::ParameterKind::KeywordOnly,required:true}).unwrap();
+        let named_signature=d.parameter_signatures.insert(calls::Signature{role:calls::SignatureRole::Source,native:None,qualification:q.id(),scope:q.scope,symbol:id(70),variant:0,form:calls::SignatureForm::List,parameters:ContentHash::of(b"flag")}).unwrap();
+        let named_parameter=d.signature_parameters.insert(calls::SignatureParameter{signature:named_signature,ordinal:0,shape:named_shape}).unwrap();
+        d.parameter_links.insert(normalized::entities::ParameterEntityLink{parameter:named_parameter,entity:formal,declaration:None}).unwrap();
+        assert_eq!(parameter_text(&d,&c,formal,q.context,&b).unwrap(),"flag");
         let traversal = c
             .control_traversals
             .insert(ControlTraversal {
@@ -1395,6 +1403,7 @@ raise ValueError('flag required')
         .unwrap();
         assert_eq!(kind, AssertionKind::Control);
         assert!(text.contains("`flag`"));
+        assert!(!text.contains("flag: bool = False"));
         let slot = d
             .option_slots
             .insert(normalized::callables::SignatureSlot {

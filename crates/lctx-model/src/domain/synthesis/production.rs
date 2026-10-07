@@ -157,6 +157,7 @@ pub fn memberships() -> Vec<(std::any::TypeId, &'static str)> {
     let mut rows = vec![];
     macro_rules! own {($ty:ty,$($field:literal),+)=>{$(rows.push((TypeId::of::<$ty>(),$field));)+};}
     own!(catalog::CatalogCandidate, "exposure");
+    own!(normalized::entities::ParameterEntityLink, "entity");
     own!(catalog::CatalogPath, "parent");
     own!(catalog::CatalogAlias, "parent");
     own!(syntax::DeclarationObservation, "declaration");

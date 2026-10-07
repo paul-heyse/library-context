@@ -165,5 +165,59 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
         .collect()
 }
 
+#[tokio::test]
+async fn availability_reuses_exact_admission_and_refuses_changed_invalid_membership() {
+    use input::{InputRevision,ArtifactUse,SourceRole};
+    use source::{SourceArtifact,CoverageScope};
+    let workspace=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:8<<20,..Default::default()},native_fixture::store()).unwrap();
+    let profile=Profile::Catalog;
+    let inputs=workspace.inputs("availability-empty",profile,[]).unwrap();
+    let output=workspace.output("availability-empty",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME]);
+    output.declare_async::<InputRevision>().await.unwrap();
+    output.declare_async::<SourceArtifact>().await.unwrap();
+    output.declare_async::<ArtifactUse>().await.unwrap();
+    output.declare_async::<CoverageScope>().await.unwrap();
+    output.declare_async::<ProviderCoverage>().await.unwrap();
+    output.finish(stages::ProviderOutcome::Complete).await.unwrap();
+    let admitted=workspace.facts_availability_async(profile).await.unwrap();
+    assert_eq!(admitted.empty_universe(FactFamily::Flow),Some(Availability::NotRequested));
+    let synchronous=workspace.facts_availability(profile).unwrap();
+    assert!(Arc::ptr_eq(&admitted,&synchronous),"sync and async consumers borrow the same exact admitted authority");
+    let repeated=workspace.facts_availability_async(profile).await.unwrap();
+    assert!(Arc::ptr_eq(&admitted,&repeated));
+    let behavioral=workspace.facts_availability_async(Profile::Behavioral).await.unwrap();
+    assert_eq!(behavioral.empty_universe(FactFamily::Flow),Some(Availability::NoScope));
+    assert!(!Arc::ptr_eq(&admitted,&behavioral),"another profile must be independently admitted");
+    let before=workspace.facts_availability_async(profile).await.unwrap();
+    let nominal=serde_json::from_value(serde_json::to_value(vec![1u8;16]).unwrap()).unwrap();
+    let inputs=workspace.inputs("availability-added-scope",profile,[]).unwrap();
+    let output=workspace.output("availability-added-scope",profile,ContentHash::of(b"availability-control"),inputs,[CoverageScope::NAME]);
+    output.declare_async::<CoverageScope>().await.unwrap();
+    output.push(CoverageScope::Input{input:nominal}).await.unwrap();
+    let error=output.finish(stages::ProviderOutcome::Complete).await.unwrap_err();
+    assert!(error.to_string().contains("completed output coverage_scopes already has an owner"),"completed authority cannot be widened: {error}");
+    let unchanged=workspace.facts_availability_async(profile).await.unwrap();
+    assert!(Arc::ptr_eq(&before,&unchanged),"failed membership replacement must preserve the admitted authority");
+    assert!(Arc::ptr_eq(&unchanged,&workspace.facts_availability(profile).unwrap()));
+    // An invalid first completion is a separate attempt, never a replacement of an admitted view.
+    let invalid=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:8<<20,..Default::default()},native_fixture::store()).unwrap();
+    let inputs=invalid.inputs("availability-invalid-use",profile,[]).unwrap();
+    let output=invalid.output("availability-invalid-use",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME]);
+    output.declare_async::<InputRevision>().await.unwrap();
+    output.declare_async::<SourceArtifact>().await.unwrap();
+    output.declare_async::<ArtifactUse>().await.unwrap();
+    output.declare_async::<CoverageScope>().await.unwrap();
+    output.declare_async::<ProviderCoverage>().await.unwrap();
+    let artifact=serde_json::from_value(serde_json::to_value(vec![2u8;16]).unwrap()).unwrap();
+    output.push(ArtifactUse{artifact,input:nominal,role:SourceRole::Release}).await.unwrap();
+    output.finish(stages::ProviderOutcome::Complete).await.unwrap();
+    for _ in 0..2 {
+        let error=invalid.facts_availability_async(profile).await.unwrap_err();
+        assert!(error.to_string().contains("artifact use names an absent artifact"),"invalid membership must be independently refused: {error}");
+    }
+    invalid.drain().await.unwrap();
+    workspace.drain().await.unwrap();
+}
+
 #[path = "fixtures/native.rs"]
 mod native_fixture;

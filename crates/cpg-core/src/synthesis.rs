@@ -1389,6 +1389,58 @@ mod decoder_tests {
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
+    async fn control_formal_grain_selects_named_parameter_links_without_unrelated_parameters() {
+        use crate::consumed_rows::ClosureTable;
+        use datafusion::{datasource::MemTable,prelude::SessionContext};
+        use futures::TryStreamExt;
+        use normalized::entities::{ParameterEntity,ParameterEntityLink};
+        fn install<R:Record>(session:&SessionContext,tables:&[ClosureTable],inputs:&[ValidationInput],rows:&[R]) {
+            let index=inputs.iter().position(|input|input.type_id()==std::any::TypeId::of::<R>()).unwrap();
+            let batch=R::encode(rows).unwrap();
+            session.deregister_table(tables[index].alias.as_str()).unwrap();
+            session.register_table(tables[index].alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();
+        }
+        let budget=resources::ResourceBudget::fixed(8<<20).unwrap();
+        let model=lctx_model::domain::model().unwrap();
+        let inputs=Data::inputs(Profile::Catalog);
+        let session=SessionContext::new();
+        let tables=inputs.iter().enumerate().map(|(index,input)|{
+            let relation=model.relation(input.name()).unwrap().clone();
+            let alias=format!("control_parameter_fixture_{index}");
+            let batch=arrow_array::RecordBatch::new_empty(relation.schema().clone());
+            session.register_table(alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();
+            ClosureTable{relation,alias}
+        }).collect::<Vec<_>>();
+        let formal=ParameterEntity::Source{declaration:nominal(&[1;16]).unwrap()};
+        let unrelated=ParameterEntity::Source{declaration:nominal(&[2;16]).unwrap()};
+        let shapes=[calls::ParameterShape{name:Some("flag".into()),kind:calls::ParameterKind::KeywordOnly,required:false},calls::ParameterShape{name:Some("unrelated".into()),kind:calls::ParameterKind::KeywordOnly,required:false}];
+        let parameters=[calls::SignatureParameter{signature:nominal(&[3;16]).unwrap(),ordinal:0,shape:shapes[0].id()},calls::SignatureParameter{signature:nominal(&[4;16]).unwrap(),ordinal:0,shape:shapes[1].id()}];
+        let links=[ParameterEntityLink{parameter:parameters[0].id(),entity:formal.id(),declaration:None},ParameterEntityLink{parameter:parameters[1].id(),entity:unrelated.id(),declaration:None}];
+        let path=structural::controls::ControlPath{traversal:nominal(&[5;16]).unwrap(),target:nominal(&[6;16]).unwrap(),formal:formal.id(),may_suppress:false,length:0};
+        install(&session,&tables,&inputs,&[formal,unrelated]);
+        install(&session,&tables,&inputs,&shapes);
+        install(&session,&tables,&inputs,&parameters);
+        install(&session,&tables,&inputs,&links);
+        install(&session,&tables,&inputs,std::slice::from_ref(&path));
+        let scopes=SynthesisScopes::prepare_bound(inputs,tables,&session,None,&budget).await.unwrap();
+        let root=typed::<structural::controls::ControlPath>(&scopes.inputs).unwrap();
+        let scope=scopes.edges.grain(root,&format!("id=X'{}'",path.id().hex()),&budget).await.unwrap();
+        let mut selected_links=Rows::<ParameterEntityLink>::new(&budget);
+        let mut selected_shapes=Rows::<calls::ParameterShape>::new(&budget);
+        for (index,is_link) in [(typed::<ParameterEntityLink>(&scopes.inputs).unwrap(),true),(typed::<calls::ParameterShape>(&scopes.inputs).unwrap(),false)] {
+            let mut stream=crate::sql::query(scope.session(),&scope.select(index).unwrap()).await.unwrap().execute_stream().await.unwrap();
+            while let Some(batch)=stream.try_next().await.unwrap(){if is_link{selected_links.decode(&batch).unwrap();}else{selected_shapes.decode(&batch).unwrap();}}
+        }
+        assert_eq!(selected_links.len(),1);
+        assert_eq!(selected_links.get(links[0].id()),Some(&links[0]));
+        assert!(selected_links.get(links[1].id()).is_none());
+        assert_eq!(selected_shapes.len(),1);
+        assert_eq!(selected_shapes.get(shapes[0].id()),Some(&shapes[0]));
+        drop(selected_links);drop(selected_shapes);drop(scope);drop(scopes);
+        assert_eq!(budget.reserved(),0);
+    }
+
+    #[tokio::test]
     async fn expected_artifact_property_query_preserves_exact_extension_policy() {
         use datafusion::{datasource::MemTable, prelude::SessionContext};
         use futures::TryStreamExt;

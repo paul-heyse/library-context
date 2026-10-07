@@ -191,7 +191,7 @@ pub struct NominalClosure {
     native:BTreeMap<(usize,usize,String),NativeEdge>,
 }
 #[derive(Clone,Copy)]
-struct NativeEdge{source:usize,target:usize,table:usize,field:&'static str,reverse:bool}
+struct NativeEdge{source:usize,target:usize,table:usize,field:&'static str,reverse:bool,require_owner_presence:bool}
 impl NominalClosure {
     pub fn new(tables: Vec<ClosureTable>) -> Result<Self, ModelError> {
         if tables.is_empty() || tables.iter().any(|table| table.alias.is_empty()) {
@@ -229,7 +229,7 @@ impl NominalClosure {
             identifier(&from.alias),
             identifier(field)
         );
-        let edge=NativeEdge{source,target,table:source,field:descriptor.name(),reverse:false};
+        let edge=NativeEdge{source,target,table:source,field:descriptor.name(),reverse:false,require_owner_presence:false};
         self.native.insert((source,target,sql.clone()),edge);
         self.pairs.insert((source, target, sql));
         Ok(())
@@ -242,16 +242,27 @@ impl NominalClosure {
         owner_field: &str,
         owner: usize,
     ) -> Result<(), ModelError> {
+        self.own_selected(member,owner_field,owner,false)
+    }
+    /// Reverse membership requires an owner physically present in its exact captured table.
+    /// Dangling nominal references never create an owner merely by reaching its key.
+    pub fn own_existing(&mut self,member:usize,owner_field:&str,owner:usize)->Result<(),ModelError>{
+        self.own_selected(member,owner_field,owner,true)
+    }
+    fn own_selected(&mut self,member:usize,owner_field:&str,owner:usize,require_owner_presence:bool)->Result<(),ModelError>{
         self.follow(member, owner_field, owner)?;
         let from = self.table(member)?;
-        let sql = format!(
+        let sql = if require_owner_presence {
+            let owners=self.table(owner)?;
+            format!("SELECT o.id AS source_id,m.id AS target_id FROM {} m JOIN {} o ON m.{}=o.id",identifier(&from.alias),identifier(&owners.alias),identifier(owner_field))
+        }else{format!(
             "SELECT {} AS source_id, id AS target_id FROM {} WHERE {} IS NOT NULL",
             identifier(owner_field),
             identifier(&from.alias),
             identifier(owner_field)
-        );
+        )};
         let field=from.relation.fields().iter().find(|descriptor|descriptor.name()==owner_field).expect("validated owner field").name();
-        self.native.insert((owner,member,sql.clone()),NativeEdge{source:owner,target:member,table:member,field,reverse:true});
+        self.native.insert((owner,member,sql.clone()),NativeEdge{source:owner,target:member,table:member,field,reverse:true,require_owner_presence});
         self.pairs.insert((owner, member, sql));
         Ok(())
     }
@@ -355,7 +366,8 @@ impl NominalClosure {
         let mut native_edges=Vec::with_capacity(self.native.len());
         for (source, target, sql) in &self.pairs {
             if let Some(edge)=self.native.get(&(*source,*target,sql.clone()))
-                && lctx_surrealdb::compiler_provider::is_native_table(&providers[edge.table]) {
+                && lctx_surrealdb::compiler_provider::is_native_table(&providers[edge.table])
+                && (!edge.require_owner_presence || lctx_surrealdb::compiler_provider::is_native_table(&providers[edge.source])) {
                 native_edges.push(*edge);continue;
             }
             // Only detached finite sources and owner-authored contextual pair queries need
@@ -762,13 +774,15 @@ pub struct PreparedEdges(std::sync::Arc<EdgeSource>);
 impl PreparedEdges {
     /// Forward fields share one exact table/frontier demand. Decode only their nominal columns;
     /// each declaration retains its target namespace, including duplicate fields across epochs.
-    async fn native_forward_targets(&self,edges:&[NativeEdge],keys:std::sync::Arc<Vec<[u8;16]>>,charge:std::sync::Arc<charged::StateCharge>,budget:&ResourceBudget,mut accept:impl FnMut(usize,[u8;16])->Result<(),ModelError>)->Result<(),ModelError>{
+    /// Strict reverse links reuse the same id projection to establish physical owner presence.
+    async fn native_forward_targets(&self,source:usize,edges:&[NativeEdge],keys:std::sync::Arc<Vec<[u8;16]>>,charge:std::sync::Arc<charged::StateCharge>,budget:&ResourceBudget,mut accept:impl FnMut(usize,[u8;16])->Result<(),ModelError>)->Result<Option<std::sync::Arc<Vec<[u8;16]>>>,ModelError>{
         use arrow_array::{Array,FixedSizeBinaryArray};
-        let Some(first)=edges.iter().find(|edge|!edge.reverse) else{return Ok(());};
+        let presence=edges.iter().any(|edge|edge.require_owner_presence);
+        if !presence && !edges.iter().any(|edge|!edge.reverse){return Ok(None);}
         // Forward declarations bind their source table. A source-kind frontier therefore has
         // exactly one physical provider; reverse members remain separate indexed demands.
-        if edges.iter().filter(|edge|!edge.reverse).any(|edge|edge.table!=first.table){return Err(ModelError::Schema("native forward table binding"));}
-        let selected=lctx_surrealdb::compiler_provider::select_table(&self.0.providers[first.table],keys.clone(),charge)?.ok_or(ModelError::Schema("native nominal edge binding"))?;
+        if edges.iter().filter(|edge|!edge.reverse).any(|edge|edge.table!=source){return Err(ModelError::Schema("native forward table binding"));}
+        let selected=lctx_surrealdb::compiler_provider::select_table(&self.0.providers[source],keys.clone(),charge)?.ok_or(ModelError::Schema("native nominal edge binding"))?;
         let schema=selected.schema();
         let _projection_charge=budget.reserve("native-forward-projection",edges.len().saturating_add(1).saturating_mul(size_of::<usize>()).saturating_add(4096))?;
         let mut projection=Vec::with_capacity(edges.len()+1);
@@ -778,8 +792,20 @@ impl PreparedEdges {
         let state=self.0.session.state();
         let plan=selected.scan(&state,Some(&projection),&[],None).await.map_err(ModelError::codec)?;
         let mut stream=plan.execute(0,self.0.session.task_ctx()).map_err(ModelError::codec)?;
+        // The existing frontier charge covers this additional compact key vector, and follows
+        // any reverse selected provider that borrows it. No rich owner rows are retained.
+        let mut present=if presence{Vec::with_capacity(keys.len())}else{Vec::new()};
         while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)? {
             let ids=batch.column_by_name("id").and_then(|column|column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("native nominal source key"))?;
+            if presence {
+                for row in 0..batch.num_rows(){
+                    if ids.is_null(row){return Err(ModelError::Schema("native nominal source key null"));}
+                    let id:[u8;16]=ids.value(row).try_into().map_err(|_|ModelError::Schema("native nominal source width"))?;
+                    if keys.binary_search(&id).is_err(){return Err(ModelError::Conflict("native nominal frontier mismatch"));}
+                    if present.last().is_some_and(|previous|previous>=&id){return Err(ModelError::Conflict("native nominal owner order"));}
+                    present.push(id);
+                }
+            }
             for edge in edges.iter().filter(|edge|!edge.reverse){
                 let fields=batch.column_by_name(edge.field).and_then(|column|column.as_any().downcast_ref::<FixedSizeBinaryArray>()).ok_or(ModelError::Schema("native nominal target key"))?;
                 for row in 0..batch.num_rows(){
@@ -793,7 +819,7 @@ impl PreparedEdges {
             }
             tokio::task::yield_now().await;
         }
-        Ok(())
+        Ok(presence.then(||std::sync::Arc::new(present)))
     }
     /// Project one reverse membership over its indexed field frontier. The captured provider
     /// is the exact physical table epoch; target namespace remains owner-declared.
@@ -913,12 +939,13 @@ impl PreparedEdges {
                 let first=self.0.native_edges.partition_point(|edge|(edge.source as i64)<kind);
                 let last=self.0.native_edges.partition_point(|edge|(edge.source as i64)<=kind);
                 let edges=&self.0.native_edges[first..last];
-                self.native_forward_targets(edges,keys.clone(),frontier_charge.clone(),budget,|kind,key|{
+                let present=self.native_forward_targets(usize::try_from(kind).map_err(ModelError::codec)?,edges,keys.clone(),frontier_charge.clone(),budget,|kind,key|{
                     let target=(kind as i64,key);
                     if visited.insert(&mut traversal_charge,target)?{pending.push(&mut traversal_charge,target)?;}Ok(())
                 }).await?;
                 for edge in edges.iter().filter(|edge|edge.reverse){
-                    self.native_reverse_targets(*edge,keys.clone(),frontier_charge.clone(),|key|{
+                    let selected=if edge.require_owner_presence{present.clone().ok_or(ModelError::Schema("native owner presence absent"))?}else{keys.clone()};
+                    self.native_reverse_targets(*edge,selected,frontier_charge.clone(),|key|{
                         let target=(edge.target as i64,key);
                         if visited.insert(&mut traversal_charge,target)?{pending.push(&mut traversal_charge,target)?;}Ok(())
                     }).await?;

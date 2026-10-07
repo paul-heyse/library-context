@@ -125,7 +125,7 @@ pub async fn compile(
     )
     .await
     .unwrap();
-    workspace.validate().await.unwrap();
+    workspace.admit_semantics(profile).await.unwrap();
     drop(prepared);
     let completed = workspace.completed_relations().unwrap();
     let inputs = workspace

@@ -127,6 +127,13 @@ impl CallScopes {
                 }
             }};
         }
+        macro_rules! own_existing {
+            ($member:ty, $field:literal, $owner:ty) => {{
+                if let (Some(member),Some(owner))=(index(TypeId::of::<$member>()),index(TypeId::of::<$owner>())) {
+                    plan.own_existing(member,$field,owner)?;
+                }
+            }};
+        }
         use calls::*;
         use normalized::{callables::*, entities::*, events::*};
         own!(ProviderCallSiteSupport, "assertion", ProviderCallSite);
@@ -288,18 +295,7 @@ impl CallScopes {
         }
         let qualifications = table(TypeId::of::<assertion::AssertionQualification>())
             .ok_or(ModelError::Schema(assertion::AssertionQualification::NAME))?;
-        if let (Some(occurrences), Some(syntax)) = (
-            table(TypeId::of::<source::Occurrence>()),
-            table(TypeId::of::<CallSyntax>()),
-        ) {
-            pair!(
-                source::Occurrence,
-                CallSyntax,
-                format!(
-                    "SELECT o.id AS source_id,s.id AS target_id FROM {occurrences} o JOIN {syntax} s ON s.site=o.id"
-                )
-            );
-        }
+        own_existing!(CallSyntax, "site", source::Occurrence);
         if let (Some(syntax), Some(placements)) = (
             table(TypeId::of::<CallSyntax>()),
             table(TypeId::of::<syntax::SyntaxPlacement>()),
@@ -329,24 +325,8 @@ impl CallScopes {
             // A selected native symbol owns its complete enumeration alternatives. Constructor
             // consumers must borrow the same per-symbol domain captured by the binding owner,
             // including alternatives that have no normalized runtime signature variant.
-            if let Some(signatures) = table(TypeId::of::<Signature>()) {
-                pair!(
-                    ProviderSymbol,
-                    Signature,
-                    format!(
-                        "SELECT s.id AS source_id,n.id AS target_id FROM {symbols} s JOIN {signatures} n ON n.symbol=s.id"
-                    )
-                );
-            }
-            if let Some(enumerations) = table(TypeId::of::<SignatureEnumerationObservation>()) {
-                pair!(
-                    ProviderSymbol,
-                    SignatureEnumerationObservation,
-                    format!(
-                        "SELECT s.id AS source_id,e.id AS target_id FROM {symbols} s JOIN {enumerations} e ON e.symbol=s.id"
-                    )
-                );
-            }
+            own_existing!(Signature, "symbol", ProviderSymbol);
+            own_existing!(SignatureEnumerationObservation, "symbol", ProviderSymbol);
             if let Some(resolutions) = table(TypeId::of::<SymbolEntityResolution>()) {
                 pair!(
                     ProviderSymbol,
@@ -374,15 +354,7 @@ impl CallScopes {
                     )
                 );
             }
-            if let Some(declarations) = table(TypeId::of::<declarations::SymbolDeclaration>()) {
-                pair!(
-                    ProviderSymbol,
-                    declarations::SymbolDeclaration,
-                    format!(
-                        "SELECT s.id AS source_id,d.id AS target_id FROM {symbols} s JOIN {declarations} d ON d.symbol=s.id"
-                    )
-                );
-            }
+            own_existing!(declarations::SymbolDeclaration, "symbol", ProviderSymbol);
         }
         if let (Some(symbols), Some(signatures), Some(variants)) = (
             table(TypeId::of::<ProviderSymbol>()),

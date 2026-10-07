@@ -110,6 +110,8 @@ fn capture_identity(
     }
     Ok(sink.finish())
 }
+#[derive(PartialEq,Eq)]
+struct FactsAvailabilityKey {profile:Profile,views:[ContentHash;5]}
 /// The attempt owns one runtime, spill directory, buffer budget, and completed relation registry.
 pub struct Workspace {
     files: Arc<WorkspaceFiles>,
@@ -135,6 +137,7 @@ pub struct Workspace {
     compilation_complete: Mutex<Option<CompilationCompletion>>,
     provider_drains: Mutex<Vec<ProviderDrain>>,
     checked_premises: Mutex<(std::collections::BTreeSet<ContentHash>, StateCharge)>,
+    facts_availability:Mutex<Option<(FactsAvailabilityKey,Arc<lctx_model::domain::admission::ScopedAvailability>)>>,
 }
 impl Workspace {
     pub fn new(
@@ -187,6 +190,7 @@ impl Workspace {
             compilation_complete: Mutex::default(),
             provider_drains: Mutex::default(),
             checked_premises,
+            facts_availability:Mutex::default(),
         }))
     }
     /// Reuse a captured native configuration's pool. DataFusion allocations and typed retained
@@ -334,12 +338,10 @@ impl Workspace {
         }
         Ok(())
     }
-    fn coverage_rows<R: Record>(&self) -> Result<(Vec<R>, StateCharge), ModelError> {
+    fn coverage_rows<R: Record>(&self,source:&CompletedRelation) -> Result<(Vec<R>, StateCharge), ModelError> {
         let mut rows = Vec::new();
         let mut charge = StateCharge::new(&self.budget, "facts-coverage-input");
-        for batch in self
-            .completed::<R>()?
-            .read::<R>(self.model.clone(), self.budget.clone())?
+        for batch in source.read::<R>(self.model.clone(), self.budget.clone())?
         {
             for row in batch?.rows() {
                 charge.grow(row.row_bytes().saturating_add(size_of::<R>()))?;
@@ -348,8 +350,7 @@ impl Workspace {
         }
         Ok((rows, charge))
     }
-    async fn coverage_rows_async<R:Record>(&self)->Result<(Vec<R>,StateCharge),ModelError>{
-        let source=self.completed::<R>()?;
+    async fn coverage_rows_async<R:Record>(&self,source:&CompletedRelation)->Result<(Vec<R>,StateCharge),ModelError>{
         let mut stream=self.native.scan_batches(source.view(),&Relation::of::<R>(),None,None,&self.budget,self.options.batch_rows).await?;
         let mut rows=Vec::new();let mut charge=StateCharge::new(&self.budget,"facts-coverage-input");
         while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
@@ -373,23 +374,46 @@ impl Workspace {
         let scopes=scope_rows.into_iter().map(|row|(row.id(),row)).collect();
         ScopedAvailability::from_completed(profile,&expected,rows,&scopes,&self.budget)
     }
-    pub fn facts_availability(&self,profile:Profile)->Result<lctx_model::domain::admission::ScopedAvailability,ModelError>{
+    fn facts_availability_sources(&self,profile:Profile)->Result<(FactsAvailabilityKey,[Arc<CompletedRelation>;5]),ModelError>{
         use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
-        let (inputs,_inputs)=self.coverage_rows::<InputRevision>()?;
-        let (artifacts,_artifacts)=self.coverage_rows::<SourceArtifact>()?;
-        let (uses,_uses)=self.coverage_rows::<ArtifactUse>()?;
-        let (scopes,_scopes)=self.coverage_rows::<CoverageScope>()?;
-        let (rows,_rows)=self.coverage_rows::<ProviderCoverage>()?;
-        self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)
+        self.cancellation.check()?;
+        let completed=self.completed.lock().map_err(|_|poisoned())?;
+        let bind=|name|completed.get(name).cloned().ok_or_else(||ModelError::Invalid(format!("input {name} is not completed")));
+        let sources=[bind(InputRevision::NAME)?,bind(SourceArtifact::NAME)?,bind(ArtifactUse::NAME)?,bind(CoverageScope::NAME)?,bind(ProviderCoverage::NAME)?];
+        let key=FactsAvailabilityKey{profile,views:sources.each_ref().map(|source|source.view_identity())};
+        Ok((key,sources))
     }
-    pub async fn facts_availability_async(&self,profile:Profile)->Result<lctx_model::domain::admission::ScopedAvailability,ModelError>{
+    fn cached_facts_availability(&self,key:&FactsAvailabilityKey)->Result<Option<Arc<lctx_model::domain::admission::ScopedAvailability>>,ModelError>{
+        Ok(self.facts_availability.lock().map_err(|_|poisoned())?.as_ref().filter(|(known,_)|known==key).map(|(_,value)|value.clone()))
+    }
+    fn remember_facts_availability(&self,key:FactsAvailabilityKey,value:lctx_model::domain::admission::ScopedAvailability)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{
+        let mut admitted=self.facts_availability.lock().map_err(|_|poisoned())?;
+        if let Some((known,value))=&*admitted && *known==key {return Ok(value.clone());}
+        let value=Arc::new(value);*admitted=Some((key,value.clone()));Ok(value)
+    }
+    pub fn facts_availability(&self,profile:Profile)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{
         use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
-        let (inputs,_inputs)=self.coverage_rows_async::<InputRevision>().await?;
-        let (artifacts,_artifacts)=self.coverage_rows_async::<SourceArtifact>().await?;
-        let (uses,_uses)=self.coverage_rows_async::<ArtifactUse>().await?;
-        let (scopes,_scopes)=self.coverage_rows_async::<CoverageScope>().await?;
-        let (rows,_rows)=self.coverage_rows_async::<ProviderCoverage>().await?;
-        self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)
+        let (key,[input_source,artifact_source,use_source,scope_source,coverage_source])=self.facts_availability_sources(profile)?;
+        if let Some(value)=self.cached_facts_availability(&key)?{return Ok(value);}
+        let (inputs,_inputs)=self.coverage_rows::<InputRevision>(&input_source)?;
+        let (artifacts,_artifacts)=self.coverage_rows::<SourceArtifact>(&artifact_source)?;
+        let (uses,_uses)=self.coverage_rows::<ArtifactUse>(&use_source)?;
+        let (scopes,_scopes)=self.coverage_rows::<CoverageScope>(&scope_source)?;
+        let (rows,_rows)=self.coverage_rows::<ProviderCoverage>(&coverage_source)?;
+        let value=self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)?;
+        self.remember_facts_availability(key,value)
+    }
+    pub async fn facts_availability_async(&self,profile:Profile)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{
+        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
+        let (key,[input_source,artifact_source,use_source,scope_source,coverage_source])=self.facts_availability_sources(profile)?;
+        if let Some(value)=self.cached_facts_availability(&key)?{return Ok(value);}
+        let (inputs,_inputs)=self.coverage_rows_async::<InputRevision>(&input_source).await?;
+        let (artifacts,_artifacts)=self.coverage_rows_async::<SourceArtifact>(&artifact_source).await?;
+        let (uses,_uses)=self.coverage_rows_async::<ArtifactUse>(&use_source).await?;
+        let (scopes,_scopes)=self.coverage_rows_async::<CoverageScope>(&scope_source).await?;
+        let (rows,_rows)=self.coverage_rows_async::<ProviderCoverage>(&coverage_source).await?;
+        let value=self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)?;
+        self.remember_facts_availability(key,value)
     }
     /// Semantic content over the actual completed typed streams, independent of IPC bytes.
     pub fn identity(&self) -> Result<ContentHash, ModelError> {
@@ -904,7 +928,10 @@ impl Workspace {
                     check.visit_input(input, &batch)?;
                 }
             }
-            check.finish()?;
+            check.finish().map_err(|error| match error {
+                ModelError::Invalid(message) => ModelError::Invalid(format!("{} [{}]: {message}", invariant.name, profile.name())),
+                other => other,
+            })?;
             self.remember_premise(premise)?;
         }
         self.identity()

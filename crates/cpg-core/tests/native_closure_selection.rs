@@ -7,6 +7,52 @@ use lctx_surrealdb::{RuntimeConfig,compiler::NativeCompilerStore};
 use std::collections::{BTreeMap,BTreeSet};
 
 #[tokio::test(flavor="multi_thread")]
+async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs(){
+    async fn persist<R:Record>(store:&std::sync::Arc<NativeCompilerStore>,producer:&str,rows:&[R])->lctx_model::domain::completed::CompletedView {
+        let relation=Relation::of::<R>();
+        let spec=ContributionSpec{producer:producer.into(),profile:Profile::Catalog,model:ContentHash::of(b"existing-owner-model"),implementation:ContentHash::of(b"existing-owner-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([R::NAME.into()])};
+        let contribution=store.begin_contribution(spec).await.unwrap();
+        store.write_batch(&contribution,&relation,&R::encode(rows).unwrap()).await.unwrap();
+        store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&BTreeMap::new()).await.unwrap().remove(R::NAME).unwrap()
+    }
+    let path=std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
+    let config=RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let known=Package{name:"known-in-first-epoch".into()};
+    let missing=Package{name:"absent-from-first-epoch".into()};
+    let known_root=Release{package:known.id(),version:"known-root".into()};
+    let dangling_root=Release{package:missing.id(),version:"dangling-root".into()};
+    let known_child=Release{package:known.id(),version:"known-child".into()};
+    let dangling_child=Release{package:missing.id(),version:"dangling-child".into()};
+    let roots=persist(&store,"existing-owner-roots",&[known_root.clone(),dangling_root.clone()]).await;
+    let first=persist(&store,"existing-owner-first",std::slice::from_ref(&known)).await;
+    let second=persist(&store,"existing-owner-second",std::slice::from_ref(&missing)).await;
+    let children=persist(&store,"existing-owner-children",&[known_child.clone(),dangling_child.clone()]).await;
+    let budget=ResourceBudget::fixed(8<<20).unwrap();let session=SessionContext::new();
+    let tables=[("roots",Relation::of::<Release>(),roots),("first_owners",Relation::of::<Package>(),first),("first_children",Relation::of::<Release>(),children.clone()),("second_owners",Relation::of::<Package>(),second),("second_children",Relation::of::<Release>(),children)];
+    for (alias,relation,view) in &tables {session.register_table(*alias,store.table_provider(view,relation.clone(),budget.clone(),16).unwrap()).unwrap();}
+    let mut plan=NominalClosure::new(tables.iter().map(|(alias,relation,_)|ClosureTable{relation:relation.clone(),alias:(*alias).into()}).collect()).unwrap();
+    plan.follow(0,"package",1).unwrap();plan.follow(0,"package",3).unwrap();
+    plan.own_existing(2,"package",1).unwrap();plan.own_existing(4,"package",3).unwrap();
+    let edges=plan.prepare(&session,&budget).await.unwrap();
+    for root in [&known_root,&dangling_root] {
+        let scope=edges.grain(0,&format!("id=X'{}'",root.id().hex()),&budget).await.unwrap();
+        let read=|table|{let query=scope.select(table).unwrap();let scope=&scope;async move{scope.session().sql(&query).await.unwrap().collect().await.unwrap()}};
+        let actual=read(0).await;
+        assert_eq!(actual.iter().flat_map(|batch|Release::decode(batch).unwrap()).collect::<Vec<_>>(),vec![(*root).clone()],"the actual root survives even when one exact owner view has no matching row");
+        let actual=read(1).await;
+        assert_eq!(actual.iter().flat_map(|batch|Package::decode(batch).unwrap()).collect::<Vec<_>>(),if root==&known_root{vec![known.clone()]}else{vec![]});
+        let actual=read(2).await;
+        assert_eq!(actual.iter().flat_map(|batch|Release::decode(batch).unwrap()).collect::<Vec<_>>(),if root==&known_root{vec![known_child.clone()]}else{vec![]},"a dangling reached key must not admit children without an owner in the first view");
+        let actual=read(3).await;
+        assert_eq!(actual.iter().flat_map(|batch|Package::decode(batch).unwrap()).collect::<Vec<_>>(),if root==&dangling_root{vec![missing.clone()]}else{vec![]});
+        let actual=read(4).await;
+        assert_eq!(actual.iter().flat_map(|batch|Release::decode(batch).unwrap()).collect::<Vec<_>>(),if root==&dangling_root{vec![dangling_child.clone()]}else{vec![]},"presence in another exact owner epoch must not substitute for this epoch");
+    }
+    drop(edges);store.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor="multi_thread")]
 async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs(){
     use lctx_model::domain::{Id,calls::{CallTarget,CallPhase,ProviderSymbol,SymbolKind},source::{Occurrence,OccurrenceRole,SyntaxKind}};
     // This is a closure-selection control, not semantic admission of the unselected fields.
