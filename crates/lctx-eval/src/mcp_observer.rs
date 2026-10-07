@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use serde_json::Value;
 use crate::contracts::{Assignment, CandidateStatus};
-use crate::observer::{DecodedPacket, PublicEvidence, PublicGroup};
+use crate::observer::{DecodedPacket, PublicEvidence, PublicGroup, PublicQualification};
 
 
 // Final captures have unique object fields; reject ambiguous manual/corrupted captures.
@@ -60,6 +60,108 @@ fn literal(value: &Value) -> Result<Option<String>, String> {
         _ => Err("unsupported public literal kind".into()),
     }
 }
+fn displayed_literal(value:&Value)->Result<Option<String>,String>{
+    let kind=text(field(value,"kind")?)?;
+    Ok(match kind {
+        "string"=>Some(serde_json::to_string(text(field(value,"value")?)?).map_err(|e|e.to_string())?),
+        "bytes"=>{let bytes=array(field(value,"value")?)?.iter().map(|v|integer(v).and_then(|n|u8::try_from(n).map_err(|_|"public byte literal".into()))).collect::<Result<Vec<_>,String>>()?;Some(format!("bytes(hex={})",bytes.iter().map(|b|format!("{b:02x}")).collect::<String>()))},
+        "float"=>{let bits=field(value,"bits")?.as_i64().ok_or("public float bits")? as u64;let v=f64::from_bits(bits);v.is_finite().then(||format!("{v} (IEEE754 bits={bits:016x})"))},
+        _=>literal(value)?,
+    })
+}
+fn readable_qualification(value:&Value,analysis:&str,release:&str)->Result<Option<PublicQualification>,String>{
+    let id=identity(field(value,"qualification")?,16)?;
+    if identity(field(value,"analysis")?,16)?!=analysis{return Err("public qualification/context mismatch".into());}
+    if field(value,"truncated")?.as_bool()!=Some(false){return Ok(None);}
+    let terms=array(field(value,"terms")?)?;
+    let meaning=if let Some(constant)=field(value,"constant")?.as_bool(){
+        if (constant&&!(terms.len()==1&&array(&terms[0])?.is_empty()))||(!constant&&!terms.is_empty()){return Err("public constant/condition disagreement".into());}
+        constant.to_string()
+    }else{
+        if terms.is_empty(){return Ok(None);}
+        let mut meanings=vec![];
+        for term in terms {
+            let atoms=array(term)?;if atoms.is_empty(){return Err("unlabelled public constant term".into());}
+            let mut conjunction=vec![];
+            for atom in atoms {
+                if identity(field(atom,"analysis")?,16)?!=analysis{return Err("public condition atom/context mismatch".into());}
+                let Some(predicate)=field(atom,"predicate")?.as_str().filter(|v|!v.is_empty())else{return Ok(None);};
+                let Some(evaluation)=field(atom,"evaluation")?.as_object()else{return Ok(None);};
+                let Some(source)=evaluation.get("text").and_then(Value::as_str).filter(|v|!v.is_empty())else{return Ok(None);};
+                let original=evaluation.get("original").ok_or("public atom original missing")?;
+                if identity(field(original,"context")?,16)?!=analysis||identity(field(original,"release")?,16)?!=release{return Err("public atom original/context or release mismatch".into());}
+                let start=integer(field(original,"start")?)?;let end=integer(field(original,"end")?)?;
+                if text(field(original,"encoding")?)?!="raw_bytes"||end.checked_sub(start)!=Some(source.len() as u64){return Err("public atom original byte bounds/encoding".into());}
+                let positive=field(atom,"value")?.as_bool().ok_or("public condition polarity")?;
+                conjunction.push(format!("{}({source} {predicate})",if positive{""}else{"not "}));
+            }
+            meanings.push(conjunction.join(" and "));
+        }
+        meanings.join(" or ")
+    };
+    Ok(Some(PublicQualification{id,text:meaning}))
+}
+fn interpretation(core:&Value,common:&Assignment,groups:&mut Vec<PublicGroup>)->Result<(),String>{
+    let Some(closure)=core.get("interpretation")else{return Ok(());};
+    let mut contexts=BTreeMap::new();
+    for context in array(field(closure,"contexts")?)? {
+        let analysis=identity(field(context,"analysis")?,16)?;
+        if contexts.insert(analysis.clone(),context).is_some(){return Err("duplicate public analysis context".into());}
+        let mut assignment=common.clone();assignment.insert("analysis_identity".into(),analysis.clone());
+        let mut evidence=vec![];
+        for key in ["python_version","python_platform"] {evidence.push(observed(analysis.clone(),key,text(field(context,key)?)?.into()));}
+        for key in ["search_path","site_package_path"] {for path in array(field(context,key)?)? {evidence.push(observed(analysis.clone(),key,text(path)?.into()));}}
+        groups.push(PublicGroup{context:assignment,evidence});
+    }
+    let mut qualifications=BTreeMap::new();
+    for q in array(field(closure,"qualifications")?)? {
+        let analysis=identity(field(q,"analysis")?,16)?;
+        if !contexts.contains_key(&analysis){return Err("public qualification missing captured context".into());}
+        let id=identity(field(q,"qualification")?,16)?;
+        if qualifications.insert((id,analysis.clone()),readable_qualification(q,&analysis,common.get("release_identity").ok_or("missing enclosing readable release")?)?).is_some(){return Err("duplicate public qualification definition".into());}
+    }
+    for default in array(field(closure,"defaults")?)? {
+        let analysis=identity(field(default,"analysis")?,16)?;
+        if !contexts.contains_key(&analysis){return Err("public default missing captured context".into());}
+        let mut assignment=common.clone();assignment.insert("analysis_identity".into(),analysis.clone());
+        let field_id=field(default,"field")?;
+        let signature=field(default,"signature")?;let variant=field(default,"variant")?;let parameter=field(default,"parameter")?;
+        if !field_id.is_null() {
+            if !signature.is_null()||!variant.is_null()||!parameter.is_null(){return Err("field default invents callable binding".into());}
+            assignment.insert("field_identity".into(),identity(field_id,16)?);
+        }else{
+            let sid=identity(signature,16)?;let vid=identity(variant,16)?;let pid=identity(parameter,16)?;
+            if !array(field(core,"signatures")?)?.iter().any(|s|identity(&s["signature"],16).ok().as_ref()==Some(&sid)&&identity(&s["variant"],16).ok().as_ref()==Some(&vid)&&identity(&s["analysis"],16).ok().as_ref()==Some(&analysis)&&s.get("parameters").and_then(Value::as_array).is_some_and(|ps|ps.iter().any(|p|identity(&p["parameter"],16).ok().as_ref()==Some(&pid)))) {return Err("public default has foreign callable container".into());}
+            assignment.insert("signature_identity".into(),sid);assignment.insert("variant_identity".into(),vid);assignment.insert("parameter_identity".into(),pid);
+        }
+        let anchor=identity(field(default,"option")?,16)?;
+        let mut evidence=vec![];
+        if let Some(name)=field(default,"subject_name")?.as_str(){evidence.push(observed(anchor.clone(),if field_id.is_null(){"parameter_name"}else{"field_name"},name.into()));}
+        let kind=text(field(field(default,"value")?,"kind")?)?;
+        let readable=field(default,"readable")?.as_str().filter(|s|!s.is_empty());
+        if let Some(readable)=readable {
+            let role=match kind {"literal"=>"declared_literal_default","expression"=>"declared_expression_default","factory"=>"declared_factory_default","absent"=>"declared_absent_default",_=>""};
+            if !role.is_empty() {
+                if kind=="literal" {
+                    let id=identity(field(field(default,"value")?,"literal")?,16)?;
+                    let values=array(field(core,"literal_values")?)?;
+                    let literals=values.iter().filter(|v|identity(&v["literal"],16).ok().as_ref()==Some(&id)).collect::<Vec<_>>();
+                    if literals.len()!=1||displayed_literal(field(literals[0],"value")?)?.as_deref()!=Some(readable){return Err("public declared literal/readable disagreement".into());}
+                }
+                if kind=="absent"&&readable!="no declared default" {return Err("public absent/readable disagreement".into());}
+                if matches!(kind,"expression"|"factory") {
+                    let excerpt=field(default,"original")?;let original=field(excerpt,"original")?;
+                    if field(excerpt,"text")?.as_str()!=Some(readable)||identity(field(original,"source")?.get("occurrence").ok_or("expression original is not occurrence")?,16)?!=identity(field(field(default,"value")?,"expression")?,16)?||identity(field(original,"release")?,16)?!=*common.get("release_identity").ok_or("missing enclosing release")?||identity(field(original,"context")?,16)?!=analysis||text(field(original,"encoding")?)?!="raw_bytes"||integer(field(original,"end")?)?.checked_sub(integer(field(original,"start")?)?)!=Some(readable.len() as u64){return Err("public expression is not exact captured original".into());}
+                }
+                let mut meaning=observed(anchor,role,readable.into());
+                if !field(default,"qualification")?.is_null(){let q=identity(field(default,"qualification")?,16)?;if let Some(Some(q))=qualifications.get(&(q,analysis.clone())){meaning.qualifications.push(q.clone());}}
+                evidence.push(meaning);
+            }
+        }
+        groups.push(PublicGroup{context:assignment,evidence});
+    }
+    Ok(())
+}
 pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
     let UniqueJson(root) = serde_json::from_str(bytes).map_err(|e| e.to_string())?;
     let result = if root.get("jsonrpc").is_some() { field(&root, "result")? } else { &root };
@@ -84,7 +186,7 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
         let start = integer(field(body, "start")?)?; let end = integer(field(body, "end")?)?;
         let body_bytes = array(field(body, "bytes")?)?.iter().map(|v| integer(v).and_then(|n| u8::try_from(n).map_err(|_| "public source byte range".into()))).collect::<Result<Vec<_>, String>>()?;
         if end.checked_sub(start) != Some(body_bytes.len() as u64) { return Err("public body byte bounds mismatch".into()); }
-        if text(field(original, "encoding")?)? != "utf-8" { return Err("unsupported source encoding".into()); }
+        if !matches!(text(field(original, "encoding")?)?, "utf-8"|"raw_bytes") { return Err("unsupported source encoding".into()); }
         let source = String::from_utf8(body_bytes).map_err(|_| "source bytes are not UTF-8")?;
         let artifact = identity(field(original, "artifact")?, 16)?;
         let original_start = integer(field(original, "start")?)?;
@@ -98,7 +200,13 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
             ("source_start".into(), original_start.to_string()),
             ("source_end".into(), original_end.to_string()),
         ]);
-        groups.push(PublicGroup { context, evidence: vec![observed(anchor.clone(), "original_source", source)] });
+        let mut context=context;
+        if let Some(release)=evidence.get("release") {
+            if identity(field(release,"release")?,16)?!=context["release_identity"]{return Err("source readable release binding disagreement".into());}
+            context.insert("release".into(),text(field(release,"version")?)?.into());context.insert("distribution".into(),text(field(release,"distribution")?)?.into());
+        }
+        groups.push(PublicGroup { context:context.clone(), evidence: vec![observed(anchor.clone(), "original_source", source)] });
+        interpretation(evidence,&context,&mut groups)?;
         if let Some(cursor) = body.get("continuation") { references.push(serde_json::json!({"tool":"get_evidence","arguments":{"source":field(original,"source")?,"page":{"cursor":text(cursor)?,"expanded":true}}}).to_string()); }
     } else if let Some(operation) = structured.get("operation") {
         tool = Some("get_operation".into());
@@ -134,6 +242,7 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
                 groups.push(PublicGroup { context: parameter_context, evidence: meanings });
             }
         }
+        interpretation(core,&common,&mut groups)?;
         // Only actual public OriginalRange fields can nominate get_evidence follow-ups.
         for section in ["scenarios", "deployment"] {
             for item in packet.get(section).and_then(|s| s.get("items")).and_then(Value::as_array).into_iter().flatten() {
@@ -187,5 +296,35 @@ mod tests {
         let entry=value["structuredContent"]["operation"]["packet"]["core"]["literal_values"][0].clone();
         value["structuredContent"]["operation"]["packet"]["core"]["literal_values"].as_array_mut().unwrap().push(entry);
         assert!(decode(&value.to_string(), &"06".repeat(32)).is_err());
+    }
+}
+#[cfg(test)]
+mod closure_tests {
+    use super::*;
+    fn packet()->Value{
+        serde_json::json!({"content":[{"type":"text","text":"get_operation: snapshot-bound result"}],"isError":false,"structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},"operation":{"resolution":"unique","packet":{"core":{"member":vec![1;16],"name":"connect","release":{"distribution":"mini","version":"1","input":vec![10;16],"release":vec![11;16]},"literal_values":[{"literal":vec![9;16],"value":{"kind":"integer","decimal":"10"}}],"signatures":[{"signature":vec![12;16],"variant":vec![2;16],"analysis":vec![3;16],"parameters":[{"parameter":vec![4;16],"name":"timeout","default":{"kind":"unknown"}}]}],"interpretation":{"contexts":[{"analysis":vec![3;16],"python_version":"3.14","python_platform":"linux","search_path":["/captured/src"],"site_package_path":[]}],"defaults":[{"signature":vec![12;16],"variant":vec![2;16],"analysis":vec![3;16],"parameter":vec![4;16],"field":null,"subject_name":"timeout","option":vec![15;16],"value":{"kind":"literal","literal":vec![9;16]},"readable":"10","original":null,"qualification":vec![16;16]}],"qualifications":[{"qualification":vec![16;16],"analysis":vec![3;16],"constant":null,"truncated":false,"terms":[[{"analysis":vec![3;16],"predicate":"is truthy","value":true,"evaluation":{"text":"flag","original":{"source":{"kind":"occurrence","occurrence":vec![8;16]},"artifact":vec![7;16],"context":vec![3;16],"release":vec![11;16],"start":0,"end":4,"encoding":"raw_bytes"}}}]]}]}}}}}})
+    }
+    #[test]
+    fn readable_qualification_and_setup_come_from_final_fields(){
+        let p=decode(&packet().to_string(),&"06".repeat(32)).unwrap();
+        let default=p.groups.last().unwrap();assert_eq!(default.evidence[1].text,"10");assert_eq!(default.evidence[1].qualifications[0].text,"(flag is truthy)");
+        assert!(p.groups.iter().any(|g|g.evidence.iter().any(|e|e.role=="python_version"&&e.text=="3.14")));
+        let mut missing=packet();missing["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["qualifications"][0]["terms"][0][0]["evaluation"]["text"]=Value::Null;
+        let decoded=decode(&missing.to_string(),&"06".repeat(32)).unwrap();assert!(decoded.groups.last().unwrap().evidence[1].qualifications.is_empty());
+    }
+    #[test]
+    fn foreign_callable_and_readable_literal_corruption_refuse(){
+        let mut foreign=packet();foreign["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["defaults"][0]["variant"]=serde_json::json!(vec![99;16]);
+        assert!(decode(&foreign.to_string(),&"06".repeat(32)).is_err());
+        let mut corrupted=packet();corrupted["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["defaults"][0]["readable"]=serde_json::json!("11");
+        assert!(decode(&corrupted.to_string(),&"06".repeat(32)).is_err());
+    }
+    #[test]
+    fn field_defaults_preserve_noncallable_container(){
+        let mut field=packet();let default=&mut field["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["defaults"][0];
+        default["signature"]=Value::Null;default["variant"]=Value::Null;default["parameter"]=Value::Null;default["field"]=serde_json::json!(vec![17;16]);default["subject_name"]=serde_json::json!("limit");
+        let decoded=decode(&field.to_string(),&"06".repeat(32)).unwrap();let group=decoded.groups.last().unwrap();assert_eq!(group.context["field_identity"],"11".repeat(16));assert!(!group.context.contains_key("signature_identity"));assert_eq!(group.evidence[0].role,"field_name");
+        let mut unknown=field;unknown["structuredContent"]["operation"]["packet"]["core"]["interpretation"]["qualifications"][0]["terms"][0][0]["predicate"]=Value::Null;
+        assert!(decode(&unknown.to_string(),&"06".repeat(32)).unwrap().groups.last().unwrap().evidence[1].qualifications.is_empty());
     }
 }
