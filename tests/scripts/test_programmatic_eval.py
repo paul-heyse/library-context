@@ -694,7 +694,7 @@ def test_actual_capture_freeze_binds_source_native_wire_budget_precision(worker)
             "database_identity": capture["database_identity"],
             "lane": capture["lane"],
             "serialization": capture["serialization"],
-            "timeout_millis": capture["timeout_millis"],
+            "timeout_millis": str(capture["timeout_millis"]),
         },
     }
     frozen = prepare_comparison(

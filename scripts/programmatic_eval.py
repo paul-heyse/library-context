@@ -572,7 +572,8 @@ def frozen_judgments(
                     "actual source/native/wire capture identity differs from frozen lane"
                 )
             for field in ("lane", "serialization", "timeout_millis"):
-                if capture[field] != realization["settings"].get(field):
+                actual_value = str(capture[field]) if field == "timeout_millis" else capture[field]
+                if actual_value != realization["settings"].get(field):
                     raise WorkerError(
                         "actual capture lane/serialization/time budget differs from frozen lane"
                     )
