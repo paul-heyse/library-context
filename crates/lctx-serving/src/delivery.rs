@@ -36,8 +36,8 @@ impl Scan<'_> {
             if binding.analysis.0.is_some_and(|id|id!=original.context){return Err(WireError::Invalid("delivered source/context association".into()));}
             binding.analysis=Nullable(Some(original.context));
             if value.get("text").is_some(){
-                if value.get("text").is_some_and(Value::is_string){self.field(format!("{path}/text"),DeliveryRole::Primary,Some(original),binding.clone(),quals.clone(),vec![],availability.clone())?;}
-                else {let expand=DeliveryExpansion{tool:Tool::GetEvidence,arguments:serde_json::json!({"source":original.source,"page":{"expanded":true}})};self.omission(format!("{path}/text"),availability.clone(),Some(expand))?;}
+                if value.get("text").is_some_and(Value::is_string){self.field(format!("{path}/text"),DeliveryRole::Primary,Some(original.clone()),binding.clone(),quals.clone(),vec![],availability.clone())?;}
+                else {let expand=DeliveryExpansion{tool:Tool::GetEvidence,arguments:serde_json::json!({"source":original.source,"page":{"expanded":true,"evidence_demand":{"facets":["originals","conditions","setup"],"context":{"analysis":original.context},"maximum_followups":0}}})};self.omission(format!("{path}/text"),availability.clone(),Some(expand))?;}
             }
             if let Some(body)=value.get("body"){
                 let start=body.get("start").and_then(Value::as_u64).ok_or_else(||WireError::Invalid("delivered original body start".into()))?;

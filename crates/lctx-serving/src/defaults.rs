@@ -10,7 +10,7 @@ fn scalar(value:&value::Literal)->Result<Option<String>,ModelError> {
     Ok(match value {
         value::Literal::None=>Some("None".into()), value::Literal::Bool{value}=>Some(if *value{"True"}else{"False"}.into()),
         value::Literal::Integer{decimal}=>Some(decimal.clone()), value::Literal::String{value}=>Some(serde_json::to_string(value).map_err(ModelError::codec)?),
-        value::Literal::Bytes{value}=>Some(format!("bytes(hex={})",hex::encode(value))),
+        value::Literal::Bytes{value}=>Some(format!("bytes(hex={})",hex::encode(&value.0))),
         value::Literal::Float{bits}=>{let v=f64::from_bits(*bits as u64); if v.is_finite(){Some(format!("{v} (IEEE754 bits={:016x})",*bits as u64))}else{None}},
     })
 }

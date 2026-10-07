@@ -342,7 +342,7 @@ mod tests {
         let unit=id::<retrieval::Unit>(1);let window=id::<retrieval::SearchWindow>(2);
         let mut fragments=vec![];
         for (ordinal,purpose,text) in [(0,retrieval::PartPurpose::Context,"α setup"),(1,retrieval::PartPurpose::Primary,"a much longer first primary"),(2,retrieval::PartPurpose::Primary,"β2")] {
-            let part=retrieval::ContentPart{unit,ordinal,purpose,scope:None,qualification:None,digest:ContentHash::of(text.as_bytes()),text:Utf8Text::new(text).unwrap()};
+            let part=retrieval::ContentPart{unit,ordinal,purpose,scope:None,qualification:None,digest:ContentHash::of(text.as_bytes()),text:Utf8Text::from(text)};
             let wp=retrieval::WindowPart{window,ordinal,part:part.id(),start:0,end:text.len() as i64};
             fragments.push(part_fragment(&part,&wp).unwrap().to_owned());
         }
