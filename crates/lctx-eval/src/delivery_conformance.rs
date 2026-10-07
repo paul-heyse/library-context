@@ -111,7 +111,8 @@ mod tests {
     #[test]
     fn metadata_is_checked_separately_from_truth() {
         let good=packet(); validate(&good).unwrap();
-        for key in ["member","analysis"] {let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["binding"][key]=serde_json::json!([9]);assert!(validate(&wrong).is_err());}
+        let mut scalar=good.clone();scalar["structuredContent"]["item"]["field"]=0.into();validate(&scalar).unwrap(); // lexical field codes are not FieldEntity IDs
+        for key in ["member","analysis"] {let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["binding"][key]=serde_json::json!(vec![9;16]);assert!(validate(&wrong).is_err());}
         let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["field"]="/structuredContent/absent".into();assert!(validate(&wrong).is_err());
         let mut wrong=good.clone();wrong["structuredContent"]["delivery"]["fields"][0]["dependencies"]=serde_json::json!(["/structuredContent/absent"]);assert!(validate(&wrong).is_err());
         let mut wrong=good;wrong["structuredContent"]["delivery"]["omissions"]=serde_json::json!([{"field":"/structuredContent/item/text","expand":null}]);assert!(validate(&wrong).is_err());
