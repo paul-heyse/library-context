@@ -265,7 +265,8 @@ fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDo
     }
     if delivered.is_empty(){return Err(ModelError::Schema("ranked evidence missing primary witnesses"));}
     let interpretation=crate::defaults::qualified(data,std::collections::BTreeSet::from([hit.context]),qids,release,b)?;
-    Ok(EvidenceHit{unit,family:u.family,title:Name::new(u.title.as_str()).map_err(wire)?,originals,associated_members:members.into_iter().collect(),delivered_windows:delivered,interpretation})
+    let release_identity=captures.iter().find(|c|c.release.release==release).expect("selected captured release").release.clone();
+    Ok(EvidenceHit{unit,release:release_identity,family:u.family,title:Name::new(u.title.as_str()).map_err(wire)?,originals,associated_members:members.into_iter().collect(),delivered_windows:delivered,interpretation})
 }
 async fn derivations(
     reader: &NativeReader,
