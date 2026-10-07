@@ -32,8 +32,16 @@ owns actual verification and remaining scope.
   >128 key/field demands, residual filtering, frozen overlap and coherent membership renaming.
 - **passed:** current point-source Rust/Python development bridge build, atomic installation,
   fresh-process import/exit and `just ready`. No wheel or environment synchronization.
-- **passed:** final-source full all-target Clippy (1m29s); prior collapsible conditional repaired.
-  Formatting, generated ADR/features and documentation leaves remain open.
+- **passed:** all-target Clippy on the preceding prepared-query/serving source (1m29s).
+  Latest parser/core changes, formatting, generated ADR/features and docs leaves remain open.
+- **passed:** all three native closure controls and the actual CallScope orphan/skew control.
+  Exact owner presence retains the unchanged large-read budget and frozen epochs.
+- **passed:** finite model parameter-render and S0 named-parameter selection controls; latest
+  core/lib/affected-test compile check. Revised availability reuse control passed on `c327adba`;
+  recorded-provider admission is being corrected and needs a subsequent focused rerun.
+- **passed after prerequisite correction:**35 actual Python MCP/native-evaluator selections on
+  the retained owned snapshot; first selection33passed/2failed, both fault controls reran passed.
+  Persistent restart passed. This is bounded native evidence, not a clean assembled gate.
 - **partial / running:** final compiler, CLI, external publication/transport and actual native
   MCP/programmatic evaluation. No enclosing acceptance or measured speed claim is established.
 
@@ -57,12 +65,17 @@ then failed Behavioral Analysis with unconfirmed cleanup. Its error path now pre
 original and cleanup failures; the current-source rerun remains pending. The first direct extension
 installer replaced its own loaded mapping and crashed; the corrected atomic installer passed.
 Readiness/check logs distinguish these failures from successful subsequent controls.
-Both final native journeys completed compilation/admission/direct sealing, then `get_operation`
-failed canonical evidence selection. Canonical sum-port selection now corrects the semantic-role/
-physical-field mismatch; its finite regression passed (`acc1d0ef`). The actual journey is rerunning. Python MCP/
-evaluator followups were not reached. Final journeys and generated/docs checks remain open.
+The final native journey completed compilation/admission/direct sealing and all ten tool assertions;
+its backup passed, then restore hit the20s HTTP import deadline. The second browse-scope/vocabulary
+journey passed. Exact pinned statement parsing now bounds imports while keeping transactions whole;
+parser controls and current CLI build pass. Retained-snapshot restore got through import, cold
+state validation and native copy, then failed exact expected coverage during semantic admission.
+That mismatch remains under investigation; no check or runtime limit was weakened.
+The stopped older analytic failure was optional producer replay after compilation, not production
+admission. Generic fixtures now use semantic admission; selected diagnostics remain explicit.
+S0's missing incoming parameter-link selection is corrected and independently reviewed.
 
-**Next:** resolve runtime progress, then finish targeted both-profile/frontier, direct-seal,
+**Next:** resolve restored coverage, then finish targeted both-profile/frontier, direct-seal,
 external-state/original transport and actual native/MCP/programmatic evaluation controls;
 resolve independent findings, update dispositions/docs and run applicable leaves.
 All worker ancestry is merged on main, and only the main checkout remains. Fully merged worker
