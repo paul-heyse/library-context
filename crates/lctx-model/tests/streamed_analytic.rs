@@ -15,5 +15,5 @@ fn stream_refuses_missing_companions_rewritten_uses_and_duplicate_membership() {
 #[test]
 fn canonical_streaming_window_boundaries_preserve_unicode() {
  let b=ResourceBudget::fixed(8<<20).unwrap();let f=fixture(&b,true);let text="αβ\n🦀🦀\nlast";let definition=TextDefinition {window_bytes:6,..TextDefinition::builtin()};
- let rows=embedding::text::windows(text,definition.window_bytes as usize,&b).unwrap();let assembled=rows.iter().map(|(_,text)|*text).collect::<String>();assert_eq!(assembled,text);
+ let rows=embedding::text::windows(text,definition.window_bytes as usize,&b).unwrap();let assembled=rows.iter().map(|(_,text)|text).collect::<String>();assert_eq!(assembled,text);
 }
