@@ -1,4 +1,4 @@
-//! Actual store-free callable scopes. A finite whole-operation oracle checks semantics;
+//! Actual persisted callable scopes. A finite whole-operation oracle checks semantics;
 //! no frontend, diagnostic admission replay, store or operator behavior is claimed.
 use cpg_core::workspace::{Workspace, WorkspaceOptions};
 use lctx_model::domain::{

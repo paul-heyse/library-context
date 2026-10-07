@@ -842,7 +842,7 @@ impl CompilerRows {
 }
 impl Drop for CompilerRows {
     fn drop(&mut self){
-        if self.selection.take().is_some(){if let Some(lease)=self.lease.take(){lease.finish();}}
+        if self.selection.take().is_some() && let Some(lease)=self.lease.take(){lease.finish();}
         if let Some(mut rows)=self.rows.take(){
             let store=self.store.clone();let lease=self.lease.take();
             self.store.runtime.spawn(async move{

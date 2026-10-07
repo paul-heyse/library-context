@@ -1,4 +1,4 @@
-//! Behavioral terminal facts remain scoped typing claims through the store-free compiler.
+//! Behavioral terminal facts remain scoped typing claims through the persisted compiler.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};

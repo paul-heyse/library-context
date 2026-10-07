@@ -1,4 +1,4 @@
-//! Semantic catalog contracts through the actual store-free cumulative compiler.
+//! Semantic catalog contracts through the actual persisted cumulative compiler.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
 use lctx_model::domain::{admission::Frontier, stages::Profile};

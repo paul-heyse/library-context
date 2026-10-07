@@ -123,13 +123,13 @@ pub async fn compile(
     workspace.drain().await?;
     Ok(())
     }.await;
-    if result.is_err() {
+    if let Err(error)=&result {
         let drained=workspace.drain().await;
         store.fail();
-        if store.abandon().await.is_err() {
+        if let Err(cleanup)=store.abandon().await {
             return Err(lctx_model::domain::ModelError::infrastructure(
                 lctx_model::domain::Infrastructure::Unconfirmed,
-                format!("failed compile left owned unselected database {}",store.database().as_str()),
+                format!("failed compile ({error}); cleanup ({cleanup}) left owned unselected database {}",store.database().as_str()),
             ).into());
         }
         drained?;
