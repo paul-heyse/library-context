@@ -3,8 +3,7 @@ use lctx_model::domain::{
     analysis::retrieval::{AnalysisInvocation, AnalysisOutcome},
     catalog::evidence as c1,
     embedding::{
-        analytic::{AnalysisEmbeddingUse, VectorAvailability},
-        text::*,
+        analytic::VectorAvailability,
         value::*,
         *,
     },
@@ -24,8 +23,8 @@ fn spec() -> Spec {
     .unwrap();
     r.reduction = "none".into();
     r.admission = None;
-    r.dimensions = 3;
-    r.source_dimensions = 3;
+    r.dimensions = 4096;
+    r.source_dimensions = 4096;
     r.document_template = "prefix: {text}".into();
     r
 }
@@ -119,10 +118,13 @@ fn fixture(
     d.output = retrieval::build::build(&d.render, &b).unwrap();
     let specification = EmbeddingSpec::new(&spec()).unwrap();
     d.specifications.insert(specification.clone()).unwrap();
+    let document=DocumentRecipe::new(&spec()).unwrap();
+    let policy=embedding::projection::ProjectionDefinition::initial(&spec());
+    d.documents.insert(document.clone()).unwrap();d.projections.insert(policy.clone()).unwrap();
     d.services
         .insert(configuration::ServiceConfiguration {
             specification: specification.id(),
-            endpoint: "fixture://service".into(),
+            endpoint: "fixture://service".into(),document:document.id(),projection:policy.id(),
         })
         .unwrap(); // Pure vector replay assumes these nominal earlier parents have completed their own replay;
     // actual store qualification uses the full scheduled S0 producer, never these fixture rows.
@@ -219,205 +221,46 @@ fn frames(
     outcomes.insert(d.outcome(i, u).unwrap()).unwrap();
     (rows, outcomes)
 }
-#[test]
-fn exact_retrieval_and_analytic_winners_cold_replay_preserves_signed_zero() {
-    let (b, mut d, i, specification) = fixture(true);
-    let spec = spec();
-    let window = d.output.windows.iter().next().unwrap().clone();
-    let text = window.text.as_str();
-    let v = AdmittedValue::new(&spec, &spec.document_text(text), 7, &[1.0, 0.0, -0.0], &b).unwrap();
-    let mut uses = Rows::new(&b);
-    let key =
-        RetrievalEmbeddingUse::admit_into(&mut uses, i.id(), window.id(), &specification, &v, &b)
-            .unwrap();
-    let analytic_window = TextWindow {
-        assessment: id(4),
-        ordinal: 0,
-        start: 0,
-        end: text.len() as i64,
-        text: text.into(),
-        content: ContentHash::of(text.as_bytes()),
-    };
-    d.windows.insert(analytic_window.clone()).unwrap();
-    AnalysisEmbeddingUse::admit_into(
-        &mut d.analytic_uses,
-        id(5),
-        analytic_window.id(),
-        &specification,
-        &v,
-        &b,
-    )
-    .unwrap();
-    drop(v);
-    let (invocations, outcomes) = frames(&d, &i, &uses, &b);
-    d.verify(&invocations, &outcomes, &uses, &b).unwrap();
-    let decoded = embedding::value::decode(
-        &spec,
-        &uses.get(key).unwrap().bytes.as_ref().unwrap().0,
-        uses.get(key).unwrap().value_digest.unwrap(),
-        7,
-        &b,
-    )
-    .unwrap();
-    assert_eq!(decoded.values()[2].to_bits(), (-0.0f32).to_bits());
-    drop(decoded);
-    // Both are individually valid values for the same request; exact generation winner still differs.
-    let changed =
-        AdmittedValue::new(&spec, &spec.document_text(text), 7, &[1.0, 0.0, 0.0], &b).unwrap();
-    let mut forged = Rows::new(&b);
-    RetrievalEmbeddingUse::admit_into(
-        &mut forged,
-        i.id(),
-        window.id(),
-        &specification,
-        &changed,
-        &b,
-    )
-    .unwrap();
-    assert!(
-        d.verify(&invocations, &outcomes, &forged, &b)
-            .unwrap_err()
-            .to_string()
-            .contains("exact winning bytes")
-    );
-    drop(changed);
-    drop(d);
-    drop(uses);
-    drop(forged);
-    drop(invocations);
-    drop(outcomes);
-    assert_eq!(b.reserved(), 0);
-}
-#[test]
-fn corruption_spec_request_codec_or_consumption_erasure_refuses() {
-    let (b, d, i, specification) = fixture(true);
-    let spec = spec();
-    let window = d.output.windows.iter().next().unwrap();
-    let value = AdmittedValue::new(
-        &spec,
-        &spec.document_text(window.text.as_str()),
-        2,
-        &[1.0, 0.0, 0.0],
-        &b,
-    )
-    .unwrap();
-    let mut uses = Rows::new(&b);
-    RetrievalEmbeddingUse::admit_into(&mut uses, i.id(), window.id(), &specification, &value, &b)
-        .unwrap();
-    let (invocations, outcomes) = frames(&d, &i, &uses, &b);
-    d.verify(&invocations, &outcomes, &uses, &b).unwrap();
-    for case in 0..5 {
-        let mut row = uses.iter().next().unwrap().clone();
-        match case {
-            0 => row.input = ContentHash::of(b"foreign"),
-            1 => row.value_digest = Some(ContentHash::of(b"corrupt")),
-            2 => row.specification = id(6),
-            3 => row.bytes.as_mut().unwrap().0.pop().map(|_| ()).unwrap(),
-            _ => row.codec = Some(2),
-        }
-        let mut forged = Rows::new(&b);
-        let inserted = forged.insert(row);
-        if inserted.is_ok() {
-            assert!(d.verify(&invocations, &outcomes, &forged, &b).is_err());
-        }
-    }
-    assert!(
-        d.verify(&invocations, &outcomes, &Rows::new(&b), &b)
-            .is_err()
-    );
-    assert!(
-        d.verify(&Rows::new(&b), &Rows::new(&b), &Rows::new(&b), &b)
-            .is_err()
-    );
-}
-#[test]
-fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_completed() {
-    for selected in [false, true] {
-        let (b, d, i, specification) = fixture(selected);
-        let window = d.output.windows.iter().next().unwrap();
-        let spec = spec();
-        for (availability, tokens) in [
-            (VectorAvailability::ServiceUnavailable, None),
-            (
-                VectorAvailability::TokenLimit,
-                Some(i64::from(spec.max_document_tokens) + 1),
-            ),
-        ] {
-            let mut uses = Rows::new(&b);
-            if selected {
-                uses.insert(RetrievalEmbeddingUse {
-                    invocation: i.id(),
-                    window: window.id(),
-                    specification: specification.id(),
-                    input: input_hash(&spec.document_text(window.text.as_str())),
-                    availability,
-                    admitted_tokens: tokens,
-                    codec: None,
-                    value_digest: None,
-                    bytes: None,
-                })
-                .unwrap();
-            }
-            let (invocations, outcomes) = frames(&d, &i, &uses, &b);
-            d.verify(&invocations, &outcomes, &uses, &b).unwrap();
-            assert_eq!(
-                outcomes.iter().next().unwrap().status,
-                if selected {
-                    analysis::AnalysisStatus::Partial
-                } else {
-                    analysis::AnalysisStatus::Completed
-                }
-            );
-            assert_eq!(d.output.units.len(), 1);
-            assert_eq!(d.output.windows.len(), 1);
-        }
-    }
-}
-#[test]
-fn foreign_spec_refuses_without_changing_lexical_preparation() {
-    let (b, d, i, specification) = fixture(true);
-    let mut other = spec();
-    other.revision.push('x');
-    let changed = EmbeddingSpec::new(&other).unwrap();
-    assert_ne!(changed.id(), specification.id());
-    let window = d.output.windows.iter().next().unwrap();
-    let value = AdmittedValue::new(
-        &other,
-        &other.document_text(window.text.as_str()),
-        1,
-        &[1.0, 0.0, 0.0],
-        &b,
-    )
-    .unwrap();
-    let mut uses = Rows::new(&b);
-    assert!(
-        RetrievalEmbeddingUse::admit_into(
-            &mut uses,
-            i.id(),
-            window.id(),
-            &specification,
-            &value,
-            &b
-        )
-        .is_err()
-    );
-    let tiny = ResourceBudget::fixed(1).unwrap();
-    let mut uses = Rows::new(&tiny);
-    assert!(
-        RetrievalEmbeddingUse::admit_into(
-            &mut uses,
-            i.id(),
-            window.id(),
-            &changed,
-            &value,
-            &tiny
-        )
-        .is_err()
-    );
-    assert!(uses.is_empty());
-    assert_eq!(tiny.reserved(), 0);
-}
 
+fn canonical(d:&ConsumptionData,b:&ResourceBudget)->(FullValue,embedding::projection::ProjectedValue,embedding::consumption::PublishedValue){
+    let window=d.output.windows.iter().next().unwrap();let mut vector=vec![0.0;4096];vector[0]=1.0;vector[2]=-0.0;
+    let admitted=AdmittedValue::new(&spec(),window.input_text.as_str(),window.tokens.unwrap() as u32,&vector,b).unwrap();
+    let full=FullValue::new(d.selected_spec().unwrap(),&admitted).unwrap();let projection=embedding::projection::ProjectedValue::new(&full,d.policy().unwrap()).unwrap();
+    let published=embedding::consumption::PublishedValue{value:full.id(),projection:projection.id(),input:full.input,tokens:full.tokens as u32};(full,projection,published)
+}
+fn uses(d:&ConsumptionData,i:&AnalysisInvocation,published:&embedding::consumption::PublishedValue,b:&ResourceBudget)->Rows<RetrievalEmbeddingUse>{let mut uses=Rows::new(b);for window in d.output.windows.iter(){RetrievalEmbeddingUse::admit_into(&mut uses,i.id(),window.id(),d.selected_consumption().unwrap(),published,b).unwrap();}uses}
+fn seed(d:&mut ConsumptionData,full:&FullValue,projection:&embedding::projection::ProjectedValue){let encoder=d.selected_spec().unwrap().clone();let policy=d.policy().unwrap().clone();d.values.admit_full(full,&encoder,&policy).unwrap();d.values.admit_projection(projection).unwrap();}
+#[test]
+fn canonical_companions_roundtrip_preserves_signed_zero_and_reference_only_uses(){
+    let(b,mut d,i,_)=fixture(true);let(full,projection,published)=canonical(&d,&b);
+    let full=FullValue::decode(&FullValue::encode(&[full]).unwrap()).unwrap().pop().unwrap();
+    let projected=embedding::projection::ProjectedValue::decode(&embedding::projection::ProjectedValue::encode(&[projection]).unwrap()).unwrap().pop().unwrap();
+    let vector=decode_vector(&full.bytes.0,4096).unwrap();assert_eq!(vector[2].to_bits(),(-0.0f32).to_bits());assert_eq!(projected.values().unwrap()[2].to_bits(),(-0.0f32).to_bits());
+    seed(&mut d,&full,&projected);let uses=uses(&d,&i,&published,&b);let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();
+    let relation=Relation::of::<RetrievalEmbeddingUse>();let fields=relation.fields();assert!(!fields.iter().any(|f|matches!(f.name(),"bytes"|"codec"|"value_digest")));
+}
+#[test]
+fn missing_canonical_companions_refuse_even_when_local_reference_keys_match(){
+    let(b,mut d,i,_)=fixture(true);let(full,projection,published)=canonical(&d,&b);let uses=uses(&d,&i,&published,&b);
+    verify_uses(&d.output,&i,Some(d.selected_consumption().unwrap()),&uses,&b).unwrap();assert!(d.verify_canonical_uses(&uses).is_err());
+    let encoder=d.selected_spec().unwrap().clone();let policy=d.policy().unwrap().clone();d.values.admit_full(&full,&encoder,&policy).unwrap();assert!(d.verify_canonical_uses(&uses).is_err());
+    d.values.admit_projection(&projection).unwrap();d.verify_canonical_uses(&uses).unwrap();let mut forged=projection.clone();forged.source_digest=ContentHash::of(b"foreign full");assert!(d.values.admit_projection(&forged).is_err());
+}
+#[test]
+fn request_recipe_reference_token_and_consumption_erasure_refuse(){
+    let(b,mut d,i,_)=fixture(true);let(full,projection,published)=canonical(&d,&b);seed(&mut d,&full,&projection);let uses=uses(&d,&i,&published,&b);let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();
+    for case in 0..6{let mut row=uses.iter().next().unwrap().clone();match case{0=>row.input=ContentHash::of(b"foreign"),1=>row.value=Some(id(81)),2=>row.projection=Some(id(82)),3=>row.document=id(83),4=>row.admitted_tokens=Some(0),_=>row.invocation=id(84)};let mut forged=Rows::new(&b);forged.insert(row).unwrap();assert!(d.verify(&invocations,&outcomes,&forged,&b).is_err());}
+    assert!(d.verify(&invocations,&outcomes,&Rows::new(&b),&b).is_err());
+}
+#[test]
+fn service_and_token_refusals_retain_lexical_units_and_disabled_vectors_are_completed(){
+    for selected in [false,true]{let(b,d,i,specification)=fixture(selected);let window=d.output.windows.iter().next().unwrap();for(availability,tokens)in[(VectorAvailability::ServiceUnavailable,None),(VectorAvailability::TokenLimit,Some(2049))]{let mut uses=Rows::new(&b);if selected{uses.insert(RetrievalEmbeddingUse{invocation:i.id(),window:window.id(),specification:specification.id(),document:d.document().unwrap().id(),input:window.encoded_digest,availability,admitted_tokens:tokens,value:None,projection:None}).unwrap();}let(invocations,outcomes)=frames(&d,&i,&uses,&b);d.verify(&invocations,&outcomes,&uses,&b).unwrap();assert_eq!(outcomes.iter().next().unwrap().status,if selected{analysis::AnalysisStatus::Partial}else{analysis::AnalysisStatus::Completed});assert_eq!(d.output.units.len(),1);}}
+}
+#[test]
+fn foreign_encoder_and_tiny_budget_refuse_reference_publication(){
+    let(b,d,i,_)=fixture(true);let(_,_,mut published)=canonical(&d,&b);published.value=id(88);let mut uses=Rows::new(&b);assert!(RetrievalEmbeddingUse::admit_into(&mut uses,i.id(),d.output.windows.iter().next().unwrap().id(),d.selected_consumption().unwrap(),&published,&b).is_err());
+    let(_,_,published)=canonical(&d,&b);let tiny=ResourceBudget::fixed(1).unwrap();let mut uses=Rows::new(&tiny);assert!(RetrievalEmbeddingUse::admit_into(&mut uses,i.id(),d.output.windows.iter().next().unwrap().id(),d.selected_consumption().unwrap(),&published,&tiny).is_err());assert!(uses.is_empty());assert_eq!(tiny.reserved(),0);
+}
 #[test]
 fn native_frames_require_exact_synthesis_catalog_parents_even_without_any_briefs() {
     for case in 0..7 {
@@ -463,91 +306,4 @@ fn native_frames_require_exact_synthesis_catalog_parents_even_without_any_briefs
         }
         assert!(d.verify(&invocations, &outcomes, &uses, &b).is_err());
     }
-}
-
-#[test]
-fn unit_consumption_preserves_exact_finite_oracle_and_refuses_missing_foreign_or_request_drift() {
-    let (b, data, invocation, specification) = fixture(true);
-    let spec = spec();
-    let mut uses = Rows::new(&b);
-    for window in data.output.windows.iter() {
-        let value = AdmittedValue::new(
-            &spec,
-            &spec.document_text(window.text.as_str()),
-            7,
-            &[1.0, 0.0, -0.0],
-            &b,
-        )
-        .unwrap();
-        RetrievalEmbeddingUse::admit_into(
-            &mut uses,
-            invocation.id(),
-            window.id(),
-            &specification,
-            &value,
-            &b,
-        )
-        .unwrap();
-    }
-    verify_uses(&data.output, &invocation, Some(&specification), &uses, &b).unwrap();
-    let (invocations, outcomes) = frames(&data, &invocation, &uses, &b);
-    data.verify_completion(&invocations, &outcomes, &uses, &b)
-        .unwrap();
-    data.verify_frames(&invocations, &outcomes, &outcomes, &b)
-        .unwrap();
-    assert!(
-        verify_uses(
-            &data.output,
-            &invocation,
-            Some(&specification),
-            &Rows::new(&b),
-            &b
-        )
-        .is_err()
-    );
-    let mut foreign = Rows::new(&b);
-    for row in uses.iter() {
-        let mut row = row.clone();
-        row.invocation = id(88);
-        foreign.insert(row).unwrap();
-    }
-    assert!(
-        verify_uses(
-            &data.output,
-            &invocation,
-            Some(&specification),
-            &foreign,
-            &b
-        )
-        .is_err()
-    );
-    drop(foreign);
-    let mut changed = Rows::new(&b);
-    for row in uses.iter() {
-        let mut row = row.clone();
-        row.input = ContentHash::of(b"different exact request");
-        changed.insert(row).unwrap();
-    }
-    assert!(
-        verify_uses(
-            &data.output,
-            &invocation,
-            Some(&specification),
-            &changed,
-            &b
-        )
-        .is_err()
-    );
-    let mut disposition = Disposition::default();
-    disposition.observe(&uses);
-    assert_eq!(
-        disposition.outcome(&invocation),
-        data.outcome(&invocation, &uses).unwrap()
-    );
-    drop(changed);
-    drop(uses);
-    drop(invocations);
-    drop(outcomes);
-    drop(data);
-    assert_eq!(b.reserved(), 0);
 }

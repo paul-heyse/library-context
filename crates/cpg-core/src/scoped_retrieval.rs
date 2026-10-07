@@ -99,6 +99,12 @@ async fn refuse_rows(
     })
     .await
 }
+async fn verify_root_domain(session:&SessionContext,roots:&str,unit_roots:&str,units:&str,cancellation:&Cancellation)->Result<(),ModelError>{
+    refuse_rows(session,format!("SELECT r.id FROM {roots} r WHERE NOT EXISTS (SELECT 1 FROM {unit_roots} x JOIN {units} u ON x.unit=u.id WHERE x.root=r.id AND u.input=r.input AND u.context=r.context) LIMIT 1"),cancellation,"completed C1 root has no exact contextual retrieval unit").await
+}
+async fn verify_corpus_domain(session:&SessionContext,corpus:&str,units:&str,windows:&str,cancellation:&Cancellation)->Result<(),ModelError>{
+    refuse_rows(session,format!("SELECT c.id FROM {corpus} c WHERE NOT EXISTS (SELECT 1 FROM {units} u WHERE u.corpus=c.id) AND NOT EXISTS(SELECT 1 FROM {windows} w WHERE w.corpus=c.id) LIMIT 1"),cancellation,"retrieval corpus has no contextual unit/window").await
+}
 fn plan(inputs: &[ValidationInput], tables: &[ClosureTable]) -> Result<NominalClosure, ModelError> {
     let mut plan = NominalClosure::new(tables.to_vec())?;
     for (source, table) in tables.iter().enumerate() {
@@ -220,11 +226,11 @@ pub(crate) async fn validate_retrieval(
     let window = alias::<retrieval::SearchWindow>(inputs, &tables)?;
     let uses = alias::<RetrievalEmbeddingUse>(inputs, &tables)?;
     let invocation = alias::<analysis::retrieval::Invocation>(inputs, &tables)?;
-    refuse_rows(session,format!("SELECT c.id FROM {corpus} c WHERE NOT EXISTS (SELECT 1 FROM {unit} u WHERE u.corpus=c.id) AND NOT EXISTS(SELECT 1 FROM {window} w WHERE w.corpus=c.id) LIMIT 1"),cancellation,"retrieval corpus has no contextual unit").await?;
+    verify_corpus_domain(session,&corpus,&unit,&window,cancellation).await?;
     refuse_rows(session,format!("SELECT v.id FROM {uses} v JOIN {invocation} i ON v.invocation=i.id JOIN {window} f ON v.window=f.id WHERE NOT EXISTS (SELECT 1 FROM {unit} u WHERE u.id=f.unit AND u.input=i.input AND u.context=i.context) LIMIT 1"),cancellation,"retrieval use has no exact owning native frame").await?;
     let actual_roots=alias::<catalog::evidence::EvidenceRoot>(inputs,&tables)?;
     let unit_roots=alias::<retrieval::UnitRoot>(inputs,&tables)?;
-    refuse_rows(session,format!("SELECT r.id FROM {actual_roots} r WHERE NOT EXISTS (SELECT 1 FROM {unit_roots} x JOIN {unit} u ON x.unit=u.id WHERE x.root=r.id AND u.input=r.input AND u.context=r.context) LIMIT 1"),cancellation,"completed C1 root has no exact contextual retrieval unit").await?;
+    verify_root_domain(session,&actual_roots,&unit_roots,&unit,cancellation).await?;
     if !selected {
         refuse_rows(
             session,
@@ -354,4 +360,46 @@ pub(crate) async fn validate_retrieval(
     }
     metadata.verify_frames(&invocations, &outcomes, &expected, budget)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod controls {
+    use super::*;
+    use datafusion::datasource::MemTable;
+    use std::sync::Arc;
+    fn id<R>(n:u8)->Id<R>{nominal(&[n;16]).unwrap()}
+    fn install<R:Record>(session:&SessionContext,name:&str,rows:&[R]){let batch=R::encode(rows).unwrap();session.deregister_table(name).unwrap();session.register_table(name,Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();}
+    fn corpus(text:&str)->retrieval::CorpusText{retrieval::CorpusText{family:retrieval::Family::Source,rendering_version:retrieval::RENDER_VERSION,digest:ContentHash::of(text.as_bytes()),text:text.into()}}
+    fn unit(corpus:Id<retrieval::CorpusText>)->retrieval::Unit{retrieval::Unit{input:id(1),context:id(2),family:retrieval::Family::Source,origin:id(3),corpus,title:"source".into()}}
+    fn window(unit:Id<retrieval::Unit>,corpus:&retrieval::CorpusText)->retrieval::SearchWindow{retrieval::SearchWindow{definition:retrieval::Definition::builtin(false).id(),unit,ordinal:0,corpus:corpus.id(),digest:corpus.digest,text:corpus.text.clone(),input_text:corpus.text.clone(),encoded_digest:embedding::value::input_hash(corpus.text.as_str()),tokenizer:None,tokens:None,availability:retrieval::WindowAvailability::TokenizerUnavailable}}
+    #[tokio::test]
+    async fn omitted_roots_and_foreign_context_cannot_hide_behind_unit_scopes(){
+        let session=SessionContext::new();let cancellation=Cancellation::default();
+        let root=catalog::evidence::EvidenceRoot{input:id(1),context:id(2),subject:id(4)};
+        let corpus=corpus("complete grain");let valid=unit(corpus.id());
+        install(&session,"roots",&[root.clone()]);install(&session,"units",&[valid.clone()]);install::<retrieval::UnitRoot>(&session,"unit_roots",&[]);
+        assert!(verify_root_domain(&session,"roots","unit_roots","units",&cancellation).await.is_err());
+        let mapping=retrieval::UnitRoot{unit:valid.id(),root:root.id()};install(&session,"unit_roots",&[mapping]);verify_root_domain(&session,"roots","unit_roots","units",&cancellation).await.unwrap();
+        let mut foreign=valid;foreign.context=id(9);install(&session,"units",&[foreign]);assert!(verify_root_domain(&session,"roots","unit_roots","units",&cancellation).await.is_err());
+    }
+    #[tokio::test]
+    async fn split_window_corpus_is_owned_without_requiring_another_unit(){
+        let session=SessionContext::new();let cancellation=Cancellation::default();let complete=corpus("complete grain");let split=corpus("selected primary");let unit=unit(complete.id());let window=window(unit.id(),&split);
+        install(&session,"corpus",&[complete,split]);install(&session,"units",&[unit]);install(&session,"windows",&[window]);verify_corpus_domain(&session,"corpus","units","windows",&cancellation).await.unwrap();
+        install::<retrieval::SearchWindow>(&session,"windows",&[]);assert!(verify_corpus_domain(&session,"corpus","units","windows",&cancellation).await.is_err());
+    }
+    #[tokio::test]
+    async fn actual_unit_inverse_closure_includes_parts_maps_windows_and_bindings(){
+        let model=lctx_model::domain::model().unwrap();let inputs=consumption::invariants().remove(0).inputs;let session=SessionContext::new();
+        let tables:Vec<_>=inputs.iter().enumerate().map(|(n,input)|{let relation=model.relation(input.name()).unwrap().clone();let alias=format!("closure_{n}");let batch=arrow_array::RecordBatch::new_empty(relation.schema().clone());session.register_table(alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();ClosureTable{relation,alias}}).collect();
+        let corpus=corpus("primary");let unit=unit(corpus.id());let window=window(unit.id(),&corpus);let part=retrieval::ContentPart{unit:unit.id(),ordinal:0,purpose:retrieval::PartPurpose::Primary,scope:None,qualification:None,digest:corpus.digest,text:corpus.text.clone()};
+        macro_rules! put{($ty:ty,$rows:expr)=>{install::<$ty>(&session,&tables[index::<$ty>(&inputs).unwrap()].alias,$rows);};}
+        put!(retrieval::Unit,&[unit.clone()]);put!(retrieval::CorpusText,&[corpus.clone()]);put!(retrieval::ContentPart,&[part.clone()]);put!(retrieval::SearchWindow,&[window.clone()]);
+        put!(retrieval::PartSourceMap,&[retrieval::PartSourceMap{part:part.id(),ordinal:0,start:0,end:7,original:None,original_start:None,original_end:None}]);
+        put!(retrieval::WindowPart,&[retrieval::WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:7}]);
+        put!(retrieval::WindowSourceMap,&[retrieval::WindowSourceMap{window:window.id(),ordinal:0,start:0,end:7,part:Some(part.id()),original:None,original_start:None,original_end:None}]);
+        put!(retrieval::WindowBinding,&[retrieval::WindowBinding{window:window.id(),part:part.id(),subject:id(9),basis:retrieval::BindingBasis::Source,qualification:None}]);
+        let budget=ResourceBudget::fixed(16<<20).unwrap();let prepared=plan(&inputs,&tables).unwrap().prepare(&session,&budget).await.unwrap();let closure=prepared.grain(index::<retrieval::Unit>(&inputs).unwrap(),&format!("id=X'{}'",unit.id().hex()),&budget).await.unwrap();
+        for ty in [TypeId::of::<retrieval::ContentPart>(),TypeId::of::<retrieval::PartSourceMap>(),TypeId::of::<retrieval::SearchWindow>(),TypeId::of::<retrieval::WindowPart>(),TypeId::of::<retrieval::WindowSourceMap>(),TypeId::of::<retrieval::WindowBinding>()]{let index=inputs.iter().position(|input|input.type_id()==ty).unwrap();let selected=closure.select(index).unwrap();let batches=crate::sql::query(closure.session(),&selected).await.unwrap().collect().await.unwrap();assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),1);}
+    }
 }
