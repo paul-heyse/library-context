@@ -107,6 +107,13 @@ impl RankedResults {
         state.next+=1;let used=state.next;
         let entry=state.entries.get_mut(&result).ok_or_else(unavailable)?;
         if let Some(v)=vector {
+            let query=match request {
+                Request::SearchOperations(r)=>r.query.as_str(),
+                Request::SearchEvidence(r)=>r.query.as_str(),
+                Request::SearchCapabilities(r)=>r.query.as_str(),
+                _=>return Err(unavailable()),
+            };
+            if v.recipe.validate().is_err() || v.input!=lctx_model::domain::embedding::value::input_hash(&v.recipe.text(query)) {return Err(unavailable());}
             let supplied=VectorChannel::Available {spec:v.spec,query_vector:lctx_model::domain::embedding::value::value_digest(&v.vector),query_recipe:v.recipe.identity(),projection:v.projection};
             if supplied!=entry.channels.vector { return Err(unavailable()); }
         }
@@ -138,11 +145,14 @@ mod tests {
     fn request()->Request { Request::SearchEvidence(SearchEvidenceRequest { library:Optional::default(),query:QueryText::new("original").unwrap(),families:vec![],page:PageRequest {size:1,..PageRequest::default()} }) }
     fn channels()->ChannelState { ChannelState {lexical:true,vector:VectorChannel::Degraded {reason:Name::new("unavailable").unwrap()}} }
     fn response(cache:&RankedResults,request:&Request)->Response {
+        response_with_channels(cache,request,&channels())
+    }
+    fn response_with_channels(cache:&RankedResults,request:&Request,channels:&ChannelState)->Response {
         let values=(1..=3).map(|n| {let unit=id::<retrieval::Unit>(n);let ranking=ranking::RankedHit {target:ranking::Target::Unit {unit},context:id::<AnalysisContext>(n),score:1.0/f64::from(n),promoted:false,witnesses:vec![]};
             (ranking,ContentHash::of(&[n]),EvidenceHit {unit,family:retrieval::Family::Source,title:Name::new(format!("original{n}")).unwrap(),originals:vec![],associated_members:vec![]})}).collect();
-        let (results,ranking)=cache.page(values,request,&handle(),&channels()).unwrap();
+        let (results,ranking)=cache.page(values,request,&handle(),channels).unwrap();
         let response=Response::SearchEvidence(SearchEvidenceResponse {
-            delivery: Optional::default(),snapshot:handle(),domains:vec![],extent:SelectionExtent::Ranked {returned:1},results,channels:channels(),ranking});cache.attach(&response).unwrap();response
+            delivery: Optional::default(),snapshot:handle(),domains:vec![],extent:SelectionExtent::Ranked {returned:1},results,channels:channels.clone(),ranking});cache.attach(&response).unwrap();response
     }
     fn next(request:&mut Request,response:&Response) {
         let Request::SearchEvidence(request)=request else {unreachable!()};let Response::SearchEvidence(response)=response else {unreachable!()};request.page.cursor=response.results.continuation.clone();
@@ -168,5 +178,19 @@ mod tests {
     fn retained_writer_refuses_before_oversized_row_allocation() {
         assert!(encode(&vec!["payload";100],16).is_err());
         let mut state=State::default();assert!(state.make_room(MAX_BYTES+1,None).is_err());
+    }
+    #[test]
+    fn continuation_rejects_changed_query_value_or_input_but_needs_no_new_inference() {
+        use lctx_model::domain::embedding;
+        let recipe=embedding::QueryRecipe {template:"{task_description}: {query}".into(),task:"retrieve".into(),max_tokens:8192};
+        let mut vector=vec![0.0;4096];vector[0]=1.0;
+        let mut query=crate::service::QueryVector {spec:ContentHash::of(b"encoder"),input:embedding::value::input_hash(&recipe.text("original")),vector,recipe,projection:id(1)};
+        let channels=ChannelState {lexical:true,vector:VectorChannel::Available {spec:query.spec,query_vector:embedding::value::value_digest(&query.vector),query_recipe:query.recipe.identity(),projection:query.projection}};
+        let cache=RankedResults::default();let mut request=request();let first=response_with_channels(&cache,&request,&channels);next(&mut request,&first);
+        assert!(cache.resume(&request,&handle(),None).unwrap().is_some());
+        assert!(cache.resume(&request,&handle(),Some(&query)).unwrap().is_some());
+        query.input=ContentHash::of(b"foreign input");assert!(cache.resume(&request,&handle(),Some(&query)).is_err());
+        query.input=embedding::value::input_hash(&query.recipe.text("original"));query.vector[0]=0.0;query.vector[1]=1.0;
+        assert!(cache.resume(&request,&handle(),Some(&query)).is_err());
     }
 }
