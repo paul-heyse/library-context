@@ -123,6 +123,23 @@ pub const SCOPE_FIELDS: &[&str] = &[
     "set",
     "universe",
 ];
+/// One atomic scope index covers every declared scalar nominal reference, including compiler
+/// ownership fields. The model owns this inventory; existing scalar scope predicates remain.
+pub fn atomic_scope_fields()->&'static std::collections::BTreeSet<&'static str> {
+    static FIELDS:std::sync::OnceLock<std::collections::BTreeSet<&'static str>>=std::sync::OnceLock::new();
+    FIELDS.get_or_init(||{
+        let mut fields=SCOPE_FIELDS.iter().copied().collect();
+        fn collect<R:Record>(fields:&mut std::collections::BTreeSet<&'static str>){
+            fields.extend(R::fields().into_iter().filter(|field|field.target().is_some() && !field.list()).map(|field|field.name()));
+        }
+        macro_rules! collect_registry {($($variant:ident:$ty:ty,)*)=>{$(collect::<$ty>(&mut fields);)*};}
+        lctx_model::graph_entity_records!(collect_registry);
+        lctx_model::graph_assertion_records!(collect_registry);
+        collect::<lctx_model::domain::analytics::QualityStep>(&mut fields);
+        collect::<lctx_model::domain::artifact::ArtifactChunk>(&mut fields);
+        fields
+    })
+}
 /// Non-graph compiler backing has a closed model-generated body, just like graph records.
 pub fn compiler_record_schema() -> String {
     let shapes = [declaration::<lctx_model::domain::analytics::QualityStep>(), "{__type:'artifact_chunks', artifact:array<int,16>, ordinal:int, original:record<original>, start:int, len:int, digest:string}".into()];
@@ -132,10 +149,10 @@ pub fn compiler_record_schema() -> String {
 }
 fn scope_schema(table:&str)->String {
     let mut sql=String::new();
-        for field in SCOPE_FIELDS {
+        for field in atomic_scope_fields() {
             sql.push_str(&format!("DEFINE FIELD `scope_{field}` ON {table} TYPE option<string> VALUE IF body.`{field}` IS NONE THEN NONE ELSE <string>body.`{field}` END;"));
         }
-        let active=SCOPE_FIELDS.iter().map(|field|format!("IF body.`{field}` IS NONE OR body.`{field}` IS NULL THEN NONE ELSE semantic_type+'|{field}|'+<string>body.`{field}` END")).collect::<Vec<_>>().join(",");
+        let active=atomic_scope_fields().iter().map(|field|format!("IF body.`{field}` IS NONE OR body.`{field}` IS NULL THEN NONE ELSE semantic_type+'|{field}|'+<string>body.`{field}` END")).collect::<Vec<_>>().join(",");
         sql.push_str(&format!("DEFINE FIELD scope_keys ON {table} TYPE array<string> VALUE [{active}].filter(|$value| $value IS NOT NONE); DEFINE INDEX by_scope ON {table} FIELDS scope_keys.*,semantic_key;"));
     sql
 }

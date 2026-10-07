@@ -618,7 +618,7 @@ impl NativeCompilerStore {
             Some(NativePredicate::Field{field,values})=>{
                 if !relation.fields().iter().any(|f|f.name()==field) {return Err(ModelError::Conflict("native selected field"));}
                 if relation.name()==d::artifact::ArtifactChunk::NAME && field=="body" {return Err(ModelError::Conflict("original bytes are hydrated after native selection"));}
-                let atomic=crate::schema::SCOPE_FIELDS.contains(&field.as_str()) && !values.iter().any(|value|matches!(value,Value::Null|Value::None));
+                let atomic=crate::schema::atomic_scope_fields().contains(field.as_str()) && !values.iter().any(|value|matches!(value,Value::Null|Value::None));
                 b.insert("values",values);
                 if atomic {b.insert("scope_prefix",format!("{}|{field}|",relation.name()));"scope_keys CONTAINSANY $values.map(|$value| $scope_prefix + <string>$value)".into()}
                 else {format!("body.`{field}` IN $values")}

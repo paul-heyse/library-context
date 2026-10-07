@@ -255,11 +255,11 @@ async fn native_binary_backed_text_matches_closed_schema() {
         .unwrap();
     assert_eq!(literal_bodies.len(), 2);
     let textual=literal_bodies[0].as_object().unwrap();
-    let opaque=literal_bodies[1].as_object().unwrap();
+    let opaque_body=literal_bodies[1].as_object().unwrap();
     assert_eq!(textual.get("string_value"),Some(&Value::from_t("exact 雪\n\0text")));
     assert_eq!(textual.get("bytes_value"),Some(&Value::Null));
-    assert_eq!(opaque.get("string_value"),Some(&Value::Null));
-    assert_eq!(opaque.get("bytes_value"),Some(&Value::Bytes(Bytes::from(vec![0xff,0,0x80]))));
+    assert_eq!(opaque_body.get("string_value"),Some(&Value::Null));
+    assert_eq!(opaque_body.get("bytes_value"),Some(&Value::Bytes(Bytes::from(vec![0xff,0,0x80]))));
     assert_eq!(
         native
             .records::<CorpusText>(RecordSelection::Keys(vec![*corpus.id().bytes()]))

@@ -146,7 +146,7 @@ impl NativeReader {
                 if !R::fields().iter().any(|f| f.name() == field) {
                     return Err(ModelError::Invalid("undeclared native scope field".into()));
                 }
-                let sparse = crate::schema::SCOPE_FIELDS.contains(&field.as_str())
+                let sparse = crate::schema::atomic_scope_fields().contains(field.as_str())
                     && !values.iter().any(serde_json::Value::is_null);
                 bindings.insert(
                     "values",
@@ -369,7 +369,7 @@ pub async fn connect(
 }
 /// Authenticate without selecting or implicitly creating a database. Private compiler creation
 /// can therefore establish STRICT before selecting its first storage session.
-pub(crate) async fn authenticated(endpoint:&str,credentials:&Credentials,scope:Option<(&str,&str)>)->Result<Arc<Surreal<Client>>,ModelError> {
+pub async fn authenticated(endpoint:&str,credentials:&Credentials,scope:Option<(&str,&str)>)->Result<Arc<Surreal<Client>>,ModelError> {
     let client = Surreal::new::<Grpc>(
         endpoint
             .strip_prefix("grpc://")

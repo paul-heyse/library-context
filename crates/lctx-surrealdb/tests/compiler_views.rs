@@ -29,7 +29,9 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     store.write_batch(&a, &relation, &Package::encode(std::slice::from_ref(&first)).unwrap()).await.unwrap();
     let views = store.complete_contribution(a, ProviderOutcome::Complete, std::slice::from_ref(&relation), &BTreeMap::new()).await.unwrap();
     let frozen = views[relation.name()].clone();
-    let b = store.begin_contribution(spec("b", &relation)).await.unwrap();
+    let mut next=spec("b", &relation);
+    next.inputs.push(lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&relation,next.model,&frozen).unwrap());
+    let b = store.begin_contribution(next).await.unwrap();
     store.write_batch(&b, &relation, &Package::encode(&[first.clone(), second.clone()]).unwrap()).await.unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     let mut rows = store.scan_batches(&frozen, &relation, None, None, &budget, 8).await.unwrap();
@@ -39,6 +41,9 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     let current = store.complete_contribution(b, ProviderOutcome::Complete, std::slice::from_ref(&relation), &views).await.unwrap();
     assert_eq!(current[relation.name()].rows, 2, "overlapping membership must deduplicate");
     assert_ne!(current[relation.name()].identity, frozen.identity);
+    let mut response=store.client().query("SELECT producer,inputs.relation AS predecessors FROM compiler_contribution WHERE producer='b'").await.unwrap().check().unwrap();
+    let projected:Vec<serde_json::Value>=response.take(0).unwrap();
+    assert_eq!(projected[0]["predecessors"],serde_json::json!([relation.name()]),"dependency views are natively queryable");
     let mut rows = store.scan_batches(&current[relation.name()], &relation, None,
         Some(NativePredicate::Keys(vec![*second.id().bytes()])), &budget, 8).await.unwrap();
     let selected = rows.try_next().await.unwrap().unwrap();
@@ -81,8 +86,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     let mut rows=store.scan_batches(&views[relation.name()],&relation,None,None,&budget,8).await.unwrap();
     assert_eq!(ArtifactChunk::decode(&rows.try_next().await.unwrap().unwrap()).unwrap()[0].body.0,bytes);
     assert!(rows.try_next().await.unwrap().is_none());
-    let mut response=store.client().query("SELECT VALUE count() FROM original_chunk GROUP ALL").await.unwrap().check().unwrap();
-    let counts:Vec<i64>=response.take(0).unwrap();assert_eq!(counts,vec![16]);
+    let mut response=store.client().query("SELECT count() AS rows FROM original_chunk GROUP ALL").await.unwrap().check().unwrap();
+    let counts:Vec<serde_json::Value>=response.take(0).unwrap();assert_eq!(counts,vec![serde_json::json!({"rows":16})]);
     let mut response=store.client().query("SELECT VALUE body FROM compiler_record").await.unwrap().check().unwrap();
     let metadata:Vec<lctx_surrealdb::surrealdb::types::Value>=response.take(0).unwrap();
     assert!(metadata.iter().all(|body|matches!(body,lctx_surrealdb::surrealdb::types::Value::Object(object) if !object.contains_key("body"))));

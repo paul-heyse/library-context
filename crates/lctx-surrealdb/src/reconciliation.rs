@@ -331,7 +331,7 @@ pub fn add_scope_fields(
         return Err(ModelError::Schema("canonical scope body"));
     };
     let mut keys = Vec::new();
-    for field in crate::schema::SCOPE_FIELDS {
+    for field in crate::schema::atomic_scope_fields() {
         if let Some(value) = body
             .get(*field)
             .filter(|value| !matches!(value, Value::None))
