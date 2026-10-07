@@ -234,7 +234,7 @@ impl NativeCompilerStore {
         if relation.name()==d::source::SourceArtifact::NAME {
             let rows=d::source::SourceArtifact::decode(&batch)?.into_iter().map(|row| {
                 let mut header=Object::new();header.insert("id",RecordId::new("original",d::graph::EntityId::of(row.id()).0.hex()));header.insert("byte_len",row.byte_len);header.insert("content",row.content.hex());Value::Object(header)
-            }).collect();self.ensure_original_rows("original",rows).await?;
+            }).collect();self.ensure_immutable_rows("original",rows,"original same-key payload").await?;
         }
         let mut graph=vec![None;batch.num_rows()];
         macro_rules! entities {($($variant:ident:$ty:ty,)*)=>{$(if relation.name()==<$ty>::NAME {for (i,row) in <$ty>::decode(&batch)?.into_iter().enumerate() {graph[i]=Some(GraphRow::Entity(d::graph::Entity::from(row)));}})*};}
@@ -268,9 +268,22 @@ impl NativeCompilerStore {
             let mut sink=KeySink::new("native-place-alias/v1");source.0.encode(&mut sink);target.id().0.encode(&mut sink);
             let mut alias=Object::new();alias.insert("id",RecordId::new("compiler_alias",sink.finish().hex()));alias.insert("source",RecordId::new("entity",source.0.hex()));alias.insert("target",node);aliases.push(Value::Object(alias));
         }
-        // Read only the candidate physical IDs; compare full canonical payloads, not digest alone.
+        self.ensure_physical_rows(nodes.into_values().collect()).await?;
+        self.ensure_immutable_rows("compiler_alias",aliases,"native alias same-key payload").await?;
+        // Repeated identical writes within this contribution are idempotent, without hiding
+        // semantic uniqueness failures. Membership contains no separately editable payload.
+        self.ensure_immutable_rows("compiler_membership",members.into_values().collect(),"native membership same-key payload").await?;
+        Ok(())
+    }
+
+    async fn ensure_physical_rows(self:&Arc<Self>,rows:Vec<Value>)->Result<(),ModelError>{
+        // Read only bounded candidate physical IDs; compare full canonical payloads, not digest
+        // alone. Derived schema/index fields are not a second editable semantic payload.
+        for window in crate::loader::NativeWindows::new(rows) {
+        let mut nodes=BTreeMap::new();
+        for row in window? {let id=value_object(&row).and_then(|object|object.get("id")).ok_or(ModelError::Schema("native payload id"))?.to_sql();nodes.insert(id,row);}
         let mut b=Variables::new();b.insert("ids",nodes.values().map(|v|value_object(v).and_then(|o|o.get("id")).cloned().ok_or(ModelError::Schema("native payload id"))).collect::<Result<Vec<_>,_>>()?);
-        let mut response=self.client.query("SELECT * FROM $ids").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let mut response=self.client.query("SELECT * FROM $ids").bind(b).await.map_err(|error|ModelError::codec(format!("compiler physical candidate read: {error}")))?.check().map_err(|error|ModelError::codec(format!("compiler physical candidate read: {error}")))?;
         let existing:Vec<Value>=response.take(0).map_err(ModelError::codec)?;
         for stored in existing {
             let object=value_object(&stored).ok_or(ModelError::Schema("stored native row"))?;
@@ -281,13 +294,9 @@ impl NativeCompilerStore {
         }
         for table in ["entity","assertion","compiler_record"] {
             let rows=nodes.values().filter(|v|value_object(v).and_then(|o|o.get("id")).is_some_and(|id|id.to_sql().starts_with(&format!("{table}:")))).cloned().collect::<Vec<_>>();
-            if !rows.is_empty() { let mut b=Variables::new();b.insert("rows",rows);self.client.query(format!("INSERT INTO {table} $rows RETURN NONE")).bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?; }
+            Loader::new(self.client.clone()).insert(table,rows,false).await?;
         }
-        if !aliases.is_empty(){let mut b=Variables::new();b.insert("rows",aliases);self.client.query("FOR $row IN $rows { UPSERT $row.id CONTENT $row; };").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;}
-        // Repeated identical writes within this contribution are idempotent, without hiding
-        // semantic uniqueness failures. Membership contains no separately editable payload.
-        let mut b=Variables::new();b.insert("rows",members.into_values().collect::<Vec<_>>());
-        self.client.query("FOR $row IN $rows { UPSERT $row.id CONTENT $row; }; ").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        }
         Ok(())
     }
 
@@ -298,15 +307,22 @@ impl NativeCompilerStore {
             let start=base+(index*65536) as u64;
             let mut chunk=Object::new();chunk.insert("id",RecordId::new("original_chunk",format!("{}_{}",d::graph::EntityId::of(row.artifact).0.hex(),start)));chunk.insert("source",source.clone());chunk.insert("start",start);chunk.insert("bytes",Bytes::from(bytes.to_vec()));chunk.insert("content",ContentHash::of(bytes).hex());Value::Object(chunk)
         }).collect();
-        self.ensure_original_rows("original_chunk",rows).await
+        self.ensure_immutable_rows("original_chunk",rows,"original same-key payload").await
     }
-    async fn ensure_original_rows(self:&Arc<Self>,table:&str,rows:Vec<Value>)->Result<(),ModelError> {
-        let mut candidates=BTreeMap::new();for row in rows {let id=value_object(&row).and_then(|row|row.get("id")).ok_or(ModelError::Schema("original row key"))?.to_sql();if let Some(previous)=candidates.insert(id,row.clone()) && previous!=row {return Err(ModelError::Conflict("original same-key payload"));}}
+    // Compare only this bounded batch's complete immutable rows, then insert new rows in one
+    // statement. Identical replay is admitted without per-row transactions or silent conflicts.
+    async fn ensure_immutable_rows(self:&Arc<Self>,table:&str,rows:Vec<Value>,conflict:&'static str)->Result<(),ModelError> {
+        if rows.is_empty(){return Ok(());}
+        let mut candidates=BTreeMap::new();for row in rows {let id=value_object(&row).and_then(|row|row.get("id")).ok_or(ModelError::Schema("immutable row key"))?.to_sql();if let Some(previous)=candidates.insert(id,row.clone()) && previous!=row {return Err(ModelError::Conflict(conflict));}}
+        for window in crate::loader::NativeWindows::new(candidates.into_values().collect()) {
+        let mut candidates=BTreeMap::new();
+        for row in window? {let id=value_object(&row).and_then(|row|row.get("id")).ok_or(ModelError::Schema("immutable row key"))?.to_sql();candidates.insert(id,row);}
         let ids=candidates.values().map(|row|value_object(row).expect("checked object").get("id").expect("checked key").clone()).collect::<Vec<_>>();let mut b=Variables::new();b.insert("ids",ids);
-        let mut result=self.client.query("SELECT * FROM $ids").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let mut result=self.client.query("SELECT * FROM $ids").bind(b).await.map_err(|error|ModelError::codec(format!("compiler immutable {table} candidate read: {error}")))?.check().map_err(|error|ModelError::codec(format!("compiler immutable {table} candidate read: {error}")))?;
         let actual:Vec<Value>=result.take(0).map_err(ModelError::codec)?;
-        for row in actual {let id=value_object(&row).and_then(|row|row.get("id")).ok_or(ModelError::Schema("stored original row key"))?.to_sql();if candidates.remove(&id)!=Some(row) {return Err(ModelError::Conflict("original same-key payload"));}}
-        if !candidates.is_empty(){let mut b=Variables::new();b.insert("rows",candidates.into_values().collect::<Vec<_>>());self.client.query(format!("INSERT INTO {table} $rows RETURN NONE")).bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;}
+        for row in actual {let id=value_object(&row).and_then(|row|row.get("id")).ok_or(ModelError::Schema("stored immutable row key"))?.to_sql();if candidates.remove(&id)!=Some(row) {return Err(ModelError::Conflict(conflict));}}
+        Loader::new(self.client.clone()).insert(table,candidates.into_values().collect(),false).await?;
+        }
         Ok(())
     }
     pub async fn complete_contribution(self:&Arc<Self>,id:ContentHash,outcome:ProviderOutcome,outputs:&[Relation],previous:&BTreeMap<String,CompletedView>)->Result<BTreeMap<String,CompletedView>,ModelError> {
@@ -633,8 +649,7 @@ impl NativeCompilerStore {
     }
     async fn insert_state_batch(self:&Arc<Self>,table:usize,rows:Vec<Value>)->Result<(),ModelError>{
         let table=STATE_TABLES.get(table).ok_or(ModelError::Schema("completed state batch table"))?;
-        let mut bindings=Variables::new();bindings.insert("rows",rows);
-        self.client.query(format!("INSERT INTO {table} $rows RETURN NONE")).bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok(())
+        Loader::new(self.client.clone()).insert(table,rows,false).await
     }
     pub async fn scan_rows(self:&Arc<Self>,view:&CompletedView,relation:&Relation,columns:Option<&[String]>,predicate:Option<NativePredicate>)->Result<CompilerRows,ModelError> {
         let lease=self.admit(false)?;

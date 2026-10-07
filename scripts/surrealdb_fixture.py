@@ -193,6 +193,9 @@ def fixture() -> Iterator[SurrealFixture]:
             "SURREAL_ROCKSDB_WRITE_BUFFER_SIZE=33554432\n"
             "SURREAL_ROCKSDB_MAX_WRITE_BUFFER_NUMBER=2\n"
             "SURREAL_MEMORY_THRESHOLD=512MiB\n"
+            # Native rows may travel alone up to 64 MiB, with RPC framing. The SDK follows
+            # the advertised server limit; its 4 MiB default cannot carry admitted rows.
+            "SURREAL_GRPC_MAX_MESSAGE_SIZE=128MiB\n"
         )
         env_file.chmod(0o600)
         with socket.socket() as listener:

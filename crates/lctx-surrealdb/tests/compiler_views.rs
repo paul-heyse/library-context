@@ -79,6 +79,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     let second = Package { name: "second".into() };
     let a = store.begin_contribution(spec("a", &relation)).await.unwrap();
     store.write_batch(&a, &relation, &Package::encode(std::slice::from_ref(&first)).unwrap()).await.unwrap();
+    store.write_batch(&a, &relation, &Package::encode(std::slice::from_ref(&first)).unwrap()).await.unwrap();
     let views = store.complete_contribution(a, ProviderOutcome::Complete, std::slice::from_ref(&relation), &BTreeMap::new()).await.unwrap();
     let frozen = views[relation.name()].clone();
     let mut next=spec("b", &relation);
@@ -109,11 +110,22 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     let restored = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
     // Complete state references canonical families; detached import loads those separately.
     lctx_surrealdb::Loader::new(restored.shared_client()).entities(&[
-        lctx_model::domain::graph::Entity::from(first),
+        lctx_model::domain::graph::Entity::from(first.clone()),
         lctx_model::domain::graph::Entity::from(Package { name: "second".into() }),
     ]).await.unwrap();
     restored.import_state(file.path(), &state).await.unwrap();
     assert_eq!(restored.completed_state().await.unwrap(), state);
+    // Replay compares complete immutable membership rows, rather than replacing corrupted
+    // metadata or silently ignoring an existing key. Published graph payloads remain identical.
+    let replay=restored.begin_contribution(spec("replay",&relation)).await.unwrap();
+    let batch=Package::encode(std::slice::from_ref(&first)).unwrap();
+    restored.write_batch(&replay,&relation,&batch).await.unwrap();
+    restored.write_batch(&replay,&relation,&batch).await.unwrap();
+    let mut bindings=lctx_surrealdb::surrealdb::types::Variables::new();
+    bindings.insert("contribution",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",replay.hex()));
+    bindings.insert("content",ContentHash::of(b"corrupt-membership").hex());
+    restored.client().query("UPDATE compiler_membership SET content=$content WHERE contribution=$contribution").bind(bindings).await.unwrap().check().unwrap();
+    assert!(matches!(restored.write_batch(&replay,&relation,&batch).await,Err(lctx_model::domain::ModelError::Conflict("native membership same-key payload"))));
     store.abandon().await.unwrap();
     restored.abandon().await.unwrap();
 }
