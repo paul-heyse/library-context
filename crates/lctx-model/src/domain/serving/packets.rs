@@ -478,7 +478,9 @@ packet!(PremisePacket {
     role: Name,
     premise: ProofReference
 });
-packet!(EvidenceHit {unit:Id<retrieval::Unit>,family:retrieval::Family,title:Name,originals:Vec<OriginalRange>,associated_members:Vec<Id<catalog::CatalogMember>>});
+packet!(DeliveredWindowMap {start:u64,end:u64,original:Nullable<OriginalRange>,availability:Availability});
+packet!(DeliveredWindow {window:Id<retrieval::SearchWindow>,part:Id<retrieval::ContentPart>,analysis:Id<attribution::AnalysisContext>,binding:Nullable<Id<retrieval::WindowBinding>>,subject:Nullable<Id<retrieval::Subject>>,basis:Nullable<retrieval::BindingBasis>,qualification:Nullable<Id<assertion::AssertionQualification>>,text:Text<0,262144>,source_maps:Vec<DeliveredWindowMap>});
+packet!(EvidenceHit {unit:Id<retrieval::Unit>,family:retrieval::Family,title:Name,originals:Vec<OriginalRange>,associated_members:Vec<Id<catalog::CatalogMember>>,delivered_windows:Vec<DeliveredWindow>,interpretation:InterpretationClosure});
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BrowseEntry {
@@ -654,7 +656,7 @@ packet!(OriginalExcerpt {original:OriginalRange,text:Nullable<Text<0,262144>>,av
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all="snake_case")]
 pub enum DefaultDeclaration { SourceParameter, NativeSignature, DeclaredField, NativeField }
-packet!(DefaultInterpretation {signature:Id<calls::Signature>,variant:Id<normalized::callables::SignatureVariant>,analysis:Id<attribution::AnalysisContext>,parameter:Id<calls::SignatureParameter>,option:Nullable<Id<catalog::CatalogOption>>,declaration:DefaultDeclaration,value:DefaultValue,readable:Nullable<Text<0,262144>>,original:Nullable<OriginalExcerpt>,qualification:Nullable<Id<assertion::AssertionQualification>>,availability:Availability,#[doc="Declared defaults are not observations of runtime configuration or caller overrides."] effective_override:Availability});
+packet!(DefaultInterpretation {signature:Nullable<Id<calls::Signature>>,variant:Nullable<Id<normalized::callables::SignatureVariant>>,analysis:Id<attribution::AnalysisContext>,parameter:Nullable<Id<calls::SignatureParameter>>,field:Nullable<Id<normalized::entities::FieldEntity>>,subject_name:Nullable<Name>,option:Nullable<Id<catalog::CatalogOption>>,declaration:DefaultDeclaration,value:DefaultValue,readable:Nullable<Text<0,262144>>,original:Nullable<OriginalExcerpt>,qualification:Nullable<Id<assertion::AssertionQualification>>,availability:Availability,#[doc="Declared defaults are not observations of runtime configuration or caller overrides."] effective_override:Availability});
 packet!(ReadableConditionAtom {atom:Id<conditions::EvaluationAtom>,analysis:Id<attribution::AnalysisContext>,predicate:Nullable<Text<0,8192>>,evaluation:Nullable<OriginalExcerpt>,#[doc="Polarity in the canonical bounded DNF term, not an observed runtime truth."] value:bool,availability:Availability});
 packet!(QualificationInterpretation {qualification:Id<assertion::AssertionQualification>,analysis:Id<attribution::AnalysisContext>,scope:Id<source::CoverageScope>,condition:Id<conditions::Condition>,#[doc="Names canonical true/false constants; nonconstant conditions use readable terms."] constant:Nullable<bool>,terms:Vec<Vec<ReadableConditionAtom>>,truncated:bool,modality:Name,approximation:Name,claim_basis:ClaimBasisPacket,availability:Availability});
 packet!(InterpretationClosure {contexts:Vec<AnalysisContextPacket>,defaults:Vec<DefaultInterpretation>,qualifications:Vec<QualificationInterpretation>,availability:Availability});
@@ -666,6 +668,7 @@ pub struct DeliveryBinding {
     pub variant: Nullable<Id<normalized::callables::SignatureVariant>>,
     pub analysis: Nullable<Id<attribution::AnalysisContext>>,
     pub parameter: Nullable<Id<calls::SignatureParameter>>,
+    pub field: Nullable<Id<normalized::entities::FieldEntity>>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all="snake_case")]
@@ -677,7 +680,7 @@ packet!(RankedContinuationPolicy {maximum_entries:u32,maximum_retained_bytes:u64
 packet!(PacketEvidenceMap {fields:Vec<DeliveredEvidence>,omissions:Vec<DeliveryOmission>,ranked_continuation:Nullable<RankedContinuationPolicy>,#[doc="Greedy optional packing uses exact encoded final-envelope cost. Core and interpretation closure remain indivisible."] packing_policy:Name});
 
 impl Default for DeliveryBinding {
-    fn default()->Self { Self {member:Nullable(None),signature:Nullable(None),variant:Nullable(None),analysis:Nullable(None),parameter:Nullable(None)} }
+    fn default()->Self { Self {member:Nullable(None),signature:Nullable(None),variant:Nullable(None),analysis:Nullable(None),parameter:Nullable(None),field:Nullable(None)} }
 }
 
 impl RankedContinuationPolicy {

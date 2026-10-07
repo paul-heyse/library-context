@@ -62,9 +62,38 @@ pub fn closure(source:&CanonicalBatches, core:&OperationCore, budget:&ResourceBu
                 let readable=match &value {DefaultValue::Literal{literal}=>scalar(need(&literals,*literal)?)?,DefaultValue::Absent{}=>Some("no declared default".into()),_=>None};
                 let availability=if readable.is_some(){Availability::Available{}}else{unavailable("declared_value_requires_original_or_is_unknown")?};
                 if let Some(q)=qualification {qids.insert(q);}
-                declarations.push(DefaultInterpretation{signature:signature.signature,variant:signature.variant,analysis:signature.analysis,parameter:parameter.parameter,option:Nullable(Some(option.id())),declaration,value,readable:Nullable(readable.map(Text::new).transpose().map_err(wire)?),original:Nullable(occurrence.map(|o|excerpt(source,o,signature.analysis,core.release.release)).transpose()?),qualification:Nullable(qualification),availability,effective_override:unavailable("runtime_effective_value_and_caller_override_not_observed")?});
+                declarations.push(DefaultInterpretation{signature:Nullable(Some(signature.signature)),variant:Nullable(Some(signature.variant)),analysis:signature.analysis,parameter:Nullable(Some(parameter.parameter)),field:Nullable(None),subject_name:parameter.name.clone(),option:Nullable(Some(option.id())),declaration,value,readable:Nullable(readable.map(Text::new).transpose().map_err(wire)?),original:Nullable(occurrence.map(|o|excerpt(source,o,signature.analysis,core.release.release)).transpose()?),qualification:Nullable(qualification),availability,effective_override:unavailable("runtime_effective_value_and_caller_override_not_observed")?});
             }
         }
+    }
+    let fields=rows::<normalized::entities::FieldEntity>(source)?;
+    let links=rows::<normalized::entities::FieldDeclarationLink>(source)?;
+    let field_syntax=rows::<syntax::ClassFieldSyntaxObservation>(source)?;
+    let native_fields=rows::<types::RecordFieldObservation>(source)?;
+    let native_links=rows::<normalized::entities::FieldEntityLink>(source)?;
+    for option in options.iter().filter(|o|o.member==core.member) {
+        let catalog::CatalogOptionSubject::Field{field}=need(&subjects,option.subject)? else{continue;};
+        let field_row=need(&fields,*field)?;
+        let (declaration,qualification,source_default)=match need(&evidence,option.evidence)? {
+            catalog::CatalogOptionEvidence::DeclaredField{declaration,..}=>{
+                let link=need(&links,*declaration)?;
+                if link.field!=*field {return Err(ModelError::Conflict("field default declaration target"));}
+                let row=need(&field_syntax,link.declaration)?;
+                (DefaultDeclaration::DeclaredField,row.qualification,row.value)
+            },
+            catalog::CatalogOptionEvidence::NativeField{link,observation}=>{
+                let relation=need(&native_links,*link)?;
+                if relation.field!=*field || relation.observation!=*observation {return Err(ModelError::Conflict("native field default target"));}
+                let row=need(&native_fields,*observation)?;
+                (DefaultDeclaration::NativeField,row.qualification,row.declaration)
+            },
+            _=>return Err(ModelError::Conflict("field option has parameter evidence")),
+        };
+        let q=need(&quals,qualification)?; analyses.insert(q.context);qids.insert(qualification);
+        let value=DefaultValue::from_canonical(need(&defaults,option.default)?);
+        let occurrence=match &value {DefaultValue::Expression{expression}|DefaultValue::Factory{expression}=>Some(*expression),_=>source_default};
+        let readable=match &value {DefaultValue::Literal{literal}=>scalar(need(&literals,*literal)?)?,DefaultValue::Absent{}=>Some("no declared default".into()),_=>None};
+        declarations.push(DefaultInterpretation{signature:Nullable(None),variant:Nullable(None),analysis:q.context,parameter:Nullable(None),field:Nullable(Some(*field)),subject_name:Nullable(Some(Name::new(field_row.name.as_str()).map_err(wire)?)),option:Nullable(Some(option.id())),declaration,value,readable:Nullable(readable.as_ref().map(|v|Text::new(v.clone())).transpose().map_err(wire)?),original:Nullable(occurrence.map(|o|excerpt(source,o,q.context,core.release.release)).transpose()?),qualification:Nullable(Some(qualification)),availability:if readable.is_some(){Availability::Available{}}else{unavailable("field_default_requires_original_or_is_unknown")?},effective_override:unavailable("runtime_effective_field_value_and_override_not_observed")?});
     }
     let mut result=qualified(source,analyses,qids,core.release.release,budget)?;
     result.defaults=declarations;
@@ -143,4 +172,15 @@ pub async fn read_originals(reader:&NativeReader,closure:&mut InterpretationClos
     }
     closure.availability=if !closure.contexts.is_empty()&&closure.defaults.iter().all(|d|matches!(d.availability,Availability::Available{}))&&closure.qualifications.iter().all(|q|matches!(q.availability,Availability::Available{})){Availability::Available{}}else{partial("interpretation_closure_has_opaque_or_expandable_parts")?};
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scalar_meanings_preserve_none_string_and_nonfinite_uncertainty(){
+        assert_eq!(scalar(&value::Literal::None).unwrap(),Some("None".into()));
+        assert_eq!(scalar(&value::Literal::String{value:"None\nquoted".into()}).unwrap(),Some("\"None\\nquoted\"".into()));
+        assert_eq!(scalar(&value::Literal::Float{bits:f64::NAN.to_bits() as i64}).unwrap(),None);
+        assert_eq!(scalar(&value::Literal::Bool{value:false}).unwrap(),Some("False".into()));
+    }
 }

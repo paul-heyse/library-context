@@ -17,7 +17,7 @@ pub async fn hydrate(
     budget: &resources::ResourceBudget,
 ) -> Result<CanonicalBatches, ModelError> {
     let inputs = OperationCore::binding()
-        .mapping
+        .lowered()
         .sources
         .iter()
         .map(|r| ValidationInput::of_relation(r, &["id"]))

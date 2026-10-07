@@ -177,70 +177,88 @@ async fn body(
         truncated: end < length,
     })
 }
-pub async fn hit(
-    reader: &NativeReader,
-    unit: Id<retrieval::Unit>,
-    domains: &[LibraryDomainPacket],
-    b: &ResourceBudget,
-) -> Result<EvidenceHit, ModelError> {
-    let inputs = EvidenceHit::binding()
-        .lowered()
-        .sources
-        .iter()
-        .map(|r| ValidationInput::of_relation(r, &["id"]))
-        .collect::<Vec<_>>();
-    let mut fields = crate::scope::OWNED_FIELDS.to_vec();
-    fields.push("unit");
-    let data = crate::scope::hydrate_with(
-        reader,
-        vec![target_id(graph::Target::Entity(graph::EntityId::of(unit)))],
-        &inputs,
-        &fields,
-        b,
-    )
-    .await?;
-    let units = rows::<retrieval::Unit>(&data)?;
-    let u = need(&units, unit)?;
-    let captures = domains
-        .iter()
-        .flat_map(|d| &d.captures)
-        .filter(|c| c.release.input == u.input || c.corpora.contains(&u.input))
-        .collect::<Vec<_>>();
-    let mut originals = Vec::new();
-    for anchor in rows::<retrieval::OriginalAnchor>(&data)?
-        .iter()
-        .filter(|a| a.unit == unit)
-    {
-        for c in &captures {
-            originals.push(crate::originals::range(
-                &data,
-                &OriginalReference::Anchor {
-                    anchor: anchor.id(),
+/// One scoped union for the retained primary witnesses. Unit-wide context anchors and
+/// sibling subjects are never delivered as if they witnessed this ranked occurrence.
+pub async fn hits(reader:&NativeReader, hits:&[ranking::RankedHit], domains:&[LibraryDomainPacket], b:&ResourceBudget)->Result<Vec<EvidenceHit>,ModelError>{
+    if hits.is_empty(){return Ok(vec![]);}
+    let inputs=EvidencePacket::binding().lowered().sources.iter().map(|r|ValidationInput::of_relation(r,&["id"])).collect::<Vec<_>>();
+    let mut roots=vec![];
+    for hit in hits {for witness in &hit.witnesses {
+        let o=&witness.occurrence;
+        roots.push(target_id(graph::Target::Entity(graph::EntityId::of(o.window))));
+        roots.push(target_id(graph::Target::Entity(graph::EntityId::of(o.part))));
+        if let Some(binding)=o.binding {roots.push(target_id(graph::target_for_row(derivation::RowRef::of(binding))?));}
+    }}
+    // Outgoing semantic dependencies remain complete; incoming ownership is window/part only.
+    let data=crate::scope::hydrate_with(reader,roots,&inputs,&["window","part","set","universe"],b).await?;
+    hits.iter().map(|hit|hit_packet(&data,hit,domains,b)).collect()
+}
+fn source_range(data:&CanonicalBatches, source:&retrieval::AnchorSource, analysis:Id<attribution::AnalysisContext>, release:Id<input::Release>)->Result<OriginalRange,ModelError>{
+    let reference=match source {
+        retrieval::AnchorSource::Original{source}=>OriginalReference::Catalog{source:*source},
+        retrieval::AnchorSource::Span{span}=>OriginalReference::Span{span:*span},
+        retrieval::AnchorSource::Artifact{artifact}=>OriginalReference::Artifact{artifact:*artifact},
+        retrieval::AnchorSource::Prose{slice}=>OriginalReference::Prose{slice:*slice},
+        retrieval::AnchorSource::Occurrence{occurrence}|retrieval::AnchorSource::OccurrenceSlice{occurrence,..}=>OriginalReference::Occurrence{occurrence:*occurrence},
+    };
+    let mut range=crate::originals::range(data,&reference,Some(analysis),Some(release))?;
+    if let retrieval::AnchorSource::OccurrenceSlice{start,end,..}=source {
+        if *start<0||*end<*start||(*start as u64)<range.start||(*end as u64)>range.end{return Err(ModelError::Schema("delivered occurrence slice bounds"));}
+        range.start=*start as u64;range.end=*end as u64;
+    }
+    Ok(range)
+}
+fn fragment<'a>(text:&'a str,start:i64,end:i64)->Result<&'a str,ModelError>{
+    if start<0||end<=start{return Err(ModelError::Schema("delivered window fragment bounds"));}
+    text.get(start as usize..end as usize).ok_or(ModelError::Schema("delivered window UTF8 fragment bounds"))
+}
+fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDomainPacket],b:&ResourceBudget)->Result<EvidenceHit,ModelError>{
+    let ranking::Target::Unit{unit}=hit.target else{return Err(ModelError::Schema("evidence ranked target"));};
+    let units=rows::<retrieval::Unit>(data)?;let u=need(&units,unit)?;
+    if u.context!=hit.context{return Err(ModelError::Conflict("evidence hit analysis"));}
+    let captures=domains.iter().flat_map(|d|&d.captures).filter(|c|c.release.input==u.input||c.corpora.contains(&u.input)).collect::<Vec<_>>();
+    let releases=captures.iter().map(|c|c.release.release).collect::<std::collections::BTreeSet<_>>();
+    if releases.len()!=1{return Err(ModelError::Conflict("window release capture ambiguity"));}
+    let release=*releases.first().expect("one window release");
+    let windows=rows::<retrieval::SearchWindow>(data)?;let parts=rows::<retrieval::ContentPart>(data)?;let window_parts=rows::<retrieval::WindowPart>(data)?;
+    let bindings=rows::<retrieval::WindowBinding>(data)?;let subjects=rows::<retrieval::Subject>(data)?;let maps=rows::<retrieval::WindowSourceMap>(data)?;let anchors=rows::<retrieval::AnchorSource>(data)?;
+    let mut delivered=vec![];let mut originals=vec![];let mut members=std::collections::BTreeSet::new();let mut qids=std::collections::BTreeSet::new();let mut seen=std::collections::BTreeSet::new();
+    for witness in &hit.witnesses {
+        let o=&witness.occurrence;
+        if o.unit!=unit||o.context!=hit.context||o.target!=hit.target {return Err(ModelError::Conflict("ranked window witness target/context"));}
+        if !seen.insert((o.window,o.part,o.binding)){continue;}
+        let window=need(&windows,o.window)?;let part=need(&parts,o.part)?;
+        if window.unit!=unit||part.unit!=unit||part.purpose!=retrieval::PartPurpose::Primary{return Err(ModelError::Conflict("context part cannot be primary evidence"));}
+        let wp=window_parts.iter().find(|p|p.window==o.window&&p.part==o.part).ok_or(ModelError::Schema("ranked part absent from window"))?;
+        let text=fragment(window.text.as_str(),wp.start,wp.end)?;
+        let binding=o.binding.map(|id|need(&bindings,id)).transpose()?;
+        if binding.is_some_and(|v|v.window!=o.window||v.part!=o.part){return Err(ModelError::Conflict("ranked window binding"));}
+        if let Some(binding)=binding {if let retrieval::Subject::Member{member}=need(&subjects,binding.subject)? {members.insert(*member);}if let Some(q)=binding.qualification{qids.insert(q);}}
+        let mut source_maps=vec![];
+        for map in maps.iter().filter(|m|m.window==o.window&&m.part==Some(o.part)&&m.start<wp.end&&m.end>wp.start) {
+            let start=map.start.max(wp.start);let end=map.end.min(wp.end);
+            fragment(window.text.as_str(),start,end)?;
+            let original=match (map.original,map.original_start,map.original_end) {
+                (None,None,None)=>None,
+                (Some(id),Some(a),Some(z))=>{
+                    if z-a!=map.end-map.start{return Err(ModelError::Schema("window source mapping length"));}
+                    let mut range=source_range(data,need(&anchors,id)?,hit.context,release)?;
+                    let actual_start=a+start-map.start;let actual_end=a+end-map.start;
+                    if actual_start<0||actual_end<actual_start{return Err(ModelError::Schema("window source mapping bounds"));}
+                    if range.encoding.as_str()!="raw_bytes" {None} else {
+                        if (actual_start as u64)<range.start||(actual_end as u64)>range.end{return Err(ModelError::Schema("window source mapping source bounds"));}
+                        range.start=actual_start as u64;range.end=actual_end as u64;originals.push(range.clone());Some(range)
+                    }
                 },
-                Some(u.context),
-                Some(c.release.release),
-            )?);
+                _=>return Err(ModelError::Schema("partial original window mapping")),
+            };
+            source_maps.push(DeliveredWindowMap{start:(start-wp.start) as u64,end:(end-wp.start) as u64,availability:if original.is_some(){Availability::Available{}}else{Availability::Unavailable{reason:Name::new("synthetic_window_text").map_err(wire)?}},original:Nullable(original)});
         }
+        delivered.push(DeliveredWindow{window:o.window,part:o.part,analysis:hit.context,binding:Nullable(o.binding),subject:Nullable(binding.map(|v|v.subject)),basis:Nullable(binding.map(|v|v.basis)),qualification:Nullable(binding.and_then(|v|v.qualification)),text:Text::new(text).map_err(wire)?,source_maps});
     }
-    let subjects = rows::<retrieval::Subject>(&data)?;
-    let mut members = Vec::new();
-    for link in rows::<retrieval::UnitSubject>(&data)?
-        .iter()
-        .filter(|s| s.unit == unit)
-    {
-        if let retrieval::Subject::Member { member } = need(&subjects, link.subject)? {
-            members.push(*member);
-        }
-    }
-    members.sort();
-    members.dedup();
-    Ok(EvidenceHit {
-        unit,
-        family: u.family,
-        title: Name::new(u.title.as_str()).map_err(wire)?,
-        originals,
-        associated_members: members,
-    })
+    if delivered.is_empty(){return Err(ModelError::Schema("ranked evidence missing primary witnesses"));}
+    let interpretation=crate::defaults::qualified(data,std::collections::BTreeSet::from([hit.context]),qids,release,b)?;
+    Ok(EvidenceHit{unit,family:u.family,title:Name::new(u.title.as_str()).map_err(wire)?,originals,associated_members:members.into_iter().collect(),delivered_windows:delivered,interpretation})
 }
 async fn derivations(
     reader: &NativeReader,
@@ -301,4 +319,14 @@ async fn derivations(
         Availability::Available {},
     )
     .map_err(wire)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn primary_fragment_checks_utf8_and_exact_bounds(){
+        assert_eq!(fragment("setup α primary",6,8).unwrap(),"α");
+        assert!(fragment("setup α primary",7,8).is_err());
+        assert!(fragment("short",-1,4).is_err());assert!(fragment("short",0,99).is_err());assert!(fragment("short",2,2).is_err());
+    }
 }
