@@ -136,8 +136,8 @@ fn expansion(root: &Value, path: &str, item: &Value, nodes: &[&Value], origin: O
     if let Some(library) = args.get("library") {
         let releases = nodes.iter().flat_map(|node|node.get("releases").and_then(Value::as_array).into_iter().flatten()).chain(captured_release).collect::<Vec<_>>();
         let domain_match = root["structuredContent"]["domains"].as_array().is_some_and(|domains|domains.iter().any(|domain|domain.get("name")==Some(library) && domain.get("captures").and_then(Value::as_array).is_some_and(|captures|captures.iter().any(|capture|capture.get("release").is_some_and(|release|releases.contains(&release) && requested_release.is_none_or(|version|release.get("version")==Some(version)))))));
-        // get_operation has no domain inventory. Its captured public request supplies the
-        // already-admitted library scope, independently of expansion metadata.
+        // A controlled capture may lack a domain inventory. Its actual get_operation public
+        // request supplies the admitted library scope independently of expansion metadata.
         let origin_match = origin.is_some_and(|call|call.tool=="get_operation" && call.arguments.get("library")==Some(library) && core.is_some());
         if !domain_match && !origin_match {return Err("delivery expansion invents library/release scope".into());}
     }
