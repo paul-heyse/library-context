@@ -124,7 +124,12 @@ impl NativeService {
             if let Some(mut response) = self.retained.resume(&request, self.handle(), vector.as_ref())? {
                 crate::delivery::finalize(&request, &mut response)?;
                 self.retained.complete(&mut response)?;
-                return response.to_json();
+                let len=response.json_len()?;
+                if len as u64>self.limits.response_bytes(request.page().expanded){return Err(WireError::ResourceRefused("complete structured response bytes".into()));}
+                let _response_charge=budget.reserve("native-complete-response",len.saturating_mul(2)).map_err(failure)?;
+                let bytes=response.to_json()?;
+                if tokio::time::Instant::now()>=deadline{return Err(WireError::ResourceRefused("request deadline".into()));}
+                return Ok(bytes);
             }
             let query = match &request {
                 Request::SearchOperations(r) => Some(r.query.as_str()),
