@@ -111,7 +111,7 @@ fn capture_identity(
     Ok(sink.finish())
 }
 #[derive(PartialEq,Eq)]
-struct FactsAvailabilityKey {profile:Profile,views:[ContentHash;5]}
+struct FactsAvailabilityKey {profile:Profile,views:[ContentHash;9]}
 /// The attempt owns one runtime, spill directory, buffer budget, and completed relation registry.
 pub struct Workspace {
     files: Arc<WorkspaceFiles>,
@@ -360,26 +360,28 @@ impl Workspace {
         }
         Ok((rows,charge))
     }
-    fn availability_from_rows(&self,profile:Profile,inputs:&[lctx_model::domain::input::InputRevision],artifacts:&[lctx_model::domain::source::SourceArtifact],uses:&[lctx_model::domain::input::ArtifactUse],scope_rows:Vec<lctx_model::domain::source::CoverageScope>,rows:&[lctx_model::domain::attribution::ProviderCoverage])->Result<lctx_model::domain::admission::ScopedAvailability,ModelError>{
-        use lctx_model::domain::{admission::{Expected,FrontierContract,ScopedAvailability},stages::Schedule};
-        let providers = crate::facts::providers(ContentHash::of(b"facts-coverage-contract"));
-        let schedule = Schedule::build(
-            &self.model,
-            providers.iter().map(|p| p.declaration(profile)).collect(),
-            &[],
-            profile,
-        )?;
-        let contract = FrontierContract::facts(&self.model, profile)?.preflight(&schedule)?;
-        let expected=contract.expected_coverage(inputs,artifacts,uses)?.into_keys().collect::<std::collections::BTreeSet<Expected>>();
-        let scopes=scope_rows.into_iter().map(|row|(row.id(),row)).collect();
-        ScopedAvailability::from_completed(profile,&expected,rows,&scopes,&self.budget)
+    fn facts_descriptor_charge(&self,rows:&[lctx_model::domain::completed::CompletedContribution])->Result<StateCharge,ModelError>{
+        use lctx_model::domain::HeapSize;
+        let mut charge=StateCharge::new(&self.budget,"facts-coverage-descriptors");
+        for row in rows {
+            charge.grow(size_of::<lctx_model::domain::completed::CompletedContribution>()+row.spec.producer.len()
+                +row.spec.inputs.iter().map(|input|size_of::<lctx_model::domain::analysis::sources::SourceSnapshot>()+input.heap_bytes()).sum::<usize>()
+                +row.spec.outputs.iter().map(|name|name.len()+size_of::<String>()+32).sum::<usize>()
+                +row.outputs.keys().map(|name|name.len()+size_of::<String>()+size_of::<lctx_model::domain::completed::OutputContent>()+32).sum::<usize>())?;
+        }
+        Ok(charge)
     }
-    fn facts_availability_sources(&self,profile:Profile)->Result<(FactsAvailabilityKey,[Arc<CompletedRelation>;5]),ModelError>{
-        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
+    fn availability_from_rows(&self,profile:Profile,inputs:&[lctx_model::domain::input::InputRevision],artifacts:&[lctx_model::domain::source::SourceArtifact],uses:&[lctx_model::domain::input::ArtifactUse],scope_rows:Vec<lctx_model::domain::source::CoverageScope>,rows:&[lctx_model::domain::attribution::ProviderCoverage],providers:&[lctx_model::domain::attribution::Provider],runs:&[lctx_model::domain::attribution::ProviderRun],families:&[lctx_model::domain::attribution::RunFamily],contexts:&[lctx_model::domain::attribution::AnalysisContext],contributions:&[lctx_model::domain::completed::CompletedContribution],authority:&std::collections::BTreeSet<ContentHash>,bound_sources:&BTreeMap<String,lctx_model::domain::analysis::sources::SourceSnapshot>)->Result<lctx_model::domain::admission::ScopedAvailability,ModelError>{
+        let expected=crate::facts::recorded_coverage(&self.model,profile,inputs,artifacts,uses,providers,runs,families,contexts,contributions,authority,bound_sources,rows,&self.budget)?;
+        let scopes=scope_rows.into_iter().map(|row|(row.id(),row)).collect();
+        lctx_model::domain::admission::ScopedAvailability::from_completed(profile,&expected,rows,&scopes,&self.budget)
+    }
+    fn facts_availability_sources(&self,profile:Profile)->Result<(FactsAvailabilityKey,[Arc<CompletedRelation>;9]),ModelError>{
+        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::{ProviderCoverage,Provider,ProviderRun,RunFamily,AnalysisContext}};
         self.cancellation.check()?;
         let completed=self.completed.lock().map_err(|_|poisoned())?;
         let bind=|name|completed.get(name).cloned().ok_or_else(||ModelError::Invalid(format!("input {name} is not completed")));
-        let sources=[bind(InputRevision::NAME)?,bind(SourceArtifact::NAME)?,bind(ArtifactUse::NAME)?,bind(CoverageScope::NAME)?,bind(ProviderCoverage::NAME)?];
+        let sources=[bind(InputRevision::NAME)?,bind(SourceArtifact::NAME)?,bind(ArtifactUse::NAME)?,bind(CoverageScope::NAME)?,bind(ProviderCoverage::NAME)?,bind(Provider::NAME)?,bind(ProviderRun::NAME)?,bind(RunFamily::NAME)?,bind(AnalysisContext::NAME)?];
         let key=FactsAvailabilityKey{profile,views:sources.each_ref().map(|source|source.view_identity())};
         Ok((key,sources))
     }
@@ -392,27 +394,47 @@ impl Workspace {
         let value=Arc::new(value);*admitted=Some((key,value.clone()));Ok(value)
     }
     pub fn facts_availability(&self,profile:Profile)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{
-        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
-        let (key,[input_source,artifact_source,use_source,scope_source,coverage_source])=self.facts_availability_sources(profile)?;
+        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::{ProviderCoverage,Provider,ProviderRun,RunFamily,AnalysisContext}};
+        let (key,sources)=self.facts_availability_sources(profile)?;
         if let Some(value)=self.cached_facts_availability(&key)?{return Ok(value);}
+        let bound_sources=sources.iter().map(|source|(source.name().to_owned(),source.snapshot().clone())).collect();
+        let authority=sources.iter().flat_map(|source|source.view().contributions.iter().copied()).collect();
+        let [input_source,artifact_source,use_source,scope_source,coverage_source,provider_source,run_source,family_source,context_source]=sources;
         let (inputs,_inputs)=self.coverage_rows::<InputRevision>(&input_source)?;
         let (artifacts,_artifacts)=self.coverage_rows::<SourceArtifact>(&artifact_source)?;
         let (uses,_uses)=self.coverage_rows::<ArtifactUse>(&use_source)?;
         let (scopes,_scopes)=self.coverage_rows::<CoverageScope>(&scope_source)?;
         let (rows,_rows)=self.coverage_rows::<ProviderCoverage>(&coverage_source)?;
-        let value=self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)?;
+        let (providers,_providers)=self.coverage_rows::<Provider>(&provider_source)?;
+        let (runs,_runs)=self.coverage_rows::<ProviderRun>(&run_source)?;
+        let (families,_families)=self.coverage_rows::<RunFamily>(&family_source)?;
+        let (contexts,_contexts)=self.coverage_rows::<AnalysisContext>(&context_source)?;
+        let native=self.native.clone();let calls=self.native_calls.clone();
+        let contributions=self.bridge.call(async move{calls.call(async move{native.contributions().await}).await})?;
+        let _descriptors=self.facts_descriptor_charge(&contributions)?;
+        let value=self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows,&providers,&runs,&families,&contexts,&contributions,&authority,&bound_sources)?;
         self.remember_facts_availability(key,value)
     }
     pub async fn facts_availability_async(&self,profile:Profile)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{
-        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::ProviderCoverage};
-        let (key,[input_source,artifact_source,use_source,scope_source,coverage_source])=self.facts_availability_sources(profile)?;
+        use lctx_model::domain::{input::{InputRevision,ArtifactUse},source::{SourceArtifact,CoverageScope},attribution::{ProviderCoverage,Provider,ProviderRun,RunFamily,AnalysisContext}};
+        let (key,sources)=self.facts_availability_sources(profile)?;
         if let Some(value)=self.cached_facts_availability(&key)?{return Ok(value);}
+        let bound_sources=sources.iter().map(|source|(source.name().to_owned(),source.snapshot().clone())).collect();
+        let authority=sources.iter().flat_map(|source|source.view().contributions.iter().copied()).collect();
+        let [input_source,artifact_source,use_source,scope_source,coverage_source,provider_source,run_source,family_source,context_source]=sources;
         let (inputs,_inputs)=self.coverage_rows_async::<InputRevision>(&input_source).await?;
         let (artifacts,_artifacts)=self.coverage_rows_async::<SourceArtifact>(&artifact_source).await?;
         let (uses,_uses)=self.coverage_rows_async::<ArtifactUse>(&use_source).await?;
         let (scopes,_scopes)=self.coverage_rows_async::<CoverageScope>(&scope_source).await?;
         let (rows,_rows)=self.coverage_rows_async::<ProviderCoverage>(&coverage_source).await?;
-        let value=self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows)?;
+        let (providers,_providers)=self.coverage_rows_async::<Provider>(&provider_source).await?;
+        let (runs,_runs)=self.coverage_rows_async::<ProviderRun>(&run_source).await?;
+        let (families,_families)=self.coverage_rows_async::<RunFamily>(&family_source).await?;
+        let (contexts,_contexts)=self.coverage_rows_async::<AnalysisContext>(&context_source).await?;
+        let native=self.native.clone();
+        let contributions=self.native_calls.call(async move{native.contributions().await}).await?;
+        let _descriptors=self.facts_descriptor_charge(&contributions)?;
+        let value=self.availability_from_rows(profile,&inputs,&artifacts,&uses,scopes,&rows,&providers,&runs,&families,&contexts,&contributions,&authority,&bound_sources)?;
         self.remember_facts_availability(key,value)
     }
     /// Semantic content over the actual completed typed streams, independent of IPC bytes.

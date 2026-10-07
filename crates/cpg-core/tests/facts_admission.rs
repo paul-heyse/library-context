@@ -172,12 +172,16 @@ async fn availability_reuses_exact_admission_and_refuses_changed_invalid_members
     let workspace=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:8<<20,..Default::default()},native_fixture::store()).unwrap();
     let profile=Profile::Catalog;
     let inputs=workspace.inputs("availability-empty",profile,[]).unwrap();
-    let output=workspace.output("availability-empty",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME]);
+    let output=workspace.output("availability-empty",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME,Provider::NAME,ProviderRun::NAME,RunFamily::NAME,AnalysisContext::NAME]);
     output.declare_async::<InputRevision>().await.unwrap();
     output.declare_async::<SourceArtifact>().await.unwrap();
     output.declare_async::<ArtifactUse>().await.unwrap();
     output.declare_async::<CoverageScope>().await.unwrap();
     output.declare_async::<ProviderCoverage>().await.unwrap();
+    output.declare_async::<Provider>().await.unwrap();
+    output.declare_async::<ProviderRun>().await.unwrap();
+    output.declare_async::<RunFamily>().await.unwrap();
+    output.declare_async::<AnalysisContext>().await.unwrap();
     output.finish(stages::ProviderOutcome::Complete).await.unwrap();
     let admitted=workspace.facts_availability_async(profile).await.unwrap();
     assert_eq!(admitted.empty_universe(FactFamily::Flow),Some(Availability::NotRequested));
@@ -202,12 +206,16 @@ async fn availability_reuses_exact_admission_and_refuses_changed_invalid_members
     // An invalid first completion is a separate attempt, never a replacement of an admitted view.
     let invalid=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:8<<20,..Default::default()},native_fixture::store()).unwrap();
     let inputs=invalid.inputs("availability-invalid-use",profile,[]).unwrap();
-    let output=invalid.output("availability-invalid-use",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME]);
+    let output=invalid.output("availability-invalid-use",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME,Provider::NAME,ProviderRun::NAME,RunFamily::NAME,AnalysisContext::NAME]);
     output.declare_async::<InputRevision>().await.unwrap();
     output.declare_async::<SourceArtifact>().await.unwrap();
     output.declare_async::<ArtifactUse>().await.unwrap();
     output.declare_async::<CoverageScope>().await.unwrap();
     output.declare_async::<ProviderCoverage>().await.unwrap();
+    output.declare_async::<Provider>().await.unwrap();
+    output.declare_async::<ProviderRun>().await.unwrap();
+    output.declare_async::<RunFamily>().await.unwrap();
+    output.declare_async::<AnalysisContext>().await.unwrap();
     let artifact=serde_json::from_value(serde_json::to_value(vec![2u8;16]).unwrap()).unwrap();
     output.push(ArtifactUse{artifact,input:nominal,role:SourceRole::Release}).await.unwrap();
     output.finish(stages::ProviderOutcome::Complete).await.unwrap();
