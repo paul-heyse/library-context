@@ -25,27 +25,22 @@ impl Loader {
         self.client.clone()
     }
     pub async fn install(&self, native_definitions: &str) -> Result<(), ModelError> {
-        // Canonical DDL contains only finite declarations. Coarse checked batches avoid one
-        // large setup transaction; executable function bodies remain intact in the final query.
-        let schema = crate::schema::canonical_schema();
-        let statements = schema
-            .split(';')
-            .filter(|s| !s.trim().is_empty())
-            .collect::<Vec<_>>();
-        for chunk in statements.chunks(32) {
-            self.client
-                .query(chunk.join(";") + ";")
-                .await
-                .map_err(ModelError::codec)?
-                .check()
-                .map_err(ModelError::codec)?;
+        self.install_declarations(&crate::schema::canonical_schema(),"canonical schema").await?;
+        // Executable function definitions may contain semicolons and remain one checked query.
+        self.client.query(native_definitions).await
+            .map_err(|error|ModelError::codec(format!("native function definitions: {error}")))?
+            .check().map_err(|error|ModelError::codec(format!("native function definitions: {error}")))?;
+        Ok(())
+    }
+    /// Only repository-generated finite declarations use this path, never arbitrary SQL or
+    /// function bodies. Coarse ordered windows retain every statement's native error check.
+    pub(crate) async fn install_declarations(&self,schema:&str,phase:&str)->Result<(),ModelError>{
+        let statements=schema.split(';').filter(|statement|!statement.trim().is_empty()).collect::<Vec<_>>();
+        for (window,chunk) in statements.chunks(32).enumerate(){
+            let context=|error|ModelError::codec(format!("{phase} declaration window {} (statements {}-{}): {error}",window+1,window*32+1,window*32+chunk.len()));
+            self.client.query(chunk.join(";")+";").await.map_err(&context)?
+                .check().map_err(context)?;
         }
-        self.client
-            .query(native_definitions)
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
         Ok(())
     }
     pub(crate) async fn insert(

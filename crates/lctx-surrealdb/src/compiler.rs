@@ -66,16 +66,16 @@ impl NativeCompilerStore {
         if !version.starts_with("3.3.") { return Err(ModelError::Invalid("native compiler requires reviewed SurrealDB3.3".into())); }
         client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`",config.namespace.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         client.use_ns(config.namespace.as_str()).await.map_err(ModelError::codec)?;
-        client.query(format!("DEFINE DATABASE `{}` STRICT",database.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let setup=async {
+            client.query(format!("DEFINE DATABASE `{}` STRICT",database.as_str())).await.map_err(|error|ModelError::codec(format!("native compiler database creation: {error}")))?.check().map_err(|error|ModelError::codec(format!("native compiler database creation: {error}")))?;
             client.use_db(database.as_str()).await.map_err(ModelError::codec)?;
             Loader::new(client.clone()).install("").await?;
-            client.query(compiler_schema()).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            Loader::new(client.clone()).install_declarations(&compiler_schema(),"compiler state schema").await?;
             Ok::<(),ModelError>(())
         }.await;
         if let Err(error)=setup {
             let cleanup=async {client.query(format!("REMOVE DATABASE IF EXISTS `{}`",database.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok::<(),ModelError>(())}.await;
-            return Err(if cleanup.is_err(){ModelError::infrastructure(Infrastructure::Unconfirmed,format!("native setup left owned unselected database {}",database.as_str()))}else{error});
+            return Err(match cleanup{Err(cleanup)=>ModelError::infrastructure(Infrastructure::Unconfirmed,format!("native compiler setup failed: {error}; cleanup failed: {cleanup}; owned unselected database {}/{} remains unconfirmed",config.namespace.as_str(),database.as_str())),Ok(())=>error});
         }
         Ok(Arc::new(Self {client,database,namespace:config.namespace.clone(),specifications:Mutex::default(),known_views:Mutex::default(),known_contributors:Mutex::default(),failed:AtomicBool::new(false),sealed:AtomicBool::new(false),admission:Arc::new(OperationAdmission::default()),runtime:tokio::runtime::Handle::current(),frontier:Mutex::new(frontier)}))
     }
@@ -92,7 +92,7 @@ impl NativeCompilerStore {
         result
     }
     async fn install_state_schema_inner(self:&Arc<Self>)->Result<(),ModelError> {
-        self.client.query(compiler_schema()).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok(())
+        Loader::new(self.client.clone()).install_declarations(&compiler_schema(),"compiler state schema").await
     }
     pub fn set_frontier(&self,frontier:Frontier)->Result<(),ModelError>{
         let lease=self.admit(false)?;
