@@ -1,5 +1,7 @@
 <a id="section-15"></a>
 
+**Selected follow-up target / Proposed implementation, 2026-10-07:** [Persisted graph execution](../../plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. The implemented contracts below still describe ADR-0128. PG0 installs the new target through a superseding ADR before implementation: persisted native completed inputs, exact contribution/view identities and retained dependency foundations, with Rust semantic ownership unchanged.
+
 # §15 Semantic graph model
 
 **Implemented graph-native architecture, 2026-10-06 (ADR-0128); scoped verification and operator activation are separate.** One Rust-owned semantic

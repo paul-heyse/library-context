@@ -119,7 +119,7 @@ A1/A2 and these gate verdicts are bounded design judgments from static mechanism
 
 ## 7. Findings and corrections
 
-The findings below are **Deferred, pending the subsequent plan-creation decision**. This review owns their unscheduled disposition. When scheduled, one active plan row owns execution and links these stable source IDs; no second finding register is required.
+**Current disposition, 2026-10-07:** F01–F05 are scheduled and Open at [persisted graph execution plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition). The operator selected native persisted compilation, RC01 direct sealing and RC02 internal contribution/view identity. The plan owns execution disposition; this dated independent review retains its original judgment, evidence and proposed alternatives. No finding is closed by plan creation.
 
 <a id="f01"></a>
 

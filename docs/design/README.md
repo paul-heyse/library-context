@@ -1,5 +1,7 @@
 # Architecture map
 
+**Selected next target / Proposed implementation, 2026-10-07:** the [persisted graph execution plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns the native compiler and shared efficient execution follow-up. PG0 updates changed architectural owners through a superseding ADR; the table below identifies the implemented baseline.
+
 **Interface-checked, 2026-10-02:** these source entrypoints locate current responsibilities.
 [DESIGN](DESIGN.md) holds scope, the binding decisions §B1–§B14 and durable deferrals; the
 focused owners below hold each responsibility's contracts, accepted targets and known limits.

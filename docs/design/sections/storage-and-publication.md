@@ -1,5 +1,7 @@
 # Storage and publication
 
+**Selected follow-up target / Proposed implementation, 2026-10-07:** [Persisted graph execution](../../plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. PG0 installs the replacement architecture before dependent code: one private persisted compiler database through direct sealing; independent external import and stored reconciliation remain. Completed-state backing, identities and transport must survive sealing/restore. Existing implemented descriptions below are the baseline, not a parallel target.
+
 **Implemented, 2026-10-05 (ADR-0128); focused verification is recorded by the coordinator.** Rust-admitted graph content
 and its native physical realization are distinct. The [coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md)
 owns the core-operation-first hard pivot; old PostgreSQL receipts do not establish this implementation.

@@ -64,6 +64,8 @@ scenarios/deployment, typed retrieval, agent usability and comparative confirmat
 Earlier product receipts retain their recorded boundaries; they do not qualify the reconstructed
 pipeline. Remaining research is activated only by an exposed claim or a named product task.
 
+**Selected next increment / Proposed implementation, 2026-10-07:** [Persisted graph execution](../plans/persisted-graph-execution-plan_2026-10-07.md) replaces store-free compilation with native completed inputs and direct sealing, and consolidates matching inefficiencies across consumers. Operator-confirmed RC01/RC02 and dependency foundations inform this target; PG0 records the superseding decision and updates §B3/§B7/§B12 before dependent code. Earlier implementation receipts do not establish this target.
+
 **Current increment: graph-native replacement (Implemented, 2026-10-06; ADR-0128).**
 The [coordinator](../plans/graph-native-pivot-plan_2026-10-05.md) owns G0/M1/C1/C2, native realization,
 serving, projections and acceptance. The store-free compiler stage is user-accepted; native
