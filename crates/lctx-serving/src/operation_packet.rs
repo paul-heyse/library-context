@@ -1,5 +1,5 @@
 //! Requested sections use their existing semantic kernels and exact captured sources.
-use crate::records::{need, rows, wire};
+use crate::records::{need, rows, wire, Prepared,PacketRows};
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
@@ -113,6 +113,7 @@ pub async fn get(
         fields.push("release");
     }
     let source = crate::scope::hydrate_with(reader, roots, &inputs, &fields, b).await?;
+    let source=std::sync::Arc::new(Prepared::new(&source,b));
     let mut core = crate::core::packet(&source, member, domains, limits, b)?;
     crate::defaults::read_originals(reader, &mut core.interpretation, request, b).await?;
     core.limits.maximum_response_bytes = limits.response_bytes(request.page().expanded);
@@ -288,13 +289,12 @@ pub async fn get(
     let q = rows::<assertion::AssertionQualification>(&source)?;
     let mut scenario_values = Vec::new();
     if r.sections.contains(&OperationSection::Scenarios) {
-        for association in associations.iter().filter(|a| a.member == member.id()) {
+        for association in &associations.select_for("member",&[member.id()])? {
             let scenario = need(&scenarios, association.scenario)?;
             let context = need(&q, association.qualification)?.context;
             let release = core.release.release;
-            let originals = spans
+            let originals = spans.select_for("scenario",&[scenario.id()])?
                 .iter()
-                .filter(|s| s.scenario == scenario.id())
                 .map(|s| {
                     crate::originals::range(
                         &source,
@@ -377,7 +377,7 @@ pub async fn get(
         let observations = rows::<deployment::DeploymentObservation>(&source)?;
         let links = rows::<catalog::evidence::ReleaseDeployment>(&source)?;
         let mut values = Vec::new();
-        for link in links.iter().filter(|l| l.release == core.release.release) {
+        for link in &links.select_for("release",&[core.release.release])? {
             let d = need(&deployments, link.deployment)?;
             let o = need(&observations, d.observation)?;
             let context = need(&q, o.qualification)?.context;
@@ -458,20 +458,12 @@ pub async fn get(
         let links = rows::<synthesis::briefs::BriefAssertion>(&source)?;
         let assertions = rows::<synthesis::assertions::ProgrammaticAssertion>(&source)?;
         let invocations = rows::<catalog::CatalogMemberInvocation>(&source)?;
-        let ids = links
-            .iter()
-            .filter(|l| {
-                assertions
-                    .iter()
-                    .find(|a| a.id() == l.assertion)
-                    .is_some_and(|a| {
-                        invocations
-                            .iter()
-                            .any(|i| i.id() == a.member && i.member == member.id())
-                    })
-            })
-            .map(|l| l.brief)
-            .collect::<std::collections::BTreeSet<_>>();
+        let mut ids=std::collections::BTreeSet::new();
+        for link in &links {
+            if let Some(assertion)=assertions.get(link.assertion)? {
+                if invocations.get(assertion.member)?.is_some_and(|invocation|invocation.member==member.id()){ids.insert(link.brief);}
+            }
+        }
         let mut values = Vec::new();
         let prepared = crate::capability::Prepared::new(&source, b)?;
         for id in ids {
@@ -529,52 +521,40 @@ pub async fn get(
     })
 }
 fn relationships(
-    source: &lctx_surrealdb::batches::CanonicalBatches,
+    source: &Prepared<'_>,
     member: Id<catalog::CatalogMember>,
 ) -> Result<Vec<(ContentHash, RelationshipPacket)>, ModelError> {
     let callables = rows::<catalog::CatalogCallable>(source)?;
     let assessments = rows::<normalized::callables::EffectiveCallableAssessment>(source)?;
     let classes = rows::<catalog::CatalogClass>(source)?;
-    let owned = callables
-        .iter()
-        .filter(|c| c.member == member)
-        .filter_map(|c| assessments.iter().find(|a| a.id() == c.assessment))
-        .map(|a| {
-            normalized::entities::EntityRef::Callable {
-                callable: a.callable,
-            }
-            .id()
-        })
-        .chain(
-            classes
-                .iter()
-                .filter(|c| c.member == member)
-                .map(|c| normalized::entities::EntityRef::Class { class: c.class }.id()),
-        )
-        .collect::<std::collections::BTreeSet<_>>();
+    let mut owned=std::collections::BTreeSet::new();
+    for callable in callables.select_for("member",&[member])?.iter(){
+        if let Some(assessment)=assessments.get(callable.assessment)?{owned.insert(normalized::entities::EntityRef::Callable{callable:assessment.callable}.id());}
+    }
+    owned.extend(classes.select_for("member",&[member])?.iter().map(|class|normalized::entities::EntityRef::Class{class:class.class}.id()));
+    let witnesses=rows::<selection::Witness>(source)?;
     let events = rows::<normalized::events::NormalizedCallEvent>(source)?;
     let ownership = rows::<normalized::entities::OccurrenceOwnership>(source)?;
     let alternatives = rows::<normalized::events::NormalizedCallAlternative>(source)?;
     let mut values = Vec::new();
+    let mut assessments_checked=false;
     for event in &events {
         if !owned.contains(&need(&ownership, event.owner)?.entity) {
             continue;
         }
-        for alternative in alternatives.iter().filter(|a| a.event == event.id()) {
+        let event_alternatives=alternatives.select_for("event",&[event.id()])?;
+        for alternative in &event_alternatives {
             let Some(entity) = alternative.entity else {
                 continue;
             };
-            for callable in &callables {
-                let a = need(&assessments, callable.assessment)?;
-                if (normalized::entities::EntityRef::Callable {
-                    callable: a.callable,
-                })
-                .id()
-                    != entity
-                {
-                    continue;
-                }
-                let witnesses=rows::<selection::Witness>(source)?.into_iter().filter(|w|matches!(w,selection::Witness::Member{member} if *member==callable.member)).map(|w|w.id()).collect();
+            // The previous demanded target loop required every callable assessment,
+            // including unrelated callables. Preserve that missing-row refusal once.
+            if !assessments_checked{for callable in &callables{need(&assessments,callable.assessment)?;}assessments_checked=true;}
+            let target_assessments=assessments.select_derived("@relationship_callable_entity",&[entity],|assessment|normalized::entities::EntityRef::Callable{callable:assessment.callable}.id())?;
+            let target_callables=callables.select_for("assessment",&target_assessments.iter().map(Record::id).collect::<Vec<_>>())?;
+            for callable in &target_callables {
+                let witness_rows=witnesses.select_for("member",&[callable.member])?;
+                let witnesses=witness_rows.iter().map(Record::id).collect();
                 let p = RelationshipPacket::Invocation {
                     target: callable.member,
                     analysis: event.context,
@@ -601,10 +581,9 @@ fn relationships(
     let readers = rows::<normalized::symbolic_fields::SourceFieldReader>(source)?;
     let reader_links = rows::<normalized::symbolic_fields::SourceFieldReaderLink>(source)?;
     let q = rows::<assertion::AssertionQualification>(source)?;
+    let member_options=options.select_for("member",&[member])?;
     for link in &links {
-        if !options.iter().any(|o| {
-            o.member == member && (o.id() == link.parameter_option || o.id() == link.field_option)
-        }) {
+        if member_options.get(link.parameter_option)?.is_none()&&member_options.get(link.field_option)?.is_none() {
             continue;
         }
         let a = need(&associations, link.association)?;
@@ -639,15 +618,12 @@ fn relationships(
 /// Preserve stored diagnostic correspondence; containment alone never supplies a target.
 fn scenario_diagnostics(
     association: Id<catalog::evidence::ScenarioAssociation>,
-    targets: &[catalog::evidence::DiagnosticUseTarget],
-    links: &[catalog::evidence::DiagnosticUseLink],
-    assessments: &[catalog::evidence::DiagnosticUseAssessment],
+    targets: &PacketRows<catalog::evidence::DiagnosticUseTarget>,
+    links: &PacketRows<catalog::evidence::DiagnosticUseLink>,
+    assessments: &PacketRows<catalog::evidence::DiagnosticUseAssessment>,
 ) -> Result<Vec<(ContentHash, Id<catalog::evidence::DiagnosticUseAssessment>)>, ModelError> {
     let mut selected = std::collections::BTreeSet::new();
-    for target in targets
-        .iter()
-        .filter(|target| target.association == association)
-    {
+    for target in &targets.select_for("association",&[association])? {
         let link = need(links, target.link)?;
         need(assessments, link.assessment)?;
         selected.insert(link.assessment);
@@ -707,11 +683,13 @@ mod scenario_tests {
                 link: excluded.id(),
             },
         ];
-        let links = vec![first.clone(), second.clone(), excluded];
-        let assessments = vec![assessment.clone(), unrelated];
+        let budget=ResourceBudget::fixed(1<<20).unwrap();
+        let targets=PacketRows::new(targets,&budget).unwrap();
+        let links = PacketRows::new(vec![first.clone(), second.clone(), excluded],&budget).unwrap();
+        let assessments = PacketRows::new(vec![assessment.clone(), unrelated],&budget).unwrap();
         let actual = scenario_diagnostics(association, &targets, &links, &assessments).unwrap();
         assert_eq!(actual.len(), 1);
         assert_eq!(actual[0].1, assessment.id());
-        assert!(scenario_diagnostics(association, &targets, &[second], &assessments).is_err());
+        assert!(scenario_diagnostics(association, &targets, &PacketRows::new(vec![second],&budget).unwrap(), &assessments).is_err());
     }
 }

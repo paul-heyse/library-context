@@ -65,7 +65,8 @@ pub async fn get(
         &data,
         b,
     )?;
-    let claims = crate::claims::Claims::new(&batches, b)?;
+    let canonical=crate::records::Prepared::new(&batches,b);
+    let claims = canonical.claims()?;
     let mut canonical = r.clone();
     let owner = prepared.domain().resolve(&mut canonical)?;
     let mut values = Vec::new();

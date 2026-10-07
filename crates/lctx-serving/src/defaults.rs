@@ -1,8 +1,8 @@
 //! Readable declaration/context closure over the already hydrated canonical scope.
 //! Runtime override/effective-value claims are never inferred from source/default IDs.
-use crate::records::{need, rows, wire};
+use crate::records::{need, rows, wire, Prepared,PacketRows};
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
-use lctx_surrealdb::{NativeReader, batches::CanonicalBatches};
+use lctx_surrealdb::NativeReader;
 use std::collections::{BTreeMap, BTreeSet};
 fn unavailable(reason: &str) -> Result<Availability, ModelError> {
     Ok(Availability::Unavailable {
@@ -35,7 +35,7 @@ fn scalar(value: &value::Literal) -> Result<Option<String>, ModelError> {
 }
 fn readable_predicate(
     predicate: &value::Predicate,
-    literals: &[value::Literal],
+    literals: &PacketRows<value::Literal>,
 ) -> Result<Option<String>, ModelError> {
     Ok(match predicate {
         value::Predicate::IsNone => Some("is None".into()),
@@ -77,7 +77,7 @@ fn context(row: &attribution::AnalysisContext) -> Result<AnalysisContextPacket, 
     })
 }
 fn excerpt(
-    source: &CanonicalBatches,
+    source: &Prepared<'_>,
     occurrence: Id<source::Occurrence>,
     analysis: Id<attribution::AnalysisContext>,
     release: Id<input::Release>,
@@ -96,11 +96,11 @@ fn excerpt(
 /// Collect scope-bound declaration alternatives before choosing a displayed scalar default.
 /// A source-parameter observation in a different analysis is never a compatible default.
 pub fn closure(
-    source: &CanonicalBatches,
+    source: &Prepared<'_>,
     core: &OperationCore,
     budget: &ResourceBudget,
 ) -> Result<InterpretationClosure, ModelError> {
-    let options = rows::<catalog::CatalogOption>(source)?;
+    let options = rows::<catalog::CatalogOption>(source)?.select_for("member",&[core.member])?;
     let subjects = rows::<catalog::CatalogOptionSubject>(source)?;
     let evidence = rows::<catalog::CatalogOptionEvidence>(source)?;
     let syntax = rows::<syntax::ParameterSyntaxObservation>(source)?;
@@ -115,7 +115,7 @@ pub fn closure(
         analyses.insert(signature.analysis);
         qids.extend(signature.typing.iter().map(|t| t.qualification));
         for parameter in &signature.parameters {
-            for option in options.iter().filter(|o| o.member == core.member) {
+            for option in &options {
                 let relevant = match need(&subjects, option.subject)? {
                     catalog::CatalogOptionSubject::Parameter { slot } => {
                         parameter.slot.0 == Some(*slot)
@@ -217,7 +217,7 @@ pub fn closure(
     let field_syntax = rows::<syntax::ClassFieldSyntaxObservation>(source)?;
     let native_fields = rows::<types::RecordFieldObservation>(source)?;
     let native_links = rows::<normalized::entities::FieldEntityLink>(source)?;
-    for option in options.iter().filter(|o| o.member == core.member) {
+    for option in &options {
         let catalog::CatalogOptionSubject::Field { field } = need(&subjects, option.subject)?
         else {
             continue;
@@ -303,7 +303,7 @@ pub fn closure(
     Ok(result)
 }
 pub fn qualified(
-    source: &CanonicalBatches,
+    source: &Prepared<'_>,
     analyses: BTreeSet<Id<attribution::AnalysisContext>>,
     qids: BTreeSet<Id<assertion::AssertionQualification>>,
     release: Id<input::Release>,
@@ -316,7 +316,7 @@ pub fn qualified(
     let atoms = rows::<conditions::EvaluationAtom>(source)?;
     let predicates = rows::<value::Predicate>(source)?;
     let literals = rows::<value::Literal>(source)?;
-    let claims = crate::claims::Claims::new(source, budget)?;
+    let claims = source.claims()?;
     let mut values = vec![];
     for id in qids {
         let q = need(&qualifications, id)?;
@@ -542,12 +542,13 @@ mod tests {
     use super::*;
     #[test]
     fn opaque_class_operand_never_becomes_readable_predicate() {
+        let literals=PacketRows::<value::Literal>::new(vec![],&ResourceBudget::fixed(1024).unwrap()).unwrap();
         assert_eq!(
             readable_predicate(
                 &value::Predicate::IsInstance {
                     class_expression: "opaque-id-0123456789".into()
                 },
-                &[]
+                &literals
             )
             .unwrap(),
             None
@@ -557,13 +558,13 @@ mod tests {
                 &value::Predicate::TypeIs {
                     class_expression: "opaque-id-0123456789".into()
                 },
-                &[]
+                &literals
             )
             .unwrap(),
             None
         );
         assert_eq!(
-            readable_predicate(&value::Predicate::Truthy, &[]).unwrap(),
+            readable_predicate(&value::Predicate::Truthy, &literals).unwrap(),
             Some("is truthy".into())
         );
     }

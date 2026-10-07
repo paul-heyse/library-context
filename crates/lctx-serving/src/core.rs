@@ -1,7 +1,7 @@
 //! Indivisible mandatory operation packets from exact scoped canonical records.
 use crate::{
     claims::Claims,
-    records::{need, rows, wire},
+    records::{need, rows, wire, Prepared,PacketRows},
 };
 use lctx_model::domain::{assertion::Support, resources, serving::mappings::PacketOutput};
 use lctx_model::domain::{
@@ -67,7 +67,7 @@ impl InventoryRoots {
         }
         roots
     }
-    fn type_literals(&mut self, terms: &[types::TypeTerm]) -> Result<(), ModelError> {
+    fn type_literals(&mut self, terms: &PacketRows<types::TypeTerm>) -> Result<(), ModelError> {
         for (_, id) in &self.terms {
             let term = need(terms, *id)?;
             for reference in term
@@ -82,14 +82,12 @@ impl InventoryRoots {
     }
     fn literal_values(
         &self,
-        literals: &[value::Literal],
+        literals: &PacketRows<value::Literal>,
     ) -> Result<Vec<LiteralPacket>, ModelError> {
         self.literals
             .iter()
             .map(|key| {
-                let row = literals
-                    .iter()
-                    .find(|row| row.id().bytes() == key)
+                let row = literals.get_key(key)?
                     .ok_or(ModelError::Schema("core literal dependency"))?;
                 LiteralPacket::from_canonical(row)
             })
@@ -104,7 +102,7 @@ impl InventoryRoots {
     }
 }
 fn inventory(
-    source: &CanonicalBatches,
+    source: &Prepared<'_>,
     core: &mut OperationCore,
     claims: &Claims,
 ) -> Result<(), ModelError> {
@@ -171,14 +169,14 @@ pub async fn hydrate(
     .await
 }
 pub fn packet(
-    source: &CanonicalBatches,
+    source: &Prepared<'_>,
     member: &catalog::CatalogMember,
     domains: &[LibraryDomainPacket],
     limits: &ResourceLimits,
     budget: &resources::ResourceBudget,
 ) -> Result<OperationCore, ModelError> {
     let mut charge = charged::StateCharge::new(budget, "native-operation-core-packet");
-    let claims = Claims::new(source, budget)?;
+    let claims = source.claims()?;
     let modules = rows::<source::Module>(source)?;
     let module = need(&modules, member.access)?;
     let releases = domains
@@ -196,30 +194,18 @@ pub fn packet(
     if releases.iter().any(|r| r != &release) {
         return Err(ModelError::Conflict("operation release capture ambiguity"));
     }
-    let exposures = rows::<catalog::CatalogExposure>(source)?
-        .into_iter()
-        .filter(|r| r.member == member.id())
-        .collect::<Vec<_>>();
+    let exposures = rows::<catalog::CatalogExposure>(source)?.select_for("member",&[member.id()])?;
     let exposure_ids = exposures
         .iter()
         .map(Record::id)
         .collect::<std::collections::BTreeSet<_>>();
-    let candidates = rows::<catalog::CatalogCandidate>(source)?
-        .into_iter()
-        .filter(|r| exposure_ids.contains(&r.exposure))
-        .collect::<Vec<_>>();
-    let callables = rows::<catalog::CatalogCallable>(source)?
-        .into_iter()
-        .filter(|r| r.member == member.id())
-        .collect::<Vec<_>>();
+    let candidates = rows::<catalog::CatalogCandidate>(source)?.select_for("exposure",&exposure_ids.iter().copied().collect::<Vec<_>>())?;
+    let callables = rows::<catalog::CatalogCallable>(source)?.select_for("member",&[member.id()])?;
     let callable_ids = callables
         .iter()
         .map(Record::id)
         .collect::<std::collections::BTreeSet<_>>();
-    let invocations = rows::<catalog::CatalogInvocation>(source)?
-        .into_iter()
-        .filter(|r| callable_ids.contains(&r.callable))
-        .collect::<Vec<_>>();
+    let invocations = rows::<catalog::CatalogInvocation>(source)?.select_for("callable",&callable_ids.iter().copied().collect::<Vec<_>>())?;
     let assessments = rows::<EffectiveCallableAssessment>(source)?;
     let variants = rows::<SignatureVariant>(source)?;
     let signatures = rows::<calls::Signature>(source)?;
@@ -234,14 +220,12 @@ pub fn packet(
     let type_supports = rows::<types::TypeSupport>(source)?;
     let signature_type_supports = rows::<types::SignatureTypeSupport>(source)?;
     let native_signatures = rows::<types::NativeSignatureObservation>(source)?;
-    let options = rows::<catalog::CatalogOption>(source)?
-        .into_iter()
-        .filter(|r| r.member == member.id())
-        .collect::<Vec<_>>();
+    let options = rows::<catalog::CatalogOption>(source)?.select_for("member",&[member.id()])?;
     let option_subjects = rows::<catalog::CatalogOptionSubject>(source)?;
     let defaults = rows::<catalog::CatalogDefault>(source)?;
     let default_evidence = rows::<catalog::CatalogOptionEvidence>(source)?;
     let default_syntax = rows::<syntax::ParameterSyntaxObservation>(source)?;
+    let mut subjects_checked=false;
     let mut invocation_packets = Vec::new();
     let mut signature_packets = Vec::new();
     for invocation in &invocations {
@@ -263,10 +247,8 @@ pub fn packet(
                 DescriptorKind::Property => selection::InvocationForm::Property,
             })),
         });
-        let mut signature_parameters = parameters
-            .iter()
-            .filter(|p| p.signature == signature.id())
-            .collect::<Vec<_>>();
+        let selected_parameters=parameters.select_for("signature",&[signature.id()])?;
+        let mut signature_parameters=selected_parameters.iter().collect::<Vec<_>>();
         signature_parameters.sort_by_key(|p| p.ordinal);
         let mut parameter_packets = Vec::new();
         let mut typing = Vec::new();
@@ -274,21 +256,19 @@ pub fn packet(
         let mut return_evidence = Vec::new();
         for parameter in signature_parameters {
             let shape = need(&shapes, parameter.shape)?;
-            let slot = slots
+            let selected_slots=slots.select_for("parameter",&[parameter.id()])?;
+            let slot=selected_slots.iter().find(|slot|slot.variant==variant.id());
+            let parameter_links=links.select_for("parameter",&[parameter.id()])?;
+            let parameter_formals = parameter_links
                 .iter()
-                .find(|s| s.parameter == parameter.id() && s.variant == variant.id());
-            let parameter_formals = links
-                .iter()
-                .filter(|l| l.parameter == parameter.id())
                 .map(|l| l.entity)
                 .collect::<Vec<_>>();
             let mut terms = Vec::new();
             let mut evidence = Vec::new();
-            for observation in &signature_types {
-                if !matches!(need(&subjects,observation.subject)?,types::SignatureTypeSubject::Parameter{parameter:p} if *p==parameter.id())
-                {
-                    continue;
-                }
+            if !subjects_checked{for observation in &signature_types{need(&subjects,observation.subject)?;}subjects_checked=true;}
+            let parameter_subjects=subjects.select_for("parameter",&[parameter.id()])?;
+            let parameter_observations=signature_types.select_for("subject",&parameter_subjects.iter().map(Record::id).collect::<Vec<_>>())?;
+            for observation in &parameter_observations {
                 let q = claims
                     .qualifications
                     .get(&observation.qualification)
@@ -300,9 +280,8 @@ pub fn packet(
                     observation.id(),
                 ))?];
                 proof.extend(
-                    signature_type_supports
+                    signature_type_supports.select_for("assertion",&[observation.id()])?
                         .iter()
-                        .filter(|s| s.assertion() == observation.id())
                         .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                         .collect::<Result<Vec<_>, _>>()?,
                 );
@@ -321,9 +300,8 @@ pub fn packet(
             }
             for formal in &parameter_formals {
                 if let ParameterEntity::Source { declaration } = need(&formals, *formal)? {
-                    for observation in source_types.iter().filter(|o| {
-                        o.subject == *declaration && o.role == types::TypeRole::Parameter
-                    }) {
+                    let selected_types=source_types.select_for("subject",&[*declaration])?;
+                    for observation in selected_types.iter().filter(|observation|observation.role==types::TypeRole::Parameter) {
                         let q = claims
                             .qualifications
                             .get(&observation.qualification)
@@ -335,9 +313,8 @@ pub fn packet(
                             derivation::RowRef::of(observation.id()),
                         )?];
                         proof.extend(
-                            type_supports
-                                .iter()
-                                .filter(|s| s.assertion() == observation.id())
+                            type_supports.select_for("assertion",&[observation.id()])?
+                        .iter()
                                 .map(|s| {
                                     ProofReference::from_canonical(derivation::RowRef::of(s.id()))
                                 })
@@ -420,11 +397,10 @@ pub fn packet(
                 default,
             });
         }
-        for observation in &signature_types {
-            if !matches!(need(&subjects,observation.subject)?,types::SignatureTypeSubject::Return{signature:s} if *s==signature.id())
-            {
-                continue;
-            }
+        if !subjects_checked{for observation in &signature_types{need(&subjects,observation.subject)?;}subjects_checked=true;}
+        let return_subjects=subjects.select_for("signature",&[signature.id()])?;
+        let return_observations=signature_types.select_for("subject",&return_subjects.iter().map(Record::id).collect::<Vec<_>>())?;
+        for observation in &return_observations {
             let q = claims
                 .qualifications
                 .get(&observation.qualification)
@@ -436,9 +412,8 @@ pub fn packet(
                 observation.id(),
             ))?];
             proof.extend(
-                signature_type_supports
-                    .iter()
-                    .filter(|s| s.assertion() == observation.id())
+                signature_type_supports.select_for("assertion",&[observation.id()])?
+                        .iter()
                     .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                     .collect::<Result<Vec<_>, _>>()?,
             );
@@ -458,10 +433,8 @@ pub fn packet(
         if let Some(callable) = variant.callable {
             let callable_rows = rows::<CallableEntity>(source)?;
             if let CallableEntity::Source { declaration, .. } = need(&callable_rows, callable)? {
-                for observation in source_types
-                    .iter()
-                    .filter(|o| o.subject == *declaration && o.role == types::TypeRole::Return)
-                {
+                let selected_types=source_types.select_for("subject",&[*declaration])?;
+                for observation in selected_types.iter().filter(|observation|observation.role==types::TypeRole::Return) {
                     let q = claims
                         .qualifications
                         .get(&observation.qualification)
@@ -473,9 +446,8 @@ pub fn packet(
                         observation.id(),
                     ))?];
                     proof.extend(
-                        type_supports
-                            .iter()
-                            .filter(|s| s.assertion() == observation.id())
+                        type_supports.select_for("assertion",&[observation.id()])?
+                        .iter()
                             .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                             .collect::<Result<Vec<_>, _>>()?,
                     );
@@ -618,6 +590,7 @@ pub fn packet(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn packet_rows<R:Record>(rows:Vec<R>)->PacketRows<R>{PacketRows::new(rows,&resources::ResourceBudget::fixed(1<<20).unwrap()).unwrap()}
     fn id<T>(n: u8) -> Id<T> {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }
@@ -654,10 +627,10 @@ mod tests {
         let packet = core(term.id(), default.id());
         let mut roots = InventoryRoots::core(&packet);
         roots
-            .type_literals(&[term.clone(), unrelated_term.clone()])
+            .type_literals(&packet_rows(vec![term.clone(), unrelated_term.clone()]))
             .unwrap();
         let values = roots
-            .literal_values(&[typed.clone(), default.clone(), unrelated])
+            .literal_values(&packet_rows(vec![typed.clone(), default.clone(), unrelated]))
             .unwrap();
         assert_eq!(
             values.iter().map(|v| v.literal).collect::<BTreeSet<_>>(),
@@ -700,9 +673,9 @@ mod tests {
         };
         let packet = core(term.id(), literal.id());
         let mut roots = InventoryRoots::core(&packet);
-        assert!(roots.type_literals(&[]).is_err());
-        roots.type_literals(&[term]).unwrap();
-        assert!(roots.literal_values(&[]).is_err());
+        assert!(roots.type_literals(&packet_rows(vec![])).is_err());
+        roots.type_literals(&packet_rows(vec![term])).unwrap();
+        assert!(roots.literal_values(&packet_rows(vec![])).is_err());
         // Presentation absence remains permitted: the helper does not invent a native display.
         assert!(packet.type_presentations.is_empty());
     }

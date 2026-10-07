@@ -563,6 +563,7 @@ async fn search_capabilities(
     let mut values = Vec::new();
     for cohort in brief_ids.chunks(64) {
         let data = crate::capability::hydrate(reader, cohort, b).await?;
+        let data=crate::records::Prepared::new(&data,b);
         let prepared = crate::capability::Prepared::new(&data, b)?;
         for brief in cohort {
             let packet = prepared.packet(*brief, b)?;

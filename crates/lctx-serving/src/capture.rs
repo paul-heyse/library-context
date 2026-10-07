@@ -25,10 +25,7 @@ use lctx_model::domain::{
 
 async fn row<R: Record>(lease: &mut NativePackets<'_>, id: Id<R>) -> Result<R, Error> {
     let batch = lease.read_ids::<R>(&[id]).await?;
-    batch
-        .rows()
-        .iter()
-        .find(|r| r.id() == id)
+    batch.get(id)?
         .cloned()
         .ok_or_else(|| {
             Error::Model(ModelError::Invalid(format!(

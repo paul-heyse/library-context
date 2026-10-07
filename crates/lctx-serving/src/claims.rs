@@ -1,14 +1,13 @@
 //! Conditional claim bases retain exact native support and the authored universe.
-use crate::records::{rows, wire};
+use crate::records::{rows, wire,Prepared};
 use lctx_model::domain::resources;
 use lctx_model::domain::{assertion::Support, serving::*, *};
-use lctx_surrealdb::batches::CanonicalBatches;
 use std::collections::BTreeMap;
 macro_rules! claim_rows {($($field:ident:$ty:ty,)*)=>{
     pub struct Claims {$(pub $field:BTreeMap<Id<$ty>,$ty>,)* _charge:charged::StateCharge}
-    impl Claims {pub fn new(batches:&CanonicalBatches,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+    impl Claims {pub fn new(batches:&Prepared<'_>,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
         let mut charge=charged::StateCharge::new(budget,"native-claim-packet-rows");
-        Ok(Self{$($field:{let mut map=BTreeMap::new();for row in rows::<$ty>(batches)? {charge.admit(&row)?;charge.grow(48)?;map.insert(row.id(),row);}map},)*_charge:charge})}}
+        Ok(Self{$($field:{let mut map=BTreeMap::new();for row in rows::<$ty>(batches)?.iter().cloned() {charge.admit(&row)?;charge.grow(48)?;map.insert(row.id(),row);}map},)*_charge:charge})}}
 };}
 claim_rows! {
     sets:assumptions::AssumptionSet,
