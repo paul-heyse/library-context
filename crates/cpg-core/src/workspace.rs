@@ -9,7 +9,7 @@ use datafusion::{
     },
     prelude::{SessionConfig, SessionContext},
 };
-use futures::TryStreamExt;
+use futures::{TryStreamExt,FutureExt,future::{BoxFuture,Shared}};
 use lctx_model::domain::{
     Batch, ContentHash, ModelError, Record, Relation, ValidatedModel,
     batching::TransferLimits,
@@ -130,7 +130,7 @@ pub struct Workspace {
     cancellation: Cancellation,
     completion_gate: tokio::sync::Mutex<()>,
     compilation_complete: Mutex<Option<CompilationCompletion>>,
-    provider_drains: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    provider_drains: Mutex<Vec<Shared<BoxFuture<'static,Result<(),Arc<str>>>>>>,
     checked_premises: Mutex<(std::collections::BTreeSet<ContentHash>, StateCharge)>,
 }
 impl Workspace {
@@ -1149,9 +1149,9 @@ impl Workspace {
     /// Drain abandoned provider threads before discarding attempt-owned native state.
     pub async fn drain(&self)->Result<(),ModelError>{
         self.cancellation.cancel();
-        let drains=std::mem::take(&mut *self.provider_drains.lock().map_err(|_|poisoned())?);
+        let drains=self.provider_drains.lock().map_err(|_|poisoned())?.clone();
         let mut error=None;
-        for task in drains{if let Err(failure)=task.await{error.get_or_insert_with(||ModelError::codec(failure));}}
+        for task in drains{if let Err(failure)=task.await{error.get_or_insert_with(||ModelError::Invalid(failure.to_string()));}}
         for result in [self.bridge.drain().await,self.native_calls.drain().await,self.native.drain().await]{if let Err(failure)=result{error.get_or_insert(failure);}}
         error.map_or(Ok(()),Err)
     }
@@ -2221,9 +2221,12 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
     fn drain_provider(&self, thread: std::thread::JoinHandle<()>) -> tokio::sync::oneshot::Receiver<Result<(), ModelError>> {
         let (done, finished) = tokio::sync::oneshot::channel();
         let task = tokio::task::spawn_blocking(move || {
-            let _ = done.send(thread.join().map_err(|_| ModelError::Invalid("provider thread panicked while draining".into())));
+            let result=thread.join().map_err(|_|Arc::<str>::from("provider thread panicked while draining"));
+            let _=done.send(result.as_ref().map(|()|()).map_err(|error|ModelError::Invalid(error.to_string())));
+            result
         });
-        self.workspace.provider_drains.lock().expect("provider drainage ownership").push(task);
+        let joined=async move{task.await.map_err(|error|Arc::<str>::from(error.to_string()))?}.boxed().shared();
+        self.workspace.provider_drains.lock().expect("provider drainage ownership").push(joined);
         finished
     }
     fn read<R: Record>(
@@ -2309,6 +2312,19 @@ mod tests {
             }
         }
         assert_eq!(rows, 20000);
+    }
+    #[tokio::test]
+    async fn interrupted_workspace_drain_retains_provider_join_for_retry() {
+        use cpg_extract::bundle::ProviderSink;
+        let workspace=Workspace::new(model(),WorkspaceOptions::default(),crate::test_native::store()).unwrap();
+        let output=workspace.output("provider-drain",Profile::Catalog,ContentHash::of(b"provider-drain"),workspace.inputs("provider-drain",Profile::Catalog,[]).unwrap(),[]);
+        let entered=Arc::new(tokio::sync::Notify::new());let completed=Arc::new(AtomicBool::new(false));
+        let thread_entered=entered.clone();let thread_completed=completed.clone();
+        let thread=std::thread::spawn(move ||{thread_entered.notify_one();std::thread::sleep(std::time::Duration::from_millis(80));thread_completed.store(true,Ordering::Release);});
+        let acknowledgement=output.drain_provider(thread);entered.notified().await;
+        let first_owner=workspace.clone();let first=tokio::spawn(async move{first_owner.drain().await});
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;first.abort();assert!(first.await.is_err());
+        workspace.drain().await.unwrap();assert!(completed.load(Ordering::Acquire));acknowledgement.await.unwrap().unwrap();
     }
     #[tokio::test]
     async fn manual_output_inventory_is_closed_and_empty_inventory_is_metadata_only() {
