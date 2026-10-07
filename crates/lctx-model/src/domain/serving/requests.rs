@@ -15,6 +15,9 @@ pub struct PageRequest {
     #[serde(default)]
     /// Request the declared expanded response envelope; it remains bounded and does not imply completeness.
     pub expanded: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_absent")]
+    /// Desired visible information and exact context. No evaluator expectations or witness lists.
+    pub evidence_demand: Optional<EvidenceDemand>,
 }
 fn default_page_size() -> u32 {
     ResourceLimits::default().default_page_rows
@@ -25,6 +28,7 @@ impl Default for PageRequest {
             size: default_page_size(),
             cursor: Optional::default(),
             expanded: false,
+            evidence_demand: Optional::default(),
         }
     }
 }
@@ -178,3 +182,24 @@ pub struct ExactInputBinding {
     pub value: native_requests::ExactScalar,
 }
 request!(InspectValuePathsRequest {member:Id<catalog::CatalogMember>,analysis:Id<attribution::AnalysisContext>,inputs:Vec<ExactInputBinding>,#[doc = "Explicit finite assumptions for exact scalar restriction; no Python is executed."] assumptions:native_requests::Assumptions});
+
+/// Public information facets. Requesting a facet never asserts that its evidence exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all="snake_case")]
+pub enum EvidenceFacet { Declaration, Defaults, Conditions, Setup, Originals, Scenarios, Deployment, Relationships, Behavior }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EvidenceContext {
+    #[serde(default, skip_serializing_if="Optional::is_absent")] pub release: Optional<Name>,
+    #[serde(default, skip_serializing_if="Optional::is_absent")] pub signature: Optional<Id<calls::Signature>>,
+    #[serde(default, skip_serializing_if="Optional::is_absent")] pub variant: Optional<Id<normalized::callables::SignatureVariant>>,
+    #[serde(default, skip_serializing_if="Optional::is_absent")] pub analysis: Optional<Id<attribution::AnalysisContext>>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EvidenceDemand {
+    pub facets: Vec<EvidenceFacet>,
+    #[serde(default)] pub context: EvidenceContext,
+    /// Bound for suggested public expansions, not permission to execute them automatically.
+    #[serde(default)] pub maximum_followups: u32,
+}

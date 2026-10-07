@@ -25,7 +25,8 @@ macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:i
         fn page_mut(&mut self)->&mut PageRequest{match self{$(Self::$variant(request)=>&mut request.page),*}}
         pub fn to_json(&self)->Result<String,WireError>{match self{$(Self::$variant(request)=>Ok(serde_json::to_string(request)?)),*}}
         pub fn canonical_identity(&self)->Result<RequestIdentity,WireError>{
-            let mut canonical=self.clone(); *canonical.page_mut()=PageRequest::default();
+            let mut canonical=self.clone(); let demand=canonical.page().evidence_demand.clone(); *canonical.page_mut()=PageRequest::default(); canonical.page_mut().evidence_demand=demand;
+            if let Some(demand)=&mut canonical.page_mut().evidence_demand.0 { demand.facets.sort(); demand.facets.dedup(); }
             match &mut canonical {
                 Self::GetOperation(r)=>{r.sections.sort_by_key(|s|*s as u8);r.sections.dedup();},
                 Self::SearchEvidence(r)=>{r.families.sort_by_key(|f|*f as i16);r.families.dedup();},_=>{}
@@ -43,6 +44,16 @@ macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:i
     impl Response {
         pub fn tool(&self)->Tool{match self{$(Self::$variant(_)=>Tool::$variant),*}}
         pub fn to_json(&self)->Result<String,WireError>{match self{$(Self::$variant(response)=>Ok(serde_json::to_string(response)?)),*}}
+        /// Exact cost of the actual text/structured MCP result, without an output buffer.
+        pub fn mcp_result_len(&self)->Result<usize,WireError>{
+            let summary=format!("{}: snapshot-bound result",self.tool().name()); let mut writer=CountBytes(0);
+            match self{$(Self::$variant(response)=>serde_json::to_writer(&mut writer,&McpResult{content:[McpText{kind:"text",text:&summary}],structured:response,error:false})?),*};Ok(writer.0)
+        }
+        pub fn mcp_result_json(&self)->Result<String,WireError>{
+            let summary=format!("{}: snapshot-bound result",self.tool().name());
+            match self{$(Self::$variant(response)=>Ok(serde_json::to_string(&McpResult{content:[McpText{kind:"text",text:&summary}],structured:response,error:false})?)),*}
+        }
+        pub fn delivery_mut(&mut self)->&mut Optional<PacketEvidenceMap>{match self{$(Self::$variant(response)=>&mut response.delivery),*}}
         /// Count canonical wire bytes without allocating a response buffer.
         pub fn json_len(&self)->Result<usize,WireError>{
             let mut writer=CountBytes(0);
@@ -75,6 +86,10 @@ macro_rules! routes {($($variant:ident:$name:literal=>$request:ident,$response:i
         stringify!($request)=>Ok(schema_for::<$request>(output)),stringify!($response)=>Ok(schema_for::<$response>(output)),)*
         _=>Err(WireError::UnknownTool(name.into()))}}
 };}
+#[derive(Serialize)]
+struct McpText<'a>{#[serde(rename="type")] kind:&'a str,text:&'a str}
+#[derive(Serialize)]
+struct McpResult<'a,T:Serialize>{content:[McpText<'a>;1],#[serde(rename="structuredContent")]structured:&'a T,#[serde(rename="isError")]error:bool}
 struct CountBytes(usize);
 impl std::io::Write for CountBytes {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -114,9 +129,7 @@ pub fn schema_for<T: JsonSchema>(output: bool) -> Value {
 pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, WireError> {
     let limits = ResourceLimits::default();
     let response = decode_response(name, raw, expanded, &limits)?;
-    let structured: Value = serde_json::from_str(&response.to_json()?)?;
-    let envelope = serde_json::json!({"content":[{"type":"text","text":format!("{}: snapshot-bound result",response.tool().name())}],"structuredContent":structured,"isError":false});
-    let encoded = serde_json::to_string(&envelope)?;
+    let encoded = response.mcp_result_json()?;
     admit_envelope(&encoded, expanded)?;
     Ok(encoded)
 }
@@ -250,6 +263,11 @@ fn validate_selector(selector: &OperationSelector) -> Result<(), WireError> {
 fn validate_request(request: &Request, limits: &ResourceLimits) -> Result<(), WireError> {
     if request.page().size == 0 || request.page().size > limits.maximum_page_rows {
         return Err(WireError::ResourceRefused("page rows".into()));
+    }
+    if let Some(demand)=&request.page().evidence_demand.0 {
+        if demand.facets.len()>9 || demand.maximum_followups>limits.maximum_page_rows { return Err(WireError::ResourceRefused("evidence demand extent".into())); }
+        let facets:std::collections::BTreeSet<_>=demand.facets.iter().collect();
+        if facets.len()!=demand.facets.len() { return Err(WireError::Invalid("duplicate evidence facet".into())); }
     }
     match request {
         Request::SearchOperations(r) => validate_selection(&r.selection.0, limits)?,

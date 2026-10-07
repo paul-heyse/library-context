@@ -102,6 +102,8 @@ pub fn packet(
         .collect::<Vec<_>>();
     let option_subjects = rows::<catalog::CatalogOptionSubject>(source)?;
     let defaults = rows::<catalog::CatalogDefault>(source)?;
+    let default_evidence = rows::<catalog::CatalogOptionEvidence>(source)?;
+    let default_syntax = rows::<syntax::ParameterSyntaxObservation>(source)?;
     let mut invocation_packets = Vec::new();
     let mut signature_packets = Vec::new();
     for invocation in &invocations {
@@ -228,6 +230,10 @@ pub fn packet(
                 if matches!(subject,catalog::CatalogOptionSubject::Parameter{slot:s} if slot.is_some_and(|slot|slot.id()==*s))
                     || matches!(subject,catalog::CatalogOptionSubject::SourceParameter{parameter:p} if parameter_formals.contains(p))
                 {
+                    if let catalog::CatalogOptionEvidence::Parameter{syntax,..}|catalog::CatalogOptionEvidence::SourceParameter{syntax,..}=need(&default_evidence,option.evidence)? {
+                        let declaration=need(&default_syntax,*syntax)?;
+                        if claims.qualifications.get(&declaration.qualification).is_none_or(|q|q.context!=variant.context){continue;}
+                    }
                     available_defaults.push(DefaultValue::from_canonical(need(
                         &defaults,
                         option.default,
@@ -428,7 +434,7 @@ pub fn packet(
             .collect::<Result<Vec<_>, _>>()
             .map_err(wire)?,
     );
-    let packet = OperationCore {
+    let mut packet = OperationCore {
         member: member.id(),
         name: Name::new(member.name.clone()).map_err(wire)?,
         release,
@@ -450,12 +456,14 @@ pub fn packet(
         options: option_packets,
         literal_values: literals,
         type_presentations: presentations,
+        interpretation: InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::NotRequested{}},
         limits: PacketLimits {
             maximum_page_rows: limits.maximum_page_rows,
             maximum_response_bytes: limits.default_response_bytes,
             signature_indivisible: true,
         },
     };
+    packet.interpretation=crate::defaults::closure(source,&packet,budget)?;
     charge.grow(
         serde_json::to_vec(&packet)
             .map_err(ModelError::codec)?

@@ -85,7 +85,7 @@ pub enum SignatureTypingOrigin {
 packet!(SignatureTypingPacket {origin:SignatureTypingOrigin,term:Id<types::TypeTerm>,qualification:Id<assertion::AssertionQualification>,claim_basis:ClaimBasisPacket,proof:Vec<ProofReference>});
 packet!(InvocationPacket {callable:Id<catalog::CatalogCallable>,invocation:Id<catalog::CatalogInvocation>,assessment:Id<normalized::callables::EffectiveCallableAssessment>,analysis:Id<attribution::AnalysisContext>,#[doc = "Completeness of the effective callable evidence; unknown does not mean absent."] knowledge:normalized::callables::Knowledge,#[doc = "Declared invocation or signature form; an absent value means form evidence is unavailable."] form:Nullable<selection::InvocationForm>});
 packet!(OptionPacket {option:Id<catalog::CatalogOption>,subject:Id<catalog::CatalogOptionSubject>,evidence:Id<catalog::CatalogOptionEvidence>,default:DefaultValue});
-packet!(OperationCore {member:Id<catalog::CatalogMember>,name:Name,release:ReleaseIdentity,access:AccessProvenance,invocations:Vec<InvocationPacket>,signatures:Vec<SignaturePacket>,#[doc = "Completeness of signature evidence; unknown signatures remain visible."] signature_knowledge:normalized::callables::Knowledge,options:Vec<OptionPacket>,literal_values:Vec<LiteralPacket>,type_presentations:Vec<TypePresentationPacket>,limits:PacketLimits});
+packet!(OperationCore {member:Id<catalog::CatalogMember>,name:Name,release:ReleaseIdentity,access:AccessProvenance,invocations:Vec<InvocationPacket>,signatures:Vec<SignaturePacket>,#[doc = "Completeness of signature evidence; unknown signatures remain visible."] signature_knowledge:normalized::callables::Knowledge,options:Vec<OptionPacket>,literal_values:Vec<LiteralPacket>,type_presentations:Vec<TypePresentationPacket>,interpretation:InterpretationClosure,limits:PacketLimits});
 /// Address an actual stored nominal source; wrappers are not manufactured during serving.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -471,7 +471,7 @@ packet!(StoredEntryPremise {qualification:Id<assertion::AssertionQualification>,
 packet!(StoredEntryContribution {contribution:Id<local_semantics::LocalContribution>,qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,claim_basis:ClaimBasisPacket,status:analysis::policy::EvidenceStatus});
 packet!(StoredEntryOutcome {witness:Id<conditions::entry::EntryValueWitness>,formal:Id<normalized::entities::ParameterEntity>,owner:Id<normalized::entities::EntityRef>,run:Id<attribution::ProviderRun>,access_source:Id<conditions::entry::EntryAccessSource>,coverage:Id<attribution::ProviderCoverage>,premises:Vec<StoredEntryPremise>,contributions:Vec<StoredEntryContribution>,proof:Vec<ProofReference>});
 packet!(FlowInventoryPacket {inventory:Id<flow_inventory::FlowUseInventoryObservation>,use_:Id<flow::FlowUse>,occurrence:Id<source::Occurrence>,artifact:Id<source::SourceArtifact>,start:u64,end:u64,context:Id<attribution::AnalysisContext>,qualification:Id<assertion::AssertionQualification>,condition:Id<conditions::Condition>,native_count:u64,mapped_count:u64,#[doc="Full native enumeration closure; this is not Python or entry-value completeness."] complete:bool,candidates:Vec<FlowInventoryCandidate>,members:Vec<FlowInventoryReaching>,view:FlowInventoryView,#[doc="Per-use inventory alone cannot prove entry-value provenance."] entry_value_reason:Nullable<obligation::ObligationKind>,#[doc="Already publication-replayed singleton outcomes for this exact access/context/run. Lookup availability does not certify all possible entry proofs."] entry_outcomes:SectionPage<StoredEntryOutcome>,proof:Vec<ProofReference>});
-packet!(EvidencePacket {original:OriginalRange,body:EvidenceBodyPage,#[doc="Fully hydrated native per-use inventories in the granted original range; omitted inventories do not establish absence."] flow_inventory:SectionPage<FlowInventoryPacket>,#[doc="Selected positive native source observations within this original range. An empty section proves neither diagnostic absence nor successful execution."] source_characterization:SectionPage<SourceCharacterizationPacket>,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
+packet!(EvidencePacket {original:OriginalRange,release:ReleaseIdentity,interpretation:InterpretationClosure,body:EvidenceBodyPage,#[doc="Fully hydrated native per-use inventories in the granted original range; omitted inventories do not establish absence."] flow_inventory:SectionPage<FlowInventoryPacket>,#[doc="Selected positive native source observations within this original range. An empty section proves neither diagnostic absence nor successful execution."] source_characterization:SectionPage<SourceCharacterizationPacket>,#[doc = "Evidence status of the canonical result; unsupported and unexamined evidence remain distinct."] status:analysis::policy::EvidenceStatus,derivation:SectionPage<DerivationStep>});
 packet!(DerivationStep {source:ProofReference,rule:Name,conclusion:ProofReference,premises:Vec<PremisePacket>});
 packet!(PremisePacket {
     #[doc = "Declared relationship or support role; interpret it within the accompanying evidence context."]
@@ -647,3 +647,44 @@ packet!(UsageNativeOverloadCandidatePacket {candidate:Id<types::NativeOverloadCa
 packet!(UsageNativeOverloadPacket {trace:Id<types::NativeOverloadObservation>,arguments:Id<source::Occurrence>,selection:types::OverloadSelection,closest_ordinal:u64,candidates:Vec<UsageNativeOverloadCandidatePacket>,support:Vec<NativeSourceSupportPacket>});
 packet!(UsageOverloadPacket {observation:Id<types::TypeObservation>,role:types::TypeRole,term:Id<types::TypeTerm>,#[doc="Native trace type identity is retained independently of normalized signature variants; shape matching cannot supply missing chosen-variant correspondence."] variant_availability:Availability,variant:Nullable<Id<normalized::callables::SignatureVariant>>,support:Vec<NativeSourceSupportPacket>});
 packet!(SourceUsagePacket {usage:Id<catalog::evidence::SourceUsage>,event:Id<normalized::events::NormalizedCallEvent>,site:Id<source::Occurrence>,syntax:Nullable<Id<calls::CallSyntax>>,syntax_location:Availability,callee:Nullable<Id<source::Occurrence>>,callee_location:Availability,callee_span:Nullable<SourceCharacterizationSpan>,arguments:Vec<UsageArgumentPacket>,arguments_support:Vec<NativeSourceSupportPacket>,targets:Vec<UsageTargetPacket>,#[doc="No target/entity association is represented explicitly; matching spelling never resolves it."] association:Availability,overloads:Vec<UsageOverloadPacket>,native_overloads:Vec<UsageNativeOverloadPacket>,#[doc="Absence of a chosen native trace is unavailability; candidates, including a closest failed alternative, do not select a variant."] chosen:Availability});
+
+/// Readable, captured setup. Digests name configuration identity; they are not configuration text.
+packet!(AnalysisContextPacket {analysis:Id<attribution::AnalysisContext>,python_version:Name,python_platform:Name,search_path:Vec<Text<0,8192>>,site_package_path:Vec<Text<0,8192>>,config_digest:ContentHash,environment_digest:ContentHash,lock_digest:Nullable<ContentHash>});
+packet!(OriginalExcerpt {original:OriginalRange,text:Nullable<Text<0,262144>>,availability:Availability});
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all="snake_case")]
+pub enum DefaultDeclaration { SourceParameter, NativeSignature, DeclaredField, NativeField }
+packet!(DefaultInterpretation {signature:Id<calls::Signature>,variant:Id<normalized::callables::SignatureVariant>,analysis:Id<attribution::AnalysisContext>,parameter:Id<calls::SignatureParameter>,option:Nullable<Id<catalog::CatalogOption>>,declaration:DefaultDeclaration,value:DefaultValue,readable:Nullable<Text<0,262144>>,original:Nullable<OriginalExcerpt>,qualification:Nullable<Id<assertion::AssertionQualification>>,availability:Availability,#[doc="Declared defaults are not observations of runtime configuration or caller overrides."] effective_override:Availability});
+packet!(ReadableConditionAtom {atom:Id<conditions::EvaluationAtom>,analysis:Id<attribution::AnalysisContext>,predicate:Nullable<Text<0,8192>>,evaluation:Nullable<OriginalExcerpt>,#[doc="Polarity in the canonical bounded DNF term, not an observed runtime truth."] value:bool,availability:Availability});
+packet!(QualificationInterpretation {qualification:Id<assertion::AssertionQualification>,analysis:Id<attribution::AnalysisContext>,scope:Id<source::CoverageScope>,condition:Id<conditions::Condition>,#[doc="Names canonical true/false constants; nonconstant conditions use readable terms."] constant:Nullable<bool>,terms:Vec<Vec<ReadableConditionAtom>>,truncated:bool,modality:Name,approximation:Name,claim_basis:ClaimBasisPacket,availability:Availability});
+packet!(InterpretationClosure {contexts:Vec<AnalysisContextPacket>,defaults:Vec<DefaultInterpretation>,qualifications:Vec<QualificationInterpretation>,availability:Availability});
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryBinding {
+    pub member: Nullable<Id<catalog::CatalogMember>>,
+    pub signature: Nullable<Id<calls::Signature>>,
+    pub variant: Nullable<Id<normalized::callables::SignatureVariant>>,
+    pub analysis: Nullable<Id<attribution::AnalysisContext>>,
+    pub parameter: Nullable<Id<calls::SignatureParameter>>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all="snake_case")]
+pub enum DeliveryRole { Primary, Interpretation, Reference, Synthetic }
+packet!(DeliveredEvidence {#[doc="JSON Pointer into the actual final MCP result object. Text pointers identify decoded fields, never raw substring matches."] field:Name,role:DeliveryRole,original:Nullable<OriginalRange>,binding:DeliveryBinding,qualifications:Vec<Id<assertion::AssertionQualification>>,dependencies:Vec<Name>,availability:Availability});
+packet!(DeliveryExpansion {tool:Tool,arguments:serde_json::Value});
+packet!(DeliveryOmission {field:Name,availability:Availability,expand:Nullable<DeliveryExpansion>});
+packet!(RankedContinuationPolicy {maximum_entries:u32,maximum_retained_bytes:u64,expires_after_seconds:u64,#[doc="Expired, evicted, foreign-session and restarted entries refuse continuation; they never silently rerank."] session_bound:bool,recompute_on_loss:bool});
+packet!(PacketEvidenceMap {fields:Vec<DeliveredEvidence>,omissions:Vec<DeliveryOmission>,ranked_continuation:Nullable<RankedContinuationPolicy>,#[doc="Greedy optional packing uses exact encoded final-envelope cost. Core and interpretation closure remain indivisible."] packing_policy:Name});
+
+impl Default for DeliveryBinding {
+    fn default()->Self { Self {member:Nullable(None),signature:Nullable(None),variant:Nullable(None),analysis:Nullable(None),parameter:Nullable(None)} }
+}
+
+impl RankedContinuationPolicy {
+    pub const MAXIMUM_ENTRIES:u32=16;
+    pub const MAXIMUM_RETAINED_BYTES:u64=8*1024*1024;
+    pub const EXPIRES_AFTER_SECONDS:u64=600;
+}
+impl Default for RankedContinuationPolicy {
+    fn default()->Self {Self {maximum_entries:Self::MAXIMUM_ENTRIES,maximum_retained_bytes:Self::MAXIMUM_RETAINED_BYTES,expires_after_seconds:Self::EXPIRES_AFTER_SECONDS,session_bound:true,recompute_on_loss:false}}
+}

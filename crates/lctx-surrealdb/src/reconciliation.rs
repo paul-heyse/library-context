@@ -221,6 +221,26 @@ struct Chunk {
     bytes: Bytes,
 }
 impl crate::NativeReader {
+    /// One indexed union query for a bounded set of exact original byte ranges.
+    /// Results preserve request order, including duplicates; source/chunk integrity is checked.
+    pub async fn original_bytes_batch(&self,ranges:&[(lctx_model::domain::graph::EntityId,u64,usize)])->Result<Vec<Vec<u8>>,ModelError> {
+        if ranges.len()>32 || ranges.iter().try_fold(0usize,|sum,(_,_,n)|sum.checked_add(*n)).is_none_or(|n|n>256*1024) {return Err(ModelError::Invalid("original union byte bound".into()));}
+        if ranges.is_empty(){return Ok(vec![]);}
+        let mut vars=Variables::new(); let mut clauses=vec![]; let mut sources=vec![];
+        for (i,(source,start,length)) in ranges.iter().enumerate() {
+            let end=start.checked_add(*length as u64).filter(|end|*end<=i64::MAX as u64).ok_or(ModelError::Schema("original union byte range"))?;
+            let source=RecordId::new("original",source.0.hex());sources.push(source.clone());
+            if *length==0 {continue;}
+            vars.insert(format!("source_{i}"),source);vars.insert(format!("start_{i}"),start/65536*65536);vars.insert(format!("end_{i}"),end);
+            clauses.push(format!("(source=$source_{i} AND start >= $start_{i} AND start < $end_{i})"));
+        }
+        if clauses.is_empty(){return Ok(ranges.iter().map(|_|vec![]).collect());}
+        let sql=format!("SELECT * FROM original_chunk WHERE {} ORDER BY source,start",clauses.join(" OR "));
+        let mut response=self.client().query(sql).bind(vars).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let chunks:Vec<Chunk>=response.take(0).map_err(ModelError::codec)?;
+        for chunk in &chunks {if ContentHash::of(&chunk.bytes).hex()!=chunk.content {return Err(ModelError::Conflict("original chunk content"));}}
+        ranges.iter().zip(sources).map(|((_,start,length),source)|assemble_original(&chunks,&source,*start,*length)).collect()
+    }
     pub async fn original_bytes(
         &self,
         source: lctx_model::domain::graph::EntityId,
@@ -326,4 +346,16 @@ pub async fn table_count(loader: &Loader, table: &str) -> Result<u64, ModelError
 #[surreal(crate = "surrealdb::types")]
 struct InventoryCount {
     total: u64,
+}
+
+fn assemble_original(chunks:&[Chunk],source:&RecordId,start:u64,length:usize)->Result<Vec<u8>,ModelError> {
+    let end=start.checked_add(length as u64).ok_or(ModelError::Schema("original union bounds"))?;
+    let mut position=start;let mut result=Vec::with_capacity(length);
+    for chunk in chunks.iter().filter(|chunk|chunk.source==*source && chunk.start<end && chunk.start+chunk.bytes.len() as u64>start) {
+        if position==end {break;}
+        let offset=position.checked_sub(chunk.start).filter(|v|*v<chunk.bytes.len() as u64).ok_or(ModelError::Schema("original chunk continuity"))? as usize;
+        let count=(end-position).min((chunk.bytes.len()-offset) as u64) as usize;
+        result.extend_from_slice(&chunk.bytes[offset..offset+count]);position+=count as u64;
+    }
+    if position!=end{return Err(ModelError::Invalid("original byte range unavailable".into()));}Ok(result)
 }

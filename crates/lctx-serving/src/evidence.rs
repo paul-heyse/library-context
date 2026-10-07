@@ -51,7 +51,20 @@ pub async fn get(
         crate::source_evidence::sections(&data, &original, request, reader.handle(), channels, b)
             .await?;
     let derivation = derivations(reader, &original, request, channels, b).await?;
+    let artifact=need(&rows::<source::SourceArtifact>(&data)?,original.artifact)?.clone();
+    let release_row=need(&rows::<input::Release>(&data)?,original.release)?.clone();
+    let package=need(&rows::<input::Package>(&data)?,release_row.package)?.clone();
+    let corpora=rows::<input::CorpusLibrary>(&data)?;
+    let captures=rows::<input::InputDistribution>(&data)?.into_iter().filter(|d|d.release==original.release&&d.role==input::DistributionRole::FirstParty&&(d.input==artifact.input||corpora.iter().any(|c|c.corpus==artifact.input&&c.library==d.input))).map(|d|d.input).collect::<std::collections::BTreeSet<_>>();
+    if captures.len()!=1 {return Err(ModelError::Conflict("evidence readable release capture"));}
+    let release=ReleaseIdentity{input:*captures.first().expect("single source release capture"),release:original.release,distribution:Name::new(package.name).map_err(wire)?,version:Name::new(release_row.version).map_err(wire)?};
+    let analyses=std::collections::BTreeSet::from([original.context]);
+    let qids=rows::<assertion::AssertionQualification>(&data)?.into_iter().filter(|q|q.context==original.context).map(|q|q.id()).collect();
+    let mut interpretation=crate::defaults::qualified(&data,analyses,qids,original.release,b)?;
+    crate::defaults::read_originals(reader,&mut interpretation,request,b).await?;
     Ok(EvidencePacket {
+        release,
+        interpretation,
         original,
         body,
         flow_inventory,

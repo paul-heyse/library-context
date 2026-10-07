@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 macro_rules! response {($name:ident {$($(#[$attr:meta])* $field:ident:$ty:ty),*$(,)?})=>{
     #[derive(Debug,Clone,PartialEq,Serialize,Deserialize,JsonSchema)]
-    #[serde(deny_unknown_fields)] pub struct $name {pub snapshot:SnapshotHandle,$($(#[$attr])* pub $field:$ty,)*}
+    #[serde(deny_unknown_fields)] pub struct $name {pub snapshot:SnapshotHandle, #[serde(default,skip_serializing_if="Optional::is_absent")] pub delivery:Optional<PacketEvidenceMap>,$($(#[$attr])* pub $field:$ty,)*}
 };}
 response!(SearchOperationsResponse {
     #[doc = "Admitted finite captures and provider collection coverage; canonical enumeration does not prove universal API absence."]
