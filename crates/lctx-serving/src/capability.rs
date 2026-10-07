@@ -173,7 +173,6 @@ impl Prepared {
     })
 }
 }
-pub fn packet(data:&CanonicalBatches,id:Id<synthesis::briefs::Brief>,budget:&ResourceBudget)->Result<CapabilityPacket,ModelError>{Prepared::new(data,budget)?.packet(id,budget)}
 #[cfg(test)]
 mod controls {
     use super::*;

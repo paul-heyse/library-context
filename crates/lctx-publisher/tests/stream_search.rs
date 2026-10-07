@@ -3,12 +3,12 @@
 use lctx_model::domain::{
     catalog::CatalogMember,
     embedding::{EmbeddingSpec, Spec, analytic::VectorAvailability, value},
-    graph::{Assertion, Entity, Target},
+    graph::{Assertion, Entity},
     retrieval::{consumption::RetrievalEmbeddingUse, *},
     *,
 };
 use lctx_publisher::{materialize_search, reconcile_search};
-use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
+use lctx_surrealdb::surrealdb::types::{RecordId, Value, Variables};
 use lctx_surrealdb::{Credentials, Loader, reader};
 fn id<R: Record>(byte: u8) -> Id<R> {
     serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
@@ -115,10 +115,11 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         winners.push((full.id(),projection.id()));entities.extend([Entity::from(full),Entity::from(projection)]);
     }
     let mut units=Vec::new();let mut expected_anchor=Vec::new();
+    entities.push(Entity::from(Origin::Api{member:members[0].0}));
     for family in [Family::ApiOptions,Family::DocumentationDeployment,Family::Scenario,Family::Source] {
         let corpus=CorpusText{family,rendering_version:RENDER_VERSION,digest,text:text.into()};entities.push(Entity::from(corpus.clone()));
         for context in [3,4] {
-            let origin=Origin::Api{member:members[0].0};entities.push(Entity::from(origin.clone()));
+            let origin=Origin::Api{member:members[0].0};
             let unit=Unit{input:id(1),context:id(context),family,origin:origin.id(),corpus:corpus.id(),title:"fixture".into()};
             units.push(unit.clone());entities.push(Entity::from(unit.clone()));
             // A broad unit attachment must never nominate this sibling.

@@ -98,7 +98,7 @@ async fn empty_native_batches_leave_existing_winners_unchanged() {
     );
     let mut response = f
         .client
-        .query("SELECT VALUE count() FROM embedding_cache GROUP ALL")
+        .query("SELECT VALUE total FROM (SELECT count() AS total FROM embedding_cache GROUP ALL)")
         .await
         .unwrap()
         .check()

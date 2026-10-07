@@ -45,6 +45,7 @@ impl Prepared {
         let a = need(&anchors, anchor)?;
         let units = &self.units;
         let unit = need(&units, a.unit)?;
+        if context.is_some_and(|requested|requested!=unit.context){return Err(ModelError::Conflict("original anchor context differs from demand"));}
         chosen_context = Some(unit.context);
         let sources = &self.anchor_sources;
         original = match need(&sources, a.original)? {
@@ -221,6 +222,7 @@ mod controls {
         assert_eq!((range.start,range.end,range.encoding.as_str()),(6,9,"raw_bytes"));
         let range=prepared.range(&OriginalReference::Prose{slice:literal_slice.id()},Some(id(2)),Some(id(6))).unwrap();
         assert_eq!((range.start,range.end,range.encoding.as_str()),(4,20,"native_literal_utf8_slice"));
+        let mut other_run=prepared.runs[0].clone();other_run.context=id(9);prepared.runs.push(other_run);
         assert!(prepared.range(&OriginalReference::Anchor{anchor:anchor.id()},Some(id(9)),Some(id(6))).is_err());
         assert!(prepared.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(9))).is_err());
         let span=assertion::Evidence::SourceSpan{source:prepared.artifacts[0].id(),start:4,end:20};let span_id=assertion::EvidenceSourceSpanId::of(&span).unwrap();

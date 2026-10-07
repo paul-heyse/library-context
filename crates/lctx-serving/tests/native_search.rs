@@ -297,7 +297,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         assert_eq!(admitted[0].occurrence.context,good);assert_eq!(admitted[0].score,Some(0.0));
     }
     // A second selected-policy value for the same exact primary witness refuses arbitration.
-    let mut competing:Vec<Value>=native.query("SELECT * FROM vector:excluded",Variables::new()).await.unwrap();
+    let mut response=native.client().query("SELECT * FROM vector:excluded").await.unwrap().check().unwrap();
+    let mut competing:Vec<Value>=response.take(0).unwrap();
     let Value::Object(mut competing)=competing.remove(0) else {panic!("vector object")};
     let source=RecordId::new("vector","competing");competing.insert("id",source.clone());competing.insert("projection_key","competing");
     insert(&native,"vector",false,vec![Value::Object(competing)]).await;

@@ -1,7 +1,7 @@
 //! Native operation orchestration over scoped semantic owners.
 use crate::{
     candidates,
-    records::{need, wire},
+    records::wire,
     service::QueryVector,
 };
 use lctx_model::domain::{
