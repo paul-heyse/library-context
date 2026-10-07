@@ -1,14 +1,14 @@
 <a id="section-15"></a>
 
-**Selected follow-up target / Proposed implementation, 2026-10-07:** [Persisted graph execution](../../plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. The implemented contracts below still describe ADR-0128. PG0 installs the new target through a superseding ADR before implementation: persisted native completed inputs, exact contribution/view identities and retained dependency foundations, with Rust semantic ownership unchanged.
-
 # §15 Semantic graph model
 
-**Implemented graph-native architecture, 2026-10-06 (ADR-0128); scoped verification and operator activation are separate.** One Rust-owned semantic
-graph governs entities, attributed observations/assertions, roles, source correspondence, conditions,
-obligations, domain outcomes and derivations. Typed Arrow records remain useful internal views.
-Compilation uses completed inputs in a private spillable workspace and returns an admitted graph;
-it requires no database, publication grant or persisted compiler checkpoint.
+**Accepted persisted compiler target / implementation in progress, 2026-10-07 (ADR-0133).**
+The [persisted graph execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
+owns this hard pivot and its focused acceptance. One Rust-owned graph governs semantic entities,
+assertions, roles, source correspondence, conditions, obligations and derivations. Compilation
+uses exact immutable completed views in one managed native database and seals that same admitted
+realization. Typed Arrow records remain computation/transport views. Prior receipts retain their
+original boundary; the new target's acceptance is not implementation or measured speed.
 
 Logical identities, captured bytes, semantic compatibility, producer implementations, graph content
 and native physical realization have separate scopes. Semantic compatibility is declared structure
@@ -33,28 +33,31 @@ consumption enters the artifact and reconstructs without a service. Query-only c
 invalidate unchanged document values.
 Native persistent cache and serving are implemented. Operator activation remains separately authorized.
 
-ADR-0128 replaces earlier persistence, grant and lifecycle mechanisms. Earlier cited decisions
+ADR-0133 replaces earlier compilation placement and publication-roundtrip mechanisms. Earlier cited decisions
 retain their typed semantic, ownership, coverage and product obligations. Previous PostgreSQL
 receipts bound that implementation only. The coordinator records native
 runtime evidence separately; real-library acceptance and Measured performance do not follow
 from this architectural decision.
 
-> Decision: ADR-0131, ADR-0128, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
+> Decision: ADR-0131, ADR-0133, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 
 ## §15.1 Layers, owners and mechanisms
 
-**Implemented, 2026-10-05.** `lctx-model` owns semantic
+**Accepted target, 2026-10-07.** `lctx-model` owns semantic
 records, graph mappings, canonical keys, conditions, domain operations and invariants. `cpg-extract`
-and `cpg-flow` own independent native observations; `cpg-core` owns cumulative store-free
+and `cpg-flow` own independent native observations; `cpg-core` owns cumulative persisted
 compilation and artifact admission. `lctx-analytics` supplies pure charged kernels. `lctx-embed`
 is an explicit external effect. Python owns transport and presentation.
 
-The compiler uses attempt-private Arrow IPC streams and spillable DataFusion preparation.
-Completed immutable inputs follow semantic dependencies; one producer owns ordinary output.
-Declared shared-vocabulary contributions merge into their assembly owner. No persisted epochs,
-database roles, generation grants or store readback coordinate compilation.
+The compiler writes bounded canonical-first native values and pending contribution memberships.
+Completed views bind exact inputs and exclude pending output. Shared-vocabulary contributions
+reuse identical values, reject same-key different payloads and freeze immutable membership at
+semantic boundaries. Native indexed selection and declared-field Arrow streams supply domain
+kernels; scoped preparation and spillable DataFusion remain available where their operation fits.
+Original bytes have one bounded original-chunk owner. Retained contribution dependencies and
+current/frozen bindings serve inspection and complete transport; cross-run scheduling is deferred.
 
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require
@@ -62,11 +65,11 @@ their actual Local, execution, Model, source-call or vector predecessors. Projec
 is shared where its topology and lifetime permit. Catalog availability does not require optional
 analytics or brief seeds.
 
-SurrealDB persistence/publication and native querying consume the admitted graph after compilation.
+Native graph access is used during compilation; publication seals the same admitted database.
 `lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
 records targeted functional controls; broad assembled qualification is not_run by user direction.
 
-> Decision: ADR-0128, ADR-0085, ADR-0117, ADR-0105, ADR-0108
+> Decision: ADR-0133, ADR-0085, ADR-0117, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -96,7 +99,7 @@ analyses after normalization. The companion is an identity alias, without qualif
 normalization evidence. Facts retain their actual vocabulary without normalized records. Detached import retains the actual
 records and requires complete endpoint membership; it never synthesizes missing companions.
 
-> Decision: ADR-0128, ADR-0085
+> Decision: ADR-0133, ADR-0085
 
 <a id="section-15-3"></a>
 
@@ -748,12 +751,12 @@ arbitrary database stage. The library interface carries no store credentials.
 
 `lctx compile --artifact-only --output <directory>` supplies this independent compiler route.
 Ordinary compile verifies native runtime readiness before acquisition, then publishes an unselected
-handle. Artifact-only compilation remains independently store-free. Publication consumes the artifact without
+handle. Explicit artifact-only compilation uses the managed private database and exports its complete state. Ordinary publication directly seals its admitted database without
 rerunning producers, installs the declared native realization, reconciles persisted content once,
 drains writers, seals definitions and publishes separately from selection. All serving handles pin
 both semantic content and executable realization.
 
-> Decision: ADR-0128, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
+> Decision: ADR-0133, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 
@@ -772,7 +775,7 @@ export boundary; MCP dispatch consumes one fixed native snapshot through NativeS
 schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-> Decision: ADR-0128, ADR-0114, ADR-0116
+> Decision: ADR-0133, ADR-0114, ADR-0116
 
 <a id="section-15-13"></a>
 

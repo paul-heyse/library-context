@@ -7,15 +7,15 @@ behavioral analyses are enrichment; general semantic completion no longer gates 
 The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
 remain Proposed until implemented. FastMCP operation/brief contracts remain Rust-owned; native serving is implemented; STATUS owns its functional evidence.
 
-**Current work: combined graph-native remediation, evidence/retrieval and primary evaluation**
-(ADR-0128/0130/0131; coordinators, 2026-10-06).
+**Current work: persisted graph execution planning; implemented ER/EV baseline**
+(ADR-0128/0130/0131 describe the implemented baseline, 2026-10-07).
+The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md) owns the next selected hard pivot, catalog-speed F01–F05 and matching non-compiler defects. ADR-0133 installs the accepted target; implementation and focused acceptance are in progress. RC01 direct sealing and RC02 internal exact contribution/view identity were operator-confirmed; retained dependency foundations are in scope, cross-run incremental execution is not.
 The [coordinator](docs/plans/graph-native-pivot-plan_2026-10-05.md) owns dependencies,
-acceptance and finding disposition. Its §9 and four supporting remediation sections own current
+acceptance and finding disposition. Its §9 and four supporting remediation sections record the prior implemented
 execution; §7 owns F01–F12. The completed first execution scope is the
 [model/compiler stage](docs/plans/graph-native-model-compiler-plan_2026-10-05.md), including
 compiler-side projections and selected analysis effects. Rust owns the semantic graph;
-`cpg-core` is the sole store-free compiler. SurrealDB native persistence, querying and serving
-are implemented responsibilities following this compiler scope.
+`cpg-core` is migrating to persisted compilation in SurrealDB and a shared native access foundation across applicable consumers. The execution plan owns remaining integration and acceptance. Native querying/serving remain selected.
 
 The PostgreSQL backend and its clients are retired. No legacy readers, old-ID bridges, dual
 stores or historical runtime retention are required. The complete compiler stage is implemented
@@ -27,7 +27,7 @@ handle. MCP pins a complete read-only snapshot through NativeSession; selection 
 The selected ER/EV extension executes together with remediation; STATUS and the coordinators own
 its current evidence and remaining work.
 
-**Implemented product extension; integrated acceptance in progress (2026-10-06):** the
+**Implemented / focused Tested product extension; Q1 adoption held (2026-10-07):** the
 [evidence/retrieval and evaluation coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 and [programmatic evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md) own ER/EV
 scope and the nominated target review's F01–F03. Programmatic evaluation is primary; grounded outer
@@ -35,8 +35,8 @@ agentic feedback improves both system and evaluator. Development optimization us
 comparison meanings; protected confirmation/gold/heldout never tune or enter production (ADR-0130).
 ADR-0131 selects exact contextual windows/delivery and full4096 values with deliberate1024 search/E1
 projection. Actual source and targeted receipts establish implementation/acceptance separately.
-Graph-native remediation has resumed. This execution authorizes the local live-Qwen/FastMCP pilot
-and Q1 operator adoption. Independent finite kernels need no live model or external comparison
+Selected graph-native remediation is closed within its recorded functional boundaries. This execution authorizes the local live-Qwen/FastMCP pilot
+and Q1 operator adoption. That continuation is held for the [catalog compilation speed review](docs/design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md), which recommends design revision; its unscheduled findings remain source-owned. Independent finite kernels need no live model or external comparison
 parity; protected populations, paid studies and performance remain separately activated.
 
 The pieces:

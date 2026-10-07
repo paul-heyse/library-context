@@ -112,7 +112,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0128, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113
+> Decision: ADR-0133, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113
 
 <a id="section-1-3"></a>
 
@@ -291,20 +291,19 @@ response defines a schema. Codebooks remain append-only; snapshot changes are ex
 Semantic compatibility uses canonical declarations and policy/invariant revisions, separately from
 implementation provenance and physical realization. Original bytes remain authoritative.
 
-> Decision: ADR-0128, ADR-0085, ADR-0088, ADR-0073
+> Decision: ADR-0133, ADR-0085, ADR-0088, ADR-0073
 
 <a id="section-b3"></a>
 
 ### §B3 Completed inputs and shared semantic operations
 
-**Implemented, 2026-10-06; targeted evidence is in the coordinator.** Pure model operations and useful
-native kernels retain their semantic ownership. The compiler consumes completed attempt-local
-streams and spillable Arrow/DataFusion views without database roles, grants or readback. Share
-ordered inputs and analytical topology; perform meaningful completion checks over their actual
-required inputs. Tests and admission use the same semantic validators. Do not replay every producer
-or turn design principles into an accounting/proof subsystem.
+**Accepted target / Proposed implementation, 2026-10-07 (ADR-0133).** Pure model operations
+retain semantic ownership. Compilation reads exact completed native contribution views and uses
+indexed sets/adjacency, bounded native-to-Arrow transfer and spillable kernels. Shared topology,
+selected method demand and unchanged exact validation premises avoid repeated work. Tests and
+admission use the same semantic validators; no producer replay or accounting/proof subsystem.
 
-> Decision: ADR-0128, ADR-0126
+> Decision: ADR-0133, ADR-0126
 
 <a id="section-b4"></a>
 
@@ -404,13 +403,13 @@ rendered text and presentation limits cannot strengthen it.
 
 ### §B7 Separate admitted content from its native realization
 
-**Implemented / focused Tested, 2026-10-06.** Compilation returns an immutable
-admitted graph without a database. The publisher separately realizes it in strict per-snapshot
-SurrealDB databases on the selected managed local RocksDB server. Checked bulk writes, one complete
-stored reconciliation after writers drain, ready indexes/functions and sealed executable definitions
-precede visibility. Publication does not select; readers pin one complete realization.
+**Accepted target / Proposed implementation, 2026-10-07 (ADR-0133).** Compilation owns one
+private strict native database through admission and direct sealing. The publisher checks actual
+stored content/state, ready indexes and executable definitions after drainage, ends writable
+ownership and verifies VIEWER reconnect before an unselected handle. Detached external import
+retains independent admission. Publication does not select; readers pin a complete realization.
 
-> Decision: ADR-0128
+> Decision: ADR-0133
 
 <a id="section-b8"></a>
 
@@ -465,7 +464,7 @@ Production behavioral solving still uses declared bounded models/atoms/Merkle no
 DNF; general production theory solving needs its separate concrete trigger. §B11's no-generative
 compilation/query-output guarantees remain. Live optional models/tooling need their actual activation.
 
-> Decision: ADR-0130, ADR-0128, ADR-0106, ADR-0045, ADR-0085
+> Decision: ADR-0130, ADR-0133, ADR-0106, ADR-0045, ADR-0085
 
 <a id="section-b11"></a>
 
@@ -487,13 +486,13 @@ templates and extractive selection; the generative-model trigger remains **Propo
 
 ### §B12 One semantic graph and derived projections
 
-**Implemented, 2026-10-06; targeted evidence is in the coordinator.** Rust-admitted graph content is realized
-in SurrealDB; native queries operate over that content. Attempt-local Arrow segments, prepared
-petgraph topology, search indexes and analytical/export views are derived, not parallel semantic
-stores. Projection contracts state their universe, identity, multiplicity, roles, lineage and losses.
-No PostgreSQL runtime or canonical serving copy remains after its ownership cut.
+**Accepted target / Proposed implementation, 2026-10-07 (ADR-0133).** One native immutable
+payload authority serves core compilation and published queries. Complete-state memberships,
+dependencies and necessary backing survive transport; graph-family and state identities remain
+separate within aggregate content. Arrow spill, prepared topology, indexes and export projections
+are derived. Projection contracts retain exact universe, roles, multiplicity, lineage and losses.
 
-> Decision: ADR-0128, ADR-0131
+> Decision: ADR-0133, ADR-0131
 
 <a id="section-b13"></a>
 
@@ -506,7 +505,7 @@ Python stays a thin FastMCP adapter with no second classifier. Resources/cursors
 executable realization. Native deadlines/cancellation and response limits retain honest partial
 outcomes; no fictitious exact engine-work ceiling is exposed. Activation remains stopped until Q1.
 
-> Decision: ADR-0128, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0131
+> Decision: ADR-0133, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0131
 
 <a id="section-b14"></a>
 
@@ -530,7 +529,7 @@ schedules wholesale replacement, not compatibility with it.
 - Current service/checkpoint locks remain; paths do not define values. Pure/fake controls establish
   seams only. Actual native/live usability, precision, quality and Q1 are separate evidence boundaries.
 
-> Decision: ADR-0131, ADR-0128
+> Decision: ADR-0131, ADR-0133
 
 ---
 
@@ -703,9 +702,11 @@ owns the scheduling triggers.
 - **General alias analysis (points-to).** Flow runs over bounded places and summaries (§3.9, §9.9).
 - **SCC condensation on projections.** If needed, it is built from SCC membership keeping every
   arc's evidence, never from petgraph's `condensation`, which merges parallel edges (§9).
-- **Lance/LanceDB.** pgvector is selected for the current exact projection; an alternative
-  needs a named capability beyond that qualified route and an isolated workspace, Arrow IPC as the only interface and a derived index outside the byte-identical
-  generation, because Lance writes are not byte-reproducible.
+- **Lance/LanceDB.** SurrealDB hosts the selected eligible exact/HNSW routes over the declared
+  normalized1024 projection, with shared full4096 values for bounded rescoring (ADR-0128/0131).
+  An alternative needs a named missing capability or measured limitation of that route. Any
+  adopted index remains derived from admitted canonical values; it does not become another
+  value or semantic authority.
 - **A recursion engine (Ascent/datafrog).** A same-state finite-base relation probe found no
   integration advantage for the first value channel over the bounded SCC-local producer;
   compare again when several recursive channels share rules (§9.9, ADR-0053), or a catalog consumer

@@ -1,10 +1,11 @@
 # Storage and publication
 
-**Selected follow-up target / Proposed implementation, 2026-10-07:** [Persisted graph execution](../../plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. PG0 installs the replacement architecture before dependent code: one private persisted compiler database through direct sealing; independent external import and stored reconciliation remain. Completed-state backing, identities and transport must survive sealing/restore. Existing implemented descriptions below are the baseline, not a parallel target.
-
-**Implemented, 2026-10-05 (ADR-0128); focused verification is recorded by the coordinator.** Rust-admitted graph content
-and its native physical realization are distinct. The [coordinator](../../plans/graph-native-pivot-plan_2026-10-05.md)
-owns the core-operation-first hard pivot; old PostgreSQL receipts do not establish this implementation.
+**Accepted target / implementation in progress, 2026-10-07 (ADR-0133).**
+The [persisted graph execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
+owns this hard compiler and shared-consumer pivot. One private persisted compiler database
+retains exact completed views and dependency bindings through direct sealing. Independent
+external import and stored reconciliation remain separate exposures. Prior graph-native receipts
+retain their date and scope; acceptance of this target does not establish its implementation.
 
 ## §5 Projections
 
@@ -14,21 +15,23 @@ coverage, provenance and declared simplifications. Vertices are independent of e
 parallel attributed assertions survive. Dense indices are private and map back to semantic IDs.
 Compatible compiler consumers share compact topology; rich evidence is hydrated separately.
 
-The compiler constructs these views directly from completed workspace inputs, without publication
-or database readback. Summary, Structural and optional analytical consumers wait for their actual
+The compiler constructs these views from exact completed native memberships, without a
+publication handle. Indexed native selection and projected Arrow streams feed model-owned kernels. Summary, Structural and optional analytical consumers wait for their actual
 semantic/vector predecessors. Published export uses scoped native queries and terminally successful
 responses under the same projection contract. External destinations remain consumer-triggered.
 
-> Decision: ADR-0128, ADR-0103, ADR-0044, ADR-0085
+> Decision: ADR-0133, ADR-0103, ADR-0044, ADR-0085
 
 ## §6 Persistence and publication
 
-**Implemented P1/P2; operator activation not_run, 2026-10-05.** A separate publisher consumes an admitted
-artifact, installs its native SurrealDB realization and makes it visible. Compilation does not
-connect to a database, publish, or select. The [realization plan](../../plans/graph-native-surrealdb-realization-plan_2026-10-05.md)
-owns the managed local server, strict compact families, codecs, cache and lifecycle.
+**Accepted target, 2026-10-07; operator activation not_run.** Compilation owns a managed
+STRICT native database from its first persisted output. `lctx-model` owns semantics;
+`lctx-surrealdb` owns mechanical storage/access, `cpg-core` owns orchestration/admission, and
+`lctx-publisher` owns visibility. The publisher seals that same admitted database. Selection
+remains an explicit operator action. The [execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
+owns integration and focused functional acceptance.
 
-> Decision: ADR-0128
+> Decision: ADR-0133
 
 ### §6.1 Admitted content and native publication
 
@@ -37,7 +40,8 @@ method definitions and consumed vector values. It checks local shapes during con
 reference closure, required domains and meaningful cross-element invariants over completed inputs.
 Temporary segments are not another canonical database; incomplete output remains private.
 
-`lctx-publisher` consumes the independently verified export. `lctx-surrealdb` mechanically lowers
+Ordinary publication consumes the compiler-owned admitted native authority directly; explicit
+external artifacts undergo independent transport and semantic validation. `lctx-surrealdb` mechanically lowers
 canonical typed payloads into compact entity/assertion families with enforced native role edges.
 Typed atomic keys for active scope fields share one array-element index; absent fields add no
 scope entries. This avoids both ID-byte index flattening and per-field index amplification. Originals use bounded
@@ -50,23 +54,26 @@ Sealing fingerprints the effective database and table definitions returned by na
 including fields, indexes, events, functions and analyzers. An explicit cold audit reuses content
 reconciliation and that fingerprint. It excludes credentials and live subscriptions; SurrealDB
 3.3 metadata cannot certify database STRICT mode. Creation enforces STRICT directly. Portable
-backup transports only canonical graph/original families and rebuilds current derived search and
-executable definitions in a fresh realization on restore.
+backup transports canonical graph/original families, exact completed contribution memberships,
+current and frozen bindings, retained dependencies and nongraph backing values. Restore preserves
+their versioned state identity and rebuilds current derived search/executable definitions.
 
-> Decision: ADR-0128, ADR-0088, ADR-0126
+> Decision: ADR-0133, ADR-0088, ADR-0126
 
 ### §6.2 Readers
 
-Compiler readers consume explicit immutable completed inputs whose lifetime owns their segment
-files. No persisted stage grant, publication epoch or privileged remote readback establishes a
-compiler dependency. Cancellation drains owned work before releasing its workspace.
+Compiler readers bind explicit immutable native completed views, including exact contribution
+membership and frozen semantic boundaries. Pending values cannot enter selections or absence
+answers. Compact projected streams and scoped typed indexes avoid repeated rich reconstruction.
+Compiler-private sessions have no published snapshot handle. Cancellation drains owned reads,
+writes and provider workers before the attempt is removed; ambiguity fails that owned attempt.
 
 Published readers pin one content/physical realization under read-only credentials and supervisor
 lifetime ownership. Functions, analyzers, index specs, engine identity and adopted module bytes
 cannot change beneath a pinned handle. Streamed results remain provisional until terminal success.
 A partial diagnostic subgraph reports its boundary and cannot claim global compiler completeness.
 
-> Decision: ADR-0128, ADR-0126
+> Decision: ADR-0133, ADR-0126
 
 ### §6.3 Schema evolution
 
@@ -75,7 +82,7 @@ engine coercions do not define semantic identity. Snapshot changes are explicit 
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0128, ADR-0087, ADR-0048
+> Decision: ADR-0133, ADR-0087, ADR-0048
 
 ### §6.4 Serving realizations
 
@@ -85,7 +92,7 @@ SurrealQL is the only executor; Python remains a thin adapter. Complex kernels c
 batched inputs. Search eligibility precedes channel limits; exact analytical neighbors remain a
 separate contract from approximate discovery. Resources and continuations pin complete realization.
 
-> Decision: ADR-0128, ADR-0071, ADR-0131, ADR-0049
+> Decision: ADR-0133, ADR-0071, ADR-0131, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -103,4 +110,4 @@ consumer. Historical runs/operation records are retired rather than reconstructe
 The [operator runbook](../../surrealdb.md) documents configuration, publication and explicit selection.
 Operator reconstruction, live vectors and activation belong to separately authorized Q1 work.
 
-> Decision: ADR-0128, ADR-0073, ADR-0131
+> Decision: ADR-0133, ADR-0073, ADR-0131

@@ -1,10 +1,10 @@
 ---
 id: ADR-0128
 title: Compile admitted semantic graphs without a store and realize them natively in SurrealDB
-status: accepted
+status: superseded
 date: 2026-10-05
 supersedes: [ADR-0086]
-superseded-by: null
+superseded-by: ADR-0133
 design: ["§1.2", "§B2", "§B3", "§B7", "§B12", "§B13", "§5", "§6", "§15"]
 evidence: Proposed
 ---
