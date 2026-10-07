@@ -240,6 +240,7 @@ fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDo
         let binding=nominated.map(|id|need(&bindings,id)).transpose()?;
         if binding.is_some_and(|v|v.window!=o.window||v.part!=o.part){return Err(ModelError::Conflict("ranked window binding"));}
         if let Some(binding)=binding {if let retrieval::Subject::Member{member}=need(&subjects,binding.subject)? {members.insert(*member);}if let Some(q)=binding.qualification{qids.insert(q);}}
+        let member=if let Some(binding)=binding {if let retrieval::Subject::Member{member}=need(&subjects,binding.subject)?{Some(*member)}else{None}}else{None};
         let mut source_maps=vec![];
         for map in maps.iter().filter(|m|m.window==o.window&&m.part==Some(wp.part)&&m.start<wp.end&&m.end>wp.start) {
             let start=map.start.max(wp.start);let end=map.end.min(wp.end);
@@ -260,7 +261,7 @@ fn hit_packet(data:&CanonicalBatches,hit:&ranking::RankedHit,domains:&[LibraryDo
             };
             source_maps.push(DeliveredWindowMap{start:(start-wp.start) as u64,end:(end-wp.start) as u64,availability:if original.is_some(){Availability::Available{}}else{Availability::Unavailable{reason:Name::new("synthetic_window_text").map_err(wire)?}},original:Nullable(original)});
         }
-        delivered.push(DeliveredWindow{window:o.window,part:wp.part,purpose:part.purpose,analysis:hit.context,binding:Nullable(nominated),subject:Nullable(binding.map(|v|v.subject)),basis:Nullable(binding.map(|v|v.basis)),qualification:Nullable(binding.and_then(|v|v.qualification).or(part.qualification)),text:Text::new(text).map_err(wire)?,source_maps});
+        delivered.push(DeliveredWindow{window:o.window,part:wp.part,purpose:part.purpose,member:Nullable(member),analysis:hit.context,binding:Nullable(nominated),subject:Nullable(binding.map(|v|v.subject)),basis:Nullable(binding.map(|v|v.basis)),qualification:Nullable(binding.and_then(|v|v.qualification).or(part.qualification)),text:Text::new(text).map_err(wire)?,source_maps});
         }
     }
     if delivered.is_empty(){return Err(ModelError::Schema("ranked evidence missing primary witnesses"));}

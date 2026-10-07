@@ -193,9 +193,10 @@ fn search_evidence(structured:&Value,groups:&mut Vec<PublicGroup>,references:&mu
             let purpose=integer(field(window,"purpose")?)?;
             if purpose>1{return Err("unsupported public window purpose".into());}
             if !witnesses.iter().any(|w|w.get("occurrence").is_some_and(|o|identity(&o["window"],16).ok().as_ref()==Some(&wid)&&identity(&o["context"],16).ok().as_ref()==Some(&analysis)&&(purpose==1||identity(&o["part"],16).ok().as_ref()==Some(&part)))){return Err("public window has no actual ranked witness".into());}
-            if purpose==1&&["binding","subject","basis"].iter().any(|key|window.get(key).is_some_and(|v|!v.is_null())){return Err("context/setup part cannot nominate primary binding".into());}
+            if purpose==1&&["binding","subject","basis","member"].iter().any(|key|window.get(key).is_some_and(|v|!v.is_null())){return Err("context/setup part cannot nominate primary binding".into());}
             let content=text(field(window,"text")?)?;
             let mut context=common.clone();context.insert("analysis_identity".into(),analysis.clone());context.insert("window_identity".into(),wid.clone());context.insert("part_identity".into(),part);
+            if let Some(member)=window.get("member").filter(|v|!v.is_null()){if purpose!=0{return Err("context member nomination".into());}context.insert("member_identity".into(),identity(member,16)?);}
             let mut meanings=vec![];let maps=array(field(window,"source_maps")?)?;
             let mut ranges=vec![];
             for map in maps {

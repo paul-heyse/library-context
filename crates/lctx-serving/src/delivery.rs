@@ -14,7 +14,7 @@ fn expansion(request:&Request,cursor:Option<CursorToken>)->Result<DeliveryExpans
     if let Some(cursor)=cursor{json["page"]["cursor"]=serde_json::to_value(cursor)?;}
     Ok(DeliveryExpansion{tool:request.tool(),arguments:json})
 }
-struct Scan<'a>{request:&'a Request,map:PacketEvidenceMap,followups:u32,maximum_followups:u32}
+struct Scan<'a>{request:&'a Request,map:PacketEvidenceMap,followups:u32,maximum_followups:u32,libraries:std::collections::BTreeMap<Id<input::Release>,Vec<Name>>}
 impl Scan<'_> {
     fn field(&mut self,path:String,role:DeliveryRole,original:Option<OriginalRange>,binding:DeliveryBinding,qualifications:Vec<Id<assertion::AssertionQualification>>,dependencies:Vec<String>,availability:Availability)->Result<(),WireError> {
         self.map.fields.push(DeliveredEvidence{field:name(path)?,role,original:Nullable(original),binding,qualifications,dependencies:dependencies.into_iter().map(name).collect::<Result<_,_>>()?,availability});Ok(())
@@ -23,10 +23,11 @@ impl Scan<'_> {
         let expand=if self.followups<self.maximum_followups {if expand.is_some(){self.followups+=1;}expand}else{None};
         self.map.omissions.push(DeliveryOmission{field:name(path)?,availability,expand:Nullable(expand)});Ok(())
     }
-    fn visit(&mut self,value:&Value,path:&str,inherited:&DeliveryBinding)->Result<(),WireError>{
-        if let Some(values)=value.as_array(){for (i,v) in values.iter().enumerate(){self.visit(v,&format!("{path}/{i}"),inherited)?;}return Ok(());}
+    fn visit(&mut self,value:&Value,path:&str,inherited:&DeliveryBinding,inherited_release:&Option<ReleaseIdentity>)->Result<(),WireError>{
+        if let Some(values)=value.as_array(){for (i,v) in values.iter().enumerate(){self.visit(v,&format!("{path}/{i}"),inherited,inherited_release)?;}return Ok(());}
         let Some(object)=value.as_object() else{return Ok(());};
         let mut binding=binding(value,inherited);
+        let release=parse::<ReleaseIdentity>(value,"release").or_else(||inherited_release.clone());
         let qualification:Option<Id<assertion::AssertionQualification>>=parse(value,"qualification");
         let quals=qualification.into_iter().collect::<Vec<_>>();
         let original:Option<OriginalRange>=parse(value,"original");
@@ -80,6 +81,19 @@ impl Scan<'_> {
                 }
             }
         }
+        if object.contains_key("window")&&parse::<retrieval::PartPurpose>(value,"purpose")==Some(retrieval::PartPurpose::Context)&&["member","binding","subject","basis"].iter().any(|key|value.get(key).is_some_and(|v|!v.is_null())) {return Err(WireError::Invalid("context window cannot nominate member/binding".into()));}
+        if object.contains_key("window")&&parse::<retrieval::PartPurpose>(value,"purpose")==Some(retrieval::PartPurpose::Primary) {
+            if let (Some(demand),Some(member),Some(analysis),Some(release))=(self.request.page().evidence_demand.0.as_ref(),parse::<Id<catalog::CatalogMember>>(value,"member"),parse::<Id<attribution::AnalysisContext>>(value,"analysis"),release.as_ref()) {
+                if !demand.facets.is_empty(){
+                    let libraries=self.libraries.get(&release.release).cloned().unwrap_or_default();
+                    for library in libraries {
+                        let mut demand=demand.clone();demand.context.analysis=Optional::supplied(analysis);demand.context.release=Optional::supplied(release.version.clone());
+                        let expand=DeliveryExpansion{tool:Tool::GetOperation,arguments:serde_json::json!({"library":library,"operation":{"kind":"member","member":member},"page":{"expanded":true,"evidence_demand":demand}})};
+                        self.omission(format!("{path}/operation"),partial("primary_window_member_requires_contextual_operation_expansion")?,Some(expand))?;
+                    }
+                }
+            }
+        }
         if object.contains_key("window")&&object.contains_key("source_maps")&&object.get("text").is_some_and(Value::is_string) {
             self.field(format!("{path}/text"),if parse::<retrieval::PartPurpose>(value,"purpose")==Some(retrieval::PartPurpose::Context){DeliveryRole::Interpretation}else{DeliveryRole::Primary},None,binding.clone(),quals.clone(),vec![format!("{path}/source_maps"),format!("{path}/analysis"),format!("{path}/qualification")],Availability::Available{})?;
         }
@@ -104,16 +118,21 @@ impl Scan<'_> {
         for (key,v) in object {
             if key=="delivery" {continue;}
             let key=key.replace('~',"~0").replace('/',"~1");
-            self.visit(v,&format!("{path}/{key}"),&binding)?;
+            self.visit(v,&format!("{path}/{key}"),&binding,&release)?;
         }
         Ok(())
     }
 }
 fn evidence_map(request:&Request,response:&Response)->Result<PacketEvidenceMap,WireError>{
     let ranked=matches!(response,Response::SearchOperations(_)|Response::SearchEvidence(_)|Response::SearchCapabilities(_));
-    let mut scan=Scan{request,map:PacketEvidenceMap{fields:vec![],omissions:vec![],ranked_continuation:Nullable(ranked.then(RankedContinuationPolicy::default)),packing_policy:name("exact_mcp_cost_whole_optional_bundles_with_transport_reserve")?},followups:0,maximum_followups:request.page().evidence_demand.0.as_ref().map_or(20,|d|d.maximum_followups)};
+    let public:Value=serde_json::from_str(&response.to_json()?)?;
+    let mut libraries:std::collections::BTreeMap<Id<input::Release>,Vec<Name>>=std::collections::BTreeMap::new();
+    for domain in public.get("domains").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(library)=parse::<Name>(domain,"name"){for capture in domain.get("captures").and_then(Value::as_array).into_iter().flatten(){if let Some(release)=parse::<ReleaseIdentity>(capture,"release"){let names=libraries.entry(release.release).or_default();if !names.contains(&library){names.push(library.clone());}}}}
+    }
+    let mut scan=Scan{request,libraries,map:PacketEvidenceMap{fields:vec![],omissions:vec![],ranked_continuation:Nullable(ranked.then(RankedContinuationPolicy::default)),packing_policy:name("exact_mcp_cost_whole_optional_bundles_with_transport_reserve")?},followups:0,maximum_followups:request.page().evidence_demand.0.as_ref().map_or(20,|d|d.maximum_followups)};
     scan.field("/content/0/text".into(),DeliveryRole::Synthetic,None,DeliveryBinding::default(),vec![],vec![],Availability::Available{})?;
-    scan.visit(&serde_json::from_str::<Value>(&response.to_json()?)?,"/structuredContent",&DeliveryBinding::default())?;
+    scan.visit(&public,"/structuredContent",&DeliveryBinding::default(),&None)?;
     Ok(scan.map)
 }
 fn check_context(request:&Request,response:&Response)->Result<(),WireError>{
@@ -193,8 +212,8 @@ mod tests {
     fn request()->Request {decode_request("get_evidence",&serde_json::to_string(&serde_json::json!({"source":{"kind":"occurrence","occurrence":id::<source::Occurrence>(1)},"page":{"evidence_demand":{"facets":["originals"],"maximum_followups":2}}})).unwrap(),&ResourceLimits::default()).unwrap()}
     fn original(encoding:&str)->OriginalRange {OriginalRange{source:OriginalReference::Occurrence{occurrence:id(1)},artifact:id(2),start:10,end:20,digest:ContentHash::of(b"0123456789"),encoding:Name::new(encoding).unwrap(),release:id(3),context:id(4)}}
     fn scan(request:&Request,value:Value)->Result<PacketEvidenceMap,WireError>{
-        let mut scan=Scan{request,map:PacketEvidenceMap{fields:vec![],omissions:vec![],ranked_continuation:Nullable(None),packing_policy:Name::new("test").unwrap()},followups:0,maximum_followups:2};
-        scan.visit(&value,"/structuredContent/evidence",&DeliveryBinding::default())?;Ok(scan.map)
+        let mut scan=Scan{request,map:PacketEvidenceMap{fields:vec![],omissions:vec![],ranked_continuation:Nullable(None),packing_policy:Name::new("test").unwrap()},followups:0,maximum_followups:2,libraries:std::collections::BTreeMap::new()};
+        scan.visit(&value,"/structuredContent/evidence",&DeliveryBinding::default(),&None)?;Ok(scan.map)
     }
     #[test]
     fn raw_body_context_and_continuation_are_actual() {
@@ -222,6 +241,16 @@ mod tests {
         assert_eq!(expansion.arguments["page"]["evidence_demand"]["context"]["analysis"],serde_json::to_value(id::<attribution::AnalysisContext>(6)).unwrap());
     }
     #[test]
+    fn evidence_demand_expands_only_actual_primary_member(){
+        let request=decode_request("search_evidence",r#"{"query":"call","page":{"evidence_demand":{"facets":["defaults"],"maximum_followups":2}}}"#,&ResourceLimits::default()).unwrap();
+        let release=ReleaseIdentity{input:id(2),release:id(3),distribution:Name::new("package").unwrap(),version:Name::new("1").unwrap()};
+        let mut scan=Scan{request:&request,map:PacketEvidenceMap{fields:vec![],omissions:vec![],ranked_continuation:Nullable(None),packing_policy:Name::new("test").unwrap()},followups:0,maximum_followups:2,libraries:std::collections::BTreeMap::from([(release.release,vec![Name::new("actual-domain").unwrap()])])};
+        let window=serde_json::json!({"window":id::<retrieval::SearchWindow>(4),"member":id::<catalog::CatalogMember>(5),"analysis":id::<attribution::AnalysisContext>(6),"purpose":0,"text":"call","source_maps":[]});
+        scan.visit(&window,"/structuredContent/results/items/0/delivered_windows/0",&DeliveryBinding::default(),&Some(release)).unwrap();
+        let args=&scan.map.omissions[0].expand.0.as_ref().unwrap().arguments;assert_eq!(args["library"],"actual-domain");assert_eq!(args["page"]["evidence_demand"]["context"]["release"],"1");
+        let mut context=window;context["purpose"]=serde_json::json!(1);assert!(scan.visit(&context,"/context",&DeliveryBinding::default(),&None).is_err());
+    }
+    #[test]
     fn field_interpretation_never_invents_signature() {
         let map=scan(&request(),serde_json::json!({"field":id::<normalized::entities::FieldEntity>(7),"analysis":id::<attribution::AnalysisContext>(6),"signature":null,"variant":null,"parameter":null,"subject_name":"limit","readable":"8"})).unwrap();
         let field=map.fields.iter().find(|v|v.field.as_str().ends_with("/readable")).unwrap();assert_eq!(field.binding.field.0,Some(id(7)));assert!(field.binding.signature.0.is_none());assert!(field.binding.variant.0.is_none());
@@ -241,7 +270,7 @@ mod packing_tests {
         let mut items=vec![];let mut rankings=vec![];
         for n in 1..=3 {
             let unit=id(n);let analysis=id(n);
-            items.push(EvidenceHit{unit,release:ReleaseIdentity{input:id(n),release:id(n),distribution:Name::new("control").unwrap(),version:Name::new("1").unwrap()},family:retrieval::Family::Source,title:Name::new("original").unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![DeliveredWindow{window:id(n),part:id(n),purpose:retrieval::PartPurpose::Primary,analysis,binding:Nullable(None),subject:Nullable(None),basis:Nullable(None),qualification:Nullable(None),text:Text::new("x".repeat(18000)).unwrap(),source_maps:vec![]}],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::Unavailable{reason:Name::new("opaque").unwrap()}}});
+            items.push(EvidenceHit{unit,release:ReleaseIdentity{input:id(n),release:id(n),distribution:Name::new("control").unwrap(),version:Name::new("1").unwrap()},family:retrieval::Family::Source,title:Name::new("original").unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![DeliveredWindow{window:id(n),part:id(n),purpose:retrieval::PartPurpose::Primary,member:Nullable(None),analysis,binding:Nullable(None),subject:Nullable(None),basis:Nullable(None),qualification:Nullable(None),text:Text::new("x".repeat(18000)).unwrap(),source_maps:vec![]}],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::Unavailable{reason:Name::new("opaque").unwrap()}}});
             rankings.push(ranking::RankedHit{target:ranking::Target::Unit{unit},context:analysis,score:1.0/f64::from(n),promoted:false,witnesses:vec![]});
         }
         let mut response=Response::SearchEvidence(SearchEvidenceResponse{snapshot,delivery:Optional::default(),domains:vec![],results:SectionPage{availability:Availability::Available{},items,continuation:Optional::supplied(cursor.encode().unwrap()),omitted:0,truncated:false},channels,extent:SelectionExtent::Ranked{returned:3},ranking:rankings});
