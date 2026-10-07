@@ -984,7 +984,7 @@ fn render(
                     let (text,anchors)=if let Some(anchor)=anchor{
                         let mut text=String::new();let mut anchors=vec![];
                         for (enclosing,branch) in super::construction::enclosing(d,&anchor,root.context)?{text.push_str(&format!("Enclosing syntax branch {branch:?}\n"));text.push_str(&super::source::read(d,&enclosing,b)?.value);text.push('\n');anchors.push(enclosing);}
-                        text.push_str(&super::source::read(d,&anchor,b)?.value);anchors.push(anchor);(text,anchors)
+                        let body=super::source::read(d,&anchor,b)?;if body.value.is_empty(){text.push_str("Defining original source is empty (0 bytes).");}else{text.push_str(&body.value);}anchors.push(anchor);(text,anchors)
                     }else{(format!("Defining alternative {entity:?}; native/external/synthetic source unavailable; exact={exact}"),vec![])};
                     add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::Definition{member:*member,entity},title:title.clone()},Render{text,anchors,subjects:vec![Subject::Member{member:*member},Subject::Definition{entity}]},b)?;
                 }
@@ -1233,7 +1233,7 @@ fn render(
             c1::RootSubject::Source { artifact } => {
                 let anchor=AnchorSource::Artifact{artifact:*artifact};let text=super::source::read(d,&anchor,b)?;
                 let source=need(&d.source.core.artifacts,*artifact)?;
-                add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::Source{artifact:*artifact},title:source.path.clone()},Render{text:text.value,anchors:vec![anchor],subjects:vec![Subject::Source{artifact:*artifact}]},b)?;
+                add(d,&mut out,root,RenderedIdentity{family:Family::Source,origin:Origin::Source{artifact:*artifact},title:source.path.clone()},Render{text:if text.value.is_empty(){"Original source is empty (0 bytes).".into()}else{text.value},anchors:vec![anchor],subjects:vec![Subject::Source{artifact:*artifact}]},b)?;
             }
             c1::RootSubject::Release { release } => {
                 let row=need(&d.facts.releases,*release)?;let package=need(&d.facts.packages,row.package)?;

@@ -87,3 +87,8 @@ fn setup_only_scenario_has_context_maps_and_navigation_without_primary_binding()
     d.evidence.associations.insert(c1::ScenarioAssociation{scenario,member:id(18),alternative,qualification:q,phase:calls::CallPhase::Call,basis:c1::AssociationBasis::ResolvedTarget,intent:c1::Intent::Demonstration}).unwrap();root(&mut d,c1::RootSubject::Scenario{scenario});
     let out=retrieval::build::build(&d,&b).unwrap();out.verify_completion(&d,&b).unwrap();assert!(!out.unit_subjects.is_empty());assert!(out.parts.iter().all(|p|p.purpose==PartPurpose::Context));assert!(out.bindings.is_empty());assert!(out.part_maps.iter().any(|m|m.original.is_some()));
 }
+
+#[test]
+fn empty_original_source_keeps_honest_context_and_no_primary_binding(){
+    let(b,mut d)=base(false);let source=artifact(&mut d,"","empty.py");root(&mut d,c1::RootSubject::Source{artifact:source.id()});let out=retrieval::build::build(&d,&b).unwrap();out.verify_completion(&d,&b).unwrap();assert_eq!(out.units.len(),1);assert!(out.parts.iter().all(|p|p.purpose==PartPurpose::Context));assert!(out.bindings.is_empty());assert!(out.windows.iter().all(|w|w.text.as_str().contains("empty (0 bytes)")));assert_eq!(out.anchors.len(),1);
+}

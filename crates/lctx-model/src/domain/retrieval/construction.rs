@@ -272,7 +272,7 @@ fn role_matches(d:&Data,out:&Output,part:&ContentPart)->Result<bool,ModelError>{
 fn expected_originals(d:&Data,unit:&Unit,origin:&Origin)->Result<Option<Vec<AnchorSource>>,ModelError>{
     let anchors=match origin{
         Origin::Source{artifact}=>vec![AnchorSource::Artifact{artifact:*artifact}],
-        Origin::Definition{member,entity}=>{let (_,anchor,_)=definitions(d,*member,unit.context)?.into_iter().find(|(candidate,_,_)|candidate==entity).ok_or_else(||invalid("defining source candidate absent"))?;let anchor=anchor.ok_or_else(||invalid("defining source original unavailable"))?;let mut headers=enclosing(d,&anchor,unit.context)?.into_iter().map(|(anchor,_)|anchor).collect::<Vec<_>>();headers.push(anchor);headers},
+        Origin::Definition{member,entity}=>{let (_,anchor,_)=definitions(d,*member,unit.context)?.into_iter().find(|(candidate,_,_)|candidate==entity).ok_or_else(||invalid("defining source candidate absent"))?;let Some(anchor)=anchor else{return Ok(Some(vec![]));};let mut headers=enclosing(d,&anchor,unit.context)?.into_iter().map(|(anchor,_)|anchor).collect::<Vec<_>>();headers.push(anchor);headers},
         Origin::Scenario{scenario}=>{let mut spans=d.evidence.spans.iter().filter(|r|r.scenario==*scenario).collect::<Vec<_>>();spans.sort_by_key(|r|(r.ordinal,r.id()));spans.into_iter().map(|r|AnchorSource::Original{source:r.source}).collect()},
         Origin::Document{observation}=>vec![AnchorSource::Artifact{artifact:d.document_source(*observation)?}],
         Origin::Passage{observation}=>vec![AnchorSource::Span{span:need(&d.source.facts.nodes,need(&d.source.facts.passages,*observation)?.passage.id())?.span()}],
