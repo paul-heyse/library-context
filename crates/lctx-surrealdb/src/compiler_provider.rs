@@ -240,3 +240,43 @@ fn translate(expr:&Expr,relation:&Relation)->Option<Predicate> {
     }
     let mut values=Vec::new();let sql=walk(expr,relation,&mut values)?;let names=values.iter().map(|(name,_)|name.clone()).collect();Some(Predicate{sql,values,names})
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::{common::tree_node::{TreeNode, TreeNodeRecursion}, logical_expr::LogicalPlan, prelude::SessionContext};
+    use lctx_model::domain::{ContentHash, Record, input::Release, serving::Name};
+    use std::collections::BTreeSet;
+
+    #[tokio::test]
+    async fn textual_predicates_push_down_before_projection() {
+        // Planning uses the actual provider, but submits no query and requires no server.
+        let store=NativeCompilerStore::from_existing(Arc::new(surrealdb::Surreal::init()),Name::new("planning").unwrap(),Name::new("planning").unwrap());
+        let relation=Relation::of::<Release>();
+        let view=CompletedView::new(Release::NAME.into(),BTreeSet::from([ContentHash::of(b"planning")]),1).unwrap();
+        let provider=table_provider(store,view,relation.clone(),ResourceBudget::fixed(4<<20).unwrap(),128).unwrap();
+        let session=SessionContext::new();session.register_table("releases",provider).unwrap();
+        let frame=session.sql("SELECT id AS source_id,package AS target_id FROM releases WHERE version='version-0'").await.unwrap();
+        let plan=frame.clone().into_optimized_plan().unwrap();
+        let physical=frame.create_physical_plan().await.unwrap();
+        assert_eq!(physical.schema().fields().iter().map(|field|field.name().as_str()).collect::<Vec<_>>(),["source_id","target_id"]);
+        let mut scans=0;
+        plan.apply(|plan| {
+            match plan {
+                LogicalPlan::Filter(_)=>panic!("exact native text predicate must have no residual filter"),
+                LogicalPlan::TableScan(scan)=>{
+                    scans+=1;
+                    assert_eq!(scan.projection.as_deref(),Some([0,1].as_slice()),"filter field is omitted from projected payloads");
+                    assert_eq!(scan.filters.len(),1);
+                    let translated=translate(&scan.filters[0],&relation).expect("native exact textual predicate");
+                    assert!(translated.sql.contains("body.`version`"));
+                    assert_eq!(translated.values,vec![("v0".into(),Value::String("version-0".into()))]);
+                    assert_eq!(scan.source.supports_filters_pushdown(&[&scan.filters[0]]).unwrap(),[TableProviderFilterPushDown::Exact]);
+                },
+                _=>{},
+            }
+            Ok(TreeNodeRecursion::Continue)
+        }).unwrap();
+        assert_eq!(scans,1);
+    }
+}

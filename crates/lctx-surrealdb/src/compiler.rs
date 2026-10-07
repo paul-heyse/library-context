@@ -2,7 +2,7 @@
 //! govern reads. Canonical graph payloads and query fields are immutable mechanical forms.
 use crate::{Loader, RuntimeConfig, reader::{self, NativeRows}};
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
-use futures::{FutureExt, future::BoxFuture};
+use futures::{FutureExt, StreamExt, future::BoxFuture};
 use lctx_model::domain::{self as d, *, completed::*, admission::Frontier, stages::ProviderOutcome};
 use serde::{Deserialize, Serialize};
 use std::{collections::{BTreeMap}, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
@@ -662,6 +662,7 @@ impl NativeCompilerStore {
         if view.relation!=relation.name() {return Err(ModelError::Conflict("native view relation"));}
         let mut b=Variables::new();b.insert("relation",relation.name().to_string());b.insert("contributions",view.contributions.iter().map(ContentHash::hex).collect::<Vec<_>>());
         let selected=predicate.is_some();
+        let keyed=matches!(&predicate,Some(NativePredicate::Keys(_)));
         let predicate=match predicate {
             None=>"true".into(),
             Some(NativePredicate::Keys(keys))=>{b.insert("keys",keys.iter().map(hex::encode).collect::<Vec<_>>());"semantic_key IN $keys".into()},
@@ -684,10 +685,33 @@ impl NativeCompilerStore {
         // Start with exact selected keys, then fetch their immutable payloads. Membership overlap
         // is deduplicated before rich hydration; private pending rows never enter this query.
         let table=if relation.name()==d::analytics::QualityStep::NAME || relation.name()==d::artifact::ArtifactChunk::NAME {"compiler_record"} else if relation_is_entity(relation.name()) {"entity"} else {"assertion"};
-        let candidate=if selected {format!("AND semantic_key IN (SELECT VALUE semantic_key FROM {table} WHERE semantic_type=$relation AND ({predicate}))")} else {String::new()};
-        let membership=format!("(SELECT VALUE node FROM compiler_membership WHERE relation=$relation {candidate} AND contribution IN (SELECT VALUE id FROM compiler_contribution WHERE completed=true AND logical IN $contributions) GROUP BY node)");
-        let sql=format!("SELECT {} FROM {table} WHERE semantic_type=$relation AND ({predicate}) AND id IN {membership} ORDER BY semantic_key",projections.join(","));
-        let rows=self.track_rows(NativeRows::new(self.client.query(sql).bind(b).stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(64<<20))?;
+        // Resolve compact candidates and completed owners once, rather than reevaluating nested
+        // subqueries for every physical row. Only the exact deduplicated membership record IDs
+        // become payload targets; projection and original hydration happen after selection.
+        let mut sql="LET $__compiler_owners = (SELECT VALUE id FROM compiler_contribution WHERE completed=true AND logical IN $contributions);".to_string();
+        let mut statements=1;
+        let candidate=if keyed {"AND semantic_key IN $keys".to_string()} else if selected {
+            sql.push_str(&format!("LET $__compiler_candidates = (SELECT VALUE semantic_key FROM {table} WHERE semantic_type=$relation AND ({predicate}));"));
+            statements+=1;
+            "AND semantic_key IN $__compiler_candidates".to_string()
+        } else {String::new()};
+        sql.push_str(&format!("LET $__compiler_nodes = (SELECT VALUE node FROM compiler_membership WHERE relation=$relation {candidate} AND contribution IN $__compiler_owners GROUP BY node);"));
+        statements+=1;
+        sql.push_str(&format!("SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation ORDER BY semantic_key",projections.join(",")));
+        statements+=1;
+        let stream=self.client.query(sql).bind(b).stream_items().map_err(ModelError::codec)?;
+        // LET emits a scalar NONE through the SDK row stream. Keep all statement terminals
+        // (including failures), and expose only the final SELECT's projected records.
+        let stream=stream.filter_map(move |item|async move {
+            match &item {
+                Ok(surrealdb::method::StreamItem::Row{statement,value}) if *statement < statements-1 => {
+                    if matches!(value,Value::None) {None}
+                    else {Some(Err(surrealdb::Error::internal("native scan intermediate payload".into())))}
+                },
+                _=>Some(item),
+            }
+        });
+        let rows=self.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?;
         Ok(rows)
     }
     pub fn table_provider(self:&Arc<Self>,view:&CompletedView,relation:Relation,budget:d::resources::ResourceBudget,batch_rows:usize)->Result<Arc<dyn datafusion::catalog::TableProvider>,ModelError> {
