@@ -495,33 +495,32 @@ async fn search_capabilities(
     )
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
-    let mut values = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
+    let mut unit_rows=std::collections::BTreeMap::new();
+    let unit_keys=ranked.iter().map(|hit|match hit.target{ranking::Target::Unit{unit}=>Ok(*unit.bytes()),_=>Err(ModelError::Schema("capability ranking target"))}).collect::<Result<std::collections::BTreeSet<_>,_>>()?.into_iter().collect::<Vec<_>>();
+    for chunk in unit_keys.chunks(64){for unit in reader.records::<retrieval::Unit>(RecordSelection::Keys(chunk.to_vec())).await?{unit_rows.insert(unit.id(),unit);}}
+    let origin_keys=unit_rows.values().map(|unit|*unit.origin.bytes()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    let mut origins=std::collections::BTreeMap::new();
+    for chunk in origin_keys.chunks(64){for origin in reader.records::<retrieval::Origin>(RecordSelection::Keys(chunk.to_vec())).await?{origins.insert(origin.id(),origin);}}
+    let mut nominated=Vec::new();let mut seen=std::collections::BTreeSet::new();
     for hit in ranked {
-        let ranking::Target::Unit { unit } = hit.target else {
-            return Err(ModelError::Schema("capability ranking target"));
-        };
-        let records = reader
-            .records::<retrieval::Unit>(RecordSelection::Keys(vec![*unit.bytes()]))
-            .await?;
-        let u = need(&records, unit)?;
-        let origins = reader
-            .records::<retrieval::Origin>(RecordSelection::Keys(vec![*u.origin.bytes()]))
-            .await?;
-        if let retrieval::Origin::Brief { brief } = need(&origins, u.origin)?
-            && seen.insert((*brief,hit.context))
-        {
-            values.push((
-                hit,
-                match graph::target_for_row(derivation::RowRef::of(*brief))? {
-                    graph::Target::Assertion(id) => id.0,
-                    graph::Target::Entity(id) => id.0,
-                    _ => return Err(ModelError::Schema("brief graph key")),
-                },
-                crate::capability::get(reader, *brief, b).await?,
-            ));
+        let ranking::Target::Unit{unit}=hit.target else{return Err(ModelError::Schema("capability ranking target"));};
+        let unit=unit_rows.get(&unit).ok_or(ModelError::Schema("capability unit"))?;
+        if unit.context!=hit.context{return Err(ModelError::Conflict("capability hit context"));}
+        if let retrieval::Origin::Brief{brief}=origins.get(&unit.origin).ok_or(ModelError::Schema("capability origin"))? && seen.insert((*brief,hit.context)){nominated.push((hit,*brief));}
+    }
+    let brief_ids=nominated.iter().map(|(_,brief)|*brief).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    let mut values=Vec::new();
+    for cohort in brief_ids.chunks(64){
+        let data=crate::capability::hydrate(reader,cohort,b).await?;
+        let prepared=crate::capability::Prepared::new(&data,b)?;
+        for brief in cohort {
+            let packet=prepared.packet(*brief,b)?;
+            let key=match graph::target_for_row(derivation::RowRef::of(*brief))?{graph::Target::Assertion(id)=>id.0,graph::Target::Entity(id)=>id.0,_=>return Err(ModelError::Schema("brief graph key"))};
+            for (ordinal,(hit,_)) in nominated.iter().enumerate().filter(|(_,(_,id))|id==brief){values.push((ordinal,hit.clone(),key,packet.clone()));}
         }
     }
+    values.sort_by_key(|row|row.0);
+    let values=values.into_iter().map(|(_,hit,key,packet)|(hit,key,packet)).collect();
     let (results, ranking) =
         crate::pagination::ranked(values, request, reader.handle(), channels, retained).map_err(wire)?;
     Ok(SearchCapabilitiesResponse {
