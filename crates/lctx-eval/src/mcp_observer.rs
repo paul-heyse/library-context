@@ -162,6 +162,75 @@ fn interpretation(core:&Value,common:&Assignment,groups:&mut Vec<PublicGroup>)->
     }
     Ok(())
 }
+fn release_context(release:&Value)->Result<Assignment,String>{
+    Ok(Assignment::from([("release".into(),text(field(release,"version")?)?.into()),("distribution".into(),text(field(release,"distribution")?)?.into()),("release_identity".into(),identity(field(release,"release")?,16)?),("input_identity".into(),identity(field(release,"input")?,16)?)]))
+}
+fn search_evidence(structured:&Value,groups:&mut Vec<PublicGroup>,references:&mut Vec<String>)->Result<(),String>{
+    let items=array(field(field(structured,"results")?,"items")?)?;
+    let rankings=array(field(structured,"ranking")?)?;
+    if rankings.len()!=items.len(){return Err("public evidence rows/ranking mismatch".into());}
+    for (hit,ranking) in items.iter().zip(rankings) {
+        let unit=identity(field(hit,"unit")?,16)?;
+        if text(field(field(ranking,"target")?,"kind")?)?!="unit"||identity(field(field(ranking,"target")?,"unit")?,16)?!=unit{return Err("public ranked evidence target mismatch".into());}
+        let analysis=identity(field(ranking,"context")?,16)?;
+        let release=field(hit,"release")?;
+        if !array(field(structured,"domains")?)?.iter().any(|d|d.get("captures").and_then(Value::as_array).is_some_and(|cs|cs.iter().any(|c|c.get("release")==Some(release)))){return Err("public evidence release lacks capture".into());}
+        let common=release_context(release)?;
+        if !array(field(field(hit,"interpretation")?,"contexts")?)?.iter().any(|c|identity(&c["analysis"],16).ok().as_ref()==Some(&analysis)){return Err("public window lacks actual captured analysis context".into());}
+        interpretation(hit,&common,groups)?;
+        let mut quals=BTreeMap::new();
+        for q in array(field(field(hit,"interpretation")?,"qualifications")?)? {
+            let qanalysis=identity(field(q,"analysis")?,16)?;
+            if qanalysis!=analysis{return Err("public window qualification has foreign analysis".into());}
+            let id=identity(field(q,"qualification")?,16)?;
+            quals.insert(id,readable_qualification(q,&analysis,&common["release_identity"])?);
+        }
+        let witnesses=array(field(ranking,"witnesses")?)?;
+        for window in array(field(hit,"delivered_windows")?)? {
+            let wid=identity(field(window,"window")?,16)?;let part=identity(field(window,"part")?,16)?;
+            if identity(field(window,"analysis")?,16)?!=analysis{return Err("public delivered window analysis mismatch".into());}
+            let purpose=integer(field(window,"purpose")?)?;
+            if purpose>1{return Err("unsupported public window purpose".into());}
+            if !witnesses.iter().any(|w|w.get("occurrence").is_some_and(|o|identity(&o["window"],16).ok().as_ref()==Some(&wid)&&identity(&o["context"],16).ok().as_ref()==Some(&analysis)&&(purpose==1||identity(&o["part"],16).ok().as_ref()==Some(&part)))){return Err("public window has no actual ranked witness".into());}
+            if purpose==1&&["binding","subject","basis"].iter().any(|key|window.get(key).is_some_and(|v|!v.is_null())){return Err("context/setup part cannot nominate primary binding".into());}
+            let content=text(field(window,"text")?)?;
+            let mut context=common.clone();context.insert("analysis_identity".into(),analysis.clone());context.insert("window_identity".into(),wid.clone());context.insert("part_identity".into(),part);
+            let mut meanings=vec![];let maps=array(field(window,"source_maps")?)?;
+            let mut ranges=vec![];
+            for map in maps {
+                let start=integer(field(map,"start")?)?;let end=integer(field(map,"end")?)?;
+                if end<=start{return Err("public window source map bounds".into());}
+                let fragment=content.get(start as usize..end as usize).ok_or("public window source map UTF8 bounds")?;
+                if ranges.iter().any(|(a,z)|start<*z&&end>*a){return Err("overlapping public window source map".into());}ranges.push((start,end));
+                let original=field(map,"original")?;
+                if original.is_null(){let mut synthetic=observed(wid.clone(),if purpose==0{"synthetic_primary_window"}else{"synthetic_context_window"},fragment.into());synthetic.candidate_status=CandidateStatus::Unknown;meanings.push(synthetic);continue;}
+                if identity(field(original,"context")?,16)?!=analysis||identity(field(original,"release")?,16)?!=common["release_identity"]||text(field(original,"encoding")?)?!="raw_bytes"||integer(field(original,"end")?)?.checked_sub(integer(field(original,"start")?)?)!=Some(end-start){return Err("public window/original association mismatch".into());}
+                let anchor=serde_json::to_string(field(original,"source")?).map_err(|e|e.to_string())?;
+                let mut meaning=observed(anchor,if purpose==0{"primary_window_source"}else{"context_window_source"},fragment.into());
+                if !field(window,"qualification")?.is_null(){let q=identity(field(window,"qualification")?,16)?;if let Some(Some(readable))=quals.get(&q){meaning.qualifications.push(readable.clone());}}
+                let mut source_context=context.clone();source_context.insert("artifact_identity".into(),identity(field(original,"artifact")?,16)?);source_context.insert("source_start".into(),integer(field(original,"start")?)?.to_string());source_context.insert("source_end".into(),integer(field(original,"end")?)?.to_string());
+                groups.push(PublicGroup{context:source_context,evidence:vec![meaning]});
+                references.push(serde_json::json!({"tool":"get_evidence","arguments":{"source":field(original,"source")?,"page":{"expanded":true,"evidence_demand":{"facets":["originals","conditions","setup"],"context":{"analysis":field(window,"analysis")?,"release":field(release,"version")?},"maximum_followups":0}}}}).to_string());
+            }
+            if maps.is_empty(){let mut synthetic=observed(wid,if purpose==0{"synthetic_primary_window"}else{"synthetic_context_window"},content.into());synthetic.candidate_status=CandidateStatus::Unknown;meanings.push(synthetic);}
+            groups.push(PublicGroup{context,evidence:meanings});
+        }
+    }Ok(())
+}
+fn search_operations(structured:&Value,groups:&mut Vec<PublicGroup>,references:&mut Vec<String>)->Result<(),String>{
+    for candidate in array(field(field(structured,"results")?,"items")?)? {
+        let member=identity(field(candidate,"member")?,16)?;let analysis=identity(field(candidate,"analysis")?,16)?;
+        for release in array(field(candidate,"releases")?)? {
+            let mut context=release_context(release)?;context.insert("member_identity".into(),member.clone());context.insert("analysis_identity".into(),analysis.clone());
+            groups.push(PublicGroup{context,evidence:vec![observed(member.clone(),"operation_navigation",text(field(candidate,"name")?)?.into())]});
+            let domains=array(field(structured,"domains")?)?.iter().filter(|d|d.get("captures").and_then(Value::as_array).is_some_and(|cs|cs.iter().any(|c|c.get("release")==Some(release)))).collect::<Vec<_>>();
+            if domains.is_empty(){return Err("public operation navigation lacks captured domain".into());}
+            for domain in domains {
+            references.push(serde_json::json!({"tool":"get_operation","arguments":{"library":field(domain,"name")?,"operation":{"kind":"member","member":field(candidate,"member")?},"page":{"evidence_demand":{"facets":["declaration","defaults","conditions","setup"],"context":{"analysis":field(candidate,"analysis")?,"release":field(release,"version")?},"maximum_followups":0}}}}).to_string());
+            }
+        }
+    }Ok(())
+}
 pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
     let UniqueJson(root) = serde_json::from_str(bytes).map_err(|e| e.to_string())?;
     let result = if root.get("jsonrpc").is_some() { field(&root, "result")? } else { &root };
@@ -252,6 +321,10 @@ pub fn decode(bytes: &str, realization: &str) -> Result<DecodedPacket, String> {
                 }
             }
         }
+    } else if content.iter().any(|b|b.get("text").and_then(Value::as_str)==Some("search_evidence: snapshot-bound result")) {
+        tool=Some("search_evidence".into());search_evidence(structured,&mut groups,&mut references)?;
+    } else if content.iter().any(|b|b.get("text").and_then(Value::as_str)==Some("search_operations: snapshot-bound result")) {
+        tool=Some("search_operations".into());search_operations(structured,&mut groups,&mut references)?;
     } else { return Err("unsupported current MCP response class".into()); }
     if groups.len() > 256 || references.len() > 256 || groups.iter().map(|g| g.evidence.len()).sum::<usize>() > 256 { return Err("current public packet finite bound exceeded".into()); }
     Ok(DecodedPacket { tool, semantic_snapshot, database_identity, groups, references })
@@ -345,5 +418,37 @@ mod originals_tests {
     #[test]
     fn interpreted_prose_does_not_claim_original_source_bytes(){
         let p=decode(&packet(serde_json::json!({"kind":"prose","slice":vec![8;16]}),"native_literal_utf8_slice",b"interpreted text".to_vec()).to_string(),&"06".repeat(32)).unwrap();assert_eq!(p.groups[0].evidence[0].role,"interpreted_prose");
+    }
+}
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    fn packet()->Value {
+        let release=serde_json::json!({"input":vec![10;16],"release":vec![11;16],"version":"1","distribution":"mini"});
+        let original=serde_json::json!({"source":{"kind":"occurrence","occurrence":vec![7;16]},"artifact":vec![8;16],"release":vec![11;16],"context":vec![3;16],"start":20,"end":24,"encoding":"raw_bytes"});
+        let primary=serde_json::json!({"window":vec![4;16],"part":vec![5;16],"purpose":0,"analysis":vec![3;16],"binding":vec![6;16],"subject":vec![7;16],"basis":0,"qualification":null,"text":"call","source_maps":[{"start":0,"end":4,"original":original}]});
+        let setup=serde_json::json!({"window":vec![4;16],"part":vec![9;16],"purpose":1,"analysis":vec![3;16],"binding":null,"subject":null,"basis":null,"qualification":null,"text":"setup","source_maps":[{"start":0,"end":5,"original":null}]});
+        serde_json::json!({"isError":false,"content":[{"type":"text","text":"search_evidence: snapshot-bound result"}],"structuredContent":{"snapshot":{"semantic":vec![5;32],"realization":vec![6;32],"database":{"namespace":"control","database":"renderer"}},"domains":[{"name":"mini","captures":[{"release":release}]}],"ranking":[{"target":{"kind":"unit","unit":vec![1;16]},"context":vec![3;16],"witnesses":[{"occurrence":{"window":vec![4;16],"part":vec![5;16],"context":vec![3;16]}}]}],"results":{"items":[{"unit":vec![1;16],"release":release,"delivered_windows":[primary,setup],"interpretation":{"contexts":[{"analysis":vec![3;16],"python_version":"3.14","python_platform":"linux","search_path":[],"site_package_path":[]}],"defaults":[],"qualifications":[]}}]}}})
+    }
+    #[test]
+    fn actual_source_maps_and_context_roles_are_independently_decoded(){
+        let mut source=packet();source["structuredContent"]["delivery"]=serde_json::json!({"fields":[{"field":"/results/0","binding":{"analysis":vec![99;16]}}]});
+        let decoded=decode(&source.to_string(),&"06".repeat(32)).unwrap();assert_eq!(decoded.tool.as_deref(),Some("search_evidence"));
+        assert!(decoded.groups.iter().any(|g|g.evidence.iter().any(|e|e.role=="primary_window_source"&&e.text=="call")));
+        let setup=decoded.groups.last().unwrap();assert_eq!(setup.evidence[0].role,"synthetic_context_window");assert_eq!(setup.evidence[0].candidate_status,CandidateStatus::Unknown);
+        let mut corrupted=source;corrupted["structuredContent"]["results"]["items"][0]["delivered_windows"][0]["source_maps"][0]["original"]["context"]=serde_json::json!(vec![99;16]);assert!(decode(&corrupted.to_string(),&"06".repeat(32)).is_err());
+    }
+    #[test]
+    fn setup_cannot_be_promoted_to_ranked_primary_or_binding(){
+        let mut primary=packet();primary["structuredContent"]["results"]["items"][0]["delivered_windows"][1]["purpose"]=serde_json::json!(0);assert!(decode(&primary.to_string(),&"06".repeat(32)).is_err());
+        let mut binding=packet();binding["structuredContent"]["results"]["items"][0]["delivered_windows"][1]["binding"]=serde_json::json!(vec![6;16]);assert!(decode(&binding.to_string(),&"06".repeat(32)).is_err());
+        let mut map=packet();map["structuredContent"]["results"]["items"][0]["delivered_windows"][0]["source_maps"][0]["end"]=serde_json::json!(5);assert!(decode(&map.to_string(),&"06".repeat(32)).is_err());
+    }
+    #[test]
+    fn operation_search_names_are_navigation_only(){
+        let mut source=packet();source["content"][0]["text"]=serde_json::json!("search_operations: snapshot-bound result");
+        let release=source["structuredContent"]["results"]["items"][0]["release"].clone();
+        source["structuredContent"]["results"]["items"]=serde_json::json!([{"member":vec![1;16],"analysis":vec![3;16],"name":"call","releases":[release]}]);
+        let decoded=decode(&source.to_string(),&"06".repeat(32)).unwrap();assert_eq!(decoded.groups[0].evidence[0].role,"operation_navigation");assert_eq!(decoded.references.len(),1);assert!(!decoded.groups[0].context.contains_key("signature_identity"));
     }
 }
