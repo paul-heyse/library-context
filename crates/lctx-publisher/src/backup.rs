@@ -173,8 +173,7 @@ pub async fn restore(
             let fresh = match begin(config).await {
                 Ok(fresh) => fresh,
                 Err(error) => {
-                    abandon(&staging).await?;
-                    return Err(error);
+                    return cleanup_result(Err(error),abandon(&staging).await);
                 }
             };
             match copy(config, &staging, &fresh, &manifest, native_definitions).await.map_err(|error| restore_phase("canonical copy",error)) {
@@ -487,9 +486,9 @@ async fn copy(
     crate::materialize_search(&fresh.loader).await.map_err(|error|restore_phase("search reconstruction",error))?;
     fresh.loader.reconcile(manifest).await.map_err(|error|restore_phase("final graph reconciliation",error))
     }.await;
-    runtime.drain().await?;
-    if result.is_err(){native.fail();}else{native.end_writes().await?;}
-    result
+    let drained=runtime.drain().await;
+    if result.is_err() || drained.is_err(){native.fail();}else{native.end_writes().await?;}
+    cleanup_result(result,drained)
 }
 
 async fn page<T: serde::de::DeserializeOwned>(
