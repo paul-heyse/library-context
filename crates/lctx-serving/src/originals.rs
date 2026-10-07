@@ -224,5 +224,10 @@ mod controls {
         assert!(prepared.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(9))).is_err());
         let mut invalid=prepared;invalid.anchor_sources=vec![retrieval::AnchorSource::OccurrenceSlice{occurrence:invalid.occurrences[0].id(),start:3,end:12}];invalid.anchors[0].original=invalid.anchor_sources[0].id();
         assert!(invalid.range(&OriginalReference::Anchor{anchor:invalid.anchors[0].id()},Some(id(2)),Some(id(6))).is_err());
+        invalid.distributions=vec![input::InputDistribution{input:id(10),release:id(6),role:input::DistributionRole::FirstParty}];invalid.corpora=vec![input::CorpusLibrary{corpus:id(1),library:id(10)}];
+        assert!(invalid.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(6))).is_ok(),"captured corpus mapping retains release attribution");
+        invalid.distributions.clear();assert!(invalid.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(6))).is_err(),"missing captured release refuses explicit attribution");
+        invalid.runs.clear();assert!(invalid.range(&OriginalReference::Prose{slice:raw_slice.id()},Some(id(2)),Some(id(6))).is_err(),"missing provider context refuses explicit attribution");
+
     }
 }
