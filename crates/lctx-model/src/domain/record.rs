@@ -381,6 +381,7 @@ mod contract_encoding_tests {
             (b"domain", b"lctx-semantic/v3"),
             (b"type", b"declaration-vector/v2"),
             (b"field", b"samples"),
+            (b"textual", &[0]),
             (b"scalar", b"i16"),
             (b"roles", &[1, 0, 1, 1]),
             (b"target", b""),
@@ -399,6 +400,7 @@ mod contract_encoding_tests {
                 (b"domain", b"lctx-semantic/v3"),
                 (b"type", b"declaration-vector/v2"),
                 (b"field", b"value"),
+                (b"textual", &[0]),
                 (b"scalar", b"id"),
                 (b"roles", &[0, 1, 0, 0]),
                 (b"target", b"literal_values"),
@@ -416,6 +418,14 @@ mod contract_encoding_tests {
             change.encode_contract(&mut sink);
             assert_ne!(sink.finish(), expected);
         }
+        let opaque = Field::of::<super::EvidenceBytes>("body", false, false);
+        let text = Field::of::<super::super::Utf8Text>("body", false, false);
+        assert_eq!(opaque.scalar(), text.scalar());
+        let mut opaque_sink = KeySink::new("declaration-vector/v2");
+        opaque.encode_contract(&mut opaque_sink);
+        let mut text_sink = KeySink::new("declaration-vector/v2");
+        text.encode_contract(&mut text_sink);
+        assert_ne!(opaque_sink.finish(), text_sink.finish());
     }
     #[test]
     fn codebook_discriminants_and_wire_labels_are_identity_inputs() {
@@ -430,6 +440,7 @@ mod contract_encoding_tests {
             (b"domain", b"lctx-semantic/v3"),
             (b"type", b"codebook-vector/v2"),
             (b"field", b"kind"),
+            (b"textual", &[0]),
             (b"scalar", b"i16"),
             (b"roles", &[0, 0, 0, 0]),
             (b"target", b""),
