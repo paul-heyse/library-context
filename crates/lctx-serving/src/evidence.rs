@@ -45,7 +45,25 @@ pub async fn get(
         b,
     )
     .await?;
-    let original = crate::originals::range(&data, source, None, None)?;
+    let demand = request.page().evidence_demand.0.as_ref();
+    let context = demand.and_then(|d| d.context.analysis.0);
+    let prepared = crate::originals::Prepared::new(&data)?;
+    let original = if let Some(version) = demand.and_then(|d| d.context.release.0.as_ref()) {
+        // Readable version selects only a release that the actual source resolver
+        // admits. Matching a hydrated release label alone does not grant attribution.
+        let mut admitted = Vec::new();
+        for release in rows::<input::Release>(&data)?.iter().filter(|r| r.version == version.as_str()) {
+            match prepared.range(source, context, Some(release.id())) {
+                Ok(range) => admitted.push(range),
+                Err(ModelError::Conflict("original release outside captured input")) => {},
+                Err(error) => return Err(error),
+            }
+        }
+        if admitted.len() != 1 { return Err(ModelError::Conflict("requested original release attribution ambiguity or absence")); }
+        admitted.pop().expect("one admitted requested release")
+    } else {
+        prepared.range(source, context, None)?
+    };
     let body = body(reader, &data, &original, request, channels, limits, b).await?;
     let (flow_inventory, source_characterization) =
         crate::source_evidence::sections(&data, &original, request, reader.handle(), channels, b)
