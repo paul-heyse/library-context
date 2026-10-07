@@ -12,9 +12,7 @@ use lctx_model::domain::{
     *,
 };
 fn need<R: Record>(rows: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
-    rows.rows()
-        .iter()
-        .find(|r| r.id() == id)
+    rows.get(id)
         .cloned()
         .ok_or_else(|| {
             Error::Model(ModelError::Invalid(format!(

@@ -5,7 +5,7 @@ use lctx_model::domain::{
     assertion::*, attribution::*, flow::*, flow_inventory::*, serving::*, source::Occurrence, *,
 };
 fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<&R, Error> {
-    batch.rows().iter().find(|r| r.id() == id).ok_or_else(|| {
+    batch.get(id).ok_or_else(|| {
         Error::Model(ModelError::Invalid(format!(
             "required native evidence row missing: {}",
             R::NAME

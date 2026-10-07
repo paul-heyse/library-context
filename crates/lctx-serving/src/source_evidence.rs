@@ -1,7 +1,7 @@
 //! Pure evidence lowering over one already-scoped canonical native selection.
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
 use lctx_surrealdb::batches::CanonicalBatches;
-use std::{any::Any, collections::BTreeMap, sync::Arc};
+use std::{any::Any, collections::BTreeMap};
 #[derive(Debug)]
 pub enum EvidenceError {
     Contract,
@@ -26,11 +26,59 @@ impl From<EvidenceError> for ModelError {
 }
 pub struct PacketRows<R: Record> {
     rows: Vec<R>,
+    ids: Vec<([u8;16],usize)>,
     _reservation: Box<dyn lctx_model::domain::resources::Reservation>,
 }
 impl<R: Record> PacketRows<R> {
-    pub fn rows(&self) -> &[R] {
-        &self.rows
+    pub fn rows(&self) -> &[R] { &self.rows }
+    pub fn get(&self,id:Id<R>)->Option<&R>{
+        let first=self.ids.partition_point(|(key,_)|key<id.bytes());
+        self.ids.get(first).filter(|(key,_)|key==id.bytes()).map(|(_,position)|&self.rows[*position])
+    }
+}
+type IdPosition=([u8;16],usize);
+type ReferencePosition=(&'static str,&'static str,[u8;16],usize);
+struct PreparedRows<R:Record>{
+    rows:Vec<R>,
+    ids:Option<Vec<IdPosition>>,
+    references:BTreeMap<&'static str,Vec<ReferencePosition>>,
+}
+impl<R:Record> PreparedRows<R>{
+    fn prepare_index(&mut self,field:Option<&str>,charge:&mut charged::StateCharge)->Result<(),ModelError>{
+        if let Some(field)=field && !self.references.contains_key(field){
+            let field=R::fields().into_iter().find(|descriptor|descriptor.name()==field).ok_or(ModelError::Schema("native evidence indexed field"))?.name();
+            charge.grow(32+size_of::<(&str,Vec<ReferencePosition>)>())?;
+            let mut index:Vec<ReferencePosition>=Vec::new();
+            for (position,row) in self.rows.iter().enumerate(){
+                let values=row.references().into_iter().filter(|reference|reference.field==field).collect::<Vec<_>>();
+                let needed=index.len()+values.len();
+                if needed>index.capacity(){
+                    charge.grow((needed-index.capacity())*std::mem::size_of::<ReferencePosition>())?;
+                    index.reserve_exact(needed-index.len());
+                }
+                index.extend(values.into_iter().map(|reference|(reference.field,reference.target,reference.key,position)));
+            }
+            index.sort_unstable();index.dedup();self.references.insert(field,index);
+        }
+        if field.is_none() && self.ids.is_none(){
+            charge.grow(self.rows.len()*std::mem::size_of::<IdPosition>())?;
+            let mut index=self.rows.iter().enumerate().map(|(position,row)|(*row.id().bytes(),position)).collect::<Vec<_>>();
+            index.sort_unstable();self.ids=Some(index);
+        }
+        Ok(())
+    }
+    fn id_positions(&self,id:Id<R>)->&[IdPosition]{
+        let index=self.ids.as_deref().expect("prepared ID index");
+        let start=index.partition_point(|(key,_)|key<id.bytes());
+        let end=index.partition_point(|(key,_)|key<=id.bytes());
+        &index[start..end]
+    }
+    fn reference_positions<T:Record>(&self,field:&str,id:Id<T>)->&[ReferencePosition]{
+        let index=self.references.get(field).expect("prepared reference index");
+        let key=(field,T::NAME,*id.bytes());
+        let start=index.partition_point(|(field,target,key_,_)|(*field,*target,*key_)<key);
+        let end=index.partition_point(|(field,target,key_,_)|(*field,*target,*key_)<=key);
+        &index[start..end]
     }
 }
 pub struct NativePackets<'a> {
@@ -50,72 +98,49 @@ impl<'a> NativePackets<'a> {
             claims: crate::claims::Claims::new(source, budget)?,
         })
     }
-    fn rows<R: Record>(&mut self) -> Result<Arc<Vec<R>>, EvidenceError> {
-        if !self.cache.contains_key(R::NAME) {
-            let rows = crate::records::rows::<R>(self.source)?;
-            for row in &rows {
-                self.charge.admit(row)?;
-            }
-            self.charge
-                .grow(rows.capacity() * std::mem::size_of::<R>())?;
-            self.cache.insert(R::NAME, Box::new(Arc::new(rows)));
+    fn prepared<R:Record>(&mut self,field:Option<&str>)->Result<&PreparedRows<R>,EvidenceError>{
+        if !self.cache.contains_key(R::NAME){
+            let rows=crate::records::rows::<R>(self.source)?;
+            for row in &rows {self.charge.admit(row)?;}
+            self.charge.grow(rows.capacity()*std::mem::size_of::<R>())?;
+            self.cache.insert(R::NAME,Box::new(PreparedRows{rows,ids:None,references:BTreeMap::new()}));
         }
-        self.cache
-            .get(R::NAME)
-            .and_then(|v| v.downcast_ref::<Arc<Vec<R>>>())
-            .cloned()
-            .ok_or(EvidenceError::Contract)
+        let prepared=self.cache.get_mut(R::NAME).and_then(|rows|rows.downcast_mut::<PreparedRows<R>>()).ok_or(EvidenceError::Contract)?;
+        prepared.prepare_index(field,&mut self.charge)?;
+        Ok(prepared)
     }
     fn selected<R: Record>(&self, rows: Vec<R>) -> Result<PacketRows<R>, EvidenceError> {
         let bytes = rows
             .iter()
             .map(HeapSize::heap_bytes)
             .sum::<usize>()
-            .saturating_add(rows.capacity() * std::mem::size_of::<R>());
-        Ok(PacketRows {
-            rows,
-            _reservation: self
-                .budget
-                .reserve("native-evidence-selected-rows", bytes)?,
-        })
+            .saturating_add(rows.capacity() * std::mem::size_of::<R>())
+            .saturating_add(rows.len()*std::mem::size_of::<IdPosition>());
+        let reservation=self.budget.reserve("native-evidence-selected-rows",bytes)?;
+        let mut ids=rows.iter().enumerate().map(|(position,row)|(*row.id().bytes(),position)).collect::<Vec<_>>();
+        ids.sort_unstable();
+        Ok(PacketRows{rows,ids,_reservation:reservation})
     }
-    pub(crate) async fn read_ids<R: Record>(
-        &mut self,
-        ids: &[Id<R>],
-    ) -> Result<PacketRows<R>, EvidenceError> {
-        let all = self.rows::<R>()?;
-        self.selected(
-            all.iter()
-                .filter(|r| ids.contains(&r.id()))
-                .cloned()
-                .collect(),
-        )
+    pub(crate) async fn read_ids<R:Record>(&mut self,ids:&[Id<R>])->Result<PacketRows<R>,EvidenceError>{
+        let mut charge=charged::StateCharge::new(&self.budget,"native-evidence-selection-index");
+        let prepared=self.prepared::<R>(None)?;
+        let mut selected=charged::ChargedSet::<usize>::default();
+        for id in ids {for (_,position) in prepared.id_positions(*id){selected.insert(&mut charge,*position)?;}}
+        let rows=selected.iter().map(|position|prepared.rows[*position].clone()).collect();
+        self.selected(rows)
     }
-    pub(crate) async fn read_for<R: Record, T: Record>(
-        &mut self,
-        field: &str,
-        ids: &[Id<T>],
-    ) -> Result<PacketRows<R>, EvidenceError> {
-        if !R::fields().iter().any(|f| f.name() == field) {
-            return Err(EvidenceError::Model(ModelError::Invalid(format!(
-                "native evidence field missing: {}.{field}",
-                R::NAME
-            ))));
+    pub(crate) async fn read_for<R:Record,T:Record>(&mut self,field:&str,ids:&[Id<T>])->Result<PacketRows<R>,EvidenceError>{
+        if !R::fields().iter().any(|descriptor|descriptor.name()==field){
+            return Err(EvidenceError::Model(ModelError::Invalid(format!("native evidence field missing: {}.{field}",R::NAME))));
         }
-        let all = self.rows::<R>()?;
-        self.selected(
-            all.iter()
-                .filter(|r| {
-                    r.references().iter().any(|reference| {
-                        reference.field == field
-                            && reference.target == T::NAME
-                            && ids.iter().any(|id| id.bytes() == &reference.key)
-                    })
-                })
-                .cloned()
-                .collect(),
-        )
+        let mut charge=charged::StateCharge::new(&self.budget,"native-evidence-selection-index");
+        let prepared=self.prepared::<R>(Some(field))?;
+        let mut selected=charged::ChargedSet::<usize>::default();
+        for id in ids {for (_,_,_,position) in prepared.reference_positions(field,*id){selected.insert(&mut charge,*position)?;}}
+        let rows=selected.iter().map(|position|prepared.rows[*position].clone()).collect();
+        self.selected(rows)
     }
+
     pub(crate) async fn claim_basis(
         &mut self,
         q: &assertion::AssertionQualification,
@@ -208,5 +233,37 @@ fn key(row: derivation::RowRef) -> Result<ContentHash, ModelError> {
         graph::Target::Entity(id) => Ok(id.0),
         graph::Target::Assertion(id) => Ok(id.0),
         graph::Target::External { .. } => Err(ModelError::Schema("external evidence packet key")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lctx_model::domain::input::{Package,Release};
+    fn rows()->PreparedRows<Release>{
+        let a=Package{name:"a".into()};let b=Package{name:"b".into()};
+        PreparedRows{rows:vec![Release{package:b.id(),version:"2".into()},Release{package:a.id(),version:"1".into()},Release{package:a.id(),version:"3".into()},Release{package:a.id(),version:"1".into()}],ids:None,references:BTreeMap::new()}
+    }
+    #[test]
+    fn typed_indexes_keep_source_order_duplicate_rows_and_reference_target_type(){
+        let budget=ResourceBudget::fixed(1<<20).unwrap();
+        let mut charge=charged::StateCharge::new(&budget,"index-control");
+        let mut prepared=rows();prepared.prepare_index(None,&mut charge).unwrap();prepared.prepare_index(Some("package"),&mut charge).unwrap();
+        let reserved=budget.reserved();assert!(reserved>0);
+        prepared.prepare_index(None,&mut charge).unwrap();prepared.prepare_index(Some("package"),&mut charge).unwrap();assert_eq!(reserved,budget.reserved(),"repeat reads reuse their charged indexes");
+        assert_eq!(prepared.id_positions(prepared.rows[1].id()).iter().map(|(_,position)|*position).collect::<Vec<_>>(),[1,3]);
+        let package=Package{name:"a".into()};
+        assert_eq!(prepared.reference_positions("package",package.id()).iter().map(|(_,_,_,position)|*position).collect::<Vec<_>>(),[1,2,3]);
+        prepared.prepare_index(Some("version"),&mut charge).unwrap();assert!(prepared.reference_positions("version",package.id()).is_empty());
+        let foreign:Id<Release>=serde_json::from_value(serde_json::to_value(package.id().bytes()).unwrap()).unwrap();
+        assert!(prepared.reference_positions("package",foreign).is_empty(),"equal bytes from another relation do not match");
+        let missing=Release{package:package.id(),version:"missing".into()};assert!(prepared.id_positions(missing.id()).is_empty());
+        drop(prepared);drop(charge);assert_eq!(budget.reserved(),0);
+    }
+    #[test]
+    fn index_refusal_happens_before_retaining_a_partial_index(){
+        let budget=ResourceBudget::fixed(1).unwrap();let mut charge=charged::StateCharge::new(&budget,"index-control");let mut prepared=rows();
+        assert!(matches!(prepared.prepare_index(None,&mut charge),Err(ModelError::Resource{..})));assert!(prepared.ids.is_none());assert_eq!(budget.reserved(),0);
+        assert!(matches!(prepared.prepare_index(Some("package"),&mut charge),Err(ModelError::Resource{..})));assert!(prepared.references.is_empty());assert_eq!(budget.reserved(),0);
     }
 }
