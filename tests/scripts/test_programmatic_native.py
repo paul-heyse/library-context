@@ -58,7 +58,7 @@ async def test_actual_native_final_maps_and_schema_valid_false_pointer(transport
                 ),
             ]:
                 result = await client.call_tool_mcp(tool, arguments)
-                assert result.isError is False
+                assert result.is_error is False
                 raw = result.model_dump_json(by_alias=True)
                 public = json.loads(raw)["structuredContent"]
                 assert public["delivery"]["fields"], "actual finalized native map required"
