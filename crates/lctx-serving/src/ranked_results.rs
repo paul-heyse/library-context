@@ -173,7 +173,7 @@ mod tests {
     }
     fn response_with_channels(cache:&RankedResults,request:&Request,channels:&ChannelState)->Response {
         let values=(1..=3).map(|n| {let unit=id::<retrieval::Unit>(n);let ranking=ranking::RankedHit {target:ranking::Target::Unit {unit},context:id::<AnalysisContext>(n),score:1.0/f64::from(n),promoted:false,witnesses:vec![]};
-            (ranking,ContentHash::of(&[n]),EvidenceHit {unit,family:retrieval::Family::Source,title:Name::new(format!("original{n}")).unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::NotRequested{}}})}).collect();
+            (ranking,ContentHash::of(&[n]),EvidenceHit {unit,release:ReleaseIdentity{input:id(n),release:id(n),distribution:Name::new("control").unwrap(),version:Name::new("1").unwrap()},family:retrieval::Family::Source,title:Name::new(format!("original{n}")).unwrap(),originals:vec![],associated_members:vec![],delivered_windows:vec![],interpretation:InterpretationClosure{contexts:vec![],defaults:vec![],qualifications:vec![],availability:Availability::NotRequested{}}})}).collect();
         let (results,ranking)=cache.page(values,request,&handle(),channels).unwrap();
         let mut response=Response::SearchEvidence(SearchEvidenceResponse {
             delivery: Optional::default(),snapshot:handle(),domains:vec![],extent:SelectionExtent::Ranked {returned:1},results,channels:channels.clone(),ranking});cache.complete(&mut response).unwrap();cache.attach(&response).unwrap();response
