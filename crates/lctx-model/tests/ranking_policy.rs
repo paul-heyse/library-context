@@ -14,7 +14,7 @@ use lctx_model::domain::{
     attribution::AnalysisContext,
     catalog::CatalogMember,
     resources::ResourceBudget,
-    retrieval::{Family, Fragment, OriginalAnchor, Unit},
+    retrieval::{Family, SearchWindow, ContentPart, WindowBinding, OriginalAnchor, Unit},
     serving::{identity::SnapshotHandle, ranking::*},
 };
 
@@ -38,8 +38,10 @@ fn occurrence(target: Target, family: Family, u: u8, fragment: u8) -> Occurrence
     Occurrence {
         target,
         unit: id(u),
-        fragment: id(fragment),
-        context: id::<AnalysisContext>(u),
+        window: id(fragment),
+        part: id::<ContentPart>(fragment),
+        binding: Some(id::<WindowBinding>(fragment)),
+        context: id::<AnalysisContext>(match target {Target::Member{member}=>member.bytes()[0],Target::Unit{unit}=>unit.bytes()[0]}),
         anchor: Some(id::<OriginalAnchor>(u)),
         family,
     }
@@ -52,7 +54,7 @@ fn bindings(query: &str) -> [ChannelBinding; 2] {
     let policy = RankingPolicy::default();
     [
         ChannelBinding::lexical(&policy, query).unwrap(),
-        ChannelBinding::vector(&policy, ContentHash([3; 32]), ContentHash([4; 32])).unwrap(),
+        ChannelBinding::vector(&policy, ContentHash([3; 32]), ContentHash([4; 32]),ContentHash([5;32]),id(6)).unwrap(),
     ]
 }
 fn prepare(targets: &[Target], occurrences: &[Occurrence]) -> CandidateFusion {
@@ -119,7 +121,7 @@ fn family_normalization_has_hand_expected_scores_and_actual_witnesses() {
         (av, Channel::Vector, 2)
     );
     assert_ne!(aw[0].occurrence.unit, aw[1].occurrence.unit);
-    assert_ne!(aw[0].occurrence.context, aw[1].occurrence.context);
+    assert_eq!(aw[0].occurrence.context, aw[1].occurrence.context);
     assert!(aw.iter().all(|w| w.snapshot == snapshot()
         && w.policy == p.policy_identity()
         && w.channel_identity == p.channel(w.channel).unwrap().identity()));
@@ -198,16 +200,15 @@ fn exact_path_promotion_does_not_change_rrf_score_or_fabricate_witnesses() {
         .unwrap();
     assert_eq!(
         result.rows().iter().map(|r| r.target).collect::<Vec<_>>(),
-        [b, c, a]
+        [a]
     );
-    assert_eq!(result.rows()[0].score, 0.0);
-    assert!(result.rows()[0].promoted && result.rows()[0].witnesses.is_empty());
-    assert_eq!(result.rows()[2].score, plain.rows()[0].score);
+    assert!(!result.rows()[0].promoted);
+    assert_eq!(result.rows()[0].score, plain.rows()[0].score);
     assert!(p.rank(&rows, &[id::<CatalogMember>(99)]).is_err());
 }
 
 #[test]
-fn missing_and_lexical_zero_abstain_but_finite_cosine_zero_and_negative_vote() {
+fn missing_abstains_but_matched_lexical_zero_and_finite_cosine_vote() {
     let a = member(1);
     let b = member(2);
     let c = member(3);
@@ -234,7 +235,7 @@ fn missing_and_lexical_zero_abstain_but_finite_cosine_zero_and_negative_vote() {
                 channel: Channel::Lexical,
                 missing: 2,
                 lexical_zero: 1,
-                contributing_occurrences: 0
+                contributing_occurrences: 1
             },
             ChannelStatistics {
                 channel: Channel::Vector,
@@ -261,7 +262,7 @@ fn scorer_identity_and_exact_closure_are_checked_without_partial_output() {
     row.occurrence.context = id(99);
     assert!(p.rank(&[row], &[]).is_err());
     let mut row = good.clone();
-    row.occurrence.fragment = id::<Fragment>(99);
+    row.occurrence.window = id::<SearchWindow>(99);
     assert!(p.rank(&[row], &[]).is_err());
     let mut row = good.clone();
     row.occurrence.target = member(99);
@@ -274,6 +275,7 @@ fn scorer_identity_and_exact_closure_are_checked_without_partial_output() {
         &RankingPolicy::default(),
         ContentHash([3; 32]),
         ContentHash([9; 32]),
+        ContentHash([5;32]),id(6),
     )
     .unwrap()
     .identity();
@@ -379,13 +381,13 @@ fn channel_identity_binds_policy_query_and_actual_query_vector() {
     );
     assert_ne!(
         channels[1].identity(),
-        ChannelBinding::vector(&policy, ContentHash([8; 32]), ContentHash([4; 32]))
+        ChannelBinding::vector(&policy, ContentHash([8; 32]), ContentHash([4; 32]),ContentHash([5;32]),id(6))
             .unwrap()
             .identity()
     );
     assert_ne!(
         channels[1].identity(),
-        ChannelBinding::vector(&policy, ContentHash([3; 32]), ContentHash([8; 32]))
+        ChannelBinding::vector(&policy, ContentHash([3; 32]), ContentHash([8; 32]),ContentHash([5;32]),id(6))
             .unwrap()
             .identity()
     );
@@ -452,4 +454,17 @@ fn native_analyzer_identity_is_independent_of_fusion_rules() {
     changed = policy.clone();
     changed.lexical.k1 = f64::NAN;
     assert!(changed.validate().is_err());
+}
+
+#[test]
+fn actual_contexts_remain_independent_through_family_fusion() {
+    let target=member(1);
+    let first=occurrence(target,Family::ApiOptions,2,3);
+    let mut second=occurrence(target,Family::ApiOptions,4,5);
+    second.context=id(9);
+    let p=prepare(&[target],&[first,second]);
+    let result=p.rank(&[score(&p,first,Channel::Lexical,Some(0.0)),score(&p,second,Channel::Vector,Some(0.5))],&[]).unwrap();
+    assert_eq!(result.rows().len(),2);
+    for row in result.rows() {assert!(row.witnesses.iter().all(|w|w.occurrence.context==row.context));}
+    assert_ne!(result.rows()[0].context,result.rows()[1].context);
 }

@@ -91,182 +91,62 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
     .unwrap();
-    let mut second_spec = spec.clone();
-    second_spec.query_task = "independent fixture task".into();
-    let specifications = [
-        EmbeddingSpec::new(&spec).unwrap(),
-        EmbeddingSpec::new(&second_spec).unwrap(),
-    ];
-    let text = "discover exact native evidence";
-    let digest = ContentHash::of(text.as_bytes());
-    let mut entities = specifications
-        .iter()
-        .cloned()
-        .map(Entity::from)
-        .collect::<Vec<_>>();
-    let mut assertions = Vec::new();
-    let mut members = Vec::new();
-    for name in ["first", "second"] {
-        let member = CatalogMember {
-            input: id(1),
-            access: id(2),
-            path: vec![name.into()],
-            name: name.into(),
-        };
-        let subject = Subject::Member {
-            member: member.id(),
-        };
-        members.push((member.id(), subject.id()));
-        entities.extend([Entity::from(member), Entity::from(subject)]);
+    let mut second_spec=spec.clone();second_spec.model="independent-fixture-encoder".into();
+    let specifications=[EmbeddingSpec::new(&spec).unwrap(),EmbeddingSpec::new(&second_spec).unwrap()];
+    let document=embedding::DocumentRecipe::new(&spec).unwrap();
+    let policy=embedding::projection::ProjectionDefinition::initial(&spec);
+    let text="discover exact native evidence";
+    let digest=ContentHash::of(text.as_bytes());
+    let mut entities=specifications.iter().cloned().map(Entity::from).collect::<Vec<_>>();
+    entities.extend([Entity::from(document.clone()),Entity::from(policy.clone())]);
+    let mut assertions=Vec::new();let mut members=Vec::new();
+    for name in ["first","second"] {
+        let member=CatalogMember{input:id(1),access:id(2),path:vec![name.into()],name:name.into()};
+        let subject=Subject::Member{member:member.id()};members.push((member.id(),subject.id()));
+        entities.extend([Entity::from(member),Entity::from(subject)]);
     }
-    let mut vector = vec![0f32; 1024];
-    vector[0] = 1.;
-    vector[1] = -0.;
-    let mut units = Vec::new();
-    let mut api_fragments = Vec::new();
-    let mut api_anchors = Vec::new();
-    for family in [
-        Family::ApiOptions,
-        Family::DocumentationDeployment,
-        Family::Scenario,
-        Family::Source,
-    ] {
-        let corpus = CorpusText {
-            family,
-            rendering_version: RENDER_VERSION,
-            digest,
-            text: text.into(),
-        };
-        entities.push(Entity::from(corpus.clone()));
-        for context in [3, 4] {
-            let unit = Unit {
-                input: id(1),
-                context: id(context),
-                family,
-                origin: id(5),
-                corpus: corpus.id(),
-                title: "fixture".into(),
-            };
-            entities.push(Entity::from(unit.clone()));
-            units.push(unit.clone());
-            if family == Family::ApiOptions && context == 3 {
-                for (_, subject) in &members {
-                    assertions.push(
-                        Assertion::from_record(UnitSubject {
-                            unit: unit.id(),
-                            subject: *subject,
-                        })
-                        .unwrap(),
-                    );
-                }
-                for ordinal in 0..70 {
-                    let anchor = OriginalAnchor {
-                        unit: unit.id(),
-                        ordinal,
-                        original: id(6),
-                    };
-                    api_anchors.push(anchor.id());
-                    assertions.push(Assertion::from_record(anchor).unwrap());
+    let mut vector=vec![0f32;4096];vector[0]=1.;vector[1]=-0.;
+    let mut winners=Vec::new();
+    let budget=resources::ResourceBudget::fixed(64*1024*1024).unwrap();
+    for (configuration,encoder) in [(&spec,&specifications[0]),(&second_spec,&specifications[1])] {
+        let admitted=value::AdmittedValue::new(configuration,&configuration.document_text(text),5,&vector,&budget).unwrap();
+        let full=value::FullValue::new(encoder,&admitted).unwrap();
+        let projection=embedding::projection::ProjectedValue::new(&full,&policy).unwrap();
+        winners.push((full.id(),projection.id()));entities.extend([Entity::from(full),Entity::from(projection)]);
+    }
+    let mut units=Vec::new();let mut expected_anchor=Vec::new();
+    for family in [Family::ApiOptions,Family::DocumentationDeployment,Family::Scenario,Family::Source] {
+        let corpus=CorpusText{family,rendering_version:RENDER_VERSION,digest,text:text.into()};entities.push(Entity::from(corpus.clone()));
+        for context in [3,4] {
+            let origin=Origin::Api{member:members[0].0};entities.push(Entity::from(origin.clone()));
+            let unit=Unit{input:id(1),context:id(context),family,origin:origin.id(),corpus:corpus.id(),title:"fixture".into()};
+            units.push(unit.clone());entities.push(Entity::from(unit.clone()));
+            // A broad unit attachment must never nominate this sibling.
+            assertions.push(Assertion::from_record(UnitSubject{unit:unit.id(),subject:members[1].1}).unwrap());
+            let supported=OriginalAnchor{unit:unit.id(),ordinal:0,original:id(6)};expected_anchor.push(supported.id());
+            assertions.push(Assertion::from_record(supported).unwrap());
+            for ordinal in 1..70 {assertions.push(Assertion::from_record(OriginalAnchor{unit:unit.id(),ordinal,original:id(9)}).unwrap());}
+            for ordinal in 0..2 {
+                let part=ContentPart{unit:unit.id(),ordinal,purpose:PartPurpose::Primary,scope:Some(members[0].1),qualification:None,digest,text:text.into()};
+                let window=SearchWindow{definition:id(7),unit:unit.id(),ordinal,corpus:corpus.id(),digest,text:text.into(),input_text:spec.document_text(text).into(),tokenizer:Some(ContentHash::of(b"fixture tokenizer")),encoded_digest:value::input_hash(&spec.document_text(text)),tokens:Some(5),availability:WindowAvailability::Ready};
+                entities.extend([Entity::from(part.clone()),Entity::from(window.clone())]);
+                assertions.push(Assertion::from_record(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:text.len() as i64}).unwrap());
+                assertions.push(Assertion::from_record(WindowBinding{window:window.id(),part:part.id(),subject:members[0].1,basis:BindingBasis::PublicContract,qualification:None}).unwrap());
+                assertions.push(Assertion::from_record(WindowSourceMap{window:window.id(),ordinal:0,start:0,end:text.len() as i64,part:Some(part.id()),original:Some(id(6)),original_start:Some(0),original_end:Some(text.len() as i64)}).unwrap());
+                for (index,encoder) in specifications.iter().enumerate() {
+                    assertions.push(Assertion::from_record(RetrievalEmbeddingUse{invocation:id(10+index as u8),window:window.id(),specification:encoder.id(),document:document.id(),input:value::input_hash(&spec.document_text(text)),availability:VectorAvailability::Available,admitted_tokens:Some(5),value:Some(winners[index].0),projection:Some(winners[index].1)}).unwrap());
                 }
             }
-        }
-        for ordinal in 0..2 {
-            let fragment = Fragment {
-                definition: id(7),
-                fragment_bytes: 4096,
-                corpus: corpus.id(),
-                ordinal,
-                start: 0,
-                end: text.len() as i64,
-                digest,
-                text: text.into(),
-            };
-            entities.push(Entity::from(fragment.clone()));
-            if family == Family::ApiOptions {
-                api_fragments.push(fragment.id());
-            }
-            for (index, specification) in specifications.iter().enumerate() {
-                assertions.push(
-                    Assertion::from_record(RetrievalEmbeddingUse {
-                        invocation: id(10 + index as u8),
-                        fragment: fragment.id(),
-                        specification: specification.id(),
-                        input: value::input_hash(text),
-                        availability: VectorAvailability::Available,
-                        admitted_tokens: Some(5),
-                        codec: Some(value::VALUE_CODEC),
-                        value_digest: Some(value::value_digest(&vector)),
-                        bytes: Some(EvidenceBytes(value::encode_vector(&vector))),
-                    })
-                    .unwrap(),
-                );
-            }
-            if family == Family::ApiOptions && ordinal == 0 {
-                // Duplicate use of one immutable winner must not duplicate a contextual witness.
-                let mut duplicate: RetrievalEmbeddingUse =
-                    lctx_surrealdb::codec::assertion_record(assertions.last().unwrap()).unwrap();
-                duplicate.invocation = id(12);
-                assertions.push(Assertion::from_record(duplicate).unwrap());
-            }
+            // Context-only setup text does not create an applicable search occurrence.
+            let setup="setup only not an applicable primary";
+            let part=ContentPart{unit:unit.id(),ordinal:2,purpose:PartPurpose::Context,scope:None,qualification:None,digest:ContentHash::of(setup.as_bytes()),text:setup.into()};
+            let window=SearchWindow{definition:id(7),unit:unit.id(),ordinal:2,corpus:corpus.id(),digest:part.digest,text:setup.into(),input_text:spec.document_text(setup).into(),tokenizer:None,encoded_digest:value::input_hash(&spec.document_text(setup)),tokens:None,availability:WindowAvailability::TokenizerUnavailable};
+            entities.extend([Entity::from(part.clone()),Entity::from(window.clone())]);
+            assertions.push(Assertion::from_record(WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:setup.len() as i64}).unwrap());
         }
     }
-    loader.entities(&entities).await.unwrap();
-    loader.assertions(&assertions).await.unwrap();
-    // Only the endpoints participating in this lowering are needed in this isolated fixture.
-    let mut links = Vec::new();
-    for assertion in &assertions {
-        for participant in &assertion.participants {
-            if participant.field.as_deref().is_some_and(|field| {
-                ["unit", "subject", "fragment", "specification"].contains(&field)
-            }) {
-                let mut link = Object::new();
-                link.insert(
-                    "id",
-                    RecordId::new(
-                        "participant",
-                        format!(
-                            "{}_{}",
-                            assertion.id().0.hex(),
-                            participant.field.as_deref().unwrap()
-                        ),
-                    ),
-                );
-                link.insert("in", reader::target_id(Target::Assertion(assertion.id())));
-                link.insert("out", reader::target_id(participant.target.clone()));
-                link.insert("field", participant.field.as_deref().unwrap());
-                link.insert("role", participant.role as i64);
-                link.insert("position", Value::Null);
-                links.push(Value::Object(link));
-            }
-        }
-    }
-    let mut bind = Variables::new();
-    bind.insert("rows", links);
-    execute(&loader, "INSERT RELATION INTO participant $rows", bind).await;
-    let native = NativeReader::new(
-        client.clone(),
-        serving::SnapshotHandle {
-            semantic: ContentHash::of(b"fixture"),
-            realization: ContentHash::of(b"fixture"),
-            database: serving::DatabaseIdentity {
-                namespace: serving::Name::new(ns).unwrap(),
-                database: serving::Name::new(&db).unwrap(),
-            },
-        },
-    );
-    let mut unit_stream = native
-        .record_stream::<Unit>("true", Variables::new(), "semantic_key")
-        .unwrap();
-    let mut unit_count = 0;
-    while unit_stream
-        .next()
-        .await
-        .expect("native canonical unit projection")
-        .is_some()
-    {
-        unit_count += 1;
-    }
-    assert_eq!(unit_count, 8);
+    loader.entities(&entities).await.unwrap();loader.assertions(&assertions).await.unwrap();
+    loader.entity_references(&entities).await.unwrap();loader.assertion_references(&assertions).await.unwrap();
     materialize_search(&loader).await.unwrap();
     let tables = [
         "search_api_options",
@@ -278,53 +158,17 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         "vec_occurs",
     ];
     let lexical = rows(&loader, "lex_occurs").await;
-    assert_eq!(lexical.len(), 294); // 2 fragments × 2 members × 70 anchors, plus 14 fallbacks.
-    let vectors = rows(&loader, "vec_occurs").await;
-    assert_eq!(vectors.len(), 588); // every exact witness retained for both specifications.
-    assert_eq!(rows(&loader, "vector").await.len(), 2);
-    for table in &tables[..4] {
-        assert_eq!(rows(&loader, table).await.len(), 1);
-    }
-    assert_eq!(
-        lexical
-            .iter()
-            .filter(|row| row.as_object().unwrap().get("anchor") != Some(&Value::Null))
-            .count(),
-        280
-    );
-    assert_eq!(
-        lexical
-            .iter()
-            .filter(|row| row.as_object().unwrap().get("member") == Some(&Value::Null))
-            .count(),
-        14
-    );
-    let physical = |value| lctx_surrealdb::loader::json_value(value).unwrap();
-    let first_unit = physical(serde_json::to_value(units[0].id()).unwrap());
-    let context = physical(serde_json::to_value(units[0].context).unwrap());
-    for fragment in &api_fragments {
-        for (member, _) in &members {
-            for anchor in &api_anchors {
-                let fragment = physical(serde_json::to_value(fragment).unwrap());
-                let member = physical(serde_json::to_value(member).unwrap());
-                let anchor = physical(serde_json::to_value(anchor).unwrap());
-                let witnesses = lexical
-                    .iter()
-                    .filter(|row| {
-                        let row = row.as_object().unwrap();
-                        row.get("unit") == Some(&first_unit)
-                            && row.get("fragment") == Some(&fragment)
-                            && row.get("member") == Some(&member)
-                            && row.get("anchor") == Some(&anchor)
-                            && row.get("context") == Some(&context)
-                    })
-                    .count();
-                assert_eq!(
-                    witnesses, 1,
-                    "each member/anchor/fragment/context witness is preserved exactly once"
-                );
-            }
-        }
+    assert_eq!(lexical.len(),16);
+    let vectors=rows(&loader,"vec_occurs").await;assert_eq!(vectors.len(),32);
+    assert_eq!(rows(&loader,"vector").await.len(),8); // two projections × four input/family cohorts.
+    for table in &tables[..4] {assert_eq!(rows(&loader,table).await.len(),1);}
+    let physical=|value|lctx_surrealdb::loader::json_value(value).unwrap();
+    let first_member=physical(serde_json::to_value(members[0].0).unwrap());
+    for row in &lexical {
+        let row=row.as_object().unwrap();
+        assert_eq!(row.get("member"),Some(&first_member));
+        assert_ne!(row.get("binding"),Some(&Value::Null));
+        assert!(expected_anchor.iter().any(|a|row.get("anchor")==Some(&physical(serde_json::to_value(a).unwrap()))));
     }
     reconcile_search(&loader).await.unwrap();
     // Full rows, not just counts/IDs: every family refuses deletion, extra row and changed payload.
@@ -369,7 +213,7 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         if table.starts_with("search_") {
             extra.insert("digest", vec![0i64; 32]);
         } else if table == "vector" {
-            extra.insert("input", vec![0i64; 32]);
+            extra.insert("projection_key", "extra-projection");
         } else {
             extra.insert("occurrence_key", "extra");
         }
@@ -383,8 +227,8 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
             vec!["text='changed'"]
         } else if table == "vector" {
             vec![
-                "digest=array::repeat(0,32)",
-                "bytes=b\"00\"",
+                "full_key='changed'",
+                "policy_key='changed'",
                 "embedding[0]=0.0,embedding[2]=1.0",
                 "embedding[1]=0.0",
             ]
@@ -397,7 +241,9 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
                 "member=NULL",
                 "anchor=NULL",
                 "unit=array::repeat(0,16)",
-                "fragment=array::repeat(0,16)",
+                "window=array::repeat(0,16)",
+                "part=array::repeat(0,16)",
+                "binding=NULL",
                 "occurrence_key='changed'",
             ]
         };
@@ -418,7 +264,8 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         let (scope_field, source_field) = if table.starts_with("search_") {
             ("scope_digest", "digest")
         } else if table == "vector" {
-            ("scope_input", "input")
+            reconcile_search(&loader).await.unwrap();
+            continue;
         } else {
             ("scope_context", "context")
         };

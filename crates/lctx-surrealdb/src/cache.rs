@@ -2,10 +2,10 @@
 use lctx_model::domain::{
     ContentHash, Infrastructure, ModelError,
     embedding::{
-        Spec,
+        EmbeddingSpec, Spec,
         cache::{CacheFuture, CacheValue, EmbeddingCache},
         check_vector,
-        value::{encode_vector, value_digest},
+        value::{decode_vector, encode_vector, value_digest},
     },
 };
 use std::{
@@ -23,7 +23,7 @@ pub struct NativeEmbeddingCache {
 }
 impl NativeEmbeddingCache {
     pub async fn install(client: Arc<Surreal<Client>>) -> Result<Self, ModelError> {
-        client.query("DEFINE TABLE IF NOT EXISTS embedding_cache TYPE NORMAL SCHEMAFULL; DEFINE FIELD IF NOT EXISTS spec ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS input ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS definition ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS tokens ON embedding_cache TYPE int ASSERT $value >= 0; DEFINE FIELD IF NOT EXISTS vector ON embedding_cache TYPE array<float,1024>; DEFINE FIELD IF NOT EXISTS bytes ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS digest ON embedding_cache TYPE string; DEFINE INDEX IF NOT EXISTS winner ON embedding_cache FIELDS spec,input UNIQUE;").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        client.query("DEFINE TABLE IF NOT EXISTS embedding_cache TYPE NORMAL SCHEMAFULL; DEFINE FIELD IF NOT EXISTS spec ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS input ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS definition ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS tokens ON embedding_cache TYPE int ASSERT $value >= 0; DEFINE FIELD IF NOT EXISTS bytes ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS digest ON embedding_cache TYPE string; DEFINE INDEX IF NOT EXISTS winner ON embedding_cache FIELDS spec,input UNIQUE;").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         Ok(Self { client })
     }
     async fn read(
@@ -33,7 +33,7 @@ impl NativeEmbeddingCache {
     ) -> Result<BTreeMap<ContentHash, CacheValue>, ModelError> {
         validate_spec(spec)?;
         let spec_hash = spec.hash().hex();
-        let definition = serde_json::to_vec(spec).map_err(ModelError::codec)?;
+        let definition = serde_json::to_vec(&EmbeddingSpec::new(spec)?).map_err(ModelError::codec)?;
         let keys: Vec<_> = keys
             .iter()
             .copied()
@@ -68,7 +68,6 @@ impl NativeEmbeddingCache {
                 );
                 if row.spec != spec_hash
                     || row.definition.as_ref() != definition
-                    || row.tokens > spec.max_document_tokens
                     || row.input != hash.hex()
                     || batch.binary_search(&hash).is_err()
                     || row.id != winner_id(&spec_hash, hash)
@@ -77,9 +76,10 @@ impl NativeEmbeddingCache {
                         "embedding cache key/specification/token admission",
                     ));
                 }
-                check_vector(&row.vector, spec.dimensions).map_err(ModelError::Invalid)?;
-                if encode_vector(&row.vector) != row.bytes.as_ref()
-                    || value_digest(&row.vector).hex() != row.digest
+                let vector = decode_vector(row.bytes.as_ref(), spec.dimensions).map_err(ModelError::Invalid)?;
+                check_vector(&vector, spec.dimensions).map_err(ModelError::Invalid)?;
+                if encode_vector(&vector) != row.bytes.as_ref()
+                    || value_digest(&vector).hex() != row.digest
                 {
                     return Err(ModelError::Conflict("embedding cache winning bytes"));
                 }
@@ -88,7 +88,7 @@ impl NativeEmbeddingCache {
                         hash,
                         CacheValue {
                             input_hash: hash,
-                            vector: row.vector,
+                            vector,
                             admitted_tokens: row.tokens,
                         },
                     )
@@ -116,7 +116,6 @@ impl NativeEmbeddingCache {
                 input: candidate.input_hash.hex(),
                 definition: Bytes::from(definition.to_vec()),
                 tokens: candidate.admitted_tokens,
-                vector: candidate.vector.clone(),
                 bytes: Bytes::from(encode_vector(&candidate.vector)),
                 digest: value_digest(&candidate.vector).hex(),
             })
@@ -208,7 +207,6 @@ struct Winner {
     input: String,
     definition: Bytes,
     tokens: u32,
-    vector: Vec<f32>,
     bytes: Bytes,
     digest: String,
 }
@@ -227,7 +225,7 @@ impl EmbeddingCache for NativeEmbeddingCache {
     ) -> CacheFuture<'a, BTreeMap<ContentHash, CacheValue>> {
         Box::pin(async move {
             validate_spec(spec)?;
-            let definition = serde_json::to_vec(spec).map_err(ModelError::codec)?;
+            let definition = serde_json::to_vec(&EmbeddingSpec::new(spec)?).map_err(ModelError::codec)?;
             // Validate every proposal, including later duplicates, before any effects. The
             // compiler owns text/hash agreement; this effect owner never reconstructs text.
             let mut unique = BTreeMap::<ContentHash, &CacheValue>::new();
@@ -270,9 +268,9 @@ fn winner_id(spec: &str, input: ContentHash) -> RecordId {
 }
 fn validate_spec(spec: &Spec) -> Result<(), ModelError> {
     spec.validate().map_err(ModelError::Invalid)?;
-    if spec.dimensions != 1024 {
+    if spec.dimensions != 4096 {
         return Err(ModelError::Invalid(
-            "native embedding cache requires selected 1024-dimensional specification".into(),
+            "native embedding cache requires selected full4096-dimensional encoder".into(),
         ));
     }
     Ok(())
@@ -330,7 +328,7 @@ mod tests {
         .unwrap()
     }
     fn candidate(label: &str) -> CacheValue {
-        let mut vector = vec![0.0; 1024];
+        let mut vector = vec![0.0; spec().dimensions as usize];
         vector[0] = 1.0;
         CacheValue {
             input_hash: ContentHash::of(label.as_bytes()),

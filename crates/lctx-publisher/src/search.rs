@@ -1,16 +1,17 @@
 //! One terminally checked lowering for private construction and read-only cold reconciliation.
 use lctx_model::domain::{
-    embedding::{EmbeddingSpec, value},
+    embedding::{EmbeddingSpec, value::FullValue, projection::{ProjectedValue, ProjectionDefinition}},
     graph::{EntityId, Target},
     retrieval::{
-        Family, Fragment, OriginalAnchor, Subject, Unit, UnitSubject,
+        Family, SearchWindow, ContentPart, WindowPart, WindowBinding, WindowSourceMap,
+        PartPurpose, Origin, OriginalAnchor, Subject, Unit,
         consumption::RetrievalEmbeddingUse,
     },
     serving::{DatabaseIdentity, Name, SnapshotHandle},
     *,
 };
 use lctx_surrealdb::surrealdb::types::{
-    Bytes, Object, RecordId, SerdeWrapper, SurrealValue, Value, Variables,
+    Object, RecordId, SerdeWrapper, SurrealValue, Value, Variables,
 };
 use lctx_surrealdb::{
     Loader, NativeReader, RecordSelection,
@@ -177,253 +178,175 @@ fn decode<T: serde::de::DeserializeOwned + Serialize + 'static>(
         .map_err(ModelError::codec)
 }
 #[derive(Deserialize, Serialize)]
-struct DocumentInput {
-    digest: ContentHash,
-    text: String,
-}
+struct Cohort { input: Id<input::InputRevision>, family: Family }
 #[derive(Deserialize, Serialize)]
-struct VectorLink {
-    input: ContentHash,
-    specification: ContentHash,
+struct VectorLink { projection: String }
+async fn one<R: Record + serde::de::DeserializeOwned>(reader: &NativeReader, id: Id<R>) -> Result<R,ModelError> {
+    let mut rows=reader.records::<R>(RecordSelection::Keys(vec![*id.bytes()])).await?;
+    if rows.len()!=1 {return Err(ModelError::Schema("canonical search companion"));}
+    Ok(rows.remove(0))
 }
-
-async fn lower(
-    reader: &NativeReader,
-    expected: &mut Expected,
-    loader: Option<&Loader>,
-) -> Result<(), ModelError> {
-    // Project related text only. Ordered adjacent deduplication prepares each shared document
-    // once while retaining at most one prior text; no corpus inventory is collected in Rust.
-    for family in [
-        Family::ApiOptions,
-        Family::DocumentationDeployment,
-        Family::Scenario,
-        Family::Source,
-    ] {
-        let mut bind = Variables::new();
-        bind.insert("family", family as i16);
-        let mut documents = reader.query_stream("SELECT body.digest,body.text FROM entity WHERE semantic_type='retrieval_fragments' AND scope_corpus IN (SELECT VALUE scope_corpus FROM entity WHERE semantic_type='retrieval_units' AND body.family=$family) ORDER BY body.digest,body.text", bind, 1)?;
-        let mut previous: Option<DocumentInput> = None;
-        while let Some(row) = documents.next().await? {
-            let Value::Object(row) = row else {
-                return Err(ModelError::Schema("retrieval document projection"));
-            };
-            let row: DocumentInput = decode(
-                row.get("body")
-                    .ok_or(ModelError::Schema("retrieval document projection"))?
-                    .clone(),
-            )?;
-            if previous
-                .as_ref()
-                .is_some_and(|prior| prior.digest == row.digest && prior.text == row.text)
-            {
-                continue;
-            }
-            if ContentHash::of(row.text.as_bytes()) != row.digest {
-                return Err(ModelError::Conflict("retrieval fragment text digest"));
-            }
-            let mut value = Object::new();
-            value.insert("id", RecordId::new(table(family), row.digest.hex()));
-            value.insert("text", row.text.clone());
-            value.insert("digest", crate_json(row.digest)?);
-            value.insert(
-                "scope_digest",
-                scope_string(value.get("digest").expect("document digest")),
-            );
-            expected.emit(table(family), Value::Object(value))?;
-            previous = Some(row);
+fn vector_id(projection: &str, unit: &Unit) -> RecordId {
+    RecordId::new("vector",format!("{}_{}_{:02}",projection,unit.input.hex(),unit.family as i16))
+}
+async fn lower(reader: &NativeReader, expected: &mut Expected, loader: Option<&Loader>) -> Result<(), ModelError> {
+    // Projection bytes are decoded once at canonical grain. Cohort fanout carries only scalar
+    // identity and the 1024 lowering; full4096 remains solely in the canonical entity payload.
+    let mut projections=reader.record_stream::<ProjectedValue>("true",Variables::new(),"semantic_key")?;
+    while let Some(projection)=projections.next().await? {
+        let full=one::<FullValue>(reader,projection.value).await?;
+        let policy=one::<ProjectionDefinition>(reader,projection.definition).await?;
+        let encoder=one::<EmbeddingSpec>(reader,full.encoder).await?;
+        full.verify_encoder(&encoder)?;
+        projection.verify(&full,&policy)?;
+        if full.dimensions!=4096 || projection.dimensions!=1024 {return Err(ModelError::Schema("native full4096/projection1024"));}
+        let embedding=projection.values()?;
+        let mut vars=Variables::new();
+        vars.insert("projection",target_id(Target::Entity(EntityId::of(projection.id()))));
+        let mut cohorts=reader.query_stream("SELECT body.input AS input,body.family AS family FROM entity WHERE semantic_type='retrieval_units' AND id IN (SELECT VALUE out FROM reference WHERE field='unit' AND in IN (SELECT VALUE out FROM participant WHERE field='window' AND in IN (SELECT VALUE in FROM participant WHERE field='projection' AND out=$projection))) GROUP BY input,family ORDER BY input,family",vars,1)?;
+        while let Some(cohort)=cohorts.next().await? {
+            let cohort:Cohort=decode(cohort)?;
+            let mut row=Object::new();
+            row.insert("id",RecordId::new("vector",format!("{}_{}_{:02}",projection.id().hex(),cohort.input.hex(),cohort.family as i16)));
+            row.insert("encoder_hash",encoder.service_hash.hex());
+            row.insert("policy_key",policy.id().hex());
+            row.insert("library_input",scope_string(&crate_json(cohort.input)?));
+            row.insert("family",cohort.family as i16);
+            row.insert("full_key",full.id().hex());
+            row.insert("projection_key",projection.id().hex());
+            row.insert("embedding",embedding.clone());
+            expected.emit("vector",Value::Object(row))?;
         }
     }
-    // Retained numeric vectors are decoded at their shared grain, never during occurrence fanout.
-    let mut uses = reader.record_stream::<RetrievalEmbeddingUse>("body.availability=0 AND id IN (SELECT VALUE in FROM participant WHERE field='fragment' AND out IN (SELECT VALUE id FROM entity WHERE semantic_type='retrieval_fragments' AND scope_corpus IN (SELECT VALUE scope_corpus FROM entity WHERE semantic_type='retrieval_units')))", Variables::new(), "body.specification,body.input,semantic_key")?;
-    let mut last_spec = None;
-    let mut configuration = None;
-    let mut last_value: Option<(RecordId, ContentHash, Vec<u8>)> = None;
-    while let Some(consumed) = uses.next().await? {
-        if last_spec != Some(consumed.specification) {
-            let specs = reader
-                .records::<EmbeddingSpec>(RecordSelection::Keys(vec![
-                    *consumed.specification.bytes(),
-                ]))
-                .await?;
-            let spec = specs
-                .first()
-                .filter(|_| specs.len() == 1)
-                .ok_or(ModelError::Schema("retrieval vector specification"))?;
-            configuration = Some(spec.configuration()?);
-            last_spec = Some(consumed.specification);
+    // Exact window text is shared per family; primary part associations alone nominate targets.
+    let mut windows=reader.record_stream::<SearchWindow>("true",Variables::new(),"semantic_key")?;
+    while let Some(window)=windows.next().await? {
+        let unit=one::<Unit>(reader,window.unit).await?;
+        let mut parts=reader.record_stream::<WindowPart>("scope_keys CONTAINS $scope",scope::<WindowPart>("window",window.id())?,"semantic_key")?;
+        while let Some(link)=parts.next().await? {
+            let part=one::<ContentPart>(reader,link.part).await?;
+            if part.unit!=unit.id() {return Err(ModelError::Conflict("window primary part unit"));}
+            if part.purpose!=PartPurpose::Primary {continue;}
+            let mut row=Object::new();
+            row.insert("id",RecordId::new(table(unit.family),window.digest.hex()));
+            row.insert("text",window.text.as_str().to_owned());
+            row.insert("digest",crate_json(window.digest)?);
+            row.insert("scope_digest",scope_string(row.get("digest").expect("digest")));
+            expected.emit(table(unit.family),Value::Object(row))?;
         }
-        let spec = configuration.as_ref().expect("vector specification");
-        let bytes = consumed
-            .bytes
-            .as_ref()
-            .ok_or(ModelError::Schema("retrieval winning bytes"))?
-            .0
-            .as_slice();
-        let digest = consumed
-            .value_digest
-            .ok_or(ModelError::Schema("retrieval value digest"))?;
-        let id = RecordId::new(
-            "vector",
-            format!("{}_{}", spec.hash().hex(), consumed.input.hex()),
-        );
-        if let Some((prior, prior_digest, prior_bytes)) = &last_value
-            && prior == &id
-        {
-            if *prior_digest != digest || prior_bytes != bytes {
-                return Err(ModelError::Conflict("retrieval shared vector winner"));
-            }
-            continue;
-        }
-        let vector = value::decode_vector(bytes, spec.dimensions).map_err(ModelError::Invalid)?;
-        lctx_model::domain::embedding::check_vector(&vector, spec.dimensions)
-            .map_err(ModelError::Invalid)?;
-        if value::value_digest(&vector) != digest {
-            return Err(ModelError::Conflict("retrieval winning vector"));
-        }
-        let mut row = Object::new();
-        row.insert("id", id.clone());
-        row.insert("specification", crate_json(spec.hash())?);
-        row.insert("input", crate_json(consumed.input)?);
-        row.insert("digest", crate_json(digest)?);
-        row.insert("bytes", Bytes::from(bytes.to_vec()));
-        row.insert("embedding", vector);
-        for field in ["specification", "input"] {
-            row.insert(
-                format!("scope_{field}"),
-                scope_string(row.get(field).expect("vector field")),
-            );
-        }
-        expected.emit("vector", Value::Object(row))?;
-        last_value = Some((id, digest, bytes.to_vec()));
     }
-    // External deduplication checks conflicting shared IDs before writing them, and endpoints
-    // precede their ENFORCED witness relations. Audit does exactly the same preparation, no writes.
-    for (index, table) in TABLES[..5].iter().enumerate() {
-        let rows = expected.finish(index)?;
+    for (index,table) in TABLES[..5].iter().enumerate() {
+        let rows=expected.finish(index)?;
         if loader.is_some() {
-            let mut batch = Batch::new(loader, table);
-            while let Some(row) = rows.next_row()? {
-                batch.emit(row).await?;
-            }
-            batch.flush().await?;
-            rows.rewind()?;
+            let mut batch=Batch::new(loader,table);
+            while let Some(row)=rows.next_row()? {batch.emit(row).await?;}
+            batch.flush().await?; rows.rewind()?;
         }
     }
-    let mut lexical = Batch::new(loader, "lex_occurs");
-    let mut vectors = Batch::new(loader, "vec_occurs");
-    let mut units = reader.record_stream::<Unit>("true", Variables::new(), "semantic_key")?;
-    while let Some(unit) = units.next().await? {
-        let mut fragments = reader.record_stream::<Fragment>(
-            "scope_keys CONTAINS $scope",
-            scope::<Fragment>("corpus", unit.corpus)?,
-            "semantic_key",
-        )?;
-        while let Some(fragment) = fragments.next().await? {
-            // Prepare the fragment's lightweight vector links once, spilling arbitrary fanout.
-            // Rewinding this attempt-owned file never hydrates winning numeric values again.
-            let mut link_rows = SortedRows::new()?;
-            let mut source_links = reader.query_stream("SELECT body.input AS input, (SELECT VALUE out.body.service_hash FROM participant WHERE in=$parent.id AND field='specification')[0] AS specification, semantic_key FROM assertion WHERE semantic_type='retrieval_embedding_uses' AND body.availability=0 AND scope_keys CONTAINS $scope ORDER BY semantic_key", scope::<RetrievalEmbeddingUse>("fragment", fragment.id())?, 1)?;
-            while let Some(link) = source_links.next().await? {
-                let decoded: VectorLink = decode(link.clone())?;
-                let Value::Object(mut link) = link else {
-                    return Err(ModelError::Schema("retrieval vector link"));
-                };
-                link.remove("semantic_key"); // selected only for source ordering, not shared link identity
-                link.insert(
-                    "id",
-                    RecordId::new(
-                        "vector",
-                        format!("{}_{}", decoded.specification.hex(), decoded.input.hex()),
-                    ),
-                );
-                link_rows.push(Value::Object(link))?;
+    let mut lexical=Batch::new(loader,"lex_occurs");
+    let mut vectors=Batch::new(loader,"vec_occurs");
+    let mut windows=reader.record_stream::<SearchWindow>("true",Variables::new(),"semantic_key")?;
+    while let Some(window)=windows.next().await? {
+        let unit=one::<Unit>(reader,window.unit).await?;
+        let mut parts=reader.record_stream::<WindowPart>("scope_keys CONTAINS $scope",scope::<WindowPart>("window",window.id())?,"semantic_key")?;
+        while let Some(link)=parts.next().await? {
+            let part=one::<ContentPart>(reader,link.part).await?;
+            if part.purpose!=PartPurpose::Primary {continue;}
+            let mut vars=scope::<WindowBinding>("window",window.id())?;
+            vars.insert("part",crate_json(part.id())?);
+            let mut bindings=reader.record_stream::<WindowBinding>("scope_keys CONTAINS $scope AND body.part=$part",vars,"semantic_key")?;
+            let mut found=false;
+            while let Some(binding)=bindings.next().await? {
+                found=true;
+                emit_witness(reader,expected,&mut lexical,&mut vectors,&unit,&window,&part,Some(&binding)).await?;
             }
-            let mut links = link_rows.finish()?;
-            let mut members = reader.record_stream::<Subject>("body.member IS NOT NONE AND body.member IS NOT NULL AND id IN (SELECT VALUE out FROM participant WHERE field='subject' AND in IN (SELECT VALUE id FROM assertion WHERE semantic_type='retrieval_unit_subjects' AND scope_keys CONTAINS $scope))", scope::<UnitSubject>("unit", unit.id())?, "semantic_key")?;
-            let mut member_row = members.next().await?;
-            loop {
-                let member = match member_row.as_ref() {
-                    Some(Subject::Member { member }) => Some(*member),
-                    None => None,
-                    _ => return Err(ModelError::Schema("retrieval member witness")),
-                };
-                let mut anchors = reader.record_stream::<OriginalAnchor>(
-                    "scope_keys CONTAINS $scope",
-                    scope::<OriginalAnchor>("unit", unit.id())?,
-                    "semantic_key",
-                )?;
-                let mut anchor_row = anchors.next().await?;
-                loop {
-                    let anchor = anchor_row.as_ref().map(Record::id);
-                    let mut identity = KeySink::new("native-search-occurrence/v1");
-                    unit.id().encode(&mut identity);
-                    fragment.id().encode(&mut identity);
-                    member.encode(&mut identity);
-                    anchor.encode(&mut identity);
-                    unit.context.encode(&mut identity);
-                    unit.family.encode(&mut identity);
-                    let key = identity.finish().hex();
-                    let out = member
-                        .map(|m| target_id(Target::Entity(EntityId::of(m))))
-                        .unwrap_or_else(|| target_id(Target::Entity(EntityId::of(unit.id()))));
-                    let row = occurrence(
-                        "lex_occurs",
-                        &key,
-                        RecordId::new(table(unit.family), fragment.digest.hex()),
-                        out.clone(),
-                        &unit,
-                        &fragment,
-                        member,
-                        anchor,
-                    )?;
-                    expected.emit("lex_occurs", row.clone())?;
-                    lexical.emit(row).await?;
-                    // Only link fields cross this boundary. No winning vector/configuration is
-                    // hydrated or decoded again for a member/anchor/context witness.
-                    links.rewind()?;
-                    while let Some(link) = links.next_row()? {
-                        let link: VectorLink = decode(link)?;
-                        let vector_id = RecordId::new(
-                            "vector",
-                            format!("{}_{}", link.specification.hex(), link.input.hex()),
-                        );
-                        let vector_key =
-                            format!("{}_{}_{}", key, link.specification.hex(), link.input.hex());
-                        let row = occurrence(
-                            "vec_occurs",
-                            &vector_key,
-                            vector_id,
-                            out.clone(),
-                            &unit,
-                            &fragment,
-                            member,
-                            anchor,
-                        )?;
-                        expected.emit("vec_occurs", row.clone())?;
-                        vectors.emit(row).await?;
-                    }
-                    if anchor_row.is_none() {
-                        break;
-                    }
-                    anchor_row = anchors.next().await?;
-                    if anchor_row.is_none() {
-                        break;
-                    }
-                }
-                if member_row.is_none() {
-                    break;
-                }
-                member_row = members.next().await?;
-                if member_row.is_none() {
-                    break;
-                }
-            }
+            if !found {emit_witness(reader,expected,&mut lexical,&mut vectors,&unit,&window,&part,None).await?;}
         }
     }
-    lexical.flush().await?;
-    vectors.flush().await?;
+    lexical.flush().await?; vectors.flush().await?; Ok(())
+}
+#[allow(clippy::too_many_arguments, reason="One primary witness retains separate physical writers and canonical lineage")]
+async fn emit_witness(reader:&NativeReader,expected:&mut Expected,lexical:&mut Batch<'_>,vectors:&mut Batch<'_>,unit:&Unit,window:&SearchWindow,part:&ContentPart,binding:Option<&WindowBinding>)->Result<(),ModelError>{
+    let mut option_key=String::new();
+    let mut source_path=String::new();
+    let member=if let Some(binding)=binding {
+        if binding.window!=window.id() || binding.part!=part.id() {return Err(ModelError::Conflict("primary binding lineage"));}
+        match one::<Subject>(reader,binding.subject).await? {
+            Subject::Member{member}=>Some(member),
+            Subject::Option{option}=>{
+                let option=one::<catalog::CatalogOption>(reader,option).await?;
+                option_key=option_name(reader,&option).await?;
+                Some(option.member)
+            },
+            Subject::Source{artifact}=>{source_path=one::<source::SourceArtifact>(reader,artifact).await?.path;None},
+            Subject::Definition{entity}=>match one::<Origin>(reader,unit.origin).await? {
+                Origin::Definition{member,entity:owner} if owner==entity=>Some(member),
+                _=>None,
+            },
+            _=>None,
+        }
+    } else {None};
+    let (name,path)=if let Some(member)=member {
+        let member=one::<catalog::CatalogMember>(reader,member).await?;
+        if member.input!=unit.input {return Err(ModelError::Conflict("foreign primary member input"));}
+        (member.path.last().cloned().unwrap_or_default(),member.name)
+    } else {(String::new(),source_path)};
+    // Only maps overlapping this actual primary part's window nominate original anchors.
+    let mut vars=scope::<WindowSourceMap>("window",window.id())?;
+    vars.insert("part",crate_json(part.id())?);
+    let mut maps=reader.record_stream::<WindowSourceMap>("scope_keys CONTAINS $scope AND body.part=$part",vars,"semantic_key")?;
+    let mut anchor=None;
+    while let Some(map)=maps.next().await? {
+        if let Some(original)=map.original {
+            let mut vars=scope::<OriginalAnchor>("unit",unit.id())?;
+            vars.insert("original",crate_json(original)?);
+            let mut anchors=reader.record_stream::<OriginalAnchor>("scope_keys CONTAINS $scope AND body.original=$original",vars,"semantic_key")?;
+            while let Some(row)=anchors.next().await? {anchor=Some(anchor.map_or(row.id(),|old:Id<OriginalAnchor>|old.min(row.id())));}
+        }
+    }
+    let witness=Witness{unit,window,part,binding:binding.map(Record::id),member,anchor,name,path,option_key};
+    let mut identity=KeySink::new("native-search-occurrence/v2");
+    unit.id().encode(&mut identity);window.id().encode(&mut identity);part.id().encode(&mut identity);witness.binding.encode(&mut identity);
+    let key=identity.finish().hex();
+    let row=occurrence("lex_occurs",&key,RecordId::new(table(unit.family),window.digest.hex()),&witness)?;
+    expected.emit("lex_occurs",row.clone())?;lexical.emit(row).await?;
+    let mut links=reader.query_stream("SELECT (SELECT VALUE out.semantic_key FROM participant WHERE in=$parent.id AND field='projection')[0] AS projection FROM assertion WHERE semantic_type='retrieval_embedding_uses' AND body.availability=0 AND scope_keys CONTAINS $scope ORDER BY semantic_key",scope::<RetrievalEmbeddingUse>("window",window.id())?,1)?;
+    while let Some(link)=links.next().await? {
+        let link:VectorLink=decode(link)?;
+        let row=occurrence("vec_occurs",&format!("{key}_{}",link.projection),vector_id(&link.projection,unit),&witness)?;
+        expected.emit("vec_occurs",row.clone())?;vectors.emit(row).await?;
+    }
     Ok(())
+}
+async fn option_name(reader:&NativeReader,option:&catalog::CatalogOption)->Result<String,ModelError>{
+    use catalog::CatalogOptionSubject;
+    use normalized::{callables::SignatureSlot,entities::{FieldEntity,ParameterEntity}};
+    let parameter=match one::<CatalogOptionSubject>(reader,option.subject).await? {
+        CatalogOptionSubject::Field{field}=>return Ok(one::<FieldEntity>(reader,field).await?.name.as_str().to_owned()),
+        CatalogOptionSubject::Parameter{slot}=>Some(one::<SignatureSlot>(reader,slot).await?.parameter),
+        CatalogOptionSubject::SourceParameter{parameter}=>match one::<ParameterEntity>(reader,parameter).await? {
+            ParameterEntity::NativeSlot{parameter,..}=>Some(parameter),
+            ParameterEntity::Source{..}=>{
+                let mut links=reader.record_stream::<normalized::entities::ParameterEntityLink>("scope_keys CONTAINS $scope",scope::<normalized::entities::ParameterEntityLink>("entity",parameter)?,"semantic_key")?;
+                let mut name=None;
+                while let Some(link)=links.next().await? {
+                    let parameter=one::<calls::SignatureParameter>(reader,link.parameter).await?;
+                    let shape=one::<calls::ParameterShape>(reader,parameter.shape).await?;
+                    if let Some(actual)=shape.name {
+                        let actual=actual.as_str().to_owned();
+                        if name.as_ref().is_some_and(|old|old!=&actual) {return Err(ModelError::Conflict("source option has competing declared names"));}
+                        name=Some(actual);
+                    }
+                }
+                return Ok(name.unwrap_or_default());
+            },
+        },
+    };
+    if let Some(parameter)=parameter {
+        let parameter=one::<calls::SignatureParameter>(reader,parameter).await?;
+        return Ok(one::<calls::ParameterShape>(reader,parameter.shape).await?.name.map(|s|s.as_str().to_owned()).unwrap_or_default());
+    }
+    Ok(String::new())
 }
 pub async fn materialize_search(loader: &Loader) -> Result<(), ModelError> {
     let reader = reader(loader)?;
@@ -440,53 +363,21 @@ pub async fn reconcile_search(loader: &Loader) -> Result<(), ModelError> {
 fn crate_json<T: serde::Serialize>(value: T) -> Result<Value, ModelError> {
     lctx_surrealdb::loader::json_value(serde_json::to_value(value).map_err(ModelError::codec)?)
 }
-#[allow(
-    clippy::too_many_arguments,
-    reason = "The lowering keeps physical endpoints and distinct semantic occurrence witnesses explicit"
-)]
-fn occurrence(
-    table: &str,
-    key: &str,
-    input: RecordId,
-    out: RecordId,
-    unit: &Unit,
-    fragment: &Fragment,
-    member: Option<Id<catalog::CatalogMember>>,
-    anchor: Option<Id<OriginalAnchor>>,
-) -> Result<Value, ModelError> {
-    let mut row = Object::new();
-    row.insert("id", RecordId::new(table, key));
-    row.insert("in", input);
-    row.insert("out", out.clone());
-    row.insert("family", unit.family as i16);
-    row.insert("unit", crate_json(unit.id())?);
-    row.insert("fragment", crate_json(fragment.id())?);
-    row.insert("context", crate_json(unit.context)?);
-    row.insert("member", crate_json(member)?);
-    row.insert("anchor", crate_json(anchor)?);
-    row.insert("input", crate_json(unit.input)?);
-    row.insert("eligible", true);
-    row.insert(
-        "occurrence_key",
-        format!(
-            "{}|{:02}|{}|{}|{}|{}",
-            member
-                .map(|id| format!("0{}", id.hex()))
-                .unwrap_or_else(|| format!("1{}", unit.id().hex())),
-            unit.family as i16,
-            unit.id().hex(),
-            fragment.id().hex(),
-            unit.context.hex(),
-            anchor
-                .map(|id| format!("1{}", id.hex()))
-                .unwrap_or_else(|| "0".into())
-        ),
-    );
-    for field in ["input", "member", "context"] {
-        row.insert(
-            format!("scope_{field}"),
-            scope_string(row.get(field).expect("occurrence field")),
-        );
-    }
+struct Witness<'a> {
+    unit: &'a Unit, window:&'a SearchWindow, part:&'a ContentPart,
+    binding:Option<Id<WindowBinding>>,member:Option<Id<catalog::CatalogMember>>,anchor:Option<Id<OriginalAnchor>>,
+    name:String,path:String,option_key:String,
+}
+fn occurrence(table:&str,key:&str,input:RecordId,w:&Witness<'_>)->Result<Value,ModelError>{
+    let out=w.member.map(|m|target_id(Target::Entity(EntityId::of(m)))).unwrap_or_else(||target_id(Target::Entity(EntityId::of(w.unit.id()))));
+    let mut row=Object::new();
+    row.insert("id",RecordId::new(table,key));row.insert("in",input);row.insert("out",out);
+    row.insert("family",w.unit.family as i16);row.insert("unit",crate_json(w.unit.id())?);
+    row.insert("window",crate_json(w.window.id())?);row.insert("part",crate_json(w.part.id())?);row.insert("binding",crate_json(w.binding)?);
+    row.insert("context",crate_json(w.unit.context)?);row.insert("member",crate_json(w.member)?);row.insert("anchor",crate_json(w.anchor)?);
+    row.insert("input",crate_json(w.unit.input)?);row.insert("eligible",true);
+    row.insert("exact_name",w.name.clone());row.insert("exact_path",w.path.clone());row.insert("exact_option",w.option_key.clone());
+    row.insert("occurrence_key",format!("{}|{:02}|{}|{}|{}|{}|{}",w.member.map(|id|format!("0{}",id.hex())).unwrap_or_else(||format!("1{}",w.unit.id().hex())),w.unit.family as i16,w.unit.id().hex(),w.window.id().hex(),w.part.id().hex(),w.unit.context.hex(),key));
+    for field in ["input","member","context"] {row.insert(format!("scope_{field}"),scope_string(row.get(field).expect("occurrence field")));}
     Ok(Value::Object(row))
 }

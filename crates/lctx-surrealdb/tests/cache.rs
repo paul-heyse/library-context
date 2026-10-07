@@ -18,7 +18,7 @@ fn spec() -> Spec {
     .unwrap()
 }
 fn candidate(label: &str, axis: usize, tokens: u32) -> CacheValue {
-    let mut vector = vec![-0.0; 1024];
+    let mut vector = vec![-0.0; spec().dimensions as usize];
     vector[axis] = 1.0;
     CacheValue {
         input_hash: ContentHash::of(label.as_bytes()),
@@ -142,7 +142,7 @@ async fn whole_batch_prevalidation_and_first_duplicate_proposal() {
     );
     let alternative = candidate("first", 1, 3);
     let mut candidates: Vec<_> = (0..257)
-        .map(|i| candidate(&format!("batch-{i}"), i % 1024, 3))
+        .map(|i| candidate(&format!("batch-{i}"), i % spec.dimensions as usize, 3))
         .collect();
     candidates.extend([first.clone(), first.clone(), alternative]);
     let winners = f.cache.admit(&spec, &candidates).await.unwrap();
@@ -307,5 +307,30 @@ async fn exact_key_read_refuses_altered_identity_and_winning_bytes() {
         .check()
         .unwrap();
     assert!(f.cache.cached(&spec, &[first.input_hash]).await.is_err());
+    f.close().await;
+}
+
+#[tokio::test]
+async fn full_winners_reuse_encoder_identity_across_query_recipe_changes() {
+    let f = Fixture::new("query_recipe").await;
+    let spec = spec();
+    let first = candidate("query-independent-document", 0, 3);
+    f.cache.admit(&spec, std::slice::from_ref(&first)).await.unwrap();
+    let mut changed = spec.clone();
+    changed.query_template = "New query instruction: {task_description}\nQuery:{query}".into();
+    changed.query_task = "independent query ranking policy".into();
+    let reused = f.cache.cached(&changed, &[first.input_hash]).await.unwrap();
+    assert_eq!(encode_vector(&reused[&first.input_hash].vector), encode_vector(&first.vector));
+    assert_eq!(reused[&first.input_hash].vector.len(), 4096);
+    let mut response = f.client.query("SELECT bytes FROM embedding_cache").await.unwrap().check().unwrap();
+    let rows: Vec<surrealdb::types::Object> = response.take(0).unwrap();
+    assert_eq!(rows.len(), 1);
+    let surrealdb::types::Value::Bytes(bytes)=rows[0].get("bytes").unwrap() else {panic!("canonical bytes")};
+    assert_eq!(bytes.len(),16384);
+    let mut lower_document_cap=changed.clone();lower_document_cap.max_document_tokens=1;
+    assert_eq!(f.cache.cached(&lower_document_cap,&[first.input_hash]).await.unwrap()[&first.input_hash].admitted_tokens,3);
+    let mut another_encoder = changed;
+    another_encoder.model = "another-encoder".into();
+    assert!(f.cache.cached(&another_encoder, &[first.input_hash]).await.unwrap().is_empty());
     f.close().await;
 }

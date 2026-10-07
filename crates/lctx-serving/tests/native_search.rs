@@ -3,12 +3,12 @@ use lctx_model::domain::{
     attribution::AnalysisContext,
     catalog::CatalogMember,
     graph::{Entity, EntityId, Target},
-    retrieval::{Family, Fragment, Unit},
+    retrieval::{Family, SearchWindow, ContentPart, WindowBinding, Unit},
     serving::{ranking::RankingPolicy, *},
     *,
 };
 use lctx_surrealdb::{Credentials, Loader, NativeReader, loader::json_value, reader};
-use surrealdb::types::{Bytes, RecordId, Value, Variables};
+use surrealdb::types::{RecordId, Value, Variables};
 fn id<R: Record>(byte: u8) -> Id<R> {
     serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
 }
@@ -48,7 +48,7 @@ fn occurrence(
     unit: Id<Unit>,
 ) -> Value {
     let mut obj = object(
-        serde_json::json!({"family":Family::ApiOptions as i16,"unit":unit,"fragment":id::<Fragment>(7),"context":context,"member":member,"anchor":null,"input":input,"eligible":true,"occurrence_key":key}),
+        serde_json::json!({"family":Family::ApiOptions as i16,"unit":unit,"window":id::<SearchWindow>(7),"part":id::<ContentPart>(8),"binding":if member.is_some(){Some(id::<WindowBinding>(9))}else{None},"exact_name":"connect","exact_path":"pkg.connect","exact_option":"timeout","context":context,"member":member,"anchor":null,"input":input,"eligible":true,"occurrence_key":key}),
         RecordId::new(table, key.to_owned()),
     );
     obj.insert("in", source);
@@ -158,10 +158,9 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         other,
         unit,
     ));
-    // BM25 clamps ubiquitous terms to zero. Independent nonmatching background documents
-    // keep this eligibility/cap control in the declared positive-score lexical channel.
+    // Ubiquitous matched terms yield BM25 zero and still nominate eligible primary witnesses.
     for n in 0..160 {
-        let text = format!("unrelated background document {n}");
+        let text = format!("connect unrelated background document {n}");
         docs.push(Value::Object(object(
             serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
             RecordId::new("search_api_options", format!("background{n:03}")),
@@ -185,8 +184,12 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     .unwrap();
     assert_eq!(lexical.len(), 1);
     assert_eq!(lexical[0].occurrence.context, good);
-    assert!(lexical[0].score.unwrap() > 0.0);
-    let spec = ContentHash::of(b"native-vector-fixture");
+    assert_eq!(lexical[0].score,Some(0.0));
+    let selected:embedding::Spec=serde_json::from_slice(include_bytes!("../../../specs/embedding/qwen3-embedding-8b.json")).unwrap();
+    let projection=embedding::projection::ProjectionDefinition::initial(&selected).id();
+    let encoder=embedding::EmbeddingSpec::new(&selected).unwrap();
+    let spec=encoder.service_hash;
+    loader.entities(&[Entity::from(encoder.clone())]).await.unwrap();
     let mut vectors = vec![];
     let mut vec_occurrences = vec![];
     let mut query = vec![0f32; 1024];
@@ -200,15 +203,16 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             v
         }),
     ] {
+        let mut full=vec![0.0;4096];
+        for (index,value) in vector.iter().enumerate(){full[index]=*value*0.5;}
+        full[2048]=0.75f32.sqrt();
+        let full=embedding::value::FullValue{encoder:encoder.id(),input:ContentHash::of(key.as_bytes()),dimensions:4096,tokens:5,codec:embedding::value::VALUE_CODEC,digest:embedding::value::value_digest(&full),bytes:EvidenceBytes(embedding::value::encode_vector(&full))};
+        loader.entities(&[Entity::from(full.clone())]).await.unwrap();
         let source = RecordId::new("vector", key);
-        let digest = embedding::value::value_digest(&vector);
-        let mut obj = object(
-            serde_json::json!({"specification":spec,"input":ContentHash::of(key.as_bytes()),"digest":digest,"embedding":vector}),
+
+        let obj = object(
+            serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_surrealdb::reconciliation::scope_string(&json_value(serde_json::to_value(input).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":full.id().hex(),"projection_key":key,"embedding":vector}),
             source.clone(),
-        );
-        obj.insert(
-            "bytes",
-            Bytes::from(embedding::value::encode_vector(&vector)),
         );
         vectors.push(Value::Object(obj));
         vec_occurrences.push(occurrence(
@@ -222,6 +226,12 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             unit,
         ));
     }
+    // Nearer vectors in a foreign library cohort cannot enter through an otherwise matching edge.
+    for n in 0..300 {
+        let key=format!("foreign{n}");let source=RecordId::new("vector",key.clone());
+        vectors.push(Value::Object(object(serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_surrealdb::reconciliation::scope_string(&json_value(serde_json::to_value(id::<input::InputRevision>(99)).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":key,"projection_key":key,"embedding":query}),source.clone())));
+        vec_occurrences.push(occurrence("vec_occurs",&key,source,out.clone(),*input.bytes(),Some(member.id()),good,unit));
+    }
     insert(&native, "vector", false, vectors).await;
     insert(&native, "vec_occurs", true, vec_occurrences).await;
     let vector = lctx_serving::search::vector(
@@ -229,6 +239,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         &query,
         spec,
         embedding::value::value_digest(&query),
+        selected.query_recipe().identity(),
+        projection,
         Family::ApiOptions,
         &inputs,
         Some(&pairs),
@@ -242,6 +254,22 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     assert_eq!(vector.len(), 1);
     assert_eq!(vector[0].occurrence.context, good);
     assert!(vector[0].score.unwrap() < 1.0);
+    let mut full_query=vec![0.0;4096];full_query[0]=1.0;
+    let query_value=lctx_serving::QueryVector{spec,input:ContentHash::of(b"query"),vector:full_query,recipe:selected.query_recipe(),projection};
+    let rescored=lctx_serving::search::rescore_union(&native,&query_value,&lexical,&policy).await.unwrap();
+    assert_eq!(rescored.len(),1);
+    assert!((rescored[0].score.unwrap()-0.4).abs()<1e-6,"full4096, not projected1024, determines rescore");
+    let mut explain=Variables::new();
+    explain.insert("vector",query);explain.insert("encoder_hash",spec.hex());explain.insert("policy_key",projection.hex());explain.insert("family",Family::ApiOptions as i16);
+    explain.insert("input_keys",vec![lctx_surrealdb::reconciliation::scope_string(&json_value(serde_json::to_value(input).unwrap()).unwrap())]);
+    explain.insert("pairs",json_value(serde_json::to_value(pairs).unwrap()).unwrap());explain.insert("member_mode",true);explain.insert("units",Value::Null);
+    let plan:serde_json::Value=native.query(format!("{} EXPLAIN",lctx_serving::search::vector_selection_sql(128).unwrap()),explain).await.unwrap();
+    let plan=plan.to_string();
+    assert!(plan.contains("KnnScan"),"{plan}");
+    assert!(plan.contains("BitmapIndexScan"),"{plan}");
+    // Exact spelling is a separate route, including the declared option key.
+    let option=lctx_serving::search::lexical(&native,"timeout",Family::ApiOptions,&inputs,Some(&pairs),true,None,128,&policy).await.unwrap();
+    assert_eq!(option.len(),1);assert_eq!(option[0].occurrence.context,good);
     client
         .query(
             "DEFINE FUNCTION OVERWRITE fn::lctx_operation_definition() { RETURN 'incompatible'; };",

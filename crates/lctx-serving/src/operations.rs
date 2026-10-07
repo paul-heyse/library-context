@@ -227,7 +227,7 @@ async fn scores(
                 pairs,
                 member_mode,
                 units,
-                100,
+                128,
                 &policy,
             )
             .await?,
@@ -236,20 +236,27 @@ async fn scores(
             scores.extend(
                 crate::search::vector(
                     reader,
-                    &v.vector,
+                    &embedding::projection::project_prefix(&v.vector,1024).map_err(ModelError::Invalid)?,
                     v.spec,
                     embedding::value::value_digest(&v.vector),
+                    v.recipe.identity(),
+                    v.projection,
                     *family,
                     &inputs,
                     pairs,
                     member_mode,
                     units,
-                    100,
+                    128,
                     &policy,
                 )
                 .await?,
             );
         }
+    }
+    if let Some(v)=vector {
+        let full=crate::search::rescore_union(reader,v,&scores,&policy).await?;
+        scores.retain(|row|row.channel==ranking::Channel::Lexical);
+        scores.extend(full);
     }
     Ok(scores)
 }
@@ -268,6 +275,8 @@ fn fusion(
             &policy,
             v.spec,
             embedding::value::value_digest(&v.vector),
+            v.recipe.identity(),
+            v.projection,
         )?);
     }
     let mut eligible = scores
@@ -357,7 +366,7 @@ async fn search_operations(
             .selected
             .eligible()
             .filter(|c| {
-                c.member == member
+                c.member == member && c.analysis == hit.context
                     && (promoted.contains(&member)
                         || hit
                             .witnesses
