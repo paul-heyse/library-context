@@ -55,12 +55,17 @@ class ProcessIdentity:
             raise ProcessLookupError(pid)
         return cls(pid, int(fields[19]), boot_id(), pid_namespace(pid))
 
+    def previous_boot(self) -> bool:
+        """Recorded before the current boot: certainly dead, so its records may be swept."""
+        return self.boot_id != boot_id()
+
     def foreign(self) -> bool:
-        """Recorded under another boot or pid namespace: unknowable here, never signal it."""
-        return self.boot_id != boot_id() or self.pid_namespace != pid_namespace()
+        """Same boot, another pid namespace (e.g. a Codex sandbox call): its liveness is unknowable
+        from here, so never signal or sweep it by identity; an owner lock decides instead."""
+        return not self.previous_boot() and self.pid_namespace != pid_namespace()
 
     def alive(self) -> bool:
-        if self.foreign():
+        if self.previous_boot() or self.foreign():
             return False
         fields = _stat_fields(self.pid)
         return fields is not None and fields[0] != "Z" and int(fields[19]) == self.start_ticks

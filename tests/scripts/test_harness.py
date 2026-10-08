@@ -22,7 +22,8 @@ def test_identity_tracks_pid_reuse_boot_and_namespace():
     assert ProcessIdentity.from_json(me.to_json()) == me
     assert not dataclasses.replace(me, start_ticks=me.start_ticks + 1).alive()
     rebooted = dataclasses.replace(me, boot_id="00000000-0000-0000-0000-000000000000")
-    assert rebooted.foreign() and not rebooted.alive()
+    # A previous boot is certainly dead (sweepable), not unknowable.
+    assert rebooted.previous_boot() and not rebooted.foreign() and not rebooted.alive()
     other_namespace = dataclasses.replace(me, pid_namespace=me.pid_namespace + 1)
     assert other_namespace.foreign() and not other_namespace.alive()
 
