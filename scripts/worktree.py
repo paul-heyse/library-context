@@ -23,6 +23,7 @@ Work returns by branch merge, cherry-pick or an explicit patch.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -33,6 +34,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import workspace_env
 from build_environment import BUILD_DIR_SELECTION, ROOT
 
 Report = Callable[[str], None]
@@ -296,14 +298,130 @@ def ready_environment(target: Path, source: Mapping[str, str]) -> tuple[dict[str
     return env, notes
 
 
+LIVE_UNIT_STATES = ("active", "activating", "reloading", "deactivating")
+SCRIPTS = ROOT / "scripts"
+
+
+@dataclass(frozen=True)
+class Live:
+    """Live state a worktree removal would orphan: a fixture server or a running run."""
+
+    kind: str
+    ident: str
+    detail: str
+    stop: tuple[str, ...] | None  # (script, args…) of the owning harness's stop route
+
+    def describe(self) -> str:
+        return f"{self.kind} {self.ident}: {self.detail}"
+
+
+def _harness(script: str, args: Sequence[str], key: str, directory: Path):
+    """Run a harness script over another checkout's state (its root relocated by ``key``)."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("LCTX_ENV_OWNERSHIP", "LCTX_RUN_DIR", "LCTX_RUN_ID", "UV_NO_SYNC")
+    }
+    env[key] = str(directory)
+    return subprocess.run(
+        (sys.executable, str(SCRIPTS / script), *args),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _listing(script: str, args: Sequence[str], key: str, directory: Path) -> list[dict]:
+    result = _harness(script, args, key, directory)
+    try:
+        rows = json.loads(result.stdout) if result.returncode == 0 else None
+    except ValueError:
+        rows = None
+    if not isinstance(rows, list):
+        detail = (result.stderr.strip().splitlines() or ["no output"])[-1]
+        raise RuntimeError(f"cannot inspect {directory} with {script}: {detail}")
+    return rows
+
+
+def _unit_description(unit: str) -> str:
+    result = subprocess.run(
+        ("systemctl", "--user", "show", "-p", "Description", "--value", unit),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip()
+
+
+def live_state(target: Path) -> list[Live]:
+    """Kept or run-owned fixtures and running runs that belong to a checkout.
+
+    Read through the owning harnesses' own listings (``surrealdb_fixture.py --list``,
+    ``runs.py list``) with their roots relocated to the checkout; an inspection failure raises,
+    since unknown is not absent.
+    """
+    found: list[Live] = []
+    fixtures = target / "build" / "fixtures"
+    for row in _listing(
+        "surrealdb_fixture.py", ("--list", "--json"), "LCTX_FIXTURES_ROOT", fixtures
+    ):
+        state = str(row.get("state") or "")
+        if row.get("kind") == "unrecorded":
+            # `systemctl list-units` columns after the unit: LOAD ACTIVE SUB DESCRIPTION.
+            columns = state.split()
+            active = len(columns) > 1 and columns[1] in LIVE_UNIT_STATES
+        else:
+            active = state.split("/")[0] in LIVE_UNIT_STATES
+        if row.get("kind") == "kept" and active:
+            found.append(
+                Live(
+                    "kept fixture",
+                    row["id"],
+                    f"{row['unit']} on port {row.get('port')},"
+                    f" attachments {row.get('attachments')}",
+                    ("surrealdb_fixture.py", "--stop", row["id"], "--force", "--no-sweep"),
+                )
+            )
+        elif row.get("kind") == "run" and row.get("owner_alive"):
+            found.append(
+                Live(
+                    "run-owned fixture",
+                    row["id"],
+                    f"{row['unit']}, launcher pid {row.get('owner')} (cancel its command)",
+                    None,
+                )
+            )
+        elif (
+            row.get("kind") == "unrecorded"
+            and active
+            and f"checkout={target}" in _unit_description(row["unit"])
+        ):
+            found.append(
+                Live(
+                    "unrecorded fixture unit",
+                    row["unit"],
+                    f"its record is gone; stop it with systemctl --user stop {row['unit']}",
+                    None,
+                )
+            )
+    runs = target / "build" / "runs"
+    for row in _listing("runs.py", ("list", "--json"), "LCTX_RUNS_ROOT", runs):
+        if row.get("state") == "running":
+            text = row.get("label") or " ".join(row.get("argv") or [])
+            found.append(Live("running run", row["id"], text, ("runs.py", "cancel", row["id"])))
+    return found
+
+
 @dataclass
 class Removal:
     dirty: list[str]
     unintegrated: list[str]
     holders: list[str]
+    live: list[Live]
 
     def blocked(self) -> bool:
-        return bool(self.dirty or self.unintegrated or self.holders)
+        return bool(self.dirty or self.unintegrated or self.holders or self.live)
 
 
 def inspect(root: Path, target: Path, branch: str, into: str) -> Removal:
@@ -318,14 +436,9 @@ def inspect(root: Path, target: Path, branch: str, into: str) -> Removal:
         unintegrated = [line[2:] for line in cherry if line.startswith("+ ")]
     holders = []
     if target.exists():
-        try:
-            import workspace_env
-
-            for resource in workspace_env.resources_for("native", target, {}):
-                holders += [holder.describe() for holder in workspace_env.holders(resource)]
-        except ImportError:
-            pass
-    return Removal(dirty, unintegrated, holders)
+        for resource in workspace_env.resources_for("native", target, {}):
+            holders += [holder.describe() for holder in workspace_env.holders(resource)]
+    return Removal(dirty, unintegrated, holders, live_state(target))
 
 
 def remove(
@@ -349,9 +462,31 @@ def remove(
         report(f"not integrated into {into}: {line}")
     for line in found.holders:
         report(f"in use: {line}")
+    for item in found.live:
+        report(f"live: {item.describe()}")
     if found.blocked() and not force:
         report(f"worktree-remove: refused ({target} kept); --force discards the work listed above")
         return 1
+    if found.live:
+        # Stop through the owners' routes (runs first: a run's fixtures die with its launcher);
+        # never by deleting their records.
+        for item in sorted(found.live, key=lambda live: live.kind != "running run"):
+            if item.stop is None:
+                continue
+            script, *args = item.stop
+            directory = target / "build" / ("runs" if script == "runs.py" else "fixtures")
+            key = "LCTX_RUNS_ROOT" if script == "runs.py" else "LCTX_FIXTURES_ROOT"
+            result = _harness(script, args, key, directory)
+            outcome = (result.stdout.strip() or result.stderr.strip()).splitlines()
+            report(
+                f"stopped {item.kind} {item.ident}: {outcome[-1] if outcome else result.returncode}"
+            )
+        remaining = live_state(target)
+        if remaining:
+            for item in remaining:
+                report(f"still live: {item.describe()}")
+            report(f"worktree-remove: refused ({target} kept); stop the state listed above first")
+            return 1
     selection = target / BUILD_DIR_SELECTION
     own = Path(selection.read_text().strip()) if selection.is_file() else None
     if target.exists():

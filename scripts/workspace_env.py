@@ -19,7 +19,11 @@ scripts/workspace_env.py`` (plan §5.8.1), so it works before the environment ex
   environment holds only a ``.pth``). Locks are machine-wide ``flock`` files keyed by absolute
   path under ``$XDG_RUNTIME_DIR/library-context/locks`` (fallback
   ``~/.cache/library-context/locks``), on non-inheritable descriptors held by the managing
-  process. Children reuse it through ``LCTX_ENV_OWNERSHIP`` while the recorded owner is alive.
+  process. Holders are read from ``/proc/locks`` (pid, mode) and ``/proc/<pid>`` (command,
+  start), so no holder records exist to go stale. flock has no writer preference, so a pending
+  exclusive request holds a per-resource gate that new shared acquirers queue behind.
+  Children reuse ownership through ``LCTX_ENV_OWNERSHIP`` while the recorded owner is alive (in
+  another pid namespace: while its lock is still held in the recorded mode).
   Pure-Rust work names no Python requirement and takes no lock. Unmanaged commands (bare
   importers, an explicit ``uv sync``) remain outside this guarantee.
 """
@@ -40,10 +44,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from build_environment import ROOT, explain, normalized_env, project_environment
-from harness import ProcessIdentity, read_json, write_json_atomic
+from harness import ProcessIdentity
 
 Mode = Literal["shared", "exclusive"]
 Report = Callable[[str], None]
@@ -116,7 +120,7 @@ def lock_directory(env: Mapping[str, str] | None = None) -> Path:
 
 
 # ---------------------------------------------------------------------------------------------
-# Holder records
+# Holders, read from the kernel's lock table (no records to write, sweep or outlive a reboot)
 
 
 def _boot_time() -> float:
@@ -126,44 +130,66 @@ def _boot_time() -> float:
     return 0.0
 
 
-def _process_start(identity: ProcessIdentity) -> str:
-    seconds = _boot_time() + identity.start_ticks / os.sysconf("SC_CLK_TCK")
+def _process_start(pid: int) -> str:
+    try:
+        ticks = ProcessIdentity.of(pid).start_ticks
+    except OSError:
+        return "?"
+    seconds = _boot_time() + ticks / os.sysconf("SC_CLK_TCK")
     return datetime.fromtimestamp(seconds, UTC).isoformat(timespec="seconds")
+
+
+def _command(pid: int) -> str:
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return "(exited)"
+    return shlex.join(part.decode(errors="replace") for part in argv if part) or "(unknown)"
 
 
 @dataclass(frozen=True)
 class Holder:
-    identity: ProcessIdentity
+    pid: int
     mode: str
     command: str
     started: str
-    resource: str
 
     def describe(self) -> str:
-        return f"pid {self.identity.pid} ({self.mode}, started {self.started}): {self.command}"
+        if self.pid <= 0:
+            return f"a process in another pid namespace ({self.mode})"
+        return f"pid {self.pid} ({self.mode}, started {self.started}): {self.command}"
 
 
-def _holders_directory(directory: Path, resource: Resource) -> Path:
-    return directory / f"{resource.name}.holders"
+def lock_path(
+    resource: Resource, env: Mapping[str, str] | None = None, *, gate: bool = False
+) -> Path:
+    return lock_directory(env) / f"{resource.name}.{'gate' if gate else 'lock'}"
 
 
-def holders(resource: Resource, env: Mapping[str, str] | None = None) -> list[Holder]:
-    """Live recorded holders of a resource; records of dead local processes are removed."""
-    records = _holders_directory(lock_directory(env), resource)
+def _flock_holders(path: Path) -> list[tuple[int, str]]:
+    """(pid, mode) of every granted flock on ``path``, from /proc/locks."""
+    try:
+        stat = path.stat()
+        table = Path("/proc/locks").read_text()
+    except OSError:
+        return []
+    key = f"{os.major(stat.st_dev):02x}:{os.minor(stat.st_dev):02x}:{stat.st_ino}"
     found = []
-    for path in sorted(records.glob("*.json")) if records.is_dir() else ():
-        data = read_json(path)
-        if not isinstance(data, dict):
-            continue
-        identity = ProcessIdentity.from_json(data["identity"])
-        if not identity.alive():
-            if not identity.foreign():
-                path.unlink(missing_ok=True)
-            continue
-        found.append(
-            Holder(identity, data["mode"], data["command"], data["started"], data["resource"])
-        )
+    for line in table.splitlines():
+        fields = line.split()
+        if len(fields) >= 6 and fields[1] == "FLOCK" and fields[5] == key:
+            found.append((int(fields[4]), "exclusive" if fields[3] == "WRITE" else "shared"))
     return found
+
+
+def holders(
+    resource: Resource, env: Mapping[str, str] | None = None, *, gate: bool = False
+) -> list[Holder]:
+    """Live holders of a resource lock (or of its pending-writer gate)."""
+    return [
+        Holder(pid, mode, _command(pid), _process_start(pid))
+        for pid, mode in sorted(set(_flock_holders(lock_path(resource, env, gate=gate))))
+    ]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -172,13 +198,6 @@ def holders(resource: Resource, env: Mapping[str, str] | None = None) -> list[Ho
 
 class OwnershipConflict(RuntimeError):
     """A nested managed operation needs a stronger mode than its command tree already holds."""
-
-
-@dataclass
-class _Lock:
-    resource: Resource
-    descriptor: int
-    record: Path
 
 
 @dataclass(frozen=True)
@@ -198,6 +217,17 @@ class Ownership:
         return env
 
 
+def _entry_live(entry: Mapping[str, Any], env: Mapping[str, str] | None) -> bool:
+    """The recorded owner is alive; in another pid namespace, its lock is still held as recorded."""
+    owner = ProcessIdentity.from_json(entry["owner"])
+    if owner.alive():
+        return True
+    if not owner.foreign():
+        return False
+    held = _flock_holders(lock_directory(env) / f"{entry['name']}.lock")
+    return any(mode == entry["mode"] for _, mode in held)
+
+
 def inherited(env: Mapping[str, str] | None = None) -> dict[str, tuple[str, dict]]:
     """Resources held by a live ancestor: lock name -> (mode, entry)."""
     raw = (os.environ if env is None else env).get(OWNERSHIP_KEY)
@@ -208,65 +238,76 @@ def inherited(env: Mapping[str, str] | None = None) -> dict[str, tuple[str, dict
     held = {}
     for entry in entries if isinstance(entries, list) else ():
         try:
-            if ProcessIdentity.from_json(entry["owner"]).alive():
+            if _entry_live(entry, env):
                 held[entry["name"]] = (entry["mode"], entry)
         except KeyError, TypeError, ValueError:
             continue
     return held
 
 
-def _acquire(
-    resource: Resource, mode: Mode, command: str, report: Report, env: Mapping[str, str]
-) -> _Lock:
-    directory = lock_directory(env)
-    directory.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(
-        directory / f"{resource.name}.lock", os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600
-    )
-    operation = fcntl.LOCK_SH if mode == "shared" else fcntl.LOCK_EX
+def _open(path: Path) -> int:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+
+
+def _wait_flock(
+    descriptor: int,
+    operation: int,
+    describe: Callable[[], tuple[tuple[int, ...], str]],
+    report: Report,
+) -> None:
+    """Poll a non-blocking flock, reporting whenever the set of blocking processes changes."""
     reported: tuple[int, ...] | None = None
+    while True:
+        try:
+            fcntl.flock(descriptor, operation | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            seen, message = describe()
+            if seen != reported:
+                reported = seen
+                report(message)
+            time.sleep(POLL_SECONDS)
+
+
+def _acquire(resource: Resource, mode: Mode, report: Report, env: Mapping[str, str]) -> int:
+    """Take one resource lock behind its pending-writer gate; returns the held descriptor.
+
+    flock has no writer preference, so an exclusive waiter first holds the gate exclusively and
+    keeps it until it owns the resource; shared acquirers pass the gate (briefly, shared) before
+    the resource and therefore queue behind a pending sync instead of starving it. Existing
+    holders finish normally.
+    """
+    gate = _open(lock_path(resource, env, gate=True))
+    descriptor = _open(lock_path(resource, env))
     try:
-        while True:
-            try:
-                fcntl.flock(descriptor, operation | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                live = holders(resource, env)
-                seen = tuple(sorted(holder.identity.pid for holder in live))
-                if seen != reported:
-                    reported = seen
-                    lines = [f"waiting for {mode} {resource.kind} ownership of {resource.path}:"]
-                    lines += [f"  held by {holder.describe()}" for holder in live] or [
-                        "  held by a managed process that has not recorded itself yet"
-                    ]
-                    report("\n".join(lines))
-                time.sleep(POLL_SECONDS)
+
+        def pending() -> tuple[tuple[int, ...], str]:
+            writers = [h for h in holders(resource, env, gate=True) if h.mode == "exclusive"]
+            pids = ", ".join(str(h.pid) for h in writers) or "unknown"
+            return (
+                tuple(h.pid for h in writers),
+                f"waiting for pending sync (pid {pids}) of {resource.kind} {resource.path}",
+            )
+
+        def blocking() -> tuple[tuple[int, ...], str]:
+            live = holders(resource, env)
+            lines = [f"waiting for {mode} {resource.kind} ownership of {resource.path}:"]
+            lines += [f"  held by {holder.describe()}" for holder in live] or [
+                "  held by a process that has just released it"
+            ]
+            return tuple(h.pid for h in live), "\n".join(lines)
+
+        gate_mode = fcntl.LOCK_EX if mode == "exclusive" else fcntl.LOCK_SH
+        _wait_flock(gate, gate_mode, pending, report)
+        operation = fcntl.LOCK_SH if mode == "shared" else fcntl.LOCK_EX
+        _wait_flock(descriptor, operation, blocking, report)
     except BaseException:
         os.close(descriptor)
         raise
-    identity = ProcessIdentity.of()
-    record = _holders_directory(directory, resource) / f"{identity.pid}-{identity.start_ticks}.json"
-    write_json_atomic(
-        record,
-        {
-            "identity": identity.to_json(),
-            "mode": mode,
-            "command": command,
-            "started": _process_start(identity),
-            "acquired": datetime.now(UTC).isoformat(timespec="seconds"),
-            "resource": str(resource.path),
-            "kind": resource.kind,
-        },
-    )
-    return _Lock(resource, descriptor, record)
-
-
-def _release(lock: _Lock) -> None:
-    lock.record.unlink(missing_ok=True)
-    try:
-        fcntl.flock(lock.descriptor, fcntl.LOCK_UN)
     finally:
-        os.close(lock.descriptor)
+        os.close(gate)
+    return descriptor
 
 
 @contextmanager
@@ -276,7 +317,7 @@ def ownership(
     *,
     root: Path = ROOT,
     env: Mapping[str, str] | None = None,
-    command: str | None = None,
+    command: str | None = None,  # accepted for callers; holders are reported from /proc
     report: Report = _stderr,
 ) -> Iterator[Ownership]:
     """Hold ``mode`` ownership of the resources ``requirement`` uses, once per command tree.
@@ -306,33 +347,27 @@ def ownership(
                 f"{resource.kind} {resource.path} is held shared by this command tree"
                 f" (pid {owner}); run the exclusive operation outside managed commands"
             )
-    label = command or shlex.join(sys.argv)
-    locks: list[_Lock] = []
+    held: list[tuple[Resource, int]] = []
     previous = os.environ.get(OWNERSHIP_KEY)
     try:
         for resource in needed:
-            locks.append(_acquire(resource, mode, label, report, source))
+            held.append((resource, _acquire(resource, mode, report, source)))
         owner = ProcessIdentity.of().to_json()
         entries = [entry for _, entry in ancestors.values()]
         entries += [
-            {
-                "name": lock.resource.name,
-                "path": str(lock.resource.path),
-                "mode": mode,
-                "owner": owner,
-            }
-            for lock in locks
+            {"name": resource.name, "path": str(resource.path), "mode": mode, "owner": owner}
+            for resource, _ in held
         ]
         token = json.dumps(entries, sort_keys=True, separators=(",", ":"))
         os.environ[OWNERSHIP_KEY] = token
-        yield Ownership(mode, resources, tuple(lock.resource for lock in locks), token)
+        yield Ownership(mode, resources, tuple(resource for resource, _ in held), token)
     finally:
         if previous is None:
             os.environ.pop(OWNERSHIP_KEY, None)
         else:
             os.environ[OWNERSHIP_KEY] = previous
-        for lock in reversed(locks):
-            _release(lock)
+        for _, descriptor in reversed(held):
+            os.close(descriptor)  # closing the only descriptor releases the flock
 
 
 # ---------------------------------------------------------------------------------------------
@@ -535,19 +570,13 @@ def checkout_report(
 
 
 def _all_holders(env: Mapping[str, str] | None = None) -> list[str]:
-    lines = []
     directory = lock_directory(env)
-    for records in sorted(directory.glob("*.holders")) if directory.is_dir() else ():
-        for path in sorted(records.glob("*.json")):
-            data = read_json(path)
-            if not isinstance(data, dict):
-                continue
-            identity = ProcessIdentity.from_json(data["identity"])
-            if identity.alive():
-                lines.append(
-                    f"{data['kind']} {data['resource']}: pid {identity.pid} {data['mode']}"
-                    f" since {data['acquired']}: {data['command']}"
-                )
+    lines = []
+    for path in sorted(directory.glob("*.lock")) if directory.is_dir() else ():
+        for pid, mode in _flock_holders(path):
+            lines.append(
+                f"{path.stem}: pid {pid} {mode}, started {_process_start(pid)}: {_command(pid)}"
+            )
     return lines
 
 
@@ -555,46 +584,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="action", required=True)
     commands.add_parser("sync", help="prepare one route").add_argument("route", choices=ROUTES)
-    observed = commands.add_parser("observe", help="read-only readiness")
-    observed.add_argument("requirements", nargs="+", choices=sorted(ROUTE_OF))
-    observed.add_argument("--json", action="store_true")
     hold = commands.add_parser("hold", help="run a command under managed ownership")
     hold.add_argument("mode", choices=("shared", "exclusive"))
     hold.add_argument("requirement", choices=sorted(ROUTE_OF))
     hold.add_argument("command", nargs=argparse.REMAINDER)
     commands.add_parser("holders", help="list live managed holders")
-    commands.add_parser("identity", help="print the effective environment and lock paths")
     commands.add_parser("select", help="shell lines selecting this checkout's own environment")
     commands.add_parser("report", help="interpreter, import origin, build dir and locks")
     args = parser.parse_args(argv)
 
     if args.action == "sync":
         return sync(args.route)
-    if args.action == "observe":
-        results = [observe(requirement) for requirement in args.requirements]
-        if args.json:
-            print(
-                json.dumps(
-                    [
-                        {
-                            "requirement": r.requirement,
-                            "outcome": r.outcome,
-                            "repair": None if r.ready else r.repair,
-                            "detail": r.detail,
-                        }
-                        for r in results
-                    ],
-                    indent=2,
-                )
-            )
-        else:
-            print("\n".join(result.message() for result in results))
-        return 0 if all(result.ready for result in results) else 1
     if args.action == "hold":
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
         if not command:
             parser.error("hold needs -- COMMAND")
-        with ownership(args.mode, args.requirement, command=shlex.join(command)) as owned:
+        with ownership(args.mode, args.requirement) as owned:
             child = owned.environment(os.environ)
             return subprocess.run(command, env=child, check=False).returncode
     if args.action == "select":
@@ -608,14 +613,7 @@ def main(argv: list[str] | None = None) -> int:
         lines, ok = checkout_report()
         print("\n".join(lines))
         return 0 if ok else 1
-    if args.action == "holders":
-        print("\n".join(_all_holders()) or "no live managed holders")
-        return 0
-    print(f"environment: {environment_path()}")
-    print(f"vllm environment: {vllm_environment_path()}")
-    print(f"locks: {lock_directory()}")
-    for resource in resources_for(("native", "vllm")):
-        print(f"{resource.kind} {resource.path}: {resource.name}.lock")
+    print("\n".join(_all_holders()) or "no live managed holders")
     return 0
 
 

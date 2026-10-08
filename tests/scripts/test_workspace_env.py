@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import harness
 import workspace_env
 from build_environment import NATIVE_INPUT_KEYS, ROOT
 from harness import ProcessIdentity
@@ -147,7 +148,7 @@ def test_two_readers_overlap_and_sync_reports_and_waits(isolated_locks):
     second = hold(SCRIPT, "shared", "native-python", "sleep", "3")
     environment, extension = resources_for("native")
     wait_for(lambda: len(holders(environment)) == 2 and len(holders(extension)) == 2)
-    assert {h.identity.pid for h in holders(environment)} == {first.pid, second.pid}
+    assert {h.pid for h in holders(environment)} == {first.pid, second.pid}
     started = time.monotonic()
     writer = hold(SCRIPT, "exclusive", "native", "true")
     _, report = writer.communicate(timeout=30)
@@ -225,3 +226,60 @@ def test_missing_vllm_environment_names_its_route(tmp_path):
 def test_unknown_requirements_are_not_observed():
     with pytest.raises(KeyError):
         observe("native-store")
+
+
+def test_pending_sync_is_not_starved_by_a_stream_of_new_readers(isolated_locks):
+    """flock has no writer preference; the gate makes new readers queue behind a pending sync."""
+    (environment,) = resources_for("tools")
+    first = hold(SCRIPT, "shared", "tools", "sleep", "1.5")
+    wait_for(lambda: len(holders(environment)) == 1)
+    started = time.monotonic()
+    writer = hold(SCRIPT, "exclusive", "tools", "true")
+    wait_for(lambda: [h.pid for h in holders(environment, gate=True)] == [writer.pid])
+    readers = []
+    # Overlapping readers that would keep the shared lock continuously held for ~5 s.
+    while time.monotonic() - started < 5.0:
+        readers.append(hold(SCRIPT, "shared", "tools", "sleep", "1.0"))
+        time.sleep(0.3)
+        if writer.poll() is not None:
+            break
+    writer.wait(timeout=30)
+    waited = time.monotonic() - started
+    assert waited < 4.0, f"the pending sync waited {waited:.1f} s behind new readers"
+    reports = [reader.communicate(timeout=30)[1] for reader in [first, *readers]]
+    assert any(f"waiting for pending sync (pid {writer.pid})" in report for report in reports)
+    wait_for(lambda: holders(environment) == [])
+
+
+def test_pending_sync_never_blocks_a_nested_acquisition_of_another_resource(isolated_locks):
+    """A tree holding the environment shared can still add the extension while a sync waits."""
+    environment, _ = resources_for("native")
+    with ownership("shared", "tools"):
+        writer = hold(SCRIPT, "exclusive", "native", "true")
+        wait_for(lambda: [h.pid for h in holders(environment, gate=True)] == [writer.pid])
+        started = time.monotonic()
+        with ownership("shared", "native") as inner:
+            assert [r.kind for r in inner.acquired] == ["extension"]
+        assert time.monotonic() - started < 2.0
+        assert writer.poll() is None  # still waiting on the tree's shared environment
+    assert writer.wait(timeout=30) == 0
+
+
+def test_holders_come_from_the_kernel_lock_table(isolated_locks):
+    (environment,) = resources_for("tools")
+    with ownership("shared", "tools"):
+        (holder,) = holders(environment)
+        assert (holder.pid, holder.mode) == (os.getpid(), "shared")
+        assert "pytest" in holder.command or "python" in holder.command
+    assert holders(environment) == []
+    assert not list(isolated_locks.glob("*.holders"))
+
+
+def test_foreign_namespace_owner_counts_while_its_lock_is_held(isolated_locks):
+    (resource,) = resources_for("tools")
+    owner = {"pid": 4_000_000, "start_ticks": 1, "boot_id": harness.boot_id(), "pid_namespace": 1}
+    entry = {"name": resource.name, "path": str(resource.path), "mode": "shared", "owner": owner}
+    token = {OWNERSHIP_KEY: json.dumps([entry])}
+    assert workspace_env.inherited(token) == {}
+    with ownership("shared", "tools", env={}):
+        assert resource.name in workspace_env.inherited(token)

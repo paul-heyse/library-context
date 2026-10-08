@@ -201,3 +201,152 @@ def test_worktree_ready_never_inherits_another_checkouts_environment(tmp_path):
     assert env == {"UV_PROJECT_ENVIRONMENT": str(target / ".venv"), "KEEP": "1"}
     assert "replaced inherited UV_PROJECT_ENVIRONMENT=/main/.venv" in notes[0]
     assert worktree.ready_environment(target, {})[1] == []
+
+
+def _live_owner(tmp_path: Path):
+    """A live process standing in for a launcher, plus its identity record."""
+    import harness
+
+    process = subprocess.Popen(["sleep", "60"])
+    return process, harness.ProcessIdentity.of(process.pid).to_json()
+
+
+def test_removal_refuses_live_fixture_and_running_run_naming_them(repo, tmp_path, monkeypatch):
+    """Simulated records read through the real fixture and runs listings."""
+    import json
+
+    base = tmp_path / "wt"
+    worktree.create("live", root=repo, base=base, prepare=False, report=lambda _: None)
+    target = base / "live"
+    process, owner = _live_owner(tmp_path)
+    try:
+        fixture = target / "build" / "fixtures" / "f00dfeed01"
+        fixture.mkdir(parents=True)
+        (fixture / "record.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "id": "f00dfeed01",
+                    "kind": "run",
+                    "checkout": str(target),
+                    "unit": "lctx-fixture-f00dfeed01.scope",
+                    "port": 41234,
+                    "memory_max": 1 << 30,
+                    "created": "2026-10-08T00:00:00+00:00",
+                    "owner": owner,
+                }
+            )
+        )
+        run = target / "build" / "runs" / "20261008T000000Z-ab12cd"
+        run.mkdir(parents=True)
+        (run / "record.json").write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "id": run.name,
+                    "argv": ["just", "verify-serving"],
+                    "label": None,
+                    "owner": owner,
+                    "child": None,
+                    "started": "2026-10-08T00:00:00+00:00",
+                    "termination": None,
+                }
+            )
+        )
+        lines: list[str] = []
+        assert worktree.remove("live", root=repo, base=base, report=lines.append) == 1
+        assert any("live: run-owned fixture f00dfeed01" in line for line in lines), lines
+        assert any(f"live: running run {run.name}: just verify-serving" in line for line in lines)
+        assert (fixture / "record.json").is_file() and (run / "record.json").is_file()
+        # A run-owned fixture has no stop route here: even --force refuses rather than orphan it.
+        lines.clear()
+        stops: list[tuple] = []
+        real = worktree._harness
+
+        def harness(script, args, key, directory):
+            if args[0] in ("cancel", "--stop"):  # record the stop route, don't signal sleep
+                stops.append((script, *args))
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return real(script, args, key, directory)
+
+        monkeypatch.setattr(worktree, "_harness", harness)
+        assert worktree.remove("live", force=True, root=repo, base=base, report=lines.append) == 1
+        monkeypatch.setattr(worktree, "_harness", real)
+        assert stops == [("runs.py", "cancel", run.name)]
+        assert any("still live: run-owned fixture f00dfeed01" in line for line in lines)
+        assert target.exists() and (fixture / "record.json").is_file()
+    finally:
+        process.kill()
+        process.wait()
+    # Once its owner is gone nothing is live; the dead state goes with the tree.
+    assert worktree.remove("live", force=True, root=repo, base=base, report=lambda _: None) == 0
+
+
+def test_force_stops_kept_fixtures_through_their_route_before_removal(repo, tmp_path, monkeypatch):
+    base = tmp_path / "wt"
+    worktree.create("kept", root=repo, base=base, prepare=False, report=lambda _: None)
+    target = base / "kept"
+    rows = {
+        "surrealdb_fixture.py": [
+            {
+                "id": "k1",
+                "kind": "kept",
+                "unit": "lctx-fixture-k1.service",
+                "state": "active/success",
+                "port": 40001,
+                "attachments": "0/1",
+            },
+            {
+                "id": "k2",
+                "kind": "kept",
+                "unit": "lctx-fixture-k2.service",
+                "state": "gone",
+                "port": 40002,
+                "attachments": "0/0",
+            },
+            {
+                "id": None,
+                "kind": "unrecorded",
+                "unit": "lctx-fixture-other.service",
+                "state": "loaded active running lctx fixture other",
+            },
+        ],
+        "runs.py": [{"id": "r1", "state": "completed", "argv": ["true"]}],
+    }
+    calls: list[tuple] = []
+
+    def listing(script, args, key, directory):
+        assert directory.is_relative_to(target)
+        return rows[script]
+
+    def harness(script, args, key, directory):
+        calls.append((script, *args))
+        assert (target / "build").parent.exists()  # the tree still exists while stopping
+        rows["surrealdb_fixture.py"][0]["state"] = "gone"
+        return subprocess.CompletedProcess(args, 0, "fixture k1: stopped\n", "")
+
+    monkeypatch.setattr(worktree, "_listing", listing)
+    monkeypatch.setattr(worktree, "_harness", harness)
+    monkeypatch.setattr(worktree, "_unit_description", lambda unit: "checkout=/elsewhere")
+    lines: list[str] = []
+    assert worktree.remove("kept", root=repo, base=base, report=lines.append) == 1
+    assert [line for line in lines if line.startswith("live:")] == [
+        "live: kept fixture k1: lctx-fixture-k1.service on port 40001, attachments 0/1"
+    ]
+    rows["surrealdb_fixture.py"][0]["state"] = "active/success"
+    lines.clear()
+    assert worktree.remove("kept", force=True, root=repo, base=base, report=lines.append) == 0
+    assert calls == [("surrealdb_fixture.py", "--stop", "k1", "--force", "--no-sweep")]
+    assert "stopped kept fixture k1: fixture k1: stopped" in lines
+    assert not target.exists()
+
+
+def test_unknown_fixture_state_is_not_absent(repo, tmp_path, monkeypatch):
+    base = tmp_path / "wt"
+    worktree.create("unknown", root=repo, base=base, prepare=False, report=lambda _: None)
+    monkeypatch.setattr(
+        worktree, "_harness", lambda *a: subprocess.CompletedProcess(a, 1, "", "systemctl: no bus")
+    )
+    with pytest.raises(RuntimeError, match=r"cannot inspect .*no bus"):
+        worktree.remove("unknown", root=repo, base=base, report=lambda _: None)
+    assert (base / "unknown").exists()
