@@ -29,7 +29,7 @@ The pieces:
 
 The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, is a pinned uv project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0117). The project's own environment is never an analysis input.
 
-This is a personal project with one operator. Process is deliberately light (ADR-0136). Keep it that way: before adding a hook, gate, register or new document type, check that it has a real consumer.
+This is a personal project with one operator. Process is deliberately light (ADR-0137). Keep it that way: before adding a hook, gate, register or new document type, check that it has a real consumer.
 
 ## Start of session
 
@@ -90,7 +90,7 @@ The [documentation task routes and repository map](docs/README.md) identify owne
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | Tools present? | `just doctor`, or `just ready` |
 
-The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0136). Do not pass floating `+nightly` or `+stable`. Python is 3.14.7 via `uv`; run Python tools as `uv run --no-sync …`. The system `python3` is 3.12, which cannot parse most scripts here. The type checker is **pyrefly**, not pyright or mypy.
+The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0137). Do not pass floating `+nightly` or `+stable`. Python is 3.14.7 via `uv`; run Python tools as `uv run --no-sync …`. The system `python3` is 3.12, which cannot parse most scripts here. The type checker is **pyrefly**, not pyright or mypy.
 
 **Cargo setup.**
 - Cargo uses available CPU parallelism, sccache, Clang/mold and workspace feature unification.
@@ -98,7 +98,7 @@ The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (A
 - Never routinely run `cargo clean` (it also removes shared intermediates).
 - Preserve benchmark captures and results.
 - Workspace dev/release builds use O2 incremental; imported dependencies O3 non-incremental, including path dependencies.
-- Keep release tests. Compiler frontend/backend workers use available logical CPUs.
+- Qualify local tests separately; until BC3 passes, verification defaults remain release. After qualification, ordinary tests use the test profile and production acceptance uses release (ADR-0137). Compiler frontend/backend workers use available logical CPUs.
 - Run tests with their normal available parallelism and threading. Resolve concurrency failures
   in production or test code; do not impose job, worker or thread caps to make checks pass.
 
@@ -182,7 +182,7 @@ It is not a validation of the existing test scope. Long journeys, whole families
   - Record the chosen scope and its limits.
   - Real-library pilots and activation still require authorization.
 - **No formatting mid-work; applicable non-functional leaves once, at scope end** (ADR-0126). Run `just turn-end` (or its `--paths`/`--staged` form) as the last step of a turn that changed files, not mid-work.
-- Reuse cached release-profile Rust code for tests. Test data may be fresh, existing or empty, according to the test's purpose. Store controls use owned disposable SurrealDB 3.3 fixtures; verification never inspects or resets the operator store.
+- Reuse cached Rust code for the selected profile. Before BC3 qualification, verification uses release; after it, ordinary Rust controls use test and required optimized acceptance uses release. Test data may be fresh, existing or empty, according to the test's purpose. Store controls use owned disposable SurrealDB 3.3 fixtures; verification never inspects or resets the operator store.
 - **Schema contracts are insta snapshots.** Verification runs with `INSTA_UPDATE=no`. To accept a change, read the `.snap.new` diff first, then run `cargo insta accept`. Never run `cargo insta review`, which is interactive. A schema snapshot change is a schema migration, so say so in the commit.
 - **Codebooks are append-only.** Never renumber or reorder existing codes.
 - **Validators are shared.** DataFusion invariant validators are library code, used by both tests and publication. Don't write test-only copies.

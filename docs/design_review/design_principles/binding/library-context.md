@@ -180,7 +180,7 @@ An action uses the existing route appropriate to it:
 
 | Existing check | Use |
 |---|---|
-| Compile checks; `just verify-model`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles`, `verify-tooling` | During implementation: focused affected contract controls with explicit selection and release-profile Rust reuse; preparation follows actual effects |
+| Compile checks; `just verify-model`, `verify-analytics`, `verify-providers`, `verify-store`, `verify-serving`, `verify-oracles`, `verify-tooling` | During implementation: focused affected contract controls with explicit selection and selected-profile Rust reuse; the ADR-0137 local default is qualification-gated and required optimized acceptance remains release; preparation follows actual effects |
 | `just turn-end` | At the end of a turn that changed files, by the root agent (ADR-0126) |
 | Applicable non-functional leaves | Once at functional scope end; agents fix failures and rerun affected checks |
 | `just rules-scan`, `just rules-test` | A justified code-shape invariant, when affected |

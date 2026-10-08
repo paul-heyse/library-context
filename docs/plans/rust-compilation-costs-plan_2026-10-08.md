@@ -1,6 +1,6 @@
 # Rust compilation costs: shared work, scoped provenance and the local test loop
 
-**Proposed implementation target · 2026-10-08.** Operator choices are confirmed; production changes and qualification are **not_run**.
+**Accepted target / implementation in progress · 2026-10-08.** ADR-0137 records confirmed choices. Current verifier defaults remain release until BC3 qualification; no complete product acceptance is established.
 
 ## 1. Outcome, basis and ownership
 
@@ -18,8 +18,8 @@ The operator explicitly confirmed these choices in the plan-creation conversatio
 
 | Source item | Confirmed choice | Route before dependent implementation |
 |---|---|---|
-| Compilation-cost review RC01 | **Accepted:** qualify local-test compilation separately from optimized production acceptance. | BC0 schedules a successor to ADR-0136 and updates DESIGN §1.2, AGENTS testing guidance and the [review binding §4](../design_review/design_principles/binding/library-context.md#4-where-findings-land) release-profile instruction with the transition rule. Carry forward all unaffected build, pin, fixture and available-parallelism decisions; never rewrite the accepted ADR body. BC3 changes the actual default only after qualification. |
-| Compilation-cost review RC02 | **Accepted:** provider provenance covers its relevant implementation closure; composition provenance belongs at its actual owner. | BC0 records a complementary architectural decision for §4/§15. BC2 narrows provider compilation inputs and captures native execution composition at the workspace owner. Preserve ADR-0135's semantic/captured/executable distinctions. |
+| Compilation-cost review RC01 | **Accepted:** qualify local-test compilation separately from optimized production acceptance. | BC0 records [ADR-0137](../adr/0137-qualified-local-compilation.md), superseding ADR-0136, and updates DESIGN §1.2, AGENTS testing guidance and the [review binding §4](../design_review/design_principles/binding/library-context.md#4-where-findings-land) release-profile instruction with the transition rule. Carry forward all unaffected build, pin, fixture and available-parallelism decisions; never rewrite the accepted ADR body. BC3 changes the actual default only after qualification. |
+| Compilation-cost review RC02 | **Accepted:** provider provenance covers its relevant implementation closure; composition provenance belongs at its actual owner. | BC0 records the complementary §4/§15 provenance decision in ADR-0137. BC2 narrows provider compilation inputs and captures native execution composition at the workspace owner. Preserve ADR-0135's semantic/captured/executable distinctions. |
 | Ordinary local-test selection | **Selected:** qualified local settings become the bare Cargo/nextest default. | BC3 initially uses a temporary named candidate, then installs the qualified settings in `[profile.test]`, migrates verification selection/reporting and retires the candidate. Release acceptance stays explicit. |
 
 The selected first candidate is **workspace O1, incremental, debug information disabled, LTO explicitly off, debug assertions and overflow checks enabled**. Imported O3/non-incremental and existing build overrides remain initially unchanged. O0 is not the selected fallback: historical O0 test-thread and CLI-main stack failures make an automatic switch unjustified. An O1 failure requires correcting the exposed implementation issue and rerunning its revealing controls before changing the default.
@@ -143,7 +143,7 @@ Preserve typed identity validation, exact immutable views/epochs, read-only SQL 
 
 ## 5. Execution packages and dependencies
 
-All packages start **open**. The root owns shared declarations, manifests, verification commands, plan disposition and integration. Parallel reasoning/work is useful where mutable ownership does not conflict; logical independence is not permission for competing edits to workspace/native/model files.
+BC0 decision/owner updates are implemented; BC1–BC5 remain open for their actual implementation and acceptance. The root owns shared declarations, manifests, verification commands, plan disposition and integration. Parallel reasoning/work is useful where mutable ownership does not conflict; logical independence is not permission for competing edits to workspace/native/model files.
 
 | Package | Working prerequisite | Delivered capability and completion boundary |
 |---|---|---|
@@ -210,10 +210,12 @@ The source review owns original diagnoses/evidence; this table owns current sche
 
 ## 10. Authoring checkpoint and next action
 
-**2026-10-08: implementation Proposed; authoring complete.** Source, current callers, provenance consumers and pinned profile/nextest contracts were inspected. RC01/RC02 and the default-local choice are operator-confirmed. No production/configuration change, Rust build, product test, compile probe, environment sync, cache cleanup or running-process intervention was performed for authoring.
+**2026-10-08: authoring complete; BC0 implemented and execution in progress.** Source, current callers, provenance consumers and pinned profile/nextest contracts were inspected. RC01/RC02 and the default-local choice are operator-confirmed. No production/configuration change, Rust build, product test, compile probe, environment sync, cache cleanup or running-process intervention was performed for authoring.
 
 The [independent design/target review](../design_review/reviews/design_review_rust-compilation-costs-plan_2026-10-08.md) **accepts the Proposed target within scope**, with A1–A4 satisfied and no new blocking findings. Its binding §4 clarification is reconciled in RC01's update route; it introduces no additional operator choice. Source F01–F04 remain open at §9. The exact source membership map was checked read-only: 42 extraction and 19 core driver consumers occur once in the proposed groups, with none missing or added.
 
 **Authoring checks, 2026-10-08: passed** `just docs-check` (ADR metadata, agent instructions, documentation publication/search and offline links: 343 canonical pages, zero link errors). The read-only source inventory check passed; 104 pre-existing dirty files outside authorized document edits remained byte-identical. **not_run:** product checks, compile probes and resumed PC acceptance, because this scope creates the plan documents. These checks do not establish product acceptance.
 
 The next implementation action is BC0's decision/owner routing, followed by the actual BC1/BC2 contract corrections. Existing PC1–PC5 work remains dirty and PC6 acceptance stays open. STATUS links to this plan for compilation-cost scope and to the persisted coordinator for its distinct execution boundary.
+
+**Execution checkpoint, 2026-10-08:** ADR-0137 carries forward the unaffected ADR-0136 decisions and installs the confirmed local/provenance target. Architectural owners, agent instructions and the review binding name the qualification-gated transition. BC1–BC5 checks remain pending; the dirty PC1–PC5 baseline is preserved.

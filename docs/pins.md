@@ -14,17 +14,17 @@ A row without a date is not verified.
 
 | Component | Pin | Reason | Revisit when | Verified |
 |---|---|---|---|---|
-| Rust toolchain | nightly-2026-09-29 (`rust-toolchain.toml`); manifest minimum remains 1.98.1 | Shared builds on one dated nightly (ADR-0136); never a floating `+nightly` or `+stable` | ADR-0136's trigger: a toolchain update breaks shared builds | 2026-09-28: `rustc -Vv`: 1.101.0-nightly, c1070d69382b8d2f2eb65119c738a77d9e324c9e, LLVM 23.1.1; `cargo -V`: 1.101.0-nightly (3d7cf6e93). Installed rustfmt/Clippy |
+| Rust toolchain | nightly-2026-09-29 (`rust-toolchain.toml`); manifest minimum remains 1.98.1 | Shared builds on one dated nightly (ADR-0137); never a floating `+nightly` or `+stable` | ADR-0137's trigger: a toolchain update breaks shared builds | 2026-09-28: `rustc -Vv`: 1.101.0-nightly, c1070d69382b8d2f2eb65119c738a77d9e324c9e, LLVM 23.1.1; `cargo -V`: 1.101.0-nightly (3d7cf6e93). Installed rustfmt/Clippy |
 | Python | 3.14.7 (`.python-version`, uv default) | Toolchain | a deliberate toolchain move | 2026-09-22: `uv run python --version` |
 | just | 1.58.0 or later | Toolchain | a deliberate toolchain move | 2026-09-22: `just --version` |
 | cargo-nextest | 0.9.146 | Toolchain | a deliberate toolchain move | 2026-10-07: `cargo nextest --version` |
-| cargo-hakari | 0.9.39 | Toolchain; generated CLI feature union (ADR-0136) | a deliberate toolchain move | 2026-09-28: `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` |
+| cargo-hakari | 0.9.39 | Toolchain; generated CLI feature union (ADR-0137) | a deliberate toolchain move | 2026-09-28: `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` |
 | sccache | 0.17.0 (required by `.cargo/config.toml`) | Toolchain | a deliberate toolchain move | 2026-09-24: `sccache --version`; cache wrapper; target-environment effect tested 2026-09-28 (cache evidence) |
 | cargo-insta | 1.48.0 | Toolchain | a deliberate toolchain move | 2026-09-22: `just doctor` |
 | cargo-deny | 0.20.2 (sees dev-only duplicates only for named crates; see ADR-0118) | Toolchain | a deliberate toolchain move | 2026-09-22: tested with a synthetic duplicate |
 | ast-grep | 0.45.3 | Toolchain | a deliberate toolchain move | 2026-09-22: `just doctor` |
 
-## Compute family and vendored sources (ADR-0118, ADR-0136)
+## Compute family and vendored sources (ADR-0118, ADR-0137)
 
 | Component | Pin | Reason | Revisit when | Verified |
 |---|---|---|---|---|
@@ -34,7 +34,7 @@ A row without a date is not verified.
 | petgraph | =0.8.3, default features plus `serde-1`, no `rayon` | Declared family (`check_family.py`); immutable typed graph snapshots serialize its structures (ADR-0103) | a snapshot format change or a deliberate graph upgrade | 2026-09-30: pinned source `graph_impl/serialization.rs` inspected; four focused snapshot controls passed (including 70,000-node multi-chunk roundtrip); full gate at Q |
 | postcard | =1.1.3, no defaults, `alloc` | Byte-stable binary graph snapshot wrapper around the petgraph Serde object (ADR-0103) | with petgraph | 2026-09-30: downloaded registry Cargo.toml and `to_slice`/`take_from_bytes`/`experimental::serialized_size` inspected; compile and roundtrip/size/truncation/resource controls passed; full gate at Q |
 | serde_arrow | =0.15.1, `arrow-59` | Its Arrow feature must equal the Arrow family (ADR-0085/0086) | with the Arrow family | 2026-09-29: exact registry manifest and arrow_impl.rs; explicit-schema typed round trip, fixed binary IDs/digests, optional values and primitive lists in `cargo test --release -p lctx-model --test domain` |
-| allocative | 0.3.6 with local upstream never-type backport (`third_party/allocative`, `[patch.crates-io]`) | Vendored source: backports the upstream never-type fix without upgrading Pyrefly's graph (ADR-0136) | Pyrefly's graph reaches an allocative release with the fix | 2026-09-28: published manifest/source and upstream commit `9711293c6de502d50583cafb12e4a7b764094d3a`; eight-line duplicate impl/obsolete feature removal |
+| allocative | 0.3.6 with local upstream never-type backport (`third_party/allocative`, `[patch.crates-io]`) | Vendored source: backports the upstream never-type fix without upgrading Pyrefly's graph (ADR-0137) | Pyrefly's graph reaches an allocative release with the fix | 2026-09-28: published manifest/source and upstream commit `9711293c6de502d50583cafb12e4a7b764094d3a`; eight-line duplicate impl/obsolete feature removal |
 | tikv-jemallocator | =0.7.0 (jemalloc 5.3.1): the binaries' global allocator, Linux/macOS | Pyrefly's own allocator dependency at its version; the allocator spike measured this release (ADR-0016) | Pyrefly's allocator requirement moves | 2026-09-23: Pyrefly's Linux/macOS dependency, already compiled; its CLI uses it; the allocator spike's 16 runs and H1's pilots |
 | blake3 | `=1.8.6` | Pyrefly requires this exact version; id derivation (DESIGN §3.4.1) | Pyrefly's requirement moves | 2026-10-03: unchanged exact workspace and Pyrefly requirement; Cargo.lock read |
 

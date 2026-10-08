@@ -14,6 +14,10 @@ complete contracts and current migration; acceptance remains with its coordinato
 
 > Decision: ADR-0135
 
+**Accepted compilation-cost target, 2026-10-08 (ADR-0137); implementation Proposed.** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.
+
+> Decision: ADR-0137
+
 **Accepted persisted compiler target / implementation in progress, 2026-10-07 (ADR-0133).**
 The [persisted graph execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this hard pivot and its focused acceptance. One Rust-owned graph governs semantic entities,
