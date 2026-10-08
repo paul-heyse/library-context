@@ -2,18 +2,18 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: Rust coroutine design review complete, 2026-10-08.**
-The [independent review](docs/design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md) requires revision for A4; inspected semantic/lifecycle boundaries hold. Phase/loader remedies remain Proposed.
-The [plan §9/§12/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#13-coroutine-architecture-review-checkpoint-2026-10-08) owns grouped F01 disposition, correction receipts and next structural boundaries; no parallel findings ledger.
+**Current scope: Rust coroutine correction plan authored, 2026-10-08.**
+The [companion](docs/plans/rust-coroutine-compilation-amplification-plan_2026-10-08.md) develops structural-first CU0–CU6 and confirmed recurrence. Its [independent target review](docs/design_review/reviews/design_review_rust-coroutine-compilation-amplification-plan_2026-10-08.md) accepts the revised Proposed target; source implementation remains open.
+The [compilation coordinator §9/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#9-sole-compilation-cost-finding-disposition) owns source/target-review finding disposition and combined BC1/BC3/BC5 closure; PC acceptance stays with its coordinator.
 [ADR-0137](docs/adr/0137-qualified-local-compilation.md) and the [target review](docs/design_review/reviews/design_review_rust-compilation-costs-plan_2026-10-08.md) retain the qualified local-default target.
 **Implemented / source reviewed:** ordered boxed C1 loaders/phases, shared stream setup, conditional coverage, native submission and charged writer completion; no material review defect.
 **passed (2026-10-08):** core/model all-test compile check and nine focused model controls (plan §12).
 **Measured partial diagnostic:** C1 MIR25,100→591; retained ≥1ms C1 InstCombine350.33s/353.16s→0.185s/0.266s (normal/harness). Full compile-time improvement is unmeasured.
 **Retained diagnosis:** matched raw structural IR and simplified LLVM reproduction show amplification; actual-rustc transformed PHI attribution remains unresolved (plan §12).
-**In progress:** focused native/core/C1 controls `20261008T202337.170Z-114602`; still compiling at21:47UTC, left untouched.
-**not_run:** structural correction, BC3 default installation, BC5 optimized acceptance; review does not establish native/runtime acceptance.
+**In progress:** focused native/core/C1 controls `20261008T202337.170Z-114602`; run observed running during authoring, left untouched.
+**not_run:** CU implementation, BC3 default installation, BC5 optimized acceptance; target review is not native/runtime acceptance.
 Active defaults remain release; available compiler/test parallelism, production settings and PC dirty work are preserved. Original tooling/docs receipts stay in plan §11/§12.
-**passed (review documents, 2026-10-08):** `just docs-check` (344 pages, zero link errors); no new product checks or compiler runs.
+**passed (authoring, 2026-10-08):** `just docs-check` (346 pages, zero link errors), static grouped-command resolution and preservation checks (companion §7); no product checks/new compiler runs.
 
 **Persisted graph correction packages PC0–PC6 remain pending acceptance.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)

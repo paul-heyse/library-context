@@ -10,6 +10,13 @@ Inspected baseline: main `8511eb5fe27498815ce4433fd2d0029aa2e6016e`, plus the di
 
 This document owns compilation-cost sequencing and the sole scheduled disposition of source-review F01–F04 in §9. Architectural owners retain enduring contracts: [DESIGN §1.2](../design/DESIGN.md#section-1-2), [acquisition/extraction §4](../design/sections/acquisition-and-extraction.md) and [semantic model §15](../design/sections/semantic-model.md). The [persisted-execution coordinator](persisted-graph-execution-plan_2026-10-07.md) continues to own PG/PC completion, its source findings and native/CLI/MCP acceptance. Its [correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies captured bindings and complete operation outcomes; accepting this plan does not close PC6.
 
+The [coroutine companion](rust-coroutine-compilation-amplification-plan_2026-10-08.md) develops
+the subsequent coroutine review's F01 correction within BC1: structural first, then mandatory
+assessment and correction of confirmed recurrence across named workspace owners. Its CU0–CU6
+packages consume these contracts without another finding-status ledger. This coordinator retains
+the combined completion boundary; no new default, compiler/toolchain change or native acceptance
+is implied by authoring the companion.
+
 Plan authoring changes documentation only. During implementation, preserve current source repairs, exact pins, shared caches/intermediates, available compiler/test parallelism, disposable fixture ownership, operator state and protected evaluation inputs. Do not routinely clean Cargo caches, add job/thread caps, synchronize a live native environment, or interrupt another running build. A performance campaign, toolchain upgrade and real-library pilot are not prerequisites to correcting the demonstrated architecture.
 
 ## 2. Confirmed rule changes and target defaults
@@ -51,6 +58,14 @@ For completed-input streaming, keep exact typed permit/declaration matching and 
 Migration covers every `NativeCalls` caller, workspace registration/write/completion path and `stream_at`/`stream_where_at`/`stream_query_at` consumer, including artifact admission, C0/C1/C2/S0/E0, structural/analytic/behavioral stages and their generated inventories. Genuinely record-specific codecs and row algorithms remain concrete. Where a large stage future remains after sharing these mechanics, split coherent load/compute/emit operations using boxed stage boundaries; do not mechanically split every macro or impose blanket `inline(never)`.
 
 The allocation/dispatch change occurs per request/batch, not per row. Native transport already has asynchronous ownership and crossings, but production runtime preservation still requires the focused operational qualification in §7.
+
+**Proposed coroutine extension, 2026-10-08:** sharing the physical stream does not contain an
+enclosing typed await inventory. The [companion §3/§4](rust-coroutine-compilation-amplification-plan_2026-10-08.md#3-target-operations-and-internal-interfaces)
+selects borrowed coherent phases and inventory-derived ordered loaders, including nested scoped
+readers, children and drops. Structural is first; confirmed summary/model, selection/synthesis,
+retrieval, analytic/semantic-execution and normalization patterns follow with their actual consumers.
+Retain stage-owned selection/cardinality policy and typed leaves. Bulk output is conditional on
+residual evidence and buffering/cancellation contract design, not a prerequisite API replacement.
 
 ### 3.2 Provider and native execution provenance — F02
 
@@ -148,7 +163,7 @@ BC0 decision/owner updates are implemented. BC1/BC2 source and BC4 grouping are 
 | Package | Working prerequisite | Delivered capability and completion boundary |
 |---|---|---|
 | **BC0 — decisions and architecture** | Confirmed RC01/RC02 and default choice; independent target-plan review resolved | Successor/complementary ADR routes and affected owner/instruction updates. Declare the qualification-gated local target without changing the active default prematurely. Preserve all unaffected ADR-0135/0136 obligations. |
-| **BC1 — shared checked async mechanics** | BC0; current PC1 completion/PC2 binding contracts integrated | Erase requests before scheduling; own charged synchronous/asynchronous writes; shared registration and read-only batch streaming; migrate all callers/selected stages. Focused failure, lifetime and output controls plus structural specialization evidence. |
+| **BC1 — shared checked async mechanics** | BC0; current PC1 completion/PC2 binding contracts integrated | Erase requests before scheduling; own charged writes; shared registration/streaming; migrate all callers and confirmed enclosing coroutine patterns through companion CU0–CU6. Focused failure, lifetime, output and whole-operation compiler evidence. |
 | **BC2 — scoped implementation provenance** | BC0; captured supplier/spec/inventory contracts integrated | Rooted dependency/asset fingerprints, raw provider identity and composed workspace execution identity; actual production and cold-transport consumers migrate together. Mutation, relocation/deletion and ingestion-only controls. |
 | **BC3 — qualify and install local tests** | BC1's large/request future boundaries; working single-profile selection | Candidate O1/LTO-off controls on normal stacks and parallelism; default-test installation, verifier artifact/reporting migration and candidate retirement. Release production route independently retained. |
 | **BC4 — grouped harness compilation** | Settled verification/module mapping; BC1 interfaces for affected test calls | All listed driver consumers regrouped, one driver per group, selectors migrated and fixture independence retained. Discovery/source-inclusion comparison and affected grouped controls. |
@@ -157,6 +172,12 @@ BC0 decision/owner updates are implemented. BC1/BC2 source and BC4 grouping are 
 Recommended route: BC0 → BC1, with BC2 independently ready after BC0; then BC3/BC4 on their concrete prerequisites; BC5 integrates. BC4 mapping can be prepared earlier. BC3 candidate configuration/selection can be designed early, but its stack/runtime qualification cannot substitute for BC1 or silently change the default.
 
 Do not wait for unrelated PC6 acceptance to remove known compiler amplification. Consume its already integrated completion/binding contracts, refresh tests affected by BC changes and preserve its open restored-coverage and native journey obligations. BC5 and PC6 can share a valid final-tree receipt without duplicating executions, but each plan closes only its own obligations. An old-tree or differently profiled receipt is not interchangeable.
+
+The companion orders CU1 structural containment before further stage migrations, then permits
+CU2–CU4 on working shared contracts with distinct editing ownership. CU5 resolves the conditional
+output decision; CU6 integrates whole-operation evidence. BC3 must qualify its exercised paths
+with working containment, not merely a smaller parent function. Full F01 closure additionally
+requires all confirmed migrations and justified exclusions. Existing BC2/BC4 work is not reopened.
 
 ## 6. Migration and deliberate limits
 
@@ -174,6 +195,7 @@ Commands below are **planned / not_run** for implementation. During each package
 |---|---|
 | BC1: core library/unit controls; selected `compiler:producer` and native store controls | Acknowledged success, primary failure, receiver disappearance/late failure, cancellation before/after submit, failed join retained, interrupted/retried drainage; reservation stays held while a cancelled sync/async write is still running and releases at terminality; declared/empty/duplicate outputs and exact input epochs/read-only refusal. Use independent expected rows and an explicitly observed reservation lifetime. |
 | BC1 structural/runtime scope | Inspect representative emitted symbols from the first necessary build: concrete record/closure types no longer determine Tokio task/submission machinery. Shared stream/setup source is monomorphic. Qualify request/batch allocation and dispatch over revealing actual production operations; claim no unchanged runtime performance from source alone. Reuse ordinary acceptance runs, not a separate broad benchmark prerequisite. |
+| BC1 coroutine extension, companion CU1–CU6 | Inspect parent, typed loader/emitter children and drops across CGUs; exact-prefix overlap, first-error order, unpolled-operation laziness, stage-specific selection and per-grain charge lifetime. Compare actual pinned normal/harness compiler evidence; a moved oversized child or parent-only shrinkage does not establish closure. CU5 adds bulk-output controls only if its conditional design is selected. |
 | BC2: fingerprint/model/provider controls, selected compiler/store transport | Serving/core-only versus provider/model/analyzer/asset mutations affect proper scopes; optional/target/path/build roots handled conservatively; added/deleted assets and relocation stable; no recursive Cargo invocation; ingestion-only changes alter execution identity while supplier code stays scoped. Cold restore/inventory retains the captured composite hash under a different current build. |
 | BC3: candidate normal libraries, tests, CLI main and finite/native controls | Resolved effective profiles, candidate-built CLI path, normal test/main stacks, assertions/overflow semantics, test discovery/filtering and runtime adequacy. Preserve and separately exercise release-only oracle/extension controls. After install, verify bare nextest and verifier resolve test, and explicit production selection resolves release. |
 | BC4: extraction/core grouped targets and verifier harness controls | Each old test appears exactly once under its topic module; selected provider case set remains equivalent; driver compiled once per group; user filters intersect; fixture namespace/environment state independent under normal parallelism. Run all affected grouped cases once at this package's functional completion, not just a discovery mock. |
@@ -188,7 +210,8 @@ Current available command forms include `just verify --print --select compiler:p
 | Question from the source review | Disposition and settling evidence |
 |---|---|
 | Dominant current backend body/pass | **Measured partial diagnostic / source-reviewed, 2026-10-08 (§12/§13).** Retained C1-related completed InstCombine events fall sharply after the ordered boxed-loader correction. Matched pre-optimization IR and a simplified pinned-LLVM reproducer attribute a related PHI-heavy path to the structural producer. The exact active pass/optimized PHI shape in the actual compiler remains unresolved; the broader coroutine review supports coherent phase/loader containment without claiming a compiler defect or full-build speedup. |
-| Runtime overhead of erasure | **Scheduled in BC1/BC5.** Owned batch-level requests and actual operational controls; compare timing only under separately named conditions before claiming equivalent performance. Correct a material regression before closure. |
+| Runtime overhead of erasure | **Scheduled in BC1/BC5 and companion CU1–CU6.** Owned batch-level requests, coarse borrowed adapters/phases and actual operational controls; compare timing only under separately named conditions before claiming equivalent performance. Correct a material regression before closure. |
+| Whole-operation containment, recurrence and output refinement | **Scheduled in companion CU0–CU6.** Mandatory assessment of every named candidate; correct confirmed patterns with their consumers and justify exclusions. Preserve specialized selection/cardinality, inspect children/drop bodies, and retain current output API unless residual evidence plus preserved buffering/error/cancellation semantics justify CU5. |
 | O1 versus O0 | **O1 selected; qualification scheduled in BC3.** Known O0 stack failures prevent automatic fallback. Any failure drives coherent future/stack ownership correction. |
 | Exact provider closure | **Selected at conservative normal/build crate/asset scope in BC2.** Mutation/deletion/relocation and capture consumers establish completeness. Finer lockfile/source granularity is deferred until repeated relevant invalidation exposes a concrete need. |
 | Best harness grouping | **Selected in §3.4; qualified in BC4.** Discovery, source inclusion, selected-case equivalence and fixture independence settle the physical migration. Residual skew can justify changing groups; it cannot justify dropping controls. |
@@ -203,10 +226,11 @@ The source reviews own their dated diagnoses/evidence; this table owns current s
 
 | Source finding | Disposition | Responsible component / scheduled work | Closure evidence |
 |---|---|---|---|
-| [Compilation-cost F01](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F01); [coroutine review F01](../design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md#F01) | **open** | NativeCalls/workspace/consumed-row/stage and scoped-loader owners; BC1/BC5 | Shared emitted task path and setup/stream source; residual generic/C1 correction (§12); coherent structural and recurring scope-loader boundaries containing child futures and drop paths (§13); complete caller migration; preserved input/output, charged cancellation/drain and completion contracts; operational runtime qualification. Conditional bulk append requires a separate semantic comparison before adoption. |
+| [Compilation-cost F01](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F01); [coroutine review F01](../design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md#F01) | **open** | NativeCalls/workspace/consumed-row/stage and scoped-loader owners; BC1/BC5, [companion CU0–CU6](rust-coroutine-compilation-amplification-plan_2026-10-08.md#4-execution-packages-and-concrete-dependencies) | Shared emitted task/setup paths; residual generic/C1 correction (§12); structural and confirmed recurring boundaries containing children/drops; complete caller migration and justified exclusions; actual input/output, charged cancellation/drain and completion controls; actual-settings compiler fit and operational qualification. CU5 resolves bulk append conditionally before adoption. |
 | [Compilation-cost F02](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F02) | **open** | Extraction fingerprint and workspace execution-identity owners; BC2/BC5 | Relevant production closure, unrelated downstream stability, relevant mutation/deletion/relocation effects and captured composite cold transport. |
 | [Compilation-cost F03](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F03) | **open** | Cargo/verification/CLI artifact owners; BC3/BC5 | Qualified O1/LTO-off normal-stack local loop, installed default selection, truthful profile receipts and retained release acceptance. |
 | [Compilation-cost F04](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F04) | **open** | Extraction/core harness and verification selection owners; BC4/BC5 | Grouped target/source inventory, one shared driver per group, preserved discovery/selection/assertions and independently owned concurrent fixtures. |
+| [Coroutine target-review F01](../design_review/reviews/design_review_rust-coroutine-compilation-amplification-plan_2026-10-08.md#F01) | **resolved in Proposed target, 2026-10-08** | Companion author and model producer/scoped-loader owner; CU2/CU6 | Explicit `semantic_models::apply`/`publish_records` scope, roots/merge/evidence preservation and independent acceptance cases added to companion §2/§3.1/CU2/§6; independent follow-up accepts the revised target. This closes the authoring coverage gap only; source F01 and actual model-production correction/acceptance remain open. |
 
 ## 10. Authoring checkpoint and next action
 
@@ -548,6 +572,26 @@ compiler settings, then qualify affected native/runtime contracts. Exact actual-
 and transformed-PHI attribution remains an investigation if it could alter the remedy or establish
 a compiler defect. Raw instruction counts cannot establish elapsed-cost priority. Whole-build and
 runtime performance remain unmeasured; BC3/BC5 and current PC acceptance remain open.
+
+**Coroutine plan authoring, 2026-10-08:** the [companion target](rust-coroutine-compilation-amplification-plan_2026-10-08.md)
+now develops those boundaries and CU0–CU6. The operator selected structural first plus mandatory
+assessment/correction of confirmed named workspace recurrence. Its target remains Proposed;
+F01's scheduled closure is unchanged until implementation and actual evidence. The companion's
+§5 carries all five source-review investigations and conditional output/cardinality questions.
+
+The [independent companion target review](../design_review/reviews/design_review_rust-coroutine-compilation-amplification-plan_2026-10-08.md)
+accepts the revised Proposed target within scope, with A1–A4 satisfied and no remaining blocking
+target finding or rule impact. Its stable F01 identified omitted model production; CU2 now covers
+the actual apply/publication consumer and independent catalog/root/merge evidence cases. §9 owns
+that resolved authoring disposition separately from the still-open source implementation finding.
+The review's document hashes identify the inspected target snapshot before publication/checkpoint
+links were added; those later additions do not change the reviewed target or package contracts.
+
+**Companion authoring complete, 2026-10-08:** `just docs-check` **passed** (346 canonical pages,
+zero link errors), scoped diff checks and four grouped-selector static resolutions passed.
+Static native readiness names a missing user systemd bus; no fixture/build ran. The companion
+§7 owns authoring receipts and preservation limits. Source CU work, BC3/BC5 and PC6 acceptance
+remain open; the existing actual native run was left untouched and still reports compilation.
 
 **Review execution scope:** no source correction, new build, compiler pass replay, sampling,
 test run, environment synchronization, process stop or cache cleanup. The coordinator inspected
