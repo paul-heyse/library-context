@@ -126,20 +126,54 @@ def test_background_run_is_observed_cancelled_and_others_survive(root: Path) -> 
     assert status(second)["state"] == "cancelled"
 
 
-def test_killed_launcher_leaves_a_discoverable_interrupted_run(root: Path) -> None:
+def test_killed_background_owner_takes_its_command_down(root: Path) -> None:
+    """The detached owner ties its command by a parent-death signal: no orphaned work."""
     ref = start_background("sleep", "120")
     record = status(ref)
     owner, pgid = record["owner"]["pid"], record["child"]["pgid"]
     os.kill(owner, signal.SIGKILL)
     wait_for(lambda: not ProcessIdentity.from_json(record["owner"]).alive())
-
+    wait_for(lambda: group_members(pgid) == [])
     interrupted = status(ref)
-    assert interrupted["state"] == "interrupted"
-    assert interrupted["termination"] is None
-    assert interrupted["survivors"] == group_members(pgid) != []
+    assert interrupted["state"] == "interrupted" and interrupted["termination"] is None
     assert runs.resolve(ref) not in runs.prune_candidates(0, None)
 
-    finalized = json.loads(cli("cancel", ref, "--json").stdout)
+
+def test_killed_foreground_launcher_takes_its_command_down(root: Path) -> None:
+    """A tool timeout SIGKILLs the foreground launcher; the command (verify, nextest…) must not
+    keep running in its own session."""
+    launcher = subprocess.Popen(
+        [sys.executable, str(SCRIPT), "run", "--label", "fg", "--", "sleep", "120"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    def started() -> bool:
+        try:
+            return (runs.load_record(runs.resolve("fg")) or {}).get("child") is not None
+        except runs.RunNotFound:
+            return False
+
+    try:
+        wait_for(started)
+        pgid = record_of("fg")["child"]["pgid"]
+        assert group_members(pgid)
+    finally:
+        launcher.kill()
+        launcher.wait()
+    wait_for(lambda: group_members(pgid) == [])
+    assert status("fg")["state"] == "interrupted"
+
+
+def test_survivors_that_ignore_termination_are_discoverable_and_cancellable(root: Path) -> None:
+    ref = start_background("sh", "-c", "trap '' TERM; sleep 120")
+    record = status(ref)
+    owner, pgid = record["owner"]["pid"], record["child"]["pgid"]
+    os.kill(owner, signal.SIGKILL)
+    wait_for(lambda: status(ref)["state"] == "interrupted")
+    interrupted = status(ref)
+    assert interrupted["survivors"] == group_members(pgid) != []
+    finalized = json.loads(cli("cancel", ref, "--grace", "1", "--json").stdout)
     assert finalized["termination"] == "cancelled"
     assert finalized["cancel"]["owner_dead"] is True
     assert group_members(pgid) == []

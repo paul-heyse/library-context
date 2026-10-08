@@ -11,7 +11,8 @@ from typing import Any
 import pytest
 
 import verify
-from verify import Boundary, Observation, Options, PlanError, Runtime, Selection, Step
+from verify import Boundary, Options, PlanError, Runtime, Selection, Step
+from workspace_env import Readiness
 
 
 def plan_of(*args: str, options: Options | None = None):
@@ -33,6 +34,8 @@ def test_drill_selection_is_one_static_plan_with_each_filter_at_its_owner(monkey
     def forbidden(*args, **kwargs):
         raise AssertionError("--print must not launch anything")
 
+    # The only command a static plan runs is Cargo's read-only target report; take it first.
+    verify.cargo_targets()
     monkeypatch.setattr(verify.subprocess, "run", forbidden)
     monkeypatch.setattr(verify.subprocess, "Popen", forbidden)
     monkeypatch.setattr(verify, "real_fixture", forbidden)
@@ -40,8 +43,7 @@ def test_drill_selection_is_one_static_plan_with_each_filter_at_its_owner(monkey
         verify,
         "observe_requirements",
         lambda required, static=False: {
-            r: Observation(r, None if r == "native-python" else True, f"{r}: observed")
-            for r in required
+            r: Readiness(r, "tools", True, (), "") for r in required if r != "native-python"
         },
     )
     code = verify.main(
@@ -72,10 +74,9 @@ def test_drill_selection_is_one_static_plan_with_each_filter_at_its_owner(monkey
     assert "native_session" not in " ".join(steps[("serving:mcp", "native_journey")])
     assert all("--no-tests=fail" in argv for (b, s), argv in steps.items() if s == "nextest")
     fixture_env = data["boundaries"][0]["steps"][0]["env"]
-    assert (
-        "LCTX_SURREAL_TEST_CONFIG" in fixture_env and "LCTX_COMPILER_RUNTIME_CONFIG" in fixture_env
-    )
-    assert data["readiness"]["native-python"]["ready"] is None
+    assert set(verify.fixture_variables()) <= set(fixture_env)  # named by the fixture module
+    assert "native-python" not in data["readiness"]
+    assert data["unobserved"] == ["native-python"]
 
 
 def test_shared_tool_arguments_reach_every_owner_and_scoped_ones_stay_scoped():
@@ -118,14 +119,14 @@ def test_tool_arguments_without_an_owner_are_refused():
 
 
 def test_family_shortcuts_route_to_the_primary_tool():
-    assert verify.legacy(["model", "-E", "test(ids)"]) == [
+    assert verify.legacy(["model", "--", "-E", "test(ids)"]) == [
         "--select", "model", "--nextest-args", "-E 'test(ids)'"
     ]  # fmt: skip
     assert verify.legacy(["serving", "--command", "mcp", "--", "-k", "session"]) == [
         "--select", "serving:mcp", "--pytest-args", "-k session"
     ]  # fmt: skip
     with pytest.raises(PlanError, match="choose --command"):
-        verify.legacy(["serving", "-k", "x"])
+        verify.legacy(["serving", "--", "-k", "x"])
     assert verify.legacy(["qualify"]) == ["--qualify"]
 
 
@@ -197,6 +198,14 @@ class FakeAttachment:
         return {"name": name, "content": {"semantic": "s2"}}
 
 
+class FakeOwnership:
+    def __init__(self, required) -> None:
+        self.required = required
+
+    def environment(self, base):
+        return {**base, "LCTX_ENV_OWNERSHIP": "token:" + ",".join(sorted(self.required))}
+
+
 class Fake:
     def __init__(self, codes: dict[str, int] | None = None, ready: set[str] | None = None) -> None:
         import tempfile
@@ -230,8 +239,7 @@ class Fake:
 
     def observe(self, required):
         return {
-            r: Observation(r, self.ready is None or r in self.ready, f"{r}: x", f"just sync {r}")
-            for r in required
+            r: Readiness(r, r, self.ready is None or r in self.ready, (), "x") for r in required
         }
 
     def runtime(self, stop=lambda: False) -> Runtime:
@@ -239,7 +247,7 @@ class Fake:
             observe=self.observe,
             run=self.run,
             fixture=self.fixture,
-            owner=lambda required, report: contextlib.nullcontext(),
+            owner=lambda required, report: contextlib.nullcontext(FakeOwnership(required)),
             progress=lambda **fields: self.progress.append(fields),
             report=lambda message: None,
             release_dir=Path("/release"),
@@ -400,7 +408,7 @@ def test_pure_boundaries_take_no_ownership_and_python_ones_share(tmp_path, monke
 
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.delenv("LCTX_ENV_OWNERSHIP", raising=False)
-    for boundary in ("model:rust", "providers:flow", "tooling:docs"):
+    for boundary in ("compiler:producer", "providers:flow", "tooling:docs"):
         with verify.environment_owner(verify.boundaries()[boundary].requirements) as owned:
             assert owned.resources == ()
     with verify.environment_owner(verify.boundaries()["serving:mcp"].requirements) as owned:
@@ -427,23 +435,118 @@ def test_readiness_observes_native_substrate_and_never_synchronizes():
         native=lambda r: calls.append(("native", r)) or Seen(False),
     )
     assert calls == [("native", "native-store"), ("python", "tools")]
-    assert observed["native-python"].ready is None
+    assert "native-python" not in observed
     assert observed["native-store"].ready is False
 
 
 def test_every_named_default_target_exists():
-    layout = verify.workspace_packages()
+    """Against Cargo's own report (cargo metadata, read-only)."""
+    known = verify.cargo_targets()
     for boundary in verify.BOUNDARIES:
         for step in boundary.steps:
-            if step.tool == "nextest":
-                for option, name in verify.target_options(step.targets):
-                    if name is not None:
-                        owners = [
-                            p
-                            for p in step.packages
-                            if name
-                            in getattr(
-                                verify.package_targets(p, layout[p]), verify.NAMED_TARGETS[option]
-                            )
-                        ]
-                        assert owners, (boundary.id, option, name)
+            for option, name in verify.target_options(step.targets):
+                if name is not None:
+                    kind = verify.NAMED_TARGETS[option]
+                    assert any(name in known[p].get(kind, set()) for p in step.packages), (
+                        boundary.id,
+                        option,
+                        name,
+                    )
+
+
+# ---------------------------------------------------------------------------------------------
+# Review findings (2026-10-08): F02 shortcut options, F03 --cli, F04 evidence, F07, F08, targets
+
+TARGETS = {
+    "lctx-surrealdb": {"lib": {"lctx_surrealdb"}, "test": {"native", "cache"}},
+    "lctx-publisher": {"lib": {"lctx_publisher"}, "test": {"publication"}},
+}
+
+
+def shortcut(*args: str):
+    namespace = verify.parse_args(verify.legacy(list(args)))
+    return namespace, verify.options_from(namespace)
+
+
+def test_shortcut_options_reach_the_plan_parser_and_only_the_remainder_passes_through():
+    namespace, options = shortcut(
+        "store", "--cargo-config", "profile.release.debug=0", "--print", "--", "-E", "test(x)"
+    )
+    assert options.cargo_config == ("profile.release.debug=0",) and namespace.print
+    (planned,) = verify.resolve(namespace.selections, options)
+    argv = argv_of(planned, "nextest")
+    assert argv[:5] == ("cargo", "nextest", "run", "--config", "profile.release.debug=0")
+    assert argv[-2:] == ("-E", "test(x)") and "--cargo-config" not in argv
+
+    namespace, options = shortcut(
+        "serving", "--command", "mcp", "--attach", "abc", "--serving", "pilot", "--print"
+    )
+    assert (options.attach, options.serving) == ("abc", "pilot")
+    (planned,) = verify.resolve(namespace.selections, options)
+    assert [s.skipped is not None for s in planned.steps] == [False, True, False]
+    assert "--attach" not in argv_of(planned, "pytest")
+
+    namespace, options = shortcut("compiler", "--command", "producer", "--nextest-args", "--lib")
+    (planned,) = verify.resolve(namespace.selections, options)
+    assert argv_of(planned, "nextest")[-3:] == ("-p", "cpg-core", "--lib")
+
+    namespace, options = shortcut("store", "--cli", "--live", "--retain-serving", "x")
+    assert options.cli and namespace.live and options.retain_serving == "x"
+
+
+def test_shortcut_refuses_unknown_options_before_the_separator():
+    with pytest.raises(PlanError, match="tool arguments go after `--`"):
+        verify.legacy(["model", "-E", "test(ids)"])
+    for option in ("--select", "--rerun"):
+        with pytest.raises(PlanError, match="not a family-shortcut option"):
+            verify.legacy(["model", option, "x"])
+
+
+def test_cli_exercises_the_cli_in_the_steps_that_read_it():
+    options = Options(cli=True)
+    fake = Fake()
+    verify.execute(
+        plan_of("--select", "store", options=options), fake.runtime(), options, fake.logs
+    )
+    assert fake.commands[0][:2] == ("cargo", "build")
+    assert fake.envs[1]["LCTX_REMEDIATION_CLI_BIN"] == "/release/lctx"
+    plain = Fake()
+    verify.execute(plan_of("--select", "store"), plain.runtime(), Options(), plain.logs)
+    assert len(plain.commands) == 1 and "LCTX_REMEDIATION_CLI_BIN" not in plain.envs[0]
+
+
+def test_a_server_exit_without_oom_evidence_is_a_failure():
+    fake = Fake()
+    fake.on_run = lambda argv: setattr(fake.attachments[-1].server, "ended", "exit-code")
+    (result,) = verify.execute(plan_of("--select", "store"), fake.runtime(), Options(), fake.logs)
+    assert result["outcome"] == "failed"
+    assert result["reason"] == "fixture server exited (exit-code) during the step"
+    assert result["steps"][-1]["outcome"] == "failed"
+
+
+def test_requirements_follow_what_boundaries_import():
+    declared = {b.id: b.requirements for b in verify.BOUNDARIES}
+    assert "tools" in declared["model:rust"]  # presentation.rs: uv run --no-sync python
+    assert "tools" in declared["providers:extract"]  # harness.rs: uv run --no-sync pyrefly
+    for pure in ("compiler:producer", "compiler:cli", "store:rust", "serving:rust"):
+        assert declared[pure] & {"tools", "native-python"} == set(), pure
+
+
+def test_step_children_receive_the_ownership_token():
+    fake = Fake()
+    verify.execute(plan_of("--select", "model"), fake.runtime(), Options(), fake.logs)
+    assert fake.envs[0]["LCTX_ENV_OWNERSHIP"] == "token:tools"
+
+
+def test_named_target_narrows_and_unknown_names_the_package_set():
+    store = verify.boundaries()["store:rust"]
+    step = store.steps[-1]
+    assert verify.narrow(store, step, ["--test", "publication"], TARGETS) == (
+        ("lctx-publisher",),
+        (),
+    )
+    assert verify.narrow(store, step, ["--lib"], TARGETS)[0] == step.packages
+    with pytest.raises(PlanError) as error:
+        verify.narrow(store, step, ["--test=nope"], TARGETS)
+    assert "(lctx-surrealdb, lctx-publisher)" in str(error.value)
+    assert "lctx-publisher: publication" in str(error.value)

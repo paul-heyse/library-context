@@ -32,7 +32,6 @@ import signal
 import subprocess
 import sys
 import time
-import tomllib
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -61,7 +60,8 @@ class Step:
     ``tool`` is ``nextest`` (packages + default targets), ``pytest`` (paths), ``cargo`` (a full
     cargo argv such as a build) or ``just`` (a recipe). Only nextest and pytest steps receive
     tool arguments. ``env`` values may use ``{release}`` (the release artifact directory) and
-    ``{serving}`` (the serving configuration this boundary produces or reuses).
+    ``{serving}`` (the serving configuration this boundary produces or reuses); ``option_env``
+    entries apply only when their option (e.g. ``cli``) is selected.
     """
 
     name: str
@@ -73,6 +73,7 @@ class Step:
     produces_serving: bool = False
     restart_after: bool = False
     when: str | None = None  # an option that enables this step (e.g. "cli")
+    option_env: tuple[tuple[str, str, str], ...] = ()  # (option, name, value) when option is set
 
 
 @dataclass(frozen=True)
@@ -103,8 +104,10 @@ def tests(*names: str) -> tuple[str, ...]:
     return tuple(item for name in names for item in ("--test", name))
 
 
-STORE = frozenset({"tools", "native-store"})
-SERVING = frozenset({"tools", "native-serving"})
+# Requirements follow what a boundary's commands import (D1): `tools` only where a command runs
+# the shared environment (`uv run`), never because a family once declared it.
+STORE = frozenset({"native-store"})
+SERVING = frozenset({"native-serving"})
 LEAVES_NEEDING_TOOLS = frozenset(
     {"ruff", "types", "docs-check", "deps", "gold", "adr-lint", "fixtures-check"}
 )
@@ -123,7 +126,14 @@ LEAVES = (
 )
 
 BOUNDARIES: tuple[Boundary, ...] = (
-    Boundary("model", "rust", "model declarations", (nextest("nextest", "lctx-model"),)),
+    # presentation.rs runs `uv run --no-sync python -I` against the shared environment.
+    Boundary(
+        "model",
+        "rust",
+        "model declarations",
+        (nextest("nextest", "lctx-model"),),
+        frozenset({"tools"}),
+    ),
     Boundary("analytics", "rust", "analytics kernels", (nextest("nextest", "lctx-analytics"),)),
     Boundary(
         "providers",
@@ -148,7 +158,8 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 ),
             ),
         ),
-        STORE,
+        # tests/harness.rs runs `uv run --no-sync pyrefly`.
+        STORE | {"tools"},
         fixture=True,
     ),
     Boundary(
@@ -198,7 +209,8 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 "nextest",
                 "nextest",
                 packages=("lctx-surrealdb", "lctx-publisher"),
-                env=(),
+                # publication.rs selects through this CLI when set, else in-process.
+                option_env=(("cli", "LCTX_REMEDIATION_CLI_BIN", "{release}/lctx"),),
             ),
         ),
         STORE,
@@ -326,57 +338,35 @@ def families() -> dict[str, list[Boundary]]:
 
 
 # ---------------------------------------------------------------------------------------------
-# Workspace packages and their targets (static: manifests and file layout only)
+# Workspace targets, as Cargo reports them (read-only; builds nothing)
+
+LIBRARY_KINDS = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
+_CARGO_TARGETS: dict[str, dict[str, set[str]]] | None = None
 
 
-@dataclass(frozen=True)
-class Targets:
-    lib: bool
-    bins: frozenset[str]
-    tests: frozenset[str]
-    examples: frozenset[str]
-    benches: frozenset[str]
+def cargo_targets() -> dict[str, dict[str, set[str]]]:
+    """package -> target kind -> names, from `cargo metadata --no-deps --offline`."""
+    global _CARGO_TARGETS
+    if _CARGO_TARGETS is None:
+        done = subprocess.run(
+            ("cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        found: dict[str, dict[str, set[str]]] = {}
+        for package in json.loads(done.stdout)["packages"]:
+            kinds = found.setdefault(package["name"], {})
+            for target in package["targets"]:
+                for kind in target["kind"]:
+                    kind = "lib" if kind in LIBRARY_KINDS else kind
+                    kinds.setdefault(kind, set()).add(target["name"])
+        _CARGO_TARGETS = found
+    return _CARGO_TARGETS
 
 
-def workspace_packages(root: Path = ROOT) -> dict[str, Path]:
-    manifest = tomllib.loads((root / "Cargo.toml").read_text())
-    directories: list[Path] = []
-    for member in manifest["workspace"]["members"]:
-        if "*" in member:
-            directories += sorted(path.parent for path in root.glob(f"{member}/Cargo.toml"))
-        else:
-            directories.append(root / member)
-    found = {}
-    for directory in directories:
-        package = tomllib.loads((directory / "Cargo.toml").read_text()).get("package", {})
-        if "name" in package:
-            found[package["name"]] = directory
-    return found
-
-
-def _auto(directory: Path, explicit: list[dict[str, Any]], fallback: str | None = None) -> set:
-    names = {item["name"] for item in explicit if "name" in item}
-    if directory.is_dir():
-        names |= {p.stem for p in directory.glob("*.rs")}
-        names |= {p.parent.name for p in directory.glob("*/main.rs")}
-    if fallback:
-        names.add(fallback)
-    return names
-
-
-def package_targets(name: str, directory: Path) -> Targets:
-    manifest = tomllib.loads((directory / "Cargo.toml").read_text())
-    main = name if (directory / "src" / "main.rs").is_file() else None
-    return Targets(
-        lib=(directory / "src" / "lib.rs").is_file() or "lib" in manifest,
-        bins=frozenset(_auto(directory / "src" / "bin", manifest.get("bin", []), main)),
-        tests=frozenset(_auto(directory / "tests", manifest.get("test", []))),
-        examples=frozenset(_auto(directory / "examples", manifest.get("example", []))),
-        benches=frozenset(_auto(directory / "benches", manifest.get("bench", []))),
-    )
-
-
-NAMED_TARGETS = {"--bin": "bins", "--test": "tests", "--example": "examples", "--bench": "benches"}
+NAMED_TARGETS = {"--bin": "bin", "--test": "test", "--example": "example", "--bench": "bench"}
 PLURAL_TARGETS = {"--lib", "--bins", "--tests", "--examples", "--benches", "--all-targets"}
 
 
@@ -409,46 +399,40 @@ def narrow(
     boundary: Boundary,
     step: Step,
     arguments: Sequence[str],
-    packages: Mapping[str, Path] | None = None,
+    targets: Mapping[str, Mapping[str, set[str]]] | None = None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """(packages, default targets) for a nextest step once the user's targets are known.
 
     Explicit target options replace the default targets. A named target narrows the packages to
     those of the boundary's package set that have it; one no package has is a plan error naming
-    the actual set."""
+    the actual set and what each package does have."""
     selections = target_options(arguments)
     if not selections:
         return step.packages, step.targets
-    layout = workspace_packages() if packages is None else packages
+    known = cargo_targets() if targets is None else targets
     kept: list[str] = []
     for option, name in selections:
         if option in PLURAL_TARGETS and option != "--lib":
             return step.packages, ()
-        owners = []
-        for package in step.packages:
-            targets = package_targets(package, layout[package])
-            if option == "--lib":
-                has = targets.lib
-            else:
-                has = name in getattr(targets, NAMED_TARGETS[option])
-            if has:
-                owners.append(package)
+        kind = "lib" if option == "--lib" else NAMED_TARGETS[option]
+        owners = [
+            package
+            for package in step.packages
+            if (
+                known.get(package, {}).get(kind)
+                if option == "--lib"
+                else name in known.get(package, {}).get(kind, set())
+            )
+        ]
         if not owners:
             what = "a library" if option == "--lib" else f"{option} {name}"
-            available = {
-                package: sorted(
-                    getattr(package_targets(package, layout[package]), NAMED_TARGETS[option])
-                )
-                if option != "--lib"
-                else []
-                for package in step.packages
-            }
             listing = "; ".join(
-                f"{package}: {', '.join(names) or '-'}" for package, names in available.items()
+                f"{package}: {', '.join(sorted(known.get(package, {}).get(kind, ()))) or '-'}"
+                for package in step.packages
             )
             raise PlanError(
                 f"{boundary.id}: no package in its set ({', '.join(step.packages)}) has {what}"
-                + (f" (available {NAMED_TARGETS[option]}: {listing})" if option != "--lib" else "")
+                f" (its {kind} targets: {listing})"
             )
         kept += [package for package in owners if package not in kept]
     return tuple(package for package in step.packages if package in kept), ()
@@ -514,13 +498,13 @@ def step_argv(
     nextest_args: Sequence[str],
     pytest_args: Sequence[str],
     options: Options,
-    packages: Mapping[str, Path] | None = None,
+    targets: Mapping[str, Mapping[str, set[str]]] | None = None,
     *,
     listing: bool = False,
 ) -> tuple[str, ...]:
     if step.tool == "nextest":
-        chosen, targets = narrow(boundary, step, nextest_args, packages)
-        selection = (*(item for p in chosen for item in ("-p", p)), *targets)
+        chosen, defaults = narrow(boundary, step, nextest_args, targets)
+        selection = (*(item for p in chosen for item in ("-p", p)), *defaults)
         head = (
             ("cargo", "nextest", "list", "--release", "--message-format", "json")
             if listing
@@ -548,7 +532,7 @@ def expand(select: str) -> list[Boundary]:
 def resolve(
     selections: Sequence[Selection],
     options: Options,
-    packages: Mapping[str, Path] | None = None,
+    targets: Mapping[str, Mapping[str, set[str]]] | None = None,
 ) -> list[Planned]:
     """One plan: every selected boundary with its own arguments routed to their owners."""
     shared = [s for s in selections if s.select is None]
@@ -597,7 +581,7 @@ def resolve(
                     skipped = "enabled by --cli"
                 elif step.produces_serving and options.serving:
                     skipped = f"reuses retained serving content {options.serving!r}"
-                argv = step_argv(boundary, step, nextest_args, pytest_args, options, packages)
+                argv = step_argv(boundary, step, nextest_args, pytest_args, options, targets)
                 steps.append(PlannedStep(step, argv, skipped))
             plan.append(
                 Planned(
@@ -621,12 +605,10 @@ def resolve(
 # Readiness (observation only)
 
 
-@dataclass(frozen=True)
-class Observation:
-    requirement: str
-    ready: bool | None  # None: not observed in this mode
-    message: str
-    repair: str = ""
+# A readiness observation is `workspace_env.Readiness` or `surrealdb_fixture.Readiness`: both have
+# `requirement`, `ready`, `repair` and `message()`. A static plan leaves `native-python` unobserved
+# (observing it needs the native input fingerprint); it is reported, not invented.
+UNOBSERVED_STATIC = ("native-python",)
 
 
 def observe_requirements(
@@ -635,38 +617,22 @@ def observe_requirements(
     static: bool = False,
     python: Callable[[str], Any] = workspace_env.observe,
     native: Callable[[str], Any] | None = None,
-) -> dict[str, Observation]:
-    """Observe each prerequisite; never synchronize or start anything.
-
-    ``static`` (``--print``) skips ``native-python``: observing it needs the native input
-    fingerprint, which a static plan does not compute."""
-    found = {}
+) -> dict[str, Any]:
+    """Observe each prerequisite; never synchronize or start anything."""
+    found: dict[str, Any] = {}
     for requirement in sorted(requirements):
+        if static and requirement in UNOBSERVED_STATIC:
+            continue
         if requirement in PYTHON_REQUIREMENTS:
-            if static and requirement == "native-python":
-                found[requirement] = Observation(
-                    requirement,
-                    None,
-                    f"{requirement}: observed at execution (needs the native input fingerprint)",
-                )
-                continue
-            observed = python(requirement)
-            found[requirement] = Observation(
-                requirement, observed.ready, observed.message(), observed.repair
-            )
+            found[requirement] = python(requirement)
         elif requirement in NATIVE_REQUIREMENTS:
             if native is None:
                 import surrealdb_fixture
 
                 native = surrealdb_fixture.substrate_readiness
-            observed = native(requirement)
-            found[requirement] = Observation(
-                requirement, observed.ready, observed.message(), observed.repair
-            )
+            found[requirement] = native(requirement)
         else:
-            found[requirement] = Observation(
-                requirement, False, f"unknown prerequisite {requirement}"
-            )
+            raise PlanError(f"unknown prerequisite {requirement}")
     return found
 
 
@@ -690,7 +656,7 @@ class Interrupted(Exception):
 class Runtime:
     """Everything execution touches outside this module; tests replace it with fakes."""
 
-    observe: Callable[[set[str]], dict[str, Observation]]
+    observe: Callable[[set[str]], dict[str, Any]]
     run: Callable[[Sequence[str], Mapping[str, str], Path, bool], int]
     fixture: Callable[[Options], contextlib.AbstractContextManager[Any]]
     owner: Callable[[frozenset[str], Callable[[str], None]], contextlib.AbstractContextManager[Any]]
@@ -710,7 +676,9 @@ def _fixture_blocked(error: BaseException) -> str | None:
     return f"fixture {kind}: {detail}" + (f"; repair: {repair}" if repair else "")
 
 
-def _server_end(attachment: Any) -> str | None:
+def _server_end(attachment: Any) -> tuple[str, str] | None:
+    """(outcome, reason) when the fixture server ended during a step. Only the fixture's OOM
+    report is infrastructure evidence (plan §5.8.5); any other end is a product failure."""
     server = getattr(attachment, "server", None)
     if server is None:
         return None
@@ -718,14 +686,14 @@ def _server_end(attachment: Any) -> str | None:
     if ended is None:
         return None
     if ended == "oom-kill":
-        return f"fixture OOM: server {server.id} was oom-killed (evidence: oom-kill)"
-    return f"fixture readiness: server {server.id} ended ({ended}) during the step"
+        return "blocked", f"fixture OOM: server {server.id} was oom-killed (evidence: oom-kill)"
+    return "failed", f"fixture server exited ({ended}) during the step"
 
 
 def run_boundary(
     planned: Planned,
     runtime: Runtime,
-    observations: Mapping[str, Observation],
+    observations: Mapping[str, Any],
     options: Options,
     log: Path,
     live: bool,
@@ -754,7 +722,7 @@ def run_boundary(
     missing = [observations[r] for r in sorted(boundary.requirements) if not observations[r].ready]
     if missing:
         reason = "; ".join(
-            f"prerequisite {o.requirement}: {o.repair or o.message}" for o in missing
+            f"prerequisite {o.requirement}: {o.repair or o.message()}" for o in missing
         )
         return done("blocked", reason)
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -765,13 +733,17 @@ def run_boundary(
         runtime.progress(waiting_reason=message.splitlines()[0])
 
     try:
-        with runtime.owner(boundary.requirements, waiting):
+        with runtime.owner(boundary.requirements, waiting) as owned:
             runtime.progress(waiting_reason=None)
+            # Children reuse this ownership instead of acquiring again (§5.8.4).
+            base = owned.environment(runtime.base_env)
             fixture_scope = (
                 runtime.fixture(options) if boundary.fixture else contextlib.nullcontext()
             )
             with fixture_scope as attachment:
-                return _run_steps(planned, runtime, options, attachment, log, live, result, done)
+                return _run_steps(
+                    planned, runtime, options, attachment, base, log, live, result, done
+                )
     except Interrupted:
         return done("not_run", "interrupted")
     except Exception as error:  # evidence-bearing fixture failures are infrastructure
@@ -797,13 +769,14 @@ def _run_steps(
     runtime: Runtime,
     options: Options,
     attachment: Any,
+    base: Mapping[str, str],
     log: Path,
     live: bool,
     result: dict[str, Any],
     done: Callable[[str, str], dict[str, Any]],
 ) -> dict[str, Any]:
     boundary = planned.boundary
-    env = dict(runtime.base_env)
+    env = dict(base)
     serving: Path | None = None
     if attachment is not None:
         result["fixture"] = {
@@ -835,6 +808,9 @@ def _run_steps(
         step_env = dict(env)
         for key, value in step.env:
             step_env[key] = _expand(value, runtime.release_dir, serving)
+        for option, key, value in step.option_env:
+            if getattr(options, option):
+                step_env[key] = _expand(value, runtime.release_dir, serving)
         runtime.progress(
             current_command=f"{boundary.id} {step.name}: {shlex.join(planned_step.argv)}"
         )
@@ -846,8 +822,8 @@ def _run_steps(
             raise Interrupted
         ended = _server_end(attachment) if attachment is not None else None
         if ended:
-            record["outcome"] = "blocked"
-            return done("blocked", ended)
+            record.update(outcome=ended[0], server_end=ended[1])
+            return done(*ended)
         if code == 127:
             record["outcome"] = "blocked"
             return done("blocked", f"launch: cannot start {planned_step.argv[0]} (exit 127)")
@@ -877,7 +853,7 @@ def execute(
     observations = runtime.observe(requirements)
     for observation in observations.values():
         if not observation.ready:
-            runtime.report(observation.message)
+            runtime.report(observation.message())
     results: list[dict[str, Any]] = []
     for planned in plan:
         log = log_dir / f"{planned.boundary.family}-{planned.boundary.name}.log"
@@ -977,21 +953,26 @@ def release_directory(env: Mapping[str, str]) -> Path:
 # Inspection
 
 
-ENVIRONMENT_NAMES = {
-    "fixture": ("LCTX_SURREAL_TEST_CONFIG", "LCTX_COMPILER_RUNTIME_CONFIG", "LCTX_FIXTURE_ID"),
-    "always": ("INSTA_UPDATE", "UV_NO_SYNC"),
-}
+# Variables verify itself sets. The fixture's attachment variables belong to surrealdb_fixture.
+VERIFY_ENVIRONMENT = ("INSTA_UPDATE", "UV_NO_SYNC")
 
 
-def describe(plan: Sequence[Planned], observations: Mapping[str, Observation], options: Options):
+def fixture_variables() -> list[str]:
+    import surrealdb_fixture
+
+    names = getattr(surrealdb_fixture, "ATTACHMENT_VARIABLES", None)
+    return list(names) if names else ["<surrealdb_fixture attachment variables>"]
+
+
+def describe(plan: Sequence[Planned], observations: Mapping[str, Any], options: Options):
     rows = []
     for planned in plan:
         boundary = planned.boundary
-        names = list(ENVIRONMENT_NAMES["always"])
+        names = list(VERIFY_ENVIRONMENT)
         if boundary.requirements & {"tools", "native-python"}:
             names.append(workspace_env.OWNERSHIP_KEY)
         if boundary.fixture:
-            names += ENVIRONMENT_NAMES["fixture"]
+            names += fixture_variables()
         fixture = None
         if boundary.fixture:
             fixture = (
@@ -1009,7 +990,13 @@ def describe(plan: Sequence[Planned], observations: Mapping[str, Observation], o
                     {
                         "name": s.step.name,
                         "argv": list(s.argv),
-                        "env": sorted({*names, *(k for k, _ in s.step.env)}),
+                        "env": sorted(
+                            {
+                                *names,
+                                *(k for k, _ in s.step.env),
+                                *(k for o, k, _ in s.step.option_env if getattr(options, o)),
+                            }
+                        ),
                         "skipped": s.skipped,
                     }
                     for s in planned.steps
@@ -1019,9 +1006,12 @@ def describe(plan: Sequence[Planned], observations: Mapping[str, Observation], o
     return {
         "boundaries": rows,
         "readiness": {
-            r: {"ready": o.ready, "message": o.message, "repair": o.repair}
+            r: {"ready": o.ready, "message": o.message(), "repair": o.repair}
             for r, o in observations.items()
         },
+        "unobserved": sorted(
+            {r for p in plan for r in p.boundary.requirements} & set(UNOBSERVED_STATIC)
+        ),
         "options": options.to_json(),
     }
 
@@ -1037,10 +1027,12 @@ def print_plan(description: Mapping[str, Any]) -> None:
             mark = f"  [not run: {step['skipped']}]" if step["skipped"] else ""
             print(f"  $ {shlex.join(step['argv'])}{mark}")
             print(f"    env: {', '.join(step['env'])}")
-    if description["readiness"]:
+    if description["readiness"] or description["unobserved"]:
         print("readiness:")
         for observation in description["readiness"].values():
             print(f"  {observation['message']}")
+        for requirement in description["unobserved"]:
+            print(f"  {requirement}: observed at execution (needs the native input fingerprint)")
 
 
 def list_plan(plan: Sequence[Planned], options: Options, env: Mapping[str, str]) -> int:
@@ -1152,6 +1144,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    return parser().parse_args(_bind_tool_args(argv))
+
+
+def _bind_tool_args(argv: Sequence[str]) -> list[str]:
     """Tool argument values often start with `-` (`--nextest-args --lib`); bind them first."""
     items = list(argv)
     bound: list[str] = []
@@ -1164,7 +1160,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
             continue
         bound.append(item)
         index += 1
-    return parser().parse_args(bound)
+    return bound
 
 
 def options_from(args: argparse.Namespace) -> Options:
@@ -1179,8 +1175,11 @@ def options_from(args: argparse.Namespace) -> Options:
 
 
 def legacy(argv: Sequence[str]) -> list[str]:
-    """`verify.py FAMILY [--command B] [-- ARGS]` and `verify.py qualify`: shortcuts onto the
-    plan. ARGS reach the selected boundary's primary tool."""
+    """`verify.py FAMILY [--command B] [verify options] [-- ARGS]` and `verify.py qualify`.
+
+    Everything before `--` is verify's own options, parsed by the plan parser like any `just
+    verify` invocation; only what follows `--` passes through, to the selected boundary's
+    primary tool. An option verify does not know, before `--`, is a usage error."""
     items = list(argv)
     if not items or items[0].startswith("-"):
         return items
@@ -1189,32 +1188,38 @@ def legacy(argv: Sequence[str]) -> list[str]:
         return ["--qualify", *items]
     if head not in families():
         raise PlanError(f"unknown family {head!r}; choose from {', '.join(families())}")
+    split = items.index("--") if "--" in items else len(items)
+    before, passthrough = items[:split], items[split + 1 :]
     command = None
-    rest: list[str] = []
-    passthrough: list[str] = []
+    options: list[str] = []
     index = 0
-    while index < len(items):
-        item = items[index]
-        if item == "--":
-            passthrough += items[index + 1 :]
-            break
-        if item == "--command" and index + 1 < len(items):
-            command = items[index + 1]
+    while index < len(before):
+        item = before[index]
+        if item == "--command" and index + 1 < len(before):
+            command = before[index + 1]
             index += 2
             continue
         if item.startswith("--command="):
             command = item.split("=", 1)[1]
-        elif item.startswith("-") and item in {"--print", "--list", "--live", "--json", "--cli"}:
-            rest.append(item)
+        elif item in ("--select", "--rerun") or item.startswith(("--select=", "--rerun=")):
+            raise PlanError(
+                f"{item.split('=')[0]} is not a family-shortcut option; use"
+                f" `just verify {item.split('=')[0]} …`"
+            )
         else:
-            passthrough.append(item)
+            options.append(item)
         index += 1
     members = families()[head]
     if command is not None and command not in {b.name for b in members}:
         raise PlanError(f"{head} boundaries: {', '.join(b.name for b in members)}")
     chosen = [b for b in members if command is None or b.name == command]
-    select = head if command is None else f"{head}:{command}"
-    out = [*rest, "--select", select]
+    out = ["--select", head if command is None else f"{head}:{command}", *options]
+    _, unknown = parser().parse_known_args(_bind_tool_args(out))
+    if unknown:
+        raise PlanError(
+            f"unknown verify option(s) {' '.join(unknown)}; tool arguments go after `--`"
+            f" (`just verify-{head} [--command B] [options] -- ARGS`)"
+        )
     if passthrough:
         owners = {b.primary_tool() for b in chosen}
         if len(chosen) > 1 or None in owners:
@@ -1341,7 +1346,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     stopping: list[int] = []
 
     def on_signal(signum: int, _frame: Any) -> None:
+        """Stop the run: as the run's group leader (always, under a run handle), terminate the
+        whole group so steps and their children stop; the fixture then tears down normally."""
+        first = not stopping
         stopping.append(signum)
+        if first and os.getpgrp() == os.getpid():
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(os.getpgrp(), signal.SIGTERM)
 
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, on_signal)
