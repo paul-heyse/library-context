@@ -44,6 +44,8 @@ sample did not identify its query/stage or dominant cost. Static findings justif
 work without a latency estimate or mandatory benchmark. The proposed speed and reuse benefits
 are unmeasured. Rust build time, GPU/model upgrades and a performance campaign are not this scope.
 
+The [Rust compilation-cost plan](rust-compilation-costs-plan_2026-10-08.md) separately owns its source-review F01–F04 and BC0–BC5. BC1 consumes current PC1 completion and PC2 captured-binding contracts, including charged cancellation/drain ownership; BC2 scopes provider provenance and records workspace execution composition without replacing cold supplier semantics. Those compiler corrections can proceed before unrelated PC6 acceptance, but touched native/CLI/cold controls need final-source evidence. BC5 and PC6 may share a valid optimized receipt; this coordinator retains all PG/PC findings, restored-coverage and native/MCP obligations. Compilation-plan authoring neither resumes tests nor closes them.
+
 Migrate all affected compiler frontiers (`facts`, `normalized`, `analysis`, `catalog`), Catalog
 and Behavioral profiles, shared projection/analysis/admission consumers, and the non-compiler
 paths in §2. Behavioral functionality is preserved, not expanded. Cross-run invalidation,

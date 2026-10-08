@@ -153,7 +153,7 @@ Consequential compiler claims above use the installed Rust revision
 | Generic/inline/drop copies and MIR versus LLVM inlining | [instantiation mode](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_middle/src/mono.rs#L132), [copies](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_monomorphize/src/partitioning.rs#L262), [MIR inliner policy](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_mir_transform/src/inline.rs#L46) |
 | Coroutine poll/drop bodies and per-module local ThinLTO | [coroutine lowering](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_mir_transform/src/coroutine/mod.rs#L14), [ThinLocal scope](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_codegen_ssa/src/back/write.rs#L1749), [backend scheduling](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_codegen_ssa/src/back/write.rs#L1026) |
 | Generic-sharing defaults and conditions for upstream reuse | [defaults](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_session/src/config.rs#L1550), [reuse selection](https://github.com/rust-lang/rust/blob/c1070d69382b8d2f2eb65119c738a77d9e324c9e/compiler/rustc_middle/src/ty/instance.rs#L221) |
-| Cargo profile inheritance, local LTO and override restrictions | [pinned Cargo profiles](https://github.com/rust-lang/cargo/blob/3d7cf6e937d6127d0f49881bf689c560b36d35c4/doc/book/src/reference/profiles.md), [override precedence](https://github.com/rust-lang/cargo/blob/3d7cf6e937d6127d0f49881bf689c560b36d35c4/src/cargo/core/profiles.rs#L489) |
+| Cargo profile inheritance, local LTO and override restrictions | [pinned Cargo profiles](https://github.com/rust-lang/cargo/blob/3d7cf6e937d6127d0f49881bf689c560b36d35c4/doc/book/src/reference/profiles.md), [override precedence](https://github.com/rust-lang/cargo/blob/3d7cf6e937d6127d0f49881bf689c560b36d35c4/src/workspace/profiles.rs#L489) |
 | Incremental Rust and linker-output cache exclusions | [sccache 0.17 Rust support](https://github.com/mozilla/sccache/blob/v0.17.0/docs/Rust.md) |
 | Automatic boxing of a large concrete future still retains its concrete type | [Tokio 1.53.2 spawn implementation](https://github.com/tokio-rs/tokio/blob/tokio-1.53.2/tokio/src/task/spawn.rs#L171) |
 
@@ -171,7 +171,7 @@ regression diagnosis or toolchain replacement is established here.
 
 ## 4. Findings
 
-Current findings remain in this source review until an implementation plan explicitly adopts them. They are **Deferred pending the requested follow-up design/implementation decision**; the revisit trigger is authorization to implement the Rust compilation-cost corrections. The existing persisted-execution coordinator continues to own PC acceptance. This review does not copy or close its findings.
+The [compilation-cost plan §9](../../plans/rust-compilation-costs-plan_2026-10-08.md#9-sole-compilation-cost-finding-disposition) now owns scheduled disposition of F01–F04. It records the operator's 2026-10-08 acceptance of RC01/RC02 and the qualified-default-local choice; implementation remains Proposed. Original findings and evidence below retain their dated assessment. The existing persisted-execution coordinator continues to own PC acceptance; this review does not copy or close its findings.
 
 ### <a id="F01"></a>F01 — Record-specific future types specialize shared native task and streaming mechanics
 
@@ -450,7 +450,7 @@ These are required changes to current rules if the proposed design is selected. 
 
 **Dependent recommendation:** F03; complements F01.
 
-**If retained:** Implement the structural findings first and continue optimized focused compilation. A lower-optimization local loop remains unavailable as an ordinary accepted route.
+**If retained:** Implement the structural findings first and continue optimized focused compilation. A lower-optimization local loop remains unavailable as an ordinary accepted route. The operator's actual choice and implementation route now live in the [plan §2](../../plans/rust-compilation-costs-plan_2026-10-08.md#2-confirmed-rule-changes-and-target-defaults).
 
 ### <a id="RC02"></a>RC02 — Replace all-workspace provider source membership with scoped provenance ownership
 
@@ -482,4 +482,4 @@ This is consequence ranking, not a rigid implementation sequence. The local-prof
 
 **Enclosing architectural status:** Product semantics, persistence, serving, PC1–PC6 completion and release qualification are not accepted or rejected by this compiler-cost review. Their current owners and evidence remain authoritative.
 
-The next consequential action is a root-owned implementation plan that selects the charged native-request boundary, scoped provenance identity and local-profile policy, presents RC01–RC02, and retains the production/runtime and independent-assurance constraints above.
+The [implementation plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) now develops the charged native-request boundary, scoped provenance identity, qualified local-default policy and grouped harnesses. Its owner retains implementation dependencies, acceptance and every open finding. Plan authoring does not implement or qualify those remedies.

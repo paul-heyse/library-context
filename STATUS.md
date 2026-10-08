@@ -2,14 +2,16 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: Rust compilation-cost design review completed, 2026-10-08.**
-The [independent static review](docs/design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md)
-judges **Revise**: typed async specialization, whole-workspace provider invalidation,
-optimized local-test policy and repeated harness compilation. F01–F04 remain Proposed
-corrections owned by that review; §10 ranks follow-up. Production runtime performance
-and automatic compiler/test parallelism are preservation requirements. Product checks
-and compile probes **not_run** for this review; existing builds were not interrupted.
-**Review documentation, 2026-10-08: passed** `just docs-check` (341 pages, zero link errors).
+**Current scope: Rust compilation-cost plan authoring, 2026-10-08.**
+The [plan](docs/plans/rust-compilation-costs-plan_2026-10-08.md) owns BC0–BC5 and
+[source-review](docs/design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md) F01–F04 disposition (§9).
+RC01/RC02 are operator-confirmed; qualified local tests become the default. The target
+shares checked async mechanics, scopes provenance, qualifies O1/LTO-off tests and groups
+harnesses. Implementation remains **Proposed**; the [independent target review](docs/design_review/reviews/design_review_rust-compilation-costs-plan_2026-10-08.md)
+accepts this scope with no blocking findings. Next: BC0 decision/owner updates, then BC1/BC2.
+Production performance and available parallelism remain requirements. Product checks,
+compile probes and resumed PC acceptance **not_run** for authoring; builds remain untouched.
+**passed, 2026-10-08:** `just docs-check` (343 pages, zero link errors); exact grouped-source inventory.
 
 **Persisted graph correction packages PC0–PC6 remain pending acceptance.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
@@ -24,11 +26,8 @@ accepts its Proposed architecture; [coordinator §8](docs/plans/persisted-graph-
 owns the still-open findings. ADR-0135 installs the accepted operation-contract target. Production
 migration and focused acceptance are in progress; no finding is closed by the decision alone.
 
-**Execution resources, 2026-10-08 (ADR-0136): implemented / focused tested.** Cargo/compiler and
-native test fixtures use available CPU parallelism. Disposable SurrealDB defaults to 16 GiB with
-an 8 GiB tracked-memory threshold; explicit overrides remain. **passed:** fixture/build-helper
-pytest controls, pinned automatic-worker compile/run probe, actual fixture startup, ruff,
-`just lint-agents`, `just adr-lint` and `just docs-check` (340 pages, zero link errors).
+**Execution resources, 2026-10-08 (ADR-0136): implemented / focused tested.** Available Cargo/compiler/test parallelism; disposable SurrealDB defaults to16GiB with8GiB tracked threshold and explicit overrides.
+**passed (original resource scope):** fixture/build-helper pytest, automatic-worker probe, actual fixture startup, ruff, lint-agents, adr-lint and docs-check (340 pages, zero link errors).
 
 **Workspace effectiveness, 2026-10-08: implemented** with design-phase acceptance ([plan](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md):
 §9 dispositions, §12 checkpoint; [ADR-0134](docs/adr/0134-scoped-preparation-and-maintenance.md); [implementation review](docs/design_review/reviews/design_review_agent-workspace-implementation_2026-10-08.md) findings fixed).
