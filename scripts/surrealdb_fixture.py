@@ -48,7 +48,6 @@ import argparse
 import base64
 import contextlib
 import ctypes
-import fcntl
 import hashlib
 import json
 import os
@@ -70,7 +69,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from harness import ProcessIdentity, group_members, read_json, signal_group, write_json_atomic
+from harness import (
+    ProcessIdentity,
+    group_members,
+    hold_lock,
+    lock_held,
+    read_json,
+    signal_group,
+    write_json_atomic,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -85,10 +92,6 @@ BINARY_SHA256 = "58ad479cbdd8b1926a636524d259ef309f029d8d9968fb88f350590f7f2b7bc
 ARCHIVE_SHA256 = "44aeab565f7e7e39d2d0bf0583c8aae648babc91373c70b2658288d95bbbcd55"
 RELEASE_URL = (
     "https://github.com/surrealdb/surrealdb/releases/download/v3.3.0/surreal-v3.3.0.linux-amd64.tgz"
-)
-# Transitional: verify.py still imports IMAGE until it consumes substrate_readiness().
-IMAGE = (
-    "surrealdb/surrealdb@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20"
 )
 
 SCHEMA = 1
@@ -301,29 +304,6 @@ def server_environment(memory: int, password: str) -> dict[str, str]:
         **SERVER_TUNING,
         "SURREAL_MEMORY_THRESHOLD": f"{threshold >> 20}MiB",
     }
-
-
-def hold_lock(path: Path) -> int:
-    """An exclusive flock held until this process exits (close-on-exec, never inherited)."""
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
-    fcntl.flock(descriptor, fcntl.LOCK_EX)
-    return descriptor
-
-
-def lock_held(path: Path) -> bool:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
-    except OSError:
-        return False
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    except OSError:
-        return False
-    finally:
-        os.close(descriptor)
-    return False
 
 
 def owner_alive(identity: Mapping[str, Any] | None, lock: Path) -> bool:
@@ -840,7 +820,7 @@ def _read_env(path: Path) -> dict[str, str]:
 
 @dataclass
 class Attachment:
-    """One command's owned state on a server. API-compatible with the former SurrealFixture."""
+    """One command's owned state on a server."""
 
     server: Server
     id: str
@@ -1063,10 +1043,6 @@ class Attachment:
         if self._lock is not None:
             os.close(self._lock)
             self._lock = None
-
-
-# Former name; native_controls and other callers use the attachment API.
-SurrealFixture = Attachment
 
 
 def _write_private(path: Path, data: Any) -> None:

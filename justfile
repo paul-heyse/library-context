@@ -78,42 +78,52 @@ skills-sync:
 skills-check:
     python3 scripts/library_skills.py --check
 
-# Explicit contract families. Boundary-specific filters use --command <boundary> -- <tool args>.
+# `--select FAMILY[:BOUNDARY]` (repeatable) with `--nextest-args "…"`/`--pytest-args "…"` scoped
+# to the preceding selection; `--print` (static), `--list` (builds), `--rerun RUN`, `--live`.
+# Execution always runs under a run handle (`just runs`), with summary.json in its directory.
+# One resolved command plan over boundary definitions (D4); `just verify --help` lists them
+[positional-arguments]
+verify *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py "$@"
+
+# ARGS reach the boundary's primary tool (nextest, or pytest for serving:mcp/oracles/tooling:python).
+# Family shortcut: `just verify-<family> [--command BOUNDARY] [-- ARGS]`
 [positional-arguments]
 verify-model *args:
-    uv run --no-sync python scripts/verify.py model "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py model "$@"
 
 [positional-arguments]
 verify-compiler *args:
-    uv run --no-sync python scripts/verify.py compiler "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py compiler "$@"
 
 [positional-arguments]
 verify-analytics *args:
-    uv run --no-sync python scripts/verify.py analytics "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py analytics "$@"
 
 [positional-arguments]
 verify-providers *args:
-    uv run --no-sync python scripts/verify.py providers "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py providers "$@"
 
 [positional-arguments]
 verify-store *args:
-    uv run --no-sync python scripts/verify.py store "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py store "$@"
 
 [positional-arguments]
 verify-serving *args:
-    uv run --no-sync python scripts/verify.py serving "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py serving "$@"
 
 [positional-arguments]
 verify-oracles *args:
-    uv run --no-sync python scripts/verify.py oracles "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py oracles "$@"
 
 [positional-arguments]
 verify-tooling *args:
-    uv run --no-sync python scripts/verify.py tooling "$@"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py tooling "$@"
 
-# Target qualification collects independent failures and prepares the selected union once.
+# Target qualification: every boundary and leaf, keep-going; observes readiness, never prepares
+# or reuses retained content.
 qualify:
-    uv run --no-sync python scripts/verify.py qualify
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py qualify
 
 # Disposable native SurrealDB fixtures (D2): `-- CMD` runs CMD with LCTX_SURREAL_TEST_CONFIG and
 # LCTX_COMPILER_RUNTIME_CONFIG on a run-owned server; `--keep [-- CMD]` | `--attach ID -- CMD` |
@@ -125,7 +135,7 @@ fixture *args:
 
 # Explicit complete fixture registration over native persisted producers.
 fixture-corpus:
-    uv run --no-sync python scripts/native_controls.py compiler -E "binary(fixture_corpus)"
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py --select compiler:producer --nextest-args "--test fixture_corpus"
 
 # Run any command under a handle in build/runs/<id>/ (D4): `just run [--background] [--label L] -- <cmd…>`.
 # Prefer the runtime's own background/wait/cancel first; the handle crosses tool calls and sessions.

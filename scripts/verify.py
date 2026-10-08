@@ -1,271 +1,1384 @@
 #!/usr/bin/env python3
-"""Explicit contract families, observed readiness, and keep-going qualification.
+"""Contract verification: one resolved command plan over boundary definitions (plan D4).
 
-Readiness observes each boundary's prerequisites and never prepares the Python environment: a
-missing prerequisite is `blocked` with the route that repairs it (`just sync tools|native`,
-ADR-0134). Boundaries that use the shared Python environment hold shared ownership of it for
-their lifetime (`workspace_env.ownership`); pure-Rust boundaries take none. The qualification
-result belongs to the calling plan, not a new receipt register.
+    just verify --select FAMILY[:BOUNDARY] [--nextest-args "…"] [--pytest-args "…"] … [options]
+    just verify --print …     static plan: commands, environment names, prerequisites, readiness
+    just verify --list …      builds: tool discovery (nextest list, pytest --collect-only)
+    just verify --rerun ID    the failed, blocked or unexecuted boundaries of run ID's selection
+    just verify qualify       every boundary and leaf; no reuse, no filters, no self-preparation
+    just verify-<family> [--command BOUNDARY] [-- ARGS]   shortcut; ARGS reach the primary tool
+
+Tool arguments attach to the preceding ``--select`` (before any ``--select`` they apply to every
+selected boundary that has that tool). ``BOUNDARIES`` is the only catalogue: plan, ``--print``,
+``--list``, execution, ``summary.json`` and this help derive from it.
+
+Readiness observes and never synchronizes (ADR-0134): a missing prerequisite is ``blocked`` with
+its repair route. Fixture-backed boundaries each get an owned native SurrealDB attachment
+(``surrealdb_fixture``); ``--attach ID`` uses a kept fixture instead. Outcomes are ``passed``,
+``failed``, ``blocked`` or ``not_run``; ``blocked`` needs evidence (a failed readiness
+observation, a fixture OOM or server end, launch error 127). Interruption is the run's
+termination, never an outcome. Execution always runs under a run handle (``runs.py``): logs and
+``summary.json`` live in its directory, and ``just runs`` observes, cancels and prunes it.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
 import os
+import shlex
+import signal
 import subprocess
-from collections.abc import Callable
-from dataclasses import dataclass
+import sys
+import time
+import tomllib
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
+import runs
 import workspace_env
 from build_environment import ROOT, normalized_env
-from surrealdb_fixture import IMAGE
+from harness import OUTCOMES, write_json_atomic
+
+SCHEMA = 1
+NEXTEST_RUN = ("cargo", "nextest", "run", "--release", "--no-fail-fast", "--no-tests=fail")
+PYTEST = ("uv", "run", "--no-sync", "pytest")
+TOOLS = ("nextest", "pytest")
+TAIL_LINES = 25
+
+
+# ---------------------------------------------------------------------------------------------
+# Definitions: the single source
 
 
 @dataclass(frozen=True)
-class Family:
-    commands: tuple[tuple[str, ...], ...]
+class Step:
+    """One command of a boundary.
+
+    ``tool`` is ``nextest`` (packages + default targets), ``pytest`` (paths), ``cargo`` (a full
+    cargo argv such as a build) or ``just`` (a recipe). Only nextest and pytest steps receive
+    tool arguments. ``env`` values may use ``{release}`` (the release artifact directory) and
+    ``{serving}`` (the serving configuration this boundary produces or reuses).
+    """
+
+    name: str
+    tool: str
+    argv: tuple[str, ...] = ()
+    packages: tuple[str, ...] = ()
+    targets: tuple[str, ...] = ()
+    env: tuple[tuple[str, str], ...] = ()
+    produces_serving: bool = False
+    restart_after: bool = False
+    when: str | None = None  # an option that enables this step (e.g. "cli")
+
+
+@dataclass(frozen=True)
+class Boundary:
+    family: str
+    name: str
+    description: str
+    steps: tuple[Step, ...]
     requirements: frozenset[str] = frozenset()
+    fixture: bool = False
+
+    @property
+    def id(self) -> str:
+        return f"{self.family}:{self.name}"
+
+    def tools(self) -> set[str]:
+        return {step.tool for step in self.steps if step.tool in TOOLS}
+
+    def primary_tool(self) -> str | None:
+        return next((step.tool for step in self.steps if step.tool in TOOLS), None)
 
 
-def rust(*selection: str) -> tuple[str, ...]:
-    return ("cargo", "nextest", "run", "--release", "--no-fail-fast", "--no-tests=fail", *selection)
+def nextest(name: str, *packages: str, targets: Sequence[str] = ()) -> Step:
+    return Step(name, "nextest", packages=packages, targets=tuple(targets))
 
 
-FAMILIES = {
-    "model": Family((rust("-p", "lctx-model"),)),
-    "analytics": Family((rust("-p", "lctx-analytics"),)),
-    "providers": Family(
+def tests(*names: str) -> tuple[str, ...]:
+    return tuple(item for name in names for item in ("--test", name))
+
+
+STORE = frozenset({"tools", "native-store"})
+SERVING = frozenset({"tools", "native-serving"})
+LEAVES_NEEDING_TOOLS = frozenset(
+    {"ruff", "types", "docs-check", "deps", "gold", "adr-lint", "fixtures-check"}
+)
+LEAVES = (
+    "clippy",
+    "lint-agents",
+    "adr-lint",
+    "fixtures-check",
+    "gold",
+    "rules-scan",
+    "rules-test",
+    "ruff",
+    "types",
+    "docs-check",
+    "deps",
+)
+
+BOUNDARIES: tuple[Boundary, ...] = (
+    Boundary("model", "rust", "model declarations", (nextest("nextest", "lctx-model"),)),
+    Boundary("analytics", "rust", "analytics kernels", (nextest("nextest", "lctx-analytics"),)),
+    Boundary(
+        "providers",
+        "extract",
+        "native providers over persisted contributions",
         (
-            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "providers"),
-            rust("-p", "cpg-flow", "--lib", "--test", "flow_shapes", "--test", "capture_timing"),
+            nextest(
+                "nextest",
+                "cpg-extract",
+                targets=(
+                    "--lib",
+                    *tests(
+                        "acquisition",
+                        "bundle",
+                        "harness",
+                        "typed_conformance",
+                        "typed_flow",
+                        "typed_calls",
+                        "native_overload_origins",
+                        "typed_ruff_context",
+                    ),
+                ),
+            ),
         ),
-        frozenset({"tools", "native-store"}),
+        STORE,
+        fixture=True,
     ),
-    "compiler": Family(
+    Boundary(
+        "providers",
+        "flow",
+        "flow provider (pure Rust)",
         (
-            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "compiler"),
-            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "compiler-cli"),
+            nextest(
+                "nextest", "cpg-flow", targets=("--lib", *tests("flow_shapes", "capture_timing"))
+            ),
         ),
-        frozenset({"tools", "native-store"}),
     ),
-    "store": Family(
-        (("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "store"),),
-        frozenset({"tools", "native-store"}),
+    Boundary(
+        "compiler",
+        "producer",
+        "persisted compiler",
+        (nextest("nextest", "cpg-core", targets=("--lib", "--tests")),),
+        STORE,
+        fixture=True,
     ),
-    "serving": Family(
+    Boundary(
+        "compiler",
+        "cli",
+        "compiler CLI",
         (
-            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "serving"),
-            ("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "mcp"),
+            nextest(
+                "nextest",
+                "lctx",
+                targets=("--bin", "lctx", *tests("acquire", "compile_artifact")),
+            ),
+        ),
+        STORE,
+        fixture=True,
+    ),
+    Boundary(
+        "store",
+        "rust",
+        "native store and publication",
+        (
+            Step(
+                "build-cli",
+                "cargo",
+                ("cargo", "build", "--release", "--locked", "-p", "lctx", "--bin", "lctx"),
+                when="cli",
+            ),
+            Step(
+                "nextest",
+                "nextest",
+                packages=("lctx-surrealdb", "lctx-publisher"),
+                env=(),
+            ),
+        ),
+        STORE,
+        fixture=True,
+    ),
+    Boundary(
+        "serving",
+        "rust",
+        "native serving",
+        (nextest("nextest", "lctx-serving"),),
+        SERVING,
+        fixture=True,
+    ),
+    Boundary(
+        "serving",
+        "mcp",
+        "MCP journey: produce serving content, restart, then the Python wire/session suite",
+        (
+            Step(
+                "build",
+                "cargo",
+                ("cargo", "build", "--release", "--locked", "-p", "lctx-eval", "-p", "lctx"),
+            ),
+            Step(
+                "native_journey",
+                "cargo",
+                (
+                    "cargo",
+                    "test",
+                    "--release",
+                    "--locked",
+                    "-p",
+                    "lctx-serving",
+                    "--test",
+                    "native_journey",
+                    "--",
+                    "--nocapture",
+                ),
+                env=(("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG", "{serving}"),),
+                produces_serving=True,
+                restart_after=True,
+            ),
+            Step(
+                "pytest",
+                "pytest",
+                (
+                    "python/lctx_mcp/tests/test_wire_contract.py",
+                    "python/lctx_mcp/tests/test_native_session.py",
+                    "python/lctx_mcp/tests/test_safe_failure.py",
+                    "tests/scripts/test_programmatic_native.py",
+                    "tests/scripts/test_programmatic_native_numeric.py",
+                ),
+                env=(
+                    ("LCTX_NATIVE_SERVING_CONFIG", "{serving}"),
+                    ("LCTX_NATIVE_TEST_LIBRARY", "synthesis-sources"),
+                    ("LCTX_EVAL_WORKER", "{release}/lctx-eval"),
+                    ("LCTX_REMEDIATION_CLI_BIN", "{release}/lctx"),
+                ),
+            ),
         ),
         frozenset({"tools", "native-serving", "native-python"}),
+        fixture=True,
     ),
-    "oracles": Family(
-        (("uv", "run", "--no-sync", "pytest", "tests/scripts/test_flow_soundness.py", "-q"),),
-        frozenset({"tools", "cli"}),
-    ),
-    "tooling": Family(
+    Boundary(
+        "oracles",
+        "flow",
+        "flow soundness oracle over the product binary",
         (
-            (
-                "uv",
-                "run",
-                "--no-sync",
-                "pytest",
-                "tests/scripts",
-                "--ignore=tests/scripts/test_flow_soundness.py",
-                "-q",
-            ),
-            ("cargo", "test", "--release", "--workspace", "--doc", "--no-fail-fast"),
+            Step("build", "cargo", ("cargo", "build", "--release", "--locked", "-p", "lctx")),
+            Step("pytest", "pytest", ("tests/scripts/test_flow_soundness.py",)),
         ),
         frozenset({"tools"}),
     ),
-}
+    Boundary(
+        "tooling",
+        "python",
+        "harness and tooling scripts",
+        (
+            Step(
+                "pytest",
+                "pytest",
+                ("tests/scripts", "--ignore=tests/scripts/test_flow_soundness.py"),
+            ),
+        ),
+        frozenset({"tools"}),
+    ),
+    Boundary(
+        "tooling",
+        "docs",
+        "Rust doc tests",
+        (
+            Step(
+                "doctest",
+                "cargo",
+                ("cargo", "test", "--release", "--workspace", "--doc", "--no-fail-fast"),
+            ),
+        ),
+    ),
+    *(
+        Boundary(
+            "leaf",
+            name,
+            f"non-functional leaf `just {name}` (qualification)",
+            (Step(name, "just", ("just", name)),),
+            frozenset({"tools"}) if name in LEAVES_NEEDING_TOOLS else frozenset(),
+        )
+        for name in LEAVES
+    ),
+)
 
-COMMANDS = {
-    "model": ("rust",),
-    "analytics": ("rust",),
-    "providers": ("extract", "flow"),
-    "compiler": ("producer", "cli"),
-    "store": ("rust",),
-    "serving": ("rust", "mcp"),
-    "oracles": ("flow",),
-    "tooling": ("python", "docs"),
-}
-
-BOUNDARY_REQUIREMENTS = {
-    ("providers", "extract"): frozenset({"tools", "native-store"}),
-    ("providers", "flow"): frozenset(),
-    ("compiler", "producer"): frozenset({"tools", "native-store"}),
-    ("compiler", "cli"): frozenset({"tools", "native-store"}),
-    ("serving", "rust"): frozenset({"tools", "native-serving"}),
-    ("serving", "mcp"): frozenset({"tools", "native-serving", "native-python"}),
-    ("oracles", "flow"): frozenset({"tools", "cli"}),
-    ("tooling", "python"): frozenset({"tools"}),
-    ("tooling", "docs"): frozenset(),
-}
+# Requirements observed through the shared Python environment.
+PYTHON_REQUIREMENTS = ("tools", "native-python")
+NATIVE_REQUIREMENTS = ("native-store", "native-serving")
 
 
-def prerequisites(name: str, command: str | None) -> frozenset[str]:
-    return (
-        FAMILIES[name].requirements
-        if command is None
-        else BOUNDARY_REQUIREMENTS.get((name, command), FAMILIES[name].requirements)
+def boundaries() -> dict[str, Boundary]:
+    return {boundary.id: boundary for boundary in BOUNDARIES}
+
+
+def families() -> dict[str, list[Boundary]]:
+    found: dict[str, list[Boundary]] = {}
+    for boundary in BOUNDARIES:
+        found.setdefault(boundary.family, []).append(boundary)
+    return found
+
+
+# ---------------------------------------------------------------------------------------------
+# Workspace packages and their targets (static: manifests and file layout only)
+
+
+@dataclass(frozen=True)
+class Targets:
+    lib: bool
+    bins: frozenset[str]
+    tests: frozenset[str]
+    examples: frozenset[str]
+    benches: frozenset[str]
+
+
+def workspace_packages(root: Path = ROOT) -> dict[str, Path]:
+    manifest = tomllib.loads((root / "Cargo.toml").read_text())
+    directories: list[Path] = []
+    for member in manifest["workspace"]["members"]:
+        if "*" in member:
+            directories += sorted(path.parent for path in root.glob(f"{member}/Cargo.toml"))
+        else:
+            directories.append(root / member)
+    found = {}
+    for directory in directories:
+        package = tomllib.loads((directory / "Cargo.toml").read_text()).get("package", {})
+        if "name" in package:
+            found[package["name"]] = directory
+    return found
+
+
+def _auto(directory: Path, explicit: list[dict[str, Any]], fallback: str | None = None) -> set:
+    names = {item["name"] for item in explicit if "name" in item}
+    if directory.is_dir():
+        names |= {p.stem for p in directory.glob("*.rs")}
+        names |= {p.parent.name for p in directory.glob("*/main.rs")}
+    if fallback:
+        names.add(fallback)
+    return names
+
+
+def package_targets(name: str, directory: Path) -> Targets:
+    manifest = tomllib.loads((directory / "Cargo.toml").read_text())
+    main = name if (directory / "src" / "main.rs").is_file() else None
+    return Targets(
+        lib=(directory / "src" / "lib.rs").is_file() or "lib" in manifest,
+        bins=frozenset(_auto(directory / "src" / "bin", manifest.get("bin", []), main)),
+        tests=frozenset(_auto(directory / "tests", manifest.get("test", []))),
+        examples=frozenset(_auto(directory / "examples", manifest.get("example", []))),
+        benches=frozenset(_auto(directory / "benches", manifest.get("bench", []))),
     )
 
 
-# Requirements observed through the shared Python environment, and their repair routes.
-PYTHON_REQUIREMENTS = ("tools", "native-python")
-REPAIR = {
-    "tools": "just sync tools",
-    "native-python": "just sync native",
-    "native-store": f"docker pull {IMAGE}",
-    "native-serving": f"docker pull {IMAGE}",
-    "cli": "fix the `cargo build --release -p lctx` failure above",
-}
+NAMED_TARGETS = {"--bin": "bins", "--test": "tests", "--example": "examples", "--bench": "benches"}
+PLURAL_TARGETS = {"--lib", "--bins", "--tests", "--examples", "--benches", "--all-targets"}
 
 
-def environment_owner(requirements: set[str] | frozenset[str]):
-    """Shared ownership of what the selected boundaries import; pure Rust takes none."""
-    return workspace_env.ownership("shared", [r for r in PYTHON_REQUIREMENTS if r in requirements])
+def target_options(arguments: Sequence[str]) -> list[tuple[str, str | None]]:
+    """Cargo target selections inside nextest arguments, as (option, name)."""
+    found: list[tuple[str, str | None]] = []
+    items = list(arguments)
+    index = 0
+    while index < len(items):
+        item = items[index]
+        if item == "--":
+            break
+        option, _, value = item.partition("=")
+        if option in NAMED_TARGETS:
+            if not value and index + 1 < len(items):
+                index += 1
+                value = items[index]
+            found.append((option, value))
+        elif item in PLURAL_TARGETS:
+            found.append((item, None))
+        index += 1
+    return found
 
 
-Runner = Callable[[tuple[str, ...]], int]
-Observer = Callable[[str], "workspace_env.Readiness"]
+class PlanError(ValueError):
+    pass
 
 
-def readiness(
-    requirements: set[str], run: Runner, observe: Observer = workspace_env.observe
-) -> dict[str, bool]:
-    """Observe each prerequisite; never synchronize the environment.
+def narrow(
+    boundary: Boundary,
+    step: Step,
+    arguments: Sequence[str],
+    packages: Mapping[str, Path] | None = None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(packages, default targets) for a nextest step once the user's targets are known.
 
-    `cli` builds the product binary the oracles execute: a build step of the run, not Python
-    environment preparation, so it stays here.
-    """
-    ready = {}
-    for requirement in PYTHON_REQUIREMENTS:
-        if requirement in requirements:
-            observed = observe(requirement)
-            ready[requirement] = observed.ready
-            if not observed.ready:
-                print(observed.message(), flush=True)
-    native_ready = None
-    if requirements & {"native-store", "native-serving"}:
-        native_ready = run(("docker", "image", "inspect", "--format", "{{.Id}}", IMAGE)) == 0
-    for native in ("native-store", "native-serving"):
-        if native in requirements:
-            ready[native] = bool(native_ready)
-    if "cli" in requirements:
-        ready["cli"] = run(("cargo", "build", "--release", "-p", "lctx")) == 0
-    return ready
+    Explicit target options replace the default targets. A named target narrows the packages to
+    those of the boundary's package set that have it; one no package has is a plan error naming
+    the actual set."""
+    selections = target_options(arguments)
+    if not selections:
+        return step.packages, step.targets
+    layout = workspace_packages() if packages is None else packages
+    kept: list[str] = []
+    for option, name in selections:
+        if option in PLURAL_TARGETS and option != "--lib":
+            return step.packages, ()
+        owners = []
+        for package in step.packages:
+            targets = package_targets(package, layout[package])
+            if option == "--lib":
+                has = targets.lib
+            else:
+                has = name in getattr(targets, NAMED_TARGETS[option])
+            if has:
+                owners.append(package)
+        if not owners:
+            what = "a library" if option == "--lib" else f"{option} {name}"
+            available = {
+                package: sorted(
+                    getattr(package_targets(package, layout[package]), NAMED_TARGETS[option])
+                )
+                if option != "--lib"
+                else []
+                for package in step.packages
+            }
+            listing = "; ".join(
+                f"{package}: {', '.join(names) or '-'}" for package, names in available.items()
+            )
+            raise PlanError(
+                f"{boundary.id}: no package in its set ({', '.join(step.packages)}) has {what}"
+                + (f" (available {NAMED_TARGETS[option]}: {listing})" if option != "--lib" else "")
+            )
+        kept += [package for package in owners if package not in kept]
+    return tuple(package for package in step.packages if package in kept), ()
+
+
+# ---------------------------------------------------------------------------------------------
+# Selection and the resolved plan
+
+
+@dataclass
+class Selection:
+    select: str | None
+    nextest_args: list[str] = field(default_factory=list)
+    pytest_args: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Options:
+    cli: bool = False
+    cargo_config: tuple[str, ...] = ()
+    attach: str | None = None
+    serving: str | None = None
+    retain_serving: str | None = None
+    qualify: bool = False
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "cli": self.cli,
+            "cargo_config": list(self.cargo_config),
+            "attach": self.attach,
+            "serving": self.serving,
+            "retain_serving": self.retain_serving,
+            "qualify": self.qualify,
+        }
+
+
+@dataclass(frozen=True)
+class PlannedStep:
+    step: Step
+    argv: tuple[str, ...]
+    skipped: str | None = None  # why the step is not part of this plan
+
+
+@dataclass(frozen=True)
+class Planned:
+    boundary: Boundary
+    selection: dict[str, Any]
+    steps: tuple[PlannedStep, ...]
+
+
+def with_cargo_config(argv: tuple[str, ...], configuration: Sequence[str]) -> tuple[str, ...]:
+    if not configuration or argv[:1] != ("cargo",):
+        return argv
+    options = tuple(item for value in configuration for item in ("--config", value))
+    if argv[1:3] == ("nextest", "run") or argv[1:3] == ("nextest", "list"):
+        return argv[:3] + options + argv[3:]
+    return argv[:1] + options + argv[1:]
+
+
+def step_argv(
+    boundary: Boundary,
+    step: Step,
+    nextest_args: Sequence[str],
+    pytest_args: Sequence[str],
+    options: Options,
+    packages: Mapping[str, Path] | None = None,
+    *,
+    listing: bool = False,
+) -> tuple[str, ...]:
+    if step.tool == "nextest":
+        chosen, targets = narrow(boundary, step, nextest_args, packages)
+        selection = (*(item for p in chosen for item in ("-p", p)), *targets)
+        head = (
+            ("cargo", "nextest", "list", "--release", "--message-format", "json")
+            if listing
+            else NEXTEST_RUN
+        )
+        argv = (*head, *selection, *nextest_args)
+    elif step.tool == "pytest":
+        extra = ("--collect-only", "-q") if listing else ("-q",)
+        argv = (*PYTEST, *step.argv, *extra, *pytest_args)
+    else:
+        argv = step.argv
+    return with_cargo_config(argv, options.cargo_config)
+
+
+def expand(select: str) -> list[Boundary]:
+    known = boundaries()
+    if select in known:
+        return [known[select]]
+    family = families().get(select)
+    if family:
+        return list(family)
+    raise PlanError(f"unknown selection {select!r}; choose a family or one of: {', '.join(known)}")
+
+
+def resolve(
+    selections: Sequence[Selection],
+    options: Options,
+    packages: Mapping[str, Path] | None = None,
+) -> list[Planned]:
+    """One plan: every selected boundary with its own arguments routed to their owners."""
+    shared = [s for s in selections if s.select is None]
+    scoped = [s for s in selections if s.select is not None]
+    if options.qualify:
+        if any(s.nextest_args or s.pytest_args for s in selections) or scoped:
+            raise PlanError("qualify requires its complete declared selections (no filters)")
+        if options.attach or options.serving or options.retain_serving:
+            raise PlanError("qualify refuses reuse: no --attach, --serving or --retain-serving")
+        scoped = [Selection(boundary.id) for boundary in BOUNDARIES]
+    if not scoped:
+        raise PlanError("select at least one boundary: --select FAMILY[:BOUNDARY]")
+    if (options.serving or options.retain_serving) and not options.attach:
+        raise PlanError("--serving/--retain-serving need a kept fixture: --attach ID")
+    common_nextest = [a for s in shared for a in s.nextest_args]
+    common_pytest = [a for s in shared for a in s.pytest_args]
+    for args in (common_nextest, common_pytest):
+        if any(a.startswith("--no-tests") for a in args):
+            raise PlanError("empty required selections must fail; --no-tests is fixed")
+    plan: list[Planned] = []
+    seen: dict[str, str] = {}
+    for selection in scoped:
+        assert selection.select is not None
+        chosen = expand(selection.select)
+        for args, tool in ((selection.nextest_args, "nextest"), (selection.pytest_args, "pytest")):
+            if any(a.startswith("--no-tests") for a in args):
+                raise PlanError("empty required selections must fail; --no-tests is fixed")
+            if args and not any(tool in boundary.tools() for boundary in chosen):
+                owners = sorted({t for b in chosen for t in b.tools()}) or ["none"]
+                raise PlanError(
+                    f"{selection.select} has no {tool} step; its tool arguments go to:"
+                    f" {', '.join(owners)}"
+                )
+        for boundary in chosen:
+            if boundary.id in seen:
+                raise PlanError(
+                    f"{boundary.id} selected twice ({seen[boundary.id]}, {selection.select})"
+                )
+            seen[boundary.id] = selection.select
+            nextest_args = [*common_nextest, *selection.nextest_args]
+            pytest_args = [*common_pytest, *selection.pytest_args]
+            steps = []
+            for step in boundary.steps:
+                skipped = None
+                if step.when == "cli" and not options.cli:
+                    skipped = "enabled by --cli"
+                elif step.produces_serving and options.serving:
+                    skipped = f"reuses retained serving content {options.serving!r}"
+                argv = step_argv(boundary, step, nextest_args, pytest_args, options, packages)
+                steps.append(PlannedStep(step, argv, skipped))
+            plan.append(
+                Planned(
+                    boundary,
+                    {
+                        "select": boundary.id,
+                        "nextest_args": nextest_args if "nextest" in boundary.tools() else [],
+                        "pytest_args": pytest_args if "pytest" in boundary.tools() else [],
+                    },
+                    tuple(steps),
+                )
+            )
+    if options.serving and not any(p.boundary.id == "serving:mcp" for p in plan):
+        raise PlanError("--serving applies to serving:mcp; select it")
+    if options.retain_serving and not any(p.boundary.id == "serving:mcp" for p in plan):
+        raise PlanError("--retain-serving applies to serving:mcp; select it")
+    return plan
+
+
+# ---------------------------------------------------------------------------------------------
+# Readiness (observation only)
+
+
+@dataclass(frozen=True)
+class Observation:
+    requirement: str
+    ready: bool | None  # None: not observed in this mode
+    message: str
+    repair: str = ""
+
+
+def observe_requirements(
+    requirements: set[str],
+    *,
+    static: bool = False,
+    python: Callable[[str], Any] = workspace_env.observe,
+    native: Callable[[str], Any] | None = None,
+) -> dict[str, Observation]:
+    """Observe each prerequisite; never synchronize or start anything.
+
+    ``static`` (``--print``) skips ``native-python``: observing it needs the native input
+    fingerprint, which a static plan does not compute."""
+    found = {}
+    for requirement in sorted(requirements):
+        if requirement in PYTHON_REQUIREMENTS:
+            if static and requirement == "native-python":
+                found[requirement] = Observation(
+                    requirement,
+                    None,
+                    f"{requirement}: observed at execution (needs the native input fingerprint)",
+                )
+                continue
+            observed = python(requirement)
+            found[requirement] = Observation(
+                requirement, observed.ready, observed.message(), observed.repair
+            )
+        elif requirement in NATIVE_REQUIREMENTS:
+            if native is None:
+                import surrealdb_fixture
+
+                native = surrealdb_fixture.substrate_readiness
+            observed = native(requirement)
+            found[requirement] = Observation(
+                requirement, observed.ready, observed.message(), observed.repair
+            )
+        else:
+            found[requirement] = Observation(
+                requirement, False, f"unknown prerequisite {requirement}"
+            )
+    return found
+
+
+def environment_owner(requirements: set[str] | frozenset[str], report=None):
+    """Shared ownership of what a boundary imports; pure Rust takes none."""
+    needed = [r for r in PYTHON_REQUIREMENTS if r in requirements]
+    if report is None:
+        return workspace_env.ownership("shared", needed)
+    return workspace_env.ownership("shared", needed, report=report)
+
+
+# ---------------------------------------------------------------------------------------------
+# Execution
+
+
+class Interrupted(Exception):
+    pass
+
+
+@dataclass
+class Runtime:
+    """Everything execution touches outside this module; tests replace it with fakes."""
+
+    observe: Callable[[set[str]], dict[str, Observation]]
+    run: Callable[[Sequence[str], Mapping[str, str], Path, bool], int]
+    fixture: Callable[[Options], contextlib.AbstractContextManager[Any]]
+    owner: Callable[[frozenset[str], Callable[[str], None]], contextlib.AbstractContextManager[Any]]
+    progress: Callable[..., None] = lambda **_: None
+    report: Callable[[str], None] = lambda message: print(message, flush=True)
+    base_env: Mapping[str, str] = field(default_factory=dict)
+    release_dir: Path = ROOT / "target" / "release"
+    stop: Callable[[], bool] = lambda: False
+
+
+def _fixture_blocked(error: BaseException) -> str | None:
+    kind = getattr(error, "kind", None)
+    detail = getattr(error, "detail", None)
+    if kind is None or detail is None:
+        return None
+    repair = getattr(error, "repair", None)
+    return f"fixture {kind}: {detail}" + (f"; repair: {repair}" if repair else "")
+
+
+def _server_end(attachment: Any) -> str | None:
+    server = getattr(attachment, "server", None)
+    if server is None:
+        return None
+    ended = server.exited()
+    if ended is None:
+        return None
+    if ended == "oom-kill":
+        return f"fixture OOM: server {server.id} was oom-killed (evidence: oom-kill)"
+    return f"fixture readiness: server {server.id} ended ({ended}) during the step"
+
+
+def run_boundary(
+    planned: Planned,
+    runtime: Runtime,
+    observations: Mapping[str, Observation],
+    options: Options,
+    log: Path,
+    live: bool,
+) -> dict[str, Any]:
+    boundary = planned.boundary
+    started = time.monotonic()
+    result: dict[str, Any] = {
+        "boundary": boundary.id,
+        "outcome": "not_run",
+        "reason": "",
+        "log": str(log),
+        "duration": 0.0,
+        "fixture": None,
+        "selection": planned.selection,
+        "steps": [],
+    }
+
+    def done(outcome: str, reason: str) -> dict[str, Any]:
+        assert outcome in OUTCOMES
+        result.update(outcome=outcome, reason=reason)
+        result["duration"] = round(time.monotonic() - started, 3)
+        return result
+
+    if runtime.stop():
+        return done("not_run", "interrupted before it started")
+    missing = [observations[r] for r in sorted(boundary.requirements) if not observations[r].ready]
+    if missing:
+        reason = "; ".join(
+            f"prerequisite {o.requirement}: {o.repair or o.message}" for o in missing
+        )
+        return done("blocked", reason)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    runtime.progress(current_command=boundary.id, waiting_reason=None)
+
+    def waiting(message: str) -> None:
+        runtime.report(message)
+        runtime.progress(waiting_reason=message.splitlines()[0])
+
+    try:
+        with runtime.owner(boundary.requirements, waiting):
+            runtime.progress(waiting_reason=None)
+            fixture_scope = (
+                runtime.fixture(options) if boundary.fixture else contextlib.nullcontext()
+            )
+            with fixture_scope as attachment:
+                return _run_steps(planned, runtime, options, attachment, log, live, result, done)
+    except Interrupted:
+        return done("not_run", "interrupted")
+    except Exception as error:  # evidence-bearing fixture failures are infrastructure
+        blocked = _fixture_blocked(error)
+        if blocked is None:
+            raise
+        if result["outcome"] == "passed":
+            return done("blocked", f"after passing steps: {blocked}")
+        return done("blocked", blocked)
+
+
+def _expand(value: str, release: Path, serving: Path | None) -> str:
+    value = value.replace("{release}", str(release))
+    if "{serving}" in value:
+        if serving is None:
+            raise PlanError("a step needs {serving} outside a fixture")
+        value = value.replace("{serving}", str(serving))
+    return value
+
+
+def _run_steps(
+    planned: Planned,
+    runtime: Runtime,
+    options: Options,
+    attachment: Any,
+    log: Path,
+    live: bool,
+    result: dict[str, Any],
+    done: Callable[[str, str], dict[str, Any]],
+) -> dict[str, Any]:
+    boundary = planned.boundary
+    env = dict(runtime.base_env)
+    serving: Path | None = None
+    if attachment is not None:
+        result["fixture"] = {
+            "id": attachment.server.id,
+            "kind": attachment.server.kind,
+            "attachment": attachment.id,
+        }
+        producing = any(s.step.produces_serving for s in planned.steps)
+        if producing and options.serving:
+            reuse = attachment.use_serving(options.serving)
+            result["fixture"]["serving_reuse"] = reuse
+            serving = Path(attachment.extra_env["LCTX_NATIVE_SERVING_CONFIG"])
+        elif producing and options.retain_serving:
+            serving = attachment.retain_serving(options.retain_serving)
+        elif producing:
+            serving = attachment.scratch / "serving.json"
+        env = attachment.environment(env)
+    for planned_step in planned.steps:
+        step = planned_step.step
+        record: dict[str, Any] = {"name": step.name, "argv": list(planned_step.argv)}
+        result["steps"].append(record)
+        if planned_step.skipped:
+            record.update(outcome="not_run", reason=planned_step.skipped)
+            if step.produces_serving and options.serving:
+                record["identity"] = result["fixture"]["serving_reuse"]
+            continue
+        if runtime.stop():
+            raise Interrupted
+        step_env = dict(env)
+        for key, value in step.env:
+            step_env[key] = _expand(value, runtime.release_dir, serving)
+        runtime.progress(
+            current_command=f"{boundary.id} {step.name}: {shlex.join(planned_step.argv)}"
+        )
+        began = time.monotonic()
+        code = runtime.run(planned_step.argv, step_env, log, live)
+        record.update(exit=code, duration=round(time.monotonic() - began, 3))
+        if runtime.stop():
+            record["outcome"] = "not_run"
+            raise Interrupted
+        ended = _server_end(attachment) if attachment is not None else None
+        if ended:
+            record["outcome"] = "blocked"
+            return done("blocked", ended)
+        if code == 127:
+            record["outcome"] = "blocked"
+            return done("blocked", f"launch: cannot start {planned_step.argv[0]} (exit 127)")
+        if code != 0:
+            record["outcome"] = "failed"
+            return done("failed", f"step {step.name} exited {code}")
+        record["outcome"] = "passed"
+        if step.produces_serving and options.retain_serving:
+            identity = attachment.record_serving(options.retain_serving, planned_step.argv)
+            result["fixture"]["serving_retained"] = identity
+        if step.restart_after and attachment is not None:
+            attachment.restart()
+    return done("passed", "")
 
 
 def execute(
-    selected: list[str],
-    ready: dict[str, bool],
-    run: Runner,
-    arguments: tuple[str, ...] = (),
-    command: str | None = None,
-) -> dict[str, str]:
-    results = {}
-    for name in selected:
-        family = FAMILIES[name]
-        missing = sorted(r for r in prerequisites(name, command) if not ready.get(r, False))
-        if missing:
-            results[name] = "blocked"
-            routes = "; ".join(f"{r}: {REPAIR.get(r, 'unknown repair')}" for r in missing)
-            print(f"{name}: blocked (prerequisite {routes})", flush=True)
-            continue
-        commands = (
-            family.commands
-            if command is None
-            else (family.commands[COMMANDS[name].index(command)],)
-        )
-        codes = [run(invocation + arguments) for invocation in commands]
-        results[name] = (
-            "passed"
-            if all(code == 0 for code in codes)
-            else "blocked"
-            if all(code in (0, 127) for code in codes)
-            else "failed"
-        )
-        print(f"{name}: {results[name]}", flush=True)
+    plan: Sequence[Planned],
+    runtime: Runtime,
+    options: Options,
+    log_dir: Path,
+    *,
+    live: bool = False,
+    on_result: Callable[[list[dict[str, Any]]], None] = lambda _results: None,
+) -> list[dict[str, Any]]:
+    """Run every planned boundary; one boundary's outcome never decides another's."""
+    requirements = set().union(*(p.boundary.requirements for p in plan))
+    observations = runtime.observe(requirements)
+    for observation in observations.values():
+        if not observation.ready:
+            runtime.report(observation.message)
+    results: list[dict[str, Any]] = []
+    for planned in plan:
+        log = log_dir / f"{planned.boundary.family}-{planned.boundary.name}.log"
+        runtime.report(f"-- {planned.boundary.id}: running (log {log})")
+        result = run_boundary(planned, runtime, observations, options, log, live)
+        results.append(result)
+        _report_result(result, runtime.report, live)
+        on_result(results)
+    runtime.progress(current_command=None, waiting_reason=None)
     return results
 
 
-def launch(command: tuple[str, ...], env: dict[str, str]) -> int:
-    print("$ " + " ".join(command), flush=True)
+def _report_result(result: dict[str, Any], report: Callable[[str], None], live: bool) -> None:
+    line = f"{result['boundary']}: {result['outcome']} ({result['duration']:.1f}s)"
+    if result["reason"]:
+        line += f" - {result['reason']}"
+    report(line)
+    if result["outcome"] == "failed" and not live:
+        try:
+            lines = Path(result["log"]).read_text(errors="replace").splitlines()
+        except OSError:
+            return
+        report("\n".join(f"   | {text}" for text in lines[-TAIL_LINES:]))
+        report(f"   full log: {result['log']}")
+
+
+# ---------------------------------------------------------------------------------------------
+# Real runtime pieces
+
+
+def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -> int:
+    """Run one step in this process group; its output goes to the boundary log (and stdout with
+    --live). A missing executable is exit 127."""
+    with open(log, "ab") as handle:
+        handle.write(f"$ {shlex.join(argv)}\n".encode())
+        handle.flush()
+        try:
+            child = subprocess.Popen(
+                list(argv),
+                cwd=ROOT,
+                env=dict(env),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE if live else handle,
+                stderr=subprocess.STDOUT,
+            )
+        except OSError as error:
+            handle.write(f"cannot launch {argv[0]}: {error}\n".encode())
+            return 127
+        if live:
+            assert child.stdout is not None
+            for chunk in iter(lambda: child.stdout.read1(65536), b""):  # type: ignore[union-attr]
+                handle.write(chunk)
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+        return child.wait()
+
+
+@contextlib.contextmanager
+def real_fixture(options: Options) -> Iterator[Any]:
+    import surrealdb_fixture as sf
+
+    if options.attach is None:
+        with sf.fixture(report=lambda message: print(message, flush=True)) as attachment:
+            yield attachment
+        return
+    server = sf.Server.open(options.attach)
+    if server.kind != "kept":
+        raise sf.FixtureBlocked("record", f"{options.attach} is not a kept fixture")
+    ended = server.exited()
+    if ended is not None:
+        raise (
+            server.oom("before attaching")
+            if ended == "oom-kill"
+            else sf.FixtureBlocked(
+                "readiness", f"kept fixture {server.id} is not running ({ended})"
+            )
+        )
+    server.ready()
+    attachment = sf.Attachment.create(server)
     try:
-        return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode
-    except OSError as error:
-        print(f"blocked: cannot launch {command[0]} ({error})", flush=True)
-        return 127
+        yield attachment
+    finally:
+        attachment.release()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("family", choices=[*FAMILIES, "qualify"])
-    parser.add_argument(
-        "--command", help="select a family boundary before passing its ordinary tool filters"
+def test_threads(env: Mapping[str, str]) -> str:
+    """Half the CPUs unless NEXTEST_TEST_THREADS (or -j) overrides: several agents share a box."""
+    return env.get("NEXTEST_TEST_THREADS") or str(max(2, (os.cpu_count() or 4) // 2))
+
+
+def base_environment() -> dict[str, str]:
+    env = normalized_env(dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"))
+    env["NEXTEST_TEST_THREADS"] = test_threads(env)
+    return env
+
+
+def release_directory(env: Mapping[str, str]) -> Path:
+    target = env.get("CARGO_TARGET_DIR")
+    return (Path(target) if target else ROOT / "target") / "release"
+
+
+# ---------------------------------------------------------------------------------------------
+# Inspection
+
+
+ENVIRONMENT_NAMES = {
+    "fixture": ("LCTX_SURREAL_TEST_CONFIG", "LCTX_COMPILER_RUNTIME_CONFIG", "LCTX_FIXTURE_ID"),
+    "always": ("INSTA_UPDATE", "UV_NO_SYNC", "NEXTEST_TEST_THREADS"),
+}
+
+
+def describe(plan: Sequence[Planned], observations: Mapping[str, Observation], options: Options):
+    rows = []
+    for planned in plan:
+        boundary = planned.boundary
+        names = list(ENVIRONMENT_NAMES["always"])
+        if boundary.requirements & {"tools", "native-python"}:
+            names.append(workspace_env.OWNERSHIP_KEY)
+        if boundary.fixture:
+            names += ENVIRONMENT_NAMES["fixture"]
+        fixture = None
+        if boundary.fixture:
+            fixture = (
+                f"kept fixture {options.attach} (new attachment)"
+                if options.attach
+                else "run-owned native SurrealDB (one per boundary)"
+            )
+        rows.append(
+            {
+                "boundary": boundary.id,
+                "description": boundary.description,
+                "requirements": sorted(boundary.requirements),
+                "fixture": fixture,
+                "steps": [
+                    {
+                        "name": s.step.name,
+                        "argv": list(s.argv),
+                        "env": sorted({*names, *(k for k, _ in s.step.env)}),
+                        "skipped": s.skipped,
+                    }
+                    for s in planned.steps
+                ],
+            }
+        )
+    return {
+        "boundaries": rows,
+        "readiness": {
+            r: {"ready": o.ready, "message": o.message, "repair": o.repair}
+            for r, o in observations.items()
+        },
+        "options": options.to_json(),
+    }
+
+
+def print_plan(description: Mapping[str, Any]) -> None:
+    print("static plan: builds nothing, starts no fixture, computes no fingerprint")
+    for row in description["boundaries"]:
+        needs = ", ".join(row["requirements"]) or "none"
+        print(f"{row['boundary']}  ({row['description']}; requires {needs})")
+        if row["fixture"]:
+            print(f"  fixture: {row['fixture']}")
+        for step in row["steps"]:
+            mark = f"  [not run: {step['skipped']}]" if step["skipped"] else ""
+            print(f"  $ {shlex.join(step['argv'])}{mark}")
+            print(f"    env: {', '.join(step['env'])}")
+    if description["readiness"]:
+        print("readiness:")
+        for observation in description["readiness"].values():
+            print(f"  {observation['message']}")
+
+
+def list_plan(plan: Sequence[Planned], options: Options, env: Mapping[str, str]) -> int:
+    """Each tool's own discovery. This builds the selected test binaries (reusing what is
+    current; cargo rebuilds what changed) and starts no fixture."""
+    print("listing builds: cargo nextest list compiles the selected test binaries")
+    status = 0
+    for planned in plan:
+        print(f"{planned.boundary.id}")
+        for planned_step in planned.steps:
+            step = planned_step.step
+            if step.tool not in TOOLS:
+                continue
+            argv = step_argv(
+                planned.boundary,
+                step,
+                planned.selection["nextest_args"],
+                planned.selection["pytest_args"],
+                options,
+                listing=True,
+            )
+            done = subprocess.run(argv, cwd=ROOT, env=dict(env), capture_output=True, text=True)
+            if done.returncode:
+                status = 1
+                tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
+                print(f"  {step.name}: listing failed (exit {done.returncode})")
+                print("\n".join(f"    {line}" for line in tail))
+                continue
+            names = (
+                nextest_matches(done.stdout)
+                if step.tool == "nextest"
+                else [line for line in done.stdout.splitlines() if "::" in line]
+            )
+            print(f"  {step.name}: {len(names)} test(s)")
+            for name in names:
+                print(f"    {name}")
+    return status
+
+
+def nextest_matches(output: str) -> list[str]:
+    data = json.loads(output)
+    found = []
+    for binary, suite in sorted(data.get("rust-suites", {}).items()):
+        for name, case in sorted(suite.get("testcases", {}).items()):
+            if case.get("filter-match", {}).get("status") == "matches":
+                found.append(f"{binary} {name}")
+    return found
+
+
+# ---------------------------------------------------------------------------------------------
+# Command line
+
+
+class _Select(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        namespace.selections.append(Selection(str(values)))
+
+
+class _ToolArgs(argparse.Action):
+    """Tool arguments join the preceding --select; before any, they are shared by all."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        selections = namespace.selections
+        if selections and selections[-1].select is not None:
+            target = selections[-1]
+        elif selections and selections[0].select is None:
+            target = selections[0]
+        else:
+            target = Selection(None)
+            selections.insert(0, target)
+        getattr(target, self.dest).extend(shlex.split(str(values)))
+
+
+def help_epilog() -> str:
+    lines = ["boundaries (FAMILY:BOUNDARY; a family selects all of its boundaries):"]
+    for boundary in BOUNDARIES:
+        needs = ", ".join(sorted(boundary.requirements)) or "none"
+        tools = "/".join(sorted(boundary.tools())) or "-"
+        fixture = ", fixture" if boundary.fixture else ""
+        lines.append(f"  {boundary.id:<22} {boundary.description} [{tools}; {needs}{fixture}]")
+    return "\n".join(lines)
+
+
+def parser() -> argparse.ArgumentParser:
+    top = argparse.ArgumentParser(
+        prog="just verify",
+        description=(__doc__ or "").split("\n\n")[0],
+        epilog=help_epilog(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    args, rest = parser.parse_known_args()
-    arguments = tuple(rest)
-    if arguments[:1] == ("--",):
-        arguments = arguments[1:]
-    if args.family == "qualify" and (arguments or args.command):
-        parser.error("qualification requires its complete declared selections")
-    if any(a == "--no-tests=pass" or a.startswith("--no-tests") for a in arguments):
-        parser.error("empty required selections must fail")
-    if args.family != "qualify":
-        choices = COMMANDS[args.family]
-        if args.command is not None and args.command not in choices:
-            parser.error("family commands: " + ", ".join(choices))
-        if arguments and len(choices) > 1 and args.command is None:
-            parser.error("choose --command " + "|".join(choices) + " for boundary-specific filters")
-    selected = list(FAMILIES) if args.family == "qualify" else [args.family]
-    requirements = set().union(*(prerequisites(name, args.command) for name in selected))
-    # Children launch with --no-sync, so no native input key is computed here.
-    base = normalized_env(dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"))
+    top.set_defaults(selections=[])
+    top.add_argument("--select", action=_Select, metavar="FAMILY[:BOUNDARY]")
+    top.add_argument("--nextest-args", dest="nextest_args", action=_ToolArgs, metavar="ARGS")
+    top.add_argument("--pytest-args", dest="pytest_args", action=_ToolArgs, metavar="ARGS")
+    mode = top.add_mutually_exclusive_group()
+    mode.add_argument("--print", action="store_true", help="static plan; builds nothing")
+    mode.add_argument("--list", action="store_true", help="tool discovery; builds")
+    top.add_argument("--json", action="store_true", help="--print as JSON")
+    top.add_argument("--live", action="store_true", help="stream step output")
+    top.add_argument("--rerun", metavar="RUN", help="failed/blocked/unexecuted boundaries of RUN")
+    top.add_argument("--qualify", action="store_true", help="every boundary and leaf")
+    top.add_argument("--cli", action="store_true", help="store: build and exercise the native CLI")
+    top.add_argument("--cargo-config", action="append", default=[], metavar="KEY=VALUE")
+    top.add_argument("--attach", metavar="FIXTURE", help="use a kept fixture (just fixture --keep)")
+    serving = top.add_mutually_exclusive_group()
+    serving.add_argument("--serving", metavar="NAME", help="serving:mcp reuses retained content")
+    serving.add_argument("--retain-serving", metavar="NAME", help="serving:mcp retains its content")
+    return top
 
-    # Shared ownership spans the live workers, so a managed `just sync` waits for them.
-    with environment_owner(requirements) as owned:
-        env = owned.environment(base)
 
-        def run(command: tuple[str, ...]) -> int:
-            return launch(command, env)
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    """Tool argument values often start with `-` (`--nextest-args --lib`); bind them first."""
+    items = list(argv)
+    bound: list[str] = []
+    index = 0
+    while index < len(items):
+        item = items[index]
+        if item in ("--nextest-args", "--pytest-args") and index + 1 < len(items):
+            bound.append(f"{item}={items[index + 1]}")
+            index += 2
+            continue
+        bound.append(item)
+        index += 1
+    return parser().parse_args(bound)
 
-        ready = readiness(requirements, run)
-        results = execute(selected, ready, run, arguments, args.command)
-        if args.family == "qualify":
-            # Independent non-functional leaves still run after functional failures.
-            for name in (
-                "clippy",
-                "lint-agents",
-                "adr-lint",
-                "fixtures-check",
-                "gold",
-                "rules-scan",
-                "rules-test",
-                "ruff",
-                "types",
-                "docs-check",
-                "deps",
-            ):
-                if name in (
-                    "ruff",
-                    "types",
-                    "docs-check",
-                    "deps",
-                    "gold",
-                    "adr-lint",
-                    "fixtures-check",
-                ) and not ready.get("tools"):
-                    results[name] = "blocked"
-                else:
-                    code = run(("just", name))
-                    results[name] = (
-                        "passed" if code == 0 else "blocked" if code == 127 else "failed"
-                    )
-                print(f"{name}: {results[name]}", flush=True)
-    return 0 if all(result == "passed" for result in results.values()) else 1
+
+def options_from(args: argparse.Namespace) -> Options:
+    return Options(
+        cli=args.cli,
+        cargo_config=tuple(args.cargo_config),
+        attach=args.attach,
+        serving=args.serving,
+        retain_serving=args.retain_serving,
+        qualify=args.qualify,
+    )
+
+
+def legacy(argv: Sequence[str]) -> list[str]:
+    """`verify.py FAMILY [--command B] [-- ARGS]` and `verify.py qualify`: shortcuts onto the
+    plan. ARGS reach the selected boundary's primary tool."""
+    items = list(argv)
+    if not items or items[0].startswith("-"):
+        return items
+    head = items.pop(0)
+    if head == "qualify":
+        return ["--qualify", *items]
+    if head not in families():
+        raise PlanError(f"unknown family {head!r}; choose from {', '.join(families())}")
+    command = None
+    rest: list[str] = []
+    passthrough: list[str] = []
+    index = 0
+    while index < len(items):
+        item = items[index]
+        if item == "--":
+            passthrough += items[index + 1 :]
+            break
+        if item == "--command" and index + 1 < len(items):
+            command = items[index + 1]
+            index += 2
+            continue
+        if item.startswith("--command="):
+            command = item.split("=", 1)[1]
+        elif item.startswith("-") and item in {"--print", "--list", "--live", "--json", "--cli"}:
+            rest.append(item)
+        else:
+            passthrough.append(item)
+        index += 1
+    members = families()[head]
+    if command is not None and command not in {b.name for b in members}:
+        raise PlanError(f"{head} boundaries: {', '.join(b.name for b in members)}")
+    chosen = [b for b in members if command is None or b.name == command]
+    select = head if command is None else f"{head}:{command}"
+    out = [*rest, "--select", select]
+    if passthrough:
+        owners = {b.primary_tool() for b in chosen}
+        if len(chosen) > 1 or None in owners:
+            raise PlanError(
+                f"choose --command {'|'.join(b.name for b in members)} for boundary filters"
+            )
+        out += [f"--{owners.pop()}-args", shlex.join(passthrough)]
+    return out
+
+
+def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
+    summary_file = runs.resolve(reference) / runs.SUMMARY
+    data = json.loads(summary_file.read_text())
+    selections = [
+        Selection(
+            item["selection"]["select"],
+            item["selection"]["nextest_args"],
+            item["selection"]["pytest_args"],
+        )
+        for item in data["boundaries"]
+        if item["outcome"] != "passed"
+    ]
+    selected = {item["selection"]["select"] for item in data["boundaries"]}
+    for planned in data.get("plan", []):
+        if planned["select"] not in selected:  # never reached (interrupted before it)
+            selections.append(
+                Selection(planned["select"], planned["nextest_args"], planned["pytest_args"])
+            )
+    saved = data.get("options", {})
+    options = Options(
+        cli=saved.get("cli", False),
+        cargo_config=tuple(saved.get("cargo_config", ())),
+        attach=saved.get("attach"),
+        serving=saved.get("serving"),
+        retain_serving=None,  # retained content is recorded once; a rerun does not re-retain
+        qualify=False,
+    )
+    return selections, options
+
+
+class Summary:
+    """`summary.json` in the current run directory (written only here, plan §5.8.5)."""
+
+    def __init__(self, path: Path | None, plan: Sequence[Planned], options: Options) -> None:
+        self.path = path
+        self.data: dict[str, Any] = {
+            "schema": SCHEMA,
+            "run_id": os.environ.get("LCTX_RUN_ID"),
+            "argv": sys.argv[1:],
+            "options": options.to_json(),
+            "plan": [p.selection for p in plan],
+            "started": runs.now(),
+            "ended": None,
+            "termination": None,
+            "boundaries": [],
+        }
+        self.write()
+
+    def write(self) -> None:
+        if self.path is not None:
+            write_json_atomic(self.path, self.data)
+
+    def update(self, results: list[dict[str, Any]]) -> None:
+        self.data["boundaries"] = results
+        self.write()
+
+    def finish(self, results: list[dict[str, Any]], termination: str) -> None:
+        self.data.update(boundaries=results, ended=runs.now(), termination=termination)
+        self.write()
+
+
+def publish_progress(**fields: Any) -> None:
+    runs.set_progress(**fields)
+
+
+def wrap_in_run(argv: Sequence[str]) -> int:
+    """Re-execute under a foreground run handle so logs, summary and rerun always exist."""
+    label = "verify " + shlex.join(argv)
+    command = [sys.executable, str(Path(runs.__file__).resolve()), "run", "--label", label[:120]]
+    command += ["--", sys.executable, str(Path(__file__).resolve()), *argv]
+    os.execv(sys.executable, command)
+    return 1  # unreachable
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    try:
+        translated = legacy(raw)
+    except PlanError as error:
+        print(f"verify: {error}", file=sys.stderr)
+        return 2
+    args = parse_args(translated)
+    options = options_from(args)
+    selections: list[Selection] = args.selections
+    try:
+        if args.rerun:
+            if any(s.select for s in selections):
+                raise PlanError("--rerun repeats a prior selection; do not add --select")
+            selections, options = rerun_selection(args.rerun)
+            if not selections:
+                print(f"verify: nothing to rerun: every boundary of {args.rerun} passed")
+                return 0
+        plan = resolve(selections, options)
+    except (PlanError, runs.RunNotFound, OSError, ValueError) as error:
+        print(f"verify: {error}", file=sys.stderr)
+        return 2
+    env = base_environment()
+    requirements = set().union(*(p.boundary.requirements for p in plan))
+    if args.print:
+        observations = observe_requirements(requirements, static=True)
+        description = describe(plan, observations, options)
+        if args.json:
+            print(json.dumps(description, indent=2))
+        else:
+            print_plan(description)
+        return 0
+    if args.list:
+        return list_plan(plan, options, env)
+    run_dir = runs.current_run()
+    if run_dir is None and not os.environ.get("LCTX_VERIFY_UNWRAPPED"):
+        return wrap_in_run(raw)
+    log_dir = (run_dir or Path(os.environ.get("TMPDIR", "/tmp"))) / "verify"
+
+    stopping: list[int] = []
+
+    def on_signal(signum: int, _frame: Any) -> None:
+        stopping.append(signum)
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, on_signal)
+    summary = Summary(runs.summary_path(), plan, options)
+    runtime = Runtime(
+        observe=lambda required: observe_requirements(required),
+        run=launch,
+        fixture=real_fixture,
+        owner=lambda required, report: environment_owner(required, report),
+        progress=publish_progress,
+        base_env=env,
+        release_dir=release_directory(env),
+        stop=lambda: bool(stopping),
+    )
+    results = execute(plan, runtime, options, log_dir, live=args.live, on_result=summary.update)
+    # Boundaries the interruption kept from starting are recorded, not dropped.
+    termination = "interrupted" if stopping else "completed"
+    summary.finish(results, termination)
+    failed = [r["boundary"] for r in results if r["outcome"] != "passed"]
+    print(
+        f"verify: {len(results) - len(failed)}/{len(results)} passed"
+        + (
+            f"; not passed: {', '.join(failed)} (rerun: just verify --rerun "
+            f"{os.environ.get('LCTX_RUN_ID', '<run>')})"
+            if failed
+            else ""
+        )
+    )
+    if stopping:
+        return 128 + stopping[0]
+    return 0 if not failed else 1
 
 
 if __name__ == "__main__":

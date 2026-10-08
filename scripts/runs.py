@@ -30,7 +30,6 @@ alive, `interrupted` when the owner is dead without a terminal record, otherwise
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import re
@@ -50,6 +49,8 @@ from harness import (
     TERMINATIONS,
     ProcessIdentity,
     group_members,
+    hold_lock,
+    lock_held,
     read_json,
     signal_group,
     spawn_group,
@@ -104,27 +105,8 @@ def owner_of(record: dict[str, Any]) -> ProcessIdentity:
     return ProcessIdentity.from_json(record["owner"])
 
 
-def _lock_held(run_dir: Path) -> bool:
-    """The owner holds an exclusive flock on `owner.lock` for its lifetime. Locks are kernel open-
-    file state, so this answers across pid namespaces (sandboxed tool calls) where the identity
-    cannot, and the kernel drops the lock however the owner dies."""
-    try:
-        fd = os.open(run_dir / OWNER_LOCK, os.O_RDONLY | os.O_CLOEXEC)
-    except OSError:
-        return False
-    try:
-        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    except OSError:
-        return False
-    finally:
-        os.close(fd)
-    return False
-
-
 def owner_alive(run_dir: Path, record: dict[str, Any]) -> bool:
-    return owner_of(record).alive() or _lock_held(run_dir)
+    return owner_of(record).alive() or lock_held(run_dir / OWNER_LOCK)
 
 
 def state_of(run_dir: Path, record: dict[str, Any] | None) -> str:
@@ -338,8 +320,7 @@ class Owner:
         for signum in LAUNCHER_SIGNALS:
             signal.signal(signum, self._on_signal)
         # Held (close-on-exec, so never by the command) until this process exits.
-        self._lock_fd = os.open(self.dir / OWNER_LOCK, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC)
-        fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
+        self._lock_fd = hold_lock(self.dir / OWNER_LOCK)
         self.write()
         env = dict(os.environ)
         env["LCTX_RUN_ID"] = self.record["id"]

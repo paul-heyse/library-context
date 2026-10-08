@@ -181,10 +181,13 @@ the host PostgreSQL installation are outside this pivot.
 `just fixture -- COMMAND` owns one authenticated persistent disposable server, supplies
 `LCTX_SURREAL_TEST_CONFIG` and `LCTX_COMPILER_RUNTIME_CONFIG`, and removes only its own server and
 state (`--keep`, `--attach`, `--list` and `--stop` manage kept servers).
-Use the current `verify-store` / `verify-serving` routes and explicit filters. Persisted compiler
-controls additionally receive `LCTX_COMPILER_RUNTIME_CONFIG` through
-`uv run --no-sync python scripts/native_controls.py compiler -- -E '<filter>'`;
-`compiler-cli` and `providers` select their actual changed boundaries. These controls use owned
+Fixture-backed verification boundaries (`providers:extract`, `compiler:producer`,
+`compiler:cli`, `store:rust`, `serving:rust`, `serving:mcp`) each receive their own attachment,
+with both variables, through `just verify --select BOUNDARY --nextest-args "-E '<filter>'"` (or
+the `just verify-<family> --command BOUNDARY -- …` shortcuts); `just verify --print …` shows the
+resolved commands without building. `--attach ID` uses a kept fixture, and `serving:mcp` can
+reuse retained content (`--attach ID --serving NAME`, produced by `--retain-serving NAME`); the
+skipped journey is recorded as `not_run` with the content identity. These controls use owned
 persistent fixtures; they do not inspect the operator store. The previously stopped broad compiler
 suite is not restarted. Current native/MCP/programmatic acceptance follows the
 [persisted execution plan](plans/persisted-graph-execution-plan_2026-10-07.md).

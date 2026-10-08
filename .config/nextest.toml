@@ -1,4 +1,8 @@
 [profile.default]
+# Test threads: `just verify` sets NEXTEST_TEST_THREADS to half the logical CPUs (at least 2)
+# when it is unset, so concurrent agents share the machine; a set NEXTEST_TEST_THREADS or `-j N`
+# in --nextest-args overrides it. Plain `cargo nextest` keeps nextest's "num-cpus" default
+# (a TOML value cannot express a fraction of the CPU count).
 fail-fast = false
 status-level = "fail"
 final-status-level = "slow"

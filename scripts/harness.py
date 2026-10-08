@@ -7,6 +7,7 @@ alive. A foreign identity is never signalled.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import signal
@@ -123,6 +124,32 @@ def signal_group(pgid: int, *, grace: float = 10.0) -> bool:
                 return True
             time.sleep(0.05)
     return not group_members(pgid)
+
+
+def hold_lock(path: Path) -> int:
+    """An exclusive flock held until this process exits (close-on-exec, never inherited)."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    fcntl.flock(descriptor, fcntl.LOCK_EX)
+    return descriptor
+
+
+def lock_held(path: Path) -> bool:
+    """Whether a live process holds the flock on ``path``. Locks are kernel open-file state, so
+    this answers across pid namespaces where an identity cannot (plan §5.8.3), and the kernel
+    drops the lock however the holder dies."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)
+    return False
 
 
 def write_json_atomic(path: Path, data: Any) -> None:
