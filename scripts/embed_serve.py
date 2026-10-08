@@ -1,4 +1,8 @@
-"""Launch the operator-controlled vLLM service from the hashed embedding spec."""
+"""Launch the operator-controlled vLLM service from the hashed embedding spec.
+
+The service is its own locked uv project. Launch never synchronizes it: readiness is observed
+first and a missing or outdated environment names its repair route, `just sync vllm`.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,10 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
+
+from workspace_env import observe, uv_environment
 
 SPEC = Path(__file__).resolve().parents[1] / "specs/embedding/qwen3-embedding-8b.json"
 PROJECT = Path(__file__).resolve().parents[1] / "services/vllm"
@@ -61,7 +68,7 @@ def launch_command(spec: dict, port: int) -> list[str]:
         "run",
         "--project",
         str(PROJECT),
-        "--frozen",
+        "--no-sync",
         "vllm",
         "serve",
         str(CHECKPOINT),
@@ -109,7 +116,14 @@ def main() -> None:
     if args.print_command:
         print(json.dumps(command))
     else:
+        readiness = observe("vllm")
+        if not readiness.ready:
+            print(readiness.message(), file=sys.stderr)
+            raise SystemExit(1)
         verify_checkpoint(spec)
+        # The service's own environment: the root project's selection never redirects it.
+        os.environ.clear()
+        os.environ.update(uv_environment("vllm"))
         os.environ.update(
             CUDA_HOME="/usr/local/cuda-13.4",
             CUDA_CACHE_MAXSIZE="4294967296",

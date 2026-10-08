@@ -98,7 +98,7 @@ Ordinary compilation and publication return an unselected handle. Save that JSON
 lctx snapshot --runtime-config build/native/runtime.json select build/native/handle.json
 lctx snapshot --runtime-config build/native/runtime.json show
 lctx snapshot --runtime-config build/native/runtime.json query 'SELECT VALUE id FROM entity LIMIT 5'
-python3 scripts/build_environment.py -- uv sync --locked
+just sync native
 uv run --no-sync python -m lctx_mcp --serving-config build/native/selected.serving.json
 ```
 

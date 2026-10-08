@@ -1,6 +1,7 @@
 """Launcher behavior, distinct from real family qualification."""
 
-from verify import FAMILIES, environment_owner, execute, prepare, prerequisites
+from verify import FAMILIES, environment_owner, execute, prerequisites, readiness
+from workspace_env import Readiness
 
 
 def test_independent_failure_does_not_skip_remaining_families():
@@ -27,27 +28,53 @@ def test_readiness_failure_blocks_dependents_but_pure_controls_still_run():
     assert commands == list(FAMILIES["model"].commands)
 
 
-def test_pure_preparation_invokes_no_environment_or_store_setup(monkeypatch):
+def observed(ready_requirements, calls):
+    def observe(requirement):
+        calls.append(requirement)
+        return Readiness(
+            requirement,
+            "native" if requirement == "native-python" else requirement,
+            requirement in ready_requirements,
+            (),
+            "environment is outdated",
+        )
 
-    commands = []
-    assert prepare(set(), lambda command: commands.append(command) or 0) == {}
-    assert commands == []
+    return observe
 
 
-def test_compiler_readiness_has_no_retired_store_or_binding_setup():
-    commands = []
-    ready = prepare({"tools", "cli"}, lambda command: commands.append(command) or 0)
-    assert ready == {"tools": True, "cli": True}
-    assert commands == [
-        ("uv", "sync", "--locked", "--inexact", "--only-group", "dev"),
-        ("cargo", "build", "--release", "-p", "lctx"),
-    ]
+def test_pure_readiness_observes_nothing():
+    commands, calls = [], []
+    assert readiness(set(), lambda c: commands.append(c) or 0, observed(set(), calls)) == {}
+    assert commands == [] and calls == []
+
+
+def test_readiness_observes_and_never_synchronizes(capsys):
+    commands, calls = [], []
+    ready = readiness(
+        {"tools", "native-python", "cli"},
+        lambda command: commands.append(command) or 0,
+        observed({"tools"}, calls),
+    )
+    assert ready == {"tools": True, "native-python": False, "cli": True}
+    assert calls == ["tools", "native-python"]
+    # The product binary build remains a run step; nothing runs `uv sync`.
+    assert commands == [("cargo", "build", "--release", "-p", "lctx")]
+    assert not any(command[:2] == ("uv", "sync") for command in commands)
+    assert "native-python: blocked: run just sync native" in capsys.readouterr().out
+
+
+def test_blocked_boundary_names_its_repair_route(capsys):
+    result = execute(["serving"], {"tools": True, "native-serving": True}, lambda c: 0, (), "mcp")
+    assert result == {"serving": "blocked"}
+    assert "native-python: just sync native" in capsys.readouterr().out
 
 
 def test_native_readiness_failure_blocks_both_effect_families():
     commands = []
-    ready = prepare(
-        {"native-store", "native-serving"}, lambda command: commands.append(command) or 1
+    ready = readiness(
+        {"native-store", "native-serving"},
+        lambda command: commands.append(command) or 1,
+        observed(set(), []),
     )
     assert ready == {"native-store": False, "native-serving": False}
     assert execute(["store", "serving"], ready, lambda command: commands.append(command) or 0) == {
@@ -81,14 +108,23 @@ def test_boundary_filter_scopes_real_prerequisites_and_preserves_ordinary_filter
     assert commands[0][-2:] == ("-E", "test(capture)")
 
 
-def test_pure_family_owns_no_python_environment_directory(tmp_path, monkeypatch):
-    import verify
+def test_ownership_follows_boundary_requirements(tmp_path, monkeypatch):
+    import workspace_env
 
-    monkeypatch.setattr(verify, "ROOT", tmp_path)
-    with environment_owner(False):
-        assert not (tmp_path / ".venv").exists()
-    with environment_owner(True):
-        assert (tmp_path / ".venv/.verification.lock").is_file()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.delenv("LCTX_ENV_OWNERSHIP", raising=False)
+    locks = tmp_path / "library-context" / "locks"
+    # Pure Rust (and store-only) boundaries take no lock at all.
+    for name, command in (("model", None), ("providers", "flow"), ("tooling", "docs")):
+        with environment_owner(prerequisites(name, command)) as owned:
+            assert owned.resources == () and owned.acquired == ()
+    assert not locks.exists()
+    with environment_owner(prerequisites("tooling", "python")) as owned:
+        assert [r.kind for r in owned.acquired] == ["environment"]
+        assert owned.mode == "shared"
+    with environment_owner(prerequisites("serving", "mcp")) as owned:
+        assert [r.kind for r in owned.acquired] == ["environment", "extension"]
+        assert owned.resources[0].path == workspace_env.environment_path()
 
 
 def test_missing_executable_is_reported_and_other_families_continue(monkeypatch):
@@ -115,7 +151,13 @@ def test_compiler_selections_reference_current_binaries():
     for family in ("compiler", "providers"):
         for command in FAMILIES[family].commands:
             if "-p" not in command:
-                assert command[:5] == ("uv", "run", "--no-sync", "python", "scripts/native_controls.py")
+                assert command[:5] == (
+                    "uv",
+                    "run",
+                    "--no-sync",
+                    "python",
+                    "scripts/native_controls.py",
+                )
                 continue
             package = command[command.index("-p") + 1]
             for index, argument in enumerate(command):
@@ -155,10 +197,19 @@ def test_native_cargo_configuration_reaches_cargo_and_nextest_only():
 
     override = "profile.release.package.cpg-core.opt-level=0"
     assert cargo_command(["cargo", "test", "--release"], [override]) == [
-        "cargo", "--config", override, "test", "--release",
+        "cargo",
+        "--config",
+        override,
+        "test",
+        "--release",
     ]
     assert cargo_command(["cargo", "nextest", "run", "--release"], [override]) == [
-        "cargo", "nextest", "run", "--config", override, "--release",
+        "cargo",
+        "nextest",
+        "run",
+        "--config",
+        override,
+        "--release",
     ]
     command = ["uv", "run", "--no-sync", "pytest"]
     assert cargo_command(command, [override]) == command

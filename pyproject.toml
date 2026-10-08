@@ -46,6 +46,11 @@ target-version = "py314"
 extend-exclude = ["fixtures", ".claude/skills", "target", "docs", "libraries", "services"]
 force-exclude = true
 
+[tool.ruff.per-file-target-version]
+# The justfile shell runs under the system Python 3.12; keep the formatter and fixes from writing
+# 3.13+ syntax such as PEP 758 `except A, B:` into it (AE-04).
+"scripts/build_environment.py" = "py312"
+
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 

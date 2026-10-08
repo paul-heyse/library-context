@@ -12,13 +12,31 @@ default:
     @just --list
 
 turn_end_steps := "adr-index build-features fmt"
-ready_steps := "skills-sync doctor-check"
+ready_steps := "skills-sync _sync-native doctor-check"
 
 # End of a turn that changed files: regenerate the ADR index and Hakari crate, and format
 turn-end: (_bundle "turn-end" turn_end_steps)
 
-# After a dependency, toolchain or skill-selection change, or an environment-shaped failure
+# Run after a dependency, toolchain or skill-selection change, or an environment-shaped failure.
+# Skill links, then `sync native` once, then the doctor check
 ready: (_bundle "ready" ready_steps)
+
+# Routes: `tools` (dev tools, never builds the extension), `native` (full sync with the native
+# key; a no-op while current), `vllm` (the separately locked service). Exclusive ownership; waits
+# for and names live managed holders.
+# Prepare one environment route: `just sync tools|native|vllm`
+sync route:
+    @uv run --no-project --offline --no-python-downloads python scripts/workspace_env.py sync {{ route }}
+
+[private]
+_sync-native: (sync "native")
+
+# `--explain` (the default) reports Cargo target/build dirs, interpreters, the selected uv env and
+# uv settings without fingerprinting; `-- cmd` launches with the normalized environment.
+# Normalized environment: `just env [--explain] [-- cmd…]`
+[positional-arguments]
+env *args:
+    @python3 scripts/build_environment.py {{ if args == "" { "--explain" } else { "" } }} "$@"
 
 # Run each recipe, keep going after a failure, and list the failures
 [private]
@@ -85,13 +103,24 @@ qualify:
 fixture-corpus:
     uv run --no-sync python scripts/native_controls.py compiler -E "binary(fixture_corpus)"
 
+# Run any command under a handle in build/runs/<id>/ (D4): `just run [--background] [--label L] -- <cmd…>`.
+# Prefer the runtime's own background/wait/cancel first; the handle crosses tool calls and sessions.
+[positional-arguments]
+run *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/runs.py run "$@"
+
+# Run handles: list | status ID | logs ID [--follow] | cancel ID | retain ID | prune [--keep N] [--older-than D]
+[positional-arguments]
+runs *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/runs.py "$@"
+
 # Format everything (mutating)
 fmt:
     # Virtual-root defaults cover workspace members; --all would also rewrite vendored patches.
     cargo fmt
-    uv run ruff format
+    uv run --no-sync ruff format
     # Apply ruff's auto-fixes; what remains is the `ruff` check's to report.
-    uv run ruff check --fix --quiet --exit-zero
+    uv run --no-sync ruff check --fix --quiet --exit-zero
 
 # clippy, denying warnings
 clippy:
@@ -103,19 +132,19 @@ ruff:
 
 # pyrefly type check
 types:
-    uv run pyrefly check --summary=none
+    uv run --no-sync pyrefly check --summary=none
 
 # ADR metadata and index
 adr-lint:
-    uv run python scripts/adr.py lint
+    uv run --no-project --offline --no-python-downloads python scripts/adr.py lint
 
 # Licences are never a rejection reason, so cargo-deny checks bans and sources only.
 # Pinned nominal families and observational forks (ADR-0117/0118); every declared dependency exact (ADR-0132)
 deps:
-    uv run python scripts/check_family.py Cargo.lock
+    uv run --no-project --offline --no-python-downloads python scripts/check_family.py Cargo.lock
     cargo deny --log-level error check bans sources
-    uv run python scripts/check_pyrefly_fork.py
-    uv run python scripts/check_ruff_fork.py
+    uv run --no-project --offline --no-python-downloads python scripts/check_pyrefly_fork.py
+    uv run --no-project --offline --no-python-downloads python scripts/check_ruff_fork.py
     # A dependency no crate uses pins nothing (H1 O2).
     cargo shear --exclude lctx-workspace-hack
     cargo hakari generate --diff
@@ -129,7 +158,7 @@ build-features:
 # The gold reference and the analyzed library name one FastMCP (ADR-0046). Separate from `deps`,
 # so a skill refresh in progress never reads as a dependency-family break (ADR-0002's trigger).
 gold:
-    uv run python scripts/check_gold.py
+    uv run --no-project --offline --no-python-downloads python scripts/check_gold.py
 
 # Byte-compile Python fixtures (input data) so they cannot silently become syntax-error cases
 fixtures-check:
@@ -138,18 +167,18 @@ fixtures-check:
     eval "$(python3 scripts/build_environment.py --shell)"
     mapfile -t files < <(find fixtures/python -name '*.py' -not -path '*/_invalid/*')
     [ ${#files[@]} -eq 0 ] && { echo "fixtures-check: not_run (no fixtures yet)"; exit 0; }
-    uv run python -c 'import ast,sys; [ast.parse(open(f,"rb").read(), f) for f in sys.argv[1:]]' "${files[@]}"
+    uv run --no-project --offline --no-python-downloads python -c 'import ast,sys; [ast.parse(open(f,"rb").read(), f) for f in sys.argv[1:]]' "${files[@]}"
     echo "fixtures-check: ${#files[@]} files parse"
 
 # The embedding service (DESIGN §11.1, ADR-0080): the gpu-stack SM120 wheel from services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
 embed-serve port="8000":
-    uv run python scripts/embed_serve.py --port {{port}}
+    uv run --no-project --offline --no-python-downloads python scripts/embed_serve.py --port {{port}}
 
 # The live leg of the client conformance check (§11.1, E2): needs `just embed-serve` running
 embed-conformance url="http://127.0.0.1:8000":
     LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run --release -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
-    uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
+    uv run --no-sync python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
 
 # ast-grep scan over the tree (rules/ grows from design-review findings)
 rules-scan:
@@ -179,9 +208,9 @@ doctor:
     for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear cargo-hakari uv ast-grep rg git gh clang clang++ llvm-config mold sccache; do
       printf '%-14s ' "$t"; command -v "$t" >/dev/null && "$t" --version 2>/dev/null | head -1 || echo MISSING
     done
-    printf '%-14s ' ruff; uv run ruff --version
-    printf '%-14s ' pyrefly; uv run pyrefly --version
-    printf '%-14s ' python; uv run python --version
+    printf '%-14s ' ruff; uv run --no-sync ruff --version
+    printf '%-14s ' pyrefly; uv run --no-sync pyrefly --version
+    printf '%-14s ' python; uv run --no-sync python --version
     uv run --no-project --offline --no-python-downloads python scripts/docs.py doctor
 
 # Fail when `doctor` reports a missing or failing tool (part of `ready`)

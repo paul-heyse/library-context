@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """Normalize inherited Cargo paths for recipes and interactive shells.
 
-Use ``python3 scripts/build_environment.py --shell`` with eval in a shell, or
-``python3 scripts/build_environment.py -- COMMAND ...``. Intentional external
-targets use LCTX_CARGO_TARGET_DIR. Prefer Cargo config for non-default paths:
-exported CARGO_* paths participate in sccache's Rust key.
+Use ``python3 scripts/build_environment.py --shell`` with eval in a shell,
+``python3 scripts/build_environment.py -- COMMAND ...`` to launch one command, or
+``--explain [-- COMMAND ...]`` to report the effective Cargo paths, interpreters, selected uv
+environment and uv settings. Intentional external targets use LCTX_CARGO_TARGET_DIR. Prefer Cargo
+config for non-default paths: exported CARGO_* paths participate in sccache's Rust key.
+
+This file is the justfile shell, so it runs under the system ``python3`` (3.12 on this machine)
+and must stay parseable there: no 3.13+ syntax such as PEP 758 unparenthesised ``except A, B:``.
+It imports only the standard library, never the harness helpers (``workspace_env``, ``harness``,
+``surrealdb_fixture``). Native input fingerprints are computed only on request
+(``native_inputs=True``): by native synchronization and native readiness, not for every recipe.
+The launcher path drops ``UV_NO_SYNC``: repository launchers carry explicit ``--no-sync`` or
+``--no-project``, and uv warns when ``UV_NO_SYNC`` meets ``--no-project``.
 """
 
 from __future__ import annotations
@@ -14,11 +23,13 @@ import os
 import shlex
 import sys
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_KEYS = ("CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR")
 NATIVE_INPUT_KEYS = ("LCTX_NATIVE_SEMANTICS_INPUTS",)
+LAUNCHER_DROPPED_KEYS = ("UV_NO_SYNC",)
 
 
 def native_input_fingerprints(root: Path) -> dict[str, str]:
@@ -51,8 +62,9 @@ def native_input_fingerprints(root: Path) -> dict[str, str]:
 
 
 def normalized_env(
-    source: dict[str, str], root: Path = ROOT, *, native_inputs: bool = True
+    source: dict[str, str], root: Path = ROOT, *, native_inputs: bool = False
 ) -> dict[str, str]:
+    """Normalize inherited target paths; add native input keys only when requested."""
     env = source.copy()
     root = root.resolve()
     for key in TARGET_KEYS:
@@ -74,6 +86,94 @@ def normalized_env(
     return env
 
 
+def launcher_env(source: dict[str, str], root: Path = ROOT) -> dict[str, str]:
+    """The environment of the ``-- COMMAND`` launcher (the justfile shell)."""
+    env = normalized_env(source, root)
+    for key in LAUNCHER_DROPPED_KEYS:
+        env.pop(key, None)
+    return env
+
+
+def project_environment(root: Path = ROOT, source: Mapping[str, str] | None = None) -> Path:
+    """The uv project environment selected for this checkout.
+
+    ``UV_PROJECT_ENVIRONMENT`` is used as-is when absolute and resolved against the checkout root
+    when relative; the default is ``.venv``. ``sys.prefix`` and ``VIRTUAL_ENV`` never select it:
+    uv itself ignores a non-matching ``VIRTUAL_ENV`` without ``--active``.
+    """
+    selection = os.environ if source is None else source
+    value = selection.get("UV_PROJECT_ENVIRONMENT", "").strip()
+    path = Path(value).expanduser() if value else Path(".venv")
+    return Path(os.path.abspath(path if path.is_absolute() else root.resolve() / path))
+
+
+def _cargo_path(value: str, root: Path, env: dict[str, str]) -> str:
+    cargo_home = env.get("CARGO_HOME") or str(Path.home() / ".cargo")
+    for template, replacement in (
+        ("{workspace-root}", str(root)),
+        ("{cargo-cache-home}", cargo_home),
+    ):
+        value = value.replace(template, replacement)
+    return str(Path(value) if Path(value).is_absolute() else root / value)
+
+
+def explain(source: dict[str, str], root: Path = ROOT) -> list[str]:
+    """Effective paths and settings for a command launched here, without fingerprinting."""
+    root = root.resolve()
+    env = launcher_env(source, root)
+    try:
+        config = tomllib.loads((root / ".cargo" / "config.toml").read_text()).get("build", {})
+    except OSError:
+        config = {}
+    if env.get("CARGO_TARGET_DIR"):
+        target = f"{env['CARGO_TARGET_DIR']} (CARGO_TARGET_DIR)"
+    elif env.get("CARGO_BUILD_TARGET_DIR"):
+        target = f"{env['CARGO_BUILD_TARGET_DIR']} (CARGO_BUILD_TARGET_DIR)"
+    elif "target-dir" in config:
+        target = f"{_cargo_path(config['target-dir'], root, env)} (.cargo/config.toml)"
+    else:
+        target = f"{root / 'target'} (Cargo default)"
+    if env.get("CARGO_BUILD_BUILD_DIR"):
+        build = f"{env['CARGO_BUILD_BUILD_DIR']} (CARGO_BUILD_BUILD_DIR)"
+    elif "build-dir" in config:
+        build = f"{_cargo_path(config['build-dir'], root, env)} (.cargo/config.toml)"
+    else:
+        build = "same as the target directory (Cargo default)"
+    dropped = [
+        key
+        for key in (*TARGET_KEYS, *NATIVE_INPUT_KEYS, *LAUNCHER_DROPPED_KEYS)
+        if key in source and source.get(key) != env.get(key)
+    ]
+    venv = project_environment(root, env)
+    selected_by = (
+        "UV_PROJECT_ENVIRONMENT" if env.get("UV_PROJECT_ENVIRONMENT", "").strip() else "default"
+    )
+    project_python = venv / "bin" / "python"
+    try:
+        pinned = (root / ".python-version").read_text().strip()
+    except OSError:
+        pinned = "(none)"
+    active = env.get("VIRTUAL_ENV")
+    if active and Path(os.path.abspath(active)) != venv:
+        active += " (ignored by uv project commands without --active)"
+    uv_settings = sorted(key for key in env if key.startswith("UV_"))
+    lines = [
+        f"checkout:            {root}",
+        f"cargo target dir:    {target}",
+        f"cargo build dir:     {build}",
+        f"launcher python:     {sys.executable} ({sys.version.split()[0]})",
+        f"project python pin:  {pinned} (.python-version)",
+        f"selected uv env:     {venv} ({selected_by};"
+        f" {'present' if project_python.exists() else 'absent'})",
+        f"VIRTUAL_ENV:         {active or '(unset)'}",
+        "uv settings:         "
+        + (", ".join(f"{key}={env[key]}" for key in uv_settings) or "(none)"),
+        f"dropped by launcher: {', '.join(dropped) or '(none)'}",
+        "native input keys:   not computed here (just sync native / native readiness)",
+    ]
+    return lines
+
+
 def shell_changes(before: dict[str, str], after: dict[str, str]) -> str:
     return "\n".join(
         f"export {key}={shlex.quote(after[key])}" if key in after else f"unset {key}"
@@ -84,14 +184,23 @@ def shell_changes(before: dict[str, str], after: dict[str, str]) -> str:
 
 def main() -> None:
     before = dict(os.environ)
-    env = normalized_env(before)
     args = sys.argv[1:]
     if args == ["--shell"]:
-        print(shell_changes(before, env))
-    elif len(args) > 1 and args[0] == "--":
-        os.execvpe(args[1], args[1:], env)
-    else:
-        raise SystemExit("usage: build_environment.py --shell | -- COMMAND ...")
+        print(shell_changes(before, normalized_env(before)))
+        return
+    if args[:1] == ["--explain"]:
+        command = args[2:] if args[1:2] == ["--"] else None
+        if len(args) > 1 and not command:
+            raise SystemExit("usage: build_environment.py --explain [-- COMMAND ...]")
+        print("\n".join(explain(before)), file=sys.stderr if command else sys.stdout, flush=True)
+        if command is None:
+            return
+        args = ["--", *command]
+    if len(args) > 1 and args[0] == "--":
+        os.execvpe(args[1], args[1:], launcher_env(before))
+    raise SystemExit(
+        "usage: build_environment.py --shell | --explain [-- COMMAND ...] | -- COMMAND ..."
+    )
 
 
 if __name__ == "__main__":

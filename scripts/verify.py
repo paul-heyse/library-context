@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Explicit contract families, scoped readiness, and keep-going qualification.
+"""Explicit contract families, observed readiness, and keep-going qualification.
 
-Readiness is run-owned preparation, never a persistent assertion-pass cache.
-The qualification result belongs to the calling plan, not a new receipt register.
+Readiness observes each boundary's prerequisites and never prepares the Python environment: a
+missing prerequisite is `blocked` with the route that repairs it (`just sync tools|native`,
+ADR-0134). Boundaries that use the shared Python environment hold shared ownership of it for
+their lifetime (`workspace_env.ownership`); pure-Rust boundaries take none. The qualification
+result belongs to the calling plan, not a new receipt register.
 """
 
 from __future__ import annotations
 
 import argparse
-import fcntl
 import os
 import subprocess
 from collections.abc import Callable
-from contextlib import contextmanager
 from dataclasses import dataclass
 
+import workspace_env
 from build_environment import ROOT, normalized_env
 from surrealdb_fixture import IMAGE
 
@@ -47,7 +49,8 @@ FAMILIES = {
         frozenset({"tools", "native-store"}),
     ),
     "store": Family(
-        (("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "store"),), frozenset({"tools", "native-store"})
+        (("uv", "run", "--no-sync", "python", "scripts/native_controls.py", "store"),),
+        frozenset({"tools", "native-store"}),
     ),
     "serving": Family(
         (
@@ -109,33 +112,47 @@ def prerequisites(name: str, command: str | None) -> frozenset[str]:
     )
 
 
-@contextmanager
-def environment_owner(required: bool):
-    if not required:
-        yield
-        return
-    lock_path = ROOT / ".venv" / ".verification.lock"
-    lock_path.parent.mkdir(exist_ok=True)
-    with lock_path.open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+# Requirements observed through the shared Python environment, and their repair routes.
+PYTHON_REQUIREMENTS = ("tools", "native-python")
+REPAIR = {
+    "tools": "just sync tools",
+    "native-python": "just sync native",
+    "native-store": f"docker pull {IMAGE}",
+    "native-serving": f"docker pull {IMAGE}",
+    "cli": "fix the `cargo build --release -p lctx` failure above",
+}
+
+
+def environment_owner(requirements: set[str] | frozenset[str]):
+    """Shared ownership of what the selected boundaries import; pure Rust takes none."""
+    return workspace_env.ownership("shared", [r for r in PYTHON_REQUIREMENTS if r in requirements])
 
 
 Runner = Callable[[tuple[str, ...]], int]
+Observer = Callable[[str], "workspace_env.Readiness"]
 
 
-def prepare(requirements: set[str], run: Runner) -> dict[str, bool]:
+def readiness(
+    requirements: set[str], run: Runner, observe: Observer = workspace_env.observe
+) -> dict[str, bool]:
+    """Observe each prerequisite; never synchronize the environment.
+
+    `cli` builds the product binary the oracles execute: a build step of the run, not Python
+    environment preparation, so it stays here.
+    """
     ready = {}
-    if "tools" in requirements:
-        ready["tools"] = run(("uv", "sync", "--locked", "--inexact", "--only-group", "dev")) == 0
+    for requirement in PYTHON_REQUIREMENTS:
+        if requirement in requirements:
+            observed = observe(requirement)
+            ready[requirement] = observed.ready
+            if not observed.ready:
+                print(observed.message(), flush=True)
     native_ready = None
     if requirements & {"native-store", "native-serving"}:
         native_ready = run(("docker", "image", "inspect", "--format", "{{.Id}}", IMAGE)) == 0
     for native in ("native-store", "native-serving"):
         if native in requirements:
             ready[native] = bool(native_ready)
-    if "native-python" in requirements:
-        ready["native-python"] = run(("uv", "sync", "--locked", "--inexact")) == 0
     if "cli" in requirements:
         ready["cli"] = run(("cargo", "build", "--release", "-p", "lctx")) == 0
     return ready
@@ -154,7 +171,8 @@ def execute(
         missing = sorted(r for r in prerequisites(name, command) if not ready.get(r, False))
         if missing:
             results[name] = "blocked"
-            print(f"{name}: blocked (prerequisite: {', '.join(missing)})", flush=True)
+            routes = "; ".join(f"{r}: {REPAIR.get(r, 'unknown repair')}" for r in missing)
+            print(f"{name}: blocked (prerequisite {routes})", flush=True)
             continue
         commands = (
             family.commands
@@ -204,18 +222,17 @@ def main() -> int:
             parser.error("choose --command " + "|".join(choices) + " for boundary-specific filters")
     selected = list(FAMILIES) if args.family == "qualify" else [args.family]
     requirements = set().union(*(prerequisites(name, args.command) for name in selected))
-    env = normalized_env(
-        dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"),
-        native_inputs="native-python" in requirements,
-    )
+    # Children launch with --no-sync, so no native input key is computed here.
+    base = normalized_env(dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"))
 
-    def run(command: tuple[str, ...]) -> int:
-        return launch(command, env)
+    # Shared ownership spans the live workers, so a managed `just sync` waits for them.
+    with environment_owner(requirements) as owned:
+        env = owned.environment(base)
 
-    # Hold ownership through live workers, not just sync. This prevents another
-    # family launcher preparing the shared environment while these fixtures run.
-    with environment_owner("tools" in requirements):
-        ready = prepare(requirements, run)
+        def run(command: tuple[str, ...]) -> int:
+            return launch(command, env)
+
+        ready = readiness(requirements, run)
         results = execute(selected, ready, run, arguments, args.command)
         if args.family == "qualify":
             # Independent non-functional leaves still run after functional failures.
