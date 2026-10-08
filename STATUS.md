@@ -2,7 +2,7 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: Rust compilation-cost BC0–BC5 execution, 2026-10-08.**
+**Current scope: compiler introspection and Rust compilation-cost BC0–BC5 execution, 2026-10-08.**
 The [plan](docs/plans/rust-compilation-costs-plan_2026-10-08.md) owns all compilation-cost findings (§9).
 [ADR-0137](docs/adr/0137-qualified-local-compilation.md) records confirmed RC01/RC02 and the qualified
 local-default transition. The [target review](docs/design_review/reviews/design_review_rust-compilation-costs-plan_2026-10-08.md)
@@ -10,14 +10,16 @@ accepts this architecture. BC0 decisions are implemented; BC1–BC5 implementati
 Available compiler/test parallelism and optimized production acceptance remain requirements;
 current verifier defaults remain release until candidate qualification. PC dirty work is preserved.
 **passed (authoring, 2026-10-08):** `just docs-check` (343 pages, zero link errors), exact grouped inventory.
-**not_run (current implementation):** product qualification; native/profile/source changes are pending.
+**passed (implementation, 2026-10-08):** locked core/extraction all-test compile check and 56 focused verifier/build-environment Python controls. BC1/BC2 source and BC4 groups are integrated on the preserved PC baseline.
+**Interrupted:** owned candidate compilation stopped before tests for operator-authorized diagnostics; no test verdict.
+**passed (tooling, 2026-10-08):**83 controls, actual sampling/rotation/owner-death retention, tiny Cargo/nextest timelines, types/lint/docs ([plan §11](docs/plans/rust-compilation-costs-plan_2026-10-08.md#11-opt-in-compilation-diagnostics)).
+**Stopped / retained:** diagnostic candidate `20261008T181813.329Z-ddd158`, no tests started. Both partial compiler profiles decode;42 sample chunks retained. **Measured hotspot:** C1 producer LLVM PHI optimization ([plan §12](docs/plans/rust-compilation-costs-plan_2026-10-08.md#12-interrupted-capture-assessment-and-remaining-correction)). **Next:** C1 coroutine/residual adapter correction, candidate qualification, BC3; **not_run:** BC5 release acceptance.
 
 **Persisted graph correction packages PC0–PC6 remain pending acceptance.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this scope and all scheduled source-review finding dispositions. [ADR-0133](docs/adr/0133-persisted-graph-compilation.md)
 accepts native persisted compilation and direct sealing. Implementation receipts below are bounded;
 this pivot is not accepted or measured yet.
-
 The [correction plan](docs/plans/persisted-execution-corrections-plan_2026-10-07.md) integrates all six
 correction-causes findings, secondary capabilities and investigations. Both RC01/RC02 are accepted.
 The [independent target review](docs/design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md)

@@ -1,164 +1,132 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
-import tomllib
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 import build_measurements as bm
 
 
-def git(root: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+def write_receipt(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value) + "\n")
 
 
-def test_snapshot_keeps_dirty_and_untracked_bytes_without_build_output(tmp_path: Path) -> None:
-    git(tmp_path, "init", "--quiet")
-    (tmp_path / ".gitignore").write_text("/build/\n")
-    source = tmp_path / "src/main.rs"
-    source.parent.mkdir()
-    source.write_text("fn main() {}\n")
-    git(tmp_path, "add", ".gitignore", "src/main.rs")
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "commit",
-            "-qm",
-            "init",
-        ],
-        cwd=tmp_path,
-        check=True,
-    )
-    source.write_text('fn main() { println!("dirty"); }\n')
-    (tmp_path / ".cargo").mkdir()
-    (tmp_path / ".cargo/config.toml").write_text('linker = "clang"\n')
-    (tmp_path / "build").mkdir()
-    (tmp_path / "build/ignored").write_text("never copied")
-    before = bm.inventory(tmp_path)
-    campaign = tmp_path / "build/perf/campaign"
-
-    manifest = bm.snapshot(tmp_path, campaign)
-
-    assert manifest["source_sha256"] == bm.source_digest(before)
-    assert (campaign / "source/src/main.rs").read_text() == source.read_text()
-    assert (campaign / "source/.cargo/config.toml").exists()
-    assert not (campaign / "source/build").exists()
-    assert bm.inventory(tmp_path) == before
-    with pytest.raises(ValueError, match="already exists"):
-        bm.snapshot(tmp_path, campaign)
-
-
-def test_variants_preserve_mold_and_isolate_cache(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("RUSTFLAGS", "-C opt-level=3")
-    monkeypatch.setenv("RUSTC_WRAPPER", "/wrong/wrapper")
-    monkeypatch.setenv("CARGO_TARGET_DIR", "/wrong/target")
-    monkeypatch.setenv("CARGO_BUILD_BUILD_DIR", "/shared/build")
-    monkeypatch.setattr(bm.shutil, "which", lambda name: "/usr/bin/sccache")
-
-    stable = bm.variant_env(tmp_path, "stable", 1)
-    nightly = bm.variant_env(tmp_path, "nightly-8x4", 2)
-
-    assert stable["CARGO_ENCODED_RUSTFLAGS"] == "-C\x1flink-arg=-fuse-ld=mold"
-    assert stable["RUSTC_WRAPPER"] == ""
-    assert "CARGO_INCREMENTAL" not in stable
-    assert "RUSTFLAGS" not in nightly
-    assert nightly["CARGO_ENCODED_RUSTFLAGS"].endswith("\x1f-Zthreads=4")
-    assert nightly["CARGO_BUILD_JOBS"] == "8"
-    assert nightly["SCCACHE_DIR"] == str(tmp_path / "cache/nightly-8x4")
-    assert nightly["RUSTC_WRAPPER"] == "/usr/bin/sccache"
-    assert "CARGO_TARGET_DIR" not in nightly
-    assert "CARGO_BUILD_BUILD_DIR" not in nightly
-
-
-def test_trial_config_isolates_intermediates_and_nested_builds(tmp_path: Path) -> None:
-    work = tmp_path / "copy"
-    config = work / ".cargo/config.toml"
-    config.parent.mkdir(parents=True)
-    config.write_text('[build]\njobs=16\nbuild-dir="/shared"\n\n[env]\nX="kept"\n')
-    target = tmp_path / 'trial with "quotes"'
-    bm.configure_trial(work, target)
-    result = tomllib.loads(config.read_text())
-    assert result["build"] == {
-        "jobs": 16,
-        "target-dir": str(target),
-        "build-dir": str(target / "build"),
+def captured_bytes(campaign: Path) -> dict[Path, bytes]:
+    return {
+        path.relative_to(campaign): path.read_bytes()
+        for path in campaign.rglob("*")
+        if path.is_file()
     }
-    assert result["env"] == {"X": "kept"}
 
 
-def test_cargo_artifact_counts_and_cache_counter_deltas(tmp_path: Path) -> None:
-    events = [
-        {"reason": "compiler-artifact", "fresh": True},
-        {"reason": "compiler-artifact", "fresh": False},
-        {"reason": "build-finished", "success": True},
-    ]
-    path = tmp_path / "cargo.jsonl"
-    path.write_text("\n".join(json.dumps(event) for event in events) + "\n")
-
-    assert bm.cargo_artifacts(path) == {"fresh_artifacts": 1, "rebuilt_artifacts": 1}
-    assert bm.counter_delta(
-        {"hits": 2, "nested": {"misses": 1}}, {"hits": 5, "nested": {"misses": 3}}
-    ) == {
-        "hits": 3,
-        "nested": {"misses": 2},
-    }
-    path.write_text(json.dumps({"reason": "compiler-artifact", "fresh": False}))
-    with pytest.raises(ValueError, match="build-finished"):
-        bm.cargo_artifacts(path)
-
-
-def test_sample_records_a_process_without_running_cargo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(bm, "competing_builds", lambda: [])
-    monkeypatch.setattr(
-        bm.shutil,
-        "disk_usage",
-        lambda _path: SimpleNamespace(free=(bm.MIN_FREE_GIB + 1) * 1024**3),
-    )
-    output = tmp_path / "result"
-    target = tmp_path / "target"
-    command = [
-        sys.executable,
-        "-c",
-        "import json; print(json.dumps({'reason':'compiler-artifact','fresh':False})); "
-        "print(json.dumps({'reason':'build-finished','success':True}))",
-    ]
-
-    result = bm.sample(tmp_path, output, target, os.environ.copy(), "tiny", command)
-
-    assert result["exit_code"] == 0
-    assert result["rebuilt_artifacts"] == 1
-    assert result["wall_seconds"] > 0
-    assert json.loads((output / "result.json").read_text()) == result
-    with pytest.raises(ValueError, match="already exists"):
-        bm.sample(tmp_path, output, target, os.environ.copy(), "tiny", command)
-
-
-def test_report_keeps_decision_open(tmp_path: Path) -> None:
-    bm.write_json(tmp_path / "snapshot.json", {"source_sha256": "abc"})
-    bm.write_json(
+def test_report_reads_historical_trials_without_changing_captures(tmp_path: Path) -> None:
+    write_receipt(tmp_path / "snapshot.json", {"source_sha256": "abc"})
+    write_receipt(
         tmp_path / "results/stable/trial-1/summary.json",
         {"cold-tests": {"wall_seconds": 10.0, "exit_code": 0}},
     )
-    bm.write_json(
+    write_receipt(
         tmp_path / "results/stable/trial-2/summary.json",
         {"cold-tests": {"wall_seconds": 12.0, "exit_code": 0}},
+    )
+    source = tmp_path / "source/src/main.rs"
+    source.parent.mkdir(parents=True)
+    source.write_text("fn main() {}\n")
+    before = captured_bytes(tmp_path)
+
+    report = bm.summarize(tmp_path)
+
+    assert report["source_sha256"] == "abc"
+    assert report["measurements"]["stable"]["cold-tests"] == {
+        "count": 2,
+        "median_seconds": 11.0,
+        "min_seconds": 10.0,
+        "max_seconds": 12.0,
+    }
+    assert report["decision"].startswith("not_run")
+    assert captured_bytes(tmp_path) == before
+
+
+def test_report_preserves_paired_trial_medians_and_failure_exclusion(tmp_path: Path) -> None:
+    write_receipt(tmp_path / "snapshot.json", {"source_sha256": "abc"})
+    write_receipt(
+        tmp_path / "results/stable/trial-1/summary.json",
+        {
+            "warm-tests-1": {"wall_seconds": 10.0, "exit_code": 0},
+            "warm-tests-2": {"wall_seconds": 30.0, "exit_code": 0},
+            "release-lctx": {"wall_seconds": 90.0, "exit_code": 1},
+        },
+    )
+    write_receipt(
+        tmp_path / "results/stable-cache/trial-1/summary.json",
+        {"warm-tests-1": {"wall_seconds": 10.0, "exit_code": 0}},
+    )
+    write_receipt(
+        tmp_path / "results/stable-cache/trial-2/summary.json",
+        {"warm-tests-1": {"wall_seconds": 40.0, "exit_code": 0}},
     )
 
     report = bm.summarize(tmp_path)
 
-    assert report["measurements"]["stable"]["cold-tests"]["median_seconds"] == 11.0
-    assert report["measurements"]["stable"]["cold-tests"]["count"] == 2
-    assert report["decision"].startswith("not_run")
+    assert report["measurements"]["stable"]["warm-tests"]["median_seconds"] == 20.0
+    assert report["measurements"]["stable-cache"]["warm-tests"]["median_seconds"] == 25.0
+    assert report["comparisons"]["stable-cache"]["warm-tests"] == {
+        "baseline": "stable",
+        "paired_trials": 1,
+        "median_wall_improvement_percent": 50.0,
+        "every_pair_faster": True,
+    }
+    assert report["failures"] == ["stable/trial-1/release-lctx"]
+    assert "release-lctx" not in report["measurements"]["stable"]
+
+
+def test_report_cli_emits_historical_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_receipt(tmp_path / "snapshot.json", {"source_sha256": "abc"})
+    before = captured_bytes(tmp_path)
+
+    assert bm.main(["report", str(tmp_path)]) == 0
+
+    output = capsys.readouterr()
+    assert json.loads(output.out) == bm.summarize(tmp_path)
+    assert output.err == ""
+    assert captured_bytes(tmp_path) == before
+
+
+@pytest.mark.parametrize(
+    ("arguments", "route"),
+    [
+        (["run", "missing-campaign", "--variant", "obsolete", "--phase", "full"], "record"),
+        (["capture", "missing-campaign"], "record"),
+        (["preflight"], "doctor"),
+    ],
+)
+def test_retired_commands_refuse_before_reading_or_creating_campaigns(
+    arguments: list[str],
+    route: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert bm.main(arguments) == 1
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert f"bench-builds {arguments[0]} is retired" in output.err
+    assert f"just compile-profile {route}" in output.err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_missing_report_returns_explicit_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert bm.main(["report", str(tmp_path)]) == 1
+
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "build measurement report failed" in output.err

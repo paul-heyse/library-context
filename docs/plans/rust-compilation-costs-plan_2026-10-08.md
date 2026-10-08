@@ -4,7 +4,7 @@
 
 ## 1. Outcome, basis and ownership
 
-Make ordinary Rust edits and focused/full test compilation do materially less avoidable work while preserving optimized production behavior. The [source review](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md) establishes four structural causes, F01–F04; it does not identify the dominant pass in the unfinished LLVM module or measure a speedup. This plan develops all four corrections, their interacting preservation requirements and the review's six remaining uncertainties.
+Make ordinary Rust edits and focused/full test compilation do materially less avoidable work while preserving optimized production behavior. The [source review](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md) establishes four structural causes, F01–F04; it did not identify the dominant pass in the unfinished LLVM module or measure a speedup. The interrupted diagnostic capture in §12 now identifies a dominant source-attributed LLVM hotspot; it still does not measure a speedup. This plan develops all four corrections, their interacting preservation requirements and the review's six remaining uncertainties.
 
 Inspected baseline: main `8511eb5fe27498815ce4433fd2d0029aa2e6016e`, plus the dirty integrated PC1–PC5 implementation, 2026-10-08. No clean-tree assumption or rollback to an earlier coordinator checkpoint is made. Existing compiler/native/library evidence is retained with its original date and boundary. Source inspection and pinned-tool research establish a credible target; implementation must still establish correctness and runtime adequacy.
 
@@ -203,7 +203,7 @@ The source review owns original diagnoses/evidence; this table owns current sche
 
 | Source finding | Disposition | Responsible component / scheduled work | Closure evidence |
 |---|---|---|---|
-| [Compilation-cost F01](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F01) | **open** | NativeCalls/workspace/consumed-row/stage owners; BC1/BC5 | Shared emitted task path and setup/stream source, complete caller migration, charged cancellation/drain/input controls and operational runtime qualification. |
+| [Compilation-cost F01](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F01) | **open** | NativeCalls/workspace/consumed-row/stage owners; BC1/BC5 | Shared emitted task path and setup/stream source, residual generic and C1 coroutine corrections (§12), complete caller migration, charged cancellation/drain/input controls and operational runtime qualification. |
 | [Compilation-cost F02](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F02) | **open** | Extraction fingerprint and workspace execution-identity owners; BC2/BC5 | Relevant production closure, unrelated downstream stability, relevant mutation/deletion/relocation effects and captured composite cold transport. |
 | [Compilation-cost F03](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F03) | **open** | Cargo/verification/CLI artifact owners; BC3/BC5 | Qualified O1/LTO-off normal-stack local loop, installed default selection, truthful profile receipts and retained release acceptance. |
 | [Compilation-cost F04](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F04) | **open** | Extraction/core harness and verification selection owners; BC4/BC5 | Grouped target/source inventory, one shared driver per group, preserved discovery/selection/assertions and independently owned concurrent fixtures. |
@@ -219,3 +219,205 @@ The [independent design/target review](../design_review/reviews/design_review_ru
 The next implementation action is BC0's decision/owner routing, followed by the actual BC1/BC2 contract corrections. Existing PC1–PC5 work remains dirty and PC6 acceptance stays open. STATUS links to this plan for compilation-cost scope and to the persisted coordinator for its distinct execution boundary.
 
 **Execution checkpoint, 2026-10-08:** ADR-0137 carries forward the unaffected ADR-0136 decisions and installs the confirmed local/provenance target. Architectural owners, agent instructions and the review binding name the qualification-gated transition. BC1–BC5 checks remain pending; the dirty PC1–PC5 baseline is preserved.
+
+## 11. Opt-in compilation diagnostics
+
+**Implemented / focused tested, 2026-10-08.** The operator authorized stopping the excessive
+candidate compilation and implementing diagnostics before its restart. The owned nextest group
+3814270 was interrupted with SIGINT; its fixture cleaned up and no test had started. Exit254
+is interrupted compilation, not a test verdict. The old log remains at
+`/tmp/library-context-final-candidate_2026-10-08.log`; completed artifacts and imported caches
+are preserved. BC3 default installation and BC5 optimized acceptance remain pending.
+
+`just compile-profile` reuses the existing run directories and cancellation owner. Its `record`
+command accepts the existing Cargo command after `--`, defaulting to focus `cpg-core`; another
+workspace package or `workspace` broadens selection explicitly. `doctor` observes prerequisites
+and never installs or elevates. Recordings retain requested/effective argv, source/configuration
+identities, unique compiler-unit directories, product outcome and independent telemetry outcome.
+Fixtures, evaluation gold/heldout and environments are excluded from source capture.
+
+Direct Cargo build/test/rustc and nextest run/list commands add pinned Cargo build analysis,
+section timings and HTML timings. Their own JSON output supplies exact `build-started.run_id`
+values; only matching `CARGO_HOME/log/<ID>.jsonl` and stamped timing files are retained. A missing
+or incomplete session is explicit; a concurrent session's newest log is never substituted.
+Wrapped commands retain selected-unit telemetry without pretending to enable whole-Cargo
+analysis. Existing Cargo home, shared intermediates, target selection and profiles remain intact.
+
+The command-local rustc wrapper delegates unselected units and compiler probes to the existing
+wrapper (normally sccache). Selected units bypass that cache and add only
+`self-profile-events=default,args,llvm`, JSON phase timings and JSON monomorphization statistics.
+Normal libraries, unit-test harnesses and integration units own distinct sidecar directories.
+No global RUSTFLAGS, compiler/job/thread limits, cache cleaning or forced rebuild is introduced.
+A fresh Cargo unit can therefore produce no compiler profile; this is reported explicitly.
+Unsupported shell response files are refused rather than silently reinterpreted.
+
+Each active selected compiler has an independently owned perf observer: user-space cpu-clock
+samples at99Hz with DWARF16384 call chains, rotated every45s. Live status reports only closed
+chunks, process/thread CPU and memory observations, and sampled hotspots. It does not guess
+the compiler phase from CPU use. The8GiB free-disk floor stops perf telemetry, not compilation.
+Collector startup/storage failures must preserve the compiler command and its exit status.
+Run cancellation stops the owned build and its observers; stopping a sampler alone leaves its
+compiler running. Raw evidence is retained, including incomplete captures. Profiling runs use
+the existing retained marker, protecting them from ordinary run pruning; explicit
+`just runs retain RUN --release` relinquishes that protection. Stop with `just runs cancel RUN`,
+then use `just compile-profile report RUN` to decode what is available. Interrupted or failed
+units remain partial even when their observer finalized its own receipt; an unreadable compiler
+self-profile never prevents reporting its completed CPU samples and retained phase timings.
+
+The operator-installed `/opt/compile-profiling/perf` is root-owned, group-accessible to paul,
+mode0750 with CAP_PERFMON. `kernel.perf_event_paranoid=2` persists through
+`/etc/sysctl.d/99-local-perf.conf`; no standing sudo access is required for recording. The
+permission control produced usable call stacks and zero lost samples on2026-10-08. Debugger
+snapshots and syscall traces remain conditional investigations because ptrace briefly pauses
+execution; ordinary busy compilation uses CPU sampling and compiler self-profiling.
+
+`just compile-profile-tools sync` builds measureme12.0.3 at exact revision
+`5ac839c602b59eee9c908b3b35b6d6c0cd1c42f7` under an independent tools root with its retained
+[lockfile](../../tools/compile-profile/measureme.Cargo.lock). The pinned newer compiler requires
+the retained [two-call CPUID patch](../../tools/compile-profile/measureme-nightly-cpuid.patch),
+which removes obsolete unsafe blocks without weakening warnings. The installation receipt
+binds source, lock, patch, toolchain, format9 and executable hashes; incompatible readers are
+blocked. Product Cargo dependencies and lockfile are unaffected by tool acquisition.
+
+`report RUN` converts terminated compiler self-profiles with summarize/crox and generates native
+sample reports while preserving raw data. Reader execution has no timeout: the actual stopped
+captures took69s/76s to summarize. Crox defaults to a1000µs minimum event duration for the
+visualization; `LCTX_COMPILE_PROFILE_TIMELINE_MIN_US=0` requests full detail. The threshold is
+recorded and invalidates cached conversions; raw captures and summaries remain unfiltered. `view RUN --kind compiler` identifies local Perfetto
+timelines; `sampled` imports closed perf files through samply on localhost; `hotspot` reports
+sampled costs or explicitly annotates a named native symbol. Query arguments and LLVM pass/IR
+labels offer source attribution where rustc emits it. Sampled symbols do not establish exact
+generic source items; monomorphization size/counts are estimates, not elapsed time; nested event
+durations must not be summed. This tooling establishes attribution, not a compilation speedup.
+
+**Verification, 2026-10-08:** **passed**
+`uv run --no-sync pytest tests/scripts/test_compile_profile.py tests/scripts/test_compile_profile_capture.py tests/scripts/test_compile_profile_tools.py tests/scripts/test_build_measurements.py -q`
+(83 controls after partial-report corrections), scoped Ruff, Pyrefly (zero errors), system-Python3.12 wrapper compilation and
+`just compile-profile doctor`. Independent source review's CP-R1–CP-R5 corrections cover actual
+rustc timing prefixes, observer-storage failure isolation, pipe draining, owner-death cleanup
+and nextest runner-versus-Cargo profiles. All five corrections passed focused controls and the
+followup source review found no further material defect. Historical `bench-builds` is now
+report-only; its obsolete build/capture/preflight routes refuse before touching artifacts.
+
+Actual isolated Cargo and nextest controls retain receipts
+`20261008T180929.729Z-bd46bb` and `20261008T180930.521Z-9f2cd9`: products, exact Cargo sessions,
+stamped HTML, format9 summarize/crox timelines and74/79 phase records **passed**. These are
+tooling controls, not product qualification. The short bare-build sampler could not attach
+before target exit; that telemetry failure remains recorded separately from its successful
+product. The45s supervisor control read a closed chunk while sampling continued, then killed
+the sampler owner: perf finalized two retained chunks and the target remained alive. Native
+reports and samply import **passed**; its first window reported zero lost samples.
+
+`just docs-check` **passed after correction** (343 pages, zero link errors); its first run
+exposed the BC4-moved typed-conformance source link, now corrected at the review's current
+case path. Scoped `turn-end` preserves paused Rust source and skips unrelated generators.
+The profiling baseline check retained216 pre-existing files byte-for-byte outside this scope.
+
+**Stopped diagnostic candidate, 2026-10-08:** run `20261008T181813.329Z-ddd158` owns the same
+candidate selection on a disposable fixture, launched through `just run --background --label
+compile-profile-candidate -- just fixture -- just compile-profile record --focus cpg-core --
+cargo nextest run --locked --cargo-profile local-test-candidate … --no-fail-fast`.
+At the operator's request, sampling continued for another ten minutes, then
+`just runs cancel 20261008T181813.329Z-ddd158 --json` stopped this owned run at18:33:51UTC;
+fixture cleanup completed at18:33:52UTC. The run is cancelled and retained. No tests started;
+this is interrupted compilation, not a failed-test verdict. Both compiler identities terminated.
+Both retained format9 self-profiles decoded successfully with the pinned summarize/crox readers;
+all42 closed native sample chunks remain readable. Raw normal/harness profiles are12.24GB/12.76GB.
+`just compile-profile report 20261008T181813.329Z-ddd158` **passed** through managed report
+run `20261008T184632.122Z-dd0142`: both compiler conversions and all42 sample reports passed;
+the canonical `report.json` retains `partial=true`, cancelled state and the retained marker.
+
+The Cargo session's final62 bytes were an incomplete JSONL record. Reanalysis **passed** for
+its exact validated1878-record prefix, with `partial=true`, `analysis_scope=complete_prefix`
+and raw bytes/hash unchanged. The original stop receipt retains its initial blocked parser
+outcome; `compile-profile/assessment/cargo-prefix-reanalysis.json` carries the corrected derived
+receipt. Only a malformed final unterminated line can be omitted from analysis; malformed
+middle or newline-terminated final records remain blocked. No newer shared Cargo log is substituted.
+
+The report fixes passed ten additional focused controls and independent static review.
+Detailed assessment and remaining remediation are in §12. BC3 default installation, candidate
+runtime qualification and BC5 optimized acceptance remain pending; the active default is release.
+Operator stores, protected data, source baseline and shared caches remain preserved.
+
+## 12. Interrupted-capture assessment and remaining correction
+
+**Measured diagnostic / source-inspected interpretation, 2026-10-08; remedies Proposed.**
+The retained run above was stopped before compiler completion. Its normal library and unit-test
+harness both used `local-test-candidate` (O1, LTO off), with available compiler parallelism.
+This evidence establishes a compilation hotspot on the captured dirty source; it does not
+establish product correctness, full build duration or improvement against an uninstrumented baseline.
+
+| Retained observation | Normal library | Unit-test harness | Interpretation |
+|---|---:|---:|---|
+| Completed object emissions / codegen modules |255/256|255/256|Almost all codegen units finished; backend work can collapse to one expensive remaining unit.|
+| C1 `catalog_evidence::produce::{closure#0}` completed InstCombine durations |104.18s,102.11s,72.00s,71.95s|107.27s,101.69s,73.28s,70.82s|Same generated async body dominates the completed source-attributed InstCombine events in both products.|
+| C1 aggregate completed InstCombine time, five events |350.27s|353.11s|Sequential completed passes on this function, not a sum of nested scopes or the entire unfinished tail.|
+| C0 `catalog_core::produce::{closure#0}` aggregate InstCombine time |20.10s|17.80s|A useful nearby comparison; C1 is substantially more expensive.|
+| Final sampled `InstCombinerImpl::visitPHINode` self CPU |about98.5%|about98.7%|Sustained busy LLVM optimization, roughly one CPU-second per second per compiler, rather than an idle Cargo lock.|
+| Generated instruction count |13,628,512|13,879,886|A large compiled surface; an instruction count, not elapsed time or executable size.|
+
+The busiest normal-library function is
+[`catalog_evidence::produce`](../../crates/cpg-core/src/catalog_evidence.rs).
+Its two `decoder_inputs!` expansions each contain143 entries:54 catalog inputs,17 catalog
+outputs,55 evidence inputs,6 runtime inputs,9 expected-domain inputs and2 authored
+metadata types. The inventory and artifact loops therefore place286 specialized await sites
+inside one producer coroutine; overlapping entries are not unique types or runtime query counts.
+The producer's captured MIR size estimate is25,100 statements/terminators versus11,664 for C0.
+C1 additionally expands38 output declarations and26 typed output-writing loops.
+
+**Source-supported cause:** typed macro expansion accumulates suspension, stored child-future,
+cleanup and borrowing paths in one very large generated async function. Shared lower streaming
+loops have reduced physical duplication, but do not remove these enclosing specialized await
+sites. The source shape and completed pass attribution strongly support this as the primary
+remediation target. The interrupted active pass has no completed duration or source label;
+its exact function and full eventual cost are not established by the completed event list.
+
+The exact pinned LLVM
+[`visitPHINode`](https://github.com/rust-lang/llvm-project/blob/1b9c0d5ff9bbe7634aead059efe6b11a7eeba145/llvm/lib/Transforms/InstCombine/InstCombinePHI.cpp#L1555)
+contains repeated incoming-block lookup and sibling-PHI comparison. Large joins/PHI sets can
+amplify those scans. This is a credible mechanism for the sampled hotspot, not proof of which
+inner loop dominates or an LLVM defect: the capture does not retain the relevant optimized IR.
+No debugger suspension or additional compiler run is needed to establish the current priority.
+
+**Proposed C1 correction within F01/BC1:** generate ordered typed loader adapters mechanically
+from the existing decoder inventory, and await their uniform boxed futures in one monomorphic
+loop. Erase the concrete future before the loop owns it. Keep exact record/prefix permits,
+owner-selected SQL, artifact admission, coverage checks and `ConsumedInputs` duplicate handling
+inside the small typed adapter. Preserve the existing macro order; iterating a sorted declaration
+list may change behavior. Do not introduce an independently authored decoder registry or per-row
+dynamic dispatch. Box coherent inventory, artifact-load and emission phase boundaries where
+needed; moving source files or extracting another143-await concrete async helper is insufficient.
+
+Preserve charged data and drop order: captured sources/admission survive through coverage and
+link production; frames and authored definition/parameter rows drop before scope preparation;
+the artifact scope drops before blocking computation; charged evidence moves into its worker;
+output rows/links drop per artifact while invocation rows remain through linking. Completion,
+cancellation and original/cleanup error ownership remain with the existing producers.
+
+**Remaining generic amplification:** captured mono statistics group codegen-unit placements by
+DefId, so these are neither distinct type counts nor elapsed costs. The shared `stream_batches`
+and `NativeCalls::submit` coroutine each have one placement. However `stream_query_filter_at`
+has6350/6354 normal/harness placements, `NativeCalls::call`1786/1809, `Writer<R>::close`888/888
+and `FrontierIndex::visit_with_check`458/458. Complete F01 by erasing callbacks/futures before
+owning shared async/control-flow implementations, retaining thin record-specific adapters.
+In particular, expected-input validation must stay conditional on a handled relation; hoisting
+it unconditionally would change the existing skipped-input contract. Typed writer preparation
+can remain concrete while shared completion awaiting is separated.
+
+**Next execution order:** correct the C1 await expansion and residual adapter boundaries, compile
+check touched crates and run the minimal revealing ownership/coverage controls, then repeat a
+comparable retained diagnostic to test attribution and complete candidate runtime qualification.
+Only then install BC3's qualified local default and run BC5 release acceptance. The current
+capture does not justify compiler/thread caps, a lower production optimization level, blanket
+LLVM-pass disabling or a toolchain upgrade. If the corrected coroutine still produces expensive
+PHI optimization, retain its IR and reduce a targeted compiler issue using the pinned toolchain.
+
+Raw evidence and derived artifacts remain under
+`build/runs/20261008T181813.329Z-ddd158/compile-profile/`: `units/` owns raw captures and reports;
+`assessment/compiler-attribution.json` owns source-attributed pass comparisons,
+`assessment/sampled-windows.json` owns the repeated native-window observations, and
+`assessment/decoder-receipts.json` owns the successful interrupted-profile conversion receipts.
+Summaries omit unfinished event scopes. Instrumentation itself has overhead, including86.31s
+of completed query-string allocation in the normal summary; the measured durations cannot be
+presented as an uninstrumented compile baseline. No Rust source remediation has been applied
+by this diagnostic assessment, and F01–F04 remain open at §9.

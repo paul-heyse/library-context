@@ -50,6 +50,10 @@ force-exclude = true
 # The justfile shell runs under the system Python 3.12; keep the formatter and fixes from writing
 # 3.13+ syntax such as PEP 758 `except A, B:` into it (AE-04).
 "scripts/build_environment.py" = "py312"
+# Cargo executes the profiling wrapper through system python3; its imported capture module
+# must retain the same syntax compatibility even when project tooling runs on Python 3.14.
+"scripts/compile_profile_capture.py" = "py312"
+"scripts/compile_profile_wrapper.py" = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]

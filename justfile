@@ -86,6 +86,15 @@ skills-check:
 verify *args:
     @uv run --no-project --offline --no-python-downloads python scripts/verify.py "$@"
 
+# Opt-in compile attribution: owned recordings, live status and retained post-build reports.
+[positional-arguments]
+compile-profile *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/compile_profile.py "$@"
+
+# Exact, format-compatible analysis tools; no product dependency resolution or native sync.
+compile-profile-tools command="check":
+    @uv run --no-project --offline --no-python-downloads python scripts/compile_profile_tools.py {{ command }}
+
 # ARGS reach the boundary's primary tool (nextest, or pytest for serving:mcp/oracles/tooling:python).
 # Family shortcut: `just verify-<family> [--command BOUNDARY] [-- ARGS]`
 [positional-arguments]
@@ -268,8 +277,7 @@ doctor-check:
     printf '%s\n' "$out"
     [ "$status" -eq 0 ] && ! grep -qE 'MISSING|FAILED|below the declared floor' <<<"$out"
 
-# Isolated build measurements: `preflight`, `capture <dir>`, `run <dir> --variant ...`, `report <dir>`.
-# `run` is the only subcommand that compiles the Rust workspace.
+# Historical build measurements: `report <dir>`. New captures use `compile-profile`.
 [positional-arguments]
 bench-builds *args:
     @uv run --no-sync python scripts/build_measurements.py "$@"
