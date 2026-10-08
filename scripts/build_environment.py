@@ -80,7 +80,7 @@ def checkout_build_dir(root: Path = ROOT) -> str | None:
 
 
 def foreign_project_environment(source: Mapping[str, str], root: Path = ROOT) -> bool:
-    """An inherited absolute UV_PROJECT_ENVIRONMENT outside this checkout, not deliberately allowed."""
+    """An inherited absolute UV_PROJECT_ENVIRONMENT outside the checkout and not allowed."""
     value = source.get(PROJECT_ENV_KEY, "").strip()
     if not value or not Path(value).expanduser().is_absolute():
         return False
@@ -132,8 +132,9 @@ def project_environment(root: Path = ROOT, source: Mapping[str, str] | None = No
 
     ``UV_PROJECT_ENVIRONMENT`` is used as-is when absolute and resolved against the checkout root
     when relative; the default is ``.venv``. An absolute value outside this checkout is ignored
-    unless ``LCTX_ALLOW_FOREIGN_ENV=1`` selects it deliberately. ``sys.prefix`` and ``VIRTUAL_ENV`` never select it:
-    uv itself ignores a non-matching ``VIRTUAL_ENV`` without ``--active``.
+    unless ``LCTX_ALLOW_FOREIGN_ENV=1`` selects it deliberately. ``sys.prefix`` and
+    ``VIRTUAL_ENV`` never select it: uv itself ignores a non-matching ``VIRTUAL_ENV`` without
+    ``--active``.
     """
     selection = os.environ if source is None else source
     value = selection.get("UV_PROJECT_ENVIRONMENT", "").strip()
