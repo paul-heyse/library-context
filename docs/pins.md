@@ -17,7 +17,7 @@ A row without a date is not verified.
 | Rust toolchain | nightly-2026-09-29 (`rust-toolchain.toml`); manifest minimum remains 1.98.1 | Shared builds on one dated nightly (ADR-0079); never a floating `+nightly` or `+stable` | ADR-0079's trigger: a toolchain update breaks shared builds | 2026-09-28: `rustc -Vv`: 1.101.0-nightly, c1070d69382b8d2f2eb65119c738a77d9e324c9e, LLVM 23.1.1; `cargo -V`: 1.101.0-nightly (3d7cf6e93). Installed rustfmt/Clippy |
 | Python | 3.14.7 (`.python-version`, uv default) | Toolchain | a deliberate toolchain move | 2026-09-22: `uv run python --version` |
 | just | 1.58.0 or later | Toolchain | a deliberate toolchain move | 2026-09-22: `just --version` |
-| cargo-nextest | 0.9.144 | Toolchain | a deliberate toolchain move | 2026-09-22: `just doctor` |
+| cargo-nextest | 0.9.146 | Toolchain | a deliberate toolchain move | 2026-10-07: `cargo nextest --version` |
 | cargo-hakari | 0.9.39 | Toolchain; generated CLI feature union (ADR-0079) | a deliberate toolchain move | 2026-09-28: `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` |
 | sccache | 0.17.0 (required by `.cargo/config.toml`) | Toolchain | a deliberate toolchain move | 2026-09-24: `sccache --version`; cache wrapper; target-environment effect tested 2026-09-28 (cache evidence) |
 | cargo-insta | 1.48.0 | Toolchain | a deliberate toolchain move | 2026-09-22: `just doctor` |

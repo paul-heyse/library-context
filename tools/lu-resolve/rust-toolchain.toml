@@ -1,4 +1,0 @@
-# The toolchain the rust-code-model skill pins for ra_ap_* 0.0.352 (its PROVENANCE.json).
-[toolchain]
-channel = "nightly-2026-09-13"
-profile = "minimal"

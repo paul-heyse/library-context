@@ -109,8 +109,8 @@ clap = { version = "=4.6.7", features = ["derive"] }
 # The binaries' global allocator (ADR-0016): Pyrefly's own Linux/macOS allocator at its exact
 # version, already compiled in this graph.
 tikv-jemallocator = "=0.7.0"
-# The binaries' log subscriber (H1 O1): Pyrefly, delta-kernel and DataFusion (through
-# tracing-log) report through it; the features are those already compiled in this graph.
+# The binaries' log subscriber (H1 O1): Pyrefly and DataFusion (through tracing-log) report
+# through it; the features are those already compiled in this graph.
 tracing = "=0.1.44"
 tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 # IO errors that name their path (H1 O3), and `lctx`'s error type (H1 O4); both already in
@@ -135,7 +135,7 @@ unused_must_use = "deny"
 all = { level = "warn", priority = -1 }
 allow_attributes_without_reason = "warn"
 
-# Debug info for the DataFusion + delta-rs graph fills disks quickly.
+# Debug info for the DataFusion graph fills disks quickly.
 [profile.dev]
 opt-level = 2
 incremental = true

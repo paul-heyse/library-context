@@ -7,8 +7,7 @@ issue discussions can resolve gaps; distinguish documented guarantees from obser
 
 Explain suitable capabilities, contracts, limitations, alternatives and remaining uncertainty,
 with source/version references and implications for the actual consumer. An empty search is not
-proof of absence. Keep optional catalog lookups focused; do not refresh the catalog or inspect it
-exhaustively. The coordinator decides adoption and architecture.
+proof of absence. The coordinator decides adoption and architecture.
 
 **Permitted writes.** Within the coordinator's brief, write only: (1) the library-evidence
 locations this repository's AGENTS.md names, one new dated topic folder per investigation with its

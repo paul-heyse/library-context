@@ -105,15 +105,6 @@ question about ownership, behavior or change remains unresolved; no complete flo
    working set, enforcement frequency, transaction/recovery scope and total operator/developer
    machinery. A module or semantic kind need not impose an execution stage or storage object.
 
-   **Optional context: existing library use.** A focused look at relevant entries in
-   docs/library-utilization.jsonl, where available, can be especially helpful when considering
-   implementation alternatives. The catalog highlights library capabilities and integration
-   patterns already found useful in the codebase, and may reveal opportunities to reuse
-   established mechanisms instead of introducing ad hoc equivalents. It remains useful as a
-   source of ideas even when some entries lag the implementation. Consultation is optional;
-   catalog entries inform the alternatives, while alignment with the design principles governs
-   the judgment.
-
 5. **Independent judgments.** Settle A1–A4 from scenario evidence, G1–G8 and profile gates from
    their own evidence, and applicable foundation/supporting-rule verdicts. A2 requires both an
    adequate domain model and behavior governed by its authorities. A4 needs a qualitative assessment of a credible execution

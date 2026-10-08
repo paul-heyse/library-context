@@ -257,9 +257,6 @@ establishes a common cause. No mandatory dependency graph or additional analysis
 
 ### 8. Library fit and total complexity
 
-Relevant entries in docs/library-utilization.jsonl, where available, may offer particularly
-useful leads on established capabilities and integration patterns. Consulting them is optional.
-
 | Capability and owner | Consumer or planned scenario | Built-in/library/bespoke candidates | Resolved-version semantic fit and gaps | Coupling/lifecycle/test/replacement burden | Choice and reason |
 |---|---|---|---|---|---|
 

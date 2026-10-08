@@ -1,4 +1,0 @@
-# Own intermediates: this tool builds on a different toolchain than the product workspace and must
-# not thrash the shared build directory (ADR-0079).
-[build]
-build-dir = "target/intermediate"

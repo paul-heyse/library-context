@@ -5,7 +5,7 @@ that exercise the relevant behavior, using existing acceptance controls and inde
 where appropriate. Observe AGENTS.md's timing: compile and targeted checks during implementation;
 integrated qualification waits until the plan's functional scope is implemented.
 
-Coordinate costly builds and real PostgreSQL tests with other workers. Tests may write build,
+Coordinate costly builds and native fixture runs with other workers. Tests may write build,
 temporary and disposable test data; do not edit source, tests, snapshots or acceptance expectations.
 Return failures to the coordinator with enough evidence for a bounded repair assignment. Do not run,
 inspect or troubleshoot formatting or generators (the root's `just turn-end`). Run applicable
