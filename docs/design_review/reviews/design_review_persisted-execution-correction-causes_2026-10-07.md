@@ -27,7 +27,7 @@ The included dirty files are [artifact_manifest.rs](../../../crates/cpg-core/src
 
 The unrelated dirty evidence index, agent-workspace evidence folder and agent-workspace plan were preserved and excluded.
 
-[STATUS](../../../STATUS.md) and [persisted execution plan §9.1](../../plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07) own current execution evidence. Existing scheduled findings retain their disposition there. The new findings in this review remain unscheduled; publishing this review does not authorize remediation.
+[STATUS](../../../STATUS.md) and [persisted execution plan §9.1](../../plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07) own current execution evidence. Existing scheduled findings retain their disposition there. On 2026-10-07 the six correction-causes findings transferred to [execution-plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition), with corrective design in the [supporting plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md). This dated review judgment remains unchanged; plan authoring does not resume implementation.
 
 ## 2. Responsibilities and governing distinctions
 
@@ -121,7 +121,7 @@ This review does **not** establish that these paths publish partial content. Nat
 
 **Principles/judgments:** FP-01/05/06, DP-19/21; A1/A2/A3 and recovery aspects of G5/G7.
 
-**Disposition:** Unscheduled required completion-contract decision; this review owns the finding until transferred.
+**Disposition:** Transferred on2026-10-07 to [execution-plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition); that owner records packages, dependencies and closure evidence.
 
 ### <a id="f02"></a>F02 — Recorded facts admission still reconstructs the supplier contract
 
@@ -151,7 +151,7 @@ Retain independent obligations: coverage rows cannot choose their own expected s
 
 **Principles/judgments:** FP-02/03/04/06, DP-01/04/05/08/09/24, CI-01/04/10; A1/A2/A3 and G1/G6.
 
-**Disposition:** Unscheduled required binding-contract decision. Current restore acceptance remains with plan §9.1.
+**Disposition:** Transferred on2026-10-07 to [execution-plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition); that owner records packages, dependencies and closure evidence.
 
 ### <a id="f03"></a>F03 — Shared native selection leaves planner-sensitive lowering in consumers
 
@@ -180,7 +180,7 @@ Keep exact membership/view constraints, null and missing behavior, context predi
 
 **Principles/judgments:** FP-01/02/03/07, DP-08/10/14/15/16; A1/A3/A4, G6/G8.
 
-**Disposition:** Unscheduled shared-access correction. Earlier compiler controls retain their existing plan ownership.
+**Disposition:** Transferred on2026-10-07 to [execution-plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition); that owner records packages, dependencies and closure evidence.
 
 ### <a id="f04"></a>F04 — Bounded selected streams prepare whole native match arrays
 
@@ -204,7 +204,7 @@ Where exact membership/order cannot be expressed efficiently in one native opera
 
 **Principles/judgments:** FP-07, DP-08/10/14/20, CI-08; A4 and G8.
 
-**Disposition:** Unscheduled native-access decision; no supported result may be capped merely to close it.
+**Disposition:** Transferred on2026-10-07 to [execution-plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition); that owner records packages, dependencies and closure evidence.
 
 ### <a id="f05"></a>F05 — Global reference inventory becomes automatic physical machinery
 
@@ -228,7 +228,7 @@ Preserve independent reconciliation. Expected-value reconstruction at an externa
 
 **Principles/judgments:** FP-01/04/07, DP-10/14/16, heuristics H2/H15/H27; A1/A4.
 
-**Disposition:** Unscheduled physical-projection decision, including the rule impact in §8.
+**Disposition:** Transferred on2026-10-07 to [execution-plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition); that owner records packages, dependencies and closure evidence.
 
 ### <a id="f06"></a>F06 — Restore uses correct semantic units at scalar transport granularity
 
@@ -248,7 +248,7 @@ Preserve independent reconciliation. Expected-value reconstruction at an externa
 
 **Principles/judgments:** FP-03/07, DP-10/14/19/20; A3/A4 and G8.
 
-**Disposition:** Unscheduled transport-granularity decision, dependent on the explicit rule impact in §8.
+**Disposition:** Transferred on2026-10-07 to [execution-plan §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition); that owner records packages, dependencies and closure evidence.
 
 ## 5. Complete alternatives and preservation constraints
 
@@ -373,14 +373,14 @@ Two existing concrete behaviors would change:
 
 | Finding | Current disposition | Required decision/revisit trigger |
 |---|---|---|
-| F01 | Unscheduled; source review owns it. | Select complete attempt failure outcomes before further sibling cleanup changes are treated as closure. |
-| F02 | Unscheduled; source review owns it. | Select the captured-provider contract before closing restored coverage or adding another covering provider. |
-| F03 | Unscheduled; source review owns it. | Resolve shared lowering and the identified published plan uncertainties before claiming selective access across consumers. |
-| F04 | Unscheduled; source review owns it. | Resolve whole-match preparation before accepting high-degree selected streaming as a complete bounded route. |
-| F05 | Unscheduled; source review owns it. | Select RC01 when revising setup/schema growth or adding nominal fields. |
-| F06 | Unscheduled; source review owns it. | Select RC02 before changing restore request batching or accepting statement-heavy restore execution fit. |
+| F01 | Transferred to execution-plan §8. | Select complete attempt failure outcomes before further sibling cleanup changes are treated as closure. |
+| F02 | Transferred to execution-plan §8. | Select the captured-provider contract before closing restored coverage or adding another covering provider. |
+| F03 | Transferred to execution-plan §8. | Resolve shared lowering and the identified published plan uncertainties before claiming selective access across consumers. |
+| F04 | Transferred to execution-plan §8. | Resolve whole-match preparation before accepting high-degree selected streaming as a complete bounded route. |
+| F05 | Transferred to execution-plan §8. | Select RC01 when revising setup/schema growth or adding nominal fields. |
+| F06 | Transferred to execution-plan §8. | Select RC02 before changing restore request batching or accepting statement-heavy restore execution fit. |
 
-Existing scheduled findings and prior correction statuses remain in the persisted execution plan. A subsequent plan should transfer these stable source IDs to one execution owner rather than create another status register.
+All scheduled findings and prior correction statuses now reside in persisted execution-plan §8 under their source-qualified IDs. Both RC01/RC02 were operator-accepted on2026-10-07; correction-plan §2 records their consequences and decision routes. The table above records the transfer, not a second mutable disposition ledger.
 
 Consequence priority and dependency order differ. Captured admission and complete failure reporting are the most immediate semantic/recovery concerns. Shared native lowering is a prerequisite for a consistent selected-access remedy. Candidate streaming and schema reduction address different growth dimensions. Restore batching depends on an explicit failure behavior and complete outcome reporting.
 
@@ -390,7 +390,7 @@ Consequence priority and dependency order differ. Captured admission and complet
 
 This decision is a target-design judgment, not remediation authorization, release qualification or rejection of SurrealDB. The enclosing persisted pivot remains in progress; areas outside the causal scope are not certified.
 
-The next consequential step is for the coordinator/operator to create the bounded correction plan from these findings, selecting RC01/RC02 where desired and preserving the stated semantic, lifetime and assurance guarantees. Implementation should resume against those complete operation boundaries, with focused controls that challenge their counterexamples. Real-library work, live models, operator activation and quantitative performance remain separately authorized.
+The subsequent correction plan now develops these complete operation boundaries and records the accepted RC01/RC02 choices. Its coordinator owns the next authorized action and focused controls that challenge these counterexamples. Production implementation remains paused pending that continuation. Real-library work, live models, operator activation and quantitative performance remain separately authorized.
 
 ## 10. Source anchors and baseline reproducibility
 

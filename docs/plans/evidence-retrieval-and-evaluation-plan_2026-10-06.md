@@ -1,6 +1,8 @@
 # Evidence-preserving retrieval and primary programmatic evaluation
 
-**Persisted follow-up implementation in progress, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. ER/EV meaning and original findings stay here; affected native contexts, manifest/state transport and primary evaluator consumers migrate with PG4–PG9. No protected populations or outer studies are activated.
+**Persisted follow-up implementation paused, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. ER/EV meaning and original findings stay here; affected native contexts, manifest/state transport and primary evaluator consumers migrate with PG4–PG9. No protected populations or outer studies are activated.
+
+The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC3/PC4 supply corrected published eligibility/selection; PC6 qualifies the affected actual native/MCP/evaluator journey. Evaluation meaning and populations remain unchanged. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.
 
 **Implemented / focused Tested, 2026-10-07; real-library Q1 adoption held for catalog compilation design revision.** This coordinator turns the
 [nominated design review](../design_review/reviews/design_review_evidence-retrieval-and-programmatic-evaluation_2026-10-06.md)
@@ -42,7 +44,7 @@ The user has authorized the detailed combined execution, including the local liv
 pilot and Q1 operator adoption. Production changes are integrated incrementally on main and use
 targeted functional controls, current editable native builds and fresh owned fixtures. Live service
 output admission and integrated native controls have passed; real-library usefulness and selection
-await fresh-library pilots, currently held after the stopped Catalog attempt. The [catalog compilation speed review](../design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md) owns the new unscheduled execution-fit findings; the existing ER/EV receipts retain their scope.
+await fresh-library pilots, currently held after the stopped Catalog attempt. The [persisted execution coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the scheduled catalog-speed and correction-causes findings; the existing ER/EV receipts retain their scope.
 No wheel gate, historical CLI parity campaign or broad qualification suite is introduced. Paid
 outer studies, protected confirmation/heldout and quantitative performance remain separately activated.
 

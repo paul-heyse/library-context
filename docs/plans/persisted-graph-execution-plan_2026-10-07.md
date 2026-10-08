@@ -1,6 +1,6 @@
 # Persisted graph compilation and shared efficient execution
 
-**Accepted target / implementation in progress, 2026-10-07. No performance measurement.**
+**Accepted persisted foundation; corrective target Proposed; implementation paused, 2026-10-07. No performance measurement.**
 This document coordinates the next hard design pivot. Its source is the
 [catalog compilation speed review](../design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md),
 especially F01–F05 and RC01/RC02, together with the operator's 2026-10-07 selection of persisted
@@ -9,10 +9,12 @@ direct sealing, internal contribution/view identity, and dependency foundations 
 cross-run incremental execution. Those choices replace the review's preferred in-process compiler
 alternative; its diagnoses, preservation obligations and uncertainty remain applicable.
 
-This plan owns these scheduled findings and the additional source-inspected inefficiencies in §8.
+The [correction-causes review](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md) subsequently identified incomplete admission/completion contracts and native execution amplification. Its [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) defines PC0–PC6, integrated below. Both correction-causes RC01/RC02 were operator-accepted on2026-10-07. They are different from the catalog-speed rule impacts above.
+
+This plan owns the sole scheduled disposition of both source reviews and the additional source-inspected inefficiencies in §8.
 The existing graph-native and evidence/evaluation coordinators retain their original findings and
 dated receipts. They do not close the new findings. The architectural collection owns enduring
-contracts; PG0 changes those contracts before dependent implementation. Execution is authorized for PG0–PG9. Operator state remains held; the interrupted pilot has no successful verdict.
+contracts; PG0 changes those contracts before dependent implementation. The earlier PG0–PG9 execution authorization is paused. This document-authoring continuation does not resume it or authorize PC0–PC6 production work. Operator state remains held; the interrupted pilot has no successful verdict.
 
 ## 1. Outcome, baseline and boundaries
 
@@ -28,12 +30,14 @@ selective invalidation and other consumers. Persistence alone does not remove re
 The target also replaces the identified variants with common access, conversion, batching,
 preparation and validity mechanisms. Domain policies remain with their semantic owners.
 
-Inspected baseline: main `ccbcae1f06610d00564d8b74078ae642a5c548e9`, 2026-10-07. Open edits in
+Original plan baseline: main `ccbcae1f06610d00564d8b74078ae642a5c548e9`, 2026-10-07. Open edits in
 AGENTS, STATUS, DESIGN, existing plans/runbook and a test docstring were preserved. Production
 sources remain the review's `9fecc014` baseline. The existing implementation already persists its
 final graph; the changed boundary is compilation itself and reuse of its exact completed state.
 Native serving, publication, embedding/cache, retrieval and the primary programmatic evaluator
 have the focused receipts recorded by their coordinators, not new acceptance from this plan.
+
+Correction authoring inspected `43cd6501` plus the four unchanged dirty files fingerprinted by correction-causes review §10. PC1–PC6 develop the integrated code, not a return to the original pre-pivot baseline. The existing exact-view, point-read, typed-port, S0 and nine-premise admission improvements remain foundations; final cold admission and native journeys remain open.
 
 The real Catalog attempt stopped after65m31s with SIGINT/exit130 and no verdict. A brief stack
 sample did not identify its query/stage or dominant cost. Static findings justify removing known
@@ -84,10 +88,12 @@ expected bodies independently. Programmatic evaluation remains an adjacent contr
 
 | Item | Operator decision, 2026-10-07 | Required route before dependent work |
 |---|---|---|
-| Review RC01 | **Accepted:** ordinary compilation seals its own admitted persisted realization; external imports and stored reconciliation remain independent exposures. | PG0 supersedes ADR-0128's portable-roundtrip/post-compile-only publication clauses and updates storage §6.1. |
-| Review RC02 | **Accepted:** exact immutable contribution/view identity replaces eager whole-prefix content identity internally. Deterministic final content identity remains. | PG0/PG1 revise `SourceSnapshot`, completed-input bindings, manifests, observation/cache identities and their consumers. Do not relabel membership as canonical content. |
+| Catalog-speed RC01 | **Accepted:** ordinary compilation seals its own admitted persisted realization; external imports and stored reconciliation remain independent exposures. | PG0 supersedes ADR-0128's portable-roundtrip/post-compile-only publication clauses and updates storage §6.1. |
+| Catalog-speed RC02 | **Accepted:** exact immutable contribution/view identity replaces eager whole-prefix content identity internally. Deterministic final content identity remains. | PG0/PG1 revise `SourceSnapshot`, completed-input bindings, manifests, observation/cache identities and their consumers. Do not relabel membership as canonical content. |
 | Native compiler placement | **Selected explicitly:** store-free compilation is displaced. | PG0 replaces DESIGN §B3/§B7/§B12, semantic-model §15.1/§15.11, storage §5/§6/§6.2 and associated instructions. Restate surviving ADR-0128 obligations in the replacement ADR. |
 | Reuse horizon | **Foundations now:** persist exact completed inputs, meaningful dependencies and products; no cross-run scheduler/invalidation executor. | PG1/PG7 give the persisted state real inspection/transport consumers; defer the executor with a named trigger in §10. |
+| [Correction-causes RC01](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#rc01) | **Accepted:** table-specific scope inventories and scalar projections only for actual consumers. | PC0 complementary decision/owner updates; PC3 physical schema, reconciliation and realization cutover. |
+| [Correction-causes RC02](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#rc02) | **Accepted:** later independent units may execute within a failed private restore request. | PC0 records the changed failure boundary; PC1 preserves complete outcomes; PC5 batches units and abandons failed staging. |
 
 Plan approval is not implementation or finding closure. PG0 has installed the selected target through ADR-0133; implementation and verification of its dependent packages remain in progress.
 The new ADR must preserve graph identity/role fidelity, programmatic assertions, native query
@@ -160,6 +166,8 @@ basis. Do not fabricate precise row dependency claims from incomplete instrument
 dependency edge for every primitive read. Conservative complete dependencies are correct future
 invalidation foundations; their granularity is explicit.
 
+PC2 adds declared producer/supplier semantic contracts and exact captured role/configuration bindings inside ContributionSpec. Cold admission no longer constructs current executable prototypes. The spec digest domain becomes v2, completed-state format2/content-domain v2 and artifact format3; exact contribution/view identities carry the new bindings. Old metadata is refused before reconstruction and rebuilt from pinned inputs. The nine-view/profile admitted-facts cache and reporting product remain shared, including declared NotRequested ownership. [Correction plan §3.2](persisted-execution-corrections-plan_2026-10-07.md#32-captured-suppliers-bind-a-declared-semantic-contract--f02) owns the contract and migration scope.
+
 Retain completed-state metadata and its needed backing values with the snapshot. Current consumers
 are exact compiler view access, dependency inspection through snapshot show/read-only query, and
 portable export/backup/restore. Future selective invalidation is an additional intended consumer,
@@ -195,6 +203,7 @@ terminal SDK checks and writer ownership. A known aborted transaction may retry 
 under unchanged premises; an unknown write/COMMIT acknowledgement fails the disposable attempt.
 There is no resumability journal. Drain and abandon only that owned private database; report an
 unselected orphan if cleanup fails, never sweep unrelated operator databases or claim success.
+PC1 completes this behavior with one model-owned outcome composition: primary cause, every material finalization failure, local terminality, remote-effect certainty and private-resource disposition remain distinct. Preserve already sealed/persisted effects when later cleanup fails; no error implies rollback. Construction, compile/inspection, publication/import, backup and restore siblings all consume it. The [supporting contract](persisted-execution-corrections-plan_2026-10-07.md#31-one-complete-operation-outcome--f01) owns the details.
 
 **Implemented / targeted verification in progress, 2026-10-07:** compiler, loader and retained-state
 import share native row/byte windows for candidate comparisons and checked insertion. Indexed
@@ -218,6 +227,8 @@ Selections express finite typed ID sets, declared reference fields/direction, re
 source ranges or a model-owned set operation. Private reads include completed-view membership;
 sealed reads include snapshot and semantic-family membership. Domain owners choose closure and
 coverage. Values remain SDK bindings; arbitrary request-controlled SQL is not introduced.
+
+PC3 makes planner-sensitive preparation, result-statement positions and terminal inventory part of one native lowering used by compiler/provider, published reader, projection and serving-function consumers. It co-designs scope layout with those predicates: derive each backing table's relevant fields, retain graph scope_context and independently owned search fields, and retire irrelevant scalar copies. DDL, construction, reconciliation and realization identity migrate together; [correction plan §4](persisted-execution-corrections-plan_2026-10-07.md#4-one-native-demand-interpretation-and-bounded-candidate-execution) supplies the selected route.
 
 Native indexes reach selected memberships/keys/roles before rich decoding. Use a shared batched
 one-hop primitive and full relation-qualified visited keys for exact multi-hop closure. Preserve
@@ -248,11 +259,7 @@ every selected grain. Scratch spill/columnar working data is derived and expires
 
 The pinned remote SDK does not expose a usable Arrow-payload path; native-to-Arrow means one
 field conversion, not zero-copy IPC. Use existing terminal-aware `NativeRows`; rows are provisional
-until statement and outer transport completion. Native scans materialize compact candidate keys,
-completed contributor IDs and deduplicated membership nodes once, then project directly from
-selected RecordIds; nested per-row membership subqueries are removed. LET scalar NONE results
-are handled locally while unexpected intermediate rows, every statement error/terminal and
-outer exhaustion remain checked. Dependent outputs remain private and are discarded
+until statement and outer transport completion. The current candidate-array route is replaced by PC4: single-equality scope branches (one active stream), or exact contributor membership streams, feed compact native external ordering and adjacent deduplication. Bounded exact membership point reads precede late projected hydration and residual filtering. Reuse the native external-run kernel rather than introduce another DataFusion runtime behind generic native reads. Canonical physical-ID order/aliases and typed nominal-key order retain distinct adapters. No whole-match LET array, union-index seen set or pre-intersection LIMIT establishes this correction. Compact constant preparation and every statement/error terminal remain checked. PC4 also delegates safe DataFusion fetch without claiming it cancels earlier preparation. Dependent outputs remain private and are discarded
 on late failure. Server buffers, sort/group work and frame allocation are separate from client
 batch bounds; use selective field width and the actual server envelope rather than claim global
 memory safety from a small output limit.
@@ -342,6 +349,8 @@ explicit. No whole extraction/compute/inference transaction or mutable selected 
 | Backup/restore | Include graph/original content, compact completed-state family and necessary non-graph backing values. Restore checks exact membership/dependencies and rebuilds derived definitions/indexes. No missing state silently inferred from final graph. |
 | MCP/PyO3/evaluator | Existing product tools and independent evaluation meanings remain; changed manifest/native contexts and bounded serialization migrate together. No consumer-controlled generic query contract is added. |
 
+PC5 aggregates grammar-owned whole import units into sequential checked requests:8MiB target/4096 payload statements, with a single larger indivisible unit permitted only under the existing64MiB complete-request cap. Transactions, import options, limits and independent admission remain. Accepted correction-causes RC02 permits later effects inside a failed private request; stop subsequent requests and retain cleanup certainty under PC1. The [restore contract](persisted-execution-corrections-plan_2026-10-07.md#5-whole-import-units-in-bounded-requests--f06) owns exact boundaries.
+
 Portable exports/backups declare the new completed-state format and digest. Same artifact identity
 survives restore under different physical database names. Diagnostic/selected projection exports
 remain incomplete views and cannot be imported as a complete compilation. Rebuild existing project
@@ -366,6 +375,8 @@ explicit disjoint ownership; ordinary work stays on main. No worktree is needed 
 | **PG7 — complete-state transport and originals** | PG1 completed-state format; PG2 byte ranges; PG5 import/seal boundary | Artifact/backup/restore and show/query/audit cover retained state; restore coalesces physical byte reads. Removes serial range route and all old-format assumptions while preserving complete admission. |
 | **PG8 — bounded final encoding** | Existing delivery/paging contract, independent of compiler migration | One budget-aware final encoding in normal/retained service and relevant bridge transport. Retire duplicate serialization for the same final shape; retain required envelope/delivery controls. |
 | **PG9 — integration and retirement** | All actual PG1–PG8 consumers migrated | Readiness/test recipes, config/CLI/docs and Python/native builds use persisted compilation. Remove abandoned compiler APIs/IPC authority, outdated rules/tests and compatibility-only paths. Finish coverage map and actual native/MCP/evaluator journeys. |
+
+The original PG packages remain the combined scope; [PC0–PC6](persisted-execution-corrections-plan_2026-10-07.md#6-packages-dependencies-and-migration) complete their exposed boundaries. PC0 records decisions; PC1/PC2 supply completion and captured admission; PC3/PC4 jointly migrate scope layout/lowering and bounded candidates; PC5 consumes completion for import batching; PC6 joins their actual consumers into final acceptance. Existing PG9 completion now also requires the correction findings below. Agreement on an interface is not a working prerequisite, and local parser success is not complete restore.
 
 PG2 may begin with PG1's narrow working slice, but PG1's remaining contracts/consumers stay open.
 PG3/PG4 milestone boundaries do not create one transaction/task/table per relation. PG6 and PG8
@@ -396,6 +407,21 @@ plan's source-inspected defects, not retroactive edits to the original independe
 | **D04 — singleton Arrow conversion inside native batches**: `codec.rs:50–81`, loader and reconcile | Shared batch codec, PG2/PG5 | Each bounded type slice encoded once, correct aligned bodies/order including opaque binary; independently regenerated actual-state equality still rejects altered bytes/fields/edges. |
 | [Implementation-review F01](../design_review/reviews/design_review_persisted-graph-implementation_2026-10-07.md#f01) — retained non-graph backing fidelity | Native compiler state, PG1/PG5/PG7 | **Prior two-family boundary targeted Tested, 2026-10-07; broader backing closure reopened by required snapshot/metadata families:** `ef47b7c2` + `e73183dd` compare closed typed bodies, full nominal key/physical ID, exact canonical bytes/content and actual original-page digests. Owned `compiler_views` three controls passed (161.36s), including valid body/key/export-row alteration and coherent physical-original tamper. No singleton Arrow re-lowering or new ordinary rich-prefix pass. Whole publication/restore acceptance remains separate. |
 
+### Correction-causes findings transferred on2026-10-07
+
+All six are **Open; corrective design Proposed**. This is their sole mutable disposition owner; the source review retains its dated judgment. PC packages do not reset earlier finding IDs or treat prior focused receipts as closure.
+
+| Source finding | Responsible owner and package | Closure evidence / dependency |
+|---|---|---|
+| [Correction-causes F01](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#f01) | Model completion + native/core/publisher/CLI, PC1 | All setup/finalization siblings preserve typed primary/secondary failures, terminality/effect certainty and committed-resource disposition; failure combinations and interrupted drain controls. |
+| [Correction-causes F02](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#f02) | Model/provider declaration and admission, PC2/PC6 | No prototype/exception classifier; multi-supplier/NotRequested cases, supported captured-build admission, explicit old-format refusal and new-format cold transport/reporting. |
+| [Correction-causes F03](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#f03) | Shared native lowering and every published consumer, PC3/PC4/PC6 | Prepared result positions/finality, context/null/residual fidelity and actual selected plans across compiler/reader/projection/serving. |
+| [Correction-causes F04](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#f04) | Native candidate ordering/access, PC4 | No whole-match arrays or result-sized seen set; bounded/spillable compact ordering, exact membership/alias/order controls, cancellation and late failure. |
+| [Correction-causes F05](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#f05) | Native schema/lowering/reconciliation, PC3/PC6 | Accepted RC01; table-specific extension locality, retained real scalar/search consumers, independent imported-field corruption controls and new realization qualification. |
+| [Correction-causes F06](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#f06) | Publisher restore, PC5/PC6 | Accepted RC02 and PC1; multi-unit/whole-transaction limits and failed-request isolation, followed by complete fresh restored admission. |
+
+Secondary fetch delegation is scheduled in PC4; retained Arrow/Tokio/shared-join mechanisms and triggered parser/native-order specializations are explicitly disposed in correction plan §4.3/§7. No separate capability or investigation status register is introduced.
+
 Retain source links and responsible owners when combining related corrections. Do not close F01
 solely on a native database rename, F02 on moving the same prefix work into an index builder, or
 F03 by deleting checks. Additional exposed consumers join the responsible package before closure.
@@ -420,6 +446,8 @@ native persistence/transport controls use owned authenticated persistent fixture
 | Complete external transport | New-format owned export and detached tamper; graph plus completed-state identity across physical names; missing/altered/extra membership or compiler backing; original-byte coalescing and corruption; actual fresh backup/restore/audit/projection/MCP journey. |
 | Wire/evaluation | UTF8/escaping/null/numeric payloads, exact below/at/over byte cap, refused reservation/deadline, normal and retained cursor path, final serialized original-byte maps; independent evaluator observations retain task/expected-answer separation. |
 
+The [correction acceptance table](persisted-execution-corrections-plan_2026-10-07.md#7-verification-and-remaining-investigations) adds complete failure combinations, captured semantic binding/version cutover, shared query-result positioning, table-local schema growth, spill/dedup lifetime and batched-import failure cases. PC6 and PG9 require these as well as the preserved journeys above. Do not run final old-format acceptance before its replacement producers/consumers exist.
+
 Use existing shared validators, original-byte verifiers and independent small expected graphs.
 Do not mirror a new lowering in test-only code or compare only counts. Functional controls verify
 meaning/failure boundaries; source inspection establishes removal of repeated work. A representative
@@ -433,6 +461,8 @@ paths are deleted, and targeted actual native/MCP/evaluator journeys plus affect
 Report stopped, failed and not_run evidence honestly. Update STATUS from that actual boundary.
 
 ### 9.1 Current execution checkpoint, 2026-10-07
+
+**Paused for the Proposed corrective target.** Historical receipts below remain evidence for their named source. The source review's latest setup-timeout/declaration-window evidence is additional: setup failed before availability assertions; batching is compile-checked only. The dirty nine-view admission/reporting change remains unqualified. PC1–PC6 are not implemented by plan authoring; the next production route is PC0 onward only after authorization.
 
 PG0 is accepted through [ADR-0133](../adr/0133-persisted-graph-compilation.md). PG1–PG9
 production routes are integrated on main and independently source-reviewed. Final targeted
@@ -520,7 +550,9 @@ contracts. No new dependency, backend or server configuration is selected in thi
 | Embedded primary store / raw Arrow protocol | Not selected: second lifecycle or unstable core/new protocol scope without a current requirement. Remote persisted host already serves compiler and consumers. |
 | GQL, MCP, SurrealKit, live/changefeeds and extra frontends | No demonstrated role in the required corrections. Revisit only for an actual consumer; no new migration/coordination service for fresh generated databases. |
 
-The major route is settled. Remaining bounded investigations refine implementation within it:
+Native placement remains settled. The correction plan changes incomplete contracts and physical routes within it. Its §7 owns three concrete acceptance investigations: actual single-prefix/contributor/published plans, failed multi-unit import behavior, and new-format captured-build cold admission. The ordered union-index alternative retains a result-sized dedup set in pinned3.3 source; PC4 therefore selects the existing native external-run kernel instead. Table-specific scalar consumers are mapped in correction plan §4.1. These choices and the source review's unqualified remedies are not new runtime evidence.
+
+The earlier bounded investigations remain where their implementation evidence is still incomplete:
 PG1 verifies complete registry coverage and membership index/key layout with real field types;
 PG2 inspects chosen native plan shapes when selectivity or ordering is uncertain; PG4 verifies the
 compact S0 spool and actual selected-method dependency union; PG8 verifies allocation/retention
@@ -538,15 +570,11 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-07: execution in progress.** Native compiler and adjacent shared operations are on
-main; current targeted receipts and remaining checks are in §9.1. The independent
+**2026-10-07: production execution paused; corrective target Proposed.** The [independent correction-plan review](../design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md) accepts PC0–PC6 at Proposed strength, with no remaining blocking design finding; runtime closure remains open. Native compiler and adjacent shared operations are on main; current targeted receipts and remaining checks are in §9.1. The correction plan develops all six new findings and both accepted rule changes; §8 owns their current disposition. The independent
 [target-plan review](../design_review/reviews/design_review_persisted-graph-execution-plan_2026-10-07.md)
 accepted the Proposed architecture. Its frozen-universe, deferred-reference, exact-statistics
 and complete-body obligations remain binding during implementation. Source acceptance and
 bounded successful controls do not establish the whole pivot or measured compilation speed.
 
-Next: complete the final targeted compiler,
-publication/transport, native/MCP/evaluator journeys; resolve independent review findings;
-then update §8 dispositions, architectural labels and supporting documents, run applicable
-leaves and close out. Fully merged worker worktrees and branches have been removed.
+Next production action after authorization: PC0 decisions/owners, then the PC1–PC5 contracts and consumer migrations in their dependency order; PC6 resumes affected final compiler/publication/transport/native/MCP/evaluator journeys on the resulting format and realization. Update §8 and architectural labels only from actual evidence. Plan completion does not restart the paused runs. Fully merged worker worktrees and branches have been removed.
 Preexisting related open documentation edits are preserved; no push is requested.

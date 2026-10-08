@@ -1,6 +1,8 @@
 # Primary programmatic evaluation and grounded outer feedback
 
-**Persisted follow-up implementation in progress, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. PG6/PG8/PG9 migrate affected production observation/native/wire contracts. Independent task expectations, finite populations and the programmatic primary loop stay here; no generic incremental evaluator or new evaluation defect is inferred.
+**Persisted follow-up implementation paused, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. PG6/PG8/PG9 migrate affected production observation/native/wire contracts. Independent task expectations, finite populations and the programmatic primary loop stay here; no generic incremental evaluator or new evaluation defect is inferred.
+
+The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC3/PC4 correct consumed native selections and PC6 validates the resulting observation journey; independent task expectations and evaluator algorithms remain owned here. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.
 
 **Primary loop and selected native interfaces Implemented / focused Tested, 2026-10-07.** Supporting plan for EV1–EV5
 in the [combined coordinator](evidence-retrieval-and-evaluation-plan_2026-10-06.md).

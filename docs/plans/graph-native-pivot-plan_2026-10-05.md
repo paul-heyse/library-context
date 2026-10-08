@@ -1,6 +1,8 @@
 # Graph-native replacement — implementation coordinator
 
-**Persisted follow-up implementation in progress, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. Its PG0–PG9 replace the store-free compiler placement and ordinary self-export/readmission, and integrate matching defects across serving, transport and restore. This coordinator retains its two nominated 2026-10-05 reviews, original audit findings and dated receipts; it does not own or close the new plan findings.
+**Persisted follow-up implementation paused, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. Its PG0–PG9 replace the store-free compiler placement and ordinary self-export/readmission, and integrate matching defects across serving, transport and restore. This coordinator retains its two nominated 2026-10-05 reviews, original audit findings and dated receipts; it does not own or close the new plan findings.
+
+The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC0–PC6 complete the exposed admission, completion, selection/schema and restore boundaries before remaining integrated acceptance. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.
 
 **Remediation Implemented / focused Tested, 2026-10-07; documentation freeze and Q1 pending (ADR-0128).** Replace the PostgreSQL-centered compilation and serving architecture
 directly with a Rust-admitted graph and SurrealDB-native persistence, querying and search. This

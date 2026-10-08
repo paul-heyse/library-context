@@ -2,21 +2,21 @@
 
 _Updated 2026-10-07 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: persisted graph pivot PG0–PG9 implementation is paused for design review.**
+**Current scope: persisted graph pivot PG0–PG9 implementation remains paused after correction planning.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
-owns this scope and F01–F05/D01–D04 disposition. [ADR-0133](docs/adr/0133-persisted-graph-compilation.md)
+owns this scope and all scheduled source-review finding dispositions. [ADR-0133](docs/adr/0133-persisted-graph-compilation.md)
 accepts native persisted compilation and direct sealing. Implementation receipts below are bounded;
 this pivot is not accepted or measured yet.
 
-The requested [correction-causes review](docs/design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md)
-assesses recent implementation failures, architectural causes and existing-library capabilities.
-Its verdict is **Revise**, with six findings and two explicit design choices. It owns its new
-unscheduled findings; the execution plan retains existing scheduled dispositions.
-The review does not authorize remediation or resume the paused acceptance runs.
+The [correction plan](docs/plans/persisted-execution-corrections-plan_2026-10-07.md) integrates all six
+correction-causes findings, secondary capabilities and investigations. Both RC01/RC02 are accepted.
+The [independent target review](docs/design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md)
+accepts its Proposed architecture; [coordinator §8](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns the still-open findings. No production correction or resumed acceptance is implied.
 
-**Review documentation, 2026-10-07:** **passed** `UV_NO_SYNC=1 just docs-check` (335 pages,
-zero link errors after repairing the stale ADR index and one retired historical source link).
-Product tests/builds/probes **not_run** for this source-and-receipt review; paused edits preserved.
+**Correction-plan authoring, 2026-10-07:** **passed** `UV_NO_SYNC=1 just docs-check` (338 pages,
+zero link errors) and `git diff --check`. Product tests/builds/probes **not_run** for this documentation-only
+task; the four existing dirty implementation/owner files remain intact.
 
 **Workspace effectiveness proposal, 2026-10-07:** the [workspace proposal](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md)
 now integrates its [first review](docs/design_review/reviews/design_review_agent-workspace-effectiveness_2026-10-07.md)
@@ -94,8 +94,8 @@ The stopped older analytic failure was optional producer replay after compilatio
 admission. Generic fixtures now use semantic admission; selected diagnostics remain explicit.
 S0's missing incoming parameter-link selection is corrected and independently reviewed.
 
-**Next:** decide the review's corrective direction and plan its selected findings before resuming
-implementation. Remaining acceptance: resolve restored coverage, then finish targeted both-profile/frontier, direct-seal,
+**Next after execution is resumed:** PC0 records decisions/owners, then PC1–PC5 migrate the complete
+contracts and consumers. PC6 qualifies fresh-format restored coverage and targeted both-profile/frontier, direct-seal,
 external-state/original transport and actual native/MCP/programmatic evaluation controls;
 resolve independent findings, update dispositions/docs and run applicable leaves.
 All worker ancestry is merged on main, and only the main checkout remains. Fully merged worker
