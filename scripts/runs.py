@@ -30,7 +30,6 @@ alive, `interrupted` when the owner is dead without a terminal record, otherwise
 from __future__ import annotations
 
 import argparse
-import ctypes
 import json
 import os
 import re
@@ -54,6 +53,7 @@ from harness import (
     lock_held,
     read_json,
     signal_group,
+    spawn_group,
     write_json_atomic,
 )
 
@@ -229,39 +229,6 @@ def summary_path() -> Path | None:
 # ---------------------------------------------------------------------------------------------
 # Owning a run
 
-PR_SET_PDEATHSIG = 1
-
-
-def _death_tie(parent: int) -> Callable[[], None]:
-    """preexec_fn: SIGTERM the command when its owner dies, however the owner dies (a SIGKILLed
-    foreground launcher included). Runs in the forked child of the single-threaded owner."""
-
-    def apply() -> None:
-        libc = ctypes.CDLL(None, use_errno=True)
-        if libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
-            os._exit(126)
-        if os.getppid() != parent:  # the owner died before the tie took effect
-            os._exit(125)
-
-    return apply
-
-
-def spawn_tied(
-    argv: Sequence[str], *, env: dict[str, str], cwd: str, stdout: Any
-) -> subprocess.Popen:
-    """The command as leader of its own session (pgid == pid, for group signalling), tied to
-    this owner by a parent-death signal. The leader is responsible for its group on SIGTERM."""
-    return subprocess.Popen(
-        list(argv),
-        env=env,
-        cwd=cwd,
-        stdin=subprocess.DEVNULL,
-        stdout=stdout,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        preexec_fn=_death_tie(os.getpid()),
-    )
-
 
 def new_run_dir() -> Path:
     root = runs_root()
@@ -361,11 +328,16 @@ class Owner:
         output_path = self.dir / OUTPUT
         with open(output_path, "ab") as output, open(output_path, "rb") as tail:
             try:
-                child = spawn_tied(
+                # Leader of its own session (for group signalling), tied to this owner by a
+                # parent-death SIGTERM; the leader is responsible for its group on SIGTERM.
+                child = spawn_group(
                     self.argv,
                     env=env,
                     cwd=self.record["cwd"],
+                    stdin=subprocess.DEVNULL,
                     stdout=output,
+                    stderr=subprocess.STDOUT,
+                    death_signal=signal.SIGTERM,
                 )
             except OSError as error:
                 code = 127 if isinstance(error, FileNotFoundError) else 126

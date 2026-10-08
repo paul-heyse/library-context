@@ -48,7 +48,6 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
-import ctypes
 import hashlib
 import json
 import os
@@ -77,6 +76,7 @@ from harness import (
     lock_held,
     read_json,
     signal_group,
+    spawn_group,
     write_json_atomic,
 )
 
@@ -104,7 +104,6 @@ PORT_ATTEMPTS = 8
 READY_TIMEOUT = 40.0
 STOP_GRACE = 8.0
 ADMIN_USER = "fixture_admin"
-PR_SET_PDEATHSIG = 1
 # Deliberate fixture allocation policy, unchanged from the container fixture. Default durable
 # Every sync and background maintenance are kept; the tracked-memory threshold complements the
 # cgroup cap. Native rows may travel alone up to 64 MiB with RPC framing; the SDK follows the
@@ -332,41 +331,6 @@ def owned_survivors(leader: Mapping[str, Any] | None) -> list[int] | None:
     if current is not None and current.start_ticks != identity.start_ticks:
         return []
     return group_members(identity.pid)
-
-
-def _death_signal(signum: int, parent: int) -> Callable[[], None]:
-    def apply() -> None:
-        libc = ctypes.CDLL(None, use_errno=True)
-        if libc.prctl(PR_SET_PDEATHSIG, signum, 0, 0, 0) != 0:
-            os._exit(126)
-        if os.getppid() != parent:  # the launcher died before prctl took effect
-            os._exit(125)
-
-    return apply
-
-
-def spawn_tied(
-    argv: Sequence[str],
-    *,
-    death_signal: int,
-    env: Mapping[str, str] | None = None,
-    cwd: Path | str | None = None,
-    stdout: Any = None,
-    stderr: Any = None,
-    stdin: Any = None,
-) -> subprocess.Popen:
-    """Like harness.spawn_group (new session, pgid == pid), and the child receives
-    ``death_signal`` when the spawning thread exits. Spawn from the launcher's main thread."""
-    return subprocess.Popen(
-        list(argv),
-        env=None if env is None else dict(env),
-        cwd=cwd,
-        stdin=stdin,
-        stdout=stdout,
-        stderr=stderr,
-        start_new_session=True,
-        preexec_fn=_death_signal(death_signal, os.getpid()),
-    )
 
 
 def systemctl(*args: str, runner: Runner = subprocess.run) -> subprocess.CompletedProcess:
@@ -623,7 +587,7 @@ class Server:
                     *self.argv(binary),
                 ]
                 try:
-                    self.process = spawn_tied(
+                    self.process = spawn_group(
                         command,
                         death_signal=signal.SIGKILL,
                         env=env,
@@ -1365,7 +1329,7 @@ def run_attached(
             )
             env = owned.environment(env)
         try:
-            child = spawn_tied(command, death_signal=signal.SIGTERM, env=env, cwd=cwd)
+            child = spawn_group(command, death_signal=signal.SIGTERM, env=env, cwd=cwd)
         except OSError as error:
             raise FixtureBlocked("launch", f"cannot start {command[0]!r}: {error}") from error
         leader = ProcessIdentity.of(child.pid).to_json()

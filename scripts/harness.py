@@ -7,6 +7,7 @@ alive. A foreign identity is never signalled.
 
 from __future__ import annotations
 
+import ctypes
 import fcntl
 import json
 import os
@@ -14,7 +15,7 @@ import signal
 import subprocess
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,23 @@ class ProcessIdentity:
         )
 
 
+PR_SET_PDEATHSIG = 1
+
+
+def _death_signal(signum: int, parent: int) -> Callable[[], None]:
+    """preexec_fn: deliver `signum` to the child when its spawning thread exits, however it exits
+    (SIGKILL included). Runs in the forked child; spawn from the owner's main thread."""
+
+    def apply() -> None:
+        libc = ctypes.CDLL(None, use_errno=True)
+        if libc.prctl(PR_SET_PDEATHSIG, signum, 0, 0, 0) != 0:
+            os._exit(126)
+        if os.getppid() != parent:  # the owner died before the tie took effect
+            os._exit(125)
+
+    return apply
+
+
 def spawn_group(
     argv: Sequence[str],
     *,
@@ -91,8 +109,10 @@ def spawn_group(
     stdout: Any = None,
     stderr: Any = None,
     stdin: Any = None,
+    death_signal: int | None = None,
 ) -> subprocess.Popen:
-    """Start argv as the leader of a new session, so its process group id is its pid."""
+    """Start argv as the leader of a new session, so its process group id is its pid. With
+    `death_signal`, the leader also receives that signal when its owner dies."""
     return subprocess.Popen(
         list(argv),
         env=None if env is None else dict(env),
@@ -101,6 +121,7 @@ def spawn_group(
         stdout=stdout,
         stderr=stderr,
         start_new_session=True,
+        preexec_fn=None if death_signal is None else _death_signal(death_signal, os.getpid()),
     )
 
 
