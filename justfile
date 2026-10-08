@@ -1,6 +1,6 @@
 # The only command surface agents need. `just` lists recipes.
 # Check recipes do not edit source; tests may create their own data.
-# `fmt`, `library-catalog`, `skills-sync`, `build-features` and `adr new|supersede|index` edit the
+# `fmt`, `skills-sync`, `build-features` and `adr new|supersede|index` edit the
 # working tree. Agents run scoped contract families and applicable leaves. Two bundles, each
 # keeping going after a failure: `turn-end` at the end of a turn that changed files, and `ready`
 # after an environment change.
@@ -141,9 +141,6 @@ fixtures-check:
     uv run python -c 'import ast,sys; [ast.parse(open(f,"rb").read(), f) for f in sys.argv[1:]]' "${files[@]}"
     echo "fixtures-check: ${#files[@]} files parse"
 
-# `just pilot` (the Delta compile, serving import and MCP smoke) is retired with the old pipeline
-# (plan P1.1). The facts pilots for both profiles return at plan Q.
-
 # The embedding service (DESIGN §11.1, ADR-0080): the gpu-stack SM120 wheel from services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
 embed-serve port="8000":
@@ -174,11 +171,6 @@ adr-index:
 # Claude/Codex parity and dead-reference check for agent instructions and skills
 lint-agents:
     uv run --no-project --offline --no-python-downloads python scripts/check_agents.py
-
-# Edits the working tree; one to two minutes (tools/lu-resolve).
-# Regenerate the library catalog and the usage index behind the library-catalog MCP server
-library-catalog:
-    uv run python scripts/library_utilization.py --write
 
 # Tool presence and versions (compare with docs/pins.md)
 doctor:
