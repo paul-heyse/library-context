@@ -35,11 +35,12 @@ realization is still available and records the obligations its reuse skipped.
 **Records.** ``build/fixtures/<id>/`` (``LCTX_FIXTURES_ROOT`` relocates it): ``record.json``,
 ``owner.lock`` (flocked by a run-owned launcher), ``server.env`` (0600), ``server.log``, ``data/``
 and ``attachments/<aid>/``. Liveness is "identity alive or owner lock held" (plan §5.8.3), so a
-sibling pid namespace never looks dead. Inside a run handle the fixture is also recorded in
-``$LCTX_RUN_DIR/fixtures/<id>.json``. The sweep removes only state of dead owners whose owned
-command tree has no survivors (a run-owned fixture's surviving tree is terminated first, its
-server already being gone); it never touches kept servers, live attachments or foreign pid
-namespaces. Standard library only (plan §5.8.1).
+sibling pid namespace never looks dead; a record from a previous boot is dead. A run handle's
+cancel reaches a run-owned fixture through its process group. The sweep removes only state of
+dead owners whose owned command tree has no survivors (a run-owned fixture's surviving tree is
+terminated first, its server already being gone), and empty leftover scopes of this checkout; it
+never touches kept servers, live attachments or same-boot foreign pid namespaces. Standard
+library only (plan §5.8.1).
 """
 
 from __future__ import annotations
@@ -318,6 +319,8 @@ def owned_survivors(leader: Mapping[str, Any] | None) -> list[int] | None:
     if not leader:
         return []
     identity = ProcessIdentity.from_json(leader)
+    if identity.previous_boot():
+        return []
     if identity.foreign():
         return None
     try:
@@ -430,6 +433,20 @@ def source_inputs() -> dict[str, str]:
 # The server substrate
 
 
+SETUP_ERRORS = (OSError, urllib.error.URLError, RuntimeError, ValueError, KeyError)
+
+
+@contextlib.contextmanager
+def _setup(what: str) -> Iterator[None]:
+    """Fixture setup failures become classifiable ``FixtureBlocked("readiness")`` evidence."""
+    try:
+        yield
+    except FixtureBlocked:
+        raise
+    except SETUP_ERRORS as error:
+        raise FixtureBlocked("readiness", f"{what}: {type(error).__name__}: {error}") from error
+
+
 def _unit_name(fixture_id: str, kind: str) -> str:
     return f"{UNIT_PREFIX}{fixture_id}.{'service' if kind == 'kept' else 'scope'}"
 
@@ -444,6 +461,7 @@ class Server:
     process: subprocess.Popen | None = field(default=None, repr=False)
     report: Callable[[str], None] = field(default=_stderr, repr=False)
     _lock: int | None = field(default=None, repr=False)
+    _ended: str | None = field(default=None, repr=False)
 
     # -- identity ------------------------------------------------------------------------------
     @property
@@ -669,16 +687,40 @@ class Server:
         lines = [line for line in text.splitlines() if line.strip()]
         return " | ".join(lines[-3:])
 
+    def _scope_oom(self) -> bool:
+        """OOM evidence for a run-owned scope: the cgroup's ``memory.events`` ``oom_kill`` count,
+        read while the scope still exists (an emptied scope stays loaded on systemd 255 and its
+        ``Result`` stays ``success``); the unit's ``Result`` is the fallback."""
+        state = unit_properties(self.unit, "ControlGroup", "Result")
+        group = state.get("ControlGroup", "")
+        if group.startswith("/"):
+            try:
+                events = (Path("/sys/fs/cgroup") / group.lstrip("/") / "memory.events").read_text()
+            except OSError:
+                events = ""
+            for line in events.splitlines():
+                key, _, value = line.partition(" ")
+                if key == "oom_kill" and value.strip().isdigit() and int(value) > 0:
+                    return True
+        return state.get("Result") == "oom-kill"
+
+    def _close_scope(self) -> None:
+        """Stop the (empty) run-owned scope so its name is free again and no unit leaks."""
+        systemctl("stop", self.unit)
+        systemctl("reset-failed", self.unit)
+
     def exited(self) -> str | None:
         """None while the server runs; otherwise a description of how it ended."""
         if self.kind == "run":
+            if self._ended is not None:
+                return self._ended
             if self.process is None or self.process.poll() is None:
                 return None
             code = self.process.returncode
-            state = settled_result(self.unit)
-            if state.get("Result") == "oom-kill":
-                return "oom-kill"
-            return f"signal {-code}" if code < 0 else f"exit {code}"
+            oom = self._scope_oom()
+            self._close_scope()
+            self._ended = "oom-kill" if oom else f"signal {-code}" if code < 0 else f"exit {code}"
+            return self._ended
         state = unit_properties(self.unit, "ActiveState", "Result")
         if state.get("ActiveState") in ("active", "activating", "deactivating", "reloading"):
             return None
@@ -738,11 +780,12 @@ class Server:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait()
-        else:
-            ended = None if ended.startswith("exit 0") else ended
-        settled_result(self.unit)
-        systemctl("reset-failed", self.unit)
+            stopped = self.exited()  # reads OOM evidence, then closes the scope
+            ended = "oom-kill" if stopped == "oom-kill" else None
+        elif ended == "exit 0":
+            ended = None
         self.process = None
+        self._ended = None
         return ended
 
     def restart(self) -> None:
@@ -828,6 +871,7 @@ class Attachment:
     config: dict[str, Any] = field(repr=False)
     extra_env: dict[str, str] = field(default_factory=dict)
     _lock: int | None = field(default=None, repr=False)
+    _retaining: Path | None = field(default=None, repr=False)
 
     @property
     def scratch(self) -> Path:
@@ -890,11 +934,16 @@ class Attachment:
                 "selection": str(directory / "scratch" / "selected.json"),
             },
         )
-        server.query(
-            f"DEFINE NAMESPACE {namespace};"
-            f" USE NS {namespace}; DEFINE DATABASE core STRICT;"
-            " DEFINE DATABASE compiler_cache STRICT;"
-        )
+        try:
+            with _setup(f"defining attachment namespace {namespace}"):
+                server.query(
+                    f"DEFINE NAMESPACE {namespace};"
+                    f" USE NS {namespace}; DEFINE DATABASE core STRICT;"
+                    " DEFINE DATABASE compiler_cache STRICT;"
+                )
+        except FixtureBlocked:
+            attachment.release()
+            raise
         return attachment
 
     def _write_record(self, command: dict[str, Any] | None, **extra: Any) -> None:
@@ -920,71 +969,45 @@ class Attachment:
         env.update(self.extra_env)
         return env
 
-    def query(self, sql: str, *, database: str | None = None) -> list[dict[str, Any]]:
-        return self.server.query(sql, namespace=self.namespace, database=database or "core")
-
     def restart(self) -> None:
         self.server.restart()
-
-    def ready(self, timeout: float = READY_TIMEOUT) -> None:
-        self.server.ready(timeout)
-
-    def export(self, path: Path, *, database: str | None = None) -> None:
-        """Export a fixture atomically; restore/reconciliation establishes logical completeness."""
-        request = self.server.request("/export", None, self.namespace, database or "core")
-        request.method = "GET"
-        temporary = path.with_name(path.name + ".partial")
-        try:
-            with urllib.request.urlopen(request, timeout=25) as r, temporary.open("wb") as out:
-                shutil.copyfileobj(r, out)
-            temporary.replace(path)
-        finally:
-            temporary.unlink(missing_ok=True)
-
-    def import_dump(self, path: Path, *, database: str) -> None:
-        """Restore into a fresh owned database; callers reconcile content/index readiness."""
-        database = _identifier(database)
-        existing = self.query("INFO FOR NAMESPACE;")[0]["result"].get("databases", {})
-        if database in existing:
-            raise ValueError("restore requires a fresh fixture database")
-        self.query(f"DEFINE DATABASE {database} STRICT;")
-        request = self.server.request("/import", path.read_bytes(), self.namespace, database)
-        with urllib.request.urlopen(request, timeout=25) as response:
-            body = response.read()
-        if body:
-            result = json.loads(body)
-            if isinstance(result, list) and any(row.get("status") != "OK" for row in result):
-                raise RuntimeError("fixture import reported a statement error")
-            if isinstance(result, dict) and result.get("code", 200) >= 400:
-                raise RuntimeError("fixture import reported a request error")
-
-    def run(self, command: Sequence[str], *, cwd: Path | None = None) -> int:
-        from build_environment import normalized_env
-
-        env = normalized_env(self.environment(), native_inputs=False)
-        return subprocess.run(command, cwd=cwd, env=env, check=False).returncode
 
     # -- retained serving content (kept fixtures) ----------------------------------------------
     def retain_serving(self, name: str) -> Path:
         """Where the producing command writes the viewer configuration it retains."""
         directory = self.server.directory / "serving" / _identifier(name)
-        if directory.exists():
+        if (directory / "identity.json").exists():
             raise FixtureBlocked("serving", f"serving content {name!r} already retained")
+        # An earlier retention that never recorded its identity failed: it is replaced.
+        shutil.rmtree(directory, ignore_errors=True)
         directory.mkdir(parents=True)
+        self._retaining = directory
         path = directory / "viewer.json"
         self.extra_env["LCTX_RETAIN_NATIVE_FIXTURE_CONFIG"] = str(path)
         return path
+
+    def abandon_serving(self) -> None:
+        """Remove a retention this attachment started but never recorded (the producer failed).
+        ``release`` calls it, so every caller gets the same cleanup."""
+        if self._retaining is not None and not (self._retaining / "identity.json").exists():
+            shutil.rmtree(self._retaining, ignore_errors=True)
+        self._retaining = None
 
     def record_serving(self, name: str, command: Sequence[str]) -> dict[str, Any]:
         """After a successful producer: record the retained content's identity."""
         directory = self.server.directory / "serving" / _identifier(name)
         viewer = directory / "viewer.json"
         if not viewer.is_file():
-            shutil.rmtree(directory, ignore_errors=True)
+            self.abandon_serving()
             raise FixtureBlocked("serving", f"producer did not write {viewer}")
-        config = json.loads(viewer.read_text())
-        selection = Path(config["selection"])
-        handle = json.loads(selection.read_text())
+        try:
+            with _setup(f"reading retained serving {name!r}"):
+                config = json.loads(viewer.read_text())
+                selection = Path(config["selection"])
+                handle = json.loads(selection.read_text())
+        except FixtureBlocked:
+            self.abandon_serving()
+            raise
         identity = {
             "name": name,
             "fixture": self.server.id,
@@ -1008,12 +1031,16 @@ class Attachment:
             },
         }
         write_json_atomic(directory / "identity.json", identity)
+        self._retaining = None
         return identity
 
     def use_serving(self, name: str) -> dict[str, Any]:
         """Check the retained realization is still available, expose it, record skipped work."""
-        identity = serving_available(self.server, name)
+        with _setup(f"checking retained serving {name!r}"):
+            identity = serving_available(self.server, name)
         self.extra_env["LCTX_NATIVE_SERVING_CONFIG"] = identity["configuration"]["path"]
+        current = source_inputs()
+        produced = {key: identity["inputs"].get(key) for key in current}
         reuse = {
             "name": name,
             "content": identity["content"],
@@ -1024,7 +1051,9 @@ class Attachment:
                     "producing_run": identity["producing_run"],
                 }
             ],
-            "current_inputs": source_inputs(),
+            "current_inputs": current,
+            # The availability check decides reuse; changed sources are recorded, not refused.
+            "inputs_changed_since_production": current != produced,
         }
         self._write_record(None, serving_reuse=reuse)
         return reuse
@@ -1032,6 +1061,7 @@ class Attachment:
     # -- teardown ------------------------------------------------------------------------------
     def release(self) -> None:
         """Remove this attachment's namespace and files; retained serving content is kept."""
+        self.abandon_serving()
         try:
             if self.server.exited() is None and self.namespace not in retained_namespaces(
                 self.server
@@ -1103,40 +1133,23 @@ def fixture(
 ) -> Iterator[Attachment]:
     """A run-owned server with one attachment, removed on exit. The server also dies with this
     process if it is killed (PDEATHSIG), so call it from the main thread."""
-    if sweep_first:
-        sweep(report=report)
-    server = Server.create("run", memory=memory or configured_memory(), report=report)
-    _record_in_run(server, "started")
+    with _setup("starting the run-owned fixture"):
+        if sweep_first:
+            sweep(report=report)
+        server = Server.create("run", memory=memory or configured_memory(), report=report)
     ended: str | None = None
     try:
-        attachment = Attachment.create(server)
+        with _setup("attaching to the run-owned fixture"):
+            attachment = Attachment.create(server)
         yield attachment
     finally:
         ended = server.destroy()
-        _record_in_run(server, "removed", ended=ended)
     if ended == "oom-kill":
         raise server.oom("while in use")
 
 
 def configured_memory(explicit: str | None = None) -> int:
     return parse_memory(explicit or os.environ.get("LCTX_FIXTURE_MEMORY") or DEFAULT_MEMORY)
-
-
-def _record_in_run(server: Server, phase: str, **extra: Any) -> None:
-    run_dir = os.environ.get("LCTX_RUN_DIR")
-    if not run_dir or not Path(run_dir).is_dir():
-        return
-    path = Path(run_dir) / "fixtures" / f"{server.id}.json"
-    data = read_json(path) or {
-        "id": server.id,
-        "kind": server.kind,
-        "unit": server.unit,
-        "port": server.port,
-        "memory_max": server.memory,
-        "directory": str(server.directory),
-    }
-    data.update(phase=phase, updated=now(), **extra)
-    write_json_atomic(path, data)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1208,6 +1221,32 @@ def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
     return rows
 
 
+def _sweep_empty_scopes(recorded: set[str]) -> list[str]:
+    """Stop unrecorded run-owned scopes of this checkout whose cgroup holds no process (leaked by
+    a launcher that died between its scope emptying and closing it)."""
+    removed = []
+    listed = systemctl("list-units", "--all", "--plain", "--no-legend", f"{UNIT_PREFIX}*.scope")
+    for line in listed.stdout.splitlines():
+        unit = line.split()[0] if line.split() else ""
+        fixture_id = unit.removeprefix(UNIT_PREFIX).removesuffix(".scope")
+        if not unit or fixture_id in recorded:
+            continue
+        state = unit_properties(unit, "Description", "ControlGroup")
+        if f"checkout={ROOT}" not in state.get("Description", "").split():
+            continue
+        group = state.get("ControlGroup", "")
+        try:
+            procs = (Path("/sys/fs/cgroup") / group.lstrip("/") / "cgroup.procs").read_text()
+        except OSError:
+            procs = ""
+        if procs.strip():
+            continue
+        systemctl("stop", unit)
+        systemctl("reset-failed", unit)
+        removed.append(f"{unit} (empty scope)")
+    return removed
+
+
 def sweep(
     env: Mapping[str, str] | None = None, *, report: Callable[[str], None] = _stderr
 ) -> list[str]:
@@ -1270,6 +1309,7 @@ def sweep(
         systemctl("reset-failed", record["unit"])
         shutil.rmtree(directory, ignore_errors=True)
         removed.append(record["id"])
+    removed += _sweep_empty_scopes({d.name for d, _ in records(env)})
     for item in removed:
         report(f"fixture sweep: removed {item}")
     return removed
@@ -1457,7 +1497,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             server = Server.create(
                 "kept" if args.keep else "run", memory=configured_memory(args.memory)
             )
-            _record_in_run(server, "started")
             _stderr(
                 f"fixture {server.id} ({server.kind}) ready: {server.endpoint}"
                 f" MemoryMax={memory_text(server.memory)}"
@@ -1511,9 +1550,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             ended = server.destroy()
             if ended == "oom-kill" and code != EXIT_BLOCKED:
                 _stderr(server.oom("while the command ran").message())
-            _record_in_run(server, "removed", ended=ended, exit=code)
-        elif server is not None and args.keep:
-            _record_in_run(server, "kept")
 
 
 if __name__ == "__main__":
