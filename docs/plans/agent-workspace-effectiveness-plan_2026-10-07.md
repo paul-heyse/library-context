@@ -1,6 +1,6 @@
 # Agent workspace effectiveness
 
-**Status (2026-10-07): approved for execution; implementation in progress.** The operator approved the execution approach on 2026-10-07. Two operator decisions are pending (§5.9): OD1 (ADR-0126 clauses) and OD2 (fixture substrate). §9 records each packet's progress.
+**Status (2026-10-08): implemented, with design-phase acceptance.** P1–P7 are implemented on `main` (§13). OD1 was approved (ADR-0134), and OD2 chose the native fixture binary. Following the operator's design-phase scope, acceptance is each feature's revealing case plus a first-principles value check, not a revalidation of the existing test scope; full functional testing follows the planned design changes. A fresh [implementation review](../design_review/reviews/design_review_agent-workspace-implementation_2026-10-08.md) concluded Revise (scoped), and its findings are fixed (§8).
 
 Both reviews concluded **Revise**: keep the main direction and correct the mechanisms.
 - The [first review](../design_review/reviews/design_review_agent-workspace-effectiveness_2026-10-07.md) corrected contracts and lifetimes.
@@ -642,24 +642,48 @@ The [capability review](../design_review/reviews/design_review_agent-workspace-e
 | F07 Blanket suppression and restoration | Accepted. The connector restoration claim was wrong. The blanket switch is dropped, and the named competing injections are suppressed with accurate restoration routes. Connector instruction blocks that direct workflow count as identified injections under the review's own rule. | D6, P7, RC08 |
 | F08 Freshness, maintenance, navigation, cleanup | Accepted. Freshness outcome classes; scoped maintenance (AE-21, RC09, ADR); actionable navigation; precise cleanup without log deletion; memory moved to notes. | P1, P6, P7, §10 |
 
+### Implementation review
+
+The [implementation review](../design_review/reviews/design_review_agent-workspace-implementation_2026-10-08.md) of `ec278be4..95297fe5` concluded Revise (scoped). Every finding is fixed:
+
+| Finding | Fix | Commit |
+|---|---|---|
+| F01 Run-owned fixture scopes never stopped (restart failed, OOM undetected, unit leak) | Scopes stop when the server ends. OOM is read from the cgroup's `memory.events` before removal. Restart keeps the unit and port. | `b862a8ce` |
+| F02 `verify-<family>` shortcuts misrouted verify options | Verify options come before `--`; only the remainder passes through | `894ef1f0` |
+| F03 `--cli` never set `LCTX_REMEDIATION_CLI_BIN` | Option-gated step environment | `894ef1f0` |
+| F04 Any server exit reported as `blocked` | Only OOM, readiness, launch 127 or `FixtureBlocked` count as `blocked`; anything else is `failed` | `894ef1f0` |
+| F05 A SIGKILLed foreground launcher left its tree running | Parent-death SIGTERM; the leader terminates its group | `894ef1f0`, `b7f8ec30` |
+| F06 `worktree-remove` ignored live fixtures and runs | Refuses and names them; `--force` stops them through their routes | `5ba65185` |
+| F07 Declared Python requirements didn't match imports | `model:rust` and `providers:extract` need tools; compiler, store and `serving:rust` don't | `894ef1f0` |
+| F08 Step children lacked the ownership token | Passed to every step | `894ef1f0` |
+| F09 Exclusive sync could starve | Pending-writer gate | `5ba65185` |
+| F10 Previous-boot records never swept | `ProcessIdentity.previous_boot()` means dead | `2264ccda`, `b862a8ce` |
+| F11 Setup exceptions aborted runs; failed retention blocked reuse | `FixtureBlocked` classification; abandoned retention is cleaned up | `b862a8ce` |
+| Proportionality cuts | Fixture methods and run-dir records with no reader; hand-written target discovery replaced by `cargo metadata`; duplicate readiness types; holder records replaced by `/proc/locks`; the duplicated parent-death helper; unused CLI commands | `b862a8ce`, `894ef1f0`, `5ba65185`, `b7f8ec30` |
+
 ## 9. Finding dispositions
 
 | Finding | Scenario | Disposition | Owner | Evidence / revisit trigger |
 |---|---|---|---|---|
-| AE-01, AE-02, AE-03, AE-05 | S1, S4, S6 | scheduled | P2 (wording in P7) | `uv_cache.json`; `--dry-run/--check` probe (2026-10-07); W1 sync counts |
-| AE-04 | S4, S6 | scheduled | P2 docstring note; P3 callers; P7 | 3.12 parse check (2026-10-07); W1 failures |
-| AE-06, AE-07 | S1, S4, S6 | scheduled | P3 | `expect` sites; journal 10-07 16:13; Docker port probe; W1 `LCTX_*` counts |
-| AE-08, AE-09, AE-10 | S1, S2, S5 | scheduled | P4 (and P2 for the sync/lock causes) | W1 family wall times; drills D1/D2/D4 |
-| AE-11, AE-21 | S3, all | scheduled | P6 (RC09 needs an ADR) | Drill D3; turn-end `not_run` on 2026-10-07 in both this assessment and the capability review |
+| AE-01, AE-02, AE-03, AE-05 | S1, S4, S6 | **implemented** (P2, P7) | — | *Tested* 2026-10-07: no rebuild from recipes or a bare `uv run`; a touched source reports `blocked: run just sync native`. The redundant `build_environment.py` cache key was removed. |
+| AE-04 | S4, S6 | **implemented** | — | Harness scripts launch with `uv run --no-project`; `build_environment.py` is pinned to py312 for ruff and parses under 3.12 (*Tested*) |
+| AE-06, AE-07 | S1, S4, S6 | **implemented** (P3, native binary) | — | *Tested* 2026-10-08: `just fixture -- cargo nextest … --test cache` 7/7 with no hand-set `LCTX_*`; SIGTERM/SIGKILL leave no server; OOM detected 3/3; restart keeps the port |
+| AE-08, AE-09, AE-10 | S1, S2, S5 | **implemented** (P4) | — | *Tested* with fakes and static `--print`; one real background run with `summary.json`. Family wall time is unmeasured (performance is out of scope). |
+| AE-11, AE-21 | S3, all | **implemented** (P6, ADR-0134) | — | *Tested*: `just fresh` writes nothing; scoped turn-end left the paused product files byte-identical |
 | AE-12 | S2, S5 | routed | Testing architecture owner; catalog tests go with P1 | W2 family/target matrix. Revisit when that owner next revises families. |
-| AE-13 | S7 | scheduled | P5 | W1 flock, private-dir, copy and `UV_PROJECT_ENVIRONMENT` counts (P5 Codex coordinator) |
-| AE-14, AE-15 | S8, S9 | scheduled | P7 | Fresh-session measurements; instruction audit |
+| AE-13 | S7 | **implemented** (P5) | — | *Tested*: environment and locks follow the worktree under an inherited absolute environment; a foreign `UV_PROJECT_ENVIRONMENT` is dropped by every recipe |
+| AE-14, AE-15 | S8, S9 | **implemented** (P7, D6) | — | *Tested* 2026-10-07: fresh sessions show no superpowers injection and no denied connectors; context went from 47.2k to 42.5k (recorded, not a criterion); Codex sees `UV_NO_SYNC=1`; AGENTS.md went from 28.7 KB to 25.3 KB |
 | AE-16 | S9 | note | Operator (§10) | Memory is user-level |
-| AE-17 | S1 | scheduled (note only) | P7 navigation route | Revisit if wrong-path reads remain a visible share of exploration |
+| AE-17 | S1 | **implemented** (note) | — | *Tested* 2026-10-08: the LSP tool answers `documentSymbol`, while references and workspace symbols need a warm index. Revisit if wrong-path reads remain a visible share of exploration. |
 | AE-18 | S8 | not proposed | — | Revisit if a skill goes missing in Codex |
-| AE-19, AE-20 | all | scheduled | P1 | Config audit |
+| AE-19, AE-20 | all | **implemented** (P1) | — | *Tested*: a fresh Codex session starts no catalog server; no catalog tests are collected; `lint-agents` passes |
 | First review F01–F08 | — | accepted | §8 | That review, §11–12 |
 | Capability review F01–F08, RC01–RC06 | — | accepted | §8, §6 | That review, §3, §7 |
+| Implementation review F01–F11 | — | **fixed** | §8 | That review |
+| AE-22 Hakari stale at HEAD | S3 | **fixed** (`71f3a4ae`) | — | Found by `just fresh` |
+| AE-23 103 committed Rust files are unformatted (mostly product work) | S3 | routed | The product owner's whole-tree `turn-end` on resumption | `just fresh rust-fmt` |
+| AE-24 `just fresh` does not cover documentation publication, and the Hakari check can rewrite a stale `Cargo.lock` | S3 | open, minor | This plan | Drill D3-after; revisit if docs drift goes unnoticed |
+| AE-25 The tooling family collects `test_programmatic_native*.py`, which need serving config | S2 | routed (AE-12) | Testing architecture owner | A's P2 run |
 
 ## 10. User- and machine-level notes (not packets)
 
@@ -685,10 +709,72 @@ The drills were read-only, run once per runtime, and scored against targets writ
 | D5: SurrealDB per-statement errors (S8) | 9, 124, 0.55 | 47 | Both correct and version-checked against Cargo.lock. Claude used the selected skill and the registry source. It noted that the skill's top advice under-signals `take_errors`, and its working directory moved into the skill store. Codex used the skill, then Context7 (no matching docs), then the registry source. |
 | D6: current work and the F03 owner (S9) | 8, 33, 0.55 | 36 | Both correct. Claude was distracted by unauthenticated connectors and noticed that STATUS lagged two commits. |
 
-## 12. Verification of this plan
+### After-change drills (2026-10-08, HEAD `72966523`)
 
-- **`UV_NO_SYNC=1 just docs-check`:** passed, 337 canonical pages (2026-10-07, after integrating the capability review).
-- **`git diff --check`:** passed.
-- **`just lint-agents`:** not_run. No instruction files changed.
-- **`just turn-end`:** not_run, deliberately (AE-21). It formats the whole tree and syncs, and another agent's dirty work is live.
-- **Ruff on the miner:** not_run. The project ruff configuration excludes `docs/`.
+D1 and D3 were rerun with targets written beforehand (`build/agent-effectiveness/w6-after/`). Each runtime ran once, so this is qualitative.
+
+| Drill | Claude (turns, s, $) | Codex (s) | Compared with the baseline |
+|---|---|---|---|
+| D1 focused tests | 14, 61, 0.64 | 60 | Neither runtime ran the `eval build_environment` step or was surprised by an implicit sync. Both ran the unit loop with bare `cargo`, and the integration tests with `just fixture -- cargo nextest …`. Claude also offered `just verify --select store:rust`. |
+| D3 generated outputs | 7, 45, 0.46 | 63 | Claude needed a single `just fresh` instead of about 12 hand-assembled commands. Codex assembled parts by hand, because the drill preamble forbids `uv run`. Both named AE-24 and the insta limit. |
+
+## 12. Execution checkpoint (2026-10-08)
+
+**Commits on `main`.**
+
+| Area | Commits |
+|---|---|
+| Contracts and harness | `ec278be4` |
+| P1 | `6ae79a2e`, `69dad0e1` |
+| ADR-0134 | `c06651a2` |
+| P2 + P4.1 | `f212bd42` |
+| Decisions recorded | `442b8dbe` |
+| P6 | `e962475a`, `0e4df1a2` |
+| Runtime configuration | `f6813b45` |
+| Hakari | `71f3a4ae` |
+| P5 | `d59f193b`, `c4afd533` |
+| P3 | `0f81b9c1` |
+| P4.2 | `95297fe5` |
+| P7 | `72966523` |
+| Parallelism | `d9375ba4` |
+| Implementation-review fixes | `2264ccda`, `b862a8ce`, `894ef1f0`, `5ba65185`, `b7f8ec30`, `c546799d` |
+
+**Incidents and corrections during execution.**
+- **Main's `.venv` repointed.** A worktree probe that carried main's absolute `UV_PROJECT_ENVIRONMENT` re-pointed main's `.venv` at worktree code for about 12 minutes. A rebuild repaired it. Every recipe and `ready` now drops a foreign absolute environment unless `LCTX_ALLOW_FOREIGN_ENV=1`.
+- **Test-parallelism cap removed.** The harness briefly defaulted nextest to half the CPUs, and that was removed at the operator's direction. The harness never lowers test parallelism; nextest keeps its default (32 here).
+- **Testing scope enforced mid-execution.** The operator restated it: limited functional testing, no validation of existing scope. A `lctx-publisher` value-check build was stopped mid-compile without a result, and the long mcp journey was dropped in favour of fakes plus static `--print`.
+- **A completed run was pruned.** `just runs prune --keep 0` removed one completed run that another session had made. Pruning never touches active, interrupted or retained runs.
+
+**Deviations from the plan.**
+- The P5 build-concurrency probe and OD3 were dropped.
+- `build_identity()` and `skillListingMaxDescChars` are deferred.
+- The fixture runs the native binary (OD2) rather than Docker.
+
+**Size.** The harness is larger than the rest of the scripts: `verify.py` about 1.4k lines, `surrealdb_fixture.py` about 1.5k, `runs.py` about 0.8k. The review's cuts were applied, and remaining size is a revisit item if maintenance cost shows.
+
+**Not run (design-phase scope):**
+- `qualify`;
+- the full mcp journey;
+- wide consumer suites;
+- fixture-backed `verify` selections beyond the `cache` test;
+- whole-tree `just turn-end`, because the paused product files are dirty; the scoped form was used instead.
+
+## 13. Verification of this plan
+
+Non-functional leaves, run once at scope end (2026-10-08, after the review fixes):
+
+| Leaf | Command | Result |
+|---|---|---|
+| Agent instructions | `just lint-agents` | passed |
+| ADR records | `just adr-lint` | passed |
+| Types | `just types` | passed |
+| Dependency policy (including Hakari) | `just deps` | passed |
+| Ruff on the harness scripts and their tests | `uv run --no-sync ruff check …` | passed |
+| Documentation | `just docs-check` | passed, 338 pages, after fixing three links this work had broken: the retired `sqlx-postgres` skill link, the deleted `native_controls.py` link and a review's relative plan link |
+
+Functional evidence is limited to each packet's premise and value checks (§9, §12), under the design-phase scope. Harness unit tests (`uv run --no-sync pytest tests/scripts/test_{harness,workspace_env,build_environment,surrealdb_fixture,runs,verify,worktree,freshness,maintenance}.py`) passed at the final commits.
+
+Not run:
+- `just turn-end` in whole-tree form, because the paused product files are dirty. The scoped `just turn-end --paths …` was used on this work's paths.
+- `just qualify`, by design-phase scope.
+- Ruff on the miner, because the project ruff configuration excludes `docs/`.

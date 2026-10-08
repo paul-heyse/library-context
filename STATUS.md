@@ -1,6 +1,6 @@
 # Status
 
-_Updated 2026-10-07 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
 **Current scope: persisted graph pivot PG0–PG9 implementation remains paused after correction planning.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
@@ -18,14 +18,16 @@ owns the still-open findings. No production correction or resumed acceptance is 
 zero link errors) and `git diff --check`. Product tests/builds/probes **not_run** for this documentation-only
 task; the four existing dirty implementation/owner files remain intact.
 
-**Workspace effectiveness proposal, 2026-10-07:** the [workspace proposal](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md)
-now integrates its [first review](docs/design_review/reviews/design_review_agent-workspace-effectiveness_2026-10-07.md)
-and the [capability review](docs/design_review/reviews/design_review_agent-workspace-effectiveness-capabilities_2026-10-07.md).
-Both concluded Revise. The proposal's §8 records their dispositions and its §9 owns the findings.
-It remains **Proposed**. No harness, runtime configuration or memory change is implemented.
-**Next:** the operator confirms D1–D7 and RC01–RC09. RC09 (scoped turn-end) needs an ADR if adopted.
-Product tests, builds and fixtures **not_run** (documentation-only scope).
-`just turn-end` **not_run**: its whole-tree formatter would modify the paused concurrent edits.
+**Workspace effectiveness, 2026-10-08: implemented** with design-phase acceptance ([plan](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md):
+§9 dispositions, §12 checkpoint; [ADR-0134](docs/adr/0134-scoped-preparation-and-maintenance.md); [implementation review](docs/design_review/reviews/design_review_agent-workspace-implementation_2026-10-08.md) findings fixed).
+**For the paused product work when it resumes:**
+- `just verify --select …`/`--print` and `just fixture -- <cmd>` replace `scripts/native_controls.py`; shortcuts now take `just verify-X [--command B] [verify opts] -- ARGS`.
+- Readiness observes: after a native input change, run `just sync native`.
+- Fixtures run the pinned native `surreal` 3.3.0 binary.
+- Use `just turn-end --paths …` while others' work is dirty.
+- `just fresh` reports 103 committed unformatted Rust files (AE-23) for a whole-tree `turn-end`.
+**Checks, 2026-10-08:** **passed** lint-agents, adr-lint, types, deps, ruff (harness) and docs-check (338 pages), plus harness unit tests and each packet's premise/value checks (plan §9).
+**not_run:** qualify, wide families and the full mcp journey (design-phase scope); whole-tree turn-end (paused files dirty; the scoped form was used).
 
 **Integrated on main:** immutable native contributions/views and frozen bindings; complete typed
 codec/Arrow bridge; all compiler frontiers/profiles and selected analytical preparation; native

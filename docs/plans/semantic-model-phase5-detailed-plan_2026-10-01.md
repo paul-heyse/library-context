@@ -349,7 +349,7 @@ to search the full domain. Missing optional vector uses stay addressable through
 | Conditions | biodivine-lib-bdd 0.6.3 through the current domain kernel | No second DNF/legacy condition interpreter |
 
 Pinned local capability references and current source informed fit, not fresh runtime conformance.
-The [PostgreSQL skill](../../.claude/skills/sqlx-postgres/SKILL.md) distinguishes crate and extension
+The PostgreSQL skill (`sqlx-postgres`, no longer selected) distinguishes crate and extension
 pins; the [FastMCP skill](../../.claude/skills/fastmcp/SKILL.md) distinguishes listed/invoked/result
 representations and warns that lossy response middleware is not a hard serialized-byte bound.
 Primary library sources: [pgvector](https://github.com/pgvector/pgvector),

@@ -77,7 +77,7 @@ mutation of a checkout.
 
 D4 adds valuable inspection modes but leaves selection fragmented.
 [verify.py](../../../scripts/verify.py) defines families, boundary names and requirements;
-[native_controls.py](../../../scripts/native_controls.py) supplies package defaults and MCP setup.
+`native_controls.py` (since folded into `verify.py`) supplied package defaults and MCP setup.
 The current parser accepts one family and one optional boundary; MCP arguments reach pytest
 after the Rust journey. An agent selecting compiler and MCP controls still assembles separate
 invocations, filter destinations and outcomes. Printing the procedure does not provide composition.
