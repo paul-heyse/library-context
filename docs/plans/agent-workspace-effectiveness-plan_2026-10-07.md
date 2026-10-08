@@ -1,6 +1,6 @@
 # Agent workspace effectiveness
 
-**Status (2026-10-07): Proposed. The assessment and two independent reviews are complete and integrated, and the decisions await operator confirmation. No harness change has been implemented.**
+**Status (2026-10-07): approved for execution; implementation in progress.** The operator approved the execution approach on 2026-10-07. Two operator decisions are pending (§5.9): OD1 (ADR-0126 clauses) and OD2 (fixture substrate). §9 records each packet's progress.
 
 Both reviews concluded **Revise**: keep the main direction and correct the mechanisms.
 - The [first review](../design_review/reviews/design_review_agent-workspace-effectiveness_2026-10-07.md) corrected contracts and lifetimes.
@@ -8,10 +8,11 @@ Both reviews concluded **Revise**: keep the main direction and correct the mecha
 
 Both sets of findings are integrated below (§8).
 
-**Readiness after confirmation:**
-- P1, D5 and D7 can proceed.
+**Execution order:**
+- P1, D5 and D7 proceed directly.
 - D6/P7 use the selective-suppression contract.
-- P2–P5 carry the corrected contracts, each with its own step 0 check where one remains open.
+- P2–P6 follow the shared execution contracts in §5.8.
+- D1's readiness switch and RC09 wait for OD1.
 
 ## 1. Context
 
@@ -333,7 +334,11 @@ Observed p50 wall times:
 
 ## 5. Decisions for confirmation
 
-None of these alters a §B decision or an accepted ADR, except RC09 (§6), which needs its own ADR if adopted. Review findings shaped each contract (§8).
+Two of these change clauses of the accepted ADR-0126:
+- D1/RC07: readiness observes rather than prepares (ADR-0126 :59–60).
+- RC09: scoped maintenance (ADR-0126 :69–74; DESIGN §1.2 :97–99).
+
+Both are operator decisions under OD1 (§5.9). No other decision alters a §B decision or an accepted ADR. The review findings that shaped each contract are recorded in §8.
 
 ### D1 — Explicit preparation scoped by project and requirement; managed environment ownership; readiness observes
 
@@ -362,7 +367,11 @@ Every blocked message names the route that repairs it.
 - **No borrowing.** Pure Rust commands do not borrow the environment, even under a fixture.
 - **Exclusive.** Managed synchronization takes exclusive ownership. While shared holders are live, it reports them (pid, command, start time) and waits.
 - **One acquisition.** Ownership is acquired once per command tree, and nested managed operations reuse it.
-- **Lock identity.** The lock is keyed to the effective environment's stable identity, not a hard-coded main `.venv`. It works before the environment exists.
+- **Lock identity.** Ownership covers two resources:
+  - the effective environment;
+  - the checkout's extension directory, because maturin builds the extension into the source tree and `.venv` holds only a `.pth`.
+
+  The locks are machine-wide and keyed by absolute path, so they work before the environment exists (§5.8).
 - **Outside the guarantee.** Unmanaged commands (bare importers, an explicit `uv sync`) remain available. An intentional override names the guarantee it bypasses.
 
 **Why wait rather than refuse.** P2's step 0 is settled. maturin 1.15.0 unlinks the old editable extension (ignoring unlink errors), then copies the new one. Live mapped importers keep the old inode, but a new import during the copy is not atomic. So `just sync` waits for managed holders; it does not refuse.
@@ -371,7 +380,7 @@ Every blocked message names the route that repairs it.
 - A boundary checks only what it imports: `uv sync --locked --check --inexact` with the key, for native-python boundaries.
 - A failed check reports `blocked: run just sync native` (or `tools`).
 - `qualify` does not self-prepare.
-- An optional `build_identity()` (an embedded inputs hash) diagnoses the extension already loaded in a persistent process. It warns by default, and strict mode is opt-in.
+- An optional `build_identity()` (an embedded inputs hash) would diagnose the extension already loaded by a persistent process. It is **deferred**: it needs a Rust change to the extension, so a later product change carries it.
 
 **Environment launcher.** The existing `build_environment.py -- <cmd>` remains the thin optional launcher for any command. It gains `--explain`, which reports the effective target and build directories, interpreter, venv and uv settings. Bare tools stay available, and the documentation describes honestly what they inherit.
 
@@ -425,7 +434,8 @@ Every blocked message names the route that repairs it.
 - Removal reports dirty or unintegrated work instead of discarding it.
 
 **Build directories.**
-- Shared and per-checkout build directories are both selectable, and the effective path is always shown. P5's step 0 probe informs the default.
+- ADR-0079's shared build directory stays the default. `--build-dir own` selects a per-checkout directory, and the effective path is always shown.
+- No build-concurrency probe is run. Every crate depends on lctx-model, so builds are never disjoint. A cold per-checkout build is a performance question, and performance is out of scope.
 - sccache caches dependency units but not incremental workspace crates, so neither choice promises warm workspace or link reuse.
 
 **Getting work back.** Work returns to main by branch merge or cherry-pick, or by an explicit patch (RC06).
@@ -472,7 +482,9 @@ Every blocked message names the route that repairs it.
 ### D6 — Remove identified competing workflow injections; preserve capability and discoverability
 
 **What is removed:** only specifically identified competing workflow injections, each named, with its version-qualified restoration route:
-- **The superpowers plugin.** Its SessionStart injection mandates a competing workflow. It is disabled through project `enabledPlugins` false. Restoration: `enabledPlugins` true in `.claude/settings.local.json`, which takes precedence over project settings (Claude Code 2.1.293).
+- **The superpowers plugin, id `superpowers@synced`.** Its SessionStart injection mandates a competing workflow. It is disabled through project `enabledPlugins` false.
+  - *Tested* 2026-10-07 with `claude -p --settings '{"enabledPlugins":{"superpowers@synced":false}}'`: the transcript had 3 superpowers mentions by default and 0 with the plugin disabled. First-request context went from 47.2k to 46.9k tokens, so the cost was the competing mandate rather than size.
+  - Restoration: set `enabledPlugins` true in `.claude/settings.local.json`, which takes precedence over project settings (Claude Code 2.1.293).
 - **The claude.ai connectors whose server instructions direct workflow:** Notion, Claude Docs and Dropbox. They are disabled through project `deniedMcpServers` entries naming each server. Restoration: remove the entry from project settings. Denylists merge across scopes, so there is **no per-session undo**.
 
 **What is not used:** `disableClaudeAiConnectors`. It is true if any settings source sets it true, so a higher-priority setting cannot undo it, and it would also remove useful connectors.
@@ -486,7 +498,57 @@ Every blocked message names the route that repairs it.
 
 - Remove the Codex MCP server, `.mcp.json`, the `settings.local.json` entry and the recipe.
 - The tooling family stops collecting the catalog's tests.
-- Deleting the catalog's scripts, `tools/lu-resolve`, tests and docs is the operator's choice. The default is to delete them, since the functionality is retired.
+- The catalog's code, tests and docs are deleted, because the functionality is retired. That covers `scripts/library_{catalog_db,catalog_hints,catalog_mcp,names,scan,semantic,unitgraph,utilization}.py` and their eight tests, `tools/lu-resolve`, `docs/library-utilization.{md,jsonl}` and the evidence folder `2026-09-29_library-utilization-semantic-stage`.
+- `scripts/library_skills.py` is **not** catalog code: it serves `skills-sync`/`skills-check`, so it stays.
+- fastmcp also stays, because other code uses it.
+
+### 5.8 Execution contracts
+
+These shared contracts bind P2–P6 and were settled before any work was delegated.
+
+1. **Harness launcher.**
+   - Harness scripts (`verify`, `runs`, `workspace_env`, the fixture) use only the standard library. They run as `uv run --no-project --offline --no-python-downloads python scripts/<x>.py`.
+   - `--no-project` uses an active or parent-directory venv when one exists (*Tested* 2026-10-07: it resolved to `.venv/bin/python` 3.14.7). Scripts therefore derive the target environment from the checkout root and `UV_PROJECT_ENVIRONMENT` alone, never from `sys.prefix` or `VIRTUAL_ENV`.
+   - Worktrees are created outside the checkout.
+   - The justfile wrapper drops `UV_NO_SYNC`, because combining it with `--no-project` warns (*Tested* 2026-10-07).
+2. **`build_environment.py`** is the justfile shell and stays importable by the system Python 3.12. It never imports the new helpers or `surrealdb_fixture`.
+3. **`scripts/harness.py`** (coordinator-owned) provides:
+   - `ProcessIdentity` and `alive()`. The identity is pid, start ticks, boot id and pid-namespace inode; a foreign namespace is never swept.
+   - Process-group spawn, and group signalling with one grace period. A process survives if it is still in the recorded group.
+   - The outcome vocabulary `passed | failed | blocked | not_run`, and the termination vocabulary `completed | interrupted | cancelled`.
+   - Atomic JSON writes.
+4. **Ownership.**
+   - Locks live in `$XDG_RUNTIME_DIR/library-context/locks/`, falling back to `~/.cache/library-context/locks/`.
+   - There are two resources: the environment, keyed by the absolute path of the selected environment, and the checkout's extension directory. Managed native operations take both, in that order.
+   - Locks are `fcntl.flock` on a non-inheritable file descriptor, held by the managing process for the child's lifetime.
+   - A child reuses its parent's ownership through `LCTX_ENV_OWNERSHIP`, but only while the recorded owner is alive.
+   - Holder records feed the "waiting for …" reports.
+   - Pure-Rust work never takes a lock.
+5. **Records.**
+   - Only `runs.py` writes `build/runs/<UTC>-<rand>/record.json`, and only verify writes `summary.json` into `$LCTX_RUN_DIR`.
+   - A child reuses `LCTX_RUN_DIR` only while its owner is alive.
+   - Fixture records are kept in `build/fixtures/<id>/`.
+   - Fixture servers are labelled with their checkout and owner, and a sweep touches only matching labels.
+   - Classifying a failure as infrastructure requires evidence: OOM, a failed readiness observation, or launch error 127.
+6. **Recipe surface.**
+   - **New:** `sync <tools|native|vllm>`, `env [--explain] [-- cmd]`, `fixture …`, `verify …`, `run`, `runs`, `fresh`, `fmt [paths]`, `turn-end [--paths …]`, `worktree`, `worktree-remove`.
+   - **Kept:** `ready`, `qualify`, `turn-end`, `deps`, the `verify-<family> [--command B] [-- args]` shortcuts, and every recipe name `lint-agents` checks.
+   - The `verify-*` shortcuts keep working at every commit, because the paused product work's planned controls consume them.
+
+### 5.9 Operator decisions
+
+| ID | Decision | Status |
+|---|---|---|
+| **OD1** | Readiness observes, and preparation runs through the scoped `just sync` routes (D1/RC07). Scoped maintenance is allowed when whole-tree `turn-end` would rewrite unrelated dirty work (RC09). Both change ADR-0126, so they wait for the operator. **Recommended route:** a narrow **ADR-0134** (`design: [§1.2]`) created with `just adr new`, plus a dated pointer under ADR-0126's `## Amendments` naming the two superseded clauses. ADR-0126's other decisions (trusted acknowledged inputs, verification families, assembled qualification) stay in force. Full supersession of 0126, which would re-point §6.1, §6.2, §8 and §15, waits until the paused product files are committed: `adr-lint` would otherwise force an edit to the dirty `semantic-model.md`. | **Pending.** It gates the landing of D1's readiness switch and P6's scoped maintenance. |
+| OD2 | P3's server substrate: Docker pinned by image digest, or a native `surreal` 3.3.0 child process pinned by sha256 | **Pending.** Decided after P3's spike, on the coordinator's recommendation. |
+
+**Proposed ADR-0134 text** (created on approval):
+- **Context:** AE-01/02/05/21 and capability-review F03, F04 and F08.
+- **Decision:**
+  1. Verification readiness *observes* each boundary's prerequisites and reports `blocked` with the named repair route. It never synchronizes.
+  2. Preparation is explicit and scoped by project and requirement: `just sync tools|native|vllm`, composed by `just ready`. Managed synchronization takes exclusive environment ownership.
+  3. The root agent's end-of-turn maintenance may be scoped to the paths a turn changed (`just turn-end --paths …`) when whole-tree maintenance would rewrite another agent's uncommitted work. Whole-tree `turn-end` stays the default. When scoping skips something, the turn's report says which step was not performed.
+- **Consequences:** ADR-0126's other decisions are unchanged. DESIGN §1.2 :97–99, AGENTS.md :249–251 and AGENTS.md :261–264 are amended in the same commit.
 
 ## 6. Rule changes
 
@@ -528,7 +590,7 @@ These take effect only when confirmed.
 | P4 Command plan, run handles and results | D4, RC02.<ul><li>One resolved plan with repeatable `--select` and tool-scoped arguments.</li><li>Static `--print` and building `--list`.</li><li>Generic `just run`/`just runs`.</li><li>The interrupted state, `--rerun`, `summary.json` and unique JUnit destinations.</li><li>Pruning that preserves active runs.</li><li>Retained-content reuse recorded as `not_run`.</li><li>The `test-threads` default.</li></ul> | <ul><li>`just verify --select compiler:producer --select serving:mcp --nextest-args "-E 'test(admit)'" --pytest-args "-k native_session" --print` shows each filter reaching its owner, without building.</li><li>A failed boundary preserves the other's outcome.</li><li>A background run is observed from a later tool call, cancelled, and its terminal result retrieved while another run survives.</li><li>A killed launcher leaves an `interrupted` run.</li><li>`--rerun` repeats only the failed boundaries.</li><li>Adding a boundary changes only its definition.</li></ul> | Inline streaming; the silent lock; one-family invocations | P7 logs/feedback (adapt; adds composition and handles) |
 | P5 Optional checkouts | D3, RC03/RC06. Step 0: a concurrent-build probe in a temporary worktree at a quiet time, comparing two release builds of disjoint crates on the shared and on per-checkout build directories, to inform the default. Then:<ul><li>environment selection in `ready`;</li><li>optional `just worktree`/`worktree-remove` with `--carry` and `--build-dir`;</li><li>`.worktreeinclude` if gitignored inputs are needed.</li></ul> | <ul><li>Disjoint checks share one stable checkout.</li><li>A worktree prepared from a main-started session that carries main's absolute `UV_PROJECT_ENVIRONMENT` gets its own environment: import origin and lock follow the selected checkout.</li><li>`--carry` preserves mixed content and the source checkout.</li><li>Removal reports unintegrated work.</li><li>Work returns by cherry-pick.</li></ul> | Ad hoc `~/.cache`/`/tmp` copies; main-pointed `UV_PROJECT_ENVIRONMENT`; private build dirs without sccache | P3 worktree (adopt, narrowed) |
 | P6 Freshness and scoped maintenance | AE-11/AE-21, RC09.<ul><li>`just fresh [selection]`, read-only, over enumerated outputs: Hakari, the ADR index, skill links, formatting, gold and the snapshot hint.</li><li>Each output reports `clean`, `stale`, `heuristic` or `not_run` (e.g. gold without its skill), with its regenerate command; nothing is invoked silently.</li><li>Outputs that need a test run (insta) are named.</li><li>Scoped maintenance: `just fmt [paths…]` and a path- or input-scoped turn-end, after RC09's ADR. Whole-tree operation stays available.</li></ul> | <ul><li>`fresh` distinguishes clean, stale, heuristic and not_run.</li><li>A touched Hakari input is named with its regenerate command.</li><li>Scoped maintenance leaves unrelated dirty files byte-identical.</li></ul> | Hand-assembled lists; the choice between touching others' work and skipping maintenance | P6 codegen-check (adapt) |
-| P7 Instructions, runtime configuration and navigation | D5, D6, RC01–RC09 wording.<ul><li>Move the status narrative; fix AE-15.</li><li>One owner each for the process-skill list and the principles paragraph, with deliberate overlap kept where isolated workers need it.</li><li>Project `.claude/settings.json`: `env.UV_NO_SYNC`; `enabledPlugins` false for superpowers; `deniedMcpServers` for the named connectors; a `skillListingMaxDescChars` cap only for oversized entries.</li><li>Project `.codex/config.toml`: `project_doc_max_bytes` and `shell_environment_policy.set.UV_NO_SYNC`.</li><li>A short navigation route in existing docs: definition, references, hover, document symbols and, where exposed, workspace symbols, through Claude's `LSP` tool and Codex's rust-analyzer MCP, with workspace binding stated; fallbacks `rg` and `ast-grep`.</li></ul> | <ul><li>A fresh session discovers and uses a relevant capability whose full description was not initially loaded.</li><li>Superpowers' injection and the named connector instructions are absent.</li><li>Each documented restoration route works at the installed version.</li><li>A failed connector does not hide working tools.</li><li>Navigation locates a moved module through the tools or the fallback.</li><li>`just lint-agents` passes.</li><li>The project-layer keys move from Interface-checked to Tested.</li><li>Token counts are recorded but are not acceptance.</li></ul> | Duplicated paragraphs; the status narrative in AGENTS.md | P8 (adopt, made selective) |
+| P7 Instructions, runtime configuration and navigation | D5, D6, RC01–RC09 wording.<ul><li>Move the status narrative; fix AE-15.</li><li>One owner each for the process-skill list and the principles paragraph, with deliberate overlap kept where isolated workers need it.</li><li>Project `.claude/settings.json`: `env.UV_NO_SYNC`; `enabledPlugins` false for superpowers; `deniedMcpServers` for the named connectors (`skillListingMaxDescChars` is deferred: no evidence of oversized entries).</li><li>Project `.codex/config.toml`: `project_doc_max_bytes` and `shell_environment_policy.set.UV_NO_SYNC`.</li><li>A short navigation route in existing docs: definition, references, hover, document symbols and, where exposed, workspace symbols, through Claude's `LSP` tool and Codex's rust-analyzer MCP, with workspace binding stated; fallbacks `rg` and `ast-grep`.</li></ul> | <ul><li>A fresh session discovers and uses a relevant capability whose full description was not initially loaded.</li><li>Superpowers' injection and the named connector instructions are absent.</li><li>Each documented restoration route works at the installed version.</li><li>A failed connector does not hide working tools.</li><li>Navigation locates a moved module through the tools or the fallback.</li><li>`just lint-agents` passes.</li><li>The project-layer keys move from Interface-checked to Tested.</li><li>Token counts are recorded but are not acceptance.</li></ul> | Duplicated paragraphs; the status narrative in AGENTS.md | P8 (adopt, made selective) |
 
 ### 7.1 Not proposed
 
