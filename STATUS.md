@@ -2,7 +2,7 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: persisted graph pivot PG0–PG9 implementation remains paused after correction planning.**
+**Current scope: persisted graph correction packages PC0–PC6 resumed, 2026-10-08.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this scope and all scheduled source-review finding dispositions. [ADR-0133](docs/adr/0133-persisted-graph-compilation.md)
 accepts native persisted compilation and direct sealing. Implementation receipts below are bounded;
@@ -12,7 +12,8 @@ The [correction plan](docs/plans/persisted-execution-corrections-plan_2026-10-07
 correction-causes findings, secondary capabilities and investigations. Both RC01/RC02 are accepted.
 The [independent target review](docs/design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md)
 accepts its Proposed architecture; [coordinator §8](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
-owns the still-open findings. No production correction or resumed acceptance is implied.
+owns the still-open findings. ADR-0135 installs the accepted operation-contract target. Production
+migration and focused acceptance are in progress; no finding is closed by the decision alone.
 
 **Correction-plan authoring, 2026-10-07:** **passed** `UV_NO_SYNC=1 just docs-check` (338 pages,
 zero link errors) and `git diff --check`. Product tests/builds/probes **not_run** for this documentation-only
@@ -96,7 +97,7 @@ The stopped older analytic failure was optional producer replay after compilatio
 admission. Generic fixtures now use semantic admission; selected diagnostics remain explicit.
 S0's missing incoming parameter-link selection is corrected and independently reviewed.
 
-**Next after execution is resumed:** PC0 records decisions/owners, then PC1–PC5 migrate the complete
+**Current execution:** PC0 records decisions/owners, then PC1–PC5 migrate the complete
 contracts and consumers. PC6 qualifies fresh-format restored coverage and targeted both-profile/frontier, direct-seal,
 external-state/original transport and actual native/MCP/programmatic evaluation controls;
 resolve independent findings, update dispositions/docs and run applicable leaves.

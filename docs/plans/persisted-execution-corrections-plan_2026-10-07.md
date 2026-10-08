@@ -1,6 +1,6 @@
 # Complete persisted execution contracts and bounded native operations
 
-**Proposed implementation target, 2026-10-07; production execution remains paused.**
+**Accepted target / implementation in progress, 2026-10-08 (ADR-0135).**
 This supporting plan integrates the [correction-causes review](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md), including F01–F06, secondary capability recommendations and remaining investigations. The [persisted execution coordinator](persisted-graph-execution-plan_2026-10-07.md) owns the combined PG0–PG9 undertaking, current finding dispositions and execution evidence. This document owns the corrective design and PC0–PC6 packages; it does not create a second progress ledger.
 
 ## 1. Outcome, baseline and foundations
@@ -28,7 +28,7 @@ The workload includes many small dump statements, growth in fact families and pr
 
 These identifiers are distinct from the catalog-speed review's earlier RC01/RC02. F01–F04 complete intended contracts; new captured-binding metadata and candidate execution still require an architectural decision explaining their meaningful alternatives.
 
-PC0 records one complementary ADR for these operation contracts and updates the owning sections in the same change, before production packages. ADR-0133's native placement/direct-sealing decision remains; do not amend its accepted text or supersede it merely to add detail. If a concrete accepted clause must actually change, identify and supersede that clause's decision through the ADR skill. Plan authoring records the proposed target and operator confirmations; it does not install that ADR, change architecture claims to Implemented, or authorize resuming production.
+PC0 installs [ADR-0135](../adr/0135-persisted-execution-operation-contracts.md) and the semantic, extraction and storage owner targets. ADR-0133's native placement/direct-sealing decision remains. The operator authorized PC0–PC6 execution on 2026-10-08. This acceptance does not label the remaining production changes Implemented or Tested.
 
 ## 3. Complete admission and completion contracts
 
@@ -102,7 +102,7 @@ Accepted RC02 permits later independent units in the failed request to have exec
 
 ## 6. Packages, dependencies and migration
 
-Packages describe delivered behavior, not a fresh numbering of PG0–PG9. The root owns shared declarations, state/schema versions, integration and disposition. Logical independence does not permit competing writers in model/native/manifest files. No production work starts from this authoring task.
+Packages describe delivered behavior, not a fresh numbering of PG0–PG9. The root owns shared declarations, state/schema versions, integration and disposition. Logical independence does not permit competing writers in model/native/manifest files. Execution resumes from `3c04f991` and the four preserved dirty admission/semantic-owner files. The selected sequence is PC0 → PC1 → PC5 → PC2 → PC3 → PC4 → PC6; ready isolated work may proceed without overlapping writers.
 
 | Package | Required input | Delivered behavior and existing integration |
 |---|---|---|
@@ -120,7 +120,9 @@ During execution, rebuild owned disposable fixtures and new-format project artif
 
 ## 7. Verification and remaining investigations
 
-All product commands below are **planned / not_run for this authoring scope**. Use existing affected-family launchers with explicit selections and release-profile reuse. Pure model/parser controls need no native server; actual persistence/plan/import controls use owned authenticated persistent fixtures. Preserve the operator's targeted boundary: do not restart stopped compiler suites, legacy CLI parity, `just qualify`, wheel packaging, real-library/Qwen work or a performance campaign.
+Commands remain **planned / not_run** until the coordinator records a dated execution receipt. Use `just verify --select FAMILY:BOUNDARY --nextest-args="…"` with explicit filters and release-profile reuse; `--print` resolves statically, while `--list` builds. Arguments attach to the preceding selection. Family shortcuts use `just verify-X --command B -- ARGS`. Readiness observes; repair stale tools with `just sync tools`, and synchronize changed native inputs with `just sync native` before extension-dependent checks. Verification never synchronizes. Pure model/parser controls can use `INSTA_UPDATE=no just env -- cargo nextest run --release --no-tests=fail …` without a native server; native controls use the fixture-backed boundary or `just fixture -- COMMAND`. Preserve the operator's targeted boundary: do not restart stopped compiler suites, legacy CLI parity, `just qualify`, wheel packaging, real-library/Qwen work or a performance campaign.
+
+Current native selectors are `compiler:producer` (`facts_admission`, `native_closure_selection`), `compiler:cli` (`compile_artifact`), `store:rust` (`compiler_views`, `publication`; `--cli` enables actual CLI publication), and `serving:rust` (`native_search`). Restore parser controls are publisher library tests (`--lib -E 'test(restore_import_units)'`), not a backup test binary. Reserve `serving:mcp` for PC6: its build/native journey/restart precede the Python checks, so a pytest filter does not narrow native setup. Run handles/`summary.json` own raw execution receipts; `just verify --rerun RUN` selects failed/blocked/unexecuted boundaries. Use scoped `just turn-end --paths …` while preserving other dirty work; do not restore the retired blanket test-parallelism cap.
 
 | Boundary | Required independent scenarios and evidence |
 |---|---|

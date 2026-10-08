@@ -26,6 +26,17 @@ own input verification, while typed row declarations own emission.
 
 ## §4 Pipeline
 
+**Accepted supplier-contract target, 2026-10-08; implementation in progress.** Provider-owned
+declarations compose the supported semantic inventory without constructing executable providers.
+Executable bindings add implementation provenance; contribution-owned captured bindings retain
+exact supplier roles, contract revisions and configuration/source context. Cold admission chooses
+the supported contract independently of reported coverage, including distinct Pyrefly/Ruff roles
+and explicit NotRequested reporting ownership. Availability and manifests consume one admitted
+result. The [correction plan PC2](../../plans/persisted-execution-corrections-plan_2026-10-07.md#32-captured-suppliers-bind-a-declared-semantic-contract--f02)
+owns the migration and its independently expected compatibility controls.
+
+> Decision: ADR-0135
+
 
 ### §4.0 Library acquisition and the run contract
 

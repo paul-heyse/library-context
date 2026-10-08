@@ -2,6 +2,18 @@
 
 # §15 Semantic graph model
 
+**Accepted operation-contract target, 2026-10-08 (ADR-0135); implementation in progress.**
+Completed contributions capture declared supplier semantics separately from executable build
+provenance. Supported cold admission and manifest reporting consume those bindings and the same
+nine-view admitted facts result. The correction cutover uses completed-state format2, artifact
+format3 and v2 contribution/content digest domains; old captures rebuild from pinned inputs.
+Model-owned structured completion preserves primary/secondary failures, local terminality,
+remote certainty and private/committed effects while workflow owners execute cleanup.
+The [correction plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md) owns the
+complete contracts and current migration; acceptance remains with its coordinator.
+
+> Decision: ADR-0135
+
 **Accepted persisted compiler target / implementation in progress, 2026-10-07 (ADR-0133).**
 The [persisted graph execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this hard pivot and its focused acceptance. One Rust-owned graph governs semantic entities,
@@ -743,6 +755,13 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 Canonical graph payloads and complete generated native bodies share one immutable value owner. A single declaration-derived inventory governs non-graph compiler backing across schema, writes, scans and bounded cold model regeneration. It preserves projection headers/chunks and other required intermediate fields; no manually maintained type whitelist owns coverage. Regenerated canonical bytes, full nominal keys and retained content must agree at external exposure. ArtifactChunk exposes the existing original_chunk bytes through typed metadata rather than copying original bytes into compiler backing. Native selected/projected scans and bulk Arrow/DataFusion compute serve each operation's physical demand. Pure model kernels remain usable without a server. Cancellation drains submitted writes and reader transports before an owned attempt is removed.
 
 Ordinary compile admits and seals this same database; it does not write and re-import its own portable artifact. The explicit `--artifact-only --output <directory>` route also requires native runtime readiness and exports graph, originals and complete retained contribution/view/binding state. External import/restore independently checks semantic/reference/state closure. Failed or cancelled attempts expose no complete publication; restart from pinned captures rather than resume arbitrary pending state. Publication remains separate from selection, and serving handles pin both semantic content and executable realization.
+
+Facts availability binds its profile and exact completed acquisition, scope, coverage, provider,
+invocation, family and context views. Independent declared obligations use those captured producer
+identities and settings; admission does not replace them with the running executable's build hash
+or default configuration. Successful availability may be reused only under unchanged exact views.
+Cold import/restore reconstructs the same premises and rejects missing, extra or incorrectly
+attributed outcomes. The execution plan owns current focused evidence for this correction.
 
 The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 

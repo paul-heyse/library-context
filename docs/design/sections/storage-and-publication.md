@@ -9,6 +9,18 @@ retain their date and scope; acceptance of this target does not establish its im
 
 ## §5 Projections
 
+**Accepted bounded-access target, 2026-10-08; implementation in progress.** Native prepared
+demand owns bindings, result positions and expected terminals. Scope layout follows each physical
+table's actual inventory; graph scope_context and independently owned search columns remain.
+Compact atomic candidates use the existing bounded external ordering owner before exact-membership
+checks, projected hydration and residual filtering. Whole-match arrays and growing native union
+deduplication are retired. Physical export order and nominal selected order retain distinct adapters.
+DDL, constructed rows, independent imported-value reconciliation and realization identity change
+together; the [correction plan PC3–PC4](../../plans/persisted-execution-corrections-plan_2026-10-07.md#4-one-native-demand-interpretation-and-bounded-candidate-execution)
+owns implementation and actual planner qualification.
+
+> Decision: ADR-0135
+
 **Implemented compiler and published native projections, 2026-10-05.** Named projection contracts specify their
 completed source, semantic roles, contexts, vertex universe, direction, multiplicity, weights,
 coverage, provenance and declared simplifications. Vertices are independent of edges; isolates and
@@ -23,6 +35,16 @@ responses under the same projection contract. External destinations remain consu
 > Decision: ADR-0133, ADR-0103, ADR-0044, ADR-0085
 
 ## §6 Persistence and publication
+
+**Accepted completion/restore target, 2026-10-08; implementation in progress.** Every owned
+operation composes structured primary and finalization outcomes. A sealed unselected database or
+persisted backup remains committed if later cleanup fails; unknown remote acknowledgement cannot
+authorize success. Restore batches parser-owned whole units into checked sequential HTTP requests
+under unchanged byte/count/deadline bounds. Later independent units in a failed request may have
+private effects, but no following request executes and failed staging is abandoned or reported as
+an orphan. Fresh-format cold admission and independent reconciliation remain mandatory.
+
+> Decision: ADR-0135
 
 **Accepted target, 2026-10-07; operator activation not_run.** Compilation owns a managed
 STRICT native database from its first persisted output. `lctx-model` owns semantics;
