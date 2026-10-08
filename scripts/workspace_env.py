@@ -42,7 +42,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from build_environment import ROOT, normalized_env, project_environment
+from build_environment import ROOT, explain, normalized_env, project_environment
 from harness import ProcessIdentity, read_json, write_json_atomic
 
 Mode = Literal["shared", "exclusive"]
@@ -452,6 +452,85 @@ def sync(
 
 
 # ---------------------------------------------------------------------------------------------
+# Checkout selection (`just ready` in any checkout, D3)
+
+
+def selection(
+    root: Path = ROOT, env: Mapping[str, str] | None = None
+) -> tuple[dict[str, str | None], list[str]]:
+    """Variables that select this checkout's own environment (None unsets), and what they replace.
+
+    An inherited absolute ``UV_PROJECT_ENVIRONMENT`` (for example main's ``.venv`` carried into a
+    worktree session) would make uv prepare and import another checkout's environment; checking
+    ``VIRTUAL_ENV`` alone does not catch it.
+    """
+    source = os.environ if env is None else env
+    selected = root.resolve() / ".venv"
+    changes: dict[str, str | None] = {"UV_PROJECT_ENVIRONMENT": str(selected)}
+    notes = []
+    inherited = source.get("UV_PROJECT_ENVIRONMENT", "").strip()
+    if inherited and Path(os.path.abspath(root.resolve() / inherited)) != selected:
+        notes.append(f"replaced inherited UV_PROJECT_ENVIRONMENT={inherited} with {selected}")
+    active = source.get("VIRTUAL_ENV", "").strip()
+    if active and Path(os.path.abspath(active)) != selected:
+        changes["VIRTUAL_ENV"] = None
+        notes.append(f"unset inherited VIRTUAL_ENV={active} (another environment)")
+    return changes, notes or [f"selected environment {selected}"]
+
+
+def checkout_report(
+    root: Path = ROOT, env: Mapping[str, str] | None = None
+) -> tuple[list[str], bool]:
+    """Interpreter, extension import origin, build directory and lock identity of a checkout."""
+    source = dict(os.environ if env is None else env)
+    venv = environment_path(root, source)
+    probe = (
+        "import sys; print(sys.executable); import lctx_semantics; print(lctx_semantics.__file__)"
+    )
+    child = normalized_env(source, root)
+    for key in ("VIRTUAL_ENV", "UV_NO_SYNC"):
+        child.pop(key, None)
+    try:
+        result = subprocess.run(
+            ("uv", "run", "--no-sync", "python", "-c", probe),
+            cwd=root,
+            env=child,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = result.stdout.split()
+    except OSError as error:
+        result, output = None, [f"(cannot launch uv: {error})"]
+    interpreter = output[0] if output else _last_line(result.stderr if result else "")
+    origin = output[1] if len(output) > 1 else (_last_line(result.stderr) if result else "")
+    ok = (
+        result is not None
+        and result.returncode == 0
+        and Path(interpreter).is_relative_to(venv)
+        and Path(origin).resolve().is_relative_to(root.resolve())
+    )
+    build = next(
+        (line.split(":", 1)[1].strip() for line in explain(source, root) if "build dir" in line),
+        "(unknown)",
+    )
+    lines = [
+        f"checkout:         {root.resolve()}",
+        f"environment:      {venv}",
+        f"interpreter:      {interpreter}",
+        f"extension origin: {origin}",
+        f"build dir:        {build}",
+    ]
+    lines += [
+        f"{resource.kind + ' lock:':<17} {resource.name}.lock ({resource.path})"
+        for resource in resources_for("native", root, source)
+    ]
+    if not ok:
+        lines.append("blocked: interpreter or extension does not follow this checkout")
+    return lines, ok
+
+
+# ---------------------------------------------------------------------------------------------
 # CLI
 
 
@@ -485,6 +564,8 @@ def main(argv: list[str] | None = None) -> int:
     hold.add_argument("command", nargs=argparse.REMAINDER)
     commands.add_parser("holders", help="list live managed holders")
     commands.add_parser("identity", help="print the effective environment and lock paths")
+    commands.add_parser("select", help="shell lines selecting this checkout's own environment")
+    commands.add_parser("report", help="interpreter, import origin, build dir and locks")
     args = parser.parse_args(argv)
 
     if args.action == "sync":
@@ -516,6 +597,17 @@ def main(argv: list[str] | None = None) -> int:
         with ownership(args.mode, args.requirement, command=shlex.join(command)) as owned:
             child = owned.environment(os.environ)
             return subprocess.run(command, env=child, check=False).returncode
+    if args.action == "select":
+        changes, notes = selection()
+        for note in notes:
+            _stderr(f"ready: {note}")
+        for key, value in changes.items():
+            print(f"unset {key}" if value is None else f"export {key}={shlex.quote(value)}")
+        return 0
+    if args.action == "report":
+        lines, ok = checkout_report()
+        print("\n".join(lines))
+        return 0 if ok else 1
     if args.action == "holders":
         print("\n".join(_all_holders()) or "no live managed holders")
         return 0

@@ -12,7 +12,7 @@ default:
     @just --list
 
 turn_end_steps := "adr-index build-features fmt"
-ready_steps := "skills-sync _sync-native doctor-check"
+ready_steps := "skills-sync _sync-native doctor-check _ready-report"
 
 # End of a turn that changed files: regenerate the ADR index and Hakari crate, and format.
 # `just turn-end --paths P…` or `--staged` scopes this to the turn's own paths when the tree holds
@@ -21,9 +21,21 @@ ready_steps := "skills-sync _sync-native doctor-check"
 turn-end *args:
     @if [ "$#" -eq 0 ]; then just _bundle turn-end "{{ turn_end_steps }}"; else uv run --no-project --offline --no-python-downloads python scripts/maintenance.py turn-end "$@"; fi
 
-# Run after a dependency, toolchain or skill-selection change, or an environment-shaped failure.
-# Skill links, then `sync native` once, then the doctor check
-ready: (_bundle "ready" ready_steps)
+# Run after a dependency, toolchain or skill-selection change, or an environment-shaped failure,
+# in any checkout. It selects this checkout's own `.venv` (replacing, and reporting, an inherited
+# UV_PROJECT_ENVIRONMENT or VIRTUAL_ENV) and reports the interpreter, extension import origin,
+# build dir and locks.
+# Select this checkout's env, skill links, `sync native` once, doctor check, then the report
+ready:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    selection=$(uv run --no-project --offline --no-python-downloads python scripts/workspace_env.py select) || exit 1
+    eval "$selection"
+    just _bundle ready "{{ ready_steps }}"
+
+[private]
+_ready-report:
+    @uv run --no-project --offline --no-python-downloads python scripts/workspace_env.py report
 
 # Routes: `tools` (dev tools, never builds the extension), `native` (full sync with the native
 # key; a no-op while current), `vllm` (the separately locked service). Exclusive ownership; waits
@@ -264,3 +276,16 @@ docs-test:
 docs-serve port="8000":
     uv run --no-project --offline --no-python-downloads python scripts/docs.py serve --port {{port}}
 
+# Optional checkouts (D3): worktrees serve an independent revision or conflicting mutable state;
+# commands whose effects do not conflict can share one stable checkout. Creates
+# ~/library-context-wt/NAME on branch wt/NAME and runs `just ready` there. `--carry PATH…` copies
+# only the named paths' staged/unstaged/untracked changes. Work returns by merge or cherry-pick.
+# Create a prepared worktree: `just worktree NAME [--ref R] [--carry PATH…] [--build-dir shared|own]`
+[positional-arguments]
+worktree *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/worktree.py create "$@"
+
+# Remove a worktree and its branch; reports dirty or unintegrated work and refuses without --force
+[positional-arguments]
+worktree-remove *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/worktree.py remove "$@"

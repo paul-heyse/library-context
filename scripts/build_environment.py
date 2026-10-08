@@ -29,7 +29,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_KEYS = ("CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR")
 NATIVE_INPUT_KEYS = ("LCTX_NATIVE_SEMANTICS_INPUTS",)
+BUILD_DIR_KEY = "CARGO_BUILD_BUILD_DIR"
+# A checkout's own Cargo build directory (`just worktree --build-dir own`), gitignored. Absent, the
+# tracked `.cargo/config.toml` selects ADR-0079's shared build directory.
+BUILD_DIR_SELECTION = Path(".dev") / "build-dir"
 LAUNCHER_DROPPED_KEYS = ("UV_NO_SYNC",)
+# An absolute UV_PROJECT_ENVIRONMENT outside this checkout (e.g. main's `.venv` inherited by a
+# worktree session) would make recipes sync and import another checkout's environment. It is
+# dropped like a foreign target directory; LCTX_ALLOW_FOREIGN_ENV=1 keeps a deliberate one.
+PROJECT_ENV_KEY = "UV_PROJECT_ENVIRONMENT"
+FOREIGN_ENV_OVERRIDE = "LCTX_ALLOW_FOREIGN_ENV"
 
 
 def native_input_fingerprints(root: Path) -> dict[str, str]:
@@ -61,6 +70,25 @@ def native_input_fingerprints(root: Path) -> dict[str, str]:
     return fingerprints
 
 
+def checkout_build_dir(root: Path = ROOT) -> str | None:
+    """The checkout's own build directory, when one was selected for it."""
+    try:
+        value = (root / BUILD_DIR_SELECTION).read_text().strip()
+    except OSError:
+        return None
+    return value or None
+
+
+def foreign_project_environment(source: Mapping[str, str], root: Path = ROOT) -> bool:
+    """An inherited absolute UV_PROJECT_ENVIRONMENT outside this checkout, not deliberately allowed."""
+    value = source.get(PROJECT_ENV_KEY, "").strip()
+    if not value or not Path(value).expanduser().is_absolute():
+        return False
+    if source.get(FOREIGN_ENV_OVERRIDE, "") in ("1", "true"):
+        return False
+    return not Path(os.path.abspath(Path(value).expanduser())).is_relative_to(root.resolve())
+
+
 def normalized_env(
     source: dict[str, str], root: Path = ROOT, *, native_inputs: bool = False
 ) -> dict[str, str]:
@@ -78,6 +106,11 @@ def normalized_env(
     if override and override.strip():
         env["CARGO_TARGET_DIR"] = str((root / override).resolve())
         env.pop("CARGO_BUILD_TARGET_DIR", None)
+    if foreign_project_environment(env, root):
+        env.pop(PROJECT_ENV_KEY)
+    own = checkout_build_dir(root)
+    if own:
+        env[BUILD_DIR_KEY] = own
     if native_inputs:
         env.update(native_input_fingerprints(root))
     else:
@@ -98,11 +131,14 @@ def project_environment(root: Path = ROOT, source: Mapping[str, str] | None = No
     """The uv project environment selected for this checkout.
 
     ``UV_PROJECT_ENVIRONMENT`` is used as-is when absolute and resolved against the checkout root
-    when relative; the default is ``.venv``. ``sys.prefix`` and ``VIRTUAL_ENV`` never select it:
+    when relative; the default is ``.venv``. An absolute value outside this checkout is ignored
+    unless ``LCTX_ALLOW_FOREIGN_ENV=1`` selects it deliberately. ``sys.prefix`` and ``VIRTUAL_ENV`` never select it:
     uv itself ignores a non-matching ``VIRTUAL_ENV`` without ``--active``.
     """
     selection = os.environ if source is None else source
     value = selection.get("UV_PROJECT_ENVIRONMENT", "").strip()
+    if foreign_project_environment(selection, root):
+        value = ""
     path = Path(value).expanduser() if value else Path(".venv")
     return Path(os.path.abspath(path if path.is_absolute() else root.resolve() / path))
 
@@ -133,15 +169,20 @@ def explain(source: dict[str, str], root: Path = ROOT) -> list[str]:
         target = f"{_cargo_path(config['target-dir'], root, env)} (.cargo/config.toml)"
     else:
         target = f"{root / 'target'} (Cargo default)"
-    if env.get("CARGO_BUILD_BUILD_DIR"):
-        build = f"{env['CARGO_BUILD_BUILD_DIR']} (CARGO_BUILD_BUILD_DIR)"
+    own = checkout_build_dir(root)
+    if own:
+        inherited = source.get(BUILD_DIR_KEY)
+        replaced = f"; replaced inherited {inherited}" if inherited and inherited != own else ""
+        build = f"{own} (own: {BUILD_DIR_SELECTION}{replaced}; bare cargo needs `just env --`)"
+    elif env.get(BUILD_DIR_KEY):
+        build = f"{env[BUILD_DIR_KEY]} ({BUILD_DIR_KEY})"
     elif "build-dir" in config:
         build = f"{_cargo_path(config['build-dir'], root, env)} (.cargo/config.toml)"
     else:
         build = "same as the target directory (Cargo default)"
     dropped = [
         key
-        for key in (*TARGET_KEYS, *NATIVE_INPUT_KEYS, *LAUNCHER_DROPPED_KEYS)
+        for key in (*TARGET_KEYS, PROJECT_ENV_KEY, *NATIVE_INPUT_KEYS, *LAUNCHER_DROPPED_KEYS)
         if key in source and source.get(key) != env.get(key)
     ]
     venv = project_environment(root, env)
@@ -177,7 +218,7 @@ def explain(source: dict[str, str], root: Path = ROOT) -> list[str]:
 def shell_changes(before: dict[str, str], after: dict[str, str]) -> str:
     return "\n".join(
         f"export {key}={shlex.quote(after[key])}" if key in after else f"unset {key}"
-        for key in (*TARGET_KEYS, *NATIVE_INPUT_KEYS)
+        for key in (*TARGET_KEYS, BUILD_DIR_KEY, PROJECT_ENV_KEY, *NATIVE_INPUT_KEYS)
         if before.get(key) != after.get(key)
     )
 

@@ -161,7 +161,10 @@ def test_selected_environment_ignores_interpreter_and_virtual_env(tmp_path):
     root = tmp_path / "checkout"
     assert project_environment(root, {"VIRTUAL_ENV": "/elsewhere"}) == root / ".venv"
     assert project_environment(root, {"UV_PROJECT_ENVIRONMENT": "envs/x"}) == root / "envs/x"
-    assert project_environment(root, {"UV_PROJECT_ENVIRONMENT": "/abs/.venv"}) == Path("/abs/.venv")
+    # A foreign absolute selection is ignored unless deliberately allowed.
+    assert project_environment(root, {"UV_PROJECT_ENVIRONMENT": "/abs/.venv"}) == root / ".venv"
+    allowed = {"UV_PROJECT_ENVIRONMENT": "/abs/.venv", "LCTX_ALLOW_FOREIGN_ENV": "1"}
+    assert project_environment(root, allowed) == Path("/abs/.venv")
 
 
 @pytest.mark.skipif(not Path("/usr/bin/python3").exists(), reason="no system interpreter")
@@ -176,3 +179,19 @@ def test_explain_runs_under_the_system_interpreter():
     assert result.returncode == 0, result.stderr
     for label in ("cargo target dir:", "cargo build dir:", "launcher python:", "selected uv env:"):
         assert label in result.stdout
+
+
+def test_foreign_absolute_project_environment_is_dropped_unless_allowed(tmp_path):
+    root = tmp_path / "worktree"
+    root.mkdir()
+    foreign = str(tmp_path / "main" / ".venv")
+    env = normalized_env({"UV_PROJECT_ENVIRONMENT": foreign}, root)
+    assert "UV_PROJECT_ENVIRONMENT" not in env
+    own = str(root / ".venv")
+    assert normalized_env({"UV_PROJECT_ENVIRONMENT": own}, root)["UV_PROJECT_ENVIRONMENT"] == own
+    assert (
+        normalized_env({"UV_PROJECT_ENVIRONMENT": ".venv"}, root)["UV_PROJECT_ENVIRONMENT"]
+        == ".venv"
+    )
+    allowed = {"UV_PROJECT_ENVIRONMENT": foreign, "LCTX_ALLOW_FOREIGN_ENV": "1"}
+    assert normalized_env(allowed, root)["UV_PROJECT_ENVIRONMENT"] == foreign

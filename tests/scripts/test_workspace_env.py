@@ -73,8 +73,12 @@ def test_requirements_scope_resources_and_pure_work_takes_none(tmp_path):
     assert native[1].path == root / "python/lctx_semantics/python/lctx_semantics"
     (service,) = resources_for("vllm", root, {"UV_PROJECT_ENVIRONMENT": "/main/.venv"})
     assert service.path == root / "services/vllm/.venv"
-    # The environment's identity follows UV_PROJECT_ENVIRONMENT, never VIRTUAL_ENV.
-    (moved,) = resources_for("tools", root, {"UV_PROJECT_ENVIRONMENT": "/main/.venv"})
+    # The environment's identity follows UV_PROJECT_ENVIRONMENT, never VIRTUAL_ENV; a foreign
+    # absolute selection counts only when deliberately allowed.
+    (ignored,) = resources_for("tools", root, {"UV_PROJECT_ENVIRONMENT": "/main/.venv"})
+    assert ignored.path == root / ".venv"
+    allowed = {"UV_PROJECT_ENVIRONMENT": "/main/.venv", "LCTX_ALLOW_FOREIGN_ENV": "1"}
+    (moved,) = resources_for("tools", root, allowed)
     assert moved.path == Path("/main/.venv")
     (relative,) = resources_for("tools", root, {"UV_PROJECT_ENVIRONMENT": "env"})
     assert relative.path == root / "env"
@@ -172,6 +176,7 @@ def test_absolute_environment_from_another_checkout_contends(isolated_locks, tmp
         "tools",
         "true",
         UV_PROJECT_ENVIRONMENT=main_env,
+        LCTX_ALLOW_FOREIGN_ENV="1",
     )
     _, report = writer.communicate(timeout=30)
     assert writer.returncode == 0
@@ -195,7 +200,10 @@ def test_routes_are_scoped_and_only_native_computes_the_key(monkeypatch):
     tools, native, vllm = (uv_environment(route) for route in ("tools", "native", "vllm"))
     assert key not in tools and key not in vllm and len(native[key]) == 64
     assert all("VIRTUAL_ENV" not in env and "UV_NO_SYNC" not in env for env in (tools, native))
-    assert tools["UV_PROJECT_ENVIRONMENT"] == "/main/.venv"
+    # A foreign absolute selection is dropped unless deliberately allowed (ADR-0134, P5 incident).
+    assert "UV_PROJECT_ENVIRONMENT" not in tools
+    monkeypatch.setenv("LCTX_ALLOW_FOREIGN_ENV", "1")
+    assert uv_environment("tools")["UV_PROJECT_ENVIRONMENT"] == "/main/.venv"
     assert "UV_PROJECT_ENVIRONMENT" not in vllm
 
 
