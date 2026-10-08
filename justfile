@@ -171,6 +171,12 @@ build-features:
 gold:
     uv run --no-project --offline --no-python-downloads python scripts/check_gold.py
 
+# Read-only freshness of generated outputs: clean | stale | heuristic | not_run, with each
+# regenerate command (never invoked). Outputs: hakari adr-index skills rust-fmt python-fmt fmt gold insta
+[positional-arguments]
+fresh *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/freshness.py "$@"
+
 # Byte-compile Python fixtures (input data) so they cannot silently become syntax-error cases
 fixtures-check:
     #!/usr/bin/env bash
