@@ -2,7 +2,16 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: persisted graph correction packages PC0–PC6 resumed, 2026-10-08.**
+**Current scope: Rust compilation-cost design review completed, 2026-10-08.**
+The [independent static review](docs/design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md)
+judges **Revise**: typed async specialization, whole-workspace provider invalidation,
+optimized local-test policy and repeated harness compilation. F01–F04 remain Proposed
+corrections owned by that review; §10 ranks follow-up. Production runtime performance
+and automatic compiler/test parallelism are preservation requirements. Product checks
+and compile probes **not_run** for this review; existing builds were not interrupted.
+**Review documentation, 2026-10-08: passed** `just docs-check` (341 pages, zero link errors).
+
+**Persisted graph correction packages PC0–PC6 remain pending acceptance.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this scope and all scheduled source-review finding dispositions. [ADR-0133](docs/adr/0133-persisted-graph-compilation.md)
 accepts native persisted compilation and direct sealing. Implementation receipts below are bounded;
@@ -15,27 +24,22 @@ accepts its Proposed architecture; [coordinator §8](docs/plans/persisted-graph-
 owns the still-open findings. ADR-0135 installs the accepted operation-contract target. Production
 migration and focused acceptance are in progress; no finding is closed by the decision alone.
 
-**Correction-plan authoring, 2026-10-07:** **passed** `UV_NO_SYNC=1 just docs-check` (338 pages,
-zero link errors) and `git diff --check`. Product tests/builds/probes **not_run** for this documentation-only
-task; the four existing dirty implementation/owner files remain intact.
+**Execution resources, 2026-10-08 (ADR-0136): implemented / focused tested.** Cargo/compiler and
+native test fixtures use available CPU parallelism. Disposable SurrealDB defaults to 16 GiB with
+an 8 GiB tracked-memory threshold; explicit overrides remain. **passed:** fixture/build-helper
+pytest controls, pinned automatic-worker compile/run probe, actual fixture startup, ruff,
+`just lint-agents`, `just adr-lint` and `just docs-check` (340 pages, zero link errors).
 
 **Workspace effectiveness, 2026-10-08: implemented** with design-phase acceptance ([plan](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md):
 §9 dispositions, §12 checkpoint; [ADR-0134](docs/adr/0134-scoped-preparation-and-maintenance.md); [implementation review](docs/design_review/reviews/design_review_agent-workspace-implementation_2026-10-08.md) findings fixed).
-**For the paused product work when it resumes:**
-- `just verify --select …`/`--print` and `just fixture -- <cmd>` replace `scripts/native_controls.py`; shortcuts now take `just verify-X [--command B] [verify opts] -- ARGS`.
-- Readiness observes: after a native input change, run `just sync native`.
-- Fixtures run the pinned native `surreal` 3.3.0 binary.
-- Use `just turn-end --paths …` while others' work is dirty.
-- `just fresh` reports 103 committed unformatted Rust files (AE-23) for a whole-tree `turn-end`.
+Commands and readiness follow [AGENTS.md](AGENTS.md#commands); `just fresh` reports 103 committed unformatted Rust files (AE-23) for a whole-tree `turn-end`.
 **Checks, 2026-10-08:** **passed** lint-agents, adr-lint, types, deps, ruff (harness) and docs-check (338 pages), plus harness unit tests and each packet's premise/value checks (plan §9).
 **not_run:** qualify, wide families and the full mcp journey (design-phase scope); whole-tree turn-end (paused files dirty; the scoped form was used).
 
-**Integrated on main:** immutable native contributions/views and frozen bindings; complete typed
-codec/Arrow bridge; all compiler frontiers/profiles and selected analytical preparation; native
-selected closure; shared request-local serving indexes; direct same-database sealing;
-complete artifact/backup/restore and inspection; bounded final encoding; native readiness routes.
-[The plan §9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
-owns actual verification and remaining scope.
+**Integrated on main:** immutable native contributions/views and frozen bindings; typed codec/Arrow bridge;
+all compiler frontiers/profiles, selected analytical preparation and native selected closure; shared
+serving indexes; direct sealing; artifact/backup/restore/inspection; bounded final encoding and readiness.
+[Plan §9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07) owns verification and remaining scope.
 
 **Current verification, 2026-10-07:** the plan §9.1 owns commands, logs and boundaries.
 
@@ -97,12 +101,13 @@ The stopped older analytic failure was optional producer replay after compilatio
 admission. Generic fixtures now use semantic admission; selected diagnostics remain explicit.
 S0's missing incoming parameter-link selection is corrected and independently reviewed.
 
-**Current execution:** PC0 records decisions/owners, then PC1–PC5 migrate the complete
-contracts and consumers. PC6 qualifies fresh-format restored coverage and targeted both-profile/frontier, direct-seal,
-external-state/original transport and actual native/MCP/programmatic evaluation controls;
-resolve independent findings, update dispositions/docs and run applicable leaves.
-All worker ancestry is merged on main, and only the main checkout remains. Fully merged worker
-worktrees and their branches have been removed. Operator stores/configuration, Qwen,
+**Current execution:** PC0 is committed; PC1–PC5 production/contracts and their controls are
+integrated as dirty main changes. Independent review corrections cover cold table inventories,
+charged member retention, canonical input companions and physical member hydration.
+Authorized Cargo lock-cycle recovery is recorded in coordinator §9.1; test verdicts remain pending.
+PC6 fresh restored coverage, both-profile/frontier and native/MCP/evaluator acceptance remains open.
+The coordinator §9.1 owns current receipts. PC3's isolated worktree remains pending retirement
+once its integrated changes and acceptance are secured. Operator stores/configuration, Qwen,
 protected gold/heldout, shared caches and unrelated host processes remain preserved.
 No wheel, real FastMCP/Q1 pilot, performance campaign, operator adoption or push is requested.
 
@@ -113,6 +118,3 @@ The [evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md) con
 independent primary programmatic loop, with agentic input to both system and evaluator revisions.
 Earlier FastMCP catalog attempts were stopped without a verdict; real Catalog/Behavioral pilots,
 Q1 usefulness and selected-snapshot adoption remain held.
-
-**Prior plan-authoring documentation,2026-10-07:** **passed** `UV_NO_SYNC=1 just docs-check` (329 pages, zero link errors after one anchor correction), `UV_NO_SYNC=1 just lint-agents` and `git diff --check`. Product tests/builds/pilots **not_run** for plan authoring; preexisting open edits preserved.
-No push is requested; shared caches and unrelated host processes remain preserved.
