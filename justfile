@@ -14,8 +14,12 @@ default:
 turn_end_steps := "adr-index build-features fmt"
 ready_steps := "skills-sync _sync-native doctor-check"
 
-# End of a turn that changed files: regenerate the ADR index and Hakari crate, and format
-turn-end: (_bundle "turn-end" turn_end_steps)
+# End of a turn that changed files: regenerate the ADR index and Hakari crate, and format.
+# `just turn-end --paths P…` or `--staged` scopes this to the turn's own paths when the tree holds
+# another agent's uncommitted work (ADR-0134); skipped steps are reported for a later whole-tree run.
+[positional-arguments]
+turn-end *args:
+    @if [ "$#" -eq 0 ]; then just _bundle turn-end "{{ turn_end_steps }}"; else uv run --no-project --offline --no-python-downloads python scripts/maintenance.py turn-end "$@"; fi
 
 # Run after a dependency, toolchain or skill-selection change, or an environment-shaped failure.
 # Skill links, then `sync native` once, then the doctor check
@@ -114,8 +118,15 @@ run *args:
 runs *args:
     @uv run --no-project --offline --no-python-downloads python scripts/runs.py "$@"
 
-# Format everything (mutating)
-fmt:
+# Format everything (mutating), or only named paths: `just fmt [paths…]` (`--staged` for staged
+# paths). Named Rust files are formatted without their child modules (ADR-0134).
+[positional-arguments]
+fmt *paths:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$#" -gt 0 ]; then
+      exec uv run --no-project --offline --no-python-downloads python scripts/maintenance.py fmt "$@"
+    fi
     # Virtual-root defaults cover workspace members; --all would also rewrite vendored patches.
     cargo fmt
     uv run --no-sync ruff format
