@@ -18,12 +18,13 @@ The review does not authorize remediation or resume the paused acceptance runs.
 zero link errors after repairing the stale ADR index and one retired historical source link).
 Product tests/builds/probes **not_run** for this source-and-receipt review; paused edits preserved.
 
-**Workspace capability review, 2026-10-07:** [follow-up review](docs/design_review/reviews/design_review_agent-workspace-effectiveness-capabilities_2026-10-07.md)
-concludes **Revise** on the [workspace proposal](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md).
-It owns unscheduled corrections and capability additions pending proposal revision; no harness,
-runtime configuration or memory changes were implemented. Next: revise the proposal's affected
-contracts. Product tests/builds/fixtures **not_run** for this documentation-only scope.
-**passed:** `UV_NO_SYNC=1 just docs-check` (336 pages, zero link errors) and `git diff --check`.
+**Workspace effectiveness proposal, 2026-10-07:** the [workspace proposal](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md)
+now integrates its [first review](docs/design_review/reviews/design_review_agent-workspace-effectiveness_2026-10-07.md)
+and the [capability review](docs/design_review/reviews/design_review_agent-workspace-effectiveness-capabilities_2026-10-07.md).
+Both concluded Revise. The proposal's §8 records their dispositions and its §9 owns the findings.
+It remains **Proposed**. No harness, runtime configuration or memory change is implemented.
+**Next:** the operator confirms D1–D7 and RC01–RC09. RC09 (scoped turn-end) needs an ADR if adopted.
+Product tests, builds and fixtures **not_run** (documentation-only scope).
 `just turn-end` **not_run**: its whole-tree formatter would modify the paused concurrent edits.
 
 **Integrated on main:** immutable native contributions/views and frozen bindings; complete typed
