@@ -196,7 +196,7 @@ fixture qualification pass. Configure service/migration roles through existing t
 never substitute superuser credentials in product execution.
 
 During implementation use normalized build environment and targeted release-profile Cargo checks,
-tests and provider parity controls. Keep stable caches, jobs16 and default frontend1. After all
+tests and provider parity controls. Keep stable caches and use available CPU parallelism. After all
 functional scope, Q0 runs assembled `just qualify` once on the same tree (ADR-0126), including
 required families/journeys, doc contracts, full keep-going Clippy and applicable dependency/fork,
 agent/ADR/documentation leaves. Repair findings and rerun affected boundaries or failed leaves.
@@ -582,7 +582,7 @@ worktree lock cycle between B3 and the new capture packet build: capture held mo
 while waiting for allocative, and B3 held allocative reads while waiting for the model.
 The capture executor interrupted only its own audited Cargo process (1987503; run1
 `p4-capture-pg1.log`, **interrupted**, not a PG result). Rustc progress resumed after
-that process released its reads. Caches, profiles, stable paths and jobs16 are preserved;
+that process released its reads. Caches, profiles and stable paths are preserved;
 this recovery does not establish a standing build serialization policy.
 
 P3 diagnostics/pytest checkpoint integrated `9996f81f` (executor `fe6da6ad`),
@@ -627,9 +627,7 @@ case. A missing-import base yields native Complete/empty recovery, so its spelli
 evidence of a partial MRO. The expected negative operation remains unchanged; no source
 heuristic relabels the upstream status. Decisive candidate/receiver/member provenance is retained
 in `b3-target-refusal.txt`. P4 capture standalone CLI **passed**, 12m46s
-(`p4-capture-cli1.log`); actual PG2 and required-field wire controls are pending. That one build
-used a recorded `-j6` override; subsequent builds retain configured jobs16/frontend1. No
-profile, cache or standing job-policy change was made.
+(`p4-capture-cli1.log`); actual PG2 and required-field wire controls are pending. The original build invocation is retained in that log.
 
 B3 bounded qualification repair `cargo check -p lctx-model -p cpg-core --tests`
 **passed**, 1m09s (`b3-check-6.log`), 2026-10-03. Release model controls **passed** six:
@@ -715,7 +713,7 @@ Frozen P3 usage matching standalone CLI **passed**, 2026-10-03: `cargo build --l
 --release -p lctx`, 20m05s (`p3-source-usage-explicit-cli-build.log`); actual original-evidence
 PG is queued on the unchanged ff96 source baseline. Capture correspondence scoped release
 check **passed**, 42.03s (`p4-capture-check5.log`), after a retained move/clone check failure.
-Its matching standalone CLI **passed**, configured jobs16/default frontend1, 30m26s including
+Its matching standalone CLI **passed**, 30m26s including
 normal shared-artifact waits (`p4-capture-cli2.log`). Actual capture PG4 and required-field
 wire controls remain pending. Native class-support producer check **passed**, 54.29s
 (`b3-check-7.log`); native flag/disagreement/provenance controls and unchanged frontier PG5

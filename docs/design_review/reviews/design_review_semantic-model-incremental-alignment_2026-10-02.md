@@ -1,5 +1,7 @@
 # Semantic-model incremental alignment
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Design / Target review · 2026-10-02**
 
 **Decision: Revise.** Keep the cutover’s architecture and improve its remaining boundaries incrementally. The central model, generated relational contracts, immutable generations, explicit uncertainty and thin Python transport are useful foundations. The principal remaining concerns are semantic preparation inside the persistence service, erased native refusal distinctions, repeated policy bindings, and extension contracts that still depend on knowing several private inventories.
@@ -25,7 +27,7 @@ The functional target includes pinned acquisition and attributed facts; normaliz
 
 The selected change scenarios are: adding a fact family or predicate; upgrading an analyzer; adding an analytic or finite authored model; changing a numerical implementation or policy; adding a packet/rendering; changing input membership; and exercising cancellation, budgets, unknowns and isolated transformations. These are credible variation axes of the existing product, rather than hypothetical reasons to introduce frameworks.
 
-The current checkpoint matters. [STATUS](../../../STATUS.md) says qualification was stopped at the operator’s request and serving activation is unqualified. The final Phase 5 NEXTEST_TEST_THREADS=8 PYO3_PYTHON=.venv/bin/python just test-all produced 927 passing workspace Rust tests and two skipped tests, then 228 passing Python tests. Its separate PostgreSQL repetition stopped after 349 passes, eight SIGINT exits, two skipped tests and 27 tests not run; doctests were not run. The complete command therefore did **not** pass. Composite hygiene passed within its recorded tree.
+The current checkpoint matters. [STATUS](../../../STATUS.md) says qualification was stopped at the operator’s request and serving activation is unqualified. The final Phase 5 PYO3_PYTHON=.venv/bin/python just test-all produced 927 passing workspace Rust tests and two skipped tests, then 228 passing Python tests. Its separate PostgreSQL repetition stopped after 349 passes, eight SIGINT exits, two skipped tests and 27 tests not run; doctests were not run. The complete command therefore did **not** pass. Composite hygiene passed within its recorded tree.
 
 The final-source pinned FastMCP Catalog compilation was interrupted in callable-aspect normalization with staging unselected. Behavioral compilation, final real-library journeys and activation remain not_run. These are qualification limits, not newly inferred source defects, and remain at [Phase 5 plan §10](../../plans/semantic-model-phase5-detailed-plan_2026-10-01.md#10-finding-routes-limits-and-current-state).
 

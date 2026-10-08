@@ -1,5 +1,7 @@
 # Semantic-model incremental alignment — coordinated implementation plan
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Implemented; scoped Tested acceptance complete · 2026-10-03.** This series converts the
 [incremental alignment review](../design_review/reviews/design_review_semantic-model-incremental-alignment_2026-10-02.md)
 into bounded implementation work. Its original PostgreSQL generation implementation is retired;
@@ -120,8 +122,7 @@ The user's scope excludes broad `just qualify`, stopped compiler suites and hist
 Missing readiness blocks its consumers; independent failures remain explicit. The
 [assurance owner](testing-architecture-pivot-plan_2026-10-04.md) retains guarantees and historical
 source dispositions, while the graph-native coordinator owns replacement acceptance.
-Keep Cargo jobs16, the default single frontend thread, stable release caches and explicit
-Nextest concurrency. Neither target reduction nor removed duplication establishes speed/RSS benefit.
+Keep stable release caches and use available build and test parallelism. Neither target reduction nor removed duplication establishes speed/RSS benefit.
 
 ### T1 — O4: declared embedded scripts, conservative remaining capture
 
@@ -330,8 +331,7 @@ Runtime acceptance is established separately by the commands below.
 Persistent receipts reside in
 `/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`; each completed command has a
 log and exit file. Bare Cargo/uv commands use `python3 scripts/build_environment.py --` to
-normalize artifact paths. Tests retain release settings, Cargo jobs16, frontend1 and
-Nextest8 test processes. PostgreSQL controls use real disposable PostgreSQL 18.
+normalize artifact paths. Tests retain release settings. PostgreSQL controls use real disposable PostgreSQL 18.
 
 | Current command / boundary, 2026-10-03 | Outcome and receipt |
 |---|---|
@@ -340,8 +340,8 @@ Nextest8 test processes. PostgreSQL controls use real disposable PostgreSQL 18.
 | `uv run --no-sync pytest -q tests/scripts/test_build_environment.py` | **passed**, nine; `native-build-inputs-rerun.log`; content changes, non-newest deletion, unrelated stability, member scope and shell exports |
 | Uncached locked refresh of both native adapters, then `just native-adapter-ready` | **passed**; `abi-uncached.log`, `native-adapter-ready.log`; installed storage and CLI match all 240 captured current model sources in `adapter-source-agreement.json` |
 | `just --dry-run test-all` | **passed**; `test-all-dry-final.log`; images, CLI, adapter readiness, one workspace Nextest, Python/oracles and doctests retained |
-| First `NEXTEST_TEST_THREADS=8 just test-all` | **failed**; `test-all.log`, exit100; 944 run, 942 passed, two failed, two measurement controls skipped; Nextest ID `cd7780ff-daad-4249-a512-9fac259cdbe3`; Python/doctests not reached |
-| Final `NEXTEST_TEST_THREADS=8 just test-all` | **passed**, exit0; `test-all-final.log`; Nextest ID `908dbabc-3b27-4703-8ee1-eb63df80e7b9`; 944 Rust passed, two optional measurement controls skipped, 230 Python/oracle passed, 32 doctests passed (20 compile-fail, 12 positive); includes adapter readiness |
+| First `just test-all` | **failed**; `test-all.log`, exit100; 944 run, 942 passed, two failed, two measurement controls skipped; Nextest ID `cd7780ff-daad-4249-a512-9fac259cdbe3`; Python/doctests not reached |
+| Final `just test-all` | **passed**, exit0; `test-all-final.log`; Nextest ID `908dbabc-3b27-4703-8ee1-eb63df80e7b9`; 944 Rust passed, two optional measurement controls skipped, 230 Python/oracle passed, 32 doctests passed (20 compile-fail, 12 positive); includes adapter readiness |
 | `just hygiene` and named repairs | **composite passed**; `hygiene-v2.log` stopped at Ruff; repaired Ruff and all remaining named checks passed; agent/ADR lint, fixtures, gold, rules scan/test, types, docs, deps, full workspace all-target Clippy and store-check are passing |
 | `just clippy`, `just ruff`, `just types` after final control corrections | **passed**; `clippy-final.log`, `ruff-header.log`, `types-header.log` |
 | `just docs-check` | **passed** after final disposition/handoff publication; `docs-final.log`, exit0; 269 canonical pages, 9513 links checked, zero offline link errors |

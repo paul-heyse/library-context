@@ -24,7 +24,7 @@ allocation using the actual 3.3 variables `SURREAL_ROCKSDB_BLOCK_CACHE_SIZE`,
 `SURREAL_ROCKSDB_WRITE_BUFFER_SIZE` and `SURREAL_ROCKSDB_MAX_WRITE_BUFFER_NUMBER`.
 Leave allocation room for requests, other engine state and background compaction. The server
 memory threshold is a guard rather than an RSS cap; retain synchronous durability and background
-maintenance. Host-derived defaults can exceed an intended allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a tracked-memory threshold of half its cap and a user-systemd `MemoryMax` cap (`LCTX_FIXTURE_MEMORY`, default 1 GiB; idle RSS is about 200 MB, so caps below about 250 MB fail at startup). An OOM kill is reported as an infrastructure failure. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
+maintenance. Host-derived defaults can exceed an intended allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a tracked-memory threshold of half its cap and a user-systemd `MemoryMax` cap (`LCTX_FIXTURE_MEMORY`, default 16 GiB, with an 8 GiB tracked-memory threshold; idle RSS is about 200 MB, so caps below about 250 MB fail at startup). An OOM kill is reported as an infrastructure failure. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
 options, persistent restart and readiness checks. It never inspects the operator store.
 
 Set `SURREAL_GRPC_MAX_MESSAGE_SIZE=128MiB` for this native row contract. SurrealDB3.3 defaults

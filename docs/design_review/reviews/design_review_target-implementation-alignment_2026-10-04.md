@@ -1,5 +1,7 @@
 # Target and implementation alignment review
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Principal Design/Target review · 2026-10-04 · Core/template 3.2 · Code-intelligence 1.3**
 
 **Decision: Revise.** The implemented architecture supports a substantial part of the API and evidence target through coherent, executable domain owners. It warrants incremental correction, not replacement. The most consequential newly identified defect is a provider mapping that converts an unattached native **Bound** candidate into **Unbound** reaching evidence. Incomplete-inventory labels and Entry safeguards prevent the inspected path from establishing a false behavioral conclusion, but they do not preserve the meaning of the published raw origin.
@@ -338,7 +340,7 @@ Important preservation constraints:
 
 Static commands used for this review—`git status --short`, `git rev-parse HEAD`, and scoped `rg`, `cat` and `sed` reads—**passed** for the inspected files. They are source-discovery evidence, not functional checks.
 
-Current STATUS attributes prior alignment `NEXTEST_TEST_THREADS=8 just test-all` as **passed**, 2026-10-03, and hygiene as **composite passed** for its earlier tree. Recent native/model/PG controls are bounded targeted receipts. The latest source still requires deliberate Named schema migration and matching artifacts after source formatting. This report preserves those distinctions.
+Current STATUS attributes prior alignment `just test-all` as **passed**, 2026-10-03, and hygiene as **composite passed** for its earlier tree. Recent native/model/PG controls are bounded targeted receipts. The latest source still requires deliberate Named schema migration and matching artifacts after source formatting. This report preserves those distinctions.
 
 Unexamined breadth includes every individual analytic/template, every provider environment read, every packet hydration branch, all administrative corruption scenarios and startup failure interleavings. None is asserted defective solely because it was not exhaustively examined. Full gates and current operator qualification remain necessary, but a passing gate would not alone settle publication-family locality or identity-contract clarity.
 

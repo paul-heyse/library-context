@@ -128,7 +128,7 @@ qualify:
 # Disposable native SurrealDB fixtures (D2): `-- CMD` runs CMD with LCTX_SURREAL_TEST_CONFIG and
 # LCTX_COMPILER_RUNTIME_CONFIG on a run-owned server; `--keep [-- CMD]` | `--attach ID -- CMD` |
 # `--stop ID` | `--restart ID` | `--list [--json]` | `--sweep`. Sweeps dead owners at start
-# (`--no-sweep`); `--memory`/LCTX_FIXTURE_MEMORY sets the cap (default 1G). Exit 75 is blocked.
+# (`--no-sweep`); `--memory`/LCTX_FIXTURE_MEMORY sets the cap (default 16G). Exit 75 is blocked.
 [positional-arguments]
 fixture *args:
     @uv run --no-project --offline --no-python-downloads python scripts/surrealdb_fixture.py "$@"
@@ -191,7 +191,7 @@ deps:
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
-# Regenerate the executable's dependency feature union (ADR-0079; part of `turn-end`).
+# Regenerate the executable's dependency feature union (ADR-0136; part of `turn-end`).
 build-features:
     cargo hakari generate
     cargo hakari manage-deps -y

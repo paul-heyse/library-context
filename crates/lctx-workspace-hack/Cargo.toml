@@ -7,7 +7,7 @@ name = "lctx-workspace-hack"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "CLI dependency feature union, managed by cargo-hakari (ADR-0079)"
+description = "CLI dependency feature union, managed by cargo-hakari (ADR-0136)"
 publish.workspace = true
 
 # Generated feature-only dependencies intentionally have no API consumers.

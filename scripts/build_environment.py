@@ -31,7 +31,7 @@ TARGET_KEYS = ("CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR")
 NATIVE_INPUT_KEYS = ("LCTX_NATIVE_SEMANTICS_INPUTS",)
 BUILD_DIR_KEY = "CARGO_BUILD_BUILD_DIR"
 # A checkout's own Cargo build directory (`just worktree --build-dir own`), gitignored. Absent, the
-# tracked `.cargo/config.toml` selects ADR-0079's shared build directory.
+# tracked `.cargo/config.toml` selects ADR-0136's shared build directory.
 BUILD_DIR_SELECTION = Path(".dev") / "build-dir"
 LAUNCHER_DROPPED_KEYS = ("UV_NO_SYNC",)
 # An absolute UV_PROJECT_ENVIRONMENT outside this checkout (e.g. main's `.venv` inherited by a

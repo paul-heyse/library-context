@@ -270,7 +270,7 @@ Observed p50 wall times:
   - AGENTS.md:338 restricts worktrees to concurrent production edits;
   - no recipe prepares another checkout;
   - fine-grain locking is established for check-type commands only;
-  - every checkout shares one build directory (ADR-0079);
+  - every checkout shares one build directory (ADR-0136);
   - workspace crates build incrementally, so sccache does not cache them.
 
 ### Instructions and runtime configuration (S8, S9, all)
@@ -412,7 +412,7 @@ Every blocked message names the route that repairs it.
 
 **Port.** The launcher owns a stable explicit port and retries on collision. A daemon-allocated port moves on restart (tested). No `--rm`.
 
-**Memory.** `LCTX_FIXTURE_MEMORY` overrides the 1 GB cap and scales `SURREAL_MEMORY_THRESHOLD`. The effective value is printed.
+**Memory.** `LCTX_FIXTURE_MEMORY` overrides the 16 GiB default and scales `SURREAL_MEMORY_THRESHOLD` (8 GiB by default). The effective value is printed.
 
 **Substrate choice is P3's step 0.** The choice is between Docker (the exact image digest; lifecycle as above) and a native `surreal` 3.3.0 child process pinned by binary sha256. The native child dies with its process group, keeps its port and is accounted in the agent's cgroup, so run-owned orphans and port moves disappear by construction. Decide on pinned provenance, lifecycle and total integration burden. The current image choice is not a prohibition.
 
@@ -434,7 +434,7 @@ Every blocked message names the route that repairs it.
 - Removal reports dirty or unintegrated work instead of discarding it.
 
 **Build directories.**
-- ADR-0079's shared build directory stays the default. `--build-dir own` selects a per-checkout directory, and the effective path is always shown.
+- ADR-0136's shared build directory stays the default. `--build-dir own` selects a per-checkout directory, and the effective path is always shown.
 - No build-concurrency probe is run. Every crate depends on lctx-model, so builds are never disjoint. A cold per-checkout build is a performance question, and performance is out of scope.
 - sccache caches dependency units but not incremental workspace crates, so neither choice promises warm workspace or link reuse.
 

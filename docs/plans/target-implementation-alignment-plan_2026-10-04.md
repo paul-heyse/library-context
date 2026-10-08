@@ -1,5 +1,7 @@
 # Target implementation alignment coordinator
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Implemented baseline with historical scoped receipts; retained source dispositions, 2026-10-06.** This series records the [target-alignment review](../design_review/reviews/design_review_target-implementation-alignment_2026-10-04.md) and its reassessment of the [library-leverage review](../design_review/reviews/design_review_library-leverage_2026-10-04.md). Its original PostgreSQL implementation is retired. The single model, attributed providers and product contracts survive in the native graph architecture. Current implementation and acceptance belong to [graph-native coordinator §9](graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution); original review IDs retain their dispositions here.
 
 ## 1. Baseline, outcome and authority
@@ -148,7 +150,7 @@ This table completes coverage of the original review's [§8 inventory](../design
 ## 8. Current Q0 composite qualification receipt
 
 **Tested fixture scope, 2026-10-05.** The [assurance coordinator §7](testing-architecture-pivot-plan_2026-10-04.md#7-current-contractcontrol-map-and-execution-checkpoint)
-owns the assembled command/control map and repair receipt. Initial `NEXTEST_TEST_THREADS=8 just qualify`
+owns the assembled command/control map and repair receipt. Initial `just qualify`
 failed; all failed required boundaries subsequently passed on affected reruns. This is a composite
 qualification, not an initially clean gate or a real-library qualification. No cancelled compilation
 is counted as a passing test.

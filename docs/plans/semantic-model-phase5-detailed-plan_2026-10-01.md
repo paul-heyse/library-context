@@ -1,5 +1,7 @@
 # Phase 5: generation-bound serving — detailed design and execution plan
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Lexical-only qualification stopped at the operator’s code-facts review pivot, 2026-10-03.** Full hybrid Q0 is not claimed; live embeddings and real-library vector preparation are deliberately deferred pending inspection of analytical outputs. This plan reconstructs serving after the semantic model
 cutover. It is subordinate to the [cutover plan](semantic-model-cutover-plan_2026-09-29.md), which
 owns cross-phase sequence and finding disposition. [DESIGN §15.12](../design/sections/semantic-model.md#section-15-12)
@@ -661,7 +663,7 @@ The public SDK version serializer correction passed nine pure transport/numerica
 
 
 **V0 original fixture, composite passed, 2026-10-02:**
-`NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
+`INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
 --release -p lctx --test serving_vectors` passed 1 / 0 skipped, runtime 120.119 seconds, release
 build 7m18. Run `ee4c8c95-37b3-45c2-9d3e-3fb002ef230f`; complete log
 `/tmp/lctx-phase5-v0-serving_vectors_corrected_final_2026-10-02.log`. The fixture covers both
@@ -684,7 +686,7 @@ canonical assertion/resource presentation were exercised. Appendix A independent
 F01/F02 source corrections; full Q0 and direct mixed-status comparison remain pending.
 
 **Current pure model controls, composite passed, 2026-10-02:**
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+`INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
 --release -p lctx-model --test serving_contracts --test ranking_policy` passed 32 / 0 skipped
 (16 per binary), 0.026 seconds, build 1m28, run `a5da448b-2003-43e8-956f-74ce144d0f02`.
 The initial compile failed because the new schema-validation control omitted the existing pinned
@@ -694,7 +696,7 @@ jsonschema dev dependency. The missing dependency was added; the unchanged contr
 fidelity, resource labels, full-family document frequency and retained tokenizer known answers.
 
 **Current serving fixtures, composite in progress, 2026-10-02:** the complete focused command
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+`INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
 --release -p lctx --test compile_facts --test serving_evidence --test serving_packets
 --test serving_retrieval --test serving_soundness --no-fail-fast` finished 9 passed, 1 failed,
 1 timed out, 0 skipped, 540.059 seconds (run `3278b8f1-1d44-4ac2-a6e5-ff7f668a24fd`).
@@ -712,7 +714,7 @@ declares no earlier analysis parents. Selecting Behavioral alone did not repair 
 this retained failure is `/tmp/lctx-phase5-evidence-soundness-corrected_2026-10-02.log`. The corrected
 control uses an actual admitted BaseEvaluation parent, keeps the same canonical receipt-bound DAG
 and damaged-view/captured-byte challenges, and **passed** 1 / 0 skipped in 92.778 seconds:
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+`INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
 --release -p lctx --test serving_evidence`, log
 `/tmp/lctx-phase5-evidence-parent-corrected_2026-10-02.log`, run
 `989dc486-972a-48ea-a837-31a03a3965d8`. The Unicode paging portion had already passed before the
@@ -733,13 +735,13 @@ limit is introduced. SQLx owns rollback on error/cancellation. Normalized
 passed in 19.18 seconds (`/tmp/lctx-phase5-ordering-abi_2026-10-02.log`). The actual native fixture
 now independently demonstrates differing ID and call/ordinal order with two eight-argument calls;
 its original transport, guard, path and tamper controls passed on the repaired source:
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+`INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
 --release -p lctx --test serving_native`, 1 passed / zero skipped, 200.266 seconds, build 7m37,
 run `e6db33d6-e0d8-4197-860d-23515c7e774e`, log
 `/tmp/lctx-phase5-native-ordering_2026-10-02.log`. Both profiles passed all ten actual transport
 controls and the original changed-operand refusal. The unchanged original CPython oracle subsequently **passed** 1 / zero skipped in 795.987
 seconds (build 10.34s), run `3cf0ff2a-18ef-4745-8188-4b7aa56145d8`, command
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run
+`INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run
 --release -p lctx --test serving_soundness`, log
 `/tmp/lctx-phase5-soundness-ordering_2026-10-02.log`. Its original nonvacuous identity, guard,
 return and composition assertions remain. Product limits and every oracle assertion are unchanged. Appendix B independently closes F02
@@ -752,12 +754,12 @@ Canonical serving/store/CLI/bridge integration and the coupled ownership-boundar
 are committed as `91751d1c`. Semantic-only index copies preserve the initial dirty baseline rather
 than folding its unrelated formatting into the cutover. This establishes implemented scope with
 bounded current native and generated CPython evidence. All functional packages and X0 are now
-implemented and focused-qualified; `NEXTEST_TEST_THREADS=8 just test-all` is running
+implemented and focused-qualified; `just test-all` is running
 (`/tmp/lctx-phase5-test-all_2026-10-02.log`). Complete functional/hygiene gates, final-source real
 FastMCP journeys and activation remain pending.
 
 **Complete-gate compile repair, 2026-10-02:** the first Phase 5
-`NEXTEST_TEST_THREADS=8 just test-all` stopped during workspace compilation with duplicate
+`just test-all` stopped during workspace compilation with duplicate
 `ContentHash` imports in `lctx-postgres/tests/services.rs` (E0252). It establishes no workspace
 test result. The redundant direct import was removed, retaining the existing grouped model
 import and all service assertions. Original log: `/tmp/lctx-phase5-test-all_2026-10-02.log`.
@@ -790,7 +792,7 @@ the final ABI by implication.
 
 
 **Bounded prerequisite controls, passed, 2026-10-02:** normalized
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx-model --lib
+`INSTA_UPDATE=no cargo nextest run --release -p lctx-model --lib
 --test domain_callable_aspects -E 'test(prepared_hashes) | test(full_inventory) |
 test(exact_span) | binary(domain_callable_aspects)' --no-fail-fast` passed nine / zero selected
 skipped (90 outside the filter), run `f5b18abb-d581-4b33-baff-92d145926e5b`, log
@@ -804,7 +806,7 @@ that source. No speedup is measured or claimed.
 
 
 **Original symbolic/summary controls, passed, 2026-10-02:** normalized
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p cpg-extract
+`INSTA_UPDATE=no cargo nextest run --release -p cpg-extract
 --test symbolic_fields --test summary_consequences --no-fail-fast` passed six / zero skipped,
 4.480 seconds, build 1m52, run `eae8a153-1817-457e-aaca-464ca1dab4f6`, log
 `/tmp/lctx-phase5-symbolic-summary-repairs_2026-10-02.log`. This covers actual native extraction,
@@ -813,7 +815,7 @@ source-selected open call pair. Full gate remains pending; no performance claim 
 
 
 **Exact store controls, passed, 2026-10-02:** normalized
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx-postgres
+`INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres
 --test services --test installation --no-fail-fast` passed 17 / zero skipped, 122.228 seconds,
 build 9.70 seconds, run `30e527fd-2cdf-4c5c-8f54-78f63fb63120`, log
 `/tmp/lctx-phase5-store-expectation-repairs_2026-10-02.log`. Exact schemas, service migration
@@ -878,7 +880,7 @@ semantic relation or codebook change.
 
 
 **Current model/native/wire repairs, passed, 2026-10-02:** normalized
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx-model --lib
+`INSTA_UPDATE=no cargo nextest run --release -p lctx-model --lib
 --test serving_contracts --test ranking_policy --test native_requests -E 'test(prepared_hashes) |
 test(full_inventory) | test(exact_span) | binary(serving_contracts) | binary(ranking_policy) |
 binary(native_requests)' --no-fail-fast` passed 51 selected tests (90 outside the filter),
@@ -891,7 +893,7 @@ mocked provider. Complete Q0 and generated-file refreshes remain pending.
 
 
 **Exact attempt-ID parser, passed, 2026-10-02:** normalized
-`INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx --bin lctx
+`INSTA_UPDATE=no cargo nextest run --release -p lctx --bin lctx
 -E 'test(an_attempt_id_is_exactly_32_hex_digits)'` passed one selected test (six outside the
 filter), 0.002 seconds, build 6m03, run `14d92c69-661a-43f5-9da2-a858e9783d4c`, log
 `/tmp/lctx-phase5-attempt-id-parser_2026-10-02.log`. The original control keeps uppercase legal
@@ -903,7 +905,7 @@ work as sufficient for now and explicitly stopped further qualification. All own
 processes are stopped; no new checks, compile or activation are scheduled in this session.
 The implemented scope and scoped assembled acceptance remain; full Q0 is not claimed.
 
-`NEXTEST_TEST_THREADS=8 PYO3_PYTHON=.venv/bin/python just test-all` rebuilt successfully and
+`PYO3_PYTHON=.venv/bin/python just test-all` rebuilt successfully and
 its workspace run `768e3cf4-610c-4e52-bdb8-b50d479fbe30` **passed** 927 / two skipped,
 1145.650s. This covers all earlier eight gate repairs and current native/transport/vector controls;
 the generated CPython oracle passed in 766.063s. Python **passed** 228 in 20.58s.
@@ -995,7 +997,7 @@ tests/scripts/test_qualify_serving.py` passed two transcript/redaction controls
 The runner exposed a source-signature default overwrite: packet hydration replaced an already
 known source literal with the effective slot’s canonical Unknown. Removing that overwrite
 preserves the separate source/effective contracts without altering stored relations/model identity.
-Normalized `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 cargo nextest run --release -p lctx
+Normalized `INSTA_UPDATE=no cargo nextest run --release -p lctx
 --test serving_packets -E 'test(mandatory_packet_preserves_defaults_formals_contexts_and_set_hydration)'
 --no-fail-fast` passed one (four outside filter), 62.490s, run
 `1ed7b371-7840-4cd1-90c1-17eb08f48d7f` (`source-default-packet-control.log`).

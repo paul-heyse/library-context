@@ -158,7 +158,10 @@ def preflight(root: Path = ROOT, system_script: Path | None = None) -> dict:
     config = tomllib.loads((root / ".cargo/config.toml").read_text())
     linux = config["target"]['cfg(target_os = "linux")']
     flags = linux["rustflags"]
-    if linux["linker"] != "clang" or flags != ["-C", "link-arg=-fuse-ld=mold"]:
+    if linux["linker"] != "clang" or not any(
+        flags[index : index + 2] == ["-C", "link-arg=-fuse-ld=mold"]
+        for index in range(len(flags) - 1)
+    ):
         raise ValueError("expected the checked Clang driver and mold flags in .cargo/config.toml")
     tools = {
         name: shutil.which(name)

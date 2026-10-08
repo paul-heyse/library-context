@@ -83,10 +83,12 @@ querying is selected; FP-07/A4 guide efficient physical design without detailed 
 performance proof requirements. Operator reconstruction and activation remain separate Q1 work.
 
 Libraries remain pinned
-uv projects (ADR-0117). ADR-0040 owns review cadence. ADR-0079 owns the current-tree editable development loop on dated nightly Cargo,
+uv projects (ADR-0117). ADR-0040 owns review cadence. ADR-0136 owns the current-tree editable development loop on dated nightly Cargo,
 workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
 locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
-imported dependencies O3 with sccache, and the existing release test workflow. No wheel
+imported dependencies O3 with sccache, and the existing release test workflow. Build and test
+execution use available CPU parallelism; concurrency failures are corrected in production or test
+code. Owned native fixtures default to 16 GiB, with an 8 GiB tracked-memory threshold. No wheel
 project is selected. **Accepted verification target, 2026-10-04 (ADR-0126):** agents run compile
 checks and focused affected contract families during implementation, then affected controls and
 applicable non-functional leaves at functional scope completion. A shared model/receipt/trust/
@@ -121,7 +123,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0133, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113, ADR-0134
+> Decision: ADR-0133, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0136, ADR-0040, ADR-0126, ADR-0109, ADR-0113, ADR-0134
 
 <a id="section-1-3"></a>
 

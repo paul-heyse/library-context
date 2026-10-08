@@ -1,5 +1,7 @@
 # Semantic-model alignment target
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Design / Target review · 2026-10-02**
 
 **Decision: Accept scoped, at Proposed maturity.** The four plans define a coherent bounded correction of the inspected semantic-model boundaries. They retain the current architecture, give semantic preparation and policy identifiable owners, and preserve the distinctions that could otherwise be lost during consolidation. All six further opportunities have a source-substantiated functional or maintenance contribution; none depends on demonstrating a speed benefit.
@@ -154,7 +156,7 @@ Static inspection is sufficient for this Proposed target decision. No probe is n
 | Native twins, exact-epoch cases, policy mutation and S0 reuse | **not_run**; targeted implementation controls required |
 | Heartbeat, fallback and cancellation/drain behavior | **not_run**; future deterministic control required |
 | Actual discovery and admitted tool/resource failures over both protocols/transports | **not_run**; real transport controls required |
-| `NEXTEST_TEST_THREADS=8 just test-all` and `just hygiene` | **not_run** in this review; combined final-tree implementation obligations |
+| `just test-all` and `just hygiene` | **not_run** in this review; combined final-tree implementation obligations |
 | Real-library Q0, journeys and activation | **not_run**; operator stop remains |
 | Speed, throughput and total RSS benefits | Unmeasured; no target acceptance threshold |
 

@@ -19,7 +19,7 @@ run-owned server is a ``PR_SET_PDEATHSIG`` child of the launcher inside a capped
 the launcher dies. A kept server is the user unit ``lctx-fixture-<id>.service`` with
 ``KillMode=control-group`` and a 0600 ``EnvironmentFile``. Both bind a launcher-chosen explicit
 loopback port (retried on collision before readiness) that a restart keeps. ``LCTX_FIXTURE_MEMORY``
-(default ``1G``) sets ``MemoryMax`` and scales ``SURREAL_MEMORY_THRESHOLD`` to half of it. An OOM
+(default ``16G``) sets ``MemoryMax`` and scales ``SURREAL_MEMORY_THRESHOLD`` to half of it. An OOM
 kill, from the wait status or the unit's ``Result=oom-kill``, is an infrastructure failure
 (``blocked``, exit 75), also during the readiness wait.
 
@@ -105,7 +105,7 @@ RELEASE_URL = (
 
 SCHEMA = 1
 UNIT_PREFIX = "lctx-fixture-"
-DEFAULT_MEMORY = "1G"
+DEFAULT_MEMORY = "16G"
 EXIT_BLOCKED = 75
 PORT_RANGE = (20000, 32000)  # below the kernel's ephemeral range, so clients rarely collide
 PORT_ATTEMPTS = 8

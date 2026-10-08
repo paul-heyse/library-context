@@ -71,3 +71,7 @@ prior dated Tested receipts. This decision does not claim latest-provider produc
 The owned PostgreSQL provider continues bounded generation reads/pools/chunks without federation;
 its changing exact revision belongs in `docs/pins.md`. A future lake/federation or additional
 production type authority is a new decision.
+
+## Amendments
+
+- 2026-10-08: ADR-0136 now owns the surviving toolchain/shared-build clauses of retired ADR-0079.

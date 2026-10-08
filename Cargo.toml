@@ -155,7 +155,6 @@ debug = 0
 opt-level = 2
 # The daily test loop uses release; retain workspace edit/rebuild state here too.
 incremental = true
-codegen-units = 16
 
 [profile.release.package."*"]
 opt-level = 3
@@ -164,7 +163,7 @@ incremental = false
 [profile.release.build-override]
 opt-level = 2
 
-# Backport the upstream never-type fix without upgrading Pyrefly's dependency graph (ADR-0079).
+# Backport the upstream never-type fix without upgrading Pyrefly's dependency graph (ADR-0136).
 [patch.crates-io]
 allocative = { path = "third_party/allocative" }
 

@@ -1,5 +1,7 @@
 # Design review: test, validation and oracle architecture
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Design tier · Target purpose · 2026-10-04**
 
 **Decision: Revise the assurance architecture.** Preserve model-owned enforcement and
@@ -41,7 +43,7 @@ and activation remain stopped; heldout evaluation remains sealed. Product useful
 embeddings and total RSS are outside the inspected scope.
 
 Evidence is source inspection (**Implemented / Interface-checked, 2026-10-04**), existing scoped
-receipts and one bounded observation probe. The recent `NEXTEST_TEST_THREADS=8 just test-all`
+receipts and one bounded observation probe. The recent `just test-all`
 was cancelled during workspace compilation before tests launched. Its 15m41s CLI build is build
 evidence, not a test-runtime pass or failure. Q0 remains open in [STATUS](../../../STATUS.md).
 Existing timings inform the inquiry; they do not create a historical retention obligation.

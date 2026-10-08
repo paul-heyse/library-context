@@ -1,5 +1,7 @@
 # Semantic-model foundations: focused enhancement plan
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Implemented / Tested within foundation scope, 2026-10-02.** Companion to the
 [Phase 5 plan](semantic-model-phase5-detailed-plan_2026-10-01.md), which owns the combined serving
 target, shared contracts and assembled acceptance. The [cutover plan](semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition)
@@ -273,7 +275,7 @@ strict; unrelated vocabulary epochs are skipped without establishing evidence or
 
 - **passed:** `python3 scripts/build_environment.py -- cargo check -p lctx-model -p cpg-core`,
   including the final corrected source.
-- **passed:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
+- **passed:** `INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
   nextest run --release -p lctx-model -p cpg-core --test analysis_expected --test structural --test
   analytic --test catalog_core --test catalog_evidence --test catalog_selection --test
   analytic_embedding --test local_semantics --test base_execution --test model_publication --test
@@ -284,7 +286,7 @@ strict; unrelated vocabulary epochs are skipped without establishing evidence or
   A lower callable-aspects macro retained its query guard into the next read; each typed stream is
   now scoped and released before the next source. The mandatory structural loader's strict read
   was also restored, with filtering confined to admission-only inputs.
-- **passed:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
+- **passed:** `INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
   nextest run --release -p cpg-core --test catalog_core --test local_semantics --test structural
   --test analytic`, all nine corrected controls (run `b48fa2c5-0140-45a6-9dc3-295773961c87`).
 
@@ -306,7 +308,7 @@ Model vocabulary split. Replaced loops and handwritten extras were removed from 
 - **passed:** normalized `cargo check -p lctx-model -p cpg-core --tests`, final Local/vocabulary
   compile checks, and `python3 scripts/build_environment.py -- cargo check -p lctx-model -p cpg-core
   --test vocabulary_read` after the final helper repair and F1 model checkpoint.
-- **failed, corrected:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3
+- **failed, corrected:** `INSTA_UPDATE=no python3
   scripts/build_environment.py -- cargo nextest run --release -p lctx-model -p cpg-core --test
   analysis_expected --test analysis_schedule --test summary_schedule --test local_semantics --test
   summary_publication --test generation_read --test vocabulary_read` passed 24 controls and failed
@@ -318,7 +320,7 @@ Model vocabulary split. Replaced loops and handwritten extras were removed from 
   it now checks that every configured connection is idle. Independent review also identified the
   new Local Catalog retention regression and a potentially nondeterministic cancellation boundary;
   both were repaired without changing the classifier, budgets or provider drain contract.
-- **passed:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
+- **passed:** `INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
   nextest run --release -p cpg-core --test vocabulary_read`, all three controls on the final helper
   (run `45efffcc-0105-4f24-bfc1-50fa5863bb68`). This exercises two real epochs, default/explicit
   source aliases, composed consumers, undeclared/unloaded inputs, duplicate registration, callback
@@ -347,7 +349,7 @@ loss is terminal. Source capture metadata is read and content-verified before in
 - **passed:** normalized model/core and PostgreSQL compile checks, followed by `python3
   scripts/build_environment.py -- cargo check -p lctx --test compile_facts -p lctx-model --test
   domain_selection_catalog` on the corrected source.
-- **failed, corrected:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3
+- **failed, corrected:** `INSTA_UPDATE=no python3
   scripts/build_environment.py -- cargo nextest run --release -p lctx-model --test
   domain_selection_catalog --test domain_selection` initially passed 21 controls and failed
   the retained unknown receiver-location case. Local reference checking now requires access
@@ -388,7 +390,7 @@ loss is terminal. Source capture metadata is read and content-verified before in
   Catalog control passed both profiles and all controls in 259.510 seconds, run
   `9580e4d1-0932-4c8a-bce2-0b1abc0133be`. Only this task's retained disposable container was
   removed after its logs/state were captured. This diagnostic alone was not scope qualification.
-- **passed, normal cleanup:** `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3
+- **passed, normal cleanup:** `INSTA_UPDATE=no python3
   scripts/build_environment.py -- cargo nextest run --release -p lctx --test compile_facts -E
   'test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`, run
   `f8872936-a8cd-4d1d-80fb-8945b13dad95`, one actual CLI control passed in 292.459 seconds.
@@ -397,8 +399,7 @@ loss is terminal. Source capture metadata is read and content-verified before in
   exact foreign group identity with unchanged payload/receipts, schedule/epoch receipt refusal,
   budget/Arc retention/release, retirement exclusion, cancellation at a blocked real relation
   read with cleanup, original guard loss and refusal despite an independent replacement lease.
-- **passed, composite focused model receipt:** the final-source command `NEXTEST_TEST_THREADS=8
-  INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx-model
+- **passed, composite focused model receipt:** the final-source command `INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx-model
   --test domain_selection_catalog --test domain_selection -p lctx --test compile_facts -E
   'package(lctx-model) | test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`
   passed all 23 pure model controls in run `838be72f-50ff-4e98-a619-6ee33414fc69`; its failed CLI
@@ -425,7 +426,7 @@ The assembled tree contains the three foundation commits and owners/review in `6
 its preserved initial dirty baseline. The accepted model snapshot migration below changes only
 its digest; no relation, column, reference, sum or codebook declaration changed.
 
-- **failed:** `NEXTEST_TEST_THREADS=8 just test-all`, workspace Nextest run
+- **failed:** `just test-all`, workspace Nextest run
   `93e42487-4ff9-4653-bde5-18e6f2bb7b2b`: release build 22m 36s, 1,000 tests run, 972 passed,
   28 failed and 12 skipped. Twenty-seven failures were disposable PostgreSQL startup, transport,
   rollback/commit or pool failures during concurrent container cleanup; one was the model digest
@@ -443,7 +444,7 @@ its digest; no relation, column, reference, sum or codebook declaration changed.
   `f78eaf504fad7da139d048fcdbdb52bbb9d4846d7bb76b4c7190fe331e12012f`.
   After reading that diff, `python3 scripts/build_environment.py -- cargo insta accept --snapshot
   model_describe__model_describe.snap` accepted this snapshot alone.
-- **passed:** `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py --
+- **passed:** `INSTA_UPDATE=no python3 scripts/build_environment.py --
   cargo nextest run --release -p lctx --test model_describe`, one corrected control, run
   `fc761336-a5bb-465a-a720-461018cd4111`.
 
@@ -460,14 +461,14 @@ its digest; no relation, column, reference, sum or codebook declaration changed.
   600-second release CLI build limit. Subsequent oracle cases passed after the build completed.
   The separate PostgreSQL and doctest components were **not_run** in that attempt. No timeout,
   test expectation, compiler profile or job setting was weakened.
-- **snapshot migration reviewed and accepted:** `INSTA_UPDATE=new NEXTEST_TEST_THREADS=8 python3
+- **snapshot migration reviewed and accepted:** `INSTA_UPDATE=new python3
   scripts/build_environment.py -- cargo nextest run --release -p lctx --test model_describe`
   produced the expected pending snapshot after the Clippy corrections, run
   `d9f7ea48-d70a-4376-b4d7-ff85dfa438ae`. The full diff changed only the digest from `f78eaf504fad7da139d048fcdbdb52bbb9d4846d7bb76b4c7190fe331e12012f`
   to `e66cccc2b3f0776b44ecc6e18e0259588fb35eca46543a08047b9366ce41388c`.
   After reviewing it, the same scoped `cargo insta accept --snapshot model_describe__model_describe.snap`
   command accepted the migration. Relations, fields and codebooks remain unchanged.
-- **passed:** `INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo
+- **passed:** `INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo
   nextest run --release -p lctx-model --test domain_selection_catalog --test domain_selection
   -p lctx --test model_describe`, 24 corrected-source controls, run
   `5af87f96-af68-41af-87c9-6f37668e007e`.
@@ -480,7 +481,7 @@ its digest; no relation, column, reference, sum or codebook declaration changed.
 All hygiene components have passed through the initial run plus corrected `just clippy` and
 `just store-check`: this is a **composite hygiene receipt**, not an initially clean run.
 
-**passed, final functional receipt:** `NEXTEST_TEST_THREADS=8 just test-all`, log
+**passed, final functional receipt:** `just test-all`, log
 `/tmp/lctx-foundations-test-all_final_2026-10-02.log`, completed with exit 0. Workspace Nextest
 `8a8d7c00-de63-4745-844f-ff399f0b880a`: 1,000 passed, 12 skipped (814.353 seconds).
 Python/oracles: 238 passed, 56 skipped. Separate PostgreSQL Nextest

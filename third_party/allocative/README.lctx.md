@@ -3,7 +3,7 @@
 Source-reviewed 2026-09-28. Crate archive SHA256:
 `d8cf9afc79c83d514444b55df3935d317da54b1ce3b17a133c646889cc260de8`.
  This is crates.io `allocative 0.3.6`, selected through
-the root `[patch.crates-io]` for ADR-0079. The duplicate nightly `Allocative for !`
+the root `[patch.crates-io]` for ADR-0136. The duplicate nightly `Allocative for !`
 implementation and its now-stable `never_type` feature attribute are removed; on the pinned compiler,
 `Infallible` is an alias of `!`. The existing `Infallible` implementation covers both.
 

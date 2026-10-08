@@ -1,4 +1,4 @@
-# Dated nightly for Cargo workspace feature unification and fine-grain locking (ADR-0079).
+# Dated nightly for Cargo workspace feature unification and fine-grain locking (ADR-0136).
 # Do not substitute the machine's floating default; see docs/pins.md.
 [toolchain]
 channel = "nightly-2026-09-29"

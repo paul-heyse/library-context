@@ -1,5 +1,7 @@
 # Semantic foundations — assembled design review
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Date:** 2026-10-02  
 **Tier / purpose:** Design / Target  
 **Decision:** Accept scoped  
@@ -139,10 +141,10 @@ Execution evidence is attributed to coordinator/executor runs:
 
 - **Historical composite focused evidence, 2026-10-01:** foundation plan §5.1/§5.2 records F2/F3 compile checks, adapter controls, real two-epoch composition, callback failure, cancellation/drain/recovery and resource refusal. Their original failure/correction boundaries remain intact.
 - **Final-source pure controls passed, 2026-10-02:** run `838be72f-50ff-4e98-a619-6ee33414fc69` ran:
-  `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx-model --test domain_selection_catalog --test domain_selection -p lctx --test compile_facts -E 'package(lctx-model) | test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`.
+  `INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx-model --test domain_selection_catalog --test domain_selection -p lctx --test compile_facts -E 'package(lctx-model) | test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`.
   Its summary was 23 passed and one CLI infrastructure failure before selection admission.
 - **Actual canonical control passed under normal cleanup policy, 2026-10-02:** run `f8872936-a8cd-4d1d-80fb-8945b13dad95` ran:
-  `NEXTEST_TEST_THREADS=8 INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx --test compile_facts -E 'test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`.
+  `INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx --test compile_facts -E 'test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'`.
   One test passed, two excluded tests were skipped. The test exercises actual CLI-produced Catalog generations in both profiles.
 - The canonical controls compare repeated admitted requests against strict replay and exercise validly encoded content corruption, missing C2 evidence/validation, captured schedule/prefix identity, budget refusal, retained lease/retirement Busy, real blocked-read cancellation and terminal guard loss.
 - **Integrated qualification pending:** `just test-all` and `just hygiene` remain coordinator-owned at review issuance.

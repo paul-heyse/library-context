@@ -257,7 +257,7 @@ def create(
         (target / BUILD_DIR_SELECTION).write_text(f"{selected}\n")
         report(f"build dir: {selected} (own; recipes and `just env --` use it, bare cargo not)")
     else:
-        report("build dir: shared (.cargo/config.toml, ADR-0079)")
+        report("build dir: shared (.cargo/config.toml, ADR-0136)")
     code = 0
     if prepare:
         env, notes = ready_environment(target, os.environ)

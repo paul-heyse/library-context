@@ -127,7 +127,7 @@ Recent historical production controls: thirteen targeted model/Structural/actual
 
 Stopped staging `d3a3fa026a1237a1c4e175b9b1019eeb` was last recorded unselected with 204 receipts. Refresh state read-only if needed. Default store/client registrations were untouched. The stop receipt is `/home/paul/.cache/lctx-phase5-qualification/2026-10-03/operator-pivot-interruption.json`. Worktree recovery content is under `/home/paul/.local/share/library-context/worktree-recovery/2026-10-04/`; earlier alignment receipts are under `/home/paul/.cache/lctx-alignment-execution/receipts-2026-10-03/`. These are local recovery/evidence, not alternate runtime authorities.
 
-Rust uses pinned `nightly-2026-09-29`, Cargo jobs16, default frontend1, sccache/Clang/mold and stable shared intermediates. No routine cargo clean or blanket build serialization; coordinate actual same-tree contention. `NEXTEST_TEST_THREADS=8` limits concurrent test processes, not Rust compiler frontend threads or all threads created inside a test process. Do not change settings based solely on earlier disk cleanup; the operator freed substantial space and preferred the existing build approach.
+Rust uses pinned `nightly-2026-09-29`, available CPU parallelism, sccache/Clang/mold and stable shared intermediates. Preserve caches. Fix concurrency failures in production or test code.
 
 For bare Cargo/uv normalize the build environment with `eval "$(python3 scripts/build_environment.py --shell)"`; use `just`'s normalization where available. Python is 3.14.7 via uv, type checker pyrefly. Never pass floating +nightly/+stable. Preserve O2 workspace/O3 imported/O2 build-script/proc-macro profiles and benchmark artifacts.
 

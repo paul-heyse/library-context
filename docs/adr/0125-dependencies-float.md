@@ -22,7 +22,7 @@ specific to the dependency. This repository pinned by default instead. Every
 Two accepted records carry clauses that read as blanket pinning:
 - [ADR-0118](0118-pinned-compute-and-analyzer-families.md) (Decision) says "Pin changes go through
   the `pin-check` skill";
-- [ADR-0079](0079-shared-cargo-builds.md) (Decision) says "Cargo.lock and root exact pins retain
+- ADR-0079 (retired; see [historical recovery](../README.md#historical-recovery)) (Decision) says "Cargo.lock and root exact pins retain
   version ownership". Its point is that Hakari's generated crate never owns versions.
 
 The responsible owners are DESIGN §7, `docs/pins.md`, `scripts/check_family.py`, the

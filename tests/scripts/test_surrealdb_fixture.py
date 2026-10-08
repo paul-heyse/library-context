@@ -97,6 +97,16 @@ def test_memory_cap_scales_the_tracked_threshold() -> None:
             fx.parse_memory(bad)
 
 
+def test_default_memory_and_explicit_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LCTX_FIXTURE_MEMORY", raising=False)
+    assert fx.configured_memory() == 16 << 30
+    environment = fx.server_environment(fx.configured_memory(), "p")
+    assert environment["SURREAL_MEMORY_THRESHOLD"] == "8192MiB"
+    monkeypatch.setenv("LCTX_FIXTURE_MEMORY", "32G")
+    assert fx.configured_memory() == 32 << 30
+    assert fx.configured_memory("24G") == 24 << 30
+
+
 def test_python_ownership_is_explicit_or_evident_from_the_command() -> None:
     assert fx.python_requirements(["cargo", "nextest", "run"], []) == []
     assert fx.python_requirements(["uv", "run", "pytest"], []) == ["native-python"]

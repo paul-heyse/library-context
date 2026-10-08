@@ -8,6 +8,6 @@ pub fn store() -> Arc<NativeCompilerStore> {
     let config=RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
     // Keep the SDK router and native stream-drain runtime alive across synchronous test calls.
     static RUNTIME:OnceLock<tokio::runtime::Runtime>=OnceLock::new();
-    let runtime=RUNTIME.get_or_init(||tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap());
+    let runtime=RUNTIME.get_or_init(||tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap());
     std::thread::spawn(move ||runtime.block_on(NativeCompilerStore::begin(&config,Frontier::Catalog)).unwrap()).join().unwrap()
 }

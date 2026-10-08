@@ -1,5 +1,7 @@
 # Phase 5 assembled generation-bound serving — design review
 
+Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
+
 **Decision: Revise, at Implemented maturity, 2026-10-02.**
 
 The assembled implementation establishes a coherent serving boundary over canonical generations. One Rust runtime owns the original generation guard, request capacity, query connections, deadlines and reservations. Classification, ranking and finite exact-input assessment have model owners; Python supplies transport and numerical BM25 scoring. The disposable vector artifact remains subordinate to canonical embedding values.
@@ -299,7 +301,7 @@ Its assertions are nonvacuous: the capability must contain both `Documented` and
 The pure model command also **passed** all 32 tests across two binaries:
 
 ```sh
-INSTA_UPDATE=no NEXTEST_TEST_THREADS=8 python3 scripts/build_environment.py -- cargo nextest run --release -p lctx-model --test serving_contracts --test ranking_policy
+INSTA_UPDATE=no python3 scripts/build_environment.py -- cargo nextest run --release -p lctx-model --test serving_contracts --test ranking_policy
 ```
 
 Receipt: `/tmp/lctx-phase5-model-final-corrected_2026-10-02.log`. This includes the assertion control that accepts canonical numeric codes, rejects unknown status, preserves authored bytes and renders both evidence-status distinctions ([serving_contracts.rs:272](../../../crates/lctx-model/tests/serving_contracts.rs#L272)). The original missing-development-dependency compile failure remains recorded separately.

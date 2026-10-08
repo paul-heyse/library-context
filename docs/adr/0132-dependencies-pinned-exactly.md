@@ -53,3 +53,7 @@ DESIGN §7 is amended in the same change.
 Implementation on 2026-10-06: 38 Rust requirements and 8 Python requirements were frozen at their
 locked versions. `Cargo.lock` was unchanged (`cargo metadata --locked`), the `uv.lock` diffs moved
 specifier metadata only (`uv lock --check`), and `tests/scripts/test_check_family.py` passed.
+
+## Amendments
+
+- 2026-10-08: ADR-0136 now owns the surviving toolchain/shared-build clauses of retired ADR-0079.

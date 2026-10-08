@@ -1,8 +1,7 @@
 [build]
-jobs = 16
 rustc-wrapper = "sccache"
 # Intermediates are shared by this repository's checkouts; final artifacts stay in target/.
-# Never cargo clean this shared directory as part of ordinary development (ADR-0079).
+# Never cargo clean this shared directory as part of ordinary development (ADR-0136).
 build-dir = "{cargo-cache-home}/build/library-context"
 
 [unstable]
@@ -14,4 +13,4 @@ feature-unification = "workspace"
 
 [target.'cfg(target_os = "linux")']
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+rustflags = ["-Z", "unstable-options", "--jobs-frontend=0", "--jobs-backend=0", "-C", "link-arg=-fuse-ld=mold"]
