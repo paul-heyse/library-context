@@ -481,7 +481,12 @@ def run_campaign(campaign: Path, variant: str, trial: int, phase: str) -> dict:
             record(
                 "execute-tests",
                 [
-                    "python3",
+                    "uv",
+                    "run",
+                    "--no-project",
+                    "--offline",
+                    "--no-python-downloads",
+                    "python",
                     "scripts/surrealdb_fixture.py",
                     "--",
                     "cargo",

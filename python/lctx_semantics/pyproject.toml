@@ -25,7 +25,6 @@ cache-keys = [
     { file = "../../uv.lock" },
     { file = "../../rust-toolchain.toml" },
     { file = "../../.cargo/config.toml" },
-    { file = "../../scripts/build_environment.py" },
     { file = "../../crates/lctx-model/Cargo.toml" },
     { file = "../../crates/lctx-model/build.rs" },
     { file = "../../crates/lctx-model/src/**/*.rs" },

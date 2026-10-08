@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import argparse
 import subprocess
-import json
-import os
 
 from build_environment import ROOT, normalized_env
 from surrealdb_fixture import fixture
@@ -15,10 +13,50 @@ from surrealdb_fixture import fixture
 def compiler_packages(boundary: str, filters: list[str]) -> list[str]:
     defaults = {
         "compiler": ["-p", "cpg-core", "--lib", "--tests"],
-        "compiler-cli": ["-p", "lctx", "--bin", "lctx", "--test", "acquire", "--test", "compile_artifact"],
-        "providers": ["-p", "cpg-extract", "--lib", "--test", "acquisition", "--test", "bundle", "--test", "harness", "--test", "typed_conformance", "--test", "typed_flow", "--test", "typed_calls", "--test", "native_overload_origins", "--test", "typed_ruff_context"],
+        "compiler-cli": [
+            "-p",
+            "lctx",
+            "--bin",
+            "lctx",
+            "--test",
+            "acquire",
+            "--test",
+            "compile_artifact",
+        ],
+        "providers": [
+            "-p",
+            "cpg-extract",
+            "--lib",
+            "--test",
+            "acquisition",
+            "--test",
+            "bundle",
+            "--test",
+            "harness",
+            "--test",
+            "typed_conformance",
+            "--test",
+            "typed_flow",
+            "--test",
+            "typed_calls",
+            "--test",
+            "native_overload_origins",
+            "--test",
+            "typed_ruff_context",
+        ],
     }[boundary]
-    target_options = {"--lib", "--test", "--tests", "--bin", "--bins", "--example", "--examples", "--bench", "--benches", "--all-targets"}
+    target_options = {
+        "--lib",
+        "--test",
+        "--tests",
+        "--bin",
+        "--bins",
+        "--example",
+        "--examples",
+        "--bench",
+        "--benches",
+        "--all-targets",
+    }
     # Explicit Cargo targets replace family defaults; Nextest filters alone still select
     # within the family's ordinary targets. Combining --tests with --test builds all tests.
     if any(argument.split("=", 1)[0] in target_options for argument in filters):
@@ -37,14 +75,19 @@ def cargo_command(command: list[str], configuration: list[str]) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("boundary", choices=("store", "serving", "mcp", "compiler", "compiler-cli", "providers"))
+    parser.add_argument(
+        "boundary", choices=("store", "serving", "mcp", "compiler", "compiler-cli", "providers")
+    )
     parser.add_argument(
         "--cli",
         action="store_true",
         help="Build and exercise the native selection CLI in the publication journey",
     )
     parser.add_argument(
-        "--cargo-config", action="append", default=[], metavar="KEY=VALUE",
+        "--cargo-config",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
         help="Temporary Cargo configuration for this control invocation",
     )
     options, filters = parser.parse_known_args()
@@ -53,20 +96,12 @@ def main() -> int:
     with fixture() as owned:
         env = normalized_env(owned.environment(), native_inputs=False)
         env.update(INSTA_UPDATE="no", UV_NO_SYNC="1")
-        runtime=owned.scratch / "compiler-runtime.json"
-        runtime.write_text(json.dumps({
-            "endpoint":owned.config["grpc_endpoint"],
-            "username":owned.config["admin_user"],"password":owned.config["admin_password"],
-            "viewer_username":"fixture_viewer","viewer_password":owned.config["admin_password"]+"_viewer",
-            "namespace":owned.config["namespace"],"cache_database":"compiler_cache",
-            "selection":str(owned.scratch / "selected.json"),
-        }))
-        os.chmod(runtime,0o600)
-        owned.query("DEFINE DATABASE compiler_cache STRICT;")
-        env["LCTX_COMPILER_RUNTIME_CONFIG"]=str(runtime)
+        # The fixture attachment supplies LCTX_SURREAL_TEST_CONFIG and LCTX_COMPILER_RUNTIME_CONFIG.
 
         def run(command: list[str]) -> int:
-            return subprocess.run(cargo_command(command, options.cargo_config), cwd=ROOT, env=env, check=False).returncode
+            return subprocess.run(
+                cargo_command(command, options.cargo_config), cwd=ROOT, env=env, check=False
+            ).returncode
 
         if options.cli:
             code = run(["cargo", "build", "--release", "--locked", "-p", "lctx", "--bin", "lctx"])
@@ -76,7 +111,18 @@ def main() -> int:
 
         if options.boundary in {"compiler", "compiler-cli", "providers"}:
             packages = compiler_packages(options.boundary, filters)
-            return run(["cargo","nextest","run","--release","--no-fail-fast","--no-tests=fail",*packages,*filters])
+            return run(
+                [
+                    "cargo",
+                    "nextest",
+                    "run",
+                    "--release",
+                    "--no-fail-fast",
+                    "--no-tests=fail",
+                    *packages,
+                    *filters,
+                ]
+            )
         if options.boundary != "mcp":
             packages = (
                 ["-p", "lctx-surrealdb", "-p", "lctx-publisher"]
@@ -102,7 +148,19 @@ def main() -> int:
         env["LCTX_EVAL_WORKER"] = str(ROOT / "target" / "release" / "lctx-eval")
         serving = owned.scratch / "serving.json"
         env["LCTX_RETAIN_NATIVE_FIXTURE_CONFIG"] = str(serving)
-        code = run(["cargo", "test", "--release", "-p", "lctx-serving", "--test", "native_journey", "--", "--nocapture"])
+        code = run(
+            [
+                "cargo",
+                "test",
+                "--release",
+                "-p",
+                "lctx-serving",
+                "--test",
+                "native_journey",
+                "--",
+                "--nocapture",
+            ]
+        )
         if code:
             return code
         if not serving.is_file():

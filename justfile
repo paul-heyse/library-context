@@ -115,6 +115,14 @@ verify-tooling *args:
 qualify:
     uv run --no-sync python scripts/verify.py qualify
 
+# Disposable native SurrealDB fixtures (D2): `-- CMD` runs CMD with LCTX_SURREAL_TEST_CONFIG and
+# LCTX_COMPILER_RUNTIME_CONFIG on a run-owned server; `--keep [-- CMD]` | `--attach ID -- CMD` |
+# `--stop ID` | `--restart ID` | `--list [--json]` | `--sweep`. Sweeps dead owners at start
+# (`--no-sweep`); `--memory`/LCTX_FIXTURE_MEMORY sets the cap (default 1G). Exit 75 is blocked.
+[positional-arguments]
+fixture *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/surrealdb_fixture.py "$@"
+
 # Explicit complete fixture registration over native persisted producers.
 fixture-corpus:
     uv run --no-sync python scripts/native_controls.py compiler -E "binary(fixture_corpus)"

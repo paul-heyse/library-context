@@ -14,15 +14,17 @@ and embedding cache are preserved. No operator-state change is authorized by the
 ## Server and configuration
 
 Use the reviewed SurrealDB 3.3 server, with persistent RocksDB storage and authentication. The
-owned control fixture selects image
-`surrealdb/surrealdb@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20`.
-Bind its port to loopback; gRPC and HTTP use that same port. Configure a 20-second query timeout
+owned control fixture runs the native 3.3.0 release binary, byte-identical to `/surreal` in image
+`surrealdb/surrealdb@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20`, and
+checks its sha256 and `surreal version` before every start ([pins](pins.md#native-runtime-control);
+`LCTX_SURREAL_BIN` selects the file). It binds an explicit loopback port that a restart keeps; gRPC
+and HTTP use that same port. Configure a 20-second query timeout
 and 10-second transaction timeout. Choose block-cache and write-buffer sizes for the server
 allocation using the actual 3.3 variables `SURREAL_ROCKSDB_BLOCK_CACHE_SIZE`,
 `SURREAL_ROCKSDB_WRITE_BUFFER_SIZE` and `SURREAL_ROCKSDB_MAX_WRITE_BUFFER_NUMBER`.
 Leave allocation room for requests, other engine state and background compaction. The server
 memory threshold is a guard rather than an RSS cap; retain synchronous durability and background
-maintenance. Host-derived defaults can exceed an intended container allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a 512 MiB tracked-memory threshold and a 1 GiB container limit. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
+maintenance. Host-derived defaults can exceed an intended allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a tracked-memory threshold of half its cap and a user-systemd `MemoryMax` cap (`LCTX_FIXTURE_MEMORY`, default 1 GiB; idle RSS is about 200 MB, so caps below about 250 MB fail at startup). An OOM kill is reported as an infrastructure failure. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
 options, persistent restart and readiness checks. It never inspects the operator store.
 
 Set `SURREAL_GRPC_MAX_MESSAGE_SIZE=128MiB` for this native row contract. SurrealDB3.3 defaults
@@ -176,8 +178,9 @@ the host PostgreSQL installation are outside this pivot.
 
 ## Focused controls
 
-`python3 scripts/surrealdb_fixture.py -- COMMAND` owns one authenticated persistent disposable
-server, supplies `LCTX_SURREAL_TEST_CONFIG`, and removes only its own container and scratch files.
+`just fixture -- COMMAND` owns one authenticated persistent disposable server, supplies
+`LCTX_SURREAL_TEST_CONFIG` and `LCTX_COMPILER_RUNTIME_CONFIG`, and removes only its own server and
+state (`--keep`, `--attach`, `--list` and `--stop` manage kept servers).
 Use the current `verify-store` / `verify-serving` routes and explicit filters. Persisted compiler
 controls additionally receive `LCTX_COMPILER_RUNTIME_CONFIG` through
 `uv run --no-sync python scripts/native_controls.py compiler -- -E '<filter>'`;
