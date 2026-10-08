@@ -82,6 +82,14 @@ from harness import (
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# What `Attachment.environment` supplies to a command (verify's --print names these).
+ATTACHMENT_VARIABLES = (
+    "LCTX_SURREAL_TEST_CONFIG",
+    "LCTX_COMPILER_RUNTIME_CONFIG",
+    "LCTX_FIXTURE_ID",
+    "LCTX_FIXTURE_ATTACHMENT",
+)
+
 # The selected server: 3.3.0 at source 238bfeb11f5725bebed370167656748df8067595, whose
 # protocol/DDL/restore parity the native controls were qualified against. The official release
 # binary is byte-identical to /surreal in image
