@@ -39,7 +39,6 @@ castaway = { version = "0.2.4" }
 char_str = { version = "0.0.4", features = ["get-size", "serde"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "wasmbind"] }
 compact_str = { version = "0.10.0", features = ["serde"] }
-crossbeam-utils = { version = "0.8.23" }
 dashmap = { version = "6.2.1", default-features = false, features = ["rayon", "serde"] }
 digest = { version = "0.10.7", features = ["mac", "std"] }
 either = { version = "1.18.0", features = ["use_std"] }
@@ -49,7 +48,6 @@ foldhash = { version = "0.2.0" }
 form_urlencoded = { version = "1.2.2" }
 futures-channel = { version = "0.3.34", features = ["sink"] }
 futures-core = { version = "0.3.34" }
-futures-io = { version = "0.3.34" }
 futures-util = { version = "0.3.34", features = ["channel", "io", "sink"] }
 get-size2 = { version = "0.11.0", features = ["compact-str", "derive", "hashbrown", "indexmap", "ordermap", "parking_lot", "smallvec", "thin-vec"] }
 getrandom = { version = "0.3.4", default-features = false, features = ["std"] }
@@ -67,7 +65,6 @@ num-rational = { version = "0.4.2", features = ["num-bigint-std"] }
 ordermap = { version = "1.2.2", features = ["serde"] }
 parking_lot = { version = "0.12.5", features = ["arc_lock", "send_guard"] }
 peg-runtime = { version = "0.8.6", default-features = false, features = ["std"] }
-percent-encoding = { version = "2.3.2" }
 phf = { version = "0.13.1", features = ["macros", "unicase"] }
 phf_shared-594e8ee84c453af0 = { package = "phf_shared", version = "0.13.1", default-features = false, features = ["std", "unicase"] }
 rand = { version = "0.8.8" }
@@ -156,6 +153,7 @@ bitflags = { version = "2.13.2", default-features = false, features = ["std"] }
 crc32fast = { version = "1.5.2" }
 flate2 = { version = "1.1.10", features = ["zlib-rs"] }
 futures = { version = "0.3.34", features = ["compat"] }
+futures-io = { version = "0.3.34" }
 futures-task = { version = "0.3.34", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["compat"] }
 hyper = { version = "1.11.1", features = ["client", "http1", "http2", "server"] }
@@ -166,11 +164,11 @@ once_cell = { version = "1.21.4" }
 reqwest = { version = "0.13.5", default-features = false, features = ["default-tls", "json", "multipart", "stream"] }
 rustix = { version = "1.1.5", features = ["fs", "termios"] }
 rustls = { version = "0.23.45", default-features = false, features = ["aws-lc-rs", "aws_lc_rs", "logging", "std", "tls12"] }
+simdutf8 = { version = "0.1.5", default-features = false, features = ["aarch64_neon", "public_imp"] }
 tokio = { version = "1.53.2", default-features = false, features = ["full", "test-util"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws-lc-rs", "logging", "tls12"] }
 tonic = { version = "0.14.6", features = ["gzip", "tls-aws-lc", "tls-webpki-roots", "zstd"] }
 tower = { version = "0.5.3", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
-zlib-rs = { version = "0.6.8", default-features = false, features = ["std"] }
 zstd-594e8ee84c453af0 = { package = "zstd", version = "0.13.3" }
 zstd-safe-15128469a54ed75a = { package = "zstd-safe", version = "7.3.0", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
 
