@@ -29,5 +29,6 @@ compact enough for integration without hiding consequential details.
 
 Follow AGENTS.md's test timing and tool routes. Formatting and generators belong to the
 root's `just turn-end`. Applicable non-functional leaf checks run once at scope end, by the integrator
-unless the assignment includes them. Shared-contract changes and unresolved cross-boundary
-uncertainty require assembled `just qualify` at functional completion (ADR-0126).
+unless the assignment includes them. Assembled `just qualify` runs only when the current plan's
+verification boundary or a shared-contract change calls for it (ADR-0126); during the design phase,
+tests confirm the change and its first-principles value rather than revalidating existing scope.

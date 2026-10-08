@@ -44,8 +44,9 @@ copying the whole conversation. Reuse a worker for coherent follow-up; use fresh
 independent review, giving requirements and source evidence without steering its verdict.
 
 Parallelize work whose inputs are ready. Resolve shared contracts before dependent edits and name
-one owner for shared model declarations, manifests, generated surfaces and integration. Use separate
-worktrees only for genuinely concurrent production editing, as AGENTS.md requires. Give reviewers concrete acceptance criteria, affected consumers and relevant failure cases. Review or test a
+one owner for shared model declarations, manifests, generated surfaces and integration. Use a
+worktree (`just worktree`) when a worker needs an independent revision or conflicts with another
+agent's uncommitted state; otherwise workers may share one stable checkout. Give reviewers concrete acceptance criteria, affected consumers and relevant failure cases. Review or test a
 stable revision or identified tree; re-evaluate affected evidence after integration changes it.
 Keep a single writer for the final plan, shared status and finding disposition unless ownership is
 explicitly partitioned. Existing plans own scheduled work; do not create a second task ledger.

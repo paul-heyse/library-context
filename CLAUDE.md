@@ -6,8 +6,14 @@
   because pyrefly is the type checker. There is no in-session Python language server; pyrefly runs
   as the applicable `just types` leaf at scope end.
 - **No hooks.** Nothing formats files after Edit/Write or at stop. Run `just turn-end` at the end of
-  a turn that changed files, `just ready` after an environment change and applicable
-  non-functional leaves at scope end (AGENTS.md, Commands; ADR-0126).
+  a turn that changed files (`--paths`/`--staged` when another agent's uncommitted work is in the
+  tree), `just ready` after an environment change and applicable non-functional leaves at scope
+  end (AGENTS.md, Commands; ADR-0126/0134).
+- **Runtime defaults (project settings):** `UV_NO_SYNC=1` for ad hoc `uv run`; the superpowers
+  plugin and the claude.ai Notion, Claude Docs and Dropbox connectors are off here because they
+  inject competing workflow instructions. Restore superpowers with `enabledPlugins` in the
+  gitignored local settings file beside `settings.json`; restore a connector by removing its
+  `deniedMcpServers` entry.
 - **Subagents:** [shared roles](.agents/roles/README.md) define responsibility and handoff;
   `.claude/agents/` supplies native model settings and no tool lists (ADR-0113). `implementer` uses the executor
   contract. Use fresh context for independent review; the binding selects formal tier and purpose.
