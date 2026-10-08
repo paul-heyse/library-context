@@ -1,7 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "enabledPlugins": {
-    "pyright-lsp@claude-plugins-official": false
+    "pyright-lsp@claude-plugins-official": false,
+    "superpowers@synced": false
   },
   "permissions": {
     "allow": [
@@ -44,5 +45,19 @@
       "Bash(cargo publish*)",
       "Bash(pip install*)"
     ]
-  }
+  },
+  "env": {
+    "UV_NO_SYNC": "1"
+  },
+  "deniedMcpServers": [
+    {
+      "serverName": "claude.ai Notion"
+    },
+    {
+      "serverName": "claude.ai Claude Docs"
+    },
+    {
+      "serverName": "claude.ai Dropbox"
+    }
+  ]
 }
