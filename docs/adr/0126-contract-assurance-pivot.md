@@ -84,3 +84,11 @@ until actual acceptance passes. Real-library activation, live vectors, product c
 heldout remain stopped. No speed or RSS improvement is claimed without comparable measurements.
 Optional measurements do not block functional completion. The coordinator records implementation,
 qualification and remaining limits; accepted decision status alone closes no finding.
+
+## Amendments
+
+- 2026-10-07 (pointer, [ADR-0134](0134-scoped-preparation-and-maintenance.md); approved by the operator as plan OD1): ADR-0134 now governs two clauses of this record:
+  - "Readiness prepares only declared Python member/group closure, once before execution." Readiness observes instead, and preparation happens through the explicit, scoped `just sync` routes.
+  - The whole-tree `just turn-end` duty. Maintenance may instead be scoped to a turn's paths when whole-tree maintenance would rewrite another agent's uncommitted work.
+
+  Every other decision here remains in force.

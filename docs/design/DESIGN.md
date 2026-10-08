@@ -96,7 +96,15 @@ and applicable leaves on one tree. This assurance pivot requires that assembled 
 focused pass does not establish it. Minor unrelated documentation/library changes do not
 implicitly trigger it. Failures rerun the affected boundary or leaf. The root agent runs
 `just turn-end` (formatting, generators) at the end of a turn that changed files, and `just ready`
-after an environment change. The default operator store is inspected
+after an environment change. **Accepted, implementation in progress (2026-10-07, ADR-0134):**
+- **Readiness observes.** Verification readiness checks each boundary's prerequisites and reports
+  `blocked` together with its repair route. It never synchronizes.
+- **Preparation is explicit and scoped.** Preparation runs only through `just sync tools|native|vllm`,
+  composed by `just ready`, under exclusive managed ownership of the environment and the checkout's
+  extension directory.
+- **Maintenance may be scoped.** When whole-tree maintenance would rewrite another agent's uncommitted
+  work, `just turn-end --paths …` scopes formatting and generators to the turn's paths.
+  The turn reports any skipped step. The default operator store is inspected
 only by explicit operator action; qualification owns disposable store configuration.
 
 **Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and
@@ -113,7 +121,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0133, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113
+> Decision: ADR-0133, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0079, ADR-0040, ADR-0126, ADR-0109, ADR-0113, ADR-0134
 
 <a id="section-1-3"></a>
 
