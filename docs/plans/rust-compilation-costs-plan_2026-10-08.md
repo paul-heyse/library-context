@@ -143,7 +143,7 @@ Preserve typed identity validation, exact immutable views/epochs, read-only SQL 
 
 ## 5. Execution packages and dependencies
 
-BC0 decision/owner updates are implemented; BC1–BC5 remain open for their actual implementation and acceptance. The root owns shared declarations, manifests, verification commands, plan disposition and integration. Parallel reasoning/work is useful where mutable ownership does not conflict; logical independence is not permission for competing edits to workspace/native/model files.
+BC0 decision/owner updates are implemented. BC1/BC2 source and BC4 grouping are integrated on the preserved PC baseline; their functional acceptance and BC3/BC5 remain open. The root owns shared declarations, manifests, verification commands, plan disposition and integration. Parallel reasoning/work is useful where mutable ownership does not conflict; logical independence is not permission for competing edits to workspace/native/model files.
 
 | Package | Working prerequisite | Delivered capability and completion boundary |
 |---|---|---|
@@ -187,7 +187,7 @@ Current available command forms include `just verify --print --select compiler:p
 
 | Question from the source review | Disposition and settling evidence |
 |---|---|
-| Dominant current backend body/pass | **Deferred.** No new compile probe for authoring. Inspect residual ordinary-build evidence if BC1/BC3 leave an excessive tail; uncertainty does not block removing demonstrated specialization. |
+| Dominant current backend body/pass | **Measured partial diagnostic / source-reviewed, 2026-10-08 (§12/§13).** Retained C1-related completed InstCombine events fall sharply after the ordered boxed-loader correction. Matched pre-optimization IR and a simplified pinned-LLVM reproducer attribute a related PHI-heavy path to the structural producer. The exact active pass/optimized PHI shape in the actual compiler remains unresolved; the broader coroutine review supports coherent phase/loader containment without claiming a compiler defect or full-build speedup. |
 | Runtime overhead of erasure | **Scheduled in BC1/BC5.** Owned batch-level requests and actual operational controls; compare timing only under separately named conditions before claiming equivalent performance. Correct a material regression before closure. |
 | O1 versus O0 | **O1 selected; qualification scheduled in BC3.** Known O0 stack failures prevent automatic fallback. Any failure drives coherent future/stack ownership correction. |
 | Exact provider closure | **Selected at conservative normal/build crate/asset scope in BC2.** Mutation/deletion/relocation and capture consumers establish completeness. Finer lockfile/source granularity is deferred until repeated relevant invalidation exposes a concrete need. |
@@ -199,11 +199,11 @@ Deferred investigations have triggers, not assumed fixes. Do not compensate with
 
 ## 9. Sole compilation-cost finding disposition
 
-The source review owns original diagnoses/evidence; this table owns current scheduled status. No finding is closed by authoring or operator policy confirmation. Subsequent reviews link here and retain source IDs.
+The source reviews own their dated diagnoses/evidence; this table owns current scheduled status. No finding is closed by authoring or operator policy confirmation. Subsequent reviews link here and retain source IDs. The coroutine review's F01 extends compilation-cost F01 through the same structural cause; its distinct closure obligations remain visible in §13.
 
 | Source finding | Disposition | Responsible component / scheduled work | Closure evidence |
 |---|---|---|---|
-| [Compilation-cost F01](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F01) | **open** | NativeCalls/workspace/consumed-row/stage owners; BC1/BC5 | Shared emitted task path and setup/stream source, residual generic and C1 coroutine corrections (§12), complete caller migration, charged cancellation/drain/input controls and operational runtime qualification. |
+| [Compilation-cost F01](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F01); [coroutine review F01](../design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md#F01) | **open** | NativeCalls/workspace/consumed-row/stage and scoped-loader owners; BC1/BC5 | Shared emitted task path and setup/stream source; residual generic/C1 correction (§12); coherent structural and recurring scope-loader boundaries containing child futures and drop paths (§13); complete caller migration; preserved input/output, charged cancellation/drain and completion contracts; operational runtime qualification. Conditional bulk append requires a separate semantic comparison before adoption. |
 | [Compilation-cost F02](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F02) | **open** | Extraction fingerprint and workspace execution-identity owners; BC2/BC5 | Relevant production closure, unrelated downstream stability, relevant mutation/deletion/relocation effects and captured composite cold transport. |
 | [Compilation-cost F03](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F03) | **open** | Cargo/verification/CLI artifact owners; BC3/BC5 | Qualified O1/LTO-off normal-stack local loop, installed default selection, truthful profile receipts and retained release acceptance. |
 | [Compilation-cost F04](../design_review/reviews/design_review_rust-compilation-costs_2026-10-08.md#F04) | **open** | Extraction/core harness and verification selection owners; BC4/BC5 | Grouped target/source inventory, one shared driver per group, preserved discovery/selection/assertions and independently owned concurrent fixtures. |
@@ -216,9 +216,11 @@ The [independent design/target review](../design_review/reviews/design_review_ru
 
 **Authoring checks, 2026-10-08: passed** `just docs-check` (ADR metadata, agent instructions, documentation publication/search and offline links: 343 canonical pages, zero link errors). The read-only source inventory check passed; 104 pre-existing dirty files outside authorized document edits remained byte-identical. **not_run:** product checks, compile probes and resumed PC acceptance, because this scope creates the plan documents. These checks do not establish product acceptance.
 
-The next implementation action is BC0's decision/owner routing, followed by the actual BC1/BC2 contract corrections. Existing PC1–PC5 work remains dirty and PC6 acceptance stays open. STATUS links to this plan for compilation-cost scope and to the persisted coordinator for its distinct execution boundary.
+The current action is candidate qualification of the integrated BC1/BC2 contracts and BC4 groups, followed by BC3 default installation and BC5 release acceptance. Existing PC1–PC5 work remains dirty and PC6 acceptance stays open. STATUS links to this plan for compilation-cost scope and to the persisted coordinator for its distinct execution boundary.
 
-**Execution checkpoint, 2026-10-08:** ADR-0137 carries forward the unaffected ADR-0136 decisions and installs the confirmed local/provenance target. Architectural owners, agent instructions and the review binding name the qualification-gated transition. BC1–BC5 checks remain pending; the dirty PC1–PC5 baseline is preserved.
+**Execution checkpoint, 2026-10-08:** ADR-0137 carries forward the unaffected ADR-0136 decisions and installs the confirmed local/provenance target. Architectural owners, agent instructions and the review binding name the qualification-gated transition. BC1 erases requests before scheduling, owns complete charged batches, shares registration and checked batch streaming, and migrates its callers. BC2 roots fingerprints at production owners and composes execution identity at ordinary output creation. BC4 moves 42 extraction and 19 core topics into the approved 6/5 groups; directly annotated test functions remain unchanged (226), with nested fixture controls retained. `cargo check --locked -p cpg-core -p cpg-extract --tests` **passed** after the grouped macro-import repair. Independent source review found patch membership and snapshot-path defects; a conservative `third_party` watch and expectation relocation correct them. Snapshot payload is unchanged. Candidate compilation and tooling/profile controls are in progress; functional BC1–BC5 acceptance remains pending. The dirty PC1–PC5 baseline is preserved.
+
+**Final-source integration, 2026-10-08:** a focused followup identified residual generic/inventory DataFusion loops in native analysis, frontier coverage, embedding/retrieval metadata, graph preparation and normalization admission. These now use the same physical stream loop, preserving exact completed-input gates or the detached validator's invariant/table binding. Owner-authored Expr predicates remain typed, and specialized root/join/chunk loops remain concrete. Independent source review found no material defect in this migration. `cargo check --locked -p cpg-core -p cpg-extract --tests` **passed** on the integrated source, including the new native provenance controls. The root interrupted its own preceding candidate compilation before test execution because it omitted this required migration; no candidate test verdict was established. Dependency/intermediate caches remain intact. Final-source candidate qualification was interrupted for the operator-authorized diagnostics in §11; the active default remains release.
 
 ## 11. Opt-in compilation diagnostics
 
@@ -341,7 +343,7 @@ Operator stores, protected data, source baseline and shared caches remain preser
 
 ## 12. Interrupted-capture assessment and remaining correction
 
-**Measured diagnostic / source-inspected interpretation, 2026-10-08; remedies Proposed.**
+**Measured partial diagnostics / source-inspected interpretation, 2026-10-08; C1 and residual adapter corrections Implemented, focused verification below.**
 The retained run above was stopped before compiler completion. Its normal library and unit-test
 harness both used `local-test-candidate` (O1, LTO off), with available compiler parallelism.
 This evidence establishes a compilation hotspot on the captured dirty source; it does not
@@ -358,7 +360,7 @@ establish product correctness, full build duration or improvement against an uni
 
 The busiest normal-library function is
 [`catalog_evidence::produce`](../../crates/cpg-core/src/catalog_evidence.rs).
-Its two `decoder_inputs!` expansions each contain143 entries:54 catalog inputs,17 catalog
+Before correction, its two `decoder_inputs!` expansions each contained143 entries:54 catalog inputs,17 catalog
 outputs,55 evidence inputs,6 runtime inputs,9 expected-domain inputs and2 authored
 metadata types. The inventory and artifact loops therefore place286 specialized await sites
 inside one producer coroutine; overlapping entries are not unique types or runtime query counts.
@@ -379,7 +381,7 @@ amplify those scans. This is a credible mechanism for the sampled hotspot, not p
 inner loop dominates or an LLVM defect: the capture does not retain the relevant optimized IR.
 No debugger suspension or additional compiler run is needed to establish the current priority.
 
-**Proposed C1 correction within F01/BC1:** generate ordered typed loader adapters mechanically
+**Implemented C1 correction within F01/BC1:** generate ordered typed loader adapters mechanically
 from the existing decoder inventory, and await their uniform boxed futures in one monomorphic
 loop. Erase the concrete future before the loop owns it. Keep exact record/prefix permits,
 owner-selected SQL, artifact admission, coverage checks and `ConsumedInputs` duplicate handling
@@ -404,13 +406,12 @@ In particular, expected-input validation must stay conditional on a handled rela
 it unconditionally would change the existing skipped-input contract. Typed writer preparation
 can remain concrete while shared completion awaiting is separated.
 
-**Next execution order:** correct the C1 await expansion and residual adapter boundaries, compile
-check touched crates and run the minimal revealing ownership/coverage controls, then repeat a
-comparable retained diagnostic to test attribution and complete candidate runtime qualification.
-Only then install BC3's qualified local default and run BC5 release acceptance. The current
-capture does not justify compiler/thread caps, a lower production optimization level, blanket
-LLVM-pass disabling or a toolchain upgrade. If the corrected coroutine still produces expensive
-PHI optimization, retain its IR and reduce a targeted compiler issue using the pinned toolchain.
+**Authorized completion boundary:** this execution delivers the C1/residual adapter correction,
+focused controls and retained diagnosis. BC3 default installation and BC5 release acceptance remain
+pending. Available compiler/test parallelism, production optimization and runtime limits remain
+unchanged. The current capture does not justify blanket LLVM-pass disabling or a toolchain upgrade.
+A residual PHI tail required retained IR and function attribution; the subsequent retained-IR
+assessment below distinguishes the simplified reproducer from the actual compiler.
 
 Raw evidence and derived artifacts remain under
 `build/runs/20261008T181813.329Z-ddd158/compile-profile/`: `units/` owns raw captures and reports;
@@ -419,5 +420,145 @@ Raw evidence and derived artifacts remain under
 `assessment/decoder-receipts.json` owns the successful interrupted-profile conversion receipts.
 Summaries omit unfinished event scopes. Instrumentation itself has overhead, including86.31s
 of completed query-string allocation in the normal summary; the measured durations cannot be
-presented as an uninstrumented compile baseline. No Rust source remediation has been applied
-by this diagnostic assessment, and F01–F04 remain open at §9.
+presented as an uninstrumented compile baseline. The following correction is now integrated; F01–F04 remain open at §9 because broader operational
+qualification, default installation and optimized acceptance have not been completed.
+
+
+### Correction implementation and comparison checkpoint, 2026-10-08
+
+**Implemented / independently source reviewed:** ordered C1 loader groups are generated directly
+from the existing semantic inventories. Thin typed adapters retain exact record/prefix permits,
+coverage admission and duplicate handling; one shared loop awaits their boxed futures. Inventory,
+declaration, frame publication, artifact loading, blocking computation and emission own separate
+boxed phases with the original charged owners and drop order. Typed stream callbacks are erased
+before shared async setup, conditional expected-input guards use borrowed dynamic dispatch,
+and native calls/writer completion await shared implementations. Final close remains lazy;
+submitted final writes retain both the complete charged batch and erased writer through native
+terminality. Independent combined source review found no material defect in these changes.
+
+**passed:** `cargo check --locked -p lctx-model --tests`
+(run `20261008T200128.659Z-ab2679`) and
+`cargo check --locked -p cpg-core -p lctx-model --tests`
+(run `20261008T200616.190Z-40632c`).
+**passed:** nine model controls through `just verify --select model:rust --cargo-profile
+local-test-candidate --nextest-args="--lib --test analysis_expected -E 'test(conditional_) |
+test(artifact_labels_are_transient_and_failed_permits_preserve_prepared_state)'"`
+(run `20261008T200306.501Z-07705c`). These cover conditional guard laziness and refusal before
+prepared-state consumption; they do not establish native producer acceptance.
+
+The comparable retained capture is `20261008T200802.033Z-6761de`. It uses the preceding package,
+profile, library and grouped-target selection; runner-only changes remove `--no-fail-fast` and
+add `--no-run` to compile without executing tests. The first attempt was refused by nextest's
+conflicting flags before compilation (`20261008T200747.177Z-a47384`); the corrected command
+was then recorded. The watchdog requested cancellation after600 seconds from normal compiler
+start. Nextest's separate Cargo process group survived the outer cancellation; after verifying
+both recorded compiler identities, that owned group was stopped102 seconds later. The raw
+capture and this discrepancy are retained in `assessment/comparison-watch.json` and
+`assessment/descendant-stop.json`. This is an interrupted diagnostic, not a compiler/test pass
+or an exact ten-minute recording. `just compile-profile report 20261008T200802.033Z-6761de`
+**passed** decoding both partial compiler captures and all32 retained native sample chunks
+(report run `20261008T202036.272Z-0c35a1`).
+
+**Cancellation repair checkpoint:** the diagnostic tool now records verified descendant ownership
+and stops the owned escaped Cargo/compiler groups without signaling reused or unrelated processes.
+Independent static review found no material defect; the implementing worker reports50 focused
+tool controls passed and Pyrefly zero errors/three warnings. These are attributed worker receipts,
+not a newly executed review-scope gate or proof of a repeated live compiler-stop scenario.
+Tool source remains dirty; its complete scope-end leaves and actual stop acceptance remain pending.
+
+| Comparable retained observation | Before normal / harness | After normal / harness |
+|---|---:|---:|
+| C1 parent coroutine MIR estimate |25,100 /25,100|591 /591|
+| C1-related completed InstCombine events retained at ≥1000µs |350.33s /353.16s|0.185s /0.266s|
+| Generated instruction count |13,628,512 /13,879,886|8,261,487 /9,578,756|
+| Completed object emissions / codegen modules |255/256 /255/256|255/256 /255/256|
+
+The comparison includes new C1 helper names and related concrete adapters rather than only its
+renamed parent. Timelines share the1000µs visualization threshold: submillisecond events are
+omitted, so these are retained-event totals, not the unfiltered sum of every C1 pass. Nested
+scopes are not added. Raw profiles and unfiltered compiler summaries remain available. MIR
+estimates and codegen-unit placements are not elapsed time, distinct type counts or runtime
+performance. The shared streaming, guarded submission and close coroutines each have one
+placement. Concrete record callback/close adapters remain small; they have not been mistaken
+for repeated shared coroutines.
+
+**Remaining diagnosis, updated 2026-10-08:** both corrected units stopped at255 completed object
+emissions. Their final retained native windows are98.77%/98.80% self CPU in `visitPHINode`.
+The subsequent owned IR capture `20261008T205144.595Z-adb189` retains the unfinished normal
+codegen unit's pre-optimization bitcode under `core-ir/`, using the actual compiler arguments
+with save-temps and isolated output/incremental directories. Completed dependency artifacts
+were reused; the live native controls were left untouched. The structural coroutine has7,949
+blocks and37,772 instructions before optimization. A read-only LLVM C API inspection found
+no PHIs in that pre-optimization body; it cannot establish the shape of the later hot PHIs.
+
+The retained simplified reproducer `20261008T205953.268Z-ada851` applies the pinned LLVM
+`default<O1>` pipeline with a null target machine to this exact bitcode. Its named structural
+function expands beyond2.25 million instructions; a five-second sample records99.08% self CPU
+in `visitPHINode`. The reproducer was stopped and retained. This establishes a related
+structural-function amplification path, not the exact rustc pass sequence, target configuration,
+inner loop or a proved compiler defect. Raw bitcode/LLVM hashes, commands, scripts, last named
+function and evidence limits are retained in `core-ir/assessment/structural-reproducer-assessment.json`.
+The actual native control remains compiling with the sampled related native hot path.
+
+Read-only pre-optimization inspection also identifies large summary, model, synthesis, retrieval
+and selection loader/producer bodies (`core-ir/review-ir-stats.json`). Their instruction counts
+are candidate shapes, not per-function elapsed costs or a ranking of optimization priorities.
+The [coroutine design review](../design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md)
+reconciles these observations with domain ownership and library fit. It requires revision of
+the enclosing physical composition for A4; typed record/codec leaves and synchronous kernels
+remain useful boundaries. No full compile-time or runtime improvement is claimed.
+
+Derived receipts and the attribution script live under the comparison's `compile-profile/assessment/`:
+`correction-comparison.json`, `correction_attribution.py`, `remaining-tail-inference.json` and
+normal/harness final self reports. The source capture binds the preserved dirty BC/PC tree.
+**In progress:** selected actual native/core/C1 controls, run `20261008T202337.170Z-114602`.
+**not_run:** BC3 default installation, BC5 release acceptance and real-library/operator actions;
+they are outside this correction-and-diagnosis completion boundary.
+
+## 13. Coroutine architecture review checkpoint, 2026-10-08
+
+The [independent coroutine design/target review](../design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md)
+is complete. **Decision: Revise for A4; A1–A3 and semantic/lifecycle gates hold within the
+inspected scope.** Its F01 is grouped with existing F01 at §9. It assesses structural execution
+deeply, recurring workspace coroutine shapes, coupled ownership/runtime consequences and exact
+existing-library capabilities. This is neither whole-workspace certification nor native acceptance.
+Rule impacts are **none**; no dependency, profile, toolchain or policy change is inferred.
+
+**Proposed correction direction:** retain model-owned nominal records, codecs and pure kernels;
+move coherent structural loading/publication operations behind borrowed opaque phase boundaries;
+derive thin typed loaders mechanically from existing inventories and share their ordered traversal.
+Containing the parent alone is insufficient: child futures, nested scoped-read loops and generated
+drop paths are separate closure obligations. Preserve exact type/prefix/view permits, profile
+selection, conditional coverage, first-error order, poll-time laziness, selected grain lifetime,
+charged batch/writer ownership and terminal native drainage. No new scheduler or per-row task/box
+is needed. Summary/model scopes, synthesis, retrieval preparation, selection and analytic producers
+are recurrence candidates for directed inspection, not automatically proven hotspots.
+
+The existing futures/Tokio/DataFusion/Arrow/petgraph interfaces support this direction. Borrowed
+`BoxFuture` boundaries do not require spawning or `'static` ownership; synchronous graph kernels
+already provide a positive composition example. A shared checked bulk append is **conditional**:
+consider it only if phase/loader containment leaves material output composition costs, and first
+compare cross-flush ordering, thresholds, deduplication, poisoning, backpressure, row-byte admission
+and cancellation semantics. Arrow structural validation must not replace nominal `Batch<R>` checks.
+
+**Next consequential work:** select structural loader and publication boundaries within BC1,
+using the review's legitimate countercases and preserving separate loader/phase/output/ownership
+closure evidence. Compare parent, children and drop paths across codegen units under actual pinned
+compiler settings, then qualify affected native/runtime contracts. Exact actual-rustc hot-function
+and transformed-PHI attribution remains an investigation if it could alter the remedy or establish
+a compiler defect. Raw instruction counts cannot establish elapsed-cost priority. Whole-build and
+runtime performance remain unmeasured; BC3/BC5 and current PC acceptance remain open.
+
+**Review execution scope:** no source correction, new build, compiler pass replay, sampling,
+test run, environment synchronization, process stop or cache cleanup. The coordinator inspected
+retained pre-optimization IR read-only; the review consumes earlier retained reproducer/sampling
+receipts. The actual native run `20261008T202337.170Z-114602` remains running, observed read-only
+at21:47UTC. Its result is pending. Documentation publication checks are recorded below separately
+from product qualification.
+
+**passed (review documents, 2026-10-08):** `just docs-check` (344 canonical pages, zero offline
+link errors) and scoped `git diff --check`. The published principal review matches the independent
+scratch SHA-256 `85423d9d0affcf557196ac58da7fa7508932530b701d92bef001e3708c053f22` exactly.
+Read-only hash comparison preserves all284 pre-existing non-owned dirty/untracked paths; no new
+non-owned Git path appeared. Product checks, source remediation and new compilation/profiling
+are **not_run** for this document/review scope.

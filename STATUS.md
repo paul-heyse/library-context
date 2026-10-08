@@ -2,18 +2,18 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: compiler introspection and Rust compilation-cost BC0–BC5 execution, 2026-10-08.**
-The [plan](docs/plans/rust-compilation-costs-plan_2026-10-08.md) owns all compilation-cost findings (§9).
-[ADR-0137](docs/adr/0137-qualified-local-compilation.md) records confirmed RC01/RC02 and the qualified
-local-default transition. The [target review](docs/design_review/reviews/design_review_rust-compilation-costs-plan_2026-10-08.md)
-accepts this architecture. BC0 decisions are implemented; BC1–BC5 implementation/acceptance is in progress.
-Available compiler/test parallelism and optimized production acceptance remain requirements;
-current verifier defaults remain release until candidate qualification. PC dirty work is preserved.
-**passed (authoring, 2026-10-08):** `just docs-check` (343 pages, zero link errors), exact grouped inventory.
-**passed (implementation, 2026-10-08):** locked core/extraction all-test compile check and 56 focused verifier/build-environment Python controls. BC1/BC2 source and BC4 groups are integrated on the preserved PC baseline.
-**Interrupted:** owned candidate compilation stopped before tests for operator-authorized diagnostics; no test verdict.
-**passed (tooling, 2026-10-08):**83 controls, actual sampling/rotation/owner-death retention, tiny Cargo/nextest timelines, types/lint/docs ([plan §11](docs/plans/rust-compilation-costs-plan_2026-10-08.md#11-opt-in-compilation-diagnostics)).
-**Stopped / retained:** diagnostic candidate `20261008T181813.329Z-ddd158`, no tests started. Both partial compiler profiles decode;42 sample chunks retained. **Measured hotspot:** C1 producer LLVM PHI optimization ([plan §12](docs/plans/rust-compilation-costs-plan_2026-10-08.md#12-interrupted-capture-assessment-and-remaining-correction)). **Next:** C1 coroutine/residual adapter correction, candidate qualification, BC3; **not_run:** BC5 release acceptance.
+**Current scope: Rust coroutine design review complete, 2026-10-08.**
+The [independent review](docs/design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md) requires revision for A4; inspected semantic/lifecycle boundaries hold. Phase/loader remedies remain Proposed.
+The [plan §9/§12/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#13-coroutine-architecture-review-checkpoint-2026-10-08) owns grouped F01 disposition, correction receipts and next structural boundaries; no parallel findings ledger.
+[ADR-0137](docs/adr/0137-qualified-local-compilation.md) and the [target review](docs/design_review/reviews/design_review_rust-compilation-costs-plan_2026-10-08.md) retain the qualified local-default target.
+**Implemented / source reviewed:** ordered boxed C1 loaders/phases, shared stream setup, conditional coverage, native submission and charged writer completion; no material review defect.
+**passed (2026-10-08):** core/model all-test compile check and nine focused model controls (plan §12).
+**Measured partial diagnostic:** C1 MIR25,100→591; retained ≥1ms C1 InstCombine350.33s/353.16s→0.185s/0.266s (normal/harness). Full compile-time improvement is unmeasured.
+**Retained diagnosis:** matched raw structural IR and simplified LLVM reproduction show amplification; actual-rustc transformed PHI attribution remains unresolved (plan §12).
+**In progress:** focused native/core/C1 controls `20261008T202337.170Z-114602`; still compiling at21:47UTC, left untouched.
+**not_run:** structural correction, BC3 default installation, BC5 optimized acceptance; review does not establish native/runtime acceptance.
+Active defaults remain release; available compiler/test parallelism, production settings and PC dirty work are preserved. Original tooling/docs receipts stay in plan §11/§12.
+**passed (review documents, 2026-10-08):** `just docs-check` (344 pages, zero link errors); no new product checks or compiler runs.
 
 **Persisted graph correction packages PC0–PC6 remain pending acceptance.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
