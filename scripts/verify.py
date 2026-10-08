@@ -963,15 +963,9 @@ def real_fixture(options: Options) -> Iterator[Any]:
         attachment.release()
 
 
-def test_threads(env: Mapping[str, str]) -> str:
-    """Half the CPUs unless NEXTEST_TEST_THREADS (or -j) overrides: several agents share a box."""
-    return env.get("NEXTEST_TEST_THREADS") or str(max(2, (os.cpu_count() or 4) // 2))
-
-
 def base_environment() -> dict[str, str]:
-    env = normalized_env(dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"))
-    env["NEXTEST_TEST_THREADS"] = test_threads(env)
-    return env
+    # Test parallelism is never constrained here: nextest and pytest keep their own defaults.
+    return normalized_env(dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"))
 
 
 def release_directory(env: Mapping[str, str]) -> Path:
@@ -985,7 +979,7 @@ def release_directory(env: Mapping[str, str]) -> Path:
 
 ENVIRONMENT_NAMES = {
     "fixture": ("LCTX_SURREAL_TEST_CONFIG", "LCTX_COMPILER_RUNTIME_CONFIG", "LCTX_FIXTURE_ID"),
-    "always": ("INSTA_UPDATE", "UV_NO_SYNC", "NEXTEST_TEST_THREADS"),
+    "always": ("INSTA_UPDATE", "UV_NO_SYNC"),
 }
 
 
