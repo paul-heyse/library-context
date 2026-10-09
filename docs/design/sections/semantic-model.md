@@ -74,7 +74,10 @@ reuse identical values, reject same-key different payloads and freeze immutable 
 semantic boundaries. Native indexed selection and declared-field Arrow streams supply domain
 kernels; scoped preparation and spillable DataFusion remain available where their operation fits.
 Original bytes have one bounded original-chunk owner. Retained contribution dependencies and
-current/frozen bindings serve inspection and complete transport; cross-run scheduling is deferred.
+current/frozen bindings serve inspection and complete transport. **Accepted target, 2026-10-09:**
+selective pure-product reuse and dependency invalidation follow the graph/reuse companions;
+fresh attempt ownership, provenance and independent admission remain required. Persistent
+reuse is not yet implemented.
 
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require
@@ -86,7 +89,7 @@ Native graph access is used during compilation; publication seals the same admit
 `lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
 records targeted functional controls; broad assembled qualification is not_run by user direction.
 
-> Decision: ADR-0138, ADR-0085, ADR-0117, ADR-0105, ADR-0108
+> Decision: ADR-0139, ADR-0138, ADR-0085, ADR-0117, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -711,10 +714,27 @@ directions. It uses arc IDs as `petgraph::Graph` weights and composes petgraph f
 views.
 
 **Who uses it**
-- It serves **topology analyses only**: delegation traversal, ranking, communities and the SCC
-  schedule. Relational questions stay SQL.
+- It serves delegation traversal, ranking, communities and the SCC schedule.
+  **Implemented / source-inspected, 2026-10-09:** model-owned relation operations compile to compact
+  graph kernels, indexed native access or relational operators. Placement follows operation
+  shape; the semantic graph, producer graph and operation graph retain distinct contracts.
 - The SCC schedule uses `kosaraju_scc` with the canonical callee-first order.
 - Heuristic analytics remain governed and never reach a served claim as fact.
+
+The [graph compiler plan](../../plans/graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+owns scope-program and shared-root migration. Portable programs use canonical tagged encoding
+and BLAKE3 identity; XXH3 buckets require exact equality. Shared physical demand retains separate
+owner partitions and complete admission domains. Existing specialized kernels remain ordinary
+functions with typed selected inputs. Normalization/admission share borrowed typed union views;
+C1/C2/S0/Local use charged selected copies, and SourceCall/Enriched/Model/E0 share native columns
+before private typed decoding. Complete Structural/Analytic/Summary frames retain their required
+universes. SourceCall set composition currently has a relational lowering; common scope predicates
+also have a finite graph lowering. The [assembled review](../../design_review/reviews/design_review_assembled-graph-scope-compilation_2026-10-09.md)
+accepts this inspected source boundary. The [coordinator](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns focused receipts and remaining qualification. This does not imply whole-graph hydration,
+persistent product reuse or measured benefit.
+
+> Decision: ADR-0139, ADR-0138
 
 **Compiler projection realization (Implemented / user-accepted, 2026-10-05).**
 Typed endpoint roles and named projection policies supply structure. Independent vertex inventories

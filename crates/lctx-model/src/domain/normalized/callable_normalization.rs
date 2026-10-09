@@ -1,5 +1,5 @@
 //! N3's single semantic operation, used both by materialization and publication validation.
-use super::{Rows, callables::*, entities::*, links::*, policy_revision};
+use super::{Rows, RowsView, callables::*, entities::*, links::*, policy_revision};
 use crate::domain::{
     assertion::AssertionQualification,
     attribution::*,
@@ -16,7 +16,10 @@ use crate::domain::{
 macro_rules! inputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct CallableData { $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct CallableDataView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
         impl CallableData {
+            pub fn view(&self) -> CallableDataView<'_> { CallableDataView { $($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
@@ -30,14 +33,16 @@ crate::normalized_callable_inputs!(inputs);
 macro_rules! outputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct CallableOutput { $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct CallableOutputView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        impl CallableOutputView<'_> { pub fn matches(&self, expected: &CallableOutput) -> Result<(), ModelError> { $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("normalized callable closure differs: {}", <$ty>::NAME))); })* Ok(()) } }
         impl CallableOutput {
+            pub fn view(&self) -> CallableOutputView<'_> { CallableOutputView { $($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
-            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> {
-                $(if !self.$field.same(&expected.$field) { return Err(invalid(format!("normalized callable closure differs: {}", <$ty>::NAME))); })* Ok(())
-            }
+            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> { self.view().matches(expected) }
             pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
         }
     }
@@ -46,18 +51,18 @@ crate::normalized_callable_outputs!(outputs);
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
+fn need<'a, R: Record>(rows: &RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid(format!("normalized callable requires {}", R::NAME)))
 }
 fn context(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     qualification: Id<AssertionQualification>,
 ) -> Result<Id<AnalysisContext>, ModelError> {
     Ok(need(&data.qualifications, qualification)?.context)
 }
 fn exact(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     qualification: Id<AssertionQualification>,
 ) -> Result<bool, ModelError> {
     let q = need(&data.qualifications, qualification)?;
@@ -85,7 +90,7 @@ struct Index<'a> {
     _charge: StateCharge,
 }
 fn callable(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     resolution: &SymbolEntityResolution,
 ) -> Option<Id<CallableEntity>> {
     if resolution.status != ResolutionStatus::Resolved {
@@ -97,7 +102,7 @@ fn callable(
     }
 }
 impl<'a> Index<'a> {
-    fn new(data: &'a CallableData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    fn new(data: &CallableDataView<'a>, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut index = Self {
             universe: Default::default(),
             resolutions: Default::default(),
@@ -249,7 +254,7 @@ fn evidence(
 /// Descriptor recognition only accepts an exact bare builtin reference, with every retained
 /// lexical alternative definite and identical. Shadowed names, aliases and attributes refuse.
 fn descriptor(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     index: &Index<'_>,
     decorator: &DeclarationDecorator,
     ctx: Id<AnalysisContext>,
@@ -347,7 +352,7 @@ fn trait_descriptor(row: &FunctionTraitObservation) -> Option<DescriptorKind> {
     }
 }
 fn signature_knowledge(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     rows: &[&Signature],
     budget: &ResourceBudget,
 ) -> Result<(Knowledge, CallableReason), ModelError> {
@@ -393,7 +398,7 @@ fn signature_knowledge(
     }
 }
 fn derive_assessments(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     index: &Index<'_>,
     output: &mut CallableOutput,
     assessments: &mut ChargedMap<CallableContext, Id<EffectiveCallableAssessment>>,
@@ -691,6 +696,14 @@ pub fn derive_assessment(
     context: Id<AnalysisContext>,
     budget: &ResourceBudget,
 ) -> Result<CallableOutput, ModelError> {
+    derive_assessment_view(&data.view(), callable, context, budget)
+}
+pub fn derive_assessment_view(
+    data: &CallableDataView<'_>,
+    callable: Id<CallableEntity>,
+    context: Id<AnalysisContext>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
     let index = Index::new(data, budget)?;
     if !index.universe.contains(&(callable, context)) {
         return Err(invalid(
@@ -720,7 +733,16 @@ pub fn admit_assessment(
     context: Id<AnalysisContext>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let expected = derive_assessment(data, callable, context, budget)?;
+    admit_assessment_view(&data.view(), &stored.view(), callable, context, budget)
+}
+pub fn admit_assessment_view(
+    data: &CallableDataView<'_>,
+    stored: &CallableOutputView<'_>,
+    callable: Id<CallableEntity>,
+    context: Id<AnalysisContext>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let expected = derive_assessment_view(data, callable, context, budget)?;
     stored
         .assessments
         .same(&expected.assessments)
@@ -737,7 +759,7 @@ pub fn admit_assessment(
     Ok(())
 }
 fn derive_variants(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     index: &Index<'_>,
     output: &mut CallableOutput,
     assessments: &ChargedMap<CallableContext, Id<EffectiveCallableAssessment>>,
@@ -800,7 +822,7 @@ fn derive_variants(
     Ok(())
 }
 fn derive_slots(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     output: &mut CallableOutput,
     selected: Option<&ChargedSet<Id<Signature>>>,
     budget: &ResourceBudget,
@@ -889,6 +911,13 @@ pub fn normalize_callable(
     selected: Id<CallableEntity>,
     budget: &ResourceBudget,
 ) -> Result<CallableOutput, ModelError> {
+    normalize_callable_view(&data.view(), selected, budget)
+}
+pub fn normalize_callable_view(
+    data: &CallableDataView<'_>,
+    selected: Id<CallableEntity>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
     let index = Index::new(data, budget)?;
     let mut output = CallableOutput::new(budget);
     let mut assessments = Default::default();
@@ -918,7 +947,15 @@ pub fn admit_callable(
     selected: Id<CallableEntity>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let expected = normalize_callable(data, selected, budget)?;
+    admit_callable_view(&data.view(), &stored.view(), selected, budget)
+}
+pub fn admit_callable_view(
+    data: &CallableDataView<'_>,
+    stored: &CallableOutputView<'_>,
+    selected: Id<CallableEntity>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let expected = normalize_callable_view(data, selected, budget)?;
     if !stored.assessments.same(&expected.assessments)
         || !stored.decorators.same(&expected.decorators)
         || !stored.premises.same(&expected.premises)
@@ -931,7 +968,7 @@ pub fn admit_callable(
     Ok(())
 }
 fn signature_assessment(
-    data: &CallableData,
+    data: &CallableDataView<'_>,
     index: &Index<'_>,
     signature: &Signature,
     output: &mut CallableOutput,
@@ -968,6 +1005,13 @@ pub fn normalize_signature(
     selected: Id<Signature>,
     budget: &ResourceBudget,
 ) -> Result<CallableOutput, ModelError> {
+    normalize_signature_view(&data.view(), selected, budget)
+}
+pub fn normalize_signature_view(
+    data: &CallableDataView<'_>,
+    selected: Id<Signature>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
     let index = Index::new(data, budget)?;
     let signature = need(&data.signatures, selected)?;
     let mut output = CallableOutput::new(budget);
@@ -1000,6 +1044,13 @@ pub fn normalize_overload(
     selected: Id<types::NativeOverloadObservation>,
     budget: &ResourceBudget,
 ) -> Result<CallableOutput, ModelError> {
+    normalize_overload_view(&data.view(), selected, budget)
+}
+pub fn normalize_overload_view(
+    data: &CallableDataView<'_>,
+    selected: Id<types::NativeOverloadObservation>,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
     if data.overload_traces.len() != 1 || data.overload_traces.get(selected).is_none() {
         return Err(invalid(
             "overload kernel needs exactly its selected complete trace",
@@ -1027,7 +1078,7 @@ pub fn normalize_overload(
         )?;
     }
     derive_variants(data, &index, &mut output, &assessments, Some(&roots))?;
-    super::overload_association::associate(data, &mut output, budget)?;
+    super::overload_association::associate_view(data, &mut output, budget)?;
     output.assessments = Rows::new(budget);
     output.decorators = Rows::new(budget);
     output.premises = Rows::new(budget);
@@ -1037,6 +1088,12 @@ pub fn normalize_overload(
 }
 pub fn normalize(
     data: &CallableData,
+    budget: &ResourceBudget,
+) -> Result<CallableOutput, ModelError> {
+    normalize_view(&data.view(), budget)
+}
+pub fn normalize_view(
+    data: &CallableDataView<'_>,
     budget: &ResourceBudget,
 ) -> Result<CallableOutput, ModelError> {
     let index = Index::new(data, budget)?;
@@ -1054,8 +1111,45 @@ pub fn normalize(
     )?;
     derive_variants(data, &index, &mut output, &assessments, None)?;
     derive_slots(data, &mut output, None, budget)?;
-    super::overload_association::associate(data, &mut output, budget)?;
+    super::overload_association::associate_view(data, &mut output, budget)?;
     Ok(output)
+}
+pub fn admit(
+    data: &CallableData,
+    stored: &CallableOutput,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    admit_view(&data.view(), &stored.view(), budget)
+}
+/// Necessary actual-source admission, shared by borrowed grains and the owning invariant checker.
+pub fn admit_view(
+    data: &CallableDataView<'_>,
+    stored: &CallableOutputView<'_>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let index = Index::new(data, budget)?;
+    let mut expected = CallableOutput::new(budget);
+    let mut assessments = Default::default();
+    let mut charge = StateCharge::new(budget, "callable-owner-admission");
+    derive_assessments(
+        data,
+        &index,
+        &mut expected,
+        &mut assessments,
+        &mut charge,
+        None,
+        budget,
+    )?;
+    if !stored.assessments.same(&expected.assessments)
+        || !stored.decorators.same(&expected.decorators)
+        || !stored.premises.same(&expected.premises)
+        || !stored.evidence.same(&expected.evidence)
+    {
+        return Err(invalid(
+            "callable owner admission differs from actual source premises",
+        ));
+    }
+    Ok(())
 }
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = CallableData::validation_inputs();
@@ -1120,31 +1214,10 @@ impl InvariantCheck for CallableCheck {
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         if self.admission {
-            let index = Index::new(&self.data, &self.budget)?;
-            let mut expected = CallableOutput::new(&self.budget);
-            let mut assessments = Default::default();
-            let mut charge = StateCharge::new(&self.budget, "callable-owner-admission");
-            derive_assessments(
-                &self.data,
-                &index,
-                &mut expected,
-                &mut assessments,
-                &mut charge,
-                None,
-                &self.budget,
-            )?;
-            if !self.output.assessments.same(&expected.assessments)
-                || !self.output.decorators.same(&expected.decorators)
-                || !self.output.premises.same(&expected.premises)
-                || !self.output.evidence.same(&expected.evidence)
-            {
-                return Err(invalid(
-                    "callable owner admission differs from actual source premises",
-                ));
-            }
-            Ok(())
+            admit_view(&self.data.view(), &self.output.view(), &self.budget)
         } else {
-            self.output.matches(&normalize(&self.data, &self.budget)?)
+            self.output
+                .matches(&normalize_view(&self.data.view(), &self.budget)?)
         }
     }
 }
@@ -1157,7 +1230,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
         captured_binding: None,
-name: "normalize_callables",
+        name: "normalize_callables",
         inputs: super::facts_stage_inputs(inputs),
         outputs: super::callables::relations()
             .iter()
@@ -1223,6 +1296,15 @@ mod callable_grain_controls {
             first.id()
         );
         admit_assessment(&data, &actual, first.id(), context, &budget).unwrap();
+        let ids = [first.id()];
+        let mut selected = data.view();
+        selected.callables = RowsView::selected(&data.callables, &ids).unwrap();
+        actual
+            .matches(&derive_assessment_view(&selected, first.id(), context, &budget).unwrap())
+            .unwrap();
+        admit_assessment_view(&selected, &actual.view(), first.id(), context, &budget).unwrap();
+        selected.resolutions = RowsView::selected(&data.resolutions, &[]).unwrap();
+        assert!(derive_assessment_view(&selected, first.id(), context, &budget).is_err());
         let mut false_claim = CallableOutput::new(&budget);
         let mut row = actual.assessments.iter().next().unwrap().clone();
         row.body = Knowledge::Known;

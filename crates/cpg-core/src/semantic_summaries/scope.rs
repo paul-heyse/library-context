@@ -1,8 +1,8 @@
 //! Summary's finite whole-frame frontier has one physically selected predecessor closure.
 //! Referenced artifacts and occurrences are dependencies, never new publication roots.
 use crate::{
-    consumed_rows::{ClosureTable, PreparedClosure, identifier},
-    normalize::call_scope::CallScopes,
+    consumed_rows::{ClosureTable, PreparedClosure},
+    normalize::call_scope::{CallScopeMode, CallScopes},
     workspace::CompletedInputs,
 };
 use futures::future::BoxFuture;
@@ -42,14 +42,39 @@ impl SummaryScopes {
                 })
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
-        Self::from_tables(inputs, tables, session, budget).await
+        Self::from_tables(inputs, tables, session, budget, model).await
     }
     async fn from_tables(
         inputs: Vec<ValidationInput>,
         mut tables: Vec<ClosureTable>,
         session: &datafusion::prelude::SessionContext,
         budget: &resources::ResourceBudget,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
+        let mut _construction = compiler_scope_program::reserve_construction(
+            inputs.len().saturating_add(6),
+            tables
+                .iter()
+                .map(|table| table.relation.fields().len())
+                .sum(),
+            0,
+            budget,
+        )?;
+        let binding_bytes = tables
+            .iter()
+            .map(|table| table.alias.capacity())
+            .sum::<usize>()
+            .saturating_add(
+                tables
+                    .iter()
+                    .map(|table| table.alias.capacity())
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_mul(6),
+            )
+            .saturating_mul(4);
+        let construction_bytes = _construction.size().saturating_add(binding_bytes);
+        _construction.try_resize(construction_bytes)?;
         let real = tables.len();
         let idx = |kind: TypeId| {
             tables[..real]
@@ -81,115 +106,57 @@ impl SummaryScopes {
             tables.push(tables[original].clone());
             parents.push((kind, original, root));
         }
-        let native: std::collections::BTreeSet<_> =
-            normalized::binding_normalization::BindingData::validation_inputs()
-                .into_iter()
-                .chain(conditions::entry::EntryData::facts_inputs())
-                .chain(execution::summary_path::PathData::inputs())
-                .map(|input| input.type_id())
-                .collect();
-        let calls=CallScopes::from_tables_with(inputs.clone(),tables,session,budget,true,false,|plan,tables|{
-   let idx=|kind:TypeId|tables[..real].iter().position(|table|table.relation.type_id()==kind);
-   let owner_idx=|kind:TypeId|parents.iter().find(|(parent,_,_)|*parent==kind).map(|(_,_,root)|*root).or_else(||idx(kind));
-   let alias=|kind:TypeId|idx(kind).map(|i|identifier(&tables[i].alias));
-   // Native identity uses Facts; predecessor semantic diagrams use the exact completed Model
-   // vocabulary. Both namespaces are explicit even when their nominal keys coincide.
-   for(from,table)in tables[..real].iter().enumerate(){
-    let epoch=if stages::is_vocabulary(table.relation.name()){inputs[from].prefix()}else if native.contains(&table.relation.type_id()){Some(stages::PublicationBoundary::Facts)}else{Some(stages::PublicationBoundary::Model)};
-    for field in table.relation.fields().iter().filter(|field|!field.list()){
-     if let Some((kind,_))=field.target(){
-      let target=tables[..real].iter().enumerate().find(|(i,t)|t.relation.type_id()==kind && (!stages::is_vocabulary(t.relation.name())||inputs[*i].prefix()==epoch)).map(|(i,_)|i);
-      if let Some(to)=target{plan.follow(from,field.name(),to)?;}
-     }
-    }
-   }
-   macro_rules! own{($member:ty,$field:literal,$owner:ty)=>{{if let(Some(member),Some(owner))=(idx(TypeId::of::<$member>()),owner_idx(TypeId::of::<$owner>())){plan.own(member,$field,owner)?;}}};}
-   macro_rules! owned_fields{($member:ty,$owner:ty)=>{{if let(Some(member),Some(owner))=(idx(TypeId::of::<$member>()),idx(TypeId::of::<$owner>())){for field in tables[member].relation.fields().iter().filter(|field|!field.list()&&field.target().map(|(kind,_)|kind)==Some(TypeId::of::<$owner>())){plan.own(member,field.name(),owner)?;}}}};}
-   let frames=identifier(&tables[frame].alias);
-   for kind in[TypeId::of::<analysis::MethodParameters>(),TypeId::of::<analysis::AnalysisDefinition>()]{if let Some(to)=idx(kind){plan.pairs(frame,to,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f CROSS JOIN {} t",identifier(&tables[to].alias)))?;}}
-   plan.pairs(frame,source,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f JOIN {} t ON t.input=f.input AND t.context=f.context",identifier(&tables[source].alias)))?;
-   for(_,original,root)in &parents{
-    let rows=identifier(&tables[*root].alias);plan.pairs(frame,*root,format!("SELECT f.id AS source_id,t.id AS target_id FROM {frames} f JOIN {rows} t ON t.input=f.input AND t.context=f.context"))?;
-    plan.pairs(*root,*original,format!("SELECT id AS source_id,id AS target_id FROM {rows}"))?;
-   }
-   // Every actual advertised predecessor member of the selected frame remains a root, including
-   // absent/ambiguous call headers and all restrictions. Dependencies cannot expand other frames.
-   own!(local_semantics::LocalContribution,"invocation",analysis::local::AnalysisInvocation);
-   own!(local_semantics::LocalGuardContribution,"invocation",analysis::local::AnalysisInvocation);
-   own!(local_symbolic::SymbolicFieldStore,"invocation",analysis::local::AnalysisInvocation);
-   own!(atom_decision::AtomRestriction,"invocation",analysis::local::AnalysisInvocation);
-   own!(analysis::local::AnalysisDerivation,"invocation",analysis::local::AnalysisInvocation);
-   own!(analysis::local::AnalysisOutcome,"invocation",analysis::local::AnalysisInvocation);
-   own!(analysis::model::AnalysisDerivation,"invocation",analysis::model::AnalysisInvocation);
-   own!(analysis::model::AnalysisOutcome,"invocation",analysis::model::AnalysisInvocation);
-   own!(execution::protocol_interpretation::ConditionalTerminalFrontier,"invocation",analysis::model::AnalysisInvocation);
-   own!(execution::protocol_interpretation::NormalContinuationRestriction,"frontier",execution::protocol_interpretation::ConditionalTerminalFrontier);
-   own!(execution::capture_bridge::CapturedEntryBinding,"invocation",analysis::enriched_execution::AnalysisInvocation);
-   own!(execution::enriched_records::SourceExecutionInvocation,"invocation",analysis::enriched_execution::AnalysisInvocation);
-   own!(execution::enriched_records::BodyExecution,"invocation",analysis::enriched_execution::AnalysisInvocation);
-   own!(analysis::enriched_execution::AnalysisOutcome,"invocation",analysis::enriched_execution::AnalysisInvocation);
-   own!(analysis::source_call::AnalysisOutcome,"invocation",analysis::source_call::AnalysisInvocation);
-   owned_fields!(analysis::local::SupportSource,analysis::local::AnalysisDerivation);
-   owned_fields!(analysis::model::SupportSource,analysis::model::AnalysisDerivation);
-   own!(transfer::local::TransferAlternative,"transfer",transfer::local::TransferKey);
-   own!(transfer::local::TransferSupport,"source",analysis::local::SupportSource);
-   own!(transfer::model::TransferSupport,"source",analysis::model::SupportSource);
-   own!(transfer::local::TransferSupport,"assertion",transfer::local::TransferAlternative);
-   own!(transfer::model::TransferSupport,"assertion",transfer::model::TransferAlternative);
-   own!(execution::source_call_records::SourceCallHeader,"attempt",normalized::bindings::CallBindingAttempt);
-   // Event roots use the CallScopes virtual namespace to include the entire candidate bag.
-   let occurrences=alias(TypeId::of::<source::Occurrence>()).ok_or(ModelError::Schema(source::Occurrence::NAME))?;
-   let artifacts=alias(TypeId::of::<source::SourceArtifact>()).ok_or(ModelError::Schema(source::SourceArtifact::NAME))?;
-   let qualifications=alias(TypeId::of::<assertion::AssertionQualification>()).ok_or(ModelError::Schema(assertion::AssertionQualification::NAME))?;
-   let event=tables.len()-1;let events=identifier(&tables[event].alias);
-   plan.pairs(frame,event,format!("SELECT f.id AS source_id,e.id AS target_id FROM {frames} f JOIN {events} e ON e.context=f.context JOIN {occurrences} o ON o.id=e.site JOIN {artifacts} a ON a.id=o.source AND a.input=f.input"))?;
-   // Complete native continuation and symbolic association domains of this actual frame. This
-   // roots semantic observations, not every artifact, occurrence, provider symbol or evidence row.
-   for(kind,subject)in[(TypeId::of::<flow::FlowValueObservation>(),"sink"),(TypeId::of::<normalized::symbolic_fields::SourceFieldClass>(),"class"),(TypeId::of::<normalized::symbolic_fields::SourceFieldStore>(),"target"),(TypeId::of::<normalized::symbolic_fields::SourceFieldReader>(),"access")]{if let Some(to)=idx(kind){plan.pairs(frame,to,format!("SELECT f.id AS source_id,r.id AS target_id FROM {frames} f JOIN {} r ON TRUE JOIN {qualifications} q ON q.id=r.qualification AND q.context=f.context JOIN {occurrences} o ON o.id=r.{subject} JOIN {artifacts} a ON a.id=o.source AND a.input=f.input",identifier(&tables[to].alias)))?;}}
-   own!(normalized::symbolic_fields::SourceFieldAssociation,"class",normalized::symbolic_fields::SourceFieldClass);
-   own!(normalized::symbolic_fields::SourceFieldReaderLink,"association",normalized::symbolic_fields::SourceFieldAssociation);
-   own!(normalized::symbolic_fields::SourceFieldReaderLink,"reader",normalized::symbolic_fields::SourceFieldReader);
-   own!(flow::FlowValuePathObservation,"value",flow::FlowValueObservation);
-   own!(flow::FlowCallStep,"path",flow::FlowCallPath);
-   // Symbolic association and completed capture matching compare source span/kind across
-   // independently attributed occurrence roles. Keep every matching candidate before uniqueness.
-   if let Some(occurrence_index)=idx(TypeId::of::<source::Occurrence>()){
-    plan.pairs(occurrence_index,occurrence_index,format!("SELECT o.id AS source_id,c.id AS target_id FROM {occurrences} o JOIN {occurrences} c ON c.source=o.source AND c.start=o.start AND c.end=o.end AND c.syntax_kind=o.syntax_kind"))?;
-   }
-   own!(flow::FlowUse,"occurrence",source::Occurrence);
-   own!(flow::FlowUseObservation,"use_",flow::FlowUse);
-   own!(flow::FlowReachingObservation,"use_",flow::FlowUse);
-   own!(flow_inventory::FlowUseInventoryObservation,"use_",flow::FlowUse);
-   own!(flow_inventory::FlowUseCandidate,"inventory",flow_inventory::FlowUseInventoryObservation);
-   own!(flow_inventory::FlowUseInventoryMember,"inventory",flow_inventory::FlowUseInventoryObservation);
-   own!(flow::FlowDefinitionObservation,"definition",flow::FlowDefinition);
-   own!(flow::FlowRegionObservation,"scope",lexical::LexicalScope);
-   own!(syntax::SyntaxPlacement,"occurrence",source::Occurrence);
-   own!(normalized::entities::ParameterEntityLink,"entity",normalized::entities::ParameterEntity);
-   own!(declarations::ParameterDeclaration,"parameter",calls::SignatureParameter);
-   own!(declarations::SymbolDeclaration,"symbol",calls::ProviderSymbol);
-   owned_fields!(normalized::entities::CallableEntity,source::Occurrence);
-   owned_fields!(normalized::entities::CallableEntity,calls::ProviderSymbol);
-   owned_fields!(normalized::entities::EntityRef,normalized::entities::CallableEntity);
-   own!(types::TypeSequenceMember,"sequence",types::TypeSequence);
-   // Set memberships are independent in each selected epoch; condition nodes and finite path
-   // segments already have forward nominal edges to their exact roots/children.
-   for epoch in[stages::PublicationBoundary::Facts,stages::PublicationBoundary::Model]{
-    let at=|kind:TypeId|tables[..real].iter().enumerate().position(|(i,t)|t.relation.type_id()==kind&&inputs[i].prefix()==Some(epoch));
-    if let(Some(member),Some(owner))=(at(TypeId::of::<assumptions::AssumptionSetMember>()),at(TypeId::of::<assumptions::AssumptionSet>())){plan.own(member,"set",owner)?;}
-   }
-   // All independently attributed supports of a selected assertion participate; there is no
-   // generic reverse source/input edge that would turn evidence into a whole-input collector.
-   for(member,table)in tables[..real].iter().enumerate(){if let Some(field)=table.relation.fields().iter().find(|field|field.name()=="assertion")&&let Some((kind,_))=field.target()&&let Some(owner)=idx(kind){plan.own(member,field.name(),owner)?;}}
-   if let Some(premises)=idx(TypeId::of::<analysis::native::NativeAssertionPremise>()){
-    for field in tables[premises].relation.fields().iter().filter(|field|!field.list()){
-     if let Some((kind,_))=field.target()&&let Some(owner)=idx(kind){plan.own(premises,field.name(),owner)?;}
-    }
-    if let Some(native)=idx(TypeId::of::<analysis::native::NativeQualification>()){plan.own(native,"premise",premises)?;}
-   }
-   if let(Some(values),Some(placements))=(idx(TypeId::of::<source::Occurrence>()),idx(TypeId::of::<syntax::SyntaxPlacement>())){plan.pairs(values,placements,format!("SELECT o.id AS source_id,p.id AS target_id FROM {occurrences} o JOIN {} p ON p.parent=o.id WHERE o.syntax_kind IN ({},{},{})",identifier(&tables[placements].alias),source::SyntaxKind::StmtReturn.code(),source::SyntaxKind::StmtRaise.code(),source::SyntaxKind::StmtTry.code()))?;}
-   Ok(())
-  }).await?;
+        let actual_inputs = inputs.clone();
+        let calls = CallScopes::from_tables_with(
+            inputs,
+            tables,
+            session,
+            budget,
+            CallScopeMode {
+                binding: true,
+                admission: false,
+            },
+            model,
+            |plan, tables| {
+                // Virtual ports repeat their exact physical descriptor; aliases are only a binding
+                // map here. Scope meaning and epoch selection belong to the model program.
+                let mut declarations = actual_inputs.clone();
+                for table in &tables[real..] {
+                    let original = tables[..real]
+                        .iter()
+                        .position(|original| original.alias == table.alias)
+                        .ok_or(ModelError::Conflict("Summary virtual physical binding"))?;
+                    declarations.push(actual_inputs[original].clone());
+                }
+                let relations = tables
+                    .iter()
+                    .map(|table| table.relation.clone())
+                    .collect::<Vec<_>>();
+                let program = compiler_scope_program::summary(
+                    declarations,
+                    &relations,
+                    real,
+                    frame,
+                    source,
+                    &parents,
+                    tables.len() - 1,
+                )?;
+                plan.extend(crate::scope_compilation::lower_compiled(
+                    crate::scope_compilation::compile(&program, model, budget, None)?,
+                    tables,
+                    &scope_program::ScopeParameters(vec![]),
+                    budget,
+                )?)?;
+                // The extended plan retains independently charged compiled and physical owners.
+                drop(program);
+                drop(relations);
+                drop(actual_inputs);
+                drop(parents);
+                drop(_construction);
+                Ok(())
+            },
+        )
+        .await?;
         Ok(Self { calls, frame })
     }
     pub(super) async fn frame(
@@ -575,7 +542,7 @@ mod summary_scope_controls {
                 decimal: "9".repeat(256 << 10),
             }],
         );
-        let scopes = SummaryScopes::from_tables(inputs.clone(), tables, &session, &budget)
+        let scopes = SummaryScopes::from_tables(inputs.clone(), tables, &session, &budget, &model)
             .await
             .unwrap();
         let tiny = resources::ResourceBudget::fixed(96 << 10).unwrap();

@@ -31,70 +31,23 @@ macro_rules! decoder_inputs {
         $apply! {public:structural::PublicCandidate,handoff_values:structural::handoffs::ValueSource,}
     };
 }
-#[derive(Clone, Copy)]
-enum LoadPhase {
-    Documentary,
-    Member,
-    Conclusion,
-}
+use lctx_model::domain::catalog_scope_program::SynthesisTextPhase as LoadPhase;
 struct SynthesisScopes {
     inputs: Vec<ValidationInput>,
     tables: Vec<crate::consumed_rows::ClosureTable>,
     edges: crate::consumed_rows::PreparedEdges,
     member: usize,
+    inventories: Vec<(
+        synthesis_inventory_program::Inventory,
+        Arc<scope_program::CompiledScopeProgram>,
+    )>,
+    _charge: charged::StateCharge,
 }
 fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
     inputs
         .iter()
         .position(|input| input.type_id() == std::any::TypeId::of::<R>())
         .ok_or(ModelError::Schema("S0 scope relation absent"))
-}
-fn scope_target(
-    inputs: &[ValidationInput],
-    source: usize,
-    kind: std::any::TypeId,
-) -> Result<Option<usize>, ModelError> {
-    use std::any::TypeId;
-    let candidates: Vec<_> = inputs
-        .iter()
-        .enumerate()
-        .filter(|(_, input)| input.type_id() == kind)
-        .map(|(index, _)| index)
-        .collect();
-    if candidates.len() <= 1 {
-        return Ok(candidates.first().copied());
-    }
-    let analytic = [
-        TypeId::of::<structural::Conclusion>(),
-        TypeId::of::<structural::ConclusionSource>(),
-        TypeId::of::<analytics::Conclusion>(),
-        TypeId::of::<analytics::ConclusionSource>(),
-        TypeId::of::<execution::summary_consequences::ClaimConclusion>(),
-        TypeId::of::<execution::summary_consequences::ClaimProof>(),
-        TypeId::of::<execution::summary_consequences::SummaryClaim>(),
-        TypeId::of::<analysis::summary::AnalysisDerivation>(),
-        TypeId::of::<analysis::summary::AnalysisProposition>(),
-        TypeId::of::<analysis::summary::AnalysisDerivationPremise>(),
-        TypeId::of::<execution::summary_terminal::SummaryTerminalWitness>(),
-        TypeId::of::<execution::protocol_interpretation::ConditionalTerminalFrontier>(),
-        TypeId::of::<execution::protocol_interpretation::NormalContinuationRestriction>(),
-    ];
-    let epoch =
-        inputs[source]
-            .prefix()
-            .unwrap_or(if analytic.contains(&inputs[source].type_id()) {
-                PublicationBoundary::Analytic
-            } else {
-                PublicationBoundary::Facts
-            });
-    let selected: Vec<_> = candidates
-        .into_iter()
-        .filter(|index| inputs[*index].prefix() == Some(epoch))
-        .collect();
-    if selected.len() != 1 {
-        return Err(ModelError::Conflict("S0 exact immutable vocabulary"));
-    }
-    Ok(selected.first().copied())
 }
 type MetadataLoader = for<'a, 'sources> fn(
     &'a CompletedInputs,
@@ -218,7 +171,7 @@ impl SynthesisScopes {
                 })
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
-        Self::prepare_bound(inputs, tables, session, Some(parents), budget).await
+        Self::prepare_bound(inputs, tables, session, Some(parents), budget, model).await
     }
     async fn prepare_bound(
         inputs: Vec<ValidationInput>,
@@ -226,274 +179,90 @@ impl SynthesisScopes {
         session: &datafusion::prelude::SessionContext,
         parents: Option<&[synthesis::frames::Parents]>,
         budget: &resources::ResourceBudget,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
-        use crate::consumed_rows::{NominalClosure, identifier};
-        use std::any::TypeId;
-        let index = |kind| {
-            inputs
-                .iter()
-                .position(|input| input.type_id() == kind)
-                .ok_or(ModelError::Schema("S0 scoped owner absent"))
-        };
-        let link = typed::<catalog::CatalogMemberInvocation>(&inputs)?;
-        let core = typed::<analysis::catalog_core::Invocation>(&inputs)?;
-        let occurrence = typed::<source::Occurrence>(&inputs)?;
-        let exposure = typed::<catalog::CatalogExposure>(&inputs)?;
-        let public = typed::<normalized::entities::PublicExposure>(&inputs)?;
-        let mut bindings = tables.clone();
-        let member = bindings.len();
-        bindings.push(tables[link].clone());
-        let syntax = bindings.len();
-        bindings.push(tables[occurrence].clone());
-        let child = bindings.len();
-        bindings.push(tables[typed::<syntax::SyntaxPlacement>(&inputs)?].clone());
-        let mut plan = NominalClosure::new(bindings)?;
-        let memberships = synthesis::production::memberships();
-        for (from, table) in tables.iter().enumerate() {
-            for field in table.relation.fields() {
-                let Some((kind, _)) = field.target() else {
-                    continue;
-                };
-                let Some(to) = scope_target(&inputs, from, kind)? else {
-                    continue;
-                };
-                let values = if field.list() {
-                    format!("UNNEST({})", identifier(field.name()))
-                } else {
-                    identifier(field.name())
-                };
-                plan.pairs(
-                    from,
-                    to,
-                    format!(
-                        "SELECT id AS source_id,{values} AS target_id FROM {}",
-                        identifier(&table.alias)
-                    ),
+        let mut owner_charge = charged::StateCharge::new(budget, "synthesis-preparation-owners");
+        owner_charge.grow(inputs.len() * 2048 + 65536)?;
+        let inventories = synthesis_inventory_program::Inventory::ALL
+            .into_iter()
+            .map(|kind| {
+                let _construction = budget.reserve(
+                    "synthesis-inventory-construction",
+                    inputs.len() * 2048 + 4096,
                 )?;
-                if memberships.contains(&(table.relation.type_id(), field.name()))
-                    || table.relation.type_id()
-                        == TypeId::of::<analysis::native::NativeAssertionPremise>()
-                    || table.relation.type_id() == TypeId::of::<analysis::summary::SupportSource>()
-                {
-                    plan.pairs(
-                        to,
-                        from,
-                        format!(
-                            "SELECT {values} AS source_id,id AS target_id FROM {}",
-                            identifier(&table.alias)
-                        ),
-                    )?;
-                }
-            }
-        }
-        let a = |table: usize| identifier(&tables[table].alias);
-        let selected = |column: &str, field: fn(&synthesis::frames::Parents) -> [u8; 16]| {
-            parents.map_or("TRUE".into(), |parents| {
-                if parents.is_empty() {
-                    "FALSE".into()
-                } else {
-                    format!(
-                        "{column} IN ({})",
-                        parents
-                            .iter()
-                            .map(|parent| format!(
-                                "X'{}'",
-                                field(parent)
-                                    .iter()
-                                    .map(|byte| format!("{byte:02x}"))
-                                    .collect::<String>()
-                            ))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    )
-                }
+                let program = synthesis_inventory_program::program(inputs.clone(), kind)?;
+                Ok((
+                    kind,
+                    crate::scope_compilation::compile(&program, model, budget, None)?,
+                ))
             })
-        };
-        let selected_public_frames = selected("p.frame", |parent| *parent.structural.bytes());
-        let selected_structural = selected("r.frame", |parent| *parent.structural.bytes());
-        let selected_analytic = selected("r.frame", |parent| *parent.analytic.bytes());
-        let selected_summary = selected("r.invocation", |parent| *parent.summary.bytes());
-        let selected_terminal = selected("w.invocation", |parent| *parent.summary.bytes());
-
-        plan.pairs(
-            member,
-            link,
-            format!("SELECT id AS source_id,id AS target_id FROM {}", a(link)),
-        )?;
-        plan.pairs(member,exposure,format!("SELECT l.id AS source_id,e.id AS target_id FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} e ON e.member=l.member JOIN {} p ON e.exposure=p.id WHERE p.context=i.context",a(link),a(core),a(exposure),a(public)))?;
-        let option = typed::<catalog::CatalogOption>(&inputs)?;
-        plan.pairs(member,option,format!("SELECT l.id AS source_id,o.id AS target_id FROM {} l JOIN {} o ON o.member=l.member",a(link),a(option)))?;
-        let association = typed::<catalog::evidence::DocumentAssociation>(&inputs)?;
-        let mention_candidate = typed::<normalized::links::MentionEntityCandidate>(&inputs)?;
-        let assessment = typed::<normalized::links::MentionEntityAssessment>(&inputs)?;
-        let mention = typed::<documents::DocumentMentionObservation>(&inputs)?;
-        let q = scope_target(
-            &inputs,
-            mention,
-            TypeId::of::<assertion::AssertionQualification>(),
-        )?
-        .ok_or(ModelError::Schema("S0 mention qualification"))?;
-        plan.pairs(member,association,format!("SELECT l.id AS source_id,d.id AS target_id FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} d ON d.member=l.member JOIN {} c ON d.candidate=c.id JOIN {} r ON c.assessment=r.id JOIN {} o ON r.observation=o.id JOIN {} q ON o.qualification=q.id WHERE q.context=i.context",a(link),a(core),a(association),a(mention_candidate),a(assessment),a(mention),a(q)))?;
-        // A source subtree is a separate namespace. Ordinary ancestor/declaration references
-        // never open the complete function or module body.
+            .collect::<Result<Vec<_>, ModelError>>()?;
+        let link = typed::<catalog::CatalogMemberInvocation>(&inputs)?;
+        let occurrence = typed::<source::Occurrence>(&inputs)?;
         let placement = typed::<syntax::SyntaxPlacement>(&inputs)?;
-        plan.pairs(
-            occurrence,
-            placement,
-            format!(
-                "SELECT occurrence AS source_id,id AS target_id FROM {}",
-                a(placement)
-            ),
-        )?;
-        plan.pairs(occurrence,syntax,format!("SELECT id AS source_id,id AS target_id FROM {} WHERE syntax_kind IN ({},{},{},{},{},{})",a(occurrence),source::SyntaxKind::StmtExpr as i16,source::SyntaxKind::StmtAssign as i16,source::SyntaxKind::StmtAnnAssign as i16,source::SyntaxKind::StmtImport as i16,source::SyntaxKind::StmtImportFrom as i16,source::SyntaxKind::StmtReturn as i16))?;
-        plan.pairs(
-            syntax,
-            occurrence,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                a(occurrence)
-            ),
-        )?;
-        plan.pairs(
-            syntax,
-            child,
-            format!(
-                "SELECT parent AS source_id,id AS target_id FROM {} WHERE parent IS NOT NULL",
-                a(placement)
-            ),
-        )?;
-        plan.pairs(
-            child,
-            placement,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                a(placement)
-            ),
-        )?;
-        plan.pairs(
-            child,
-            syntax,
-            format!(
-                "SELECT id AS source_id,occurrence AS target_id FROM {}",
-                a(placement)
-            ),
-        )?;
-        let reference = typed::<lexical::ReferenceObservation>(&inputs)?;
-        let resolution = typed::<lexical::LexicalResolution>(&inputs)?;
-        plan.pairs(
-            occurrence,
-            reference,
-            format!(
-                "SELECT read AS source_id,id AS target_id FROM {}",
-                a(reference)
-            ),
-        )?;
-        plan.pairs(
-            occurrence,
-            resolution,
-            format!(
-                "SELECT read AS source_id,id AS target_id FROM {}",
-                a(resolution)
-            ),
-        )?;
-        let candidate = typed::<catalog::CatalogCandidate>(&inputs)?;
-        let path = typed::<catalog::CatalogPath>(&inputs)?;
-        let alias = typed::<catalog::CatalogAlias>(&inputs)?;
-        let entity_candidate = typed::<normalized::entities::SymbolEntityCandidate>(&inputs)?;
-        // Complete compact entity correspondence includes path and alias targets, not just the
-        // optional candidate.entity column. Input/context is carried by the actual C0 owner.
-        let entities = format!(
-            "SELECT l.id AS member,i.input,i.context,p.entity FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} e ON e.member=l.member JOIN {} x ON e.exposure=x.id JOIN {} c ON c.exposure=e.id JOIN {} p ON c.path=p.id WHERE x.context=i.context UNION ALL SELECT l.id AS member,i.input,i.context,t.entity FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} e ON e.member=l.member JOIN {} x ON e.exposure=x.id JOIN {} t ON t.parent=e.id WHERE x.context=i.context UNION ALL SELECT l.id AS member,i.input,i.context,n.entity FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} e ON e.member=l.member JOIN {} x ON e.exposure=x.id JOIN {} c ON c.exposure=e.id JOIN {} n ON c.entity=n.id WHERE x.context=i.context",
-            a(link),
-            a(core),
-            a(exposure),
-            a(public),
-            a(candidate),
-            a(path),
-            a(link),
-            a(core),
-            a(exposure),
-            a(public),
-            a(alias),
-            a(link),
-            a(core),
-            a(exposure),
-            a(public),
-            a(candidate),
-            a(entity_candidate)
-        );
-        let structural_frame = typed::<structural::StructuralFrame>(&inputs)?;
-        let structural_inv = typed::<analysis::structural::Invocation>(&inputs)?;
-        let analytic_frame = typed::<analytics::AnalyticFrame>(&inputs)?;
-        let selected_public = typed::<structural::PublicCandidate>(&inputs)?;
-        plan.pairs(member,selected_public,format!("SELECT l.id AS source_id,p.id AS target_id FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} p ON p.member=l.member JOIN {} f ON p.frame=f.id JOIN {} s ON f.invocation=s.id WHERE s.input=i.input AND s.context=i.context AND {selected_public_frames}",a(link),a(core),a(selected_public),a(structural_frame),a(structural_inv)))?;
-        for kind in [
-            TypeId::of::<structural::Conclusion>(),
-            TypeId::of::<structural::handoffs::Group>(),
-        ] {
-            let to = index(kind)?;
-            let entity = if kind == TypeId::of::<structural::Conclusion>() {
-                "subject"
-            } else {
-                "seed"
-            };
-            plan.pairs(member,to,format!("SELECT m.member AS source_id,r.id AS target_id FROM ({entities}) m JOIN {} r ON r.{entity}=m.entity JOIN {} f ON r.frame=f.id JOIN {} i ON f.invocation=i.id WHERE i.input=m.input AND i.context=m.context AND {selected_structural}",a(to),a(structural_frame),a(structural_inv)))?;
-        }
-        let analytic_conclusion = typed::<analytics::Conclusion>(&inputs)?;
-        plan.pairs(member,analytic_conclusion,format!("SELECT m.member AS source_id,r.id AS target_id FROM ({entities}) m JOIN {} r ON r.subject=m.entity JOIN {} f ON r.frame=f.id JOIN {} s ON f.structural=s.id JOIN {} i ON s.invocation=i.id WHERE i.input=m.input AND i.context=m.context AND {selected_analytic}",a(analytic_conclusion),a(analytic_frame),a(structural_frame),a(structural_inv)))?;
-        let claims = typed::<execution::summary_consequences::SummaryClaim>(&inputs)?;
-        let transfers = typed::<transfer::summary::TransferKey>(&inputs)?;
-        let events = typed::<normalized::events::NormalizedCallEvent>(&inputs)?;
-        let ownership = typed::<normalized::entities::OccurrenceOwnership>(&inputs)?;
-        let symbolic = typed::<execution::summary_symbolic::SymbolicFieldAlternative>(&inputs)?;
-        let claim_owners = format!(
-            "SELECT id,NoNormalContinuation_owner AS entity FROM {} WHERE NoNormalContinuation_owner IS NOT NULL UNION ALL SELECT c.id,t.owner AS entity FROM {} c JOIN {} t ON c.FiniteAlternative_transfer=t.id UNION ALL SELECT c.id,o.entity FROM {} c JOIN {} e ON c.CallClosure_event=e.id JOIN {} o ON e.owner=o.id UNION ALL SELECT c.id,s.constructor AS entity FROM {} c JOIN {} s ON c.SymbolicFieldAssociation_alternative=s.id",
-            a(claims),
-            a(claims),
-            a(transfers),
-            a(claims),
-            a(events),
-            a(ownership),
-            a(claims),
-            a(symbolic)
-        );
-        let conclusion = typed::<execution::summary_consequences::ClaimConclusion>(&inputs)?;
-        let subject = typed::<analysis::summary::ObligationSubject>(&inputs)?;
-        let summary_inv = typed::<analysis::summary::Invocation>(&inputs)?;
-        plan.pairs(member,conclusion,format!("SELECT m.member AS source_id,r.id AS target_id FROM ({entities}) m JOIN ({claim_owners}) c ON c.entity=m.entity JOIN {} s ON s.SummaryClaim_transfer=c.id JOIN {} r ON r.subject=s.id JOIN {} i ON r.invocation=i.id WHERE i.input=m.input AND i.context=m.context AND {selected_summary}",a(subject),a(conclusion),a(summary_inv)))?;
-        let witness = typed::<execution::summary_terminal::SummaryTerminalWitness>(&inputs)?;
-        let frontier =
-            typed::<execution::protocol_interpretation::ConditionalTerminalFrontier>(&inputs)?;
-        plan.pairs(member,witness,format!("SELECT m.member AS source_id,w.id AS target_id FROM ({entities}) m JOIN {} f ON f.owner=m.entity JOIN {} w ON w.frontier=f.id JOIN {} i ON w.invocation=i.id WHERE i.input=m.input AND i.context=m.context AND {selected_terminal}",a(frontier),a(witness),a(summary_inv)))?;
-        let scenario = typed::<catalog::evidence::ScenarioAssociation>(&inputs)?;
-        let q = scope_target(
-            &inputs,
-            scenario,
-            TypeId::of::<assertion::AssertionQualification>(),
-        )?
-        .ok_or(ModelError::Schema("S0 scenario qualification"))?;
-        plan.pairs(member,scenario,format!("SELECT l.id AS source_id,s.id AS target_id FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} s ON s.member=l.member JOIN {} q ON s.qualification=q.id WHERE q.context=i.context",a(link),a(core),a(scenario),a(q)))?;
-        if inputs
+        let member = tables.len();
+        let mut bindings = tables.clone();
+        bindings.extend([
+            tables[link].clone(),
+            tables[occurrence].clone(),
+            tables[placement].clone(),
+        ]);
+        let relations = tables
             .iter()
-            .any(|input| input.type_id() == TypeId::of::<flow::FlowUseObservation>())
-        {
-            let observation = typed::<flow::FlowUseObservation>(&inputs)?;
-            let qualification = scope_target(
-                &inputs,
-                observation,
-                TypeId::of::<assertion::AssertionQualification>(),
-            )?
-            .ok_or(ModelError::Schema("S0 native flow qualification"))?;
-            let coverage = typed::<attribution::ProviderCoverage>(&inputs)?;
-            plan.pairs(observation,coverage,format!("SELECT o.id AS source_id,c.id AS target_id FROM {} o JOIN {} q ON o.qualification=q.id JOIN {} c ON c.scope=q.scope AND c.context=q.context WHERE c.family={}",a(observation),a(qualification),a(coverage),attribution::FactFamily::Flow as i16))?;
-        }
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program =
+            catalog_scope_program::synthesis(inputs.clone(), &relations, parents, budget)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            &bindings,
+            program.parameters(),
+            budget,
+        )?;
         let edges = plan.prepare(session, budget).await?;
         Ok(Self {
             inputs,
             tables,
             edges,
             member,
+            inventories,
+            _charge: owner_charge,
         })
+    }
+    fn inventory_sql(
+        &self,
+        kind: std::any::TypeId,
+        parameters: &scope_program::ScopeParameters,
+        budget: &resources::ResourceBudget,
+    ) -> Result<(String, Box<dyn resources::Reservation>), ModelError> {
+        let (_, program) = self
+            .inventories
+            .iter()
+            .find(|(inventory, _)| inventory.type_id() == kind)
+            .ok_or(ModelError::Schema("synthesis inventory kind"))?;
+        let charge = budget.reserve(
+            "synthesis-inventory-query",
+            crate::scope_compilation::lowering_allowance(
+                program.program(),
+                &self.tables,
+                parameters,
+            ),
+        )?;
+        let queries = crate::scope_compilation::select_pair_queries(
+            program.program(),
+            &self.tables,
+            parameters,
+        )?;
+        let query = queries
+            .first()
+            .ok_or(ModelError::Schema("synthesis inventory query"))?;
+        Ok((
+            format!(
+                "SELECT DISTINCT target_id AS id FROM ({}) inventory ORDER BY id",
+                query.2
+            ),
+            charge,
+        ))
     }
     async fn load(
         &self,
@@ -518,6 +287,34 @@ impl SynthesisScopes {
         consumed.finish(access.name())?;
         Ok(data)
     }
+    fn partition_data(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        partition: usize,
+        union: &Data,
+        phase: LoadPhase,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Data, ModelError> {
+        let mut selected = union.selected_copy(
+            &mut |kind, epoch, key| {
+                if kind == std::any::TypeId::of::<artifact::ArtifactChunk>() {
+                    return Ok(false);
+                }
+                for (table, input) in self.inputs.iter().enumerate().filter(|(_, input)| {
+                    input.type_id() == kind && (epoch.is_none() || input.prefix() == epoch)
+                }) {
+                    let _ = input;
+                    if batch.contains(partition, table, key)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            },
+            budget,
+        )?;
+        selected.copy_text_chunks(union, phase, budget)?;
+        Ok(selected)
+    }
     fn chunks(
         &self,
         scope: &crate::consumed_rows::PreparedClosure,
@@ -530,34 +327,28 @@ impl SynthesisScopes {
         // The scope already selects actual documentary spans and authored statement syntax.
         // Module/function declarations are not text ranges requested by these renderers.
         let nodes = typed::<documents::DocumentNode>(&self.inputs)?;
-        let occurrences = match phase {
-            LoadPhase::Documentary => format!(
-                "SELECT source,start,\"end\" FROM ({}) WHERE syntax_kind={}",
-                scope.select(occurrence)?,
-                source::SyntaxKind::ExprStringLiteral as i16
-            ),
-            _ => format!(
-                "SELECT source,start,\"end\" FROM ({}) WHERE syntax_kind IN ({},{},{},{},{},{},{})",
-                scope.select(occurrence)?,
-                source::SyntaxKind::ExprStringLiteral as i16,
-                source::SyntaxKind::StmtExpr as i16,
-                source::SyntaxKind::StmtAssign as i16,
-                source::SyntaxKind::StmtAnnAssign as i16,
-                source::SyntaxKind::StmtImport as i16,
-                source::SyntaxKind::StmtImportFrom as i16,
-                source::SyntaxKind::StmtReturn as i16
-            ),
-        };
-        let spans = match phase {
-            LoadPhase::Documentary => format!(
+        let demand = catalog_scope_program::synthesis_text(phase);
+        let occurrences = format!(
+            "SELECT source,start,\"end\" FROM ({}) WHERE syntax_kind IN ({})",
+            scope.select(occurrence)?,
+            demand
+                .syntax_kinds
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let spans = if demand.document_nodes_only {
+            format!(
                 "SELECT e.sourcespan_source AS source,e.sourcespan_start AS start,e.sourcespan_end AS \"end\" FROM ({}) e LEFT SEMI JOIN ({}) n ON e.id=n.passage_span OR e.id=n.component_span WHERE e.sourcespan_source IS NOT NULL",
                 scope.select(evidence)?,
                 scope.select(nodes)?
-            ),
-            _ => format!(
+            )
+        } else {
+            format!(
                 "SELECT sourcespan_source AS source,sourcespan_start AS start,sourcespan_end AS \"end\" FROM ({}) WHERE sourcespan_source IS NOT NULL",
                 scope.select(evidence)?
-            ),
+            )
         };
         Ok(format!(
             "SELECT c.* FROM {} c LEFT SEMI JOIN ({occurrences} UNION ALL {spans}) r ON c.artifact=r.source AND c.ordinal*{}<r.\"end\" AND (c.ordinal+1)*{}>r.start",
@@ -566,36 +357,64 @@ impl SynthesisScopes {
             artifact::ARTIFACT_CHUNK_BYTES
         ))
     }
-    async fn has_emission(
+    async fn emission_presence(
         &self,
-        scope: &crate::consumed_rows::PreparedClosure,
-    ) -> Result<bool, ModelError> {
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<EmissionPresence, ModelError> {
         use futures::TryStreamExt;
-        for kind in synthesis::production::conclusion_roots()
-            .into_iter()
-            .chain([
-                std::any::TypeId::of::<structural::handoffs::Group>(),
-                std::any::TypeId::of::<execution::summary_terminal::SummaryTerminalWitness>(),
-            ])
-        {
+        let mut found = EmissionPresence {
+            keys: Default::default(),
+            _charge: charged::StateCharge::new(budget, "synthesis-emission-presence"),
+        };
+        for kind in synthesis::production::emission_roots() {
             let table = self
                 .inputs
                 .iter()
                 .position(|input| input.type_id() == kind)
                 .ok_or(ModelError::Schema("S0 emission owner"))?;
             let mut stream = crate::sql::query(
-                scope.session(),
-                &format!("SELECT id FROM ({}) r LIMIT 1", scope.select(table)?),
+                batch.union.session(),
+                &format!(
+                    "SELECT id FROM ({}) selected ORDER BY id",
+                    batch.union.select(table)?
+                ),
             )
             .await
             .map_err(ModelError::codec)?
             .execute_stream()
             .await
             .map_err(ModelError::codec)?;
-            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-                if batch.num_rows() != 0 {
-                    return Ok(true);
+            while let Some(rows) = stream.try_next().await.map_err(ModelError::codec)? {
+                cancellation.check()?;
+                let _transfer = budget.reserve(
+                    "synthesis-emission-presence-transfer",
+                    rows.get_array_memory_size(),
+                )?;
+                for row in 0..rows.num_rows() {
+                    let key = crate::scoped_admission::column(&rows, "id", row)?
+                        .ok_or(ModelError::Schema("S0 emission ID"))?;
+                    found.keys.insert(&mut found._charge, (table, key))?;
                 }
+            }
+        }
+        Ok(found)
+    }
+}
+struct EmissionPresence {
+    keys: charged::ChargedSet<(usize, [u8; 16])>,
+    _charge: charged::StateCharge,
+}
+impl EmissionPresence {
+    fn selected(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        partition: usize,
+    ) -> Result<bool, ModelError> {
+        for (table, key) in self.keys.iter() {
+            if batch.contains(partition, *table, *key)? {
+                return Ok(true);
             }
         }
         Ok(false)
@@ -610,9 +429,8 @@ fn nominal<T>(bytes: &[u8]) -> Result<Id<T>, ModelError> {
 }
 
 struct RankingTables<'a> {
-    public: &'a str,
-    result: &'a str,
-    community: &'a str,
+    scopes: &'a SynthesisScopes,
+    budget: &'a resources::ResourceBudget,
 }
 type RankingLoader = for<'a> fn(
     &'a CompletedInputs,
@@ -634,34 +452,17 @@ fn load_ranking<'a, R: Record>(
         use crate::consumed_rows::identifier;
         while let Some((input, permit)) = consumed.next::<R>(access)? {
             let alias = identifier(&access.table_for(&input)?);
-            let frame = parent.structural.hex();
-            let analytic = parent.analytic.hex();
-            let selected = match input.type_id() {
-                kind if kind == std::any::TypeId::of::<structural::UsageScore>() => format!(
-                    "SELECT r.* FROM {alias} r LEFT SEMI JOIN {} p ON p.entity=r.target AND p.frame=r.frame WHERE r.frame=X'{frame}'",
-                    identifier(tables.public)
-                ),
-                kind if kind == std::any::TypeId::of::<analytics::RankScore>() => format!(
-                    "SELECT r.* FROM {alias} r JOIN {} t ON r.result=t.id LEFT SEMI JOIN {} p ON p.entity=r.target AND p.frame=X'{frame}' WHERE t.frame=X'{analytic}'",
-                    identifier(tables.result),
-                    identifier(tables.public)
-                ),
-                kind if kind == std::any::TypeId::of::<analytics::Community>() => format!(
-                    "SELECT r.* FROM {alias} r JOIN {} t ON r.result=t.id WHERE t.frame=X'{analytic}'",
-                    identifier(tables.result)
-                ),
-                kind if kind == std::any::TypeId::of::<analytics::CommunityMember>() => format!(
-                    "SELECT r.* FROM {alias} r JOIN {} c ON r.community=c.id JOIN {} t ON c.result=t.id LEFT SEMI JOIN {} p ON p.entity=r.entity AND p.frame=X'{frame}' WHERE t.frame=X'{analytic}'",
-                    identifier(tables.community),
-                    identifier(tables.result),
-                    identifier(tables.public)
-                ),
-                _ => {
-                    return Err(ModelError::Schema(
-                        "S0 automatic input property declaration",
-                    ));
-                }
-            };
+            let parameters = scope_program::ScopeParameters(vec![
+                scope_program::ScopeValue::Nominal(*parent.structural.bytes()),
+                scope_program::ScopeValue::Nominal(*parent.analytic.bytes()),
+                scope_program::ScopeValue::Nominal(*parent.summary.bytes()),
+            ]);
+            let (roots, _query) =
+                tables
+                    .scopes
+                    .inventory_sql(input.type_id(), &parameters, tables.budget)?;
+            let selected =
+                format!("SELECT r.* FROM {alias} r WHERE r.id IN ({roots}) ORDER BY r.id");
             crate::consumed_rows::stream_query_at(
                 &permit,
                 &input,
@@ -682,6 +483,7 @@ async fn ranking(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
     parent: &synthesis::frames::Parents,
+    scopes: &SynthesisScopes,
     budget: &resources::ResourceBudget,
 ) -> Result<(synthesis::seeds::PublicSlots, synthesis::automatic::Data), ModelError> {
     use crate::consumed_rows::identifier;
@@ -689,12 +491,21 @@ async fn ranking(
     use futures::TryStreamExt;
     let public = access.table_for(&ValidationInput::of::<structural::PublicCandidate>(&["id"]))?;
     let mut slots = synthesis::seeds::PublicSlots::new(budget);
+    let parameters = scope_program::ScopeParameters(vec![
+        scope_program::ScopeValue::Nominal(*parent.structural.bytes()),
+        scope_program::ScopeValue::Nominal(*parent.analytic.bytes()),
+        scope_program::ScopeValue::Nominal(*parent.summary.bytes()),
+    ]);
+    let (roots, _query) = scopes.inventory_sql(
+        std::any::TypeId::of::<structural::PublicCandidate>(),
+        &parameters,
+        budget,
+    )?;
     let mut stream = crate::sql::query(
         session,
         &format!(
-            "SELECT id,frame,member,entity,in_subsystem FROM {} WHERE frame=X'{}' ORDER BY id",
-            identifier(&public),
-            parent.structural.hex()
+            "SELECT id,frame,member,entity,in_subsystem FROM {} WHERE id IN ({roots}) ORDER BY id",
+            identifier(&public)
         ),
     )
     .await
@@ -733,17 +544,11 @@ async fn ranking(
     }
     drop(stream);
     let mut automatic = synthesis::automatic::Data::new(budget);
-    let result = access.table_for(&ValidationInput::of::<analytics::TechniqueResult>(&["id"]))?;
-    let community = access.table_for(&ValidationInput::of::<analytics::Community>(&["id"]))?;
     let mut consumed =
         crate::consumed_rows::ConsumedInputs::new(synthesis::automatic::Data::inputs(), budget)?;
-    macro_rules! read {($($field:ident:$ty:ty,)*) => {const LOADERS: &[RankingLoader] = &[$(load_ranking::<$ty>,)*];};}
+    macro_rules! read {($($field:ident:$ty:ty,)*)=>{const LOADERS:&[RankingLoader]=&[$(load_ranking::<$ty>,)*];};}
     lctx_model::synthesis_automatic_unique_inputs!(read);
-    let tables = RankingTables {
-        public: &public,
-        result: &result,
-        community: &community,
-    };
+    let tables = RankingTables { scopes, budget };
     for loader in LOADERS {
         loader(
             access,
@@ -1027,36 +832,59 @@ pub async fn produce(
                     .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
             })
             .ok_or(ModelError::Schema("S0 member root identity"))?;
-        for index in 0..batch.num_rows() {
-            runtime.cancellation().check()?;
-            let id: Id<catalog::CatalogMemberInvocation> = nominal(ids.value(index))?;
-            let scope = scopes
+        for start in (0..batch.num_rows()).step_by(32) {
+            let _window = runtime
+                .budget()
+                .reserve("synthesis-documentary-root-window", 32 * 256)?;
+            let mut requests_roots = Vec::new();
+            let mut root_ids = Vec::new();
+            for index in start..(start + 32).min(batch.num_rows()) {
+                let id: Id<catalog::CatalogMemberInvocation> = nominal(ids.value(index))?;
+                root_ids.push(id);
+                requests_roots.push(crate::consumed_rows::PreparedRoot {
+                    table: scopes.member,
+                    key: *id.bytes(),
+                    kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                });
+            }
+            let selected = scopes
                 .edges
-                .grain(
-                    scopes.member,
-                    &format!("id=X'{}'", id.hex()),
+                .batch_with_cancellation(&requests_roots, runtime.budget(), &runtime.cancellation())
+                .await?;
+            let presence = scopes
+                .emission_presence(&selected, runtime.budget(), &runtime.cancellation())
+                .await?;
+            let union = scopes
+                .load(
+                    &access,
+                    &selected.union,
+                    LoadPhase::Documentary,
                     runtime.budget(),
                 )
                 .await?;
-            let grain = scopes
-                .load(&access, &scope, LoadPhase::Documentary, runtime.budget())
-                .await?;
-            let docs = synthesis::documentary::build(&grain.documentary, runtime.budget())?;
-            requests.observe(&grain.documentary, settings, runtime.budget())?;
-            summaries.observe(&docs)?;
-            documentary_spool.append(id, &docs)?;
-            if docs
-                .conclusions
-                .iter()
-                .any(|row| row.status() == analysis::policy::EvidenceStatus::Documented)
-                || scopes.has_emission(&scope).await?
-            {
-                emission.insert(&mut emission_charge, id)?;
+            for (partition, id) in root_ids.into_iter().enumerate() {
+                runtime.cancellation().check()?;
+                let grain = scopes.partition_data(
+                    &selected,
+                    partition,
+                    &union,
+                    LoadPhase::Documentary,
+                    runtime.budget(),
+                )?;
+                let docs = synthesis::documentary::build(&grain.documentary, runtime.budget())?;
+                requests.observe(&grain.documentary, settings, runtime.budget())?;
+                summaries.observe(&docs)?;
+                documentary_spool.append(id, &docs)?;
+                if docs
+                    .conclusions
+                    .iter()
+                    .any(|row| row.status() == analysis::policy::EvidenceStatus::Documented)
+                    || presence.selected(&selected, partition)?
+                {
+                    emission.insert(&mut emission_charge, id)?;
+                }
+                synthesis_preparation::publish_documentary_grain(&output, &docs).await?;
             }
-            synthesis_preparation::publish_documentary_grain(&output, &docs).await?;
-            drop(docs);
-            drop(grain);
-            drop(scope);
         }
     }
     drop(roots);
@@ -1092,7 +920,8 @@ pub async fn produce(
             receipts.insert(row)?;
         }
         frames.insert(synthesis::frames::frame(parent, invocation.id()))?;
-        let (public, automatic) = ranking(&access, &session, parent, runtime.budget()).await?;
+        let (public, automatic) =
+            ranking(&access, &session, parent, &scopes, runtime.budget()).await?;
         let mut selected = synthesis::seeds::configured_indexed(
             &requests,
             &public,
@@ -1162,81 +991,106 @@ pub async fn produce(
     }
     // Second pass loads only members needed by mandatory assertions/code or selected briefs.
     // Compact correspondence remains shared for independent Summary roots below.
-    for id in emission.iter().copied() {
-        runtime.cancellation().check()?;
-        let scope = scopes
+    let mut remaining = emission.iter().copied();
+    loop {
+        let _window = runtime
+            .budget()
+            .reserve("synthesis-member-root-window", 32 * 256)?;
+        let ids = remaining.by_ref().take(32).collect::<Vec<_>>();
+        if ids.is_empty() {
+            break;
+        }
+        let roots = ids
+            .iter()
+            .map(|id| crate::consumed_rows::PreparedRoot {
+                table: scopes.member,
+                key: *id.bytes(),
+                kind: crate::consumed_rows::PreparedRootKind::Virtual,
+            })
+            .collect::<Vec<_>>();
+        let selected = scopes
             .edges
-            .grain(
-                scopes.member,
-                &format!("id=X'{}'", id.hex()),
+            .batch_with_cancellation(&roots, runtime.budget(), &runtime.cancellation())
+            .await?;
+        let union = scopes
+            .load(
+                &access,
+                &selected.union,
+                LoadPhase::Member,
                 runtime.budget(),
             )
             .await?;
-        let grain = scopes
-            .load(&access, &scope, LoadPhase::Member, runtime.budget())
-            .await?;
-        drop(scope);
-        let docs = documentary_spool.read(id)?;
-        let assertions = synthesis::assertions::build_all(
-            &grain.documentary,
-            &docs,
-            &grain.observations,
-            &grain.controls,
-            &grain.summary,
-            &grain.terminal,
-            &grain.patterns,
-            &grain.public,
-            &frames,
-            &invocations,
-            runtime.budget(),
-        )?;
-        let (facets, _) = synthesis::summary::build(
-            &grain.summary,
-            &grain.documentary,
-            &frames,
-            &invocations,
-            runtime.budget(),
-        )?;
-        let patterns = synthesis::patterns::build(
-            &grain.patterns,
-            &grain.documentary,
-            &frames,
-            &invocations,
-            runtime.budget(),
-        )?;
-        let mut selected = synthesis::seeds::Output::new(runtime.budget());
-        for row in seeds.selected.iter().filter(|row| row.member == id) {
-            selected.selected.insert(row.clone())?;
-            selected.plans.insert(
-                seeds
-                    .plans
-                    .get(row.plan)
-                    .ok_or(ModelError::Schema("S0 selected plan absent"))?
-                    .clone(),
+        for (partition, id) in ids.into_iter().enumerate() {
+            runtime.cancellation().check()?;
+            let grain = scopes.partition_data(
+                &selected,
+                partition,
+                &union,
+                LoadPhase::Member,
+                runtime.budget(),
             )?;
+            let docs = documentary_spool.read(id)?;
+            let assertions = synthesis::assertions::build_all(
+                &grain.documentary,
+                &docs,
+                &grain.observations,
+                &grain.controls,
+                &grain.summary,
+                &grain.terminal,
+                &grain.patterns,
+                &grain.public,
+                &frames,
+                &invocations,
+                runtime.budget(),
+            )?;
+            let (facets, _) = synthesis::summary::build(
+                &grain.summary,
+                &grain.documentary,
+                &frames,
+                &invocations,
+                runtime.budget(),
+            )?;
+            let patterns = synthesis::patterns::build(
+                &grain.patterns,
+                &grain.documentary,
+                &frames,
+                &invocations,
+                runtime.budget(),
+            )?;
+            let mut selected = synthesis::seeds::Output::new(runtime.budget());
+            for row in seeds.selected.iter().filter(|row| row.member == id) {
+                selected.selected.insert(row.clone())?;
+                selected.plans.insert(
+                    seeds
+                        .plans
+                        .get(row.plan)
+                        .ok_or(ModelError::Schema("S0 selected plan absent"))?
+                        .clone(),
+                )?;
+            }
+            let briefs = synthesis::briefs::build_with_summary(
+                &grain.documentary,
+                &docs,
+                &assertions,
+                &selected,
+                &grain.summary,
+                &grain.observations.qualifications,
+                &facets,
+                &frames,
+                &patterns,
+                runtime.budget(),
+            )?;
+            publish_assertions(&assertions, &output).await?;
+            publish_briefs(&briefs, &output).await?;
+            publish_patterns(&patterns, &output).await?;
+            drop(briefs);
+            drop(selected);
+            drop(patterns);
+            drop(facets);
+            drop(assertions);
+            drop(docs);
+            drop(grain);
         }
-        let briefs = synthesis::briefs::build_with_summary(
-            &grain.documentary,
-            &docs,
-            &assertions,
-            &selected,
-            &grain.summary,
-            &grain.observations.qualifications,
-            &facets,
-            &frames,
-            &patterns,
-            runtime.budget(),
-        )?;
-        publish_assertions(&assertions, &output).await?;
-        publish_briefs(&briefs, &output).await?;
-        publish_patterns(&patterns, &output).await?;
-        drop(briefs);
-        drop(selected);
-        drop(patterns);
-        drop(facets);
-        drop(assertions);
-        drop(docs);
-        drop(grain);
     }
     drop(documentary_spool);
     drop(emission);
@@ -1253,25 +1107,18 @@ pub async fn produce(
                 .iter()
                 .position(|input| input.type_id() == kind)
                 .ok_or(ModelError::Schema("S0 conclusion root"))?;
-            let predicate = if kind == std::any::TypeId::of::<structural::Conclusion>() {
-                format!("frame=X'{}'", frame.structural.hex())
-            } else if kind == std::any::TypeId::of::<analytics::Conclusion>() {
-                format!("frame=X'{}'", frame.analytic.hex())
-            } else {
-                format!("invocation=X'{}'", frame.summary.hex())
-            };
-            let mut roots = crate::sql::query(
-                &session,
-                &format!(
-                    "SELECT id FROM {} WHERE {predicate} ORDER BY id",
-                    crate::consumed_rows::identifier(&scopes.tables[root].alias)
-                ),
-            )
-            .await
-            .map_err(ModelError::codec)?
-            .execute_stream()
-            .await
-            .map_err(ModelError::codec)?;
+            let parameters = scope_program::ScopeParameters(vec![
+                scope_program::ScopeValue::Nominal(*frame.structural.bytes()),
+                scope_program::ScopeValue::Nominal(*frame.analytic.bytes()),
+                scope_program::ScopeValue::Nominal(*frame.summary.bytes()),
+            ]);
+            let (roots_sql, _query) = scopes.inventory_sql(kind, &parameters, runtime.budget())?;
+            let mut roots = crate::sql::query(&session, &roots_sql)
+                .await
+                .map_err(ModelError::codec)?
+                .execute_stream()
+                .await
+                .map_err(ModelError::codec)?;
             while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
                 let ids = batch
                     .column_by_name("id")
@@ -1281,42 +1128,68 @@ pub async fn produce(
                             .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                     })
                     .ok_or(ModelError::Schema("S0 conclusion identity"))?;
-                for index in 0..batch.num_rows() {
-                    runtime.cancellation().check()?;
-                    let key = ids
-                        .value(index)
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect::<String>();
-                    let scope = scopes
+                for start in (0..batch.num_rows()).step_by(32) {
+                    let _window = runtime
+                        .budget()
+                        .reserve("synthesis-conclusion-root-window", 32 * 256)?;
+                    let requested = (start..(start + 32).min(batch.num_rows()))
+                        .map(|index| {
+                            let key: [u8; 16] =
+                                ids.value(index).try_into().map_err(ModelError::codec)?;
+                            Ok(crate::consumed_rows::PreparedRoot {
+                                table: root,
+                                key,
+                                kind: crate::consumed_rows::PreparedRootKind::Physical,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ModelError>>()?;
+                    let selected = scopes
                         .edges
-                        .grain(root, &format!("id=X'{key}'"), runtime.budget())
+                        .batch_with_cancellation(
+                            &requested,
+                            runtime.budget(),
+                            &runtime.cancellation(),
+                        )
                         .await?;
-                    let grain = scopes
-                        .load(&access, &scope, LoadPhase::Conclusion, runtime.budget())
+                    let union = scopes
+                        .load(
+                            &access,
+                            &selected.union,
+                            LoadPhase::Conclusion,
+                            runtime.budget(),
+                        )
                         .await?;
-                    drop(scope);
-                    let observations = synthesis::observations::build_all(
-                        &grain.observations,
-                        &grain.summary,
-                        &data.documentary,
-                        &frames,
-                        &invocations,
-                        &coverages,
-                        runtime.budget(),
-                    )?;
-                    let (facets, _) = synthesis::summary::build(
-                        &grain.summary,
-                        &data.documentary,
-                        &frames,
-                        &invocations,
-                        runtime.budget(),
-                    )?;
-                    producer_operations::emit(&facets, &output).await?;
-                    publish_observations(&observations, &output).await?;
-                    drop(facets);
-                    drop(observations);
-                    drop(grain);
+                    for partition in 0..requested.len() {
+                        runtime.cancellation().check()?;
+                        let grain = scopes.partition_data(
+                            &selected,
+                            partition,
+                            &union,
+                            LoadPhase::Conclusion,
+                            runtime.budget(),
+                        )?;
+                        let observations = synthesis::observations::build_all(
+                            &grain.observations,
+                            &grain.summary,
+                            &data.documentary,
+                            &frames,
+                            &invocations,
+                            &coverages,
+                            runtime.budget(),
+                        )?;
+                        let (facets, _) = synthesis::summary::build(
+                            &grain.summary,
+                            &data.documentary,
+                            &frames,
+                            &invocations,
+                            runtime.budget(),
+                        )?;
+                        producer_operations::emit(&facets, &output).await?;
+                        publish_observations(&observations, &output).await?;
+                        drop(facets);
+                        drop(observations);
+                        drop(grain);
+                    }
                 }
             }
         }
@@ -1542,7 +1415,7 @@ mod decoder_tests {
         (data, frame)
     }
     #[tokio::test]
-    async fn member_documentary_grain_preserves_actual_oracle_and_excludes_unrelated_labels_and_chunks()
+    async fn member_documentary_batch_preserves_actual_oracle_and_excludes_unrelated_labels_and_chunks()
      {
         use crate::consumed_rows::ClosureTable;
         use datafusion::{datasource::MemTable, prelude::SessionContext};
@@ -1629,15 +1502,18 @@ mod decoder_tests {
                 Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap()),
             )
             .unwrap();
-        let scopes = SynthesisScopes::prepare_bound(inputs, tables, &session, None, &budget)
-            .await
-            .unwrap();
-        let scope = scopes
-            .edges
-            .grain(scopes.member, &format!("id=X'{}'", member.hex()), &budget)
-            .await
-            .unwrap();
-        let mut selected = synthesis::documentary::Data::new(&budget);
+        let scopes =
+            SynthesisScopes::prepare_bound(inputs, tables, &session, None, &budget, &model)
+                .await
+                .unwrap();
+        let root = crate::consumed_rows::PreparedRoot {
+            table: scopes.member,
+            key: *member.bytes(),
+            kind: crate::consumed_rows::PreparedRootKind::Virtual,
+        };
+        let selected_batch = scopes.edges.batch(&[root, root], &budget).await.unwrap();
+        let mut union = Data::new(&budget);
+        let mut decoded_chunks = 0;
         for input in synthesis::documentary::Data::facts_inputs() {
             let index = scopes
                 .inputs
@@ -1647,30 +1523,55 @@ mod decoder_tests {
                 })
                 .unwrap();
             let query = if input.type_id() == std::any::TypeId::of::<artifact::ArtifactChunk>() {
-                scopes.chunks(&scope, LoadPhase::Documentary).unwrap()
+                scopes
+                    .chunks(&selected_batch.union, LoadPhase::Documentary)
+                    .unwrap()
             } else {
-                scope.select(index).unwrap()
+                selected_batch.union.select(index).unwrap()
             };
-            let mut stream = crate::sql::query(scope.session(), &query)
+            let mut stream = crate::sql::query(selected_batch.union.session(), &query)
                 .await
                 .unwrap()
                 .execute_stream()
                 .await
                 .unwrap();
             while let Some(batch) = stream.try_next().await.unwrap() {
-                selected.visit(input.name(), &batch).unwrap();
+                if input.type_id() == std::any::TypeId::of::<artifact::ArtifactChunk>() {
+                    decoded_chunks += batch.num_rows();
+                }
+                union.visit_input(&input, &batch).unwrap();
             }
         }
-        assert_eq!(selected.members.len(), 1);
-        assert!(selected.members.get(foreign.id()).is_none());
-        assert_eq!(selected.artifacts.len(), 1);
-        assert!(selected.artifacts.get(foreign_source.id()).is_none());
-        assert_eq!(selected.chunks.len(), 1);
-        let actual = synthesis::documentary::build(&selected, &budget).unwrap();
-        actual.matches(&expected).unwrap();
-        drop(actual);
-        drop(selected);
-        drop(scope);
+        assert_eq!(
+            decoded_chunks, 1,
+            "overlapping roots share original chunk hydration"
+        );
+        for partition in 0..2 {
+            let selected = scopes
+                .partition_data(
+                    &selected_batch,
+                    partition,
+                    &union,
+                    LoadPhase::Documentary,
+                    &budget,
+                )
+                .unwrap();
+            assert_eq!(selected.documentary.members.len(), 1);
+            assert!(selected.documentary.members.get(foreign.id()).is_none());
+            assert_eq!(selected.documentary.artifacts.len(), 1);
+            assert!(
+                selected
+                    .documentary
+                    .artifacts
+                    .get(foreign_source.id())
+                    .is_none()
+            );
+            assert_eq!(selected.documentary.chunks.len(), 1);
+            let actual = synthesis::documentary::build(&selected.documentary, &budget).unwrap();
+            actual.matches(&expected).unwrap();
+        }
+        drop(union);
+        drop(selected_batch);
         drop(scopes);
         assert_eq!(budget.reserved(), 0);
     }
@@ -1775,9 +1676,10 @@ mod decoder_tests {
         install(&session, &tables, &inputs, &parameters);
         install(&session, &tables, &inputs, &links);
         install(&session, &tables, &inputs, std::slice::from_ref(&path));
-        let scopes = SynthesisScopes::prepare_bound(inputs, tables, &session, None, &budget)
-            .await
-            .unwrap();
+        let scopes =
+            SynthesisScopes::prepare_bound(inputs, tables, &session, None, &budget, &model)
+                .await
+                .unwrap();
         let root = typed::<structural::controls::ControlPath>(&scopes.inputs).unwrap();
         let scope = scopes
             .edges

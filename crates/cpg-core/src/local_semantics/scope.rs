@@ -1,53 +1,25 @@
 //! Actual source Local roots; referenced sources remain dependency namespaces.
+#[cfg(test)]
+use crate::consumed_rows::PreparedClosure;
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, PreparedEdges},
     workspace::CompletedInputs,
 };
-use futures::future::BoxFuture;
 use lctx_model::domain::{local_semantics::LocalData, *};
 use std::{any::TypeId, sync::Arc};
 pub(super) struct LocalScopes {
     inputs: Vec<ValidationInput>,
+    #[cfg(test)]
     edges: PreparedEdges,
+    base: Arc<scope_program::CompiledScopeProgram>,
+    context_primary: Arc<scope_program::CompiledScopeProgram>,
     source: usize,
     tables: Vec<ClosureTable>,
+    inventory: scope_program::ScopeProgram,
+    #[cfg(test)]
+    primary: scope_program::ScopeProgram,
     _charge: charged::StateCharge,
 }
-type ScopedLoader = for<'a> fn(
-    &'a LocalScopes,
-    &'a CompletedInputs,
-    &'a PreparedClosure,
-    &'a mut LocalData,
-) -> BoxFuture<'a, Result<(), ModelError>>;
-fn read_scoped<'a, R: Record>(
-    descriptor: &'a LocalScopes,
-    access: &'a CompletedInputs,
-    grain: &'a PreparedClosure,
-    data: &'a mut LocalData,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    Box::pin(async move {
-        // This consumer reads every matching prefix in its original declaration order.
-        for (table, input) in descriptor
-            .inputs
-            .iter()
-            .enumerate()
-            .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
-        {
-            let permit = access.read_at::<R>(input.prefix())?;
-            crate::consumed_rows::stream_query_at(
-                &permit,
-                input,
-                access,
-                grain.session(),
-                &grain.select(table)?,
-                |_, batch| data.visit(input.name(), batch).map(|_| ()),
-            )
-            .await?;
-        }
-        Ok(())
-    })
-}
-
 impl LocalScopes {
     pub(super) async fn prepare(
         access: &CompletedInputs,
@@ -75,14 +47,39 @@ impl LocalScopes {
                 })
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
-        Self::from_tables(inputs, tables, session, budget).await
+        Self::from_tables(inputs, tables, session, budget, model).await
     }
     async fn from_tables(
         inputs: Vec<ValidationInput>,
         mut tables: Vec<ClosureTable>,
         session: &datafusion::prelude::SessionContext,
         budget: &resources::ResourceBudget,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
+        let mut _construction = compiler_scope_program::reserve_construction(
+            inputs.len().saturating_add(1),
+            tables
+                .iter()
+                .map(|table| table.relation.fields().len())
+                .sum(),
+            0,
+            budget,
+        )?;
+        let binding_bytes = tables
+            .iter()
+            .map(|table| table.alias.capacity())
+            .sum::<usize>()
+            .saturating_add(
+                tables
+                    .iter()
+                    .map(|table| table.alias.capacity())
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_mul(1),
+            )
+            .saturating_mul(4);
+        let construction_bytes = _construction.size().saturating_add(binding_bytes);
+        _construction.try_resize(construction_bytes)?;
         let real = tables.len();
         let idx = |kind: TypeId| {
             tables[..real]
@@ -93,228 +90,37 @@ impl LocalScopes {
             .ok_or(ModelError::Schema(source::SourceArtifact::NAME))?;
         let source = tables.len();
         tables.push(tables[artifact].clone());
-        let idx = |kind: TypeId| {
-            tables[..real]
-                .iter()
-                .position(|table| table.relation.type_id() == kind)
-        };
-        let alias = |kind: TypeId| idx(kind).map(|index| identifier(&tables[index].alias));
-        let mut plan = NominalClosure::new(tables.clone())?;
-        for (from, table) in tables[..real].iter().enumerate() {
-            for field in table.relation.fields().iter().filter(|field| !field.list()) {
-                if let Some((kind, _)) = field.target()
-                    && let Some(to) = idx(kind)
-                {
-                    plan.follow(from, field.name(), to)?;
-                }
-            }
-        }
-        let artifacts = identifier(&tables[source].alias);
-        plan.pairs(
-            source,
-            artifact,
-            format!("SELECT id AS source_id,id AS target_id FROM {artifacts}"),
-        )?;
-        let occurrences = idx(TypeId::of::<source::Occurrence>())
-            .ok_or(ModelError::Schema(source::Occurrence::NAME))?;
-        let occurrences_alias = identifier(&tables[occurrences].alias);
-
-        macro_rules! own {
-            ($member:ty,$field:literal,$owner:ty) => {
-                if let (Some(member), Some(owner)) =
-                    (idx(TypeId::of::<$member>()), idx(TypeId::of::<$owner>()))
-                {
-                    plan.own(member, $field, owner)?;
-                }
-            };
-        }
-        // Exact native and normalized candidate bags required by the Entry/Theory/Field kernels.
-        own!(
-            normalized::entities::OccurrenceOwnership,
-            "occurrence",
-            source::Occurrence
-        );
-        own!(flow::FlowUse, "occurrence", source::Occurrence);
-        own!(flow::FlowUseObservation, "use_", flow::FlowUse);
-        own!(flow::FlowReachingObservation, "use_", flow::FlowUse);
-        own!(
-            flow_inventory::FlowUseInventoryObservation,
-            "use_",
-            flow::FlowUse
-        );
-        own!(
-            flow_inventory::FlowUseCandidate,
-            "inventory",
-            flow_inventory::FlowUseInventoryObservation
-        );
-        own!(
-            flow_inventory::FlowUseInventoryMember,
-            "inventory",
-            flow_inventory::FlowUseInventoryObservation
-        );
-        own!(
-            flow::FlowDefinitionObservation,
-            "definition",
-            flow::FlowDefinition
-        );
-        own!(flow::FlowValueObservation, "sink", source::Occurrence);
-        own!(flow::FlowTestLeafObservation, "test", source::Occurrence);
-        own!(
-            flow::FlowAttributeLoadObservation,
-            "occurrence",
-            source::Occurrence
-        );
-        own!(flow::FlowRegionObservation, "scope", lexical::LexicalScope);
-        own!(syntax::SyntaxPlacement, "occurrence", source::Occurrence);
-        own!(
-            normalized::entities::ParameterEntityLink,
-            "entity",
-            normalized::entities::ParameterEntity
-        );
-        own!(
-            normalized::entities::ParameterEntityLink,
-            "parameter",
-            calls::SignatureParameter
-        );
-        own!(
-            declarations::SymbolDeclaration,
-            "symbol",
-            calls::ProviderSymbol
-        );
-        own!(
-            declarations::ParameterDeclaration,
-            "parameter",
-            calls::SignatureParameter
-        );
-        own!(
-            declarations::ParameterDeclaration,
-            "declaration",
-            source::Occurrence
-        );
-        own!(
-            syntax::ParameterSyntaxObservation,
-            "parameter",
-            source::Occurrence
-        );
-        for (member, table) in tables[..real].iter().enumerate().filter(|(_, table)| {
-            table.relation.type_id() == TypeId::of::<normalized::entities::ParameterEntity>()
-        }) {
-            for field in table.relation.fields().iter().filter(|field| {
-                !field.list()
-                    && field.target().map(|(kind, _)| kind)
-                        == Some(TypeId::of::<source::Occurrence>())
-            }) {
-                plan.own(member, field.name(), occurrences)?;
-            }
-        }
-        // Only actual scalar/receiver/formal containers own these child memberships. Ordinary
-        // enclosing statements and referenced modules do not expand their entire syntax subtree.
-        if let Some(placements) = idx(TypeId::of::<syntax::SyntaxPlacement>()) {
-            plan.pairs(occurrences,placements,format!("SELECT o.id AS source_id,p.id AS target_id FROM {occurrences_alias} o JOIN {} p ON p.parent=o.id WHERE o.syntax_kind IN ({},{},{},{})",identifier(&tables[placements].alias),source::SyntaxKind::ParameterWithDefault.code(),source::SyntaxKind::ExprAttribute.code(),source::SyntaxKind::ExprCompare.code(),source::SyntaxKind::ExprCall.code()))?;
-        }
-        own!(
-            symbols::ClassAncestryObservation,
-            "class",
-            calls::ProviderSymbol
-        );
-        own!(
-            symbols::SymbolSequenceMember,
-            "sequence",
-            symbols::SymbolSequence
-        );
-        own!(types::TypeSequenceMember, "sequence", types::TypeSequence);
-        own!(value::LiteralSetMember, "set", value::LiteralSet);
-        own!(types::TypeObservation, "subject", source::Occurrence);
-        own!(types::TypeQueryObservation, "subject", source::Occurrence);
-        own!(
-            normalized::entities::SymbolEntityResolution,
-            "symbol",
-            calls::ProviderSymbol
-        );
-        own!(
-            normalized::entities::FieldEntity,
-            "class",
-            normalized::entities::ClassEntity
-        );
-        own!(
-            normalized::entities::FieldDeclarationLink,
-            "field",
-            normalized::entities::FieldEntity
-        );
-        own!(
-            normalized::symbolic_fields::SourceFieldStore,
-            "target",
-            source::Occurrence
-        );
-        own!(lexical::LexicalResolution, "read", source::Occurrence);
-        own!(calls::CallSyntax, "site", source::Occurrence);
-        own!(calls::CallArgument, "call", calls::CallSyntax);
-        own!(
-            normalized::links::TestOperandTypeAssessment,
-            "leaf",
-            flow::FlowTestLeafObservation
-        );
-        own!(
-            normalized::links::TestOperandTypeLink,
-            "assessment",
-            normalized::links::TestOperandTypeAssessment
-        );
-        own!(
-            normalized::links::TestOperandCoverage,
-            "assessment",
-            normalized::links::TestOperandTypeAssessment
-        );
-        for (member, table) in tables[..real].iter().enumerate() {
-            if let Some(field) = table
-                .relation
-                .fields()
-                .iter()
-                .find(|field| field.name() == "assertion")
-                && let Some((kind, _)) = field.target()
-                && let Some(owner) = idx(kind)
-            {
-                plan.own(member, field.name(), owner)?;
-            }
-        }
-        if let Some(native) = idx(TypeId::of::<analysis::native::NativeAssertionPremise>()) {
-            for field in tables[native]
-                .relation
-                .fields()
-                .iter()
-                .filter(|field| !field.list())
-            {
-                if let Some((kind, _)) = field.target()
-                    && let Some(owner) = idx(kind)
-                {
-                    plan.own(native, field.name(), owner)?;
-                }
-            }
-            if let Some(qualifications) = idx(TypeId::of::<analysis::native::NativeQualification>())
-            {
-                plan.own(qualifications, "premise", native)?;
-            }
-        }
-        if let (Some(qualifications), Some(coverage)) = (
-            alias(TypeId::of::<assertion::AssertionQualification>()),
-            idx(TypeId::of::<attribution::ProviderCoverage>()),
-        ) {
-            plan.pairs(idx(TypeId::of::<assertion::AssertionQualification>()).unwrap(),coverage,format!("SELECT q.id AS source_id,c.id AS target_id FROM {qualifications} q JOIN {} c ON c.scope=q.scope AND c.context=q.context WHERE c.family IN ({},{},{})",identifier(&tables[coverage].alias),attribution::FactFamily::Flow.code(),attribution::FactFamily::Signatures.code(),attribution::FactFamily::Syntax.code()))?;
-        }
-        if let (Some(coverage), Some(scopes), Some(modules)) = (
-            idx(TypeId::of::<attribution::ProviderCoverage>()),
-            alias(TypeId::of::<source::CoverageScope>()),
-            alias(TypeId::of::<source::Module>()),
-        ) {
-            plan.pairs(source,coverage,format!("SELECT a.id AS source_id,c.id AS target_id FROM {artifacts} a LEFT JOIN {modules} m ON m.source=a.id JOIN {scopes} s ON s.input_input=a.input OR s.artifact_artifact=a.id OR s.module_module=m.id JOIN {} c ON c.scope=s.id WHERE c.family IN ({},{},{},{})",identifier(&tables[coverage].alias),attribution::FactFamily::Flow.code(),attribution::FactFamily::Signatures.code(),attribution::FactFamily::Syntax.code(),attribution::FactFamily::Types.code()))?;
-        }
-        // Field receiver reads and guard operands use independently attributed read occurrences at the
-        // exact syntax coordinate, including all candidates so ambiguity cannot become uniqueness.
-        plan.pairs(occurrences,occurrences,format!("SELECT o.id AS source_id,r.id AS target_id FROM {occurrences_alias} o JOIN {occurrences_alias} r ON r.source=o.source AND r.start=o.start AND r.end=o.end AND r.syntax_kind=o.syntax_kind AND r.structural_path=o.structural_path WHERE r.role={}",source::OccurrenceRole::Read.code()))?;
-        let edges = plan.prepare(session, budget).await?;
+        let mut declarations = inputs.clone();
+        declarations.push(inputs[artifact].clone());
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program =
+            compiler_scope_program::local(declarations.clone(), &relations, real, artifact)?;
+        let inventory = compiler_scope_program::local_roots(declarations.clone(), real, false)?;
+        #[cfg(test)]
+        let primary = compiler_scope_program::local_roots(declarations.clone(), real, true)?;
+        let context = compiler_scope_program::local_context_roots(declarations, real, budget)?;
+        let base = crate::scope_compilation::compile(&program, model, budget, None)?;
+        let context_primary =
+            crate::scope_compilation::compile(context.program(), model, budget, None)?;
+        #[cfg(test)]
+        let edges = crate::scope_compilation::lower_compiled(
+            base.clone(),
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?
+        .prepare(session, budget)
+        .await?;
+        let _ = session;
         let mut charge = charged::StateCharge::new(budget, "local-source-scope-descriptors");
         charge.grow(
             inputs.capacity() * size_of::<ValidationInput>()
                 + tables.capacity() * size_of::<ClosureTable>()
+                + real.saturating_add(1).saturating_mul(1024)
+                + 16_384
                 + tables
                     .iter()
                     .map(|table| table.alias.capacity())
@@ -322,9 +128,15 @@ impl LocalScopes {
         )?;
         Ok(Self {
             inputs,
+            #[cfg(test)]
             edges,
+            base,
+            context_primary,
             source,
             tables,
+            inventory,
+            #[cfg(test)]
+            primary,
             _charge: charge,
         })
     }
@@ -333,111 +145,123 @@ impl LocalScopes {
         access: &CompletedInputs,
         input: Id<input::InputRevision>,
         context: Id<attribution::AnalysisContext>,
-    ) -> Result<String, ModelError> {
-        let table = |kind: TypeId| -> Result<String, ModelError> {
-            let input = self
-                .inputs
-                .iter()
-                .find(|input| input.type_id() == kind)
-                .ok_or_else(|| {
-                    ModelError::Invalid("Local source coordinate input absent".into())
-                })?;
-            Ok(identifier(&access.table_for(input)?))
-        };
-        let qualifications = table(TypeId::of::<assertion::AssertionQualification>())?;
-        let occurrences = table(TypeId::of::<source::Occurrence>())?;
-        let artifacts = table(TypeId::of::<source::SourceArtifact>())?;
-        let mut domains = Vec::new();
-        for (kind, field) in [
-            (TypeId::of::<flow::FlowValueObservation>(), "sink"),
-            (TypeId::of::<flow::FlowTestLeafObservation>(), "test"),
-            (
-                TypeId::of::<flow::FlowAttributeLoadObservation>(),
-                "occurrence",
+        budget: &resources::ResourceBudget,
+    ) -> Result<(String, charged::StateCharge), ModelError> {
+        let _ = access;
+        let mut charge = charged::StateCharge::new(budget, "local-root-inventory-query");
+        charge.grow(1024)?;
+        let parameters = scope_program::ScopeParameters(vec![
+            scope_program::ScopeValue::Nominal(*context.bytes()),
+            scope_program::ScopeValue::Nominal(*input.bytes()),
+        ]);
+        charge.grow(
+            crate::scope_compilation::lowering_allowance(
+                &self.inventory,
+                &self.tables,
+                &parameters,
+            )
+            .saturating_mul(4),
+        )?;
+        let queries = crate::scope_compilation::select_pair_queries(
+            &self.inventory,
+            &self.tables,
+            &parameters,
+        )?;
+        let domains = queries
+            .into_iter()
+            .map(|(_, _, sql)| format!("SELECT source_id AS id FROM ({sql}) roots"))
+            .collect::<Vec<_>>();
+        Ok((
+            format!(
+                "SELECT DISTINCT id FROM ({}) roots ORDER BY id",
+                domains.join(" UNION ALL ")
             ),
-            (TypeId::of::<types::TypeObservation>(), "subject"),
-            (
-                TypeId::of::<normalized::symbolic_fields::SourceFieldStore>(),
-                "target",
-            ),
-        ] {
-            let rows = table(kind)?;
-            domains.push(format!("SELECT r.{field} AS occurrence,q.context FROM {rows} r JOIN {qualifications} q ON q.id=r.qualification"));
-        }
-        let use_observations = table(TypeId::of::<flow::FlowUseObservation>())?;
-        let uses = table(TypeId::of::<flow::FlowUse>())?;
-        domains.push(format!("SELECT u.occurrence,q.context FROM {use_observations} r JOIN {uses} u ON u.id=r.use_ JOIN {qualifications} q ON q.id=r.qualification"));
-        Ok(format!(
-            "SELECT DISTINCT a.id FROM ({}) roots JOIN {occurrences} o ON o.id=roots.occurrence JOIN {artifacts} a ON a.id=o.source WHERE roots.context=X'{}' AND a.input=X'{}' ORDER BY a.id",
-            domains.join(" UNION ALL "),
-            context.hex(),
-            input.hex()
+            charge,
         ))
     }
+    pub(super) async fn context_edges(
+        &self,
+        session: &datafusion::prelude::SessionContext,
+        context: Id<attribution::AnalysisContext>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<PreparedEdges, ModelError> {
+        let mut plan = crate::scope_compilation::lower_compiled(
+            self.base.clone(),
+            &self.tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
+        let parameters = scope_program::ScopeParameters(vec![scope_program::ScopeValue::Nominal(
+            *context.bytes(),
+        )]);
+        plan.extend(crate::scope_compilation::lower_compiled(
+            self.context_primary.clone(),
+            &self.tables,
+            &parameters,
+            budget,
+        )?)?;
+        plan.prepare(session, budget).await
+    }
+    pub(super) fn root(&self, key: [u8; 16]) -> crate::consumed_rows::PreparedRoot {
+        crate::consumed_rows::PreparedRoot {
+            table: self.source,
+            key,
+            kind: crate::consumed_rows::PreparedRootKind::Virtual,
+        }
+    }
+    pub(super) async fn union(
+        &self,
+        selected: &crate::consumed_rows::PreparedRootBatch,
+        runtime: &crate::workspace::Workspace,
+    ) -> Result<LocalData, ModelError> {
+        let mut data = LocalData::new(runtime.budget());
+        crate::scoped_batch::hydrate_union(
+            selected,
+            &self.inputs,
+            runtime.budget(),
+            &runtime.cancellation(),
+            &mut |_, input, batch| data.visit(input.name(), batch).map(|_| ()),
+        )
+        .await?;
+        Ok(data)
+    }
+    pub(super) fn partition(
+        &self,
+        union: &LocalData,
+        selected: &crate::consumed_rows::PreparedRootBatch,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+    ) -> Result<LocalData, ModelError> {
+        union.selected_copy(
+            &self.inputs,
+            &mut |table, key| selected.contains(partition, table, key),
+            budget,
+        )
+    }
+    #[cfg(test)]
     pub(super) async fn source(
         &self,
         id: Id<source::SourceArtifact>,
         context: Id<attribution::AnalysisContext>,
         budget: &resources::ResourceBudget,
     ) -> Result<PreparedClosure, ModelError> {
-        let index = |kind: TypeId| {
-            self.inputs
-                .iter()
-                .position(|input| input.type_id() == kind)
-                .ok_or_else(|| ModelError::Invalid("Local primary source family absent".into()))
-        };
-        let occurrences =
-            identifier(&self.tables[index(TypeId::of::<source::Occurrence>())?].alias);
-        let qualifications = identifier(
-            &self.tables[index(TypeId::of::<assertion::AssertionQualification>())?].alias,
-        );
-        let coordinate = format!("SELECT id FROM {occurrences} WHERE source=X'{}'", id.hex());
-        let qualified = format!(
-            "SELECT id FROM {qualifications} WHERE context=X'{}'",
-            context.hex()
-        );
+        let parameters = scope_program::ScopeParameters(vec![
+            scope_program::ScopeValue::Nominal(*context.bytes()),
+            scope_program::ScopeValue::Nominal(*id.bytes()),
+        ]);
+        let queries = crate::scope_compilation::select_pair_queries(
+            &self.primary,
+            &self.tables,
+            &parameters,
+        )?;
         let mut roots = vec![(self.source, format!("id=X'{}'", id.hex()))];
-        for (kind, field) in [
-            (TypeId::of::<flow::FlowValueObservation>(), "sink"),
-            (TypeId::of::<flow::FlowTestLeafObservation>(), "test"),
-            (
-                TypeId::of::<flow::FlowAttributeLoadObservation>(),
-                "occurrence",
-            ),
-            (TypeId::of::<types::TypeObservation>(), "subject"),
-            (
-                TypeId::of::<normalized::symbolic_fields::SourceFieldStore>(),
-                "target",
-            ),
-        ] {
+        for (_, target, sql) in queries {
             roots.push((
-                index(kind)?,
-                format!("{field} IN ({coordinate}) AND qualification IN ({qualified})"),
+                target,
+                format!("id IN (SELECT target_id FROM ({sql}) primary_rows)"),
             ));
         }
-        let uses = identifier(&self.tables[index(TypeId::of::<flow::FlowUse>())?].alias);
-        roots.push((index(TypeId::of::<flow::FlowUseObservation>())?,format!("use_ IN (SELECT id FROM {uses} WHERE occurrence IN ({coordinate})) AND qualification IN ({qualified})")));
         self.edges.grain_roots(&roots, budget).await
-    }
-    pub(super) fn load<'a>(
-        &'a self,
-        access: &'a CompletedInputs,
-        grain: &'a PreparedClosure,
-        budget: &'a resources::ResourceBudget,
-    ) -> BoxFuture<'a, Result<LocalData, ModelError>> {
-        let mut loaders: Vec<ScopedLoader> = Vec::new();
-        macro_rules! adapters {($($field:ident:$ty:ty,)*) => {$(loaders.push(read_scoped::<$ty>);)*};}
-        lctx_model::entry_value_inputs!(adapters);
-        lctx_model::local_semantic_inputs!(adapters);
-        lctx_model::local_theory_inputs!(adapters);
-        lctx_model::local_field_inputs!(adapters);
-        Box::pin(async move {
-            let mut data = LocalData::new(budget);
-            for load in loaders {
-                load(self, access, grain, &mut data).await?;
-            }
-            Ok(data)
-        })
     }
 }
 #[cfg(test)]
@@ -623,7 +447,7 @@ mod local_source_scope_controls {
             &[observation, other_observation],
         );
         replace(&session, &inputs, &tables, &[declared]);
-        let scopes = LocalScopes::from_tables(inputs.clone(), tables, &session, &budget)
+        let scopes = LocalScopes::from_tables(inputs.clone(), tables, &session, &budget, &model)
             .await
             .unwrap();
         let tiny = resources::ResourceBudget::fixed(96 << 10).unwrap();
@@ -682,5 +506,42 @@ mod local_source_scope_controls {
         }
         assert_eq!(artifacts.len(), 2);
         assert_eq!(artifacts.get(dependency.id()), Some(&dependency));
+        let edges = scopes
+            .context_edges(&session, nominal(3), &budget)
+            .await
+            .unwrap();
+        let roots = [scopes.root(*artifact.id().bytes()); 2];
+        let selected = edges.batch(&roots, &budget).await.unwrap();
+        let mut union = LocalData::new(&budget);
+        let mut observation_decodes = 0;
+        crate::scoped_batch::hydrate_union(
+            &selected,
+            &inputs,
+            &budget,
+            &crate::workspace::Cancellation::default(),
+            &mut |_, input, batch| {
+                if input.name() == types::TypeObservation::NAME {
+                    observation_decodes += batch.num_rows();
+                }
+                union.visit(input.name(), batch).map(|_| ())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            observation_decodes, 1,
+            "overlapping source requests share contextual native discovery and hydration"
+        );
+        let first = scopes.partition(&union, &selected, 0, &budget).unwrap();
+        let second = scopes.partition(&union, &selected, 1, &budget).unwrap();
+        assert!(
+            first
+                .theory
+                .type_observations
+                .same(&second.theory.type_observations)
+        );
+        assert_eq!(first.theory.type_observations.len(), 1);
+        assert_eq!(first.entry.occurrences.len(), 2);
+        assert_eq!(first.entry.symbols.len(), 1);
     }
 }

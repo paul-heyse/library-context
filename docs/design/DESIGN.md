@@ -314,7 +314,14 @@ indexed sets/adjacency, bounded native-to-Arrow transfer and spillable kernels. 
 selected method demand and unchanged exact validation premises avoid repeated work. Tests and
 admission use the same semantic validators; no producer replay or accounting/proof subsystem.
 
-> Decision: ADR-0138, ADR-0126
+**Implemented / source-inspected, 2026-10-09 (ADR-0139).** Model-owned bounded scope programs
+govern roots, nominal dependency direction, body/coverage joins and negative domains. Native,
+relational and finite graph lowerings share that intent and retain private logical partitions.
+Compatible selected roots share bounded acquisition; actual kernels and independent admission
+retain their authorities. [§15.10](sections/semantic-model.md#section-15-10) owns the implementation
+boundary and remaining qualification. Selective cross-run products remain an accepted target.
+
+> Decision: ADR-0139, ADR-0138, ADR-0126
 
 <a id="section-b4"></a>
 

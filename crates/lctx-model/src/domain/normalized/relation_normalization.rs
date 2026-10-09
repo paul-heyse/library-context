@@ -1,8 +1,8 @@
 //! N2 keeps every originating observation, including empty and ambiguous correspondences.
 use super::{
-    Rows,
+    Rows, RowsView,
     entities::*,
-    entity_normalization::{EntityData, EntityOutput},
+    entity_normalization::{EntityData, EntityDataView, EntityOutput, EntityOutputView},
     links::*,
     policy_revision,
 };
@@ -25,7 +25,10 @@ fn entity_stage_inputs() -> Vec<stages::RelationUse> {
 macro_rules! inputs {
     ($($field:ident: $ty:ty => $family:ident,)*) => {
         pub struct RelationData { pub facts: EntityData, pub entities: EntityOutput, $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct RelationDataView<'a> { pub facts:EntityDataView<'a>, pub entities:EntityOutputView<'a>, $(pub $field:RowsView<'a,$ty>,)* }
         impl RelationData {
+            pub fn view(&self) -> RelationDataView<'_> { RelationDataView { facts:self.facts.view(),entities:self.entities.view(),$($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { facts: EntityData::new(budget), entities: EntityOutput::new(budget), $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 let facts = self.facts.visit(relation, batch)?;
@@ -54,14 +57,16 @@ crate::normalized_relation_inputs!(inputs);
 macro_rules! outputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct RelationOutput { $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct RelationOutputView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        impl RelationOutputView<'_> { pub fn matches(&self, expected: &RelationOutput) -> Result<(), ModelError> { $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("normalized relationship closure differs: {}", <$ty>::NAME))); })* Ok(()) } }
         impl RelationOutput {
+            pub fn view(&self) -> RelationOutputView<'_> { RelationOutputView { $($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
-            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> {
-                $(if !self.$field.same(&expected.$field) { return Err(invalid(format!("normalized relationship closure differs: {}", <$ty>::NAME))); })* Ok(())
-            }
+            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> { self.view().matches(expected) }
             pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
         }
     }
@@ -70,18 +75,24 @@ crate::normalized_relation_outputs!(outputs);
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
+fn need<'a, R: Record>(rows: &RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid(format!("normalized relation requires {}", R::NAME)))
 }
 fn context(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     qualification: Id<assertion::AssertionQualification>,
 ) -> Result<Id<AnalysisContext>, ModelError> {
     Ok(need(&data.facts.qualifications, qualification)?.context)
 }
 pub fn captured_input(
     data: &RelationData,
+    qualification: Id<assertion::AssertionQualification>,
+) -> Result<Id<input::InputRevision>, ModelError> {
+    captured_input_view(&data.view(), qualification)
+}
+pub fn captured_input_view(
+    data: &RelationDataView<'_>,
     qualification: Id<assertion::AssertionQualification>,
 ) -> Result<Id<input::InputRevision>, ModelError> {
     match need(
@@ -116,7 +127,7 @@ fn decision(count: usize, incomplete: bool) -> (ResolutionStatus, LinkReason) {
 /// Prefer a declared entity at this exact occurrence; otherwise retain the occurrence itself.
 /// No ancestor/name inference substitutes a value for the binding event.
 fn source_entity(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     occurrence: Id<Occurrence>,
 ) -> Result<Id<EntityRef>, ModelError> {
     let row = need(&data.facts.occurrences, occurrence)?;
@@ -150,7 +161,7 @@ struct Index<'a> {
     _charge: StateCharge,
 }
 impl<'a> Index<'a> {
-    fn new(data: &'a RelationData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    fn new(data: &RelationDataView<'a>, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut charge = StateCharge::new(budget, "normalized-relationship-index");
         let mut resolutions = ChargedMap::default();
         for row in data.entities.resolutions.iter() {
@@ -188,10 +199,16 @@ pub fn normalize(
     data: &RelationData,
     budget: &ResourceBudget,
 ) -> Result<RelationOutput, ModelError> {
+    normalize_view(&data.view(), budget)
+}
+pub fn normalize_view(
+    data: &RelationDataView<'_>,
+    budget: &ResourceBudget,
+) -> Result<RelationOutput, ModelError> {
     let mut output = RelationOutput::new(budget);
     let index = Index::new(data, budget)?;
     references(data, &mut output, budget)?;
-    super::native_lexical::characterize(data, &mut output, budget)?;
+    super::native_lexical::characterize_view(data, &mut output, budget)?;
     imports(data, &index, &mut output, budget)?;
     ancestry(data, &index, &mut output, budget)?;
     mentions(data, &index, &mut output, budget)?;
@@ -219,15 +236,68 @@ pub fn normalize_scope(
     kernel: RelationKernel,
     budget: &ResourceBudget,
 ) -> Result<RelationOutput, ModelError> {
+    normalize_scope_view(&data.view(), kernel, budget)
+}
+/// Scope preparation must preserve complete native correspondence and explicit place targets.
+/// This check belongs to the model so finite and native adapters apply the same refusal.
+pub fn require_scope_premises(
+    data: &RelationDataView<'_>,
+    kernel: RelationKernel,
+) -> Result<(), ModelError> {
+    for symbol in data.facts.symbols.iter() {
+        if !data
+            .entities
+            .resolutions
+            .iter()
+            .any(|row| row.symbol == symbol.id())
+        {
+            return Err(ModelError::Invalid(
+                "scoped relation requires total symbol correspondence".into(),
+            ));
+        }
+    }
+    if matches!(kernel, RelationKernel::Place) {
+        for root in data.roots.iter() {
+            let expected = match root {
+                PlaceRoot::Global { module, .. } => Some(EntityRef::Module { module: *module }),
+                PlaceRoot::Field { class, name } => Some(EntityRef::Field {
+                    field: FieldEntity {
+                        class: ClassEntity::Source {
+                            declaration: *class,
+                        }
+                        .id(),
+                        name: name.as_str().into(),
+                    }
+                    .id(),
+                }),
+                _ => None,
+            };
+            if let Some(expected) = expected
+                && data.entities.refs.get(expected.id()).is_none()
+            {
+                return Err(ModelError::Invalid(format!(
+                    "normalization scope is missing a required {} premise",
+                    EntityRef::NAME
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+pub fn normalize_scope_view(
+    data: &RelationDataView<'_>,
+    kernel: RelationKernel,
+    budget: &ResourceBudget,
+) -> Result<RelationOutput, ModelError> {
     let mut output = RelationOutput::new(budget);
     let index = Index::new(data, budget)?;
     match kernel {
         RelationKernel::Reference => {
             references(data, &mut output, budget)?;
-            super::native_lexical::characterize(data, &mut output, budget)?;
+            super::native_lexical::characterize_view(data, &mut output, budget)?;
         }
         RelationKernel::NativeDefinition => {
-            super::native_lexical::characterize(data, &mut output, budget)?
+            super::native_lexical::characterize_view(data, &mut output, budget)?
         }
         RelationKernel::Import => imports(data, &index, &mut output, budget)?,
         RelationKernel::Ancestry => ancestry(data, &index, &mut output, budget)?,
@@ -241,7 +311,7 @@ pub fn normalize_scope(
 }
 
 fn references(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     output: &mut RelationOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -312,7 +382,7 @@ type QualifiedImportAlias = (
     Id<Occurrence>,
 );
 fn imports(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     _index: &Index<'_>,
     output: &mut RelationOutput,
     budget: &ResourceBudget,
@@ -333,7 +403,7 @@ fn imports(
                 &mut charge,
                 (
                     context(data, row.qualification)?,
-                    captured_input(data, row.qualification)?,
+                    captured_input_view(data, row.qualification)?,
                     alias,
                 ),
                 |rows| rows.push(row),
@@ -344,7 +414,7 @@ fn imports(
         let mut unique: ChargedSet<Id<ProviderModule>> = Default::default();
         let mut held = StateCharge::new(budget, "import-candidates");
         let context = context(data, import.qualification)?;
-        let input = captured_input(data, import.qualification)?;
+        let input = captured_input_view(data, import.qualification)?;
         let matches = resolutions.get(&(context, input, import.alias));
         let mut unresolved = false;
         for candidate in matches.into_iter().flatten() {
@@ -377,7 +447,7 @@ fn imports(
     Ok(())
 }
 fn ancestry(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     index: &Index<'_>,
     output: &mut RelationOutput,
     budget: &ResourceBudget,
@@ -435,7 +505,7 @@ fn ancestry(
     Ok(())
 }
 fn mentions(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     index: &Index<'_>,
     output: &mut RelationOutput,
     budget: &ResourceBudget,
@@ -510,7 +580,7 @@ fn mentions(
         qualified.update(
             &mut charge,
             (
-                captured_input(data, row.qualification)?,
+                captured_input_view(data, row.qualification)?,
                 format!("{module}.{}", names.join(".")),
             ),
             |rows| rows.push(row),
@@ -520,7 +590,7 @@ fn mentions(
         let mut held = StateCharge::new(budget, "mention-candidates");
         let mut candidates: ChargedMap<Id<PublicExposure>, &PublicExposure> = Default::default();
         let context = context(data, mention.qualification)?;
-        let input = captured_input(data, mention.qualification)?;
+        let input = captured_input_view(data, mention.qualification)?;
         for spelling in [&mention.access_path, &mention.qualified_name]
             .into_iter()
             .flatten()
@@ -609,7 +679,7 @@ fn mentions(
     Ok(())
 }
 fn types(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     index: &Index<'_>,
     output: &mut RelationOutput,
 ) -> Result<(), ModelError> {
@@ -665,7 +735,7 @@ fn types(
     Ok(())
 }
 fn binders(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     output: &mut RelationOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -804,7 +874,7 @@ fn binders(
     }
     Ok(())
 }
-fn places(data: &RelationData, output: &mut RelationOutput) -> Result<(), ModelError> {
+fn places(data: &RelationDataView<'_>, output: &mut RelationOutput) -> Result<(), ModelError> {
     for place in data.facts.places.iter() {
         let entity = match need(&data.roots, place.root)? {
             PlaceRoot::Formal { declaration } | PlaceRoot::Entry { declaration } => {
@@ -861,7 +931,7 @@ fn places(data: &RelationData, output: &mut RelationOutput) -> Result<(), ModelE
     Ok(())
 }
 fn test_operands(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     output: &mut RelationOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -985,7 +1055,8 @@ impl InvariantCheck for RelationCheck {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        self.output.matches(&normalize(&self.data, &self.budget)?)
+        self.output
+            .matches(&normalize_view(&self.data.view(), &self.budget)?)
     }
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {
@@ -997,7 +1068,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
     stages::Stage {
         captured_binding: None,
-name: "normalize_relations",
+        name: "normalize_relations",
         inputs: super::facts_stage_inputs(inputs),
         outputs: super::links::relations()
             .iter()

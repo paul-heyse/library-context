@@ -138,6 +138,7 @@ pub struct Workspace {
     context: SessionContext,
     options: WorkspaceOptions,
     budget: ResourceBudget,
+    scope_programs: Mutex<lctx_model::domain::scope_program::ScopeInterner>,
     model: Arc<ValidatedModel>,
     native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
     bridge: Arc<crate::native_bridge::NativeBridge>,
@@ -219,6 +220,9 @@ impl Workspace {
             files: Arc::new(WorkspaceFiles { directory }),
             context: SessionContext::new_with_config_rt(config, runtime.clone()),
             options,
+            scope_programs: Mutex::new(lctx_model::domain::scope_program::ScopeInterner::new(
+                &budget,
+            )?),
             budget,
             model,
             native,
@@ -276,6 +280,9 @@ impl Workspace {
             owner.cancellation.clone(),
             &budget,
         ));
+        owner.scope_programs = Mutex::new(lctx_model::domain::scope_program::ScopeInterner::new(
+            &budget,
+        )?);
         owner.budget = budget;
         Ok(workspace)
     }
@@ -1242,6 +1249,7 @@ impl Workspace {
                             &session,
                             self.budget(),
                             &self.cancellation,
+                            &self.model,
                         )
                         .await?
                     }
@@ -1252,6 +1260,7 @@ impl Workspace {
                             &session,
                             self.budget(),
                             &self.cancellation,
+                            &self.model,
                         )
                         .await?
                     }
@@ -1262,6 +1271,7 @@ impl Workspace {
                             &session,
                             self.budget(),
                             &self.cancellation,
+                            &self.model,
                         )
                         .await?
                     }
@@ -1272,6 +1282,7 @@ impl Workspace {
                             &session,
                             self.budget(),
                             &self.cancellation,
+                            &self.model,
                         )
                         .await?
                     }
@@ -1303,6 +1314,7 @@ impl Workspace {
                     &invariant,
                     &scope,
                     tables,
+                    &self.model,
                     &session,
                     self.budget(),
                     &self.cancellation,
@@ -1400,6 +1412,7 @@ impl Workspace {
                     &invariant,
                     &scope,
                     tables,
+                    &self.model,
                     &session,
                     self.budget(),
                     &self.cancellation,
@@ -1797,6 +1810,11 @@ impl Workspace {
     }
     pub fn budget(&self) -> &ResourceBudget {
         &self.budget
+    }
+    pub(crate) fn scope_programs(
+        &self,
+    ) -> &Mutex<lctx_model::domain::scope_program::ScopeInterner> {
+        &self.scope_programs
     }
     pub fn options(&self) -> WorkspaceOptions {
         self.options

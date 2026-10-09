@@ -778,17 +778,20 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         .collect();
     let mut key_arms = Vec::new();
     let mut reference_arms = Vec::new();
+    let mut physical_reference_arms = Vec::new();
     let mut heap_arms = Vec::new();
     let mut encode_arms = Vec::new();
     let mut decode_arms = Vec::new();
     let mut sum_arms = Vec::new();
     for ((variant, code), fields) in variants.iter().zip(&codes).zip(&arm_fields) {
         let names: Vec<_> = fields.iter().map(|(name, _, _)| name).collect();
+        let columns: Vec<_> = fields.iter().map(|(_, column, _)| column).collect();
         key_arms.push(quote! { Self::#variant { #(#names,)* } => {
             ::lctx_model::domain::Key::encode(&(#code as i16), sink);
             #(::lctx_model::domain::Key::encode(#names, sink);)*
         }});
         reference_arms.push(quote! {Self::#variant {#(#names,)*} => {let mut references=Vec::new();#(if let Some(reference)=::lctx_model::domain::FieldValue::semantic_reference(#names,stringify!(#names)){references.push(reference);})*references}});
+        physical_reference_arms.push(quote! {Self::#variant {#(#names,)*} => {let mut references=Vec::new();#(if let Some(reference)=::lctx_model::domain::FieldValue::semantic_reference(#names,stringify!(#columns)){references.push(reference);})*references}});
         heap_arms.push(quote! { Self::#variant { #(#names,)* } => 0usize #(.saturating_add(::lctx_model::domain::HeapSize::heap_bytes(#names)))* });
         let values: Vec<_> = physical_names
             .iter()
@@ -881,6 +884,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             }
 
             fn references(&self)->Vec<::lctx_model::domain::SemanticReference>{match self{#(#reference_arms,)*}}
+            fn physical_references(&self)->Vec<::lctx_model::domain::SemanticReference>{match self{#(#physical_reference_arms,)*}}
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![::lctx_model::domain::Field::of::<i16>("kind", true, false), #(#descriptors,)*] }
             fn sum_tag(&self)->Option<i16>{Some(<Self as ::lctx_model::domain::SumRecord>::tag(self))}
             fn sum() -> Option<::lctx_model::domain::Sum> { Some(::lctx_model::domain::Sum { tag: "kind", arms: vec![#(#sum_arms,)*] }) }

@@ -1,40 +1,17 @@
 //! Required normalized owner predicates over one candidate/advertised domain at a time.
 use super::{call_scope::CallScopes, receiver_scope::ReceiverScopes};
 use crate::{
-    consumed_rows::{ClosureTable, PreparedClosure, identifier},
+    consumed_rows::{ClosureTable, identifier},
     workspace::Cancellation,
 };
 use arrow_array::Array;
 use futures::TryStreamExt;
 use lctx_model::domain::{
-    normalized::{Rows, binding_normalization, event_normalization, receiver},
+    normalized::{binding_normalization, event_normalization, receiver},
     *,
 };
 use std::any::TypeId;
 
-async fn feed(
-    scope: &PreparedClosure,
-    inputs: &[ValidationInput],
-    cancellation: &Cancellation,
-    mut visit: impl FnMut(&str, &arrow_array::RecordBatch) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    for (table, input) in inputs.iter().enumerate() {
-        let mut stream = crate::sql::query(
-            scope.session(),
-            &format!("{} ORDER BY id", scope.select(table)?),
-        )
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            cancellation.check()?;
-            visit(input.name(), &batch)?;
-        }
-    }
-    Ok(())
-}
 fn input_table<R: Record>(
     invariant: &Invariant,
     tables: &[ClosureTable],
@@ -56,10 +33,16 @@ pub async fn validate_receivers(
     session: &datafusion::prelude::SessionContext,
     budget: &resources::ResourceBudget,
     cancellation: &Cancellation,
+    model: &ValidatedModel,
 ) -> Result<(), ModelError> {
-    let scopes =
-        ReceiverScopes::from_tables(invariant.inputs.clone(), tables.clone(), session, budget)
-            .await?;
+    let scopes = ReceiverScopes::from_tables(
+        invariant.inputs.clone(),
+        tables.clone(),
+        session,
+        budget,
+        model,
+    )
+    .await?;
     // Stored assessment roots are independent of candidate eligibility, so dishonest existing
     // non-candidate targets cannot disappear merely because the producer would skip them.
     macro_rules! roots {
@@ -78,22 +61,44 @@ pub async fn validate_receivers(
                     .as_any()
                     .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                     .ok_or(ModelError::Schema(<$ty>::NAME))?;
-                for ordinal in 0..ids.len() {
-                    cancellation.check()?;
-                    let scope = scopes
-                        .root_grain(TypeId::of::<$ty>(), ids.value(ordinal), budget)
+                for start in (0..ids.len()).step_by(32) {
+                    let end = (start + 32).min(ids.len());
+                    let _window_charge =
+                        budget.reserve("receiver-admission-window", (end - start) * 128 + 4096)?;
+                    let table = scopes.table_for::<$ty>()?;
+                    let roots = (start..end)
+                        .map(|index| {
+                            Ok(crate::consumed_rows::PreparedRoot {
+                                table,
+                                key: ids.value(index).try_into().map_err(ModelError::codec)?,
+                                kind: crate::consumed_rows::PreparedRootKind::Physical,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, ModelError>>()?;
+                    let selected = scopes
+                        .edges()
+                        .batch_with_cancellation(&roots, budget, cancellation)
                         .await?;
-                    let mut data = receiver::ReceiverData::new(budget);
-                    let mut stored = receiver::ReceiverOutput::new(budget);
-                    feed(&scope, scopes.inputs(), cancellation, |name, batch| {
-                        if !data.visit(name, batch)? && !stored.visit(name, batch)? {
-                            return Err(ModelError::Schema("receiver admission input"));
-                        }
-                        Ok(())
-                    })
-                    .await?;
-                    receiver::admit(&data, &stored, budget)?;
-                    tokio::task::yield_now().await;
+                    let (data, stored) = scopes
+                        .load_receiver_admission(&selected, budget, cancellation)
+                        .await?;
+                    for partition in 0..roots.len() {
+                        let inputs = super::receiver_scope::DataSelection::new(
+                            &selected,
+                            partition,
+                            scopes.inputs(),
+                            &data,
+                            budget,
+                        )?;
+                        let outputs = super::receiver_scope::ReceiverOutputSelection::new(
+                            &selected,
+                            partition,
+                            scopes.inputs(),
+                            &stored,
+                            budget,
+                        )?;
+                        receiver::admit_view(&inputs.view()?, &outputs.view()?, budget)?;
+                    }
                 }
             }
         }};
@@ -109,6 +114,7 @@ pub async fn validate_events(
     session: &datafusion::prelude::SessionContext,
     budget: &resources::ResourceBudget,
     cancellation: &Cancellation,
+    model: &ValidatedModel,
 ) -> Result<(), ModelError> {
     let scopes = CallScopes::from_tables(
         invariant.inputs.clone(),
@@ -117,6 +123,7 @@ pub async fn validate_events(
         budget,
         false,
         true,
+        model,
     )
     .await?;
     let qualifications = input_table::<assertion::AssertionQualification>(invariant, &tables)?;
@@ -130,22 +137,22 @@ pub async fn validate_events(
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
             let binary = |column: usize| batch.column(column).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema(<$ty>::NAME));
             let ids = binary(0)?; let sites = binary(1)?; let origins = binary(2)?; let contexts = binary(3)?;
-            for ordinal in 0..ids.len() {
-                cancellation.check()?;
-                let site = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(sites.value(ordinal).iter().copied())).map_err(ModelError::codec)?;
-                let origin = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(origins.value(ordinal).iter().copied())).map_err(ModelError::codec)?;
-                let context = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(contexts.value(ordinal).iter().copied())).map_err(ModelError::codec)?;
-                let key: event_normalization::EventKey = (site,origin,context);
-                if !seen.insert(&mut root_charge, key)? { continue; }
-                let scope = scopes.root_grain(TypeId::of::<$ty>(), ids.value(ordinal), budget).await?;
-                let mut data = event_normalization::EventData::new(budget);
-                let mut stored = event_normalization::EventOutput::new(budget);
-                feed(&scope, scopes.inputs(), cancellation, |name, batch| {
-                    if !data.visit(name, batch)? && !stored.visit(name, batch)? { return Err(ModelError::Schema("event admission input")); }
-                    Ok(())
-                }).await?;
-                event_normalization::admit_event(&data, &stored, key, budget)?;
-                tokio::task::yield_now().await;
+            let _window_charge=budget.reserve("event-admission-window",ids.len()*256+4096)?;
+            let mut requests=Vec::new();
+            for ordinal in 0..ids.len(){
+                let key:event_normalization::EventKey=(super::callable_scope::nominal(sites.value(ordinal))?,super::callable_scope::nominal(origins.value(ordinal))?,super::callable_scope::nominal(contexts.value(ordinal))?);
+                if seen.insert(&mut root_charge,key)?{requests.push((<[u8;16]>::try_from(ids.value(ordinal)).map_err(ModelError::codec)?,key));}
+            }
+            for window in requests.chunks(32){
+                let root=scopes.root_for::<$ty>()?;
+                let roots=window.iter().map(|(key,_)|crate::consumed_rows::PreparedRoot{table:root,key:*key,kind:crate::consumed_rows::PreparedRootKind::Virtual}).collect::<Vec<_>>();
+                let selected=scopes.edges().batch_with_cancellation(&roots,budget,cancellation).await?;
+                let (data,stored)=scopes.load_event_admission(&selected,budget,cancellation).await?;
+                for (partition,(_,key)) in window.iter().enumerate(){
+                    let inputs=super::call_scope::EventSelection::new(&selected,partition,scopes.inputs(),&data,budget)?;
+                    let outputs=super::call_scope::EventOutputSelection::new(&selected,partition,scopes.inputs(),&stored,budget)?;
+                    event_normalization::admit_event_view(&inputs.view()?,&outputs.view()?,*key,budget)?;
+                }
             }
         }
     }};}
@@ -161,25 +168,56 @@ pub async fn validate_events(
             .await
             .map_err(ModelError::codec)?;
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-            let mut roots = Rows::<flow::FlowValuePathObservation>::new(budget);
-            roots.decode(&batch)?;
-            for root in roots.iter() {
-                let scope = scopes
-                    .root_grain(
-                        TypeId::of::<flow::FlowValuePathObservation>(),
-                        root.id().bytes(),
-                        budget,
-                    )
-                    .await?;
-                let mut data = event_normalization::EventData::new(budget);
-                let mut stored = event_normalization::EventOutput::new(budget);
-                feed(&scope, scopes.inputs(), cancellation, |name, batch| {
-                    data.visit(name, batch)?;
-                    stored.visit(name, batch)?;
-                    Ok(())
+            let ids = batch
+                .column_by_name("id")
+                .and_then(|c| {
+                    c.as_any()
+                        .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                 })
-                .await?;
-                event_normalization::admit_flow_path(&data, &stored, root.id(), budget)?;
+                .ok_or(ModelError::Schema("flow admission root"))?;
+            for start in (0..ids.len()).step_by(32) {
+                let end = (start + 32).min(ids.len());
+                let _window_charge =
+                    budget.reserve("flow-admission-window", (end - start) * 128 + 4096)?;
+                let root = scopes.root_for::<flow::FlowValuePathObservation>()?;
+                let roots = (start..end)
+                    .map(|i| {
+                        Ok(crate::consumed_rows::PreparedRoot {
+                            table: root,
+                            key: ids.value(i).try_into().map_err(ModelError::codec)?,
+                            kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ModelError>>()?;
+                let selected = scopes
+                    .edges()
+                    .batch_with_cancellation(&roots, budget, cancellation)
+                    .await?;
+                let (data, stored) = scopes
+                    .load_event_admission(&selected, budget, cancellation)
+                    .await?;
+                for (partition, i) in (start..end).enumerate() {
+                    let inputs = super::call_scope::EventSelection::new(
+                        &selected,
+                        partition,
+                        scopes.inputs(),
+                        &data,
+                        budget,
+                    )?;
+                    let outputs = super::call_scope::EventOutputSelection::new(
+                        &selected,
+                        partition,
+                        scopes.inputs(),
+                        &stored,
+                        budget,
+                    )?;
+                    event_normalization::admit_flow_path_view(
+                        &inputs.view()?,
+                        &outputs.view()?,
+                        super::callable_scope::nominal(ids.value(i))?,
+                        budget,
+                    )?;
+                }
             }
         }
     }
@@ -192,6 +230,7 @@ pub async fn validate_bindings(
     session: &datafusion::prelude::SessionContext,
     budget: &resources::ResourceBudget,
     cancellation: &Cancellation,
+    model: &ValidatedModel,
 ) -> Result<(), ModelError> {
     let scopes = CallScopes::from_tables(
         invariant.inputs.clone(),
@@ -200,6 +239,7 @@ pub async fn validate_bindings(
         budget,
         true,
         true,
+        model,
     )
     .await?;
     let table = input_table::<normalized::events::NormalizedCallEvent>(invariant, &tables)?;
@@ -210,27 +250,56 @@ pub async fn validate_bindings(
         .await
         .map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        let mut roots = Rows::<normalized::events::NormalizedCallEvent>::new(budget);
-        roots.decode(&batch)?;
-        for event in roots.iter() {
-            cancellation.check()?;
-            let scope = scopes
-                .root_grain(
-                    TypeId::of::<normalized::events::NormalizedCallEvent>(),
-                    event.id().bytes(),
-                    budget,
-                )
-                .await?;
-            let mut data = binding_normalization::BindingData::new(budget);
-            let mut stored = binding_normalization::BindingOutput::new(budget);
-            feed(&scope, scopes.inputs(), cancellation, |name, batch| {
-                data.visit(name, batch)?;
-                stored.visit(name, batch)?;
-                Ok(())
+        let ids = batch
+            .column_by_name("id")
+            .and_then(|c| {
+                c.as_any()
+                    .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
             })
-            .await?;
-            binding_normalization::admit_event(&data, &stored, event.id(), budget)?;
-            tokio::task::yield_now().await;
+            .ok_or(ModelError::Schema("binding admission root"))?;
+        for start in (0..ids.len()).step_by(32) {
+            let end = (start + 32).min(ids.len());
+            let _window_charge =
+                budget.reserve("binding-admission-window", (end - start) * 128 + 4096)?;
+            let root = scopes.root_for::<normalized::events::NormalizedCallEvent>()?;
+            let roots = (start..end)
+                .map(|i| {
+                    Ok(crate::consumed_rows::PreparedRoot {
+                        table: root,
+                        key: ids.value(i).try_into().map_err(ModelError::codec)?,
+                        kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                    })
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            let selected = scopes
+                .edges()
+                .batch_with_cancellation(&roots, budget, cancellation)
+                .await?;
+            let (data, stored) = scopes
+                .load_binding_admission(&selected, budget, cancellation)
+                .await?;
+            for (partition, i) in (start..end).enumerate() {
+                let inputs = super::call_scope::BindingSelection::new(
+                    &selected,
+                    partition,
+                    scopes.inputs(),
+                    &data,
+                    budget,
+                )?;
+                let outputs = super::call_scope::BindingOutputSelection::new(
+                    &selected,
+                    partition,
+                    scopes.inputs(),
+                    &stored,
+                    budget,
+                )?;
+                binding_normalization::admit_event_view(
+                    &inputs.view()?,
+                    &outputs.view()?,
+                    super::callable_scope::nominal(ids.value(i))?,
+                    budget,
+                )?;
+            }
         }
     }
     Ok(())

@@ -6,7 +6,7 @@ use crate::{
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use datafusion::execution::context::SessionContext;
-use futures::{TryStreamExt, FutureExt};
+use futures::{FutureExt, TryStreamExt};
 use lctx_model::domain::{
     analysis::{self, retrieval::*},
     embedding::{analytic::VectorAvailability, value},
@@ -30,10 +30,11 @@ async fn load<R: Record>(
     crate::consumed_rows::stream_at(permit, &declaration, access, session, |permit, batch| {
         admission.visit_if_expected(permit, batch)?;
         rows.decode(batch)
-    }).await
+    })
+    .await
 }
 
-fn nominal<R>(bytes: &[u8]) -> Result<Id<R>, ModelError> {
+pub(crate) fn nominal<R>(bytes: &[u8]) -> Result<Id<R>, ModelError> {
     serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
         _,
         serde::de::value::Error,
@@ -176,13 +177,41 @@ pub async fn produce(
     let mut data = ConsumptionData::new(b);
     // Configuration is finite authored metadata. E1 text and use rows are read one at a time.
     let permit = access.read::<embedding::EmbeddingSpec>()?;
-    load(&access, session, &mut data.specifications, &permit, &mut admission).await?;
+    load(
+        &access,
+        session,
+        &mut data.specifications,
+        &permit,
+        &mut admission,
+    )
+    .await?;
     let permit = access.read::<embedding::configuration::ServiceConfiguration>()?;
-    load(&access, session, &mut data.services, &permit, &mut admission).await?;
+    load(
+        &access,
+        session,
+        &mut data.services,
+        &permit,
+        &mut admission,
+    )
+    .await?;
     let permit = access.read::<embedding::DocumentRecipe>()?;
-    load(&access, session, &mut data.documents, &permit, &mut admission).await?;
+    load(
+        &access,
+        session,
+        &mut data.documents,
+        &permit,
+        &mut admission,
+    )
+    .await?;
     let permit = access.read::<embedding::projection::ProjectionDefinition>()?;
-    load(&access, session, &mut data.projections, &permit, &mut admission).await?;
+    load(
+        &access,
+        session,
+        &mut data.projections,
+        &permit,
+        &mut admission,
+    )
+    .await?;
     let mut service = if selected {
         data.selected_spec()?;
         Some(
@@ -208,7 +237,8 @@ pub async fn produce(
         let table = access.table_for(&full)?;
         crate::consumed_rows::stream_query_at(
             &permit,
-            &full, &access,
+            &full,
+            &access,
             session,
             &format!(
                 "SELECT * FROM {} ORDER BY id",
@@ -228,7 +258,8 @@ pub async fn produce(
         let table = access.table_for(&projection)?;
         crate::consumed_rows::stream_query_at(
             &permit,
-            &projection, &access,
+            &projection,
+            &access,
             session,
             &format!(
                 "SELECT * FROM {} ORDER BY id",
@@ -255,8 +286,12 @@ pub async fn produce(
     macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::retrieval::$record>().await?;)*};}
     lctx_model::analysis_publication!(common_publication);
     output.declare_async::<RetrievalEmbeddingUse>().await?;
-    output.declare_async::<embedding::value::FullValue>().await?;
-    output.declare_async::<embedding::projection::ProjectedValue>().await?;
+    output
+        .declare_async::<embedding::value::FullValue>()
+        .await?;
+    output
+        .declare_async::<embedding::projection::ProjectedValue>()
+        .await?;
     // Declare the complete owner output once, including genuinely empty families.
     // Each root then contributes rows to these same publications.
     macro_rules! mandatory_publication {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
@@ -305,48 +340,55 @@ pub async fn produce(
                             .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                     })
                     .ok_or(ModelError::Schema("E0 rendering root identity"))?;
-                for index in 0..batch.num_rows() {
-                    let (render, mandatory) = if brief {
-                        preparation
-                            .render_brief(&access, nominal(ids.value(index))?, b)
+                for start in (0..batch.num_rows()).step_by(32) {
+                    let end = (start + 32).min(batch.num_rows());
+                    let _keys = b.reserve(
+                        "retrieval-render-root-window",
+                        (end - start) * size_of::<[u8; 16]>(),
+                    )?;
+                    let keys = (start..end)
+                        .map(|index| ids.value(index).try_into().map_err(ModelError::codec))
+                        .collect::<Result<Vec<[u8; 16]>, ModelError>>()?;
+                    let window = preparation
+                        .render_window(&access, &keys, brief, b, &runtime.cancellation())
+                        .await?;
+                    for partition in 0..keys.len() {
+                        let (render, mandatory) = window
+                            .render(&access, partition, b, &runtime.cancellation())
+                            .await?;
+                        let uses = if let Some(service) = service.as_mut() {
+                            realize(
+                                &mandatory,
+                                &invocation,
+                                data.selected_consumption()?,
+                                &output,
+                                service,
+                                b,
+                            )
                             .await?
-                    } else {
-                        preparation
-                            .render_root(&access, nominal(ids.value(index))?, b)
-                            .await?
-                    };
-                    let uses = if let Some(service) = service.as_mut() {
-                        realize(
+                        } else {
+                            Rows::new(b)
+                        };
+                        retrieval::consumption::verify_uses(
                             &mandatory,
                             &invocation,
-                            data.selected_consumption()?,
-                            &output,
-                            service,
+                            if selected {
+                                Some(data.selected_consumption()?)
+                            } else {
+                                None
+                            },
+                            &uses,
                             b,
-                        )
-                        .await?
-                    } else {
-                        Rows::new(b)
-                    };
-                    retrieval::consumption::verify_uses(
-                        &mandatory,
-                        &invocation,
-                        if selected {
-                            Some(data.selected_consumption()?)
-                        } else {
-                            None
-                        },
-                        &uses,
-                        b,
-                    )?;
-                    disposition.observe(&uses);
-                    retrieval_preparation::publish_mandatory(&mut output, &mandatory).await?;
-                    for use_ in uses.iter() {
-                        output.push(use_.clone()).await?;
+                        )?;
+                        disposition.observe(&uses);
+                        retrieval_preparation::publish_mandatory(&mut output, &mandatory).await?;
+                        for use_ in uses.iter() {
+                            output.push(use_.clone()).await?;
+                        }
+                        drop(uses);
+                        drop(mandatory);
+                        drop(render);
                     }
-                    drop(uses);
-                    drop(mandatory);
-                    drop(render);
                 }
             }
         }

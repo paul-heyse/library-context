@@ -6,7 +6,7 @@ use crate::domain::{
     attribution::{AnalysisContext, Modality},
     calls::*,
     input::InputRevision,
-    normalized::{Rows, callables::*, entities::*},
+    normalized::{Rows, RowsView, callables::*, entities::*},
     source::{CoverageScope, Module, SourceArtifact},
     *,
 };
@@ -37,7 +37,25 @@ pub struct ScopeCatalog<'a> {
     pub artifacts: &'a Rows<SourceArtifact>,
     pub modules: &'a Rows<Module>,
 }
-impl ScopeCatalog<'_> {
+impl<'a> ScopeCatalog<'a> {
+    pub fn view(&self) -> ScopeCatalogView<'a> {
+        ScopeCatalogView {
+            scopes: self.scopes.view(),
+            artifacts: self.artifacts.view(),
+            modules: self.modules.view(),
+        }
+    }
+    pub fn input(&self, scope: Id<CoverageScope>) -> Option<Id<InputRevision>> {
+        self.view().input(scope)
+    }
+}
+#[derive(Clone, Copy)]
+pub struct ScopeCatalogView<'a> {
+    pub scopes: RowsView<'a, CoverageScope>,
+    pub artifacts: RowsView<'a, SourceArtifact>,
+    pub modules: RowsView<'a, Module>,
+}
+impl ScopeCatalogView<'_> {
     pub fn input(&self, scope: Id<CoverageScope>) -> Option<Id<InputRevision>> {
         match self.scopes.get(scope)? {
             CoverageScope::Input { input } => Some(*input),
@@ -51,7 +69,7 @@ impl ScopeCatalog<'_> {
 }
 /// Exact original records are borrowed through binding. Context and input equality are checked
 /// against nominal scope records, including caller/callee artifact scopes in the same input.
-pub struct Application<'a> {
+pub struct Application<'a, Catalog = ScopeCatalog<'a>> {
     pub target: &'a CallTarget,
     pub qualification: &'a AssertionQualification,
     pub destination: &'a CallDestination,
@@ -69,8 +87,34 @@ pub struct Application<'a> {
     pub callable: &'a CallableEntity,
     pub variant: &'a SignatureVariant,
     pub effective: Option<&'a EffectiveCallableAssessment>,
-    pub scopes: ScopeCatalog<'a>,
+    pub scopes: Catalog,
 }
+pub type ApplicationView<'a> = Application<'a, ScopeCatalogView<'a>>;
+impl<'a> Application<'a> {
+    pub fn view(self) -> ApplicationView<'a> {
+        ApplicationView {
+            target: self.target,
+            qualification: self.qualification,
+            destination: self.destination,
+            channel: self.channel,
+            receiver: self.receiver,
+            receiver_proof: self.receiver_proof,
+            dispatch_proof: self.dispatch_proof,
+            signature: self.signature,
+            signature_qualification: self.signature_qualification,
+            call: self.call,
+            call_qualification: self.call_qualification,
+            target_resolution: self.target_resolution,
+            signature_resolution: self.signature_resolution,
+            entity: self.entity,
+            callable: self.callable,
+            variant: self.variant,
+            effective: self.effective,
+            scopes: self.scopes.view(),
+        }
+    }
+}
+
 pub struct ApplicableSignature<'a> {
     raw: RawBinding<'a>,
     input: Id<InputRevision>,
@@ -117,6 +161,11 @@ impl ApplicableSignature<'_> {
 }
 pub fn establish(
     application: Application<'_>,
+) -> Result<ApplicableSignature<'_>, attribution::ObligationKind> {
+    establish_view(application.view())
+}
+pub fn establish_view(
+    application: ApplicationView<'_>,
 ) -> Result<ApplicableSignature<'_>, attribution::ObligationKind> {
     use attribution::ObligationKind::MissingEvidence;
     let a = application;
@@ -237,7 +286,7 @@ pub fn establish(
         effective: a.effective.map(Record::id),
     })
 }
-fn authority(a: &Application<'_>) -> AuthorityReason {
+fn authority(a: &ApplicationView<'_>) -> AuthorityReason {
     if a.call.in_annotation {
         return AuthorityReason::AnnotationSyntax;
     }

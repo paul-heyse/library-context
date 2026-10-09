@@ -1,18 +1,16 @@
 //! Compact selection for assertion support; the model's support predicate owns admission.
 //! Immutable nominal edges are prepared once, then rich rows live only for one bounded grain.
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, identifier},
+    consumed_rows::{ClosureTable, PreparedClosure, PreparedRoot, PreparedRootKind, identifier},
     workspace::Cancellation,
 };
 use arrow_array::{Array, FixedSizeBinaryArray};
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
 use lctx_model::domain::{
+    admission_scope_program::{OwnershipRows, OwnershipSet, SupportOwnership},
     assertion::{AssertionQualification, SupportScope},
-    attribution::{ProviderRun, RunFamily},
-    input::{CorpusLibrary, InputDistribution, InputRevision},
     resources::ResourceBudget,
-    source::{CoverageScope, SourceArtifact},
     *,
 };
 use std::any::TypeId;
@@ -71,78 +69,6 @@ pub(crate) fn field_target(
         _ => Err(ModelError::Conflict("ambiguous support dependency epoch")),
     }
 }
-fn own<M: Record, O: Record>(
-    plan: &mut NominalClosure,
-    tables: &[ClosureTable],
-    inputs: &[ValidationInput],
-    field: &str,
-) -> Result<(), ModelError> {
-    for (member, _) in tables
-        .iter()
-        .enumerate()
-        .filter(|(_, table)| table.relation.type_id() == TypeId::of::<M>())
-    {
-        if let Some(owner) = field_target(inputs, member, TypeId::of::<O>())? {
-            plan.own(member, field, owner)?;
-        }
-    }
-    Ok(())
-}
-fn plan(
-    tables: &[ClosureTable],
-    inputs: &[ValidationInput],
-    scope: &SupportScope,
-) -> Result<NominalClosure, ModelError> {
-    let mut plan = NominalClosure::new(tables.to_vec())?;
-    // Forward dependencies are mechanical nominal declarations, including qualifications,
-    // source/evidence/subject/condition lineage and the selected derived support owner frame.
-    for (source, table) in tables.iter().enumerate() {
-        for field in table.relation.fields() {
-            let Some((target, _)) = field.target() else {
-                continue;
-            };
-            let Some(target) = field_target(inputs, source, target)? else {
-                continue;
-            };
-            if field.list() {
-                plan.pairs(
-                    source,
-                    target,
-                    format!(
-                        "SELECT id AS source_id, UNNEST({}) AS target_id FROM {}",
-                        identifier(field.name()),
-                        identifier(&table.alias)
-                    ),
-                )?;
-            } else {
-                plan.follow(source, field.name(), target)?;
-            }
-        }
-    }
-    let assertion = declared(tables, inputs, &scope.assertion)?;
-    let support = declared(tables, inputs, &scope.support)?;
-    plan.own(support, "assertion", assertion)?;
-    // These are actual owner memberships. Arbitrary incoming references must not grow a grain.
-    own::<flow::FlowCallStep, flow::FlowCallPath>(&mut plan, tables, inputs, "path")?;
-    own::<types::TypeSequenceMember, types::TypeSequence>(&mut plan, tables, inputs, "sequence")?;
-    own::<types::TypedDictField, types::TypedDictFieldList>(&mut plan, tables, inputs, "list")?;
-    own::<types::CallableParameter, types::CallableParameterList>(
-        &mut plan, tables, inputs, "list",
-    )?;
-    if let (Some(run), Some(family)) = (typed::<ProviderRun>(tables), typed::<RunFamily>(tables)) {
-        plan.pairs(
-            run,
-            family,
-            format!(
-                "SELECT run AS source_id,id AS target_id FROM {} WHERE family={}",
-                identifier(&tables[family].alias),
-                scope.family as i16
-            ),
-        )?;
-    }
-    Ok(plan)
-}
-
 pub(crate) fn column(
     batch: &arrow_array::RecordBatch,
     name: &str,
@@ -159,89 +85,85 @@ pub(crate) fn column(
         ModelError::Schema("support grain nominal width")
     })?))
 }
-fn selected<R: Record>(
+fn ownership_rows(
+    rows: &OwnershipRows,
     closure: &PreparedClosure,
     tables: &[ClosureTable],
 ) -> Result<String, ModelError> {
-    let index = typed::<R>(tables).ok_or(ModelError::Conflict("support ownership input epoch"))?;
-    closure.select(index)
-}
-fn union(parts: Vec<String>) -> String {
-    parts.join(" UNION ")
-}
-
-/// Ownership needs pairs, rather than all input neighbors. The selected artifacts and scope
-/// supply the library/release side; selected native/derived invocations supply the corpus side.
-fn ownership(
-    closure: &PreparedClosure,
-    tables: &[ClosureTable],
-    inputs: &[ValidationInput],
-    scope: &SupportScope,
-) -> Result<(String, String), ModelError> {
-    let sources = selected::<SourceArtifact>(closure, tables)?;
-    let scopes = selected::<CoverageScope>(closure, tables)?;
-    let mut invocation_inputs = vec![format!(
-        "SELECT input FROM ({}) AS native_runs",
-        selected::<ProviderRun>(closure, tables)?
-    )];
-    for input in &scope.source_inputs {
-        let index = declared(tables, inputs, input)?;
-        for field in tables[index].relation.fields().iter().filter(|field| {
-            field
-                .target()
-                .is_some_and(|(target, _)| target == TypeId::of::<InputRevision>())
-                && !field.list()
-        }) {
-            invocation_inputs.push(format!(
-                "SELECT {} AS input FROM ({}) AS derived_frames",
-                identifier(field.name()),
-                closure.select(index)?
-            ));
+    match rows {
+        OwnershipRows::Selected(input) => closure.select(*input),
+        OwnershipRows::Full { input, filters } => {
+            let table = tables
+                .get(*input)
+                .ok_or(ModelError::Schema("ownership physical input absent"))?;
+            let filters = filters
+                .iter()
+                .map(|filter| {
+                    Ok(format!(
+                        "{} IN ({})",
+                        identifier(filter.field),
+                        ownership_set(&filter.values, closure, tables)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?
+                .join(" AND ");
+            Ok(format!(
+                "SELECT * FROM {}{}",
+                identifier(&table.alias),
+                if filters.is_empty() {
+                    String::new()
+                } else {
+                    format!(" WHERE {filters}")
+                }
+            ))
         }
     }
-    invocation_inputs.push(format!(
-        "SELECT input_input AS input FROM ({scopes}) AS input_scopes WHERE input_input IS NOT NULL"
-    ));
-    let owners = union(invocation_inputs);
-    let release_ids = format!(
-        "SELECT release_release AS release FROM ({scopes}) AS release_scopes WHERE release_release IS NOT NULL"
-    );
-    let artifact_inputs = format!("SELECT input FROM ({sources}) AS artifacts");
-    let distributions =
-        typed::<InputDistribution>(tables).ok_or(ModelError::Schema("support distributions"))?;
-    let corpus =
-        typed::<CorpusLibrary>(tables).ok_or(ModelError::Schema("support corpus membership"))?;
-    let dist_table = identifier(&tables[distributions].alias);
-    let corpus_table = identifier(&tables[corpus].alias);
-    let needed_libraries = format!(
-        "{artifact_inputs} UNION SELECT input FROM {dist_table} WHERE release IN ({release_ids})"
-    );
-    let selected_corpus = format!(
-        "SELECT * FROM {corpus_table} WHERE corpus IN ({owners}) AND library IN ({needed_libraries})"
-    );
-    let needed_inputs = format!(
-        "{artifact_inputs} UNION {owners} UNION SELECT library AS input FROM ({selected_corpus}) AS release_members"
-    );
-    let selected_distributions = format!(
-        "SELECT * FROM {dist_table} WHERE release IN ({release_ids}) AND input IN ({needed_inputs})"
-    );
-    Ok((selected_corpus, selected_distributions))
+}
+fn ownership_set(
+    set: &OwnershipSet,
+    closure: &PreparedClosure,
+    tables: &[ClosureTable],
+) -> Result<String, ModelError> {
+    match set {
+        OwnershipSet::Projection {
+            rows,
+            field,
+            non_null,
+        } => {
+            let column = identifier(field);
+            let filter = if *non_null {
+                format!(" WHERE {column} IS NOT NULL")
+            } else {
+                String::new()
+            };
+            Ok(format!(
+                "SELECT {column} AS value FROM ({}) AS ownership_rows{filter}",
+                ownership_rows(rows, closure, tables)?
+            ))
+        }
+        OwnershipSet::Union(parts) => Ok(parts
+            .iter()
+            .map(|part| ownership_set(part, closure, tables))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" UNION ")),
+    }
 }
 
 async fn validate_grain(
     invariant: &Invariant,
-    scope: &SupportScope,
+    ownership: &SupportOwnership,
     tables: &[ClosureTable],
     closure: &PreparedClosure,
     budget: &ResourceBudget,
     cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let (corpus, distributions) = ownership(closure, tables, &invariant.inputs, scope)?;
+    let corpus = ownership_rows(&ownership.corpus, closure, tables)?;
+    let distributions = ownership_rows(&ownership.distributions, closure, tables)?;
     let mut check = (invariant.create)(budget);
     for (index, input) in invariant.inputs.iter().enumerate() {
-        let select = if input.type_id() == TypeId::of::<CorpusLibrary>() {
+        let select = if index == ownership.corpus_input {
             corpus.clone()
-        } else if input.type_id() == TypeId::of::<InputDistribution>() {
+        } else if index == ownership.distributions_input {
             distributions.clone()
         } else {
             closure.select(index)?
@@ -278,16 +200,23 @@ pub(crate) async fn validate_support(
     invariant: &Invariant,
     scope: &SupportScope,
     tables: Vec<ClosureTable>,
+    model: &ValidatedModel,
     session: &SessionContext,
     budget: &ResourceBudget,
     cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let root = declared(&tables, &invariant.inputs, &scope.assertion)?;
+    let declared = scope.program(invariant.inputs.clone(), model, budget)?;
+    let root = declared.root;
     let qualification = typed::<AssertionQualification>(&tables)
         .ok_or(ModelError::Schema("support qualification"))?;
-    let prepared = plan(&tables, &invariant.inputs, scope)?
-        .prepare(session, budget)
-        .await?;
+    let prepared = crate::scope_compilation::lower_compiled(
+        crate::scope_compilation::compile(&declared.program, model, budget, None)?,
+        &tables,
+        &scope_program::ScopeParameters(vec![]),
+        budget,
+    )?
+    .prepare(session, budget)
+    .await?;
     // LEFT JOIN keeps unsupported assertions and assertions with an absent qualification in the
     // root domain. The independent global reference pass still refuses every missing reference.
     let sql = format!(
@@ -312,9 +241,26 @@ pub(crate) async fn validate_support(
                 column(&batch, "context", row)?,
             );
             if !ids.is_empty() && (grain != Some(next) || ids.len() == ROOT_ROWS) {
-                let predicate = root_predicate(&ids);
-                let closure = prepared.grain(root, &predicate, budget).await?;
-                validate_grain(invariant, scope, &tables, &closure, budget, cancellation).await?;
+                let roots = ids
+                    .iter()
+                    .map(|key| PreparedRoot {
+                        table: root,
+                        key: *key,
+                        kind: PreparedRootKind::Physical,
+                    })
+                    .collect::<Vec<_>>();
+                let batch = prepared
+                    .batch_with_cancellation(&roots, budget, cancellation)
+                    .await?;
+                validate_grain(
+                    invariant,
+                    &declared.ownership,
+                    &tables,
+                    &batch.union,
+                    budget,
+                    cancellation,
+                )
+                .await?;
                 ids.clear();
             }
             grain = Some(next);
@@ -322,9 +268,26 @@ pub(crate) async fn validate_support(
         }
     }
     if !ids.is_empty() {
-        let predicate = root_predicate(&ids);
-        let closure = prepared.grain(root, &predicate, budget).await?;
-        validate_grain(invariant, scope, &tables, &closure, budget, cancellation).await?;
+        let roots = ids
+            .iter()
+            .map(|key| PreparedRoot {
+                table: root,
+                key: *key,
+                kind: PreparedRootKind::Physical,
+            })
+            .collect::<Vec<_>>();
+        let batch = prepared
+            .batch_with_cancellation(&roots, budget, cancellation)
+            .await?;
+        validate_grain(
+            invariant,
+            &declared.ownership,
+            &tables,
+            &batch.union,
+            budget,
+            cancellation,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -353,9 +316,16 @@ mod controls {
     use datafusion::{datasource::MemTable, prelude::SessionConfig};
     use lctx_model::domain::{
         assertion::{Approximation, Evidence, ProviderSurface},
-        attribution::{ExtractionMode, FactFamily, Fidelity, Modality, Origin, Provider},
+        attribution::{
+            ExtractionMode, FactFamily, Fidelity, Modality, Origin, Provider, ProviderRun,
+            RunFamily,
+        },
         conditions::{Condition, ConditionNode},
-        source::{Occurrence, OccurrenceRole, SyntaxKind, SyntaxObservation, SyntaxSupport},
+        input::CorpusLibrary,
+        source::{
+            CoverageScope, Occurrence, OccurrenceRole, SourceArtifact, SyntaxKind,
+            SyntaxObservation, SyntaxSupport,
+        },
     };
     use std::sync::Arc;
 
@@ -503,6 +473,7 @@ mod controls {
                 &self.invariant,
                 &self.scope,
                 self.tables.clone(),
+                &lctx_model::domain::model()?,
                 &self.session,
                 &self.budget,
                 &Cancellation::default(),
@@ -548,7 +519,12 @@ mod controls {
             &fixture.scope.assertion,
         )
         .unwrap();
-        let edges = plan(&fixture.tables, &fixture.invariant.inputs, &fixture.scope)
+        let model = lctx_model::domain::model().unwrap();
+        let scope_program = fixture
+            .scope
+            .program(fixture.invariant.inputs.clone(), &model, &fixture.budget)
+            .unwrap();
+        let edges = crate::scope_compilation::lower(&scope_program.program, &fixture.tables)
             .unwrap()
             .prepare(&fixture.session, &fixture.budget)
             .await
@@ -561,13 +537,8 @@ mod controls {
             )
             .await
             .unwrap();
-        let (corpus, _) = ownership(
-            &closure,
-            &fixture.tables,
-            &fixture.invariant.inputs,
-            &fixture.scope,
-        )
-        .unwrap();
+        let corpus =
+            ownership_rows(&scope_program.ownership.corpus, &closure, &fixture.tables).unwrap();
         let batches = crate::sql::query(closure.session(), &corpus)
             .await
             .unwrap()
@@ -581,6 +552,7 @@ mod controls {
         assert_eq!(rows, vec![memberships[0].clone()]);
         drop(closure);
         drop(edges);
+        drop(scope_program);
         fixture.validate().await.unwrap();
         fixture.put::<CorpusLibrary>(&[]);
         assert!(fixture.validate().await.is_err());

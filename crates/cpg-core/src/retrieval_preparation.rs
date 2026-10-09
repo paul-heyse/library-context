@@ -1,7 +1,7 @@
 //! E0 selects actual C1 roots and canonical brief documents before decoding their rich premises.
 use crate::producer_operations;
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, PreparedClosure, PreparedEdges, identifier},
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use datafusion::prelude::SessionContext;
@@ -31,14 +31,148 @@ fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
         .ok_or(ModelError::Schema("E0 scope relation absent"))
 }
 
+struct ArtifactPrograms {
+    owners: [Arc<scope_program::CompiledScopeProgram>; 7],
+    _charge: Box<dyn resources::Reservation>,
+}
+impl ArtifactPrograms {
+    fn index(kind: catalog_scope_program::RetrievalArtifactRoot) -> usize {
+        use catalog_scope_program::RetrievalArtifactRoot as R;
+        match kind {
+            R::Member => 0,
+            R::Document => 1,
+            R::Scenario => 2,
+            R::Deployment => 3,
+            R::Source => 4,
+            R::Empty => 5,
+            R::Brief => 6,
+        }
+    }
+    fn new(
+        inputs: &[ValidationInput],
+        tables: &[ClosureTable],
+        model: &ValidatedModel,
+        budget: &resources::ResourceBudget,
+        interner: Option<&std::sync::Mutex<scope_program::ScopeInterner>>,
+    ) -> Result<Self, ModelError> {
+        let charge = budget.reserve(
+            "retrieval-artifact-program-owners",
+            7 * size_of::<Arc<scope_program::CompiledScopeProgram>>(),
+        )?;
+        let _construction = budget.reserve(
+            "retrieval-artifact-program-construction",
+            tables
+                .len()
+                .saturating_mul(1024)
+                .saturating_add(7 * size_of::<Arc<scope_program::CompiledScopeProgram>>())
+                .saturating_add(4096),
+        )?;
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        use catalog_scope_program::RetrievalArtifactRoot as R;
+        let mut owners = Vec::with_capacity(7);
+        for kind in [
+            R::Member,
+            R::Document,
+            R::Scenario,
+            R::Deployment,
+            R::Source,
+            R::Empty,
+            R::Brief,
+        ] {
+            let semantic = catalog_scope_program::retrieval_artifacts(
+                inputs.to_vec(),
+                &relations,
+                kind,
+                budget,
+            )?;
+            owners.push(crate::scope_compilation::compile(
+                semantic.program(),
+                model,
+                budget,
+                interner,
+            )?);
+        }
+        Ok(Self {
+            owners: owners
+                .try_into()
+                .map_err(|_| ModelError::Schema("E0 artifact program inventory"))?,
+            _charge: charge,
+        })
+    }
+    fn get(
+        &self,
+        kind: catalog_scope_program::RetrievalArtifactRoot,
+    ) -> &Arc<scope_program::CompiledScopeProgram> {
+        &self.owners[Self::index(kind)]
+    }
+}
+struct InventoryPrograms {
+    owners: [Arc<scope_program::CompiledScopeProgram>; 2],
+    _charge: Box<dyn resources::Reservation>,
+}
+impl InventoryPrograms {
+    fn new(
+        inputs: &[ValidationInput],
+        tables: &[ClosureTable],
+        model: &ValidatedModel,
+        budget: &resources::ResourceBudget,
+        interner: Option<&std::sync::Mutex<scope_program::ScopeInterner>>,
+    ) -> Result<Self, ModelError> {
+        let charge = budget.reserve(
+            "retrieval-inventory-program-owners",
+            2 * size_of::<Arc<scope_program::CompiledScopeProgram>>(),
+        )?;
+        let _construction = budget.reserve(
+            "retrieval-inventory-construction",
+            tables.len() * 2048 + 4096,
+        )?;
+        let relations = tables
+            .iter()
+            .map(|t| t.relation.clone())
+            .collect::<Vec<_>>();
+        let compile = |kind| {
+            let program = catalog_scope_program::retrieval_inventory(
+                inputs.to_vec(),
+                &relations,
+                kind,
+                budget,
+            )?;
+            crate::scope_compilation::compile(program.program(), model, budget, interner)
+        };
+        Ok(Self {
+            owners: [
+                compile(catalog_scope_program::RetrievalInventory::Roots)?,
+                compile(catalog_scope_program::RetrievalInventory::Briefs)?,
+            ],
+            _charge: charge,
+        })
+    }
+}
+struct ArtifactSelection {
+    sql: String,
+    _charge: Box<dyn resources::Reservation>,
+}
+impl std::ops::Deref for ArtifactSelection {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.sql
+    }
+}
+
 /// Only this metadata is shared between rendering grains. Originals and output text are released
 /// by the caller after publishing each root or brief.
 pub struct Preparation {
     pub metadata: Data,
+    budget: resources::ResourceBudget,
     session: SessionContext,
     inputs: Vec<ValidationInput>,
     tables: Vec<ClosureTable>,
     edges: PreparedEdges,
+    artifact_programs: ArtifactPrograms,
+    inventory_programs: InventoryPrograms,
     root: usize,
     brief: usize,
 }
@@ -97,54 +231,193 @@ fn read_metadata<'a, 'sources>(
         Ok(())
     })
 }
-struct RenderSelection<'a> {
-    allowed: &'a [TypeId],
-    artifacts: &'a str,
-    brief: bool,
+struct WindowGrain {
+    scope: PreparedClosure,
+    allowed: Vec<TypeId>,
+    artifacts: ArtifactSelection,
 }
-type ScopedLoader = for<'a> fn(
+struct WindowColumns {
+    rows: Vec<Vec<arrow_array::RecordBatch>>,
+    memberships: charged::ChargedSet<(usize, usize, [u8; 16])>,
+    selected: charged::ChargedSet<(usize, [u8; 16])>,
+    consumed: Vec<crate::consumed_rows::ConsumedInputs>,
+    union_consumed: crate::consumed_rows::ConsumedInputs,
+    charge: charged::StateCharge,
+}
+pub struct RenderWindow<'a> {
+    preparation: &'a Preparation,
+    keys: Vec<[u8; 16]>,
+    brief: bool,
+    columns: WindowColumns,
+}
+impl RenderWindow<'_> {
+    fn data(
+        &self,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<Data, ModelError> {
+        self.keys
+            .get(partition)
+            .ok_or(ModelError::Schema("E0 window partition"))?;
+        let mut data = Data::new(budget);
+        for (table, input) in self.preparation.inputs.iter().enumerate() {
+            for rows in &self.columns.rows[table] {
+                cancellation.check()?;
+                let _filter = budget.reserve(
+                    "retrieval-columnar-partition",
+                    rows.get_array_memory_size() + rows.num_rows() * 32 + 4096,
+                )?;
+                let mut mask = Vec::with_capacity(rows.num_rows());
+                for row in 0..rows.num_rows() {
+                    let key = crate::scoped_admission::column(rows, "id", row)?
+                        .ok_or(ModelError::Schema("E0 union identity"))?;
+                    mask.push(self.columns.memberships.contains(&(partition, table, key)));
+                }
+                let selected = datafusion::arrow::compute::filter_record_batch(
+                    rows,
+                    &arrow_array::BooleanArray::from(mask),
+                )
+                .map_err(ModelError::codec)?;
+                if selected.num_rows() != 0 {
+                    if self.brief && input.type_id() == TypeId::of::<catalog::CatalogMember>() {
+                        data.completion_visit(input, &selected)?;
+                    } else {
+                        data.visit_input(input, &selected)?;
+                    }
+                }
+            }
+        }
+        data.facts
+            .definitions
+            .insert_borrowed(self.preparation.metadata.selected()?)?;
+        if let Some(tokenizer) = self.preparation.metadata.tokenizer() {
+            data.set_tokenizer(tokenizer.clone());
+        }
+        Ok(data)
+    }
+    pub async fn render(
+        &self,
+        access: &CompletedInputs,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<(Data, Output), ModelError> {
+        let data = self.data(partition, budget, cancellation)?;
+        let key = self.keys[partition];
+        if self.brief {
+            self.preparation
+                .finish_brief(crate::retrieval::nominal(&key)?, data, budget)
+        } else {
+            self.preparation
+                .finish_root(access, crate::retrieval::nominal(&key)?, data, budget)
+                .await
+        }
+    }
+}
+type WindowLoader = for<'a> fn(
     &'a Preparation,
     &'a CompletedInputs,
-    &'a PreparedClosure,
-    &'a RenderSelection<'a>,
-    &'a mut crate::consumed_rows::ConsumedInputs,
-    &'a mut Data,
+    &'a [WindowGrain],
+    bool,
+    &'a resources::ResourceBudget,
+    &'a crate::workspace::Cancellation,
+    &'a mut WindowColumns,
 ) -> BoxFuture<'a, Result<(), ModelError>>;
-fn load_scoped<'a, R: Record>(
+fn load_window<'a, R: Record>(
     preparation: &'a Preparation,
     access: &'a CompletedInputs,
-    scope: &'a PreparedClosure,
-    selection: &'a RenderSelection<'a>,
-    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
-    data: &'a mut Data,
+    grains: &'a [WindowGrain],
+    brief: bool,
+    budget: &'a resources::ResourceBudget,
+    cancellation: &'a crate::workspace::Cancellation,
+    columns: &'a mut WindowColumns,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        while let Some((input, permit)) = consumed.next::<R>(access)? {
-            let index = preparation
+        for (partition, grain) in grains.iter().enumerate() {
+            while let Some((input, permit)) = columns.consumed[partition].next::<R>(access)? {
+                cancellation.check()?;
+                let table = preparation
+                    .inputs
+                    .iter()
+                    .position(|i| i.type_id() == input.type_id() && i.prefix() == input.prefix())
+                    .ok_or(ModelError::Schema("E0 window immutable input"))?;
+                let Some(selected) =
+                    preparation.select(&grain.scope, table, &grain.allowed, &grain.artifacts)?
+                else {
+                    continue;
+                };
+                let query = format!("SELECT id FROM ({selected}) membership");
+                crate::consumed_rows::stream_query_at(
+                    &permit,
+                    &input,
+                    access,
+                    grain.scope.session(),
+                    &query,
+                    |_, batch| {
+                        cancellation.check()?;
+                        let _transfer = budget.reserve(
+                            "retrieval-membership-transfer",
+                            batch.get_array_memory_size(),
+                        )?;
+                        for row in 0..batch.num_rows() {
+                            let key = crate::scoped_admission::column(batch, "id", row)?
+                                .ok_or(ModelError::Schema("E0 membership identity"))?;
+                            columns
+                                .memberships
+                                .insert(&mut columns.charge, (partition, table, key))?;
+                            columns.selected.insert(&mut columns.charge, (table, key))?;
+                        }
+                        Ok(())
+                    },
+                )
+                .await?;
+            }
+        }
+        while let Some((input, permit)) = columns.union_consumed.next::<R>(access)? {
+            cancellation.check()?;
+            let table = preparation
                 .inputs
                 .iter()
-                .position(|candidate| {
-                    candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
-                })
-                .ok_or(ModelError::Conflict("E0 scoped input"))?;
-            let Some(sql) =
-                preparation.select(scope, index, selection.allowed, selection.artifacts)?
-            else {
+                .position(|i| i.type_id() == input.type_id() && i.prefix() == input.prefix())
+                .ok_or(ModelError::Schema("E0 window union input"))?;
+            let keys = columns
+                .selected
+                .range((table, [0; 16])..=(table, [255; 16]));
+            if keys.clone().next().is_none() {
                 continue;
-            };
+            }
+            let _query =
+                budget.reserve("retrieval-union-query", keys.clone().count() * 128 + 4096)?;
+            let keys = keys
+                .map(|(_, key)| format!("X'{}'", hex::encode(key)))
+                .collect::<Vec<_>>()
+                .join(",");
+            let selected = format!(
+                "SELECT * FROM {} WHERE id IN ({keys})",
+                identifier(&preparation.tables[table].alias)
+            );
+            let selected = preparation.projected(table, brief, &selected);
             crate::consumed_rows::stream_query_at(
                 &permit,
                 &input,
                 access,
-                scope.session(),
-                &sql,
+                &preparation.session,
+                &selected,
                 |_, batch| {
-                    if selection.brief && input.type_id() == TypeId::of::<catalog::CatalogMember>()
-                    {
-                        data.completion_visit(&input, batch)?;
+                    cancellation.check()?;
+                    let target = &mut columns.rows[table];
+                    let additional = if target.len() == target.capacity() {
+                        target.capacity().max(4)
                     } else {
-                        data.visit_input(&input, batch)?;
-                    }
+                        0
+                    };
+                    columns.charge.grow(
+                        batch.get_array_memory_size()
+                            + additional * size_of::<arrow_array::RecordBatch>(),
+                    )?;
+                    target.reserve_exact(additional);
+                    target.push(batch.clone());
                     Ok(())
                 },
             )
@@ -202,18 +475,43 @@ impl Preparation {
                 })
             })
             .collect::<Result<_, ModelError>>()?;
-        let (edges, root, brief) =
-            Self::prepare_bound(&inputs, &tables, model, &session, runtime.budget()).await?;
+        let artifact_programs = ArtifactPrograms::new(
+            &inputs,
+            &tables,
+            model,
+            runtime.budget(),
+            Some(runtime.scope_programs()),
+        )?;
+        let inventory_programs = InventoryPrograms::new(
+            &inputs,
+            &tables,
+            model,
+            runtime.budget(),
+            Some(runtime.scope_programs()),
+        )?;
+        let (edges, root, brief) = Self::prepare_bound_in(
+            &inputs,
+            &tables,
+            model,
+            &session,
+            runtime.budget(),
+            Some(runtime.scope_programs()),
+        )
+        .await?;
         Ok(Self {
             metadata,
+            budget: runtime.budget().clone(),
             session,
             inputs,
             tables,
             edges,
+            artifact_programs,
+            inventory_programs,
             root,
             brief,
         })
     }
+    #[cfg(test)]
     async fn prepare_bound(
         inputs: &[ValidationInput],
         tables: &[ClosureTable],
@@ -221,133 +519,142 @@ impl Preparation {
         session: &SessionContext,
         budget: &resources::ResourceBudget,
     ) -> Result<(PreparedEdges, usize, usize), ModelError> {
+        Self::prepare_bound_in(inputs, tables, model, session, budget, None).await
+    }
+    async fn prepare_bound_in(
+        inputs: &[ValidationInput],
+        tables: &[ClosureTable],
+        model: &ValidatedModel,
+        session: &SessionContext,
+        budget: &resources::ResourceBudget,
+        interner: Option<&std::sync::Mutex<scope_program::ScopeInterner>>,
+    ) -> Result<(PreparedEdges, usize, usize), ModelError> {
         let root_table = typed::<c1::EvidenceRoot>(inputs)?;
         let brief_table = typed::<synthesis::briefs::Brief>(inputs)?;
+        let root = tables.len();
+        let brief = root + 1;
         let mut bindings = tables.to_vec();
-        let root = bindings.len();
-        bindings.push(tables[root_table].clone());
-        let brief = bindings.len();
-        bindings.push(tables[brief_table].clone());
-        let mut plan = NominalClosure::new(bindings)?;
-        for (from, to) in [(root, root_table), (brief, brief_table)] {
-            plan.pairs(
-                from,
-                to,
-                format!(
-                    "SELECT id AS source_id,id AS target_id FROM {}",
-                    identifier(&tables[to].alias)
-                ),
-            )?;
-        }
-        let memberships = build::memberships();
-        let subjects = typed::<c1::RootSubject>(inputs)?;
-        let field_bindings = Data::scoped_field_bindings(model, inputs)?;
-        for (source, table) in tables.iter().enumerate() {
-            for (field_index, field) in table.relation.fields().iter().enumerate() {
-                let Some((kind, _)) = field.target() else {
-                    continue;
-                };
-                let Some(to) = field_bindings[source][field_index] else {
-                    continue;
-                };
-                let values = if field.list() {
-                    format!("UNNEST({})", identifier(field.name()))
-                } else {
-                    identifier(field.name())
-                };
-                plan.pairs(
-                    source,
-                    to,
-                    format!(
-                        "SELECT id AS source_id,{values} AS target_id FROM {}",
-                        identifier(&table.alias)
-                    ),
-                )?;
-                if memberships.contains(&(table.relation.type_id(), field.name())) {
-                    if kind == TypeId::of::<catalog::CatalogMember>() {
-                        let (joins, predicate) = if table.relation.type_id()
-                            == TypeId::of::<catalog::CatalogExposure>()
-                        {
-                            (
-                                format!(
-                                    " JOIN {} e ON x.exposure=e.id",
-                                    identifier(
-                                        &tables[typed::<normalized::entities::PublicExposure>(
-                                            inputs
-                                        )?]
-                                        .alias
-                                    )
-                                ),
-                                "e.context=r.context",
-                            )
-                        } else if table.relation.type_id()
-                            == TypeId::of::<catalog::CatalogCallable>()
-                        {
-                            (
-                                format!(
-                                    " JOIN {} a ON x.assessment=a.id",
-                                    identifier(
-                                        &tables[typed::<
-                                            normalized::callables::EffectiveCallableAssessment,
-                                        >(inputs)?]
-                                        .alias
-                                    )
-                                ),
-                                "a.context=r.context",
-                            )
-                        } else {
-                            (String::new(), "TRUE")
-                        };
-                        plan.pairs(root,source,format!("SELECT r.id AS source_id,x.id AS target_id FROM {} r JOIN {} s ON r.subject=s.id JOIN {} x ON x.{}=s.member_member{joins} WHERE {predicate}",identifier(&tables[root_table].alias),identifier(&tables[subjects].alias),identifier(&table.alias),identifier(field.name())))?;
-                    } else {
-                        plan.pairs(
-                            to,
-                            source,
-                            format!(
-                                "SELECT {} AS source_id,id AS target_id FROM {}",
-                                identifier(field.name()),
-                                identifier(&table.alias)
-                            ),
-                        )?;
-                    }
-                }
-            }
-        }
-        // The document grain consists of its actual captured passages in the selected context.
-        let document = typed::<documents::DocumentObservation>(inputs)?;
-        let passage = typed::<documents::PassageObservation>(inputs)?;
-        let nodes = typed::<documents::DocumentNode>(inputs)?;
-        let evidence = typed::<assertion::Evidence>(inputs)?;
-        let qualifications = inputs
+        bindings.extend([tables[root_table].clone(), tables[brief_table].clone()]);
+        let relations = tables
             .iter()
-            .position(|input| {
-                input.type_id() == TypeId::of::<assertion::AssertionQualification>()
-                    && input.prefix() == Some(stages::PublicationBoundary::Facts)
-            })
-            .ok_or(ModelError::Conflict(
-                "E0 passage Facts qualification reader absent",
-            ))?;
-        plan.pairs(root,passage,format!("SELECT r.id AS source_id,p.id AS target_id FROM {} r JOIN {} s ON r.subject=s.id JOIN {} d ON s.document_observation=d.id JOIN {} e ON e.sourcespan_source=d.source JOIN {} n ON n.passage_span=e.id JOIN {} p ON p.passage=n.id JOIN {} q ON p.qualification=q.id WHERE q.context=r.context",identifier(&tables[root_table].alias),identifier(&tables[subjects].alias),identifier(&tables[document].alias),identifier(&tables[evidence].alias),identifier(&tables[nodes].alias),identifier(&tables[passage].alias),identifier(&tables[qualifications].alias)))?;
-        let mention = typed::<documents::DocumentMentionObservation>(inputs)?;
-        let assessments = typed::<normalized::links::MentionEntityAssessment>(inputs)?;
-        let candidates = typed::<normalized::links::MentionEntityCandidate>(inputs)?;
-        let associations = typed::<c1::DocumentAssociation>(inputs)?;
-        plan.own(mention, "passage", nodes)?;
-        plan.own(
-            typed::<documents::DocumentComponentObservation>(inputs)?,
-            "passage",
-            nodes,
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = catalog_scope_program::retrieval(inputs.to_vec(), &relations, model, budget)?;
+        let compiled =
+            crate::scope_compilation::compile(program.program(), model, budget, interner)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            compiled,
+            &bindings,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
         )?;
-        plan.own(assessments, "observation", mention)?;
-        plan.own(candidates, "assessment", assessments)?;
-        plan.own(associations, "candidate", candidates)?;
-        // A canonical brief belongs to one actual selected C0 member and the same C1 root.
-        let seeds = typed::<synthesis::seeds::SelectedSeed>(inputs)?;
-        let plans = typed::<synthesis::seeds::SeedPlan>(inputs)?;
-        let invocation = typed::<analysis::synthesis::Invocation>(inputs)?;
-        let member = typed::<catalog::CatalogMemberInvocation>(inputs)?;
-        plan.pairs(brief,root_table,format!("SELECT b.id AS source_id,r.id AS target_id FROM {} b JOIN {} z ON b.seed=z.id JOIN {} p ON z.plan=p.id JOIN {} i ON p.invocation=i.id JOIN {} m ON z.member=m.id JOIN {} s ON s.member_member=m.member JOIN {} r ON r.subject=s.id AND r.input=i.input AND r.context=i.context",identifier(&tables[brief_table].alias),identifier(&tables[seeds].alias),identifier(&tables[plans].alias),identifier(&tables[invocation].alias),identifier(&tables[member].alias),identifier(&tables[subjects].alias),identifier(&tables[root_table].alias)))?;
         Ok((plan.prepare(session, budget).await?, root, brief))
+    }
+    /// Discover one bounded window together and retain each exact projected membership.
+    /// Rich native rows are fetched once; each owning renderer decodes its own partition.
+    pub async fn render_window<'a>(
+        &'a self,
+        access: &CompletedInputs,
+        keys: &[[u8; 16]],
+        brief: bool,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<RenderWindow<'a>, ModelError> {
+        if !self.budget.shares_pool(budget) {
+            return Err(ModelError::Conflict("E0 window budget changed"));
+        }
+        let mut charge = charged::StateCharge::new(budget, "retrieval-columnar-window");
+        charge.grow(
+            keys.len()
+                * (size_of::<[u8; 16]>()
+                    + size_of::<crate::consumed_rows::PreparedRoot>()
+                    + size_of::<WindowGrain>()
+                    + size_of::<crate::consumed_rows::ConsumedInputs>()
+                    + self.inputs.len() * size_of::<TypeId>())
+                + self.inputs.len() * size_of::<Vec<arrow_array::RecordBatch>>()
+                + 4096,
+        )?;
+        let root = if brief { self.brief } else { self.root };
+        let roots = keys
+            .iter()
+            .map(|key| crate::consumed_rows::PreparedRoot {
+                table: root,
+                key: *key,
+                kind: crate::consumed_rows::PreparedRootKind::Virtual,
+            })
+            .collect::<Vec<_>>();
+        let batch = self
+            .edges
+            .batch_with_cancellation(&roots, budget, cancellation)
+            .await?;
+        drop(roots);
+        let mut grains = Vec::with_capacity(keys.len());
+        for (partition, key) in keys.iter().enumerate() {
+            cancellation.check()?;
+            let scope = batch.partition_scope(partition, budget)?;
+            let (allowed, artifacts) = if brief {
+                (
+                    Data::brief_types(),
+                    self.artifacts(None, Some(crate::retrieval::nominal(key)?), budget)?,
+                )
+            } else {
+                let id = crate::retrieval::nominal(key)?;
+                let header = self.header::<c1::EvidenceRoot>(access, id, budget).await?;
+                let subject = self
+                    .header::<c1::RootSubject>(access, header.subject, budget)
+                    .await?;
+                (
+                    Data::root_types(&subject),
+                    self.artifacts(Some((id, &subject)), None, budget)?,
+                )
+            };
+            grains.push(WindowGrain {
+                scope,
+                allowed,
+                artifacts,
+            });
+        }
+        let mut columns = WindowColumns {
+            rows: (0..self.inputs.len()).map(|_| Vec::new()).collect(),
+            memberships: Default::default(),
+            selected: Default::default(),
+            consumed: (0..keys.len())
+                .map(|_| crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget))
+                .collect::<Result<Vec<_>, _>>()?,
+            union_consumed: crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget)?,
+            charge,
+        };
+        let mut loaders: Vec<WindowLoader> = Vec::new();
+        macro_rules! read{($($field:ident:$ty:ty,)*)=>{$(loaders.push(load_window::<$ty>);)*};}
+        decoder_inputs!(read);
+        for loader in loaders {
+            loader(
+                self,
+                access,
+                &grains,
+                brief,
+                budget,
+                cancellation,
+                &mut columns,
+            )
+            .await?;
+        }
+        for consumed in std::mem::take(&mut columns.consumed) {
+            consumed.finish("retrieval-window-partition")?;
+        }
+        let terminal = std::mem::replace(
+            &mut columns.union_consumed,
+            crate::consumed_rows::ConsumedInputs::new(vec![], budget)?,
+        );
+        terminal.finish("retrieval-window-union")?;
+        drop(grains);
+        drop(batch);
+        Ok(RenderWindow {
+            preparation: self,
+            keys: keys.to_vec(),
+            brief,
+            columns,
+        })
     }
     pub fn session(&self) -> &SessionContext {
         &self.session
@@ -357,49 +664,54 @@ impl Preparation {
         input: Id<input::InputRevision>,
         context: Id<attribution::AnalysisContext>,
     ) -> Result<datafusion::physical_plan::SendableRecordBatchStream, ModelError> {
-        let table = &self.tables[typed::<c1::EvidenceRoot>(&self.inputs)?].alias;
-        crate::sql::query(
-            &self.session,
-            &format!(
-                "SELECT id FROM {} WHERE input=X'{}' AND context=X'{}' ORDER BY id",
-                identifier(table),
-                input.hex(),
-                context.hex()
-            ),
-        )
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)
+        self.inventory(0, input, context).await
     }
     pub async fn briefs(
         &self,
         input: Id<input::InputRevision>,
         context: Id<attribution::AnalysisContext>,
     ) -> Result<datafusion::physical_plan::SendableRecordBatchStream, ModelError> {
-        let table = |kind| {
-            self.inputs
-                .iter()
-                .position(|input| input.type_id() == kind)
-                .map(|index| identifier(&self.tables[index].alias))
-                .ok_or(ModelError::Schema("E0 brief fixed relation"))
-        };
-        let sql = format!(
-            "SELECT b.id FROM {} b JOIN {} z ON b.seed=z.id JOIN {} p ON z.plan=p.id JOIN {} i ON p.invocation=i.id WHERE i.input=X'{}' AND i.context=X'{}' ORDER BY b.id",
-            table(TypeId::of::<synthesis::briefs::Brief>())?,
-            table(TypeId::of::<synthesis::seeds::SelectedSeed>())?,
-            table(TypeId::of::<synthesis::seeds::SeedPlan>())?,
-            table(TypeId::of::<analysis::synthesis::Invocation>())?,
-            input.hex(),
-            context.hex()
-        );
-        crate::sql::query(&self.session, &sql)
-            .await
-            .map_err(ModelError::codec)?
-            .execute_stream()
-            .await
-            .map_err(ModelError::codec)
+        self.inventory(1, input, context).await
+    }
+    async fn inventory(
+        &self,
+        kind: usize,
+        input: Id<input::InputRevision>,
+        context: Id<attribution::AnalysisContext>,
+    ) -> Result<datafusion::physical_plan::SendableRecordBatchStream, ModelError> {
+        let compiled = &self.inventory_programs.owners[kind];
+        let parameters = scope_program::ScopeParameters(vec![
+            scope_program::ScopeValue::Nominal(*input.bytes()),
+            scope_program::ScopeValue::Nominal(*context.bytes()),
+        ]);
+        let _query = self.budget.reserve(
+            "retrieval-inventory-query",
+            crate::scope_compilation::lowering_allowance(
+                compiled.program(),
+                &self.tables,
+                &parameters,
+            )
+            .saturating_mul(2)
+                + 4096,
+        )?;
+        let queries = crate::scope_compilation::select_pair_queries(
+            compiled.program(),
+            &self.tables,
+            &parameters,
+        )?;
+        let query = &queries
+            .first()
+            .ok_or(ModelError::Schema("E0 root inventory absent"))?
+            .2;
+        crate::sql::query(
+            &self.session,
+            &format!("SELECT target_id AS id FROM ({query}) inventory ORDER BY id"),
+        )
+        .await
+        .map_err(ModelError::codec)?
+        .execute_stream()
+        .await
+        .map_err(ModelError::codec)
     }
     async fn header<R: Record>(
         &self,
@@ -434,58 +746,56 @@ impl Preparation {
         &self,
         root: Option<(Id<c1::EvidenceRoot>, &c1::RootSubject)>,
         brief: Option<Id<synthesis::briefs::Brief>>,
-    ) -> Result<String, ModelError> {
-        let table = |kind| {
-            self.inputs
-                .iter()
-                .position(|input| input.type_id() == kind)
-                .map(|index| identifier(&self.tables[index].alias))
-                .ok_or(ModelError::Schema("E0 original relation absent"))
+        budget: &resources::ResourceBudget,
+    ) -> Result<ArtifactSelection, ModelError> {
+        let (kind, key) = if let Some((id, subject)) = root {
+            (
+                catalog_scope_program::RetrievalArtifactRoot::subject(subject),
+                *id.bytes(),
+            )
+        } else {
+            (
+                catalog_scope_program::RetrievalArtifactRoot::Brief,
+                *brief
+                    .ok_or(ModelError::Schema("E0 grain owner absent"))?
+                    .bytes(),
+            )
         };
-        let evidence = table(TypeId::of::<assertion::Evidence>())?;
-        let occurrence = table(TypeId::of::<source::Occurrence>())?;
-        if let Some((id, subject)) = root {
-            let roots = table(TypeId::of::<c1::EvidenceRoot>())?;
-            let subjects = table(TypeId::of::<c1::RootSubject>())?;
-            let prefix = format!("FROM {roots} r JOIN {subjects} s ON r.subject=s.id");
-            let predicate = format!("r.id=X'{}'", id.hex());
-            return Ok(match subject {
-                c1::RootSubject::Member { .. } => format!(
-                    "SELECT m.source {prefix} JOIN {} c ON s.member_member=c.id JOIN {} m ON c.access=m.id WHERE {predicate}",
-                    table(TypeId::of::<catalog::CatalogMember>())?,
-                    table(TypeId::of::<source::Module>())?
-                ),
-                c1::RootSubject::Document { .. } => format!(
-                    "SELECT d.source {prefix} JOIN {} d ON s.document_observation=d.id WHERE {predicate}",
-                    table(TypeId::of::<documents::DocumentObservation>())?
-                ),
-                c1::RootSubject::Scenario { .. } => format!(
-                    "SELECT COALESCE(o.artifact_artifact,c.source,e.sourcespan_source) {prefix} JOIN {} p ON p.scenario=s.scenario_scenario JOIN {} o ON p.source=o.id LEFT JOIN {occurrence} c ON o.occurrence_occurrence=c.id LEFT JOIN {evidence} e ON o.span_span=e.id WHERE {predicate}",
-                    table(TypeId::of::<c1::ScenarioSpan>())?,
-                    table(TypeId::of::<c1::OriginalSource>())?
-                ),
-                c1::RootSubject::Deployment { .. } => format!(
-                    "SELECT e.sourcespan_source {prefix} JOIN {} c ON s.deployment_deployment=c.id JOIN {} d ON c.observation=d.id JOIN {evidence} e ON d.span=e.id WHERE {predicate}",
-                    table(TypeId::of::<c1::CatalogDeployment>())?,
-                    table(TypeId::of::<deployment::DeploymentObservation>())?
-                ),
-                c1::RootSubject::Source { .. } => {
-                    format!("SELECT s.source_artifact AS source {prefix} WHERE {predicate}")
-                }
-                c1::RootSubject::Option { .. } | c1::RootSubject::Release { .. } => {
-                    format!("SELECT source FROM {occurrence} WHERE FALSE")
-                }
-            });
-        }
-        let id = brief.ok_or(ModelError::Schema("E0 grain owner absent"))?;
-        Ok(format!(
-            "SELECT COALESCE(o.source,e.sourcespan_source) FROM {} b JOIN {} d ON b.documentary=d.id JOIN {} p ON d.prose=p.id JOIN {} s ON p.source=s.id LEFT JOIN {occurrence} o ON COALESCE(s.literal_occurrence,s.occurrence_occurrence)=o.id LEFT JOIN {evidence} e ON s.span_span=e.id WHERE b.brief=X'{}'",
-            table(TypeId::of::<synthesis::briefs::BriefSource>())?,
-            table(TypeId::of::<synthesis::documentary::DocumentaryConclusion>())?,
-            table(TypeId::of::<synthesis::documentary::ProseSlice>())?,
-            table(TypeId::of::<synthesis::documentary::ProseSource>())?,
-            id.hex()
-        ))
+        let program = self.artifact_programs.get(kind);
+        let parameters =
+            scope_program::ScopeParameters(vec![scope_program::ScopeValue::Nominal(key)]);
+        let charge = budget.reserve(
+            "retrieval-artifact-query",
+            crate::scope_compilation::lowering_allowance(
+                program.program(),
+                &self.tables,
+                &parameters,
+            )
+            .saturating_mul(2)
+            .saturating_add(4096),
+        )?;
+        let queries = crate::scope_compilation::select_pair_queries(
+            program.program(),
+            &self.tables,
+            &parameters,
+        )?;
+        let domains = queries
+            .into_iter()
+            .map(|(_, _, sql)| format!("SELECT target_id AS source FROM ({sql}) sources"))
+            .collect::<Vec<_>>();
+        let sql = if domains.is_empty() {
+            let artifact = typed::<source::SourceArtifact>(&self.inputs)?;
+            format!(
+                "SELECT id AS source FROM {} WHERE FALSE",
+                identifier(&self.tables[artifact].alias)
+            )
+        } else {
+            domains.join(" UNION ALL ")
+        };
+        Ok(ArtifactSelection {
+            sql,
+            _charge: charge,
+        })
     }
     fn select(
         &self,
@@ -500,71 +810,33 @@ impl Preparation {
         {
             return Ok(None);
         }
-        Ok(Some(
-            if input.type_id() == TypeId::of::<catalog::CatalogMember>()
-                && allowed.contains(&TypeId::of::<synthesis::briefs::Brief>())
-            {
-                format!(
-                    "SELECT id,input,access FROM ({}) ownership",
-                    scope.select(index)?
-                )
-            } else if input.type_id() == TypeId::of::<diagnostics::RuffDiagnosticObservation>() {
-                format!(
-                    "SELECT id,channel,settings FROM ({}) diagnostic_properties",
-                    scope.select(index)?
-                )
-            } else if input.type_id() == TypeId::of::<diagnostics::PyreflyDiagnosticObservation>() {
-                format!(
-                    "SELECT id,channel FROM ({}) diagnostic_properties",
-                    scope.select(index)?
-                )
-            } else if input.type_id() == TypeId::of::<source::SourceArtifact>()
-                && !allowed.contains(&TypeId::of::<catalog::CatalogCandidate>())
-            {
-                format!(
-                    "SELECT * FROM {} WHERE id IN ({artifacts})",
-                    identifier(&self.tables[index].alias)
-                )
-            } else {
-                scope.select(index)?
-            },
-        ))
-    }
-    async fn load(
-        &self,
-        access: &CompletedInputs,
-        scope: &PreparedClosure,
-        root: Option<(Id<c1::EvidenceRoot>, &c1::RootSubject)>,
-        brief: Option<Id<synthesis::briefs::Brief>>,
-        budget: &resources::ResourceBudget,
-    ) -> Result<Data, ModelError> {
-        let allowed = if let Some((_, subject)) = root {
-            Data::root_types(subject)
+        let selected = if input.type_id() == TypeId::of::<source::SourceArtifact>()
+            && !allowed.contains(&TypeId::of::<catalog::CatalogCandidate>())
+        {
+            format!(
+                "SELECT * FROM {} WHERE id IN ({artifacts})",
+                identifier(&self.tables[index].alias)
+            )
         } else {
-            Data::brief_types()
+            scope.select(index)?
         };
-        let artifacts = self.artifacts(root, brief)?;
-        let mut data = Data::new(budget);
-        let mut consumed = crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget)?;
-        let mut loaders: Vec<ScopedLoader> = Vec::new();
-        macro_rules! read {($($field:ident:$ty:ty,)*) => {$(loaders.push(load_scoped::<$ty>);)*};}
-        decoder_inputs!(read);
-        let selection = RenderSelection {
-            allowed: &allowed,
-            artifacts: &artifacts,
-            brief: brief.is_some(),
-        };
-        for loader in loaders {
-            loader(self, access, scope, &selection, &mut consumed, &mut data).await?;
+        Ok(Some(self.projected(
+            index,
+            allowed.contains(&TypeId::of::<synthesis::briefs::Brief>()),
+            &selected,
+        )))
+    }
+    fn projected(&self, index: usize, brief: bool, selected: &str) -> String {
+        let kind = self.inputs[index].type_id();
+        if kind == TypeId::of::<catalog::CatalogMember>() && brief {
+            format!("SELECT id,input,access FROM ({selected}) ownership")
+        } else if kind == TypeId::of::<diagnostics::RuffDiagnosticObservation>() {
+            format!("SELECT id,channel,settings FROM ({selected}) diagnostic_properties")
+        } else if kind == TypeId::of::<diagnostics::PyreflyDiagnosticObservation>() {
+            format!("SELECT id,channel FROM ({selected}) diagnostic_properties")
+        } else {
+            selected.into()
         }
-        consumed.finish("retrieval-document-grain")?;
-        data.facts
-            .definitions
-            .insert(self.metadata.selected()?.clone())?;
-        if let Some(tokenizer) = self.metadata.tokenizer() {
-            data.set_tokenizer(tokenizer.clone());
-        }
-        Ok(data)
     }
     async fn chunks(
         &self,
@@ -586,24 +858,13 @@ impl Preparation {
         .await?;
         Ok(())
     }
-    pub async fn render_root(
+    async fn finish_root(
         &self,
         access: &CompletedInputs,
         id: Id<c1::EvidenceRoot>,
+        mut data: Data,
         budget: &resources::ResourceBudget,
     ) -> Result<(Data, Output), ModelError> {
-        let header = self.header::<c1::EvidenceRoot>(access, id, budget).await?;
-        let subject = self
-            .header::<c1::RootSubject>(access, header.subject, budget)
-            .await?;
-        let scope = self
-            .edges
-            .grain(self.root, &format!("id=X'{}'", id.hex()), budget)
-            .await?;
-        let mut data = self
-            .load(access, &scope, Some((id, &subject)), None, budget)
-            .await?;
-        drop(scope);
         let root = build::need(&data.evidence.roots, id)?;
         let mut parents = self
             .metadata
@@ -640,18 +901,12 @@ impl Preparation {
         rows.verify_completion(&data, budget)?;
         Ok((data, rows))
     }
-    pub async fn render_brief(
+    fn finish_brief(
         &self,
-        access: &CompletedInputs,
         id: Id<synthesis::briefs::Brief>,
+        data: Data,
         budget: &resources::ResourceBudget,
     ) -> Result<(Data, Output), ModelError> {
-        let scope = self
-            .edges
-            .grain(self.brief, &format!("id=X'{}'", id.hex()), budget)
-            .await?;
-        let data = self.load(access, &scope, None, Some(id), budget).await?;
-        drop(scope);
         if data.synthesis.briefs.len() != 1 || data.synthesis.briefs.get(id).is_none() {
             return Err(build::invalid("E0 brief grain membership differs"));
         }
@@ -747,7 +1002,7 @@ mod controls {
             .unwrap();
         let allowed = Data::root_types(subject);
         let artifacts = preparation
-            .artifacts(Some((root.id(), subject)), None)
+            .artifacts(Some((root.id(), subject)), None, budget)
             .unwrap();
         let mut data = Data::new(budget);
         for (index, input) in preparation.inputs.iter().enumerate() {
@@ -871,13 +1126,32 @@ mod controls {
         )
         .await
         .unwrap();
+        let artifact_programs = ArtifactPrograms::new(
+            &inputs,
+            &tables,
+            &lctx_model::domain::model().unwrap(),
+            &budget,
+            None,
+        )
+        .unwrap();
+        let inventory_programs = InventoryPrograms::new(
+            &inputs,
+            &tables,
+            &lctx_model::domain::model().unwrap(),
+            &budget,
+            None,
+        )
+        .unwrap();
         let preparation = Preparation {
             metadata,
+            budget: budget.clone(),
             session,
             inputs,
             tables,
             edges,
             root: root_index,
+            artifact_programs,
+            inventory_programs,
             brief,
         };
         let mut actual = scoped(&preparation, &root, &subject, &budget).await;
@@ -919,6 +1193,95 @@ mod controls {
         let actual_rows = build::root(&actual, root.id(), &budget).unwrap();
         let oracle = build::build(&expected, &budget).unwrap();
         actual_rows.matches(&oracle).unwrap();
+        {
+            let scope = preparation
+                .edges
+                .grain(
+                    preparation.root,
+                    &format!("id=X'{}'", root.id().hex()),
+                    &budget,
+                )
+                .await
+                .unwrap();
+            let selected_subject = expected.evidence.subjects.get(root.subject).unwrap();
+            let allowed = Data::root_types(selected_subject);
+            let artifacts = preparation
+                .artifacts(Some((root.id(), selected_subject)), None, &budget)
+                .unwrap();
+            let mut columns = WindowColumns {
+                rows: (0..preparation.inputs.len()).map(|_| Vec::new()).collect(),
+                memberships: Default::default(),
+                selected: Default::default(),
+                consumed: vec![],
+                union_consumed: crate::consumed_rows::ConsumedInputs::new(vec![], &budget).unwrap(),
+                charge: charged::StateCharge::new(&budget, "retrieval-window-control"),
+            };
+            columns
+                .charge
+                .grow(preparation.inputs.len() * size_of::<Vec<arrow_array::RecordBatch>>() + 4096)
+                .unwrap();
+            for (table, _input) in preparation.inputs.iter().enumerate() {
+                if let Some(query) = preparation
+                    .select(&scope, table, &allowed, &artifacts)
+                    .unwrap()
+                {
+                    let mut stream = crate::sql::query(preparation.session(), &query)
+                        .await
+                        .unwrap()
+                        .execute_stream()
+                        .await
+                        .unwrap();
+                    while let Some(rows) = stream.try_next().await.unwrap() {
+                        columns
+                            .charge
+                            .grow(
+                                rows.get_array_memory_size()
+                                    + size_of::<arrow_array::RecordBatch>(),
+                            )
+                            .unwrap();
+                        for row in 0..rows.num_rows() {
+                            let key = crate::scoped_admission::column(&rows, "id", row)
+                                .unwrap()
+                                .unwrap();
+                            for partition in 0..2 {
+                                columns
+                                    .memberships
+                                    .insert(&mut columns.charge, (partition, table, key))
+                                    .unwrap();
+                            }
+                        }
+                        columns.rows[table].push(rows);
+                    }
+                }
+            }
+            let window = RenderWindow {
+                preparation: &preparation,
+                keys: vec![*root.id().bytes(); 2],
+                brief: false,
+                columns,
+            };
+            for partition in 0..2 {
+                let mut selected = window
+                    .data(
+                        partition,
+                        &budget,
+                        &crate::workspace::Cancellation::default(),
+                    )
+                    .unwrap();
+                for chunk in expected.facts.chunks.iter() {
+                    selected.facts.chunks.insert_borrowed(chunk).unwrap();
+                }
+                build::root(&selected, root.id(), &budget)
+                    .unwrap()
+                    .matches(&oracle)
+                    .unwrap();
+            }
+            assert!(
+                window
+                    .data(2, &budget, &crate::workspace::Cancellation::default())
+                    .is_err()
+            );
+        }
         assert_eq!(actual_rows.units.len(), 1);
         drop(actual_rows);
         drop(oracle);

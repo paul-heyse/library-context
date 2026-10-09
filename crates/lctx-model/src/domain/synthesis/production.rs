@@ -75,6 +75,261 @@ impl Data {
             ))),
         }
     }
+    /// Exact root partition over one already decoded union. Current finite renderers own their
+    /// inputs; only the current root is copied, with clone scratch and retained Rows charged.
+    pub fn selected_copy(
+        &self,
+        selected: &mut dyn FnMut(
+            std::any::TypeId,
+            Option<PublicationBoundary>,
+            [u8; 16],
+        ) -> Result<bool, ModelError>,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        use std::any::TypeId;
+        let mut out = Self::new(budget);
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.frames.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.frames.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_frame_inputs!(copy);
+        }
+
+        for row in self.frames.analytic_parents.frames.iter() {
+            if selected(
+                TypeId::of::<analytics::AnalyticFrame>(),
+                None,
+                *row.id().bytes(),
+            )? {
+                out.frames.analytic_parents.frames.insert_borrowed(row)?;
+            }
+        }
+        for row in self.frames.analytic_parents.invocations.iter() {
+            if selected(
+                TypeId::of::<analysis::analytic::Invocation>(),
+                None,
+                *row.id().bytes(),
+            )? {
+                out.frames
+                    .analytic_parents
+                    .invocations
+                    .insert_borrowed(row)?;
+            }
+        }
+        for row in self.frames.analytic_parents.results.iter() {
+            if selected(
+                TypeId::of::<analytics::TechniqueResult>(),
+                None,
+                *row.id().bytes(),
+            )? {
+                out.frames.analytic_parents.results.insert_borrowed(row)?;
+            }
+        }
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.documentary.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.documentary.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_documentary_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.automatic.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.automatic.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_automatic_unique_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.observations.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.observations.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_observation_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.controls.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.controls.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_control_text_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.summary.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.summary.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_summary_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.terminal.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.terminal.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_terminal_inputs!(copy);
+        }
+
+        self.terminal
+            .copy_selected_ownership(&mut out.terminal, &mut |kind, key| {
+                selected(kind, None, key)
+            })?;
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.patterns.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_pattern_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.patterns.setup.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.setup.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::synthesis_setup_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.patterns.flow.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.flow.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::structural_handoff_inputs!(copy);
+        }
+
+        {
+            macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
+            for row in self.patterns.flow.entry.$field.iter(){
+                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
+                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.flow.entry.$field.insert_borrowed(row)?;}
+            }
+        })*};}
+            crate::entry_value_inputs!(copy);
+        }
+
+        // The flow collector's cumulative Local vocabulary is separate from its Facts entry.
+        for row in self.patterns.flow.local.qualifications.iter() {
+            if selected(
+                TypeId::of::<assertion::AssertionQualification>(),
+                Some(PublicationBoundary::Local),
+                *row.id().bytes(),
+            )? {
+                out.patterns
+                    .flow
+                    .local
+                    .qualifications
+                    .insert_borrowed(row)?;
+            }
+        }
+        for row in self.patterns.flow.local.conditions.iter() {
+            if selected(
+                TypeId::of::<conditions::Condition>(),
+                Some(PublicationBoundary::Local),
+                *row.id().bytes(),
+            )? {
+                out.patterns.flow.local.conditions.insert_borrowed(row)?;
+            }
+        }
+        for row in self.patterns.flow.local.condition_nodes.iter() {
+            if selected(
+                TypeId::of::<conditions::ConditionNode>(),
+                Some(PublicationBoundary::Local),
+                *row.id().bytes(),
+            )? {
+                out.patterns
+                    .flow
+                    .local
+                    .condition_nodes
+                    .insert_borrowed(row)?;
+            }
+        }
+        for row in self.public.iter() {
+            if selected(
+                TypeId::of::<structural::PublicCandidate>(),
+                None,
+                *row.id().bytes(),
+            )? {
+                out.public.insert_borrowed(row)?;
+            }
+        }
+        Ok(out)
+    }
+    /// Physical original chunks are selected from the current partition's exact text demand.
+    /// Their identity remains native ArtifactChunkKey; missing chunks remain absent for the
+    /// ordinary renderer to refuse when required.
+    pub fn copy_text_chunks(
+        &mut self,
+        union: &Self,
+        phase: catalog_scope_program::SynthesisTextPhase,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let demand = catalog_scope_program::synthesis_text(phase);
+        let mut charge = charged::StateCharge::new(budget, "synthesis-partition-text-demand");
+        let mut keys = charged::ChargedSet::default();
+        let mut range =
+            |source: Id<source::SourceArtifact>, start: i64, end: i64| -> Result<(), ModelError> {
+                if start < 0 || end < start {
+                    return Err(ModelError::Schema("synthesis text range"));
+                }
+                if start == end {
+                    return Ok(());
+                }
+                for ordinal in start / artifact::ARTIFACT_CHUNK_BYTES as i64
+                    ..=(end - 1) / artifact::ARTIFACT_CHUNK_BYTES as i64
+                {
+                    keys.insert(
+                        &mut charge,
+                        Id::of(&artifact::ArtifactChunkKey {
+                            artifact: source,
+                            ordinal,
+                        }),
+                    )?;
+                }
+                Ok(())
+            };
+        for row in self.documentary.occurrences.iter() {
+            if demand.syntax_kinds.contains(&(row.syntax_kind as i16)) {
+                range(row.source, row.start, row.end)?;
+            }
+        }
+        for row in self.documentary.canonical_evidence.iter() {
+            if demand.document_nodes_only&&!self.documentary.nodes.iter().any(|node|matches!(node,documents::DocumentNode::Passage{span,..}|documents::DocumentNode::Component{span,..} if span.id()==row.id())){continue;}
+            if let assertion::Evidence::SourceSpan { source, start, end } = row {
+                range(*source, *start, *end)?;
+            }
+        }
+        for key in keys.iter() {
+            if let Some(row) = union.documentary.chunks.get(*key) {
+                self.documentary.chunks.insert_borrowed(row)?;
+            }
+        }
+        Ok(())
+    }
     pub fn consumed_inputs(profile: Profile) -> Vec<ValidationInput> {
         let mut inputs = Self::inputs(profile);
         inputs.extend(analysis::expected::inputs(
@@ -286,6 +541,18 @@ pub fn stage(
         code: super::build::definition().1.semantic_version,
         configuration: ContentHash::of(settings.id().bytes()),
     })
+}
+
+/// Compact existence demand for documentary first pass; rich conclusion text waits for rendering.
+pub fn emission_roots() -> [std::any::TypeId; 5] {
+    use std::any::TypeId;
+    [
+        TypeId::of::<structural::Conclusion>(),
+        TypeId::of::<analytics::Conclusion>(),
+        TypeId::of::<execution::summary_consequences::ClaimConclusion>(),
+        TypeId::of::<structural::handoffs::Group>(),
+        TypeId::of::<execution::summary_terminal::SummaryTerminalWitness>(),
+    ]
 }
 
 #[cfg(test)]

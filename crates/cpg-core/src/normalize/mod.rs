@@ -44,117 +44,6 @@ fn selected_premises(
             .collect::<Vec<_>>(),
     )
 }
-// A compact exact-key work list closes a semantic kernel's premises without retaining a copy of
-// any other scope. Reverse candidate selection is SQL; forward nominal references use bounded
-// key reads against the immutable, qualified workspace views.
-struct PremiseClosure {
-    wanted: charged::ChargedSet<(&'static str, [u8; 16])>,
-    loaded: charged::ChargedSet<(&'static str, [u8; 16])>,
-    charge: charged::StateCharge,
-}
-impl PremiseClosure {
-    fn new(budget: &resources::ResourceBudget) -> Self {
-        Self {
-            wanted: Default::default(),
-            loaded: Default::default(),
-            charge: charged::StateCharge::new(budget, "normalization-scope-keys"),
-        }
-    }
-    fn absorb<R: Record>(
-        &mut self,
-        batch: &arrow_array::RecordBatch,
-        rows: &mut Rows<R>,
-    ) -> Result<(), ModelError> {
-        let budget = self.charge.budget().expect("closure budget");
-        let _decode =
-            budget.reserve("normalization-scope-decode", decode_allowance::<R>(batch)?)?;
-        for row in R::decode(batch)? {
-            self.loaded
-                .insert(&mut self.charge, (R::NAME, *row.id().bytes()))?;
-            for reference in row.references() {
-                self.wanted
-                    .insert(&mut self.charge, (reference.target, reference.key))?;
-            }
-            rows.insert(row)?;
-        }
-        Ok(())
-    }
-    fn seed<'a, R: Record>(
-        &'a mut self,
-        access: &'a CompletedInputs,
-        session: &'a datafusion::prelude::SessionContext,
-        predicate: &'a str,
-        rows: &'a mut Rows<R>,
-    ) -> BoxFuture<'a, Result<(), ModelError>> {
-        Box::pin(async move {
-            if !access.contains::<R>() {
-                return Ok(());
-            }
-            let declaration = ValidationInput::of::<R>(&[]);
-            let input = access.read_at::<R>(declaration.prefix())?;
-            crate::consumed_rows::stream_where_at(
-                &input,
-                &declaration,
-                access,
-                session,
-                Some(predicate),
-                |_, batch| self.absorb(batch, rows),
-            )
-            .await?;
-            Ok(())
-        })
-    }
-    fn fetch<'a, R: Record>(
-        &'a mut self,
-        access: &'a CompletedInputs,
-        session: &'a datafusion::prelude::SessionContext,
-        rows: &'a mut Rows<R>,
-    ) -> BoxFuture<'a, Result<bool, ModelError>> {
-        Box::pin(async move {
-            if !access.contains::<R>() {
-                return Ok(false);
-            }
-            let mut changed = false;
-            loop {
-                let keys: Vec<_> = self
-                    .wanted
-                    .iter()
-                    .filter(|(name, key)| *name == R::NAME && !self.loaded.contains(&(*name, *key)))
-                    .take(128)
-                    .map(|(_, key)| *key)
-                    .collect();
-                if keys.is_empty() {
-                    break;
-                }
-                let _keys = self
-                    .charge
-                    .budget()
-                    .expect("closure budget")
-                    .reserve("normalization-key-transfer", 128 * 256)?;
-                let predicate = format!(
-                    "id IN ({})",
-                    keys.iter().map(key_literal).collect::<Vec<_>>().join(",")
-                );
-                self.seed(access, session, &predicate, rows).await?;
-                if keys
-                    .iter()
-                    .any(|key| !self.loaded.contains(&(R::NAME, *key)))
-                {
-                    return Err(ModelError::Invalid(format!(
-                        "normalization scope is missing a required {} premise",
-                        R::NAME
-                    )));
-                }
-                changed = true;
-            }
-            Ok(changed)
-        })
-    }
-}
-fn key_literal(bytes: &[u8; 16]) -> String {
-    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!("X'{hex}'")
-}
 struct ModuleKeys {
     stream: datafusion::physical_plan::SendableRecordBatchStream,
     batch: Option<arrow_array::RecordBatch>,
@@ -205,252 +94,107 @@ impl ModuleKeys {
         }
     }
 }
-fn seed_entity_inputs<'a>(
-    access: &'a CompletedInputs,
-    session: &'a datafusion::prelude::SessionContext,
-    closure: &'a mut PremiseClosure,
-    data: &'a mut EntityData,
-    seeds: &'a std::collections::BTreeMap<&'static str, String>,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CompletedInputs,
-        &'a datafusion::prelude::SessionContext,
-        &'a mut PremiseClosure,
-        &'a mut EntityData,
-        &'a std::collections::BTreeMap<&'static str, String>,
-    ) -> BoxFuture<'a, Result<(), ModelError>>;
-    let mut loaders: Vec<Loader> = Vec::new();
-    {
-        macro_rules! adapters {($($field:ident:$ty:ty => $family:ident,)*) => {
-            $(fn $field<'a>(access: &'a CompletedInputs, session: &'a datafusion::prelude::SessionContext, closure: &'a mut PremiseClosure, data: &'a mut EntityData, seeds: &'a std::collections::BTreeMap<&'static str, String>) -> BoxFuture<'a, Result<(), ModelError>> { Box::pin(async move {
-                    if let Some(predicate) = seeds.get(<$ty>::NAME) { closure.seed(access, session, predicate, &mut data.$field).await?; }
-                    Ok(())
-                }) })*
-            loaders.extend([$($field as Loader,)*]);
-        };}
-        lctx_model::normalized_entity_inputs!(adapters);
+struct EntityScopes {
+    inputs: Vec<ValidationInput>,
+    edges: crate::consumed_rows::PreparedEdges,
+    roots: Vec<(std::any::TypeId, usize)>,
+    _charge: charged::StateCharge,
+}
+impl EntityScopes {
+    async fn prepare(
+        access: &CompletedInputs,
+        session: &datafusion::prelude::SessionContext,
+        model: &ValidatedModel,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let inputs = EntityData::validation_inputs()
+            .into_iter()
+            .filter(|input| access.table_for(input).is_ok())
+            .collect::<Vec<_>>();
+        let mut tables = inputs
+            .iter()
+            .map(|input| {
+                Ok(crate::consumed_rows::ClosureTable {
+                    relation: model
+                        .relation(input.name())
+                        .ok_or(ModelError::Schema("entity scope model relation"))?
+                        .clone(),
+                    alias: access.table_for(input)?,
+                })
+            })
+            .collect::<Result<Vec<_>, ModelError>>()?;
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program =
+            normalized::normalization_scope_program::entity(inputs.clone(), &relations, budget)?;
+        let roots = program.entity_roots().to_vec();
+        for (kind, _) in &roots {
+            let source = tables[..inputs.len()]
+                .iter()
+                .position(|table| table.relation.type_id() == *kind)
+                .ok_or(ModelError::Schema("entity demand binding"))?;
+            tables.push(tables[source].clone());
+        }
+        let compiled = crate::scope_compilation::compile(program.program(), model, budget, None)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            compiled,
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
+        let edges = plan.prepare(session, budget).await?;
+        let mut charge = charged::StateCharge::new(budget, "entity-scope-descriptors");
+        charge.grow(
+            inputs.capacity() * size_of::<ValidationInput>()
+                + roots.capacity() * size_of::<(std::any::TypeId, usize)>(),
+        )?;
+        Ok(Self {
+            inputs,
+            edges,
+            roots,
+            _charge: charge,
+        })
     }
-    Box::pin(async move {
-        for load in loaders {
-            load(access, session, closure, data, seeds).await?;
+    async fn produce(
+        &self,
+        roots: &[crate::consumed_rows::PreparedRoot],
+        kernel: entity_normalization::EntityKernel,
+        runtime: &Workspace,
+        output: &ProducerOutput,
+    ) -> Result<(), ModelError> {
+        let selected = self
+            .edges
+            .batch_with_cancellation(roots, runtime.budget(), &runtime.cancellation())
+            .await?;
+        let mut data = EntityData::new(runtime.budget());
+        crate::scoped_batch::hydrate_union_first(
+            &selected,
+            &self.inputs,
+            runtime.budget(),
+            &runtime.cancellation(),
+            &mut |_, input, batch| data.visit(input.name(), batch).map(|_| ()),
+        )
+        .await?;
+        for partition in 0..roots.len() {
+            runtime.cancellation().check()?;
+            macro_rules! selected_inputs {($($field:ident:$ty:ty => $family:ident,)*)=>{{
+    $(let $field=if let Some(table)=self.inputs.iter().position(|input|input.type_id()==std::any::TypeId::of::<$ty>()){
+      // Entity's former rich nominal work list refused required available premises. Keep that
+      // refusal after shared hydration rather than converting it to an absent borrowed row.
+      for key in selected.keys(partition,table)?{let id=callable_scope::nominal::<$ty>(&key)?;if data.$field.get(id).is_none(){return Err(ModelError::Invalid(format!("normalization scope is missing a required {} premise",<$ty>::NAME)));}}
+      Some(crate::scoped_batch::SelectedRows::new(&selected,partition,table,&data.$field,runtime.budget())?)
+    }else{None};)*
+    let view=entity_normalization::EntityDataView{$($field:if let Some(selection)=&$field{selection.view()?}else{data.$field.view()},)*};
+    let rows=entity_normalization::normalize_scope_view(&view,kernel,runtime.budget())?;
+    emit_entities(&rows,output,matches!(kernel,entity_normalization::EntityKernel::Public|entity_normalization::EntityKernel::Enumeration)).await?;
+   }};}
+            lctx_model::normalized_entity_inputs!(selected_inputs);
+            tokio::task::yield_now().await;
         }
         Ok(())
-    })
-}
-fn fetch_entity_inputs<'a>(
-    access: &'a CompletedInputs,
-    session: &'a datafusion::prelude::SessionContext,
-    closure: &'a mut PremiseClosure,
-    data: &'a mut EntityData,
-) -> BoxFuture<'a, Result<bool, ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CompletedInputs,
-        &'a datafusion::prelude::SessionContext,
-        &'a mut PremiseClosure,
-        &'a mut EntityData,
-    ) -> BoxFuture<'a, Result<bool, ModelError>>;
-    let mut loaders: Vec<Loader> = Vec::new();
-    {
-        macro_rules! adapters {($($field:ident:$ty:ty => $family:ident,)*) => {
-            $(fn $field<'a>(access: &'a CompletedInputs, session: &'a datafusion::prelude::SessionContext, closure: &'a mut PremiseClosure, data: &'a mut EntityData) -> BoxFuture<'a, Result<bool, ModelError>> { Box::pin(async move {
-                    if matches!(stringify!($field), "symbols" | "terms" | "places") { return Ok(false); }
-                    closure.fetch(access, session, &mut data.$field).await
-                }) })*
-            loaders.extend([$($field as Loader,)*]);
-        };}
-        lctx_model::normalized_entity_inputs!(adapters);
     }
-    Box::pin(async move {
-        let mut changed = false;
-        for load in loaders {
-            changed |= load(access, session, closure, data).await?;
-        }
-        Ok(changed)
-    })
-}
-fn seed_relation_inputs<'a>(
-    access: &'a CompletedInputs,
-    session: &'a datafusion::prelude::SessionContext,
-    closure: &'a mut PremiseClosure,
-    data: &'a mut normalized::relation_normalization::RelationData,
-    seeds: &'a std::collections::BTreeMap<&'static str, String>,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CompletedInputs,
-        &'a datafusion::prelude::SessionContext,
-        &'a mut PremiseClosure,
-        &'a mut normalized::relation_normalization::RelationData,
-        &'a std::collections::BTreeMap<&'static str, String>,
-    ) -> BoxFuture<'a, Result<(), ModelError>>;
-    let mut loaders: Vec<Loader> = Vec::new();
-    {
-        macro_rules! adapters {($($field:ident:$ty:ty => $family:ident,)*) => {
-            $(fn $field<'a>(access: &'a CompletedInputs, session: &'a datafusion::prelude::SessionContext, closure: &'a mut PremiseClosure, data: &'a mut normalized::relation_normalization::RelationData, seeds: &'a std::collections::BTreeMap<&'static str, String>) -> BoxFuture<'a, Result<(), ModelError>> { Box::pin(async move {
-                    if let Some(predicate) = seeds.get(<$ty>::NAME) { closure.seed(access, session, predicate, &mut data.facts.$field).await?; }
-                    Ok(())
-                }) })*
-            loaders.extend([$($field as Loader,)*]);
-        };}
-        lctx_model::normalized_entity_inputs!(adapters);
-    }
-    {
-        macro_rules! adapters {($($field:ident:$ty:ty => $family:ident,)*) => {
-            $(fn $field<'a>(access: &'a CompletedInputs, session: &'a datafusion::prelude::SessionContext, closure: &'a mut PremiseClosure, data: &'a mut normalized::relation_normalization::RelationData, seeds: &'a std::collections::BTreeMap<&'static str, String>) -> BoxFuture<'a, Result<(), ModelError>> { Box::pin(async move {
-                    if let Some(predicate) = seeds.get(<$ty>::NAME) { closure.seed(access, session, predicate, &mut data.$field).await?; }
-                    Ok(())
-                }) })*
-            loaders.extend([$($field as Loader,)*]);
-        };}
-        lctx_model::normalized_relation_inputs!(adapters);
-    }
-    Box::pin(async move {
-        for load in loaders {
-            load(access, session, closure, data, seeds).await?;
-        }
-        Ok(())
-    })
-}
-fn fetch_relation_inputs<'a>(
-    access: &'a CompletedInputs,
-    session: &'a datafusion::prelude::SessionContext,
-    closure: &'a mut PremiseClosure,
-    data: &'a mut normalized::relation_normalization::RelationData,
-) -> BoxFuture<'a, Result<bool, ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CompletedInputs,
-        &'a datafusion::prelude::SessionContext,
-        &'a mut PremiseClosure,
-        &'a mut normalized::relation_normalization::RelationData,
-    ) -> BoxFuture<'a, Result<bool, ModelError>>;
-    let mut loaders: Vec<Loader> = Vec::new();
-    {
-        macro_rules! adapters {($($field:ident:$ty:ty => $family:ident,)*) => {
-            $(fn $field<'a>(access: &'a CompletedInputs, session: &'a datafusion::prelude::SessionContext, closure: &'a mut PremiseClosure, data: &'a mut normalized::relation_normalization::RelationData) -> BoxFuture<'a, Result<bool, ModelError>> { closure.fetch(access, session, &mut data.facts.$field) })*
-            loaders.extend([$($field as Loader,)*]);
-        };}
-        lctx_model::normalized_entity_inputs!(adapters);
-    }
-    {
-        macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-            $(fn $field<'a>(access: &'a CompletedInputs, session: &'a datafusion::prelude::SessionContext, closure: &'a mut PremiseClosure, data: &'a mut normalized::relation_normalization::RelationData) -> BoxFuture<'a, Result<bool, ModelError>> { closure.fetch(access, session, &mut data.entities.$field) })*
-            loaders.extend([$($field as Loader,)*]);
-        };}
-        lctx_model::normalized_entity_outputs!(adapters);
-    }
-    {
-        macro_rules! adapters {($($field:ident:$ty:ty => $family:ident,)*) => {
-            $(fn $field<'a>(access: &'a CompletedInputs, session: &'a datafusion::prelude::SessionContext, closure: &'a mut PremiseClosure, data: &'a mut normalized::relation_normalization::RelationData) -> BoxFuture<'a, Result<bool, ModelError>> { closure.fetch(access, session, &mut data.$field) })*
-            loaders.extend([$($field as Loader,)*]);
-        };}
-        lctx_model::normalized_relation_inputs!(adapters);
-    }
-    Box::pin(async move {
-        let mut changed = false;
-        for load in loaders {
-            changed |= load(access, session, closure, data).await?;
-        }
-        Ok(changed)
-    })
-}
-
-async fn entity_closure(
-    access: &CompletedInputs,
-    session: &datafusion::prelude::SessionContext,
-    budget: &resources::ResourceBudget,
-    seeds: &std::collections::BTreeMap<&'static str, String>,
-) -> Result<EntityData, ModelError> {
-    let mut data = EntityData::new(budget);
-    let mut closure = PremiseClosure::new(budget);
-    seed_entity_inputs(access, session, &mut closure, &mut data, seeds).await?;
-    loop {
-        let changed = fetch_entity_inputs(access, session, &mut closure, &mut data).await?;
-        if !changed {
-            break;
-        }
-    }
-    Ok(data)
-}
-fn entity_symbol_seeds(
-    symbols: String,
-    public: Option<String>,
-) -> std::collections::BTreeMap<&'static str, String> {
-    use lctx_model::domain::{calls::*, declarations::*, symbols::*, types::*};
-    let mut seeds = std::collections::BTreeMap::new();
-    let selected = format!("SELECT id FROM {} WHERE {symbols}", ProviderSymbol::NAME);
-    let declarations = format!(
-        "SELECT id FROM {} WHERE symbol IN ({selected})",
-        SymbolDeclaration::NAME
-    );
-    let signatures = format!(
-        "SELECT id FROM {} WHERE symbol IN ({selected})",
-        Signature::NAME
-    );
-    let parameters = format!(
-        "SELECT id FROM {} WHERE signature IN ({signatures})",
-        SignatureParameter::NAME
-    );
-    seeds.insert(ProviderSymbol::NAME, symbols);
-    seeds.insert(SymbolDeclaration::NAME, format!("symbol IN ({selected})"));
-    seeds.insert(
-        SymbolDeclarationSupport::NAME,
-        format!("assertion IN ({declarations})"),
-    );
-    seeds.insert(
-        FunctionTraitObservation::NAME,
-        format!("symbol IN ({selected})"),
-    );
-    seeds.insert(
-        ClassTraitObservation::NAME,
-        format!("symbol IN ({selected})"),
-    );
-    if public.is_none() {
-        seeds.insert(Signature::NAME, format!("symbol IN ({selected})"));
-        seeds.insert(
-            SignatureParameter::NAME,
-            format!("signature IN ({signatures})"),
-        );
-        seeds.insert(
-            ParameterDeclaration::NAME,
-            format!("parameter IN ({parameters})"),
-        );
-        seeds.insert(
-            RecordFieldObservation::NAME,
-            format!("class IN ({selected})"),
-        );
-    }
-    if let Some(public) = public {
-        let names = format!(
-            "SELECT id FROM {} WHERE {public}",
-            PublicNameObservation::NAME
-        );
-        let observations = format!(
-            "SELECT id FROM {} WHERE symbol IN ({selected})",
-            SymbolObservation::NAME
-        );
-        let enums = format!(
-            "SELECT e.id FROM {} e JOIN {} p ON e.access=p.access JOIN {} eq ON eq.id=e.qualification JOIN {} pq ON pq.id=p.qualification WHERE p.id IN ({names}) AND eq.context=pq.context AND eq.scope=pq.scope",
-            ExportEnumerationObservation::NAME,
-            PublicNameObservation::NAME,
-            assertion::AssertionQualification::NAME,
-            assertion::AssertionQualification::NAME
-        );
-        seeds.insert(PublicNameObservation::NAME, public);
-        seeds.insert(PublicNameSupport::NAME, format!("assertion IN ({names})"));
-        seeds.insert(SymbolObservation::NAME, format!("symbol IN ({selected})"));
-        seeds.insert(
-            SymbolSupport::NAME,
-            format!("assertion IN ({observations})"),
-        );
-        seeds.insert(
-            ExportEnumerationObservation::NAME,
-            format!("id IN ({enums})"),
-        );
-        seeds.insert(
-            ExportEnumerationSupport::NAME,
-            format!("assertion IN ({enums})"),
-        );
-    }
-    seeds
 }
 fn emit_relations<'a>(
     rows: &'a normalized::relation_normalization::RelationOutput,
@@ -662,7 +406,7 @@ pub async fn entities(
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::{
-        calls::*, lexical::BindingEvent, source::*, symbols::*, syntax::ClassFieldSyntaxObservation,
+        calls::*, source::*, symbols::*, syntax::ClassFieldSyntaxObservation,
     };
     let session = access.session(runtime).await?;
     macro_rules! declarations {($($field:ident:$ty:ty,)*) => {const DECLARATIONS: &[Declaration] = &[$(declare::<$ty>,)*];};}
@@ -736,6 +480,7 @@ pub async fn entities(
     ] {
         emit_vocabulary(&access, &session, runtime, &output).await?;
     }
+    let scopes = EntityScopes::prepare(&access, &session, _model, runtime.budget()).await?;
     for (relation, kernel) in [
         (
             ProviderSymbol::NAME,
@@ -767,55 +512,34 @@ pub async fn entities(
                 .as_any()
                 .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                 .ok_or(ModelError::Schema("entity scope keys"))?;
+            let root = scopes
+                .roots
+                .iter()
+                .find(|(kind, _)| {
+                    _model
+                        .relation(relation)
+                        .is_some_and(|record| record.type_id() == *kind)
+                })
+                .ok_or(ModelError::Schema("entity requested root"))?
+                .1;
+            let _charge = runtime.budget().reserve(
+                "entity-root-window",
+                32 * size_of::<crate::consumed_rows::PreparedRoot>(),
+            )?;
+            let mut window = Vec::with_capacity(32);
             for index in 0..keys.len() {
-                let key = key_literal(&keys.value(index).try_into().map_err(ModelError::codec)?);
-                let seeds = match kernel {
-                    entity_normalization::EntityKernel::Symbol => {
-                        entity_symbol_seeds(format!("id={key}"), None)
-                    }
-                    entity_normalization::EntityKernel::Public => {
-                        let symbols = format!(
-                            "id IN (SELECT s.id FROM {} s JOIN {} p ON p.id={key} JOIN {} q ON q.id=p.qualification JOIN {} origin ON origin.id=p.origin WHERE s.context=q.context AND s.module=origin.traced_module AND s.name=origin.traced_name)",
-                            ProviderSymbol::NAME,
-                            PublicNameObservation::NAME,
-                            assertion::AssertionQualification::NAME,
-                            ExportOrigin::NAME
-                        );
-                        entity_symbol_seeds(symbols, Some(format!("id={key}")))
-                    }
-                    entity_normalization::EntityKernel::Enumeration => {
-                        let mut seeds = std::collections::BTreeMap::new();
-                        seeds.insert(ExportEnumerationObservation::NAME, format!("id={key}"));
-                        seeds.insert(ExportEnumerationSupport::NAME, format!("assertion={key}"));
-                        seeds
-                    }
-                    entity_normalization::EntityKernel::SyntaxField => {
-                        let mut seeds = std::collections::BTreeMap::new();
-                        seeds.insert(ClassFieldSyntaxObservation::NAME, format!("id={key}"));
-                        seeds.insert(
-                            BindingEvent::NAME,
-                            format!(
-                                "site IN (SELECT target FROM {} WHERE id={key})",
-                                ClassFieldSyntaxObservation::NAME
-                            ),
-                        );
-                        seeds
-                    }
-                };
-                let data = entity_closure(&access, &session, runtime.budget(), &seeds).await?;
-                let rows =
-                    entity_normalization::normalize_scope(data.inputs(), kernel, runtime.budget())?;
-                drop(data);
-                emit_entities(
-                    &rows,
-                    &output,
-                    matches!(
-                        kernel,
-                        entity_normalization::EntityKernel::Public
-                            | entity_normalization::EntityKernel::Enumeration
-                    ),
-                )
-                .await?;
+                window.push(crate::consumed_rows::PreparedRoot {
+                    table: root,
+                    key: keys.value(index).try_into().map_err(ModelError::codec)?,
+                    kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                });
+                if window.len() == 32 {
+                    scopes.produce(&window, kernel, runtime, &output).await?;
+                    window.clear();
+                }
+            }
+            if !window.is_empty() {
+                scopes.produce(&window, kernel, runtime, &output).await?;
             }
         }
     }
@@ -823,400 +547,156 @@ pub async fn entities(
     output.finish(ProviderOutcome::Complete).await
 }
 
-async fn relation_close(
-    access: &CompletedInputs,
-    session: &datafusion::prelude::SessionContext,
-    closure: &mut PremiseClosure,
-    data: &mut lctx_model::domain::normalized::relation_normalization::RelationData,
-) -> Result<(), ModelError> {
-    loop {
-        let mut changed = fetch_relation_inputs(access, session, closure, data).await?;
-        // Every referenced native symbol has one total N1 correspondence. The reverse lookup is
-        // by exact selected symbols; no global resolution or EntityRef dictionary is retained.
-        let unresolved: Vec<_> = data
-            .facts
-            .symbols
+struct RelationScopes {
+    inputs: Vec<ValidationInput>,
+    edges: crate::consumed_rows::PreparedEdges,
+    root: usize,
+    _charge: charged::StateCharge,
+}
+impl RelationScopes {
+    async fn prepare(
+        access: &CompletedInputs,
+        session: &datafusion::prelude::SessionContext,
+        model: &ValidatedModel,
+        kernel: normalized::relation_normalization::RelationKernel,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let inputs = normalized::relation_normalization::RelationData::validation_inputs()
+            .into_iter()
+            .filter(|input| access.table_for(input).is_ok())
+            .collect::<Vec<_>>();
+        let mut tables = inputs
             .iter()
-            .filter(|symbol| {
-                !data
-                    .entities
-                    .resolutions
-                    .iter()
-                    .any(|resolution| resolution.symbol == symbol.id())
+            .map(|input| {
+                Ok(crate::consumed_rows::ClosureTable {
+                    relation: model
+                        .relation(input.name())
+                        .ok_or(ModelError::Schema("relation scope model binding"))?
+                        .clone(),
+                    alias: access.table_for(input)?,
+                })
             })
-            .take(128)
-            .map(|symbol| key_literal(symbol.id().bytes()))
-            .collect();
-        if !unresolved.is_empty() {
-            let before = data.entities.resolutions.len();
-            closure
-                .seed(
-                    access,
-                    session,
-                    &format!("symbol IN ({})", unresolved.join(",")),
-                    &mut data.entities.resolutions,
-                )
-                .await?;
-            if data.entities.resolutions.len() == before {
-                return Err(ModelError::Invalid(
-                    "scoped relation requires total symbol correspondence".into(),
-                ));
-            }
-            changed = true;
-        }
-        if !changed {
-            break;
-        }
+            .collect::<Result<Vec<_>, ModelError>>()?;
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = normalized::normalization_scope_program::relation(
+            inputs.clone(),
+            &relations,
+            kernel,
+            budget,
+        )?;
+        let (kind, root) = *program
+            .entity_roots()
+            .first()
+            .ok_or(ModelError::Schema("relation scope demand port"))?;
+        let physical = tables
+            .iter()
+            .position(|table| table.relation.type_id() == kind)
+            .ok_or(ModelError::Schema("relation scope root binding"))?;
+        tables.push(tables[physical].clone());
+        let compiled = crate::scope_compilation::compile(program.program(), model, budget, None)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            compiled,
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
+        let edges = plan.prepare(session, budget).await?;
+        let mut charge = charged::StateCharge::new(budget, "relation-scope-descriptors");
+        charge.grow(inputs.capacity() * size_of::<ValidationInput>())?;
+        Ok(Self {
+            inputs,
+            edges,
+            root,
+            _charge: charge,
+        })
     }
-    Ok(())
-}
-async fn relation_scope(
-    access: &CompletedInputs,
-    session: &datafusion::prelude::SessionContext,
-    budget: &resources::ResourceBudget,
-    root: &'static str,
-    key: &str,
-    kernel: lctx_model::domain::normalized::relation_normalization::RelationKernel,
-) -> Result<lctx_model::domain::normalized::relation_normalization::RelationData, ModelError> {
-    use lctx_model::domain::{
-        attribution::*,
-        calls::*,
-        lexical::*,
-        normalized::{
-            entities::*,
-            relation_normalization::{RelationData, RelationKernel},
-        },
-        ruff::*,
-        source::*,
-        symbols::*,
-        syntax::*,
-        types::*,
-    };
-    let mut data = RelationData::new(budget);
-    let mut closure = PremiseClosure::new(budget);
-    let mut seeds = std::collections::BTreeMap::<&'static str, String>::new();
-    seeds.insert(root, format!("id={key}"));
-    let qtable = assertion::AssertionQualification::NAME;
-    let same = |_candidate: &str| {
-        format!(
-            "qualification IN (SELECT id FROM {qtable} WHERE context IN (SELECT q.context FROM {qtable} q JOIN {root} root ON root.qualification=q.id WHERE root.id={key}))"
+    fn selected<'a, R: Record>(
+        &self,
+        selected: &crate::consumed_rows::PreparedRootBatch,
+        partition: usize,
+        rows: &'a Rows<R>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Option<crate::scoped_batch::SelectedRows<'a, R>>, ModelError> {
+        let Some(table) = self
+            .inputs
+            .iter()
+            .position(|input| input.type_id() == std::any::TypeId::of::<R>())
+        else {
+            return Ok(None);
+        };
+        for key in selected.keys(partition, table)? {
+            if rows.get(callable_scope::nominal::<R>(&key)?).is_none() {
+                return Err(ModelError::Invalid(format!(
+                    "normalization scope is missing a required {} premise",
+                    R::NAME
+                )));
+            }
+        }
+        Ok(Some(crate::scoped_batch::SelectedRows::new(
+            selected, partition, table, rows, budget,
+        )?))
+    }
+    async fn produce(
+        &self,
+        roots: &[crate::consumed_rows::PreparedRoot],
+        kernel: normalized::relation_normalization::RelationKernel,
+        runtime: &Workspace,
+        output: &ProducerOutput,
+    ) -> Result<(), ModelError> {
+        use normalized::relation_normalization::{self, RelationData};
+        let selected = self
+            .edges
+            .batch_with_cancellation(roots, runtime.budget(), &runtime.cancellation())
+            .await?;
+        let mut data = RelationData::new(runtime.budget());
+        crate::scoped_batch::hydrate_union_first(
+            &selected,
+            &self.inputs,
+            runtime.budget(),
+            &runtime.cancellation(),
+            &mut |_, input, batch| data.visit(input.name(), batch).map(|_| ()),
         )
-    };
-    match kernel {
-        RelationKernel::Reference => {
-            seeds.insert(
-                LexicalResolution::NAME,
-                format!(
-                    "read IN (SELECT read FROM {root} WHERE id={key}) AND {}",
-                    same(LexicalResolution::NAME)
-                ),
-            );
-            let native = format!(
-                "subject IN (SELECT read FROM {root} WHERE id={key}) AND {}",
-                same(RuffContextObservation::NAME)
-            );
-            seeds.insert(RuffContextObservation::NAME, native.clone());
-            let contexts = format!(
-                "SELECT id FROM {} WHERE {native}",
-                RuffContextObservation::NAME
-            );
-            seeds.insert(
-                RuffContextSupport::NAME,
-                format!("assertion IN ({contexts})"),
-            );
-            let bindings = format!(
-                "event IN (SELECT final_binding FROM {} WHERE {native}) AND {}",
-                RuffContextObservation::NAME,
-                same(RuffBindingObservation::NAME)
-            );
-            seeds.insert(RuffBindingObservation::NAME, bindings.clone());
-            seeds.insert(
-                RuffBindingSupport::NAME,
-                format!(
-                    "assertion IN (SELECT id FROM {} WHERE {bindings})",
-                    RuffBindingObservation::NAME
-                ),
-            );
+        .await?;
+        for partition in 0..roots.len() {
+            runtime.cancellation().check()?;
+            let facts =
+                SelectedRelationFacts::new(self, &selected, partition, &data, runtime.budget())?;
+            let entities =
+                SelectedRelationEntities::new(self, &selected, partition, &data, runtime.budget())?;
+            let relations =
+                SelectedRelationInputs::new(self, &selected, partition, &data, runtime.budget())?;
+            let view = relations.view(facts.view(&data)?, entities.view(&data)?, &data)?;
+            relation_normalization::require_scope_premises(&view, kernel)?;
+            let rows =
+                relation_normalization::normalize_scope_view(&view, kernel, runtime.budget())?;
+            emit_relations(&rows, output).await?;
+            tokio::task::yield_now().await;
         }
-        RelationKernel::NativeDefinition => {
-            seeds.insert(
-                DeclarationObservation::NAME,
-                format!(
-                    "declaration IN (SELECT declaration FROM {root} WHERE id={key}) AND {}",
-                    same(DeclarationObservation::NAME)
-                ),
-            );
-            seeds.insert(RuffDefinitionSupport::NAME, format!("assertion={key}"));
-        }
-        RelationKernel::Import => {
-            seeds.insert(
-                ModuleResolutionObservation::NAME,
-                format!(
-                    "alias IN (SELECT alias FROM {root} WHERE id={key}) AND {}",
-                    same(ModuleResolutionObservation::NAME)
-                ),
-            );
-        }
-        RelationKernel::Ancestry => {
-            seeds.insert(
-                SymbolSequenceMember::NAME,
-                format!("sequence IN (SELECT ancestors FROM {root} WHERE id={key})"),
-            );
-        }
-        RelationKernel::TestOperand => {
-            seeds.insert(
-                TypeObservation::NAME,
-                format!(
-                    "subject IN (SELECT operand FROM {root} WHERE id={key}) AND {}",
-                    same(TypeObservation::NAME)
-                ),
-            );
-            // Coverage is source-local and may contain multiple provider runs and statuses.
-            seeds.insert(ProviderCoverage::NAME, format!("EXISTS (SELECT 1 FROM {root} leaf JOIN {qtable} q ON q.id=leaf.qualification JOIN {} occurrence ON occurrence.id=leaf.test JOIN {} scope ON scope.artifact_artifact=occurrence.source WHERE leaf.id={key} AND {}.context=q.context AND {}.scope=scope.id)", Occurrence::NAME, CoverageScope::NAME, ProviderCoverage::NAME, ProviderCoverage::NAME));
-        }
-        RelationKernel::Binder => {
-            let source = format!(
-                "SELECT m.source FROM {root} v JOIN {} pm ON pm.id=v.module JOIN {} m ON m.id=pm.acquired_module WHERE v.id={key}",
-                ProviderModule::NAME,
-                Module::NAME
-            );
-            let eligible = [
-                SyntaxKind::StmtAssign,
-                SyntaxKind::StmtAnnAssign,
-                SyntaxKind::StmtTypeAlias,
-                SyntaxKind::StmtFunctionDef,
-                SyntaxKind::StmtClassDef,
-            ]
-            .map(|kind| (kind as i16).to_string())
-            .join(",");
-            let candidates = format!(
-                "SELECT o.id FROM {} o JOIN {root} v ON v.id={key} WHERE o.source IN ({source}) AND o.start<=v.anchor_start AND o.end>=v.anchor_end AND o.syntax_kind IN ({eligible})",
-                Occurrence::NAME
-            );
-            seeds.insert(DeclarationObservation::NAME, format!("declaration IN ({candidates}) AND qualification IN (SELECT q.id FROM {qtable} q JOIN {root} v ON v.context=q.context WHERE v.id={key})"));
-            // Only the nearest eligible ancestor contributes a Binding premise in the owner
-            // kernel. Rank compact ids/paths in SQL before loading any rich binding rows; an
-            // outer class/function candidate must not pull in its entire unrelated body.
-            let bindings = format!(
-                "SELECT event FROM (SELECT b.id AS event,ancestor.id AS ancestor,row_number() OVER (PARTITION BY b.id ORDER BY array_length(ancestor.structural_path) DESC) AS proximity FROM {} b JOIN {} site ON site.id=b.site JOIN {} ancestor ON ancestor.source=site.source AND array_slice(site.structural_path,1,CAST(array_length(ancestor.structural_path) AS BIGINT))=ancestor.structural_path WHERE site.source IN ({source}) AND ancestor.syntax_kind IN ({eligible})) nearest WHERE proximity=1 AND ancestor IN ({candidates})",
-                BindingEvent::NAME,
-                Occurrence::NAME,
-                Occurrence::NAME
-            );
-            let binding_kinds = [
-                BindingEventKind::Assignment,
-                BindingEventKind::AnnotationOnly,
-                BindingEventKind::TypeAlias,
-                BindingEventKind::TypeParam,
-            ]
-            .map(|kind| (kind as i16).to_string())
-            .join(",");
-            let observations = format!(
-                "event IN ({bindings}) AND kind IN ({binding_kinds}) AND qualification IN (SELECT q.id FROM {qtable} q JOIN {root} v ON v.context=q.context WHERE v.id={key})"
-            );
-            seeds.insert(BindingObservation::NAME, observations.clone());
-            let sites = format!(
-                "SELECT site.structural_path FROM {} site JOIN {} event ON event.site=site.id JOIN {} observation ON observation.event=event.id WHERE {observations}",
-                Occurrence::NAME,
-                BindingEvent::NAME,
-                BindingObservation::NAME
-            );
-            let sites = sites.replace("AND qualification IN", "AND observation.qualification IN");
-            let ancestors = format!(
-                "SELECT ancestor.id FROM {} ancestor JOIN ({sites}) selected_site ON array_slice(selected_site.structural_path,1,CAST(array_length(ancestor.structural_path) AS BIGINT))=ancestor.structural_path WHERE ancestor.source IN ({source})",
-                Occurrence::NAME
-            );
-            seeds.insert(
-                Occurrence::NAME,
-                format!("id IN ({candidates}) OR id IN ({ancestors})"),
-            );
-        }
-        RelationKernel::Mention | RelationKernel::Type | RelationKernel::Place => {}
+        Ok(())
     }
-    seed_relation_inputs(access, session, &mut closure, &mut data, &seeds).await?;
-    relation_close(access, session, &mut closure, &mut data).await?;
-    if matches!(kernel, RelationKernel::Mention) {
-        let mention = data
-            .mentions
-            .iter()
-            .next()
-            .ok_or(ModelError::Schema("mention root"))?;
-        let own_input = lctx_model::domain::normalized::relation_normalization::captured_input(
-            &data,
-            mention.qualification,
-        )?;
-        let own = key_literal(own_input.bytes());
-        closure
-            .seed(
-                access,
-                session,
-                &format!("corpus={own}"),
-                &mut data.corpus_libraries,
-            )
-            .await?;
-        let inputs = format!(
-            "SELECT {own} AS input UNION SELECT library FROM {} WHERE corpus={own}",
-            input::CorpusLibrary::NAME
-        );
-        let names = format!(
-            "SELECT access_path AS name FROM {root} WHERE id={key} AND access_path IS NOT NULL UNION SELECT qualified_name AS name FROM {root} WHERE id={key} AND qualified_name IS NOT NULL"
-        );
-        let exposures = format!(
-            "SELECT exposure.id FROM {} exposure JOIN {} m ON m.id=exposure.access JOIN {} artifact ON artifact.id=m.source JOIN {} public ON public.id=exposure.observation WHERE artifact.input IN ({inputs}) AND concat(m.qualified_name,'.',public.name) IN ({names})",
-            PublicExposure::NAME,
-            Module::NAME,
-            SourceArtifact::NAME,
-            PublicNameObservation::NAME
-        );
-        closure
-            .seed(
-                access,
-                session,
-                &format!("id IN ({exposures})"),
-                &mut data.entities.exposures,
-            )
-            .await?;
-        closure
-            .seed(
-                access,
-                session,
-                &format!("exposure IN ({exposures})"),
-                &mut data.entities.exposure_candidates,
-            )
-            .await?;
-        // Narrow qualified-name leaves by module prefix and final spelling, then close all parent
-        // observations. Ambiguous parents are retained in full and remain unresolved in the model.
-        let module_name =
-            "COALESCE(m.qualified_name, pm.bundled_name, pm.namespace_name, pm.unresolved_name)";
-        let scope_input = "COALESCE(scope.input_input, artifact.input, module_artifact.input)";
-        let observations = format!(
-            "SELECT observation.id FROM {} observation JOIN {} s ON s.id=observation.symbol JOIN {} pm ON pm.id=s.module LEFT JOIN {} m ON m.id=pm.acquired_module JOIN {qtable} q ON q.id=observation.qualification JOIN {} scope ON scope.id=q.scope LEFT JOIN {} artifact ON artifact.id=scope.artifact_artifact LEFT JOIN {} scope_module ON scope_module.id=scope.module_module LEFT JOIN {} module_artifact ON module_artifact.id=scope_module.source JOIN {root} mention ON mention.id={key} WHERE {scope_input} IN ({inputs}) AND starts_with(mention.qualified_name,concat({module_name},'.')) AND ends_with(mention.qualified_name,concat('.',s.name))",
-            SymbolObservation::NAME,
-            ProviderSymbol::NAME,
-            ProviderModule::NAME,
-            Module::NAME,
-            CoverageScope::NAME,
-            SourceArtifact::NAME,
-            Module::NAME,
-            SourceArtifact::NAME
-        );
-        closure
-            .seed(
-                access,
-                session,
-                &format!("id IN ({observations})"),
-                &mut data.symbol_observations,
-            )
-            .await?;
-        let mut ancestors = charged::ChargedSet::default();
-        let mut ancestor_charge = charged::StateCharge::new(budget, "mention-parent-closure");
-        loop {
-            let parents: Vec<_> = data
-                .symbol_observations
-                .iter()
-                .filter_map(|row| row.parent)
-                .filter(|parent| !ancestors.contains(parent))
-                .take(128)
-                .collect();
-            if parents.is_empty() {
-                break;
-            }
-            for parent in &parents {
-                ancestors.insert(&mut ancestor_charge, *parent)?;
-            }
-            closure
-                .seed(
-                    access,
-                    session,
-                    &format!(
-                        "symbol IN ({})",
-                        parents
-                            .iter()
-                            .map(|id| key_literal(id.bytes()))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    ),
-                    &mut data.symbol_observations,
-                )
-                .await?;
-        }
-        relation_close(access, session, &mut closure, &mut data).await?;
-        let _keys = budget.reserve(
-            "mention-selected-key-transfer",
-            data.entities.resolutions.len().saturating_mul(128),
-        )?;
-        let resolutions: Vec<_> = data
-            .entities
-            .resolutions
-            .iter()
-            .map(|row| key_literal(row.id().bytes()))
-            .collect();
-        for chunk in resolutions.chunks(128) {
-            closure
-                .seed(
-                    access,
-                    session,
-                    &format!("resolution IN ({})", chunk.join(",")),
-                    &mut data.entities.candidates,
-                )
-                .await?;
-        }
-        relation_close(access, session, &mut closure, &mut data).await?;
-    }
-    if matches!(kernel, RelationKernel::Reference | RelationKernel::Place) {
-        // Membership alternatives at the exact anchor, never an ancestor/name inference.
-        let _keys = budget.reserve(
-            "anchor-selected-key-transfer",
-            data.facts.occurrences.len().saturating_mul(128),
-        )?;
-        let occurrences: Vec<_> = data
-            .facts
-            .occurrences
-            .iter()
-            .map(|row| key_literal(row.id().bytes()))
-            .collect();
-        for chunk in occurrences.chunks(128) {
-            let ids = chunk.join(",");
-            let predicate = format!(
-                "occurrence_occurrence IN ({ids}) OR callable_callable IN (SELECT id FROM {} WHERE source_declaration IN ({ids})) OR class_class IN (SELECT id FROM {} WHERE source_declaration IN ({ids})) OR parameter_parameter IN (SELECT id FROM {} WHERE source_declaration IN ({ids}))",
-                CallableEntity::NAME,
-                ClassEntity::NAME,
-                ParameterEntity::NAME
-            );
-            closure
-                .seed(access, session, &predicate, &mut data.entities.refs)
-                .await?;
-        }
-        if matches!(kernel, RelationKernel::Place) {
-            // Global/field roots can point at module or class field identities without an occurrence.
-            for row in data.roots.iter() {
-                let entity = match row {
-                    value::PlaceRoot::Global { module, .. } => {
-                        Some(EntityRef::Module { module: *module })
-                    }
-                    value::PlaceRoot::Field { class, name } => Some(EntityRef::Field {
-                        field: FieldEntity {
-                            class: ClassEntity::Source {
-                                declaration: *class,
-                            }
-                            .id(),
-                            name: name.as_str().into(),
-                        }
-                        .id(),
-                    }),
-                    _ => None,
-                };
-                if let Some(entity) = entity {
-                    closure
-                        .wanted
-                        .insert(&mut closure.charge, (EntityRef::NAME, *entity.id().bytes()))?;
-                }
-            }
-        }
-        relation_close(access, session, &mut closure, &mut data).await?;
-    }
-    Ok(data)
 }
+
+macro_rules! selected_relation_facts {($($field:ident:$ty:ty=>$family:ident,)*)=>{
+ struct SelectedRelationFacts<'a>{$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+ impl<'a> SelectedRelationFacts<'a>{fn new(scope:&RelationScopes,selected:&crate::consumed_rows::PreparedRootBatch,partition:usize,data:&'a normalized::relation_normalization::RelationData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{Ok(Self{$($field:scope.selected(selected,partition,&data.facts.$field,budget)?,)*})}
+ fn view<'b>(&'b self,data:&'b normalized::relation_normalization::RelationData)->Result<normalized::entity_normalization::EntityDataView<'b>,ModelError>{Ok(normalized::entity_normalization::EntityDataView{$($field:if let Some(s)=&self.$field{s.view()?}else{data.facts.$field.view()},)*})}}
+};}
+lctx_model::normalized_entity_inputs!(selected_relation_facts);
+macro_rules! selected_relation_entities {($($field:ident:$ty:ty,)*)=>{
+ struct SelectedRelationEntities<'a>{$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+ impl<'a> SelectedRelationEntities<'a>{fn new(scope:&RelationScopes,selected:&crate::consumed_rows::PreparedRootBatch,partition:usize,data:&'a normalized::relation_normalization::RelationData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{Ok(Self{$($field:scope.selected(selected,partition,&data.entities.$field,budget)?,)*})}
+ fn view<'b>(&'b self,data:&'b normalized::relation_normalization::RelationData)->Result<normalized::entity_normalization::EntityOutputView<'b>,ModelError>{Ok(normalized::entity_normalization::EntityOutputView{$($field:if let Some(s)=&self.$field{s.view()?}else{data.entities.$field.view()},)*})}}
+};}
+lctx_model::normalized_entity_outputs!(selected_relation_entities);
+macro_rules! selected_relation_inputs {($($field:ident:$ty:ty=>$family:ident,)*)=>{
+ struct SelectedRelationInputs<'a>{$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+ impl<'a> SelectedRelationInputs<'a>{fn new(scope:&RelationScopes,selected:&crate::consumed_rows::PreparedRootBatch,partition:usize,data:&'a normalized::relation_normalization::RelationData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{Ok(Self{$($field:scope.selected(selected,partition,&data.$field,budget)?,)*})}
+ fn view<'b>(&'b self,facts:normalized::entity_normalization::EntityDataView<'b>,entities:normalized::entity_normalization::EntityOutputView<'b>,data:&'b normalized::relation_normalization::RelationData)->Result<normalized::relation_normalization::RelationDataView<'b>,ModelError>{Ok(normalized::relation_normalization::RelationDataView{facts,entities,$($field:if let Some(s)=&self.$field{s.view()?}else{data.$field.view()},)*})}}
+};}
+lctx_model::normalized_relation_inputs!(selected_relation_inputs);
 
 pub async fn relations(
     access: CompletedInputs,
@@ -1225,15 +705,8 @@ pub async fn relations(
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     use lctx_model::domain::{
-        documents::*,
-        flow::*,
-        lexical::*,
-        normalized::relation_normalization::{self, RelationKernel},
-        ruff::*,
-        symbols::*,
-        syntax::*,
-        types::*,
-        value::*,
+        documents::*, flow::*, lexical::*, normalized::relation_normalization::RelationKernel,
+        ruff::*, symbols::*, syntax::*, types::*, value::*,
     };
     let session = access.session(runtime).await?;
     macro_rules! declarations {($($field:ident:$ty:ty,)*) => {const DECLARATIONS: &[Declaration] = &[$(declare::<$ty>,)*];};}
@@ -1259,6 +732,8 @@ pub async fn relations(
         {
             continue;
         }
+        let scopes =
+            RelationScopes::prepare(&access, &session, _model, kernel, runtime.budget()).await?;
         let mut stream =
             crate::sql::query(&session, &format!("SELECT id FROM {relation} ORDER BY id"))
                 .await
@@ -1272,15 +747,24 @@ pub async fn relations(
                 .as_any()
                 .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                 .ok_or(ModelError::Schema("relation scope keys"))?;
+            let _charge = runtime.budget().reserve(
+                "relation-root-window",
+                32 * size_of::<crate::consumed_rows::PreparedRoot>(),
+            )?;
+            let mut window = Vec::with_capacity(32);
             for index in 0..keys.len() {
-                let key = key_literal(&keys.value(index).try_into().map_err(ModelError::codec)?);
-                let data =
-                    relation_scope(&access, &session, runtime.budget(), relation, &key, kernel)
-                        .await?;
-                let rows =
-                    relation_normalization::normalize_scope(&data, kernel, runtime.budget())?;
-                drop(data);
-                emit_relations(&rows, &output).await?;
+                window.push(crate::consumed_rows::PreparedRoot {
+                    table: scopes.root,
+                    key: keys.value(index).try_into().map_err(ModelError::codec)?,
+                    kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                });
+                if window.len() == 32 {
+                    scopes.produce(&window, kernel, runtime, &output).await?;
+                    window.clear();
+                }
+            }
+            if !window.is_empty() {
+                scopes.produce(&window, kernel, runtime, &output).await?;
             }
         }
     }
@@ -1336,45 +820,78 @@ pub async fn callables(
                 .as_any()
                 .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                 .ok_or(ModelError::Schema("callable root projection"))?;
-            for index in 0..keys.len() {
-                let rows = match kernel {
-                    callable_scope::Kernel::Callable => {
-                        let key: Id<CallableEntity> = callable_scope::nominal(keys.value(index))?;
-                        let data = scopes.data(&access, key, runtime.budget()).await?;
-                        let rows = callable_normalization::normalize_callable(
-                            &data,
-                            key,
-                            runtime.budget(),
-                        )?;
-                        drop(data);
-                        rows
-                    }
-                    callable_scope::Kernel::Signature => {
-                        let key: Id<Signature> = callable_scope::nominal(keys.value(index))?;
-                        let data = scopes.data(&access, key, runtime.budget()).await?;
-                        let rows = callable_normalization::normalize_signature(
-                            &data,
-                            key,
-                            runtime.budget(),
-                        )?;
-                        drop(data);
-                        rows
-                    }
-                    callable_scope::Kernel::Overload => {
-                        let key: Id<NativeOverloadObservation> =
-                            callable_scope::nominal(keys.value(index))?;
-                        let data = scopes.data(&access, key, runtime.budget()).await?;
-                        let rows = callable_normalization::normalize_overload(
-                            &data,
-                            key,
-                            runtime.budget(),
-                        )?;
-                        drop(data);
-                        rows
-                    }
+            for start in (0..keys.len()).step_by(32) {
+                let end = (start + 32).min(keys.len());
+                let (table, kind) = match kernel {
+                    callable_scope::Kernel::Callable => (
+                        scopes.table_for::<CallableEntity>()?,
+                        crate::consumed_rows::PreparedRootKind::Physical,
+                    ),
+                    callable_scope::Kernel::Signature => (
+                        scopes
+                            .signature_root()
+                            .ok_or(ModelError::Schema("signature demand root absent"))?,
+                        crate::consumed_rows::PreparedRootKind::Virtual,
+                    ),
+                    callable_scope::Kernel::Overload => (
+                        scopes.table_for::<NativeOverloadObservation>()?,
+                        crate::consumed_rows::PreparedRootKind::Physical,
+                    ),
                 };
-                emit_callables(&rows, &output).await?;
-                drop(rows);
+                let _root_charge = runtime
+                    .budget()
+                    .reserve("callable-root-window", (end - start) * 128 + 4096)?;
+                let roots = (start..end)
+                    .map(|index| {
+                        Ok(crate::consumed_rows::PreparedRoot {
+                            table,
+                            key: keys.value(index).try_into().map_err(ModelError::codec)?,
+                            kind,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ModelError>>()?;
+                let selected = scopes
+                    .edges()
+                    .batch_with_cancellation(&roots, runtime.budget(), &runtime.cancellation())
+                    .await?;
+                let data = scopes
+                    .load_batch(&selected, runtime.budget(), &runtime.cancellation())
+                    .await?;
+                for (partition, index) in (start..end).enumerate() {
+                    let selection = callable_scope::DataSelection::new(
+                        &selected,
+                        partition,
+                        scopes.inputs(),
+                        &data,
+                        runtime.budget(),
+                    )?;
+                    let view = selection.view()?;
+                    let rows =
+                        crate::stage_runtime::borrowed_cpu(access.name(), || match kernel {
+                            callable_scope::Kernel::Callable => {
+                                callable_normalization::normalize_callable_view(
+                                    &view,
+                                    callable_scope::nominal(keys.value(index))?,
+                                    runtime.budget(),
+                                )
+                            }
+                            callable_scope::Kernel::Signature => {
+                                callable_normalization::normalize_signature_view(
+                                    &view,
+                                    callable_scope::nominal(keys.value(index))?,
+                                    runtime.budget(),
+                                )
+                            }
+                            callable_scope::Kernel::Overload => {
+                                callable_normalization::normalize_overload_view(
+                                    &view,
+                                    callable_scope::nominal(keys.value(index))?,
+                                    runtime.budget(),
+                                )
+                            }
+                        })?;
+                    emit_callables(&rows, &output).await?;
+                }
             }
         }
         drop(scopes);
@@ -1390,8 +907,10 @@ pub async fn validate_callables(
     session: &datafusion::prelude::SessionContext,
     budget: &resources::ResourceBudget,
     cancellation: &crate::workspace::Cancellation,
+    model: &ValidatedModel,
 ) -> Result<(), ModelError> {
-    callable_scope::validate_callables(invariant, tables, session, budget, cancellation).await
+    callable_scope::validate_callables(invariant, tables, session, budget, cancellation, model)
+        .await
 }
 
 /// Complete callable metadata is produced one actual assessment, initializer or class at a time.
@@ -1418,36 +937,27 @@ pub async fn aspects(
             })
         })
         .collect::<Result<Vec<_>, ModelError>>()?;
-    let prepared = crate::scoped_aspects::AspectScopes::prepare(
+    let prepared = crate::scoped_aspects::AspectScopes::prepare_in(
         inputs,
         tables,
         &callable_aspects::aspect_scope(),
         model,
         &session,
         runtime.budget(),
+        Some(runtime.scope_programs()),
     )
     .await?;
     macro_rules! declarations {($($field:ident:$ty:ty,)*) => {const DECLARATIONS: &[Declaration] = &[$(declare::<$ty>,)*];};}
     lctx_model::callable_aspect_outputs!(declarations);
     declare_ordered(&output, DECLARATIONS).await?;
     for (index, root) in prepared.roots.iter().enumerate() {
-        let filter = if index == 2 {
-            format!(" WHERE kind={}", syntax::DeclarationKind::Class as i16)
-        } else {
-            String::new()
-        };
-        let mut roots = crate::sql::query(
-            &session,
-            &format!(
-                "SELECT id FROM {}{filter} ORDER BY id",
-                crate::consumed_rows::identifier(&prepared.root_tables[index])
-            ),
-        )
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
+        let (roots_sql, _query) = prepared.inventory_sql(index, runtime.budget())?;
+        let mut roots = crate::sql::query(&session, &roots_sql)
+            .await
+            .map_err(ModelError::codec)?
+            .execute_stream()
+            .await
+            .map_err(ModelError::codec)?;
         while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
             runtime.cancellation().check()?;
             let keys = batch
@@ -1455,28 +965,52 @@ pub async fn aspects(
                 .as_any()
                 .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                 .ok_or(ModelError::Schema("aspect owner keys"))?;
-            for row in 0..keys.len() {
-                runtime.cancellation().check()?;
-                let id: [u8; 16] = keys.value(row).try_into().map_err(ModelError::codec)?;
-                let scoped = prepared
+            for first in (0..keys.len()).step_by(32) {
+                let stop = (first + 32).min(keys.len());
+                let _roots = runtime
+                    .budget()
+                    .reserve("aspect-batch-roots", (stop - first) * 128)?;
+                let requested = (first..stop)
+                    .map(|row| {
+                        Ok(crate::consumed_rows::PreparedRoot {
+                            table: *root,
+                            key: keys.value(row).try_into().map_err(ModelError::codec)?,
+                            kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ModelError>>()?;
+                let selected = prepared
                     .edges
-                    .grain(
-                        *root,
-                        &crate::scoped_admission::root_predicate(&[id]),
-                        runtime.budget(),
-                    )
+                    .batch_with_cancellation(&requested, runtime.budget(), &runtime.cancellation())
                     .await?;
-                let (data, prior) =
-                    crate::scoped_aspects::load_data(&scoped, &prepared.inputs, runtime.budget())
-                        .await?;
+                let (data, prior) = crate::scoped_aspects::load_batch(
+                    &selected,
+                    &prepared.inputs,
+                    runtime.budget(),
+                    &runtime.cancellation(),
+                )
+                .await?;
                 drop(prior);
-                let kernel = crate::scoped_aspects::kernel(index, id)?;
-                let rows = callable_aspects::normalize_scope(&data, kernel, runtime.budget())?;
-                drop(data);
-                drop(scoped);
-                // A class computes its field defaults only as scratch for source-field policy.
-                // The field owner emits those canonical rows exactly once through its own grain.
-                emit_aspects(&rows, &output, matches!(kernel, AspectKernel::Class(_))).await?;
+                for (partition, request) in requested.iter().enumerate() {
+                    runtime.cancellation().check()?;
+                    let owner = crate::scoped_aspects::AspectSelection::new(
+                        &selected,
+                        partition,
+                        &prepared.inputs,
+                        &data,
+                        runtime.budget(),
+                    )?;
+                    let kernel = crate::scoped_aspects::kernel(index, request.key)?;
+                    let rows = crate::stage_runtime::borrowed_cpu("callable_aspects", || {
+                        callable_aspects::normalize_scope_view(
+                            &owner.view()?,
+                            kernel,
+                            runtime.budget(),
+                        )
+                    })?;
+                    // Class defaults are scratch; canonical emission remains field-owned.
+                    emit_aspects(&rows, &output, matches!(kernel, AspectKernel::Class(_))).await?;
+                }
             }
         }
     }
@@ -1521,7 +1055,7 @@ pub(crate) async fn receivers_produced(
     let mut stream = crate::sql::query(
         &session,
         &format!(
-            "SELECT * FROM {} ORDER BY id",
+            "SELECT id FROM {} ORDER BY id",
             crate::consumed_rows::identifier(&table)
         ),
     )
@@ -1531,16 +1065,56 @@ pub(crate) async fn receivers_produced(
     .await
     .map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        let mut roots = Rows::<calls::CallTarget>::new(runtime.budget());
-        roots.decode(&batch)?;
-        for target in roots.iter() {
-            let data = scopes.data(&access, target.id(), runtime.budget()).await?;
-            let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || {
-                receiver::normalize_target_produced(&data, target.id(), runtime.budget())
-            })?;
-            verified.append(authority)?;
-            emit_receivers(&rows, &output).await?;
-            tokio::task::yield_now().await;
+        let keys = batch
+            .column_by_name("id")
+            .and_then(|column| {
+                column
+                    .as_any()
+                    .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+            })
+            .ok_or(ModelError::Schema("receiver root projection"))?;
+        for start in (0..keys.len()).step_by(32) {
+            let end = (start + 32).min(keys.len());
+            let _root_charge = runtime
+                .budget()
+                .reserve("receiver-root-window", (end - start) * 128 + 4096)?;
+            let table = scopes.table_for::<calls::CallTarget>()?;
+            let roots = (start..end)
+                .map(|index| {
+                    Ok(crate::consumed_rows::PreparedRoot {
+                        table,
+                        key: keys.value(index).try_into().map_err(ModelError::codec)?,
+                        kind: crate::consumed_rows::PreparedRootKind::Physical,
+                    })
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            let selected = scopes
+                .edges()
+                .batch_with_cancellation(&roots, runtime.budget(), &runtime.cancellation())
+                .await?;
+            let data = scopes
+                .load_batch(&selected, runtime.budget(), &runtime.cancellation())
+                .await?;
+            for (partition, index) in (start..end).enumerate() {
+                let selection = receiver_scope::DataSelection::new(
+                    &selected,
+                    partition,
+                    scopes.inputs(),
+                    &data,
+                    runtime.budget(),
+                )?;
+                let view = selection.view()?;
+                let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || {
+                    receiver::normalize_target_produced_view(
+                        &view,
+                        callable_scope::nominal(keys.value(index))?,
+                        runtime.budget(),
+                    )
+                })?;
+                verified.append(authority)?;
+                emit_receivers(&rows, &output).await?;
+                tokio::task::yield_now().await;
+            }
         }
     }
     output.finish(ProviderOutcome::Complete).await?;
@@ -1638,33 +1212,56 @@ fn event_roots<'a, R: Record>(
                 .ok_or_else(|| {
                     ModelError::Invalid("event context key has another Arrow type".into())
                 })?;
+            let _window_charge = runtime
+                .budget()
+                .reserve("event-root-window", rows.len() * 256 + 4096)?;
+            let mut requests = Vec::new();
             for (ordinal, root) in rows.iter().enumerate() {
-                let context: Id<attribution::AnalysisContext> =
-                    serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
-                        _,
-                        serde::de::value::Error,
-                    >::new(
-                        contexts.value(ordinal).iter().copied()
-                    ))
-                    .map_err(ModelError::codec)?;
+                let context = callable_scope::nominal(contexts.value(ordinal))?;
                 let key = event_key(root, context);
-                if !seen.insert(charge, key)? {
-                    continue;
+                if seen.insert(charge, key)? {
+                    requests.push((root.id(), key));
                 }
-                let data = scopes
-                    .event_data(access, root.id(), runtime.budget())
+            }
+            for window in requests.chunks(32) {
+                let root = scopes.root_for::<R>()?;
+                let roots = window
+                    .iter()
+                    .map(|(id, _)| crate::consumed_rows::PreparedRoot {
+                        table: root,
+                        key: *id.bytes(),
+                        kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                    })
+                    .collect::<Vec<_>>();
+                let selected = scopes
+                    .edges()
+                    .batch_with_cancellation(&roots, runtime.budget(), &runtime.cancellation())
                     .await?;
-                let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || {
-                    event_normalization::normalize_event_produced(
+                let data = scopes
+                    .load_event_batch(&selected, runtime.budget(), &runtime.cancellation())
+                    .await?;
+                for (partition, (_, key)) in window.iter().enumerate() {
+                    let selection = call_scope::EventSelection::new(
+                        &selected,
+                        partition,
+                        scopes.inputs(),
                         &data,
-                        key,
-                        receivers,
                         runtime.budget(),
-                    )
-                })?;
-                verified.append(authority)?;
-                emit_event_rows(&rows, output).await?;
-                tokio::task::yield_now().await;
+                    )?;
+                    let view = selection.view()?;
+                    let (rows, authority) =
+                        crate::stage_runtime::borrowed_cpu(access.name(), || {
+                            event_normalization::normalize_event_produced_view(
+                                &view,
+                                *key,
+                                receivers,
+                                runtime.budget(),
+                            )
+                        })?;
+                    verified.append(authority)?;
+                    emit_event_rows(&rows, output).await?;
+                    tokio::task::yield_now().await;
+                }
             }
         }
 
@@ -1755,18 +1352,44 @@ pub(crate) async fn events_produced(
         while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
             let mut paths = Rows::<flow::FlowValuePathObservation>::new(runtime.budget());
             paths.decode(&batch)?;
-            for path in paths.iter() {
-                let data = scopes
-                    .event_data(&access, path.id(), runtime.budget())
+            let _window_charge = runtime
+                .budget()
+                .reserve("flow-path-root-window", paths.len() * 128 + 4096)?;
+            let requests = paths.iter().map(Record::id).collect::<Vec<_>>();
+            for window in requests.chunks(32) {
+                let root = scopes.root_for::<flow::FlowValuePathObservation>()?;
+                let roots = window
+                    .iter()
+                    .map(|id| crate::consumed_rows::PreparedRoot {
+                        table: root,
+                        key: *id.bytes(),
+                        kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                    })
+                    .collect::<Vec<_>>();
+                let selected = scopes
+                    .edges()
+                    .batch_with_cancellation(&roots, runtime.budget(), &runtime.cancellation())
                     .await?;
-                let rows = event_normalization::normalize_flow_path(
-                    &data,
-                    path.id(),
-                    &verified,
-                    runtime.budget(),
-                )?;
-                for row in rows.flow_links.iter() {
-                    output.push(row.clone()).await?;
+                let data = scopes
+                    .load_event_batch(&selected, runtime.budget(), &runtime.cancellation())
+                    .await?;
+                for (partition, id) in window.iter().enumerate() {
+                    let selection = call_scope::EventSelection::new(
+                        &selected,
+                        partition,
+                        scopes.inputs(),
+                        &data,
+                        runtime.budget(),
+                    )?;
+                    let rows = event_normalization::normalize_flow_path_view(
+                        &selection.view()?,
+                        *id,
+                        &verified,
+                        runtime.budget(),
+                    )?;
+                    for row in rows.flow_links.iter() {
+                        output.push(row.clone()).await?;
+                    }
                 }
             }
         }
@@ -1785,120 +1408,6 @@ pub(crate) async fn events_produced(
         value: verified,
     })
 }
-struct EnumerationTables {
-    enumerations: String,
-    members: String,
-    signatures: String,
-    qualifications: String,
-    symbols: String,
-}
-fn load_enumeration_inputs<'a>(
-    access: &'a CompletedInputs,
-    session: &'a datafusion::prelude::SessionContext,
-    declared: &'a [ValidationInput],
-    tables: &'a EnumerationTables,
-    key: &'a str,
-    data: &'a mut normalized::binding_normalization::BindingData,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CompletedInputs,
-        &'a datafusion::prelude::SessionContext,
-        &'a [ValidationInput],
-        &'a EnumerationTables,
-        &'a str,
-        &'a mut normalized::binding_normalization::BindingData,
-    ) -> BoxFuture<'a, Result<(), ModelError>>;
-    macro_rules! adapter {
-        ($name:ident, $ty:ty, $field:ident, $sql:expr) => {
-            fn $name<'a>(
-                access: &'a CompletedInputs,
-                session: &'a datafusion::prelude::SessionContext,
-                declared: &'a [ValidationInput],
-                tables: &'a EnumerationTables,
-                key: &'a str,
-                data: &'a mut normalized::binding_normalization::BindingData,
-            ) -> BoxFuture<'a, Result<(), ModelError>> {
-                Box::pin(async move {
-                    let input = declared
-                        .iter()
-                        .find(|input| input.type_id() == std::any::TypeId::of::<$ty>())
-                        .ok_or(ModelError::Schema("binding enumeration input"))?;
-                    let permit = access.read_at::<$ty>(input.prefix())?;
-                    let sql: String = ($sql)(tables, key);
-                    crate::consumed_rows::stream_query_at(
-                        &permit,
-                        input,
-                        access,
-                        session,
-                        &sql,
-                        |_, batch| data.$field.decode(batch),
-                    )
-                    .await
-                })
-            }
-        };
-    }
-    adapter!(
-        enumerations,
-        calls::SignatureEnumerationObservation,
-        signature_enumerations,
-        |tables: &EnumerationTables, key: &str| format!(
-            "SELECT * FROM {} WHERE {key}",
-            tables.enumerations
-        )
-    );
-    adapter!(
-        members,
-        calls::SignatureEnumerationMember,
-        signature_enumeration_members,
-        |tables: &EnumerationTables, key: &str| format!(
-            "SELECT m.* FROM {} m JOIN {} e ON e.id=m.enumeration WHERE {}",
-            tables.members,
-            tables.enumerations,
-            key.replacen("symbol IN", "e.symbol IN", 1)
-        )
-    );
-    // Include omitted enumeration members; the validator owns the total variant domain.
-    adapter!(
-        signatures,
-        calls::Signature,
-        signatures,
-        |tables: &EnumerationTables, key: &str| format!(
-            "SELECT * FROM {} WHERE {key}",
-            tables.signatures
-        )
-    );
-    adapter!(
-        qualifications,
-        assertion::AssertionQualification,
-        qualifications,
-        |tables: &EnumerationTables, key: &str| format!(
-            "SELECT * FROM {} WHERE id IN (SELECT qualification FROM {} WHERE {key} UNION SELECT qualification FROM {} WHERE {key})",
-            tables.qualifications, tables.enumerations, tables.signatures
-        )
-    );
-    adapter!(
-        symbols,
-        calls::ProviderSymbol,
-        symbols,
-        |tables: &EnumerationTables, key: &str| format!(
-            "SELECT * FROM {} WHERE {}",
-            tables.symbols,
-            key.replacen("symbol IN", "id IN", 1)
-        )
-    );
-    const LOADERS: &[Loader] = &[enumerations, members, signatures, qualifications, symbols];
-    Box::pin(async move {
-        for load in LOADERS {
-            load(access, session, declared, tables, key, data).await?;
-        }
-        Ok(())
-    })
-}
-
-/// Complete native enumeration authority is a binding-owner premise even when a constructor
-/// initializer never becomes an ordinary call event. Decode one symbol's five native families
-/// at a time; only compact exact keys/content/counts survive in the application authority.
 async fn prepare_enumeration_authority(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
@@ -1909,31 +1418,68 @@ async fn prepare_enumeration_authority(
         ProviderSymbol, Signature, SignatureEnumerationMember, SignatureEnumerationObservation,
     };
     use normalized::binding_normalization::BindingData;
-    let declared = BindingData::validation_inputs();
-    let input = |kind| {
-        declared
-            .iter()
-            .find(|input| input.type_id() == kind)
-            .ok_or(ModelError::Schema("binding enumeration input"))
-    };
-    let table = |kind| {
-        access
-            .table_for(input(kind)?)
-            .map(|name| crate::consumed_rows::identifier(&name))
-    };
-    let tables = EnumerationTables {
-        enumerations: table(std::any::TypeId::of::<SignatureEnumerationObservation>())?,
-        members: table(std::any::TypeId::of::<SignatureEnumerationMember>())?,
-        signatures: table(std::any::TypeId::of::<Signature>())?,
-        qualifications: table(std::any::TypeId::of::<assertion::AssertionQualification>())?,
-        symbols: table(std::any::TypeId::of::<ProviderSymbol>())?,
-    };
+    let all = BindingData::validation_inputs();
+    let kinds = [
+        std::any::TypeId::of::<SignatureEnumerationObservation>(),
+        std::any::TypeId::of::<SignatureEnumerationMember>(),
+        std::any::TypeId::of::<Signature>(),
+        std::any::TypeId::of::<assertion::AssertionQualification>(),
+        std::any::TypeId::of::<ProviderSymbol>(),
+    ];
+    let declared = kinds
+        .iter()
+        .map(|kind| {
+            all.iter()
+                .find(|input| input.type_id() == *kind)
+                .cloned()
+                .ok_or(ModelError::Schema("binding enumeration input"))
+        })
+        .collect::<Result<Vec<_>, ModelError>>()?;
+    let mut tables = declared
+        .iter()
+        .map(|input| {
+            Ok(crate::consumed_rows::ClosureTable {
+                relation: runtime
+                    .model()
+                    .relation(input.name())
+                    .ok_or(ModelError::Schema("enumeration model input"))?
+                    .clone(),
+                alias: access.table_for(input)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ModelError>>()?;
+    let root = tables.len();
+    tables.push(tables[4].clone());
+    let input_relations = tables
+        .iter()
+        .take(root)
+        .map(|table| table.relation.clone())
+        .collect::<Vec<_>>();
+    let program = normalized::enumeration_scope_program::build(
+        declared.clone(),
+        &input_relations,
+        runtime.budget(),
+    )?;
+    let compiled = crate::scope_compilation::compile(
+        program.program(),
+        runtime.model(),
+        runtime.budget(),
+        Some(runtime.scope_programs()),
+    )?;
+    let edges = crate::scope_compilation::lower_compiled(
+        compiled,
+        &tables,
+        &scope_program::ScopeParameters(vec![]),
+        runtime.budget(),
+    )?
+    .prepare(session, runtime.budget())
+    .await?;
     // The root scan carries only the primitive symbol key, never native record bodies.
     let mut stream = crate::sql::query(
         session,
         &format!(
             "SELECT DISTINCT symbol FROM {} ORDER BY symbol",
-            tables.enumerations
+            crate::consumed_rows::identifier(&tables[0].alias)
         ),
     )
     .await
@@ -1951,20 +1497,50 @@ async fn prepare_enumeration_authority(
             .as_any()
             .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
             .ok_or(ModelError::Schema("binding enumeration symbol key"))?;
-        for index in 0..roots.len() {
-            runtime.cancellation().check()?;
-            if roots.is_null(index) {
-                return Err(ModelError::Schema("binding enumeration symbol key"));
-            }
-            let key: [u8; 16] = roots
-                .value(index)
-                .try_into()
-                .map_err(|_| ModelError::Schema("binding enumeration symbol key"))?;
-            let key = crate::scoped_admission::root_predicate(&[key]);
-            let key = key.replacen("id IN", "symbol IN", 1);
+        for start in (0..roots.len()).step_by(32) {
+            let end = (start + 32).min(roots.len());
+            let _window = runtime
+                .budget()
+                .reserve("enumeration-demand-window", (end - start) * 128 + 4096)?;
+            let requests = (start..end)
+                .map(|index| {
+                    if roots.is_null(index) {
+                        return Err(ModelError::Schema("binding enumeration symbol key"));
+                    }
+                    Ok(crate::consumed_rows::PreparedRoot {
+                        table: root,
+                        key: roots.value(index).try_into().map_err(ModelError::codec)?,
+                        kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                    })
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            let selected = edges
+                .batch_with_cancellation(&requests, runtime.budget(), &runtime.cancellation())
+                .await?;
             let mut data = BindingData::new(runtime.budget());
-            load_enumeration_inputs(access, session, &declared, &tables, &key, &mut data).await?;
-            application.admit_enumerations(&data, runtime.budget())?;
+            crate::scoped_batch::hydrate_union(
+                &selected,
+                &declared,
+                runtime.budget(),
+                &runtime.cancellation(),
+                &mut |_, input, batch| {
+                    if !data.visit(input.name(), batch)? {
+                        return Err(ModelError::Schema("enumeration union input"));
+                    }
+                    Ok(())
+                },
+            )
+            .await?;
+            for partition in 0..requests.len() {
+                let borrowed = call_scope::BindingSelection::new(
+                    &selected,
+                    partition,
+                    &declared,
+                    &data,
+                    runtime.budget(),
+                )?;
+                application.admit_enumerations_view(&borrowed.view()?, runtime.budget())?;
+            }
             tokio::task::yield_now().await;
         }
     }
@@ -2001,7 +1577,7 @@ pub(crate) async fn bindings_prepared(
     let mut stream = crate::sql::query(
         &session,
         &format!(
-            "SELECT * FROM {} ORDER BY id",
+            "SELECT id FROM {} ORDER BY id",
             crate::consumed_rows::identifier(&table)
         ),
     )
@@ -2011,24 +1587,58 @@ pub(crate) async fn bindings_prepared(
     .await
     .map_err(ModelError::codec)?;
     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        let mut roots = Rows::<normalized::events::NormalizedCallEvent>::new(runtime.budget());
-        roots.decode(&batch)?;
-        for event in roots.iter() {
-            let data = scopes
-                .binding_data(&access, event.id(), runtime.budget())
+        let keys = batch
+            .column_by_name("id")
+            .and_then(|column| {
+                column
+                    .as_any()
+                    .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+            })
+            .ok_or(ModelError::Schema("binding root projection"))?;
+        for start in (0..keys.len()).step_by(32) {
+            let end = (start + 32).min(keys.len());
+            let _root_charge = runtime
+                .budget()
+                .reserve("binding-root-window", (end - start) * 128 + 4096)?;
+            let root = scopes.root_for::<normalized::events::NormalizedCallEvent>()?;
+            let roots = (start..end)
+                .map(|index| {
+                    Ok(crate::consumed_rows::PreparedRoot {
+                        table: root,
+                        key: keys.value(index).try_into().map_err(ModelError::codec)?,
+                        kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                    })
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            let selected = scopes
+                .edges()
+                .batch_with_cancellation(&roots, runtime.budget(), &runtime.cancellation())
                 .await?;
-            let (rows, verified) = crate::stage_runtime::borrowed_cpu(access.name(), || {
-                binding_normalization::normalize_event_produced(
+            let data = scopes
+                .load_binding_batch(&selected, runtime.budget(), &runtime.cancellation())
+                .await?;
+            for (partition, index) in (start..end).enumerate() {
+                let selection = call_scope::BindingSelection::new(
+                    &selected,
+                    partition,
+                    scopes.inputs(),
                     &data,
-                    event.id(),
-                    receivers,
-                    events,
                     runtime.budget(),
-                )
-            })?;
-            application.append(verified)?;
-            emit_bindings(&rows, &output).await?;
-            tokio::task::yield_now().await;
+                )?;
+                let view = selection.view()?;
+                let (rows, verified) = crate::stage_runtime::borrowed_cpu(access.name(), || {
+                    binding_normalization::normalize_event_produced_view(
+                        &view,
+                        callable_scope::nominal(keys.value(index))?,
+                        receivers,
+                        events,
+                        runtime.budget(),
+                    )
+                })?;
+                application.append(verified)?;
+                emit_bindings(&rows, &output).await?;
+                tokio::task::yield_now().await;
+            }
         }
     }
     prepare_enumeration_authority(&access, &session, &mut application, runtime).await?;

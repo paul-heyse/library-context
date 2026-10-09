@@ -112,6 +112,7 @@ unicode_names2 = { version = "1.3.0" }
 url = { version = "2.5.8", features = ["serde"] }
 uuid = { version = "1.27.0", features = ["js", "rng-getrandom", "serde", "v4", "v7"] }
 winnow = { version = "1.0.4" }
+xxhash-rust = { version = "0.8.19", default-features = false, features = ["xxh3", "xxh64"] }
 zerocopy = { version = "0.8.59", default-features = false, features = ["derive", "simd"] }
 zip = { version = "8.6.0", default-features = false, features = ["zstd"] }
 zstd-582f2526e08bb6a0 = { package = "zstd", version = "0.14.0" }

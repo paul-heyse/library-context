@@ -341,8 +341,16 @@ pub async fn apply(
             budget,
         )?;
         let mut records = if let Some(scopes) = &scopes {
-            let grain = scopes.frame(frame.id(), budget).await?;
-            let selected = scopes.load(&access, &grain, budget).await?;
+            let window = scopes
+                .window(
+                    &access,
+                    &[ProductionScope::Frame],
+                    frame.id(),
+                    budget,
+                    &runtime.cancellation(),
+                )
+                .await?;
+            let selected = window.data(0, budget, &runtime.cancellation())?;
             apply_selected(
                 &selected,
                 &invocation,
@@ -368,6 +376,7 @@ pub async fn apply(
             )?
         };
         if let Some(scopes) = &scopes {
+            let cancellation = runtime.cancellation();
             let application = SelectedApplication {
                 access: &access,
                 output: &output,
@@ -380,31 +389,26 @@ pub async fn apply(
                 actual: actual.as_ref(),
                 frame: frame.id(),
                 budget,
+                cancellation: &cancellation,
             };
-            for compiled in parsed.catalog().models() {
-                let kind = ProductionScope::Target(compiled.declaration().id());
-                let produced = apply_selection(&application, kind).await?;
-                merge_run(&mut records, &produced)?;
-                publish_records(&output, &produced).await?;
-            }
-            // Root coordinates are externally ordered before rich rows are decoded.
-            let occurrences = crate::consumed_rows::identifier(
-                &access.table_for(&ValidationInput::of::<source::Occurrence>(&["id"]))?,
-            );
-            let artifacts = crate::consumed_rows::identifier(
-                &access.table_for(&ValidationInput::of::<source::SourceArtifact>(&["id"]))?,
-            );
-            let qualifications = crate::consumed_rows::identifier(
-                &access.table_for(
-                    &ValidationInput::of::<assertion::AssertionQualification>(&["id"])
-                        .at_epoch(PublicationBoundary::Facts),
-                )?,
-            );
-            macro_rules! roots {
-                ($ty:ty,$predicate:expr,$kind:expr) => {
-                    apply_roots::<$ty>(&application, &session, $predicate, $kind, &mut records)
-                        .await?;
-                };
+            for targets in parsed.catalog().models().chunks(32) {
+                let _keys = budget.reserve(
+                    "model-target-window",
+                    targets.len() * size_of::<ProductionScope>(),
+                )?;
+                let kinds = targets
+                    .iter()
+                    .map(|compiled| ProductionScope::Target(compiled.declaration().id()))
+                    .collect::<Vec<_>>();
+                let window = scopes
+                    .window(&access, &kinds, frame.id(), budget, &runtime.cancellation())
+                    .await?;
+                for (partition, kind) in kinds.iter().enumerate() {
+                    let selected = window.data(partition, budget, &runtime.cancellation())?;
+                    let produced = apply_data(&application, &selected, *kind)?;
+                    merge_run(&mut records, &produced)?;
+                    publish_records(&output, &produced).await?;
+                }
             }
             let parent = data
                 .enriched
@@ -415,41 +419,38 @@ pub async fn apply(
                 .ok_or(ModelError::Schema(
                     analysis::enriched_execution::AnalysisInvocation::NAME,
                 ))?;
+            let selector = scopes;
+            macro_rules! roots {
+                ($ty:ty,$inventory:expr,$kind:expr) => {{
+                    let (query, _query_charge) = selector.root_sql(
+                        $inventory,
+                        parent.id(),
+                        frame.input,
+                        frame.context,
+                        budget,
+                    )?;
+                    apply_roots::<$ty>(&application, &session, query, $kind, &mut records).await?;
+                }};
+            }
+            use compiler_scope_program::ModelRootInventory as R;
             roots!(
                 execution::context_execution::ContextExecution,
-                format!("WHERE r.invocation={}", scope::hex(parent.id())),
+                R::Context,
                 ProductionScope::Context
             );
             roots!(
                 normalized::events::NormalizedCallEvent,
-                format!(
-                    "JOIN {occurrences} o ON o.id=r.site JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND r.context={}",
-                    scope::hex(frame.input),
-                    scope::hex(frame.context)
-                ),
+                R::Event,
                 ProductionScope::Event
             );
-            let events =
-                crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<
-                    normalized::events::NormalizedCallEvent,
-                >(&["id"]))?);
             roots!(
                 protocols::NativeTerminalObservation,
-                format!(
-                    "JOIN {qualifications} q ON q.id=r.qualification JOIN {occurrences} o ON o.id=r.subject JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND q.context={} AND NOT EXISTS (SELECT 1 FROM {events} e WHERE e.site=r.subject AND e.context=q.context AND e.origin={})",
-                    scope::hex(frame.input),
-                    scope::hex(frame.context),
-                    scope::hex(calls::CallOrigin::explicit())
-                ),
+                R::Terminal,
                 ProductionScope::Terminal
             );
             roots!(
                 protocols::NativeExitObservation,
-                format!(
-                    "JOIN {qualifications} q ON q.id=r.qualification JOIN {occurrences} o ON o.id=r.subject JOIN {artifacts} a ON a.id=o.source WHERE a.input={} AND q.context={}",
-                    scope::hex(frame.input),
-                    scope::hex(frame.context)
-                ),
+                R::Exit,
                 ProductionScope::Exit
             );
         }
@@ -539,47 +540,33 @@ struct SelectedApplication<'a, 'actual> {
     actual: Option<&'a ActualInputs<'actual>>,
     frame: Id<attribution::ProviderRun>,
     budget: &'a resources::ResourceBudget,
+    cancellation: &'a crate::workspace::Cancellation,
 }
-fn apply_selection<'a>(
-    application: &'a SelectedApplication<'_, '_>,
+fn apply_data(
+    application: &SelectedApplication<'_, '_>,
+    selected: &ModelData,
     kind: ProductionScope,
-) -> BoxFuture<'a, Result<ModelRecords, ModelError>> {
-    Box::pin(async move {
-        let grain = application
-            .scopes
-            .selected(kind, application.frame, application.budget)
-            .await?;
-        let selected = application
-            .scopes
-            .load(application.access, &grain, application.budget)
-            .await?;
-        apply_selected(
-            &selected,
-            application.invocation,
-            application.definition,
-            application.profile,
-            application.catalog,
-            application.verified,
-            kind,
-            application.actual,
-            application.budget,
-        )
-    })
+) -> Result<ModelRecords, ModelError> {
+    apply_selected(
+        selected,
+        application.invocation,
+        application.definition,
+        application.profile,
+        application.catalog,
+        application.verified,
+        kind,
+        application.actual,
+        application.budget,
+    )
 }
 fn apply_roots<'a, R: Record>(
     application: &'a SelectedApplication<'_, '_>,
     session: &'a datafusion::prelude::SessionContext,
-    predicate: String,
+    sql: String,
     kind: fn(Id<R>) -> ProductionScope,
     records: &'a mut ModelRecords,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        let alias = crate::consumed_rows::identifier(
-            &application
-                .access
-                .table_for(&ValidationInput::of::<R>(&["id"]))?,
-        );
-        let sql = format!("SELECT r.id FROM {alias} r {predicate} ORDER BY r.id");
         let mut stream = crate::sql::query(session, &sql)
             .await
             .map_err(ModelError::codec)?
@@ -592,18 +579,41 @@ fn apply_roots<'a, R: Record>(
                 .as_any()
                 .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                 .ok_or(ModelError::Schema(R::NAME))?;
-            for i in 0..ids.len() {
-                let id: Id<R> =
-                    serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
-                        _,
-                        serde::de::value::Error,
-                    >::new(
-                        ids.value(i).iter().copied()
-                    ))
-                    .map_err(ModelError::codec)?;
-                let produced = apply_selection(application, kind(id)).await?;
-                merge_run(records, &produced)?;
-                publish_records(application.output, &produced).await?;
+            for start in (0..ids.len()).step_by(32) {
+                let end = (start + 32).min(ids.len());
+                let _keys = application.budget.reserve(
+                    "model-root-window",
+                    (end - start) * size_of::<ProductionScope>(),
+                )?;
+                let mut kinds = Vec::with_capacity(end - start);
+                for i in start..end {
+                    let id: Id<R> =
+                        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                            _,
+                            serde::de::value::Error,
+                        >::new(
+                            ids.value(i).iter().copied()
+                        ))
+                        .map_err(ModelError::codec)?;
+                    kinds.push(kind(id));
+                }
+                let window = application
+                    .scopes
+                    .window(
+                        application.access,
+                        &kinds,
+                        application.frame,
+                        application.budget,
+                        application.cancellation,
+                    )
+                    .await?;
+                for (partition, kind) in kinds.iter().enumerate() {
+                    let selected =
+                        window.data(partition, application.budget, application.cancellation)?;
+                    let produced = apply_data(application, &selected, *kind)?;
+                    merge_run(records, &produced)?;
+                    publish_records(application.output, &produced).await?;
+                }
             }
         }
         Ok(())

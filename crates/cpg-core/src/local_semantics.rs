@@ -141,6 +141,52 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
     })
 }
 
+struct SourceApplication<'a> {
+    scopes: &'a scope::LocalScopes,
+    edges: crate::consumed_rows::PreparedEdges,
+    runtime: &'a Workspace,
+    output: &'a ProducerOutput,
+    invocation: &'a publication::AnalysisInvocation,
+    definition: &'a analysis::AnalysisDefinition,
+}
+impl SourceApplication<'_> {
+    async fn produce(
+        &self,
+        roots: &[crate::consumed_rows::PreparedRoot],
+        composition: &mut local_semantics::composition::Composition,
+        actual: &mut local_semantics::ProducedLocal,
+    ) -> Result<(), ModelError> {
+        let selected = self
+            .edges
+            .batch_with_cancellation(roots, self.runtime.budget(), &self.runtime.cancellation())
+            .await?;
+        let union = self.scopes.union(&selected, self.runtime).await?;
+        for (partition, root) in roots.iter().enumerate() {
+            self.runtime.cancellation().check()?;
+            let source: Id<source::SourceArtifact> =
+                serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                    _,
+                    serde::de::value::Error,
+                >::new(root.key.into_iter()))
+                .map_err(ModelError::codec)?;
+            let data =
+                self.scopes
+                    .partition(&union, &selected, partition, self.runtime.budget())?;
+            let rows = local_semantics::produce_source(
+                &data,
+                self.invocation,
+                self.definition,
+                source,
+                self.runtime.budget(),
+            )?;
+            composition.observe(&data, &rows, self.runtime.budget())?;
+            publish_records(self.output, &rows).await?;
+            actual.append(rows.actual)?;
+            tokio::task::yield_now().await;
+        }
+        Ok(())
+    }
+}
 pub async fn run(
     access: CompletedInputs,
     output: ProducerOutput,
@@ -229,40 +275,46 @@ pub async fn run(
         )?;
         if let Some(scopes) = &scopes {
             let mut composition = local_semantics::composition::Composition::new(budget);
-            let mut roots =
-                crate::sql::query(&session, &scopes.root_sql(&access, run.input, run.context)?)
-                    .await
-                    .map_err(ModelError::codec)?
-                    .execute_stream()
-                    .await
-                    .map_err(ModelError::codec)?;
+            let application = SourceApplication {
+                scopes,
+                edges: scopes.context_edges(&session, run.context, budget).await?,
+                runtime,
+                output: &output,
+                invocation: &invocation,
+                definition,
+            };
+            let (root_query, _root_query_charge) =
+                scopes.root_sql(&access, run.input, run.context, budget)?;
+            let mut roots = crate::sql::query(&session, &root_query)
+                .await
+                .map_err(ModelError::codec)?
+                .execute_stream()
+                .await
+                .map_err(ModelError::codec)?;
             while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
                 let ids = batch
                     .column(0)
                     .as_any()
                     .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                     .ok_or(ModelError::Schema(source::SourceArtifact::NAME))?;
+                let _window = budget.reserve(
+                    "Local-source-window",
+                    32 * size_of::<crate::consumed_rows::PreparedRoot>(),
+                )?;
+                let mut window = Vec::with_capacity(32);
                 for i in 0..ids.len() {
-                    let source: Id<source::SourceArtifact> =
-                        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
-                            _,
-                            serde::de::value::Error,
-                        >::new(
-                            ids.value(i).iter().copied()
-                        ))
-                        .map_err(ModelError::codec)?;
-                    let grain = scopes.source(source, run.context, budget).await?;
-                    let selected = scopes.load(&access, &grain, budget).await?;
-                    let rows = local_semantics::produce_source(
-                        &selected,
-                        &invocation,
-                        definition,
-                        source,
-                        budget,
-                    )?;
-                    composition.observe(&selected, &rows, budget)?;
-                    publish_records(&output, &rows).await?;
-                    actual.append(rows.actual)?;
+                    window.push(scopes.root(ids.value(i).try_into().map_err(ModelError::codec)?));
+                    if window.len() == 32 {
+                        application
+                            .produce(&window, &mut composition, &mut actual)
+                            .await?;
+                        window.clear();
+                    }
+                }
+                if !window.is_empty() {
+                    application
+                        .produce(&window, &mut composition, &mut actual)
+                        .await?;
                 }
             }
             for selection in composition.selections() {

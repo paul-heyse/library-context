@@ -1,5 +1,6 @@
 //! Normalized semantic identities and total attributed relationships (ADR-0103).
 pub mod admission;
+pub mod aspect_program;
 pub(crate) mod binding_inventory;
 pub mod binding_normalization;
 pub mod bindings;
@@ -12,12 +13,14 @@ pub mod decorator_identity;
 pub mod dispatch;
 pub mod entities;
 pub mod entity_normalization;
+pub mod enumeration_scope_program;
 pub(crate) mod event_inventory;
 pub mod event_normalization;
 pub mod events;
 pub mod generic_specialization;
 pub(crate) mod inventory;
 pub mod links;
+pub mod normalization_scope_program;
 pub mod overload_association;
 pub mod parameter_correspondence;
 pub mod receiver;
@@ -28,7 +31,7 @@ pub(crate) mod rows;
 pub mod signature_applicability;
 pub mod symbolic_fields;
 use super::*;
-pub use rows::Rows;
+pub use rows::{Rows, RowsView};
 
 /// Normalized owners reconstruct the captured facts universe. Later vocabulary cannot enlarge it.
 pub(crate) fn facts_inputs(inputs: Vec<ValidationInput>) -> Vec<ValidationInput> {

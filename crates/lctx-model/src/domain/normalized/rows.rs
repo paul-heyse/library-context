@@ -9,12 +9,160 @@ pub struct Rows<R: Record> {
     rows: ChargedMap<Id<R>, R>,
     charge: StateCharge,
 }
+/// Immutable typed membership over charged rows. Selected IDs are borrowed from caller-owned,
+/// charged storage; construction neither clones rich rows nor allocates another membership set.
+pub struct RowsView<'a, R: Record> {
+    rows: &'a Rows<R>,
+    selected: Option<&'a [Id<R>]>,
+}
+impl<R: Record> Copy for RowsView<'_, R> {}
+impl<R: Record> Clone for RowsView<'_, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<'a, R: Record> RowsView<'a, R> {
+    /// Select an exact canonical set. Duplicate, unordered and absent IDs are refused, so
+    /// cardinality and iteration never silently shrink or depend on physical hydration order.
+    pub fn selected(rows: &'a Rows<R>, ids: &'a [Id<R>]) -> Result<Self, ModelError> {
+        if ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(ModelError::Invalid(format!(
+                "{} selected row IDs are not strictly ordered",
+                R::NAME
+            )));
+        }
+        if ids.iter().any(|id| rows.get(*id).is_none()) {
+            return Err(ModelError::Invalid(format!(
+                "{} selected row premise absent",
+                R::NAME
+            )));
+        }
+        Ok(Self {
+            rows,
+            selected: Some(ids),
+        })
+    }
+    pub fn get(&self, id: Id<R>) -> Option<&'a R> {
+        if self
+            .selected
+            .is_some_and(|ids| ids.binary_search(&id).is_err())
+        {
+            return None;
+        }
+        self.rows.get(id)
+    }
+    /// Keep missing-premise meaning with the consuming domain, including unselected rows.
+    pub fn required<E>(&self, id: Id<R>, missing: impl FnOnce() -> E) -> Result<&'a R, E> {
+        self.get(id).ok_or_else(missing)
+    }
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &'a R> + ExactSizeIterator {
+        match self.selected {
+            Some(ids) => RowsViewIter::Selected {
+                rows: self.rows,
+                ids: ids.iter(),
+            },
+            None => RowsViewIter::Whole(self.rows.rows.values()),
+        }
+    }
+    pub fn same(&self, other: &Rows<R>) -> bool {
+        self.iter().eq(other.iter())
+    }
+    /// Bounded replay diagnostics over exactly the visible row membership.
+    pub(crate) fn difference(&self, expected: &Rows<R>) -> String {
+        let missing = || expected.iter().filter(|row| self.get(row.id()).is_none());
+        let extra = || self.iter().filter(|row| expected.get(row.id()).is_none());
+        let changed = || {
+            self.iter()
+                .filter(|row| expected.get(row.id()).is_some_and(|other| other != *row))
+        };
+        let describe = |rows: Vec<&R>| {
+            rows.into_iter()
+                .map(|row| {
+                    format!(
+                        "{:?}: {}",
+                        row.id(),
+                        format!("{row:?}").chars().take(256).collect::<String>()
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        format!(
+            "actual={} expected={} missing={} {:?}; extra={} {:?}; changed={} {:?}",
+            self.len(),
+            expected.len(),
+            missing().count(),
+            describe(missing().take(8).collect()),
+            extra().count(),
+            describe(extra().take(8).collect()),
+            changed().count(),
+            describe(changed().take(8).collect())
+        )
+    }
+    pub fn len(&self) -> usize {
+        self.selected
+            .map_or_else(|| self.rows.len(), <[Id<R>]>::len)
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+impl<'a, R: Record> From<&'a Rows<R>> for RowsView<'a, R> {
+    fn from(rows: &'a Rows<R>) -> Self {
+        Self {
+            rows,
+            selected: None,
+        }
+    }
+}
+enum RowsViewIter<'a, R: Record> {
+    Whole(std::collections::btree_map::Values<'a, Id<R>, R>),
+    Selected {
+        rows: &'a Rows<R>,
+        ids: std::slice::Iter<'a, Id<R>>,
+    },
+}
+impl<'a, R: Record> Iterator for RowsViewIter<'a, R> {
+    type Item = &'a R;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Whole(rows) => rows.next(),
+            Self::Selected { rows, ids } => ids
+                .next()
+                .map(|id| rows.get(*id).expect("validated row selection")),
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.len();
+        (len, Some(len))
+    }
+}
+impl<R: Record> DoubleEndedIterator for RowsViewIter<'_, R> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Whole(rows) => rows.next_back(),
+            Self::Selected { rows, ids } => ids
+                .next_back()
+                .map(|id| rows.get(*id).expect("validated row selection")),
+        }
+    }
+}
+impl<R: Record> ExactSizeIterator for RowsViewIter<'_, R> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Whole(rows) => rows.len(),
+            Self::Selected { ids, .. } => ids.len(),
+        }
+    }
+}
 impl<R: Record> Rows<R> {
     pub fn new(budget: &ResourceBudget) -> Self {
         Self {
             rows: Default::default(),
             charge: StateCharge::new(budget, R::NAME),
         }
+    }
+    pub fn view(&self) -> RowsView<'_, R> {
+        self.into()
     }
     pub fn insert(&mut self, row: R) -> Result<Id<R>, ModelError> {
         row.validate()?;
@@ -27,6 +175,15 @@ impl<R: Record> Rows<R> {
             self.rows.insert(&mut self.charge, id, row)?;
         }
         Ok(id)
+    }
+    /// Copy an already decoded immutable premise, reserving clone scratch before allocation.
+    /// Used when an existing finite kernel requires owned rows for its current partition.
+    pub fn insert_borrowed(&mut self, row: &R) -> Result<Id<R>, ModelError> {
+        let _scratch = self.charge.budget().expect("rows budget").reserve(
+            "selected-row-clone",
+            size_of::<R>().saturating_add(row.heap_bytes()),
+        )?;
+        self.insert(row.clone())
     }
     pub fn decode(&mut self, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         let mut transient = StateCharge::new(
@@ -53,40 +210,9 @@ impl<R: Record> Rows<R> {
     }
     /// Bounded diagnostics for a failed exact algorithm replay; never changes membership.
     pub(crate) fn difference(&self, expected: &Self) -> String {
-        let missing = expected
-            .rows
-            .iter()
-            .filter(|(id, _)| !self.rows.contains_key(id));
-        let extra = self
-            .rows
-            .iter()
-            .filter(|(id, _)| !expected.rows.contains_key(id));
-        let changed = self
-            .rows
-            .iter()
-            .filter(|(id, row)| expected.rows.get(id).is_some_and(|other| other != *row));
-        let describe = |rows: Vec<(&Id<R>, &R)>| {
-            rows.into_iter()
-                .map(|(id, row)| {
-                    format!(
-                        "{id:?}: {}",
-                        format!("{row:?}").chars().take(256).collect::<String>()
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
-        format!(
-            "actual={} expected={} missing={} {:?}; extra={} {:?}; changed={} {:?}",
-            self.len(),
-            expected.len(),
-            missing.clone().count(),
-            describe(missing.take(8).collect()),
-            extra.clone().count(),
-            describe(extra.take(8).collect()),
-            changed.clone().count(),
-            describe(changed.take(8).collect())
-        )
+        self.view().difference(expected)
     }
+
     pub fn get(&self, id: Id<R>) -> Option<&R> {
         self.rows.get(&id)
     }
@@ -115,6 +241,76 @@ mod required_controls {
         #[model(key)]
         key: String,
         value: String,
+    }
+    #[test]
+    fn selected_views_preserve_order_identity_cardinality_and_missing_domains() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut rows = Rows::new(&budget);
+        for key in ["a", "b", "c"] {
+            rows.insert(Row {
+                key: key.into(),
+                value: key.into(),
+            })
+            .unwrap();
+        }
+        let all = rows.iter().map(Record::id).collect::<Vec<_>>();
+        // Selection storage belongs to the caller and stays charged across borrowed views.
+        let _selection = budget
+            .reserve("row-selection-control", 2 * size_of::<Id<Row>>())
+            .unwrap();
+        let ids = [all[0], all[2]];
+        let reserved = budget.reserved();
+        let view = RowsView::selected(&rows, &ids).unwrap();
+        assert_eq!(budget.reserved(), reserved);
+        assert_eq!(view.len(), 2);
+        assert_eq!(view.iter().len(), 2);
+        assert_eq!(view.iter().map(Record::id).collect::<Vec<_>>(), ids);
+        assert_eq!(
+            view.iter().rev().map(Record::id).collect::<Vec<_>>(),
+            [all[2], all[0]]
+        );
+        assert!(std::ptr::eq(
+            view.get(all[0]).unwrap(),
+            rows.get(all[0]).unwrap()
+        ));
+        assert!(view.get(all[1]).is_none());
+        assert_eq!(
+            view.required(all[1], || "outside selected domain"),
+            Err("outside selected domain")
+        );
+        assert_eq!(rows.view().iter().map(Record::id).collect::<Vec<_>>(), all);
+        let empty = RowsView::selected(&rows, &[]).unwrap();
+        assert!(empty.is_empty());
+        assert_eq!(empty.iter().len(), 0);
+        assert!(empty.get(all[0]).is_none());
+        assert!(!view.same(&rows));
+        let difference = view.difference(&rows);
+        assert!(difference.starts_with("actual=2 expected=3 missing=1"));
+        assert!(difference.contains("extra=0 []"));
+        assert!(difference.contains("changed=0 []"));
+        assert_eq!(budget.reserved(), reserved);
+    }
+    #[test]
+    fn selected_views_refuse_duplicate_unordered_and_absent_membership() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut rows = Rows::new(&budget);
+        for key in ["a", "b"] {
+            rows.insert(Row {
+                key: key.into(),
+                value: String::new(),
+            })
+            .unwrap();
+        }
+        let ids = rows.iter().map(Record::id).collect::<Vec<_>>();
+        let absent = Row {
+            key: "absent".into(),
+            value: String::new(),
+        }
+        .id();
+        assert!(RowsView::selected(&rows, &[ids[0], ids[0]]).is_err());
+        assert!(RowsView::selected(&rows, &[ids[1], ids[0]]).is_err());
+        assert!(RowsView::selected(&rows, &[absent]).is_err());
+        assert_eq!(rows.len(), 2);
     }
     #[test]
     fn decoding_a_tiny_slice_does_not_charge_unrelated_retained_arrow_bytes() {

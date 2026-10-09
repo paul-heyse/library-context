@@ -107,9 +107,14 @@ the single typed semantic model rather than the retired catalog/projection pipel
 Runtime inspection is a conditional isolated observation for a task blocked by source/evidence
 absence, never request-time import. Native SurrealDB querying and indexed search are selected. Choose operation shapes and indexes
 using qualitative design judgment and the library capabilities; quantitative speed claims require measurement. Coarse rebuilds reuse exact
-admitted inputs; they do not introduce another canonical store or general incremental engine.
+admitted inputs. **Accepted target, 2026-10-09:** selective pure-product reuse and dependency
+invalidation follow the graph/reuse companions, preserving exact pins, fresh ownership and
+independent admission. They do not introduce another canonical semantic store or general
+incremental engine. Persistent reuse is not yet implemented.
 Deployment metadata, safe negative examples, version alignment and deterministic candidate
 comparison serve the same product contract rather than expanding general analysis scope.
+
+> Decision: ADR-0139, ADR-0138
 
 <a id="section-14-3"></a>
 

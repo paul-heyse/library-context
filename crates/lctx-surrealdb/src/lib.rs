@@ -26,3 +26,4 @@ mod projected_arrow;
 
 pub mod derived_search;
 pub mod realization;
+pub mod scope;

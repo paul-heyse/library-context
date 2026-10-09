@@ -1,7 +1,7 @@
 //! C1 selects an artifact's actual evidence roots before decoding rich premises.
 //! Root namespaces keep a referenced artifact from becoming another source-wide root.
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, PreparedEdges},
     workspace::CompletedInputs,
 };
 use datafusion::prelude::SessionContext;
@@ -17,82 +17,13 @@ pub(super) struct EvidenceScopes {
     pub inputs: Vec<ValidationInput>,
     pub edges: PreparedEdges,
     pub root: usize,
-}
-fn target(
-    inputs: &[ValidationInput],
-    source: usize,
-    kind: TypeId,
-) -> Result<Option<usize>, ModelError> {
-    let candidates: Vec<_> = inputs
-        .iter()
-        .enumerate()
-        .filter(|(_, input)| input.type_id() == kind)
-        .map(|(index, _)| index)
-        .collect();
-    if candidates.len() == 1 {
-        return Ok(candidates.first().copied());
-    }
-    if candidates.is_empty() {
-        return Ok(None);
-    }
-    let prefix = if kind == TypeId::of::<assertion::AssertionQualification>() {
-        Some(
-            if inputs[source].type_id() == TypeId::of::<local_fields::FieldLocation>() {
-                stages::PublicationBoundary::Local
-            } else {
-                stages::PublicationBoundary::Facts
-            },
-        )
-    } else {
-        inputs[source].prefix()
-    };
-    let selected: Vec<_> = candidates
-        .into_iter()
-        .filter(|index| inputs[*index].prefix() == prefix)
-        .collect();
-    if selected.len() != 1 {
-        return Err(ModelError::Conflict("C1 dependency immutable epoch"));
-    }
-    Ok(selected.first().copied())
+    _charge: charged::StateCharge,
 }
 fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
     inputs
         .iter()
         .position(|input| input.type_id() == TypeId::of::<R>())
         .ok_or(ModelError::Schema("C1 root relation absent"))
-}
-fn memberships() -> Vec<TypeId> {
-    use lctx_model::domain::{
-        catalog::*,
-        documents::*,
-        local_fields::*,
-        normalized::{bindings::*, callables::*, entities::*, events::*, links::*},
-    };
-    vec![
-        TypeId::of::<CatalogMember>(),
-        TypeId::of::<CatalogCallable>(),
-        TypeId::of::<CatalogClass>(),
-        TypeId::of::<EffectiveCallableAssessment>(),
-        TypeId::of::<SignatureVariant>(),
-        TypeId::of::<SignatureSlot>(),
-        TypeId::of::<PublicExposure>(),
-        TypeId::of::<PublicExposureCandidate>(),
-        TypeId::of::<SymbolEntityResolution>(),
-        TypeId::of::<ReferenceEntityAssessment>(),
-        TypeId::of::<AncestryEntityAssessment>(),
-        TypeId::of::<ParameterEntity>(),
-        TypeId::of::<ClassEntity>(),
-        TypeId::of::<FieldEntity>(),
-        TypeId::of::<NormalizedCallEvent>(),
-        TypeId::of::<NormalizedCallAlternative>(),
-        TypeId::of::<CallBindingAttempt>(),
-        TypeId::of::<DocumentNode>(),
-        TypeId::of::<DocumentObservation>(),
-        TypeId::of::<FieldLocation>(),
-        TypeId::of::<symbols::SymbolSequence>(),
-        TypeId::of::<normalized::symbolic_fields::SourceFieldClass>(),
-        TypeId::of::<normalized::symbolic_fields::SourceFieldReader>(),
-    ]
 }
 impl EvidenceScopes {
     pub async fn prepare(
@@ -114,191 +45,39 @@ impl EvidenceScopes {
                 })
             })
             .collect::<Result<_, ModelError>>()?;
-        Self::prepare_bound(inputs, tables, session, budget).await
+        Self::prepare_bound(inputs, tables, session, budget, model).await
     }
     async fn prepare_bound(
         inputs: Vec<ValidationInput>,
         tables: Vec<ClosureTable>,
         session: &SessionContext,
         budget: &ResourceBudget,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
+        let mut charge = charged::StateCharge::new(budget, "C1-scope-descriptors");
+        charge.grow(inputs.capacity() * 512)?;
         let artifact = typed::<SourceArtifact>(&inputs)?;
         let occurrence = typed::<Occurrence>(&inputs)?;
+        let root = tables.len();
         let mut bindings = tables.clone();
-        let root = bindings.len();
-        bindings.push(tables[artifact].clone());
-        let root_occurrence = bindings.len();
-        bindings.push(tables[occurrence].clone());
-        let mut plan = NominalClosure::new(bindings)?;
-        plan.pairs(
-            root,
-            artifact,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                identifier(&tables[artifact].alias)
-            ),
-        )?;
-        plan.pairs(
-            root_occurrence,
-            occurrence,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                identifier(&tables[occurrence].alias)
-            ),
-        )?;
-        plan.pairs(
-            root,
-            root_occurrence,
-            format!(
-                "SELECT source AS source_id,id AS target_id FROM {}",
-                identifier(&tables[occurrence].alias)
-            ),
-        )?;
-        let memberships = memberships();
-        for (source, table) in tables.iter().enumerate() {
-            for field in table.relation.fields() {
-                let Some((kind, _)) = field.target() else {
-                    continue;
-                };
-                let Some(to) = target(&inputs, source, kind)? else {
-                    continue;
-                };
-                let values = if field.list() {
-                    format!("UNNEST({})", identifier(field.name()))
-                } else {
-                    identifier(field.name())
-                };
-                plan.pairs(
-                    source,
-                    to,
-                    format!(
-                        "SELECT id AS source_id,{values} AS target_id FROM {}",
-                        identifier(&table.alias)
-                    ),
-                )?;
-                if field.list() {
-                    continue;
-                }
-                // All locations in the selected artifact are roots. Forward references use the
-                // ordinary namespace and cannot pull every fact from a dependency's artifact.
-                let selected_root = if kind == TypeId::of::<SourceArtifact>() {
-                    Some(root)
-                } else if kind == TypeId::of::<Occurrence>() {
-                    Some(root_occurrence)
-                } else {
-                    None
-                };
-                if let Some(selected_root) = selected_root {
-                    plan.pairs(
-                        selected_root,
-                        source,
-                        format!(
-                            "SELECT {} AS source_id,id AS target_id FROM {}",
-                            identifier(field.name()),
-                            identifier(&table.alias)
-                        ),
-                    )?;
-                }
-                if memberships.contains(&kind) {
-                    plan.pairs(
-                        to,
-                        source,
-                        format!(
-                            "SELECT {} AS source_id,id AS target_id FROM {}",
-                            identifier(field.name()),
-                            identifier(&table.alias)
-                        ),
-                    )?;
-                }
-            }
-        }
-        // A document and its materialized fences form one original-source grain.
-        let derived = typed::<input::DerivedArtifact>(&inputs)?;
-        plan.pairs(root, root, format!("SELECT pythoncodeblock_document AS source_id,pythoncodeblock_artifact AS target_id FROM {} WHERE pythoncodeblock_document IS NOT NULL", identifier(&tables[derived].alias)))?;
-        // Root public slots use the actual module ownership, never every module on one input.
-        let modules = typed::<source::Module>(&inputs)?;
-        let members = typed::<catalog::CatalogMember>(&inputs)?;
-        plan.pairs(root, members, format!("SELECT m.source AS source_id,c.id AS target_id FROM {} m JOIN {} c ON c.access=m.id", identifier(&tables[modules].alias), identifier(&tables[members].alias)))?;
-        // Fixed C0 parent membership and native support pairs are actual inverse memberships.
-        let owners = [
-            catalog::CatalogMemberInvocation::NAME,
-            diagnostics::RuffDiagnosticSupport::NAME,
-            diagnostics::PyreflyDiagnosticSupport::NAME,
-            diagnostics::NativeParameterDefinitionSupport::NAME,
-            calls::ProviderCallSiteSupport::NAME,
-            analysis::native::NativeAssertionPremise::NAME,
-        ];
-        for (source, table) in tables
+        bindings.extend([tables[artifact].clone(), tables[occurrence].clone()]);
+        let relations = tables
             .iter()
-            .enumerate()
-            .filter(|(_, table)| owners.contains(&table.relation.name()))
-        {
-            for field in table.relation.fields() {
-                let Some((kind, _)) = field.target() else {
-                    continue;
-                };
-                if field.list() {
-                    continue;
-                }
-                if (table.relation.name() == analysis::native::NativeAssertionPremise::NAME
-                    || field.name() == "assertion"
-                    || field.name() == "member")
-                    && let Some(to) = target(&inputs, source, kind)?
-                {
-                    plan.pairs(
-                        to,
-                        source,
-                        format!(
-                            "SELECT {} AS source_id,id AS target_id FROM {}",
-                            identifier(field.name()),
-                            identifier(&table.alias)
-                        ),
-                    )?;
-                }
-            }
-        }
-        let coverage = typed::<attribution::ProviderCoverage>(&inputs)?;
-        let coverage_scope = typed::<source::CoverageScope>(&inputs)?;
-        plan.own(coverage, "scope", coverage_scope)?;
-        let nodes = typed::<documents::DocumentNode>(&inputs)?;
-        for field in tables[nodes].relation.fields().iter().filter(|field| {
-            field
-                .target()
-                .is_some_and(|(kind, _)| kind == TypeId::of::<assertion::Evidence>())
-        }) {
-            let owner = target(&inputs, nodes, TypeId::of::<assertion::Evidence>())?
-                .ok_or(ModelError::Schema("C1 document span owner"))?;
-            plan.own(nodes, field.name(), owner)?;
-        }
-        for (source, table) in tables.iter().enumerate() {
-            let owner_field = if table.relation.type_id()
-                == TypeId::of::<syntax::DeclarationObservation>()
-            {
-                Some("declaration")
-            } else if table.relation.type_id() == TypeId::of::<syntax::ParameterSyntaxObservation>()
-            {
-                Some("function")
-            } else {
-                None
-            };
-            if let Some(field) = owner_field {
-                plan.own(source, field, occurrence)?;
-            }
-        }
-        // Setup dependencies enumerate every actual source read and preceding binding, not
-        // only rows incidentally reached through a normalized call. Ordinary references to a
-        // lexical scope must not open all bindings or assessments of another source.
-        let references = typed::<lexical::ReferenceObservation>(&inputs)?;
-        let assessments = typed::<normalized::links::ReferenceEntityAssessment>(&inputs)?;
-        plan.pairs(root,assessments,format!("SELECT site.source AS source_id,a.id AS target_id FROM {} a JOIN {} r ON a.reference=r.id JOIN {} site ON r.read=site.id",identifier(&tables[assessments].alias),identifier(&tables[references].alias),identifier(&tables[occurrence].alias)))?;
-        let bindings = typed::<lexical::BindingObservation>(&inputs)?;
-        let events = typed::<lexical::BindingEvent>(&inputs)?;
-        plan.pairs(root,bindings,format!("SELECT site.source AS source_id,b.id AS target_id FROM {} b JOIN {} e ON b.event=e.id JOIN {} site ON e.site=site.id",identifier(&tables[bindings].alias),identifier(&tables[events].alias),identifier(&tables[occurrence].alias)))?;
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = catalog_scope_program::evidence(inputs.clone(), &relations, budget)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            &bindings,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
         let edges = plan.prepare(session, budget).await?;
         Ok(Self {
             inputs,
             edges,
             root,
+            _charge: charge,
         })
     }
 }
@@ -386,7 +165,8 @@ mod controls {
         )
     }
     #[tokio::test]
-    async fn artifact_grain_union_preserves_the_independent_scenario_oracle() {
+    async fn artifact_batch_decodes_overlapping_union_once_and_preserves_independent_scenario_oracle()
+     {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let (session, inputs, tables) = fixture();
         let a = SourceArtifact::from_bytes(nominal(1), "a.py".into(), b"x").unwrap();
@@ -435,17 +215,47 @@ mod controls {
         }
         let expected = lctx_model::domain::catalog::evidence::build::build(&all, &budget).unwrap();
         drop(all);
-        let prepared = EvidenceScopes::prepare_bound(inputs.clone(), tables, &session, &budget)
-            .await
-            .unwrap();
+        let prepared = EvidenceScopes::prepare_bound(
+            inputs.clone(),
+            tables,
+            &session,
+            &budget,
+            &model().unwrap(),
+        )
+        .await
+        .unwrap();
+        let roots = [a.id(), b.id(), a.id()].map(|id| crate::consumed_rows::PreparedRoot {
+            table: prepared.root,
+            key: *id.bytes(),
+            kind: crate::consumed_rows::PreparedRootKind::Virtual,
+        });
+        let selected = prepared.edges.batch(&roots, &budget).await.unwrap();
+        let mut union = EvidenceData::new(&budget);
+        let mut decoded_artifacts = 0;
+        crate::scoped_batch::hydrate_union(
+            &selected,
+            &inputs,
+            &budget,
+            &crate::workspace::Cancellation::default(),
+            &mut |_, input, batch| {
+                if input.name() == SourceArtifact::NAME {
+                    decoded_artifacts += batch.num_rows();
+                }
+                union.visit_input(input, batch).map(|_| ())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(decoded_artifacts, 2);
         let mut actual = lctx_model::domain::catalog::evidence::build::EvidenceOutput::new(&budget);
-        for artifact in &artifacts {
-            let scope = prepared
-                .edges
-                .grain(prepared.root, &predicate(artifact.id()), &budget)
-                .await
+        for partition in 0..roots.len() {
+            let data = union
+                .selected_copy(
+                    &inputs,
+                    &mut |table, key| selected.contains(partition, table, key),
+                    &budget,
+                )
                 .unwrap();
-            let data = load(&scope, &inputs, &budget).await;
             assert_eq!(data.core.artifacts.len(), 1);
             assert_eq!(data.facts.uses.len(), 1);
             let rows = lctx_model::domain::catalog::evidence::build::build(&data, &budget).unwrap();
@@ -456,6 +266,8 @@ mod controls {
         assert_eq!(actual.scenarios.len(), 2);
         drop(actual);
         drop(expected);
+        drop(union);
+        drop(selected);
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -503,9 +315,15 @@ mod controls {
             &inputs,
             &[occurrence(&fence), occurrence(&other)],
         );
-        let prepared = EvidenceScopes::prepare_bound(inputs.clone(), tables, &session, &budget)
-            .await
-            .unwrap();
+        let prepared = EvidenceScopes::prepare_bound(
+            inputs.clone(),
+            tables,
+            &session,
+            &budget,
+            &model().unwrap(),
+        )
+        .await
+        .unwrap();
         let scope = prepared
             .edges
             .grain(prepared.root, &predicate(doc.id()), &budget)
@@ -651,9 +469,15 @@ mod controls {
         install(&session, &tables, &inputs, std::slice::from_ref(&usage));
         install(&session, &tables, &inputs, &[coverage_scope]);
         install(&session, &tables, &inputs, std::slice::from_ref(&coverage));
-        let prepared = EvidenceScopes::prepare_bound(inputs.clone(), tables, &session, &budget)
-            .await
-            .unwrap();
+        let prepared = EvidenceScopes::prepare_bound(
+            inputs.clone(),
+            tables,
+            &session,
+            &budget,
+            &model().unwrap(),
+        )
+        .await
+        .unwrap();
         let scope = prepared
             .edges
             .grain(prepared.root, &predicate(source.id()), &budget)

@@ -514,6 +514,12 @@ pub trait Record:
     fn references(&self) -> Vec<SemanticReference> {
         Vec::new()
     }
+    /// Nominal values named by their declared physical columns. Struct columns coincide with
+    /// semantic fields; tagged sums override this projection using their generated arm columns.
+    /// Semantic roles remain available through `references` for graph and storage consumers.
+    fn physical_references(&self) -> Vec<SemanticReference> {
+        self.references()
+    }
     fn derivation() -> Option<super::derivation::Derivation> {
         None
     }
@@ -571,6 +577,72 @@ pub trait Record:
                 .chain(Self::fields().iter().map(Field::arrow))
                 .collect::<Vec<_>>(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod physical_reference_controls {
+    use super::*;
+    use crate::{
+        DomainSum,
+        domain::{input, types::TypeTerm},
+    };
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+    #[model(name = "physical_reference_choices")]
+    enum Choice {
+        #[model(code = 0)]
+        Required { target: Id<TypeTerm> },
+        #[model(code = 1)]
+        Optional { target: Option<Id<TypeTerm>> },
+        #[model(code = 2)]
+        Inactive { samples: Vec<i64> },
+    }
+    #[test]
+    fn sum_projection_preserves_semantic_roles_and_maps_only_active_nominal_columns() {
+        let child = TypeTerm::None;
+        let target = child.id();
+        for (row, column) in [
+            (Choice::Required { target }, "required_target"),
+            (
+                Choice::Optional {
+                    target: Some(target),
+                },
+                "optional_target",
+            ),
+        ] {
+            let semantic = row.references();
+            let physical = row.physical_references();
+            assert_eq!(semantic.len(), 1);
+            assert_eq!(physical.len(), 1);
+            assert_eq!(semantic[0].field, "target");
+            assert_eq!(physical[0].field, column);
+            assert_eq!(physical[0].target, semantic[0].target);
+            assert_eq!(physical[0].key, semantic[0].key);
+            assert_eq!(physical[0].subtype, semantic[0].subtype);
+            assert!(Choice::fields().iter().any(|field| {
+                field.name() == column
+                    && field
+                        .target()
+                        .is_some_and(|(_, name)| name == TypeTerm::NAME)
+            }));
+        }
+        for row in [
+            Choice::Optional { target: None },
+            Choice::Inactive {
+                samples: vec![1, 2],
+            },
+        ] {
+            assert!(row.references().is_empty());
+            assert!(row.physical_references().is_empty());
+        }
+        let package = input::Package {
+            name: "struct-reference".into(),
+        };
+        let release = input::Release {
+            package: package.id(),
+            version: "1".into(),
+        };
+        assert_eq!(release.physical_references(), release.references());
     }
 }
 

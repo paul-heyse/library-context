@@ -86,6 +86,7 @@ ruff_python_parser_latest = { package = "ruff_python_parser", git = "https://git
 ruff_text_size_latest = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
 # Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.
 blake3 = "=1.8.6"
+xxhash-rust = { version = "=0.8.19", default-features = false, features = ["xxh3"] }
 serde_json = "=1.0.151"
 schemars = { version = "=1.2.2", default-features = false, features = ["std", "derive"] }
 jsonschema = { version = "=0.58.2", default-features = false }

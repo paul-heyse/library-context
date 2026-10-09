@@ -1,9 +1,6 @@
 //! Selected SourceCall dependency grains and private attempt-owned result payloads.
 use lctx_model::domain::{
-    analysis::source_call::AnalysisInvocation,
-    declarations::{ParameterDeclaration, SymbolDeclaration},
-    normalized::events::NormalizedCallEvent,
-    *,
+    analysis::source_call::AnalysisInvocation, normalized::events::NormalizedCallEvent, *,
 };
 use std::{
     fs::File,
@@ -107,31 +104,245 @@ impl SourcePayloadSpool {
     }
 }
 
-use super::execution_scope::{nominal, predicate};
+use super::execution_scope::nominal;
+#[cfg(test)]
+use super::execution_scope::predicate;
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, PreparedClosure, PreparedEdges},
     workspace::CompletedInputs,
 };
+#[cfg(test)]
 use futures::TryStreamExt;
 use lctx_model::domain::{
-    calls::*,
-    execution::{body_records::*, records::*, source_call_records::SourceCallData},
-    flow::*,
-    lexical::*,
-    normalized::{bindings::*, callables::*, entities::*, events::*},
-    source::*,
-    symbols::*,
-    syntax::*,
+    execution::source_call_records::SourceCallData,
+    normalized::{entities::EntityRef, events::NormalizedCallAlternative},
+    source::Occurrence,
+    syntax::SyntaxPlacement,
 };
+#[cfg(test)]
+use lctx_model::domain::{lexical::*, normalized::entities::*, source::*, syntax::*};
 use std::{any::TypeId, sync::Arc};
+pub(super) struct SelectionSql {
+    sql: String,
+    _charge: Box<dyn resources::Reservation>,
+}
+impl std::ops::Deref for SelectionSql {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.sql
+    }
+}
+struct SourceSelectors {
+    events: source_call_scope_program::CompiledSelection,
+    owners: Option<source_call_scope_program::CompiledSelection>,
+    statements: Option<source_call_scope_program::CompiledSelection>,
+    docstrings: source_call_scope_program::CompiledSelection,
+}
+impl SourceSelectors {
+    fn new(
+        inputs: &[ValidationInput],
+        tables: &[ClosureTable],
+        model: &ValidatedModel,
+        enriched: bool,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let _construction =
+            budget.reserve("source-selector-construction", inputs.len() * 2048 + 4096)?;
+        let input_relations = tables
+            .iter()
+            .map(|t| t.relation.clone())
+            .collect::<Vec<_>>();
+        let root = |kind| {
+            source_call_scope_program::root_inventory(
+                inputs.to_vec(),
+                &input_relations,
+                kind,
+                budget,
+            )?
+            .compile(model, budget, None)
+        };
+        use source_call_scope_program::RootInventory as R;
+        Ok(Self {
+            events: root(R::Events)?,
+            owners: if enriched {
+                Some(root(R::Owners)?)
+            } else {
+                None
+            },
+            statements: if enriched {
+                Some(root(R::UnownedStatements)?)
+            } else {
+                None
+            },
+            docstrings: source_call_scope_program::docstring_payloads(
+                inputs.to_vec(),
+                &input_relations,
+                budget,
+            )?
+            .compile(model, budget, None)?,
+        })
+    }
+}
+/// Bind physical aliases and the selected grain to the model's typed set DAG.
+fn selection_sql(
+    selector: &source_call_scope_program::CompiledSelection,
+    tables: &[ClosureTable],
+    parameters: &scope_program::ScopeParameters,
+    scope: Option<&PreparedClosure>,
+    budget: &resources::ResourceBudget,
+) -> Result<SelectionSql, ModelError> {
+    use source_call_scope_program::SelectionNode as N;
+    let program = selector.program().program();
+    let charge = budget.reserve(
+        "source-selector-query",
+        crate::scope_compilation::lowering_allowance(program, tables, parameters)
+            .saturating_mul(2)
+            .saturating_add(program.allowance())
+            .saturating_add(selector.nodes().len() * 4096),
+    )?;
+    let mut clauses = Vec::new();
+    for (i, rule) in program.rules.iter().enumerate() {
+        let single = scope_program::ScopeProgram {
+            inputs: program.inputs.clone(),
+            ports: program.ports.clone(),
+            rules: vec![rule.clone()],
+        };
+        let queries = crate::scope_compilation::select_pair_queries(&single, tables, parameters)?;
+        let query = queries
+            .first()
+            .ok_or(ModelError::Schema("source selector pair query absent"))?;
+        clauses.push(format!("q{i} AS ({})", query.2));
+    }
+    for (i, node) in selector.nodes().iter().enumerate() {
+        let sql = match *node {
+            N::Query(q) => format!("SELECT DISTINCT target_id AS id FROM q{q}"),
+            N::SelectedInput(input) => format!(
+                "SELECT id FROM ({}) selected",
+                scope
+                    .ok_or(ModelError::Schema("source selected grain absent"))?
+                    .select(input)?
+            ),
+            N::Union(a, b) => format!("SELECT id FROM n{a} UNION SELECT id FROM n{b}"),
+            N::Intersection(a, b) => format!("SELECT id FROM n{a} INTERSECT SELECT id FROM n{b}"),
+            N::Difference(a, b) => format!("SELECT id FROM n{a} EXCEPT SELECT id FROM n{b}"),
+            N::FilterSources { query, sources } => format!(
+                "SELECT DISTINCT p.target_id AS id FROM q{query} p WHERE p.source_id IN (SELECT id FROM n{sources})"
+            ),
+        };
+        clauses.push(format!("n{i} AS ({sql})"));
+    }
+    Ok(SelectionSql {
+        sql: format!(
+            "WITH {} SELECT id FROM n{} ORDER BY id",
+            clauses.join(","),
+            selector.nodes().len() - 1
+        ),
+        _charge: charge,
+    })
+}
 pub(super) struct SourceCallScopes {
     inputs: Vec<ValidationInput>,
     tables: Vec<ClosureTable>,
     edges: PreparedEdges,
+    selectors: SourceSelectors,
     event: usize,
     owner: Option<usize>,
     statement: Option<usize>,
     _charge: charged::StateCharge,
+}
+/// Rich columns are read once for a bounded union; owning model kernels decode only each
+/// exact partition. Opaque content identities are retained separately per logical grain.
+pub(super) struct SourceCallWindow<'a> {
+    scopes: &'a SourceCallScopes,
+    batch: crate::consumed_rows::PreparedRootBatch,
+    rows: Vec<Vec<arrow_array::RecordBatch>>,
+    opaque: charged::ChargedSet<(usize, [u8; 16])>,
+    _charge: charged::StateCharge,
+}
+impl SourceCallWindow<'_> {
+    fn visit_partition(
+        &self,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+        mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
+        for (table, input) in self.scopes.inputs.iter().enumerate() {
+            for rows in &self.rows[table] {
+                cancellation.check()?;
+                let _filter = budget.reserve(
+                    "source-columnar-partition",
+                    rows.get_array_memory_size() + rows.num_rows() * 32 + 4096,
+                )?;
+                let mut mask = Vec::with_capacity(rows.num_rows());
+                for row in 0..rows.num_rows() {
+                    let key = crate::scoped_admission::column(rows, "id", row)?
+                        .ok_or(ModelError::Schema("SourceCall union identity"))?;
+                    mask.push(
+                        self.batch.contains(partition, table, key)?
+                            && !(input.type_id() == TypeId::of::<value::Literal>()
+                                && self.opaque.contains(&(partition, key))),
+                    );
+                }
+                let selected = datafusion::arrow::compute::filter_record_batch(
+                    rows,
+                    &arrow_array::BooleanArray::from(mask),
+                )
+                .map_err(ModelError::codec)?;
+                if selected.num_rows() != 0 {
+                    visit(input, &selected)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn project(
+        &self,
+        partition: usize,
+        data: &mut execution::evaluation::EvaluationData,
+    ) -> Result<(), ModelError> {
+        if partition >= self.batch.outcomes().len() {
+            return Err(ModelError::Schema("SourceCall window partition"));
+        }
+        for (_, key) in self
+            .opaque
+            .range((partition, [0; 16])..=(partition, [255; 16]))
+        {
+            data.project_opaque_literal(
+                nominal(key)?,
+                source_call_scope_program::OPAQUE_DOCSTRING_KIND,
+            )?;
+        }
+        Ok(())
+    }
+    pub(super) fn data(
+        &self,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<SourceCallData, ModelError> {
+        let mut data = SourceCallData::new(budget);
+        self.project(partition, &mut data.evaluation)?;
+        self.visit_partition(partition, budget, cancellation, |input, batch| {
+            data.visit_input(input, batch)?;
+            Ok(())
+        })?;
+        Ok(data)
+    }
+    pub(super) fn enriched_data(
+        &self,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<execution::enriched_production::EnrichedData, ModelError> {
+        let mut data = execution::enriched_production::EnrichedData::new(budget);
+        self.project(partition, &mut data.source.evaluation)?;
+        self.visit_partition(partition, budget, cancellation, |input, batch| {
+            data.visit_input(input, batch)?;
+            Ok(())
+        })?;
+        Ok(data)
+    }
 }
 impl SourceCallScopes {
     pub(super) async fn prepare(
@@ -153,7 +364,7 @@ impl SourceCallScopes {
                 })
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
-        Self::prepare_bound(inputs, tables, session, budget).await
+        Self::prepare_bound(inputs, tables, session, budget, model).await
     }
     pub(super) async fn prepare_enriched(
         access: &CompletedInputs,
@@ -174,13 +385,14 @@ impl SourceCallScopes {
                 })
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
-        Self::prepare_bound(inputs, tables, session, budget).await
+        Self::prepare_bound(inputs, tables, session, budget, model).await
     }
     async fn prepare_bound(
         inputs: Vec<ValidationInput>,
         mut tables: Vec<ClosureTable>,
         session: &datafusion::prelude::SessionContext,
         budget: &resources::ResourceBudget,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
         let index = |kind: TypeId| {
             inputs
@@ -190,327 +402,293 @@ impl SourceCallScopes {
         };
         let event = index(TypeId::of::<NormalizedCallEvent>())?;
         let occurrence = index(TypeId::of::<Occurrence>())?;
+        let enriched = inputs.iter().any(|input| {
+            input.type_id() == TypeId::of::<execution::source_call_records::SourceCallHeader>()
+        });
+        let private_sources = [
+            index(TypeId::of::<NormalizedCallAlternative>())?,
+            occurrence,
+            occurrence,
+            index(TypeId::of::<SyntaxPlacement>())?,
+            if enriched {
+                index(TypeId::of::<EntityRef>())?
+            } else {
+                occurrence
+            },
+            occurrence,
+        ];
+        let private_count = if enriched { 6 } else { 4 };
+        // Bindings remain owned after the raw factory is disposed. Reserve their retained
+        // slots, order arrays and private alias/field copies before constructing those copies.
+        let mut charge = charged::StateCharge::new(budget, "SourceCall-scope-descriptors");
+        let additional = tables
+            .len()
+            .saturating_add(private_count)
+            .saturating_sub(tables.capacity());
+        charge.grow(
+            inputs
+                .capacity()
+                .saturating_mul(size_of::<ValidationInput>())
+                .saturating_add(
+                    inputs
+                        .iter()
+                        .map(|input| size_of_val(input.order()))
+                        .sum::<usize>(),
+                )
+                .saturating_add(
+                    tables
+                        .capacity()
+                        .saturating_add(additional)
+                        .saturating_mul(size_of::<ClosureTable>()),
+                )
+                .saturating_add(
+                    tables
+                        .iter()
+                        .map(|table| {
+                            table
+                                .alias
+                                .capacity()
+                                .saturating_add(size_of_val(table.relation.fields()))
+                        })
+                        .sum::<usize>(),
+                )
+                .saturating_add(
+                    private_sources[..private_count]
+                        .iter()
+                        .map(|source| {
+                            tables[*source]
+                                .alias
+                                .capacity()
+                                .saturating_add(size_of_val(tables[*source].relation.fields()))
+                        })
+                        .sum::<usize>(),
+                ),
+        )?;
+        tables.reserve_exact(private_count);
         let callee = tables.len();
-        tables.push(tables[index(TypeId::of::<NormalizedCallAlternative>())?].clone());
+        tables.push(tables[private_sources[0]].clone());
         let header = tables.len();
         tables.push(tables[occurrence].clone());
         let payload = tables.len();
         tables.push(tables[occurrence].clone());
         let children = tables.len();
-        tables.push(tables[index(TypeId::of::<SyntaxPlacement>())?].clone());
-        let enriched = inputs.iter().any(|input| {
-            input.type_id() == TypeId::of::<execution::source_call_records::SourceCallHeader>()
-        });
+        tables.push(tables[private_sources[3]].clone());
         let (owner, statement) = if enriched {
             let owner = tables.len();
-            tables.push(tables[index(TypeId::of::<EntityRef>())?].clone());
+            tables.push(tables[private_sources[4]].clone());
             let statement = tables.len();
             tables.push(tables[occurrence].clone());
             (Some(owner), Some(statement))
         } else {
             (None, None)
         };
-        let mut plan = NominalClosure::new(tables.clone())?;
-        for (source, table) in tables.iter().take(inputs.len()).enumerate() {
-            for field in table.relation.fields() {
-                // An ordinary declaration carries metadata. Its docstring body is used only by
-                // the exact caller-prefix closure, and values are private dependency roots.
-                if (table.relation.type_id() == TypeId::of::<DeclarationObservation>()
-                    && field.name() == "docstring")
-                    || (table.relation.type_id() == TypeId::of::<SyntaxDetail>()
-                        && field.name() == "literal_literal")
-                {
-                    continue;
-                }
-                let Some((target, _)) = field.target() else {
-                    continue;
-                };
-                let Some(target) = crate::scoped_admission::field_target(&inputs, source, target)?
-                else {
-                    continue;
-                };
-                if field.list() {
-                    plan.pairs(
-                        source,
-                        target,
-                        format!(
-                            "SELECT id AS source_id,UNNEST({}) AS target_id FROM {}",
-                            identifier(field.name()),
-                            identifier(&table.alias)
-                        ),
-                    )?;
-                } else {
-                    plan.follow(source, field.name(), target)?;
-                }
-                if field.name() == "assertion"
-                    || field.name().ends_with("_assertion")
-                    || (table.relation.type_id()
-                        == TypeId::of::<analysis::native::NativeQualification>()
-                        && field.name() == "premise")
-                {
-                    plan.own(source, field.name(), target)?;
-                }
-            }
+        let mut declarations = inputs.clone();
+        for table in &tables[inputs.len()..] {
+            let original = inputs
+                .iter()
+                .position(|input| input.type_id() == table.relation.type_id())
+                .ok_or(ModelError::Schema("SourceCall virtual input"))?;
+            declarations.push(inputs[original].clone());
         }
-        macro_rules! own {
-            ($member:ty,$field:literal,$owner:ty) => {
-                plan.own(
-                    index(TypeId::of::<$member>())?,
-                    $field,
-                    index(TypeId::of::<$owner>())?,
-                )?
-            };
-        }
-        own!(input::ArtifactUse, "artifact", SourceArtifact);
-        own!(OccurrenceOwnership, "occurrence", Occurrence);
-        own!(SyntaxPlacement, "occurrence", Occurrence);
-        own!(DeclarationObservation, "declaration", Occurrence);
-        own!(SyntaxObservation, "occurrence", Occurrence);
-        own!(NormalizedCallAlternative, "event", NormalizedCallEvent);
-        own!(CallBindingAttempt, "event", NormalizedCallEvent);
-        own!(CallBinding, "attempt", CallBindingAttempt);
-        own!(BindingSetAssessment, "event", NormalizedCallEvent);
-        own!(BindingVariantAssessment, "set", BindingSetAssessment);
-        own!(BindingSetMember, "variant", BindingVariantAssessment);
-        own!(BindingSetCoverage, "set", BindingSetAssessment);
-        own!(
-            EffectiveCallableEvidence,
-            "assessment",
-            EffectiveCallableAssessment
-        );
-        own!(EffectiveCallableAssessment, "callable", CallableEntity);
-        own!(SignatureVariant, "signature", Signature);
-        own!(SignatureSlot, "variant", SignatureVariant);
-        own!(SignatureSlotEntity, "slot", SignatureSlot);
-        own!(SignatureParameter, "signature", Signature);
-        own!(ParameterEntityLink, "parameter", SignatureParameter);
-        own!(ParameterDeclaration, "parameter", SignatureParameter);
-        own!(
-            SignatureEnumerationMember,
-            "enumeration",
-            SignatureEnumerationObservation
-        );
-        own!(CallArgument, "call", CallSyntax);
-        own!(CallSyntax, "site", Occurrence);
-        own!(CallTarget, "site", Occurrence);
-        own!(ReferenceObservation, "read", Occurrence);
-        own!(LexicalResolution, "read", Occurrence);
-        own!(BindingEvent, "site", Occurrence);
-        own!(BindingObservation, "event", BindingEvent);
-        own!(FlowUse, "occurrence", Occurrence);
-        own!(FlowUseObservation, "use_", FlowUse);
-        own!(FlowReachingObservation, "use_", FlowUse);
-        own!(FlowValueObservation, "use_", FlowUse);
-        own!(FlowDefinition, "occurrence", Occurrence);
-        own!(FlowDefinitionObservation, "definition", FlowDefinition);
-        own!(ExpressionEvaluation, "expression", Occurrence);
-        own!(EvaluationMember, "evaluation", ExpressionEvaluation);
-        own!(EvaluationOperand, "evaluation", ExpressionEvaluation);
-        own!(BodyMember, "body", SourceBodyCompletion);
-        own!(BodyReleaseInput, "body", SourceBodyCompletion);
-        own!(LexicalScope, "owner", Occurrence);
-        own!(SymbolDeclaration, "declaration", Occurrence);
-        own!(SymbolDeclaration, "symbol", ProviderSymbol);
-        own!(SymbolObservation, "symbol", ProviderSymbol);
-        own!(SymbolSequenceMember, "sequence", SymbolSequence);
-        // A docstring contributes exact source spans to fresh-header availability. Its
-        // rich UTF-8 payload never contributes to that predicate.
-        plan.follow(
-            index(TypeId::of::<DeclarationObservation>())?,
-            "docstring",
-            occurrence,
-        )?;
-        let t = |kind: TypeId| Ok::<_, ModelError>(identifier(&tables[index(kind)?].alias));
-        macro_rules! table {
-            ($ty:ty) => {
-                t(TypeId::of::<$ty>())?
-            };
-        }
-        macro_rules! pair {
-            ($from:ty,$to:ty,$sql:expr) => {
-                plan.pairs(
-                    index(TypeId::of::<$from>())?,
-                    index(TypeId::of::<$to>())?,
-                    $sql,
-                )?
-            };
-        }
-        let alternatives = table!(NormalizedCallAlternative);
-        let refs = table!(EntityRef);
-        let callables = table!(CallableEntity);
-        let occurrences = table!(Occurrence);
-        let placements = table!(SyntaxPlacement);
-        let declarations = table!(DeclarationObservation);
-        let bodies = table!(SourceBodyCompletion);
-        let normalized_events = table!(NormalizedCallEvent);
-        let base_frames = table!(analysis::base_completion::AnalysisInvocation);
-        // Only actual alternative callees become body roots. Merely mentioning the caller
-        // entity must not pull that caller's whole earlier body into a binding kernel.
-        plan.pairs(index(TypeId::of::<NormalizedCallAlternative>())?,callee,format!("SELECT id AS source_id,id AS target_id FROM {alternatives} WHERE entity IS NOT NULL"))?;
-        plan.pairs(callee,index(TypeId::of::<EntityRef>())?,format!("SELECT id AS source_id,entity AS target_id FROM {alternatives} WHERE entity IS NOT NULL"))?;
-        plan.pairs(callee,index(TypeId::of::<SourceBodyCompletion>())?,format!("SELECT a.id AS source_id,b.id AS target_id FROM {alternatives} a JOIN {normalized_events} e ON e.id=a.event JOIN {bodies} b ON b.owner=a.entity JOIN {base_frames} f ON f.id=b.invocation AND f.context=e.context"))?;
-        plan.pairs(callee,header,format!("SELECT a.id AS source_id,c.source_declaration AS target_id FROM {alternatives} a JOIN {refs} r ON r.id=a.entity JOIN {callables} c ON c.id=r.callable_callable WHERE c.source_declaration IS NOT NULL"))?;
-        plan.pairs(
-            header,
-            occurrence,
-            format!("SELECT id AS source_id,id AS target_id FROM {occurrences}"),
-        )?;
-        plan.pairs(header,children,format!("SELECT d.id AS source_id,p.id AS target_id FROM {occurrences} d JOIN {placements} p ON p.parent=d.id"))?;
-        // Captures are a complete range/path competition within the actual declaration. The
-        // SQL closure discovers them before any rich source row is decoded.
-        let resolutions = table!(LexicalResolution);
-        plan.pairs(header,index(TypeId::of::<LexicalResolution>())?,format!("SELECT d.id AS source_id,r.id AS target_id FROM {occurrences} d JOIN {occurrences} o ON o.source=d.source AND o.start>=d.start AND o.end<=d.end AND array_slice(o.structural_path,1,CAST(array_length(d.structural_path) AS BIGINT))=d.structural_path JOIN {resolutions} r ON r.read=o.id WHERE r.captured=true"))?;
-        plan.pairs(
-            children,
-            index(TypeId::of::<SyntaxPlacement>())?,
-            format!("SELECT id AS source_id,id AS target_id FROM {placements}"),
-        )?;
-        plan.pairs(
-            children,
-            occurrence,
-            format!("SELECT id AS source_id,occurrence AS target_id FROM {placements}"),
-        )?;
-        plan.pairs(children,children,format!("SELECT p.id AS source_id,c.id AS target_id FROM {placements} p JOIN {placements} c ON c.parent=p.occurrence WHERE p.field!={}",SyntaxField::Body.code()))?;
-        // Caller suite ordinal zero may be the exact literal prefix or a docstring. Ancestor
-        // ownership itself never expands other sibling body rows.
-        pair!(
-            Occurrence,
-            SyntaxPlacement,
-            format!(
-                "SELECT o.id AS source_id,p.id AS target_id FROM {occurrences} o JOIN {placements} p ON p.parent=o.id WHERE o.syntax_kind={} AND p.field={} AND p.ordinal=0",
-                SyntaxKind::StmtFunctionDef.code(),
-                SyntaxField::Body.code()
-            )
-        );
-        plan.pairs(index(TypeId::of::<SyntaxPlacement>())?,payload,format!("SELECT p.id AS source_id,p.occurrence AS target_id FROM {placements} p JOIN {occurrences} o ON o.id=p.parent WHERE o.syntax_kind={} AND p.field={} AND p.ordinal=0",SyntaxKind::StmtFunctionDef.code(),SyntaxField::Body.code()))?;
-        plan.pairs(
-            payload,
-            occurrence,
-            format!("SELECT id AS source_id,id AS target_id FROM {occurrences}"),
-        )?;
-        plan.pairs(payload,children,format!("SELECT o.id AS source_id,p.id AS target_id FROM {occurrences} o JOIN {placements} p ON p.parent=o.id WHERE o.syntax_kind NOT IN ({},{},{})",SyntaxKind::StmtFunctionDef.code(),SyntaxKind::StmtClassDef.code(),SyntaxKind::ExprLambda.code()))?;
-        plan.pairs(children,payload,format!("SELECT p.id AS source_id,p.occurrence AS target_id FROM {placements} p JOIN {occurrences} o ON o.id=p.parent WHERE o.syntax_kind NOT IN ({},{},{})",SyntaxKind::StmtFunctionDef.code(),SyntaxKind::StmtClassDef.code(),SyntaxKind::ExprLambda.code()))?;
-        let details = table!(SyntaxDetailObservation);
-        let values = table!(SyntaxDetail);
-        let literals = table!(value::Literal);
-        plan.pairs(payload,index(TypeId::of::<SyntaxDetailObservation>())?,format!("SELECT o.id AS source_id,d.id AS target_id FROM {occurrences} o JOIN {details} d ON d.occurrence=o.id"))?;
-        plan.pairs(payload,index(TypeId::of::<value::Literal>())?,format!("SELECT o.id AS source_id,l.id AS target_id FROM {occurrences} o JOIN {details} d ON d.occurrence=o.id JOIN {values} v ON v.id=d.detail JOIN {literals} l ON l.id=v.literal_literal"))?;
-        // Native callee uses can have corresponding canonical occurrences; identity and all
-        // reaching/region alternatives are selected together rather than one winning row.
-        let uses = table!(FlowUseObservation);
-        let regions = table!(FlowRegionObservation);
-        let q = table!(assertion::AssertionQualification);
-        pair!(
-            FlowUseObservation,
-            FlowRegionObservation,
-            format!(
-                "SELECT u.id AS source_id,r.id AS target_id FROM {uses} u JOIN {q} uq ON uq.id=u.qualification JOIN {regions} r ON r.scope=u.scope JOIN {q} rq ON rq.id=r.qualification AND rq.context=uq.context"
-            )
-        );
-        let bindings = table!(BindingObservation);
-        let events = table!(BindingEvent);
-        pair!(
-            BindingObservation,
-            BindingObservation,
-            format!(
-                "SELECT a.id AS source_id,b.id AS target_id FROM {bindings} a JOIN {events} ae ON ae.id=a.event JOIN {bindings} b ON b.scope=a.scope JOIN {events} be ON be.id=b.event AND be.name=ae.name"
-            )
-        );
-        let references = table!(ReferenceObservation);
-        let spellings = table!(SyntaxObservation);
-        let lexical_scopes = table!(LexicalScope);
-        pair!(
-            DeclarationObservation,
-            ReferenceObservation,
-            format!(
-                "SELECT d.id AS source_id,r.id AS target_id FROM {declarations} d JOIN {q} dq ON dq.id=d.qualification JOIN {spellings} s ON s.occurrence=d.name JOIN {lexical_scopes} outer_scope ON outer_scope.owner=d.parent JOIN {references} r ON r.name=s.spelling AND r.scope=outer_scope.id JOIN {q} rq ON rq.id=r.qualification AND rq.context=dq.context"
-            )
-        );
-        let artifacts = table!(SourceArtifact);
-        let scopes = table!(CoverageScope);
-        let coverage = table!(attribution::ProviderCoverage);
-        let modules = table!(Module);
-        pair!(
-            SourceArtifact,
-            attribution::ProviderCoverage,
-            format!(
-                "SELECT a.id AS source_id,c.id AS target_id FROM {artifacts} a JOIN {scopes} s ON s.input_input=a.input OR s.artifact_artifact=a.id JOIN {coverage} c ON c.scope=s.id UNION SELECT a.id AS source_id,c.id AS target_id FROM {artifacts} a JOIN {modules} m ON m.source=a.id JOIN {scopes} s ON s.module_module=m.id JOIN {coverage} c ON c.scope=s.id"
-            )
-        );
-        if let (Some(owner), Some(statement)) = (owner, statement) {
-            use execution::source_call_records::{
-                HeaderMember, SourceCallHeader, SourceFrameArgument, SourceFrameRelease,
-                SourceInvocation,
-            };
-            own!(NormalizedCallEvent, "owner", OccurrenceOwnership);
-            own!(SourceCallHeader, "event", NormalizedCallEvent);
-            own!(HeaderMember, "header", SourceCallHeader);
-            own!(SourceFrameRelease, "header", SourceCallHeader);
-            own!(SourceFrameArgument, "release", SourceFrameRelease);
-            own!(SourceInvocation, "release", SourceFrameRelease);
-            // Enriched may finish a body that its admitted SourceCall header could not
-            // release earlier. Every direct Body statement must then enter payload
-            // traversal, including value children beyond the caller's ordinal-zero prefix.
-            let source_headers = table!(SourceCallHeader);
-            plan.pairs(
-                index(TypeId::of::<SourceCallHeader>())?,
+        let input_relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = source_call_scope_program::build(
+            declarations,
+            &input_relations,
+            inputs.len(),
+            source_call_scope_program::SourceCallPorts {
+                callee,
+                header,
                 payload,
-                format!("SELECT h.id AS source_id,p.occurrence AS target_id FROM {source_headers} h JOIN {placements} p ON p.parent=h.declaration WHERE p.field={}", SyntaxField::Body.code()),
-            )?;
-            let owners = table!(OccurrenceOwnership);
-            let parameter_syntax = table!(ParameterSyntaxObservation);
-            // Statement completion observes every immediate declaration child before
-            // dispatch. Definition evaluation also needs the complete parameter domain.
-            // The header namespace expands non-Body syntax only; nested Body execution
-            // remains an explicit owner payload, rather than a metadata side effect.
-            plan.pairs(
-                payload,
-                header,
-                format!("SELECT id AS source_id,id AS target_id FROM {occurrences} WHERE syntax_kind={}", SyntaxKind::StmtFunctionDef.code()),
-            )?;
-            plan.pairs(
-                header,
-                index(TypeId::of::<ParameterSyntaxObservation>())?,
-                format!("SELECT d.id AS source_id,p.id AS target_id FROM {occurrences} d JOIN {parameter_syntax} p ON p.function=d.id"),
-            )?;
-            plan.pairs(
+                children,
                 owner,
-                header,
-                format!("SELECT r.id AS source_id,c.source_declaration AS target_id FROM {refs} r JOIN {callables} c ON c.id=r.callable_callable WHERE c.source_declaration IS NOT NULL"),
-            )?;
-            plan.pairs(
-                owner,
-                index(TypeId::of::<EntityRef>())?,
-                format!("SELECT id AS source_id,id AS target_id FROM {refs}"),
-            )?;
-            plan.pairs(owner,payload,format!("SELECT r.id AS source_id,m.occurrence AS target_id FROM {refs} r JOIN {owners} m ON m.entity=r.id"))?;
-            plan.pairs(owner,index(TypeId::of::<CallableEntity>())?,format!("SELECT r.id AS source_id,c.id AS target_id FROM {refs} r JOIN {callables} c ON c.id=r.callable_callable"))?;
-            // A selected callable body's lexical children belong to this actual owner. A
-            // referenced callable reached through a value remains ordinary metadata.
-            plan.pairs(owner,payload,format!("SELECT r.id AS source_id,p.occurrence AS target_id FROM {refs} r JOIN {callables} c ON c.id=r.callable_callable JOIN {placements} p ON p.parent=c.source_declaration WHERE p.field={}",SyntaxField::Body.code()))?;
-            plan.pairs(
                 statement,
-                payload,
-                format!("SELECT id AS source_id,id AS target_id FROM {occurrences}"),
-            )?;
-        }
-        let mut charge = charged::StateCharge::new(budget, "SourceCall-scope-descriptors");
-        charge.grow(
-            inputs.capacity() * size_of::<ValidationInput>()
-                + tables.capacity() * size_of::<ClosureTable>()
-                + tables
-                    .iter()
-                    .map(|table| table.alias.capacity())
-                    .sum::<usize>(),
+            },
+            budget,
+        )?;
+        let compiled = crate::scope_compilation::compile(program.program(), model, budget, None)?;
+        // Compilation owns the exact AST/canonical frame. Dispose construction scratch before
+        // allocating physical fallback queries rather than retaining two preparation arenas.
+        drop(program);
+        drop(input_relations);
+        let plan = crate::scope_compilation::lower_compiled(
+            compiled,
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
         )?;
         let edges = plan.prepare(session, budget).await?;
+        // PreparedEdges retains the compiled owner and compact topology. Its discovery does
+        // not need the original lowering strings when independent selectors are compiled.
+        drop(plan);
+        let selectors =
+            SourceSelectors::new(&inputs, &tables[..inputs.len()], model, enriched, budget)?;
         Ok(Self {
             inputs,
             tables,
             edges,
+            selectors,
             event,
             owner,
             statement,
+            _charge: charge,
+        })
+    }
+    pub(super) async fn event_window<'a>(
+        &'a self,
+        keys: &[[u8; 16]],
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<SourceCallWindow<'a>, ModelError> {
+        self.window(
+            self.event,
+            crate::consumed_rows::PreparedRootKind::Physical,
+            keys,
+            budget,
+            cancellation,
+        )
+        .await
+    }
+    pub(super) async fn owner_window<'a>(
+        &'a self,
+        keys: &[[u8; 16]],
+        unowned: bool,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<SourceCallWindow<'a>, ModelError> {
+        let root = if unowned { self.statement } else { self.owner }
+            .ok_or(ModelError::Schema("Enriched root namespace"))?;
+        self.window(
+            root,
+            crate::consumed_rows::PreparedRootKind::Virtual,
+            keys,
+            budget,
+            cancellation,
+        )
+        .await
+    }
+    async fn window<'a>(
+        &'a self,
+        root: usize,
+        kind: crate::consumed_rows::PreparedRootKind,
+        keys: &[[u8; 16]],
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<SourceCallWindow<'a>, ModelError> {
+        let mut charge = charged::StateCharge::new(budget, "source-columnar-window");
+        charge.grow(
+            keys.len() * size_of::<crate::consumed_rows::PreparedRoot>()
+                + self.inputs.len() * size_of::<Vec<arrow_array::RecordBatch>>()
+                + 4096,
+        )?;
+        let roots = keys
+            .iter()
+            .map(|key| crate::consumed_rows::PreparedRoot {
+                table: root,
+                key: *key,
+                kind,
+            })
+            .collect::<Vec<_>>();
+        let batch = self
+            .edges
+            .batch_with_cancellation(&roots, budget, cancellation)
+            .await?;
+        drop(roots);
+        let mut opaque = charged::ChargedSet::default();
+        for partition in 0..keys.len() {
+            cancellation.check()?;
+            let scope = batch.partition_scope(partition, budget)?;
+            let selected = selection_sql(
+                &self.selectors.docstrings,
+                &self.tables,
+                &scope_program::ScopeParameters(vec![]),
+                Some(&scope),
+                budget,
+            )?;
+            let input = &self.inputs[self.index(TypeId::of::<value::Literal>())?];
+            crate::consumed_rows::stream_batches(
+                input,
+                scope.session(),
+                &selected,
+                None,
+                &mut |rows| {
+                    cancellation.check()?;
+                    let _transfer = budget
+                        .reserve("source-opaque-kind-transfer", rows.get_array_memory_size())?;
+                    for row in 0..rows.num_rows() {
+                        let key = crate::scoped_admission::column(rows, "id", row)?
+                            .ok_or(ModelError::Schema("SourceCall opaque identity"))?;
+                        opaque.insert(&mut charge, (partition, key))?;
+                    }
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        let literals = self.index(TypeId::of::<value::Literal>())?;
+        let mut literal_keys = charged::ChargedSet::default();
+        for partition in 0..keys.len() {
+            for key in batch.keys(partition, literals)? {
+                if !opaque.contains(&(partition, key)) {
+                    literal_keys.insert(&mut charge, key)?;
+                }
+            }
+        }
+        charge.grow(literal_keys.len() * 96 + 4096)?;
+        let literal_filter = if literal_keys.is_empty() {
+            "FALSE".into()
+        } else {
+            format!(
+                "id IN ({})",
+                literal_keys
+                    .iter()
+                    .map(|key| format!("X'{}'", hex::encode(key)))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        let mut rows = (0..self.inputs.len())
+            .map(|_| Vec::new())
+            .collect::<Vec<_>>();
+        for (table, input) in self.inputs.iter().enumerate() {
+            cancellation.check()?;
+            let selected = batch.union.select(table)?;
+            let selected = if table == literals {
+                format!("SELECT * FROM ({selected}) literals WHERE {literal_filter}")
+            } else {
+                selected
+            };
+            crate::consumed_rows::stream_batches(
+                input,
+                batch.union.session(),
+                &selected,
+                None,
+                &mut |data| {
+                    cancellation.check()?;
+                    let target = &mut rows[table];
+                    let additional = if target.len() == target.capacity() {
+                        target.capacity().max(4)
+                    } else {
+                        0
+                    };
+                    charge.grow(
+                        data.get_array_memory_size()
+                            + additional * size_of::<arrow_array::RecordBatch>(),
+                    )?;
+                    target.reserve_exact(additional);
+                    target.push(data.clone());
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        Ok(SourceCallWindow {
+            scopes: self,
+            batch,
+            rows,
+            opaque,
             _charge: charge,
         })
     }
@@ -520,26 +698,19 @@ impl SourceCallScopes {
             .position(|input| input.type_id() == kind)
             .ok_or(ModelError::Schema("SourceCall dependency type"))
     }
-    fn table<R: Record>(&self) -> Result<String, ModelError> {
-        Ok(identifier(
-            &self.tables[self.index(TypeId::of::<R>())?].alias,
-        ))
+    pub(super) fn roots(&self, inv: &AnalysisInvocation) -> Result<SelectionSql, ModelError> {
+        selection_sql(
+            &self.selectors.events,
+            &self.tables,
+            &scope_program::ScopeParameters(vec![
+                scope_program::ScopeValue::Nominal(*inv.input.bytes()),
+                scope_program::ScopeValue::Nominal(*inv.context.bytes()),
+            ]),
+            None,
+            self._charge.budget().expect("scope budget"),
+        )
     }
-    pub(super) fn roots(&self, inv: &AnalysisInvocation) -> Result<String, ModelError> {
-        let events = self.table::<NormalizedCallEvent>()?;
-        let occurrences = self.table::<Occurrence>()?;
-        let artifacts = self.table::<SourceArtifact>()?;
-        let uses = self.table::<input::ArtifactUse>()?;
-        let context = predicate(inv.context).replacen("id IN", "e.context IN", 1);
-        let input = predicate(inv.input).replacen("id IN", "a.input IN", 1);
-        Ok(format!(
-            "SELECT e.id FROM {events} e LEFT JOIN {occurrences} o ON o.id=e.site LEFT JOIN {artifacts} a ON a.id=o.source WHERE {context} AND (o.id IS NULL OR a.id IS NULL OR ({input} AND (a.path LIKE '%.py' OR a.path LIKE '%.pyi') AND EXISTS (SELECT 1 FROM {uses} u WHERE u.artifact=a.id AND u.role IN ({},{},{},{})))) ORDER BY e.id",
-            input::SourceRole::Release.code(),
-            input::SourceRole::Example.code(),
-            input::SourceRole::Test.code(),
-            input::SourceRole::DocBlock.code()
-        ))
-    }
+    #[cfg(test)]
     pub(super) async fn scope(
         &self,
         event: Id<NormalizedCallEvent>,
@@ -553,65 +724,25 @@ impl SourceCallScopes {
         &self,
         inv: &analysis::enriched_execution::AnalysisInvocation,
         unowned: bool,
-    ) -> Result<String, ModelError> {
-        let occurrences = self.table::<Occurrence>()?;
-        let owners = self.table::<OccurrenceOwnership>()?;
-        let artifacts = self.table::<SourceArtifact>()?;
-        let uses = self.table::<input::ArtifactUse>()?;
-        let refs = self.table::<EntityRef>()?;
-        let callables = self.table::<CallableEntity>()?;
-        let input = predicate(inv.input).replacen("id IN", "a.input IN", 1);
-        let selected = format!(
-            "{input} AND (a.path LIKE '%.py' OR a.path LIKE '%.pyi') AND EXISTS (SELECT 1 FROM {uses} u WHERE u.artifact=a.id AND u.role IN ({},{},{},{}))",
-            input::SourceRole::Release.code(),
-            input::SourceRole::Example.code(),
-            input::SourceRole::Test.code(),
-            input::SourceRole::DocBlock.code()
-        );
-        let statements = [
-            SyntaxKind::StmtFunctionDef,
-            SyntaxKind::StmtClassDef,
-            SyntaxKind::StmtReturn,
-            SyntaxKind::StmtDelete,
-            SyntaxKind::StmtTypeAlias,
-            SyntaxKind::StmtAssign,
-            SyntaxKind::StmtAugAssign,
-            SyntaxKind::StmtAnnAssign,
-            SyntaxKind::StmtFor,
-            SyntaxKind::StmtWhile,
-            SyntaxKind::StmtIf,
-            SyntaxKind::StmtWith,
-            SyntaxKind::StmtMatch,
-            SyntaxKind::StmtRaise,
-            SyntaxKind::StmtTry,
-            SyntaxKind::StmtAssert,
-            SyntaxKind::StmtImport,
-            SyntaxKind::StmtImportFrom,
-            SyntaxKind::StmtGlobal,
-            SyntaxKind::StmtNonlocal,
-            SyntaxKind::StmtExpr,
-            SyntaxKind::StmtPass,
-            SyntaxKind::StmtBreak,
-            SyntaxKind::StmtContinue,
-            SyntaxKind::StmtIpyEscapeCommand,
-        ]
-        .iter()
-        .map(|kind| kind.code().to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-        if unowned {
-            return Ok(format!(
-                "SELECT o.id FROM {occurrences} o JOIN {artifacts} a ON a.id=o.source WHERE {selected} AND o.syntax_kind IN ({statements}) AND NOT EXISTS (SELECT 1 FROM {owners} m WHERE m.occurrence=o.id) ORDER BY o.id"
-            ));
+    ) -> Result<SelectionSql, ModelError> {
+        let selector = if unowned {
+            self.selectors.statements.as_ref()
+        } else {
+            self.selectors.owners.as_ref()
         }
-        let attempts = self.table::<CallBindingAttempt>()?;
-        let events = self.table::<NormalizedCallEvent>()?;
-        let context = predicate(inv.context).replacen("id IN", "e.context IN", 1);
-        Ok(format!(
-            "SELECT m.entity AS id FROM {owners} m JOIN {occurrences} o ON o.id=m.occurrence JOIN {artifacts} a ON a.id=o.source WHERE {selected} AND o.syntax_kind IN ({statements},{}) UNION SELECT r.id FROM {refs} r JOIN {callables} c ON c.id=r.callable_callable JOIN {occurrences} o ON o.id=c.source_declaration JOIN {artifacts} a ON a.id=o.source WHERE {selected} UNION SELECT m.entity AS id FROM {attempts} attempt JOIN {events} e ON e.id=attempt.event JOIN {owners} m ON m.id=e.owner JOIN {occurrences} o ON o.id=e.site JOIN {artifacts} a ON a.id=o.source WHERE {selected} AND {context} ORDER BY id",
-            SyntaxKind::ExprName.code()
-        ))
+        .ok_or(ModelError::Schema("Enriched root selector"))?;
+        selection_sql(
+            selector,
+            &self.tables,
+            &scope_program::ScopeParameters(vec![
+                scope_program::ScopeValue::Nominal(*inv.input.bytes()),
+                scope_program::ScopeValue::Nominal(*inv.context.bytes()),
+            ]),
+            None,
+            self._charge.budget().expect("scope budget"),
+        )
     }
+    #[cfg(test)]
     pub(super) async fn owner_scope(
         &self,
         owner: Id<EntityRef>,
@@ -626,20 +757,7 @@ impl SourceCallScopes {
             )
             .await
     }
-    pub(super) async fn unowned_scope(
-        &self,
-        statement: Id<Occurrence>,
-        budget: &resources::ResourceBudget,
-    ) -> Result<PreparedClosure, ModelError> {
-        self.edges
-            .grain(
-                self.statement
-                    .ok_or(ModelError::Schema("Enriched statement namespace"))?,
-                &predicate(statement),
-                budget,
-            )
-            .await
-    }
+    #[cfg(test)]
     async fn docstring_literals(
         &self,
         scope: &PreparedClosure,
@@ -647,25 +765,17 @@ impl SourceCallScopes {
         data: &mut execution::evaluation::EvaluationData,
         budget: &resources::ResourceBudget,
     ) -> Result<String, ModelError> {
-        let declarations = self.table::<DeclarationObservation>()?;
-        let occurrences = self.table::<Occurrence>()?;
-        let details = self.table::<SyntaxDetailObservation>()?;
-        let values = self.table::<SyntaxDetail>()?;
-        let docstrings = format!(
-            "SELECT DISTINCT v.literal_literal AS id FROM {declarations} d JOIN {occurrences} span ON span.id=d.docstring JOIN {occurrences} o ON o.source=span.source AND o.start<=span.start AND o.end>=span.end AND o.syntax_kind={} JOIN {details} detail ON detail.occurrence=o.id JOIN {values} v ON v.id=detail.detail WHERE v.literal_literal IS NOT NULL",
-            SyntaxKind::ExprStringLiteral.code()
+        let opaque = selection_sql(
+            &self.selectors.docstrings,
+            &self.tables,
+            &scope_program::ScopeParameters(vec![]),
+            Some(scope),
+            budget,
+        )?;
+        let projection = format!(
+            "SELECT l.id,l.kind FROM ({sql}) l WHERE l.id IN ({opaque}) ORDER BY l.id",
+            opaque = &*opaque
         );
-        // Literal IDs are content based. A shared ID used by a selected capture/default
-        // still requires its exact payload even if a docstring happens to have equal bytes.
-        let selected_occurrences = scope.select(self.index(TypeId::of::<Occurrence>())?)?;
-        let non_docstring_use = format!(
-            "EXISTS (SELECT 1 FROM ({selected_occurrences}) o JOIN {details} detail ON detail.occurrence=o.id JOIN {values} v ON v.id=detail.detail WHERE v.literal_literal=l.id AND NOT EXISTS (SELECT 1 FROM {declarations} d JOIN {occurrences} span ON span.id=d.docstring WHERE o.source=span.source AND o.start<=span.start AND o.end>=span.end AND o.syntax_kind={}))",
-            SyntaxKind::ExprStringLiteral.code()
-        );
-        let opaque = format!(
-            "l.kind=3 AND EXISTS (SELECT 1 FROM ({docstrings}) docstring WHERE docstring.id=l.id) AND NOT ({non_docstring_use})"
-        );
-        let projection = format!("SELECT l.id,l.kind FROM ({sql}) l WHERE {opaque} ORDER BY l.id");
         let mut stream = crate::sql::query(scope.session(), &projection)
             .await
             .map_err(ModelError::codec)?
@@ -680,12 +790,19 @@ impl SourceCallScopes {
             for row in 0..batch.num_rows() {
                 let key = crate::scoped_admission::column(&batch, "id", row)?
                     .ok_or(ModelError::Schema("docstring literal projection ID"))?;
-                data.project_opaque_literal(nominal(&key)?, 3)?;
+                data.project_opaque_literal(
+                    nominal(&key)?,
+                    source_call_scope_program::OPAQUE_DOCSTRING_KIND,
+                )?;
             }
             tokio::task::yield_now().await;
         }
-        Ok(format!("SELECT l.* FROM ({sql}) l WHERE NOT ({opaque})"))
+        Ok(format!(
+            "SELECT l.* FROM ({sql}) l WHERE l.id NOT IN ({opaque})",
+            opaque = &*opaque
+        ))
     }
+    #[cfg(test)]
     pub(super) async fn enriched_data(
         &self,
         scope: &PreparedClosure,
@@ -709,37 +826,6 @@ impl SourceCallScopes {
             while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
                 let _transfer = budget.reserve(
                     "Enriched-selected-input-transfer",
-                    lctx_model::domain::logical_batch_bytes(&batch)?,
-                )?;
-                data.visit_input(input, &batch)?;
-                tokio::task::yield_now().await;
-            }
-        }
-        Ok(data)
-    }
-    pub(super) async fn data(
-        &self,
-        scope: &PreparedClosure,
-        budget: &resources::ResourceBudget,
-    ) -> Result<SourceCallData, ModelError> {
-        let mut data = SourceCallData::new(budget);
-        for (table, input) in self.inputs.iter().enumerate() {
-            let sql = scope.select(table)?;
-            let sql = if input.type_id() == TypeId::of::<value::Literal>() {
-                self.docstring_literals(scope, &sql, &mut data.evaluation, budget)
-                    .await?
-            } else {
-                sql
-            };
-            let mut stream = crate::sql::query(scope.session(), &sql)
-                .await
-                .map_err(ModelError::codec)?
-                .execute_stream()
-                .await
-                .map_err(ModelError::codec)?;
-            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-                let _transfer = budget.reserve(
-                    "SourceCall-selected-input-transfer",
                     lctx_model::domain::logical_batch_bytes(&batch)?,
                 )?;
                 data.visit_input(input, &batch)?;
@@ -845,7 +931,7 @@ mod controls {
                 alias: input.name().into(),
             })
             .collect();
-        SourceCallScopes::prepare_bound(inputs, tables, session, budget)
+        SourceCallScopes::prepare_bound(inputs, tables, session, budget, &model)
             .await
             .unwrap()
     }
@@ -868,7 +954,7 @@ mod controls {
                 alias: input.name().into(),
             })
             .collect();
-        SourceCallScopes::prepare_bound(inputs, tables, session, budget)
+        SourceCallScopes::prepare_bound(inputs, tables, session, budget, &model)
             .await
             .unwrap()
     }
@@ -1161,6 +1247,41 @@ mod controls {
             );
             drop(data);
             drop(scope);
+        }
+        {
+            let cancelled = crate::workspace::Cancellation::default();
+            let keys = [*event.id().bytes(), *event.id().bytes(), [255; 16]];
+            let window = prepared
+                .event_window(&keys, &budget, &cancelled)
+                .await
+                .unwrap();
+            for partition in 0..2 {
+                let selected = window
+                    .enriched_data(partition, &budget, &cancelled)
+                    .unwrap();
+                for alternative in &alternatives {
+                    assert_eq!(
+                        selected
+                            .source
+                            .bindings
+                            .event_alternatives
+                            .get(alternative.id()),
+                        Some(alternative)
+                    );
+                }
+                assert!(selected.source.evaluation.literals.is_empty());
+                assert!(
+                    selected
+                        .source
+                        .evaluation
+                        .occurrences
+                        .get(rich.id())
+                        .is_none()
+                );
+            }
+            let absent = window.enriched_data(2, &budget, &cancelled).unwrap();
+            assert!(absent.source.bindings.event_alternatives.is_empty());
+            assert!(window.enriched_data(3, &budget, &cancelled).is_err());
         }
         assert_eq!(budget.reserved(), retained);
         drop(prepared);

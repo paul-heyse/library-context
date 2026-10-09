@@ -164,18 +164,51 @@ impl ContentHasher {
 
 /// Structural encoding: each scalar is tagged and length delimited; containers carry arity.
 /// There is no caller-supplied stringification or provider-local index identity.
-pub struct KeySink(blake3::Hasher);
+pub struct KeySink(blake3::Hasher, Option<Vec<u8>>, Option<usize>);
 impl KeySink {
     pub fn new(namespace: &str) -> Self {
-        let mut sink = Self(blake3::Hasher::new());
+        let mut sink = Self(blake3::Hasher::new(), None, None);
         sink.part(b"domain", b"lctx-semantic/v3");
         sink.part(b"type", namespace.as_bytes());
         sink
     }
+    /// Record the identical scalar framing for bounded, already reserved program bytes.
+    pub(crate) fn recording(namespace: &str, capacity: usize) -> Self {
+        let mut sink = Self(
+            blake3::Hasher::new(),
+            Some(Vec::with_capacity(capacity)),
+            None,
+        );
+        sink.part(b"domain", b"lctx-semantic/v3");
+        sink.part(b"type", namespace.as_bytes());
+        sink
+    }
+    /// Count the same framing before allocating a canonical program buffer. This deliberately
+    /// uses the ordinary encoder, so allocation sizing cannot become a second identity recipe.
+    pub(crate) fn counting(namespace: &str) -> Self {
+        let mut sink = Self(blake3::Hasher::new(), None, Some(0));
+        sink.part(b"domain", b"lctx-semantic/v3");
+        sink.part(b"type", namespace.as_bytes());
+        sink
+    }
+    pub(crate) fn encoded_len(&self) -> usize {
+        self.2.expect("counting key sink")
+    }
     pub fn part(&mut self, tag: &[u8], bytes: &[u8]) {
         framed_part(tag, bytes, |fragment| {
-            self.0.update(fragment);
+            if self.2.is_none() {
+                self.0.update(fragment);
+            }
+            if let Some(length) = &mut self.2 {
+                *length = length.saturating_add(fragment.len());
+            }
+            if let Some(encoded) = &mut self.1 {
+                encoded.extend_from_slice(fragment);
+            }
         });
+    }
+    pub(crate) fn recorded(self) -> Vec<u8> {
+        self.1.expect("recording key sink")
     }
     pub fn finish(self) -> ContentHash {
         ContentHash(*self.0.finalize().as_bytes())

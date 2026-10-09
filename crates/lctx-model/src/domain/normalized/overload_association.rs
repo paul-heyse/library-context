@@ -1,7 +1,7 @@
 //! Original native member correspondence. No shape match, new solver, or body admission.
 use super::{
     Rows,
-    callable_normalization::{CallableData, CallableOutput},
+    callable_normalization::{CallableData, CallableDataView, CallableOutput},
     callables::*,
     entities::ResolutionStatus,
 };
@@ -61,6 +61,13 @@ type NativeDeclaration<'a> = (&'a SignatureVariant, &'a NativeSignatureObservati
 /// attributed fact. Missing receiver/solver basis can coexist with a retained original source ID.
 pub fn associate(
     data: &CallableData,
+    output: &mut CallableOutput,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    associate_view(&data.view(), output, budget)
+}
+pub fn associate_view(
+    data: &CallableDataView<'_>,
     output: &mut CallableOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {

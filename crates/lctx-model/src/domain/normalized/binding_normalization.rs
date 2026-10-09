@@ -1,6 +1,6 @@
 //! The sole argument algorithm, replayable stored outcomes and private P3/P4 admission.
 use super::{
-    Rows, bindings::*, callables::*, entities::*, events::*, policy_revision,
+    Rows, RowsView, bindings::*, callables::*, entities::*, events::*, policy_revision,
     signature_applicability::*,
 };
 use crate::domain::{
@@ -12,14 +12,17 @@ use crate::domain::{
     *,
 };
 use std::collections::BTreeMap;
-trait Source<R: Record> {
-    fn rows(&self) -> &Rows<R>;
+trait Source<'a, R: Record> {
+    fn rows(&self) -> RowsView<'a, R>;
 }
 macro_rules! inputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct BindingData { $(pub $field: Rows<$ty>,)* }
-        $(impl Source<$ty> for BindingData { fn rows(&self) -> &Rows<$ty> { &self.$field } })*
+        #[derive(Clone, Copy)]
+        pub struct BindingDataView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        $(impl<'a> Source<'a, $ty> for BindingDataView<'a> { fn rows(&self) -> RowsView<'a, $ty> { self.$field } })*
         impl BindingData {
+            pub fn view(&self) -> BindingDataView<'_> { BindingDataView { $($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
@@ -33,45 +36,43 @@ crate::normalized_binding_inputs!(inputs);
 macro_rules! outputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct BindingOutput { $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct BindingOutputView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        impl BindingOutputView<'_> { pub fn matches(&self, expected: &BindingOutput) -> Result<(), ModelError> { $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("normalized binding closure differs: {}", <$ty>::NAME))); })* Ok(()) } }
         impl BindingOutput {
+            pub fn view(&self) -> BindingOutputView<'_> { BindingOutputView { $($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
-            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> {
-                $(if !self.$field.same(&expected.$field) { return Err(invalid(format!("normalized binding closure differs: {}", <$ty>::NAME))); })* Ok(())
-            }
+            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> { self.view().matches(expected) }
             pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
         }
     }
 }
 crate::normalized_binding_outputs!(outputs);
 fn receiver_proofs(
-    data: &BindingData,
+    data: &BindingDataView<'_>,
     budget: &ResourceBudget,
 ) -> Result<super::receiver::VerifiedReceivers, ModelError> {
-    let mut inputs = super::receiver::ReceiverData::new(budget);
-    let mut outputs = super::receiver::ReceiverOutput::new(budget);
-    macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
-    macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
-    crate::normalized_receiver_inputs!(input);
-    crate::normalized_receiver_outputs!(output);
-    super::receiver::prepare(&inputs, &outputs, budget)
+    macro_rules! input {($($field:ident: $ty:ty,)*)=>{super::receiver::ReceiverDataView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+    macro_rules! output {($($field:ident: $ty:ty,)*)=>{super::receiver::ReceiverOutputView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+    let inputs = crate::normalized_receiver_inputs!(input);
+    let outputs = crate::normalized_receiver_outputs!(output);
+    super::receiver::prepare_view(&inputs, &outputs, budget)
 }
 fn event_proofs(
-    data: &BindingData,
+    data: &BindingDataView<'_>,
     budget: &ResourceBudget,
 ) -> Result<super::event_normalization::VerifiedEvents, ModelError> {
-    let mut inputs = super::event_normalization::EventData::new(budget);
-    let mut outputs = super::event_normalization::EventOutput::new(budget);
-    macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
-    macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
-    crate::normalized_event_inputs!(input);
-    crate::normalized_event_outputs!(output);
-    super::event_normalization::prepare_consumed(&inputs, &outputs, budget)
+    macro_rules! input {($($field:ident: $ty:ty,)*)=>{super::event_normalization::EventDataView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+    macro_rules! output {($($field:ident: $ty:ty,)*)=>{super::event_normalization::EventOutputView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+    let inputs = crate::normalized_event_inputs!(input);
+    let outputs = crate::normalized_event_outputs!(output);
+    super::event_normalization::prepare_consumed_view(&inputs, &outputs, budget)
 }
 fn original_target<'a>(
-    data: &'a BindingData,
+    data: &BindingDataView<'a>,
     alternative: &NormalizedCallAlternative,
 ) -> Result<&'a CallTarget, ModelError> {
     need(
@@ -82,15 +83,15 @@ fn original_target<'a>(
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
+fn need<'a, R: Record>(rows: &RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid(format!("normalized binding requires {}", R::NAME)))
 }
-fn scopes(data: &BindingData) -> ScopeCatalog<'_> {
-    ScopeCatalog {
-        scopes: &data.scopes,
-        artifacts: &data.artifacts,
-        modules: &data.modules,
+fn scopes<'a>(data: &BindingDataView<'a>) -> ScopeCatalogView<'a> {
+    ScopeCatalogView {
+        scopes: data.scopes,
+        artifacts: data.artifacts,
+        modules: data.modules,
     }
 }
 type SetKey = (
@@ -110,7 +111,7 @@ struct Index<'a> {
     _charge: StateCharge,
 }
 impl<'a> Index<'a> {
-    fn new(data: &'a BindingData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    fn new(data: &BindingDataView<'a>, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut s = Self {
             variants: Default::default(),
             raw_variants: Default::default(),
@@ -173,7 +174,7 @@ fn digest(bindings: &[Binding]) -> ContentHash {
     sink.finish()
 }
 fn application<'a>(
-    data: &'a BindingData,
+    data: &BindingDataView<'a>,
     alternative: &'a NormalizedCallAlternative,
     variant: &'a SignatureVariant,
     call: &'a CallSyntax,
@@ -187,7 +188,7 @@ fn application<'a>(
         .callables
         .get(variant.callable.ok_or(missing)?)
         .ok_or(missing)?;
-    establish(Application {
+    establish_view(ApplicationView {
         target,
         qualification: data
             .qualifications
@@ -226,7 +227,7 @@ fn application<'a>(
     })
 }
 fn bind_application(
-    data: &BindingData,
+    data: &BindingDataView<'_>,
     index: &Index<'_>,
     application: &ApplicableSignature<'_>,
     charge: &mut StateCharge,
@@ -262,7 +263,7 @@ fn bind_application(
     reason = "One binding attempt threads the alternative, variant, syntax, output and verified receiver/event sources"
 )]
 fn attempt(
-    data: &BindingData,
+    data: &BindingDataView<'_>,
     index: &Index<'_>,
     alternative: &NormalizedCallAlternative,
     variant: Option<&SignatureVariant>,
@@ -365,6 +366,12 @@ fn attempt(
     Ok(id)
 }
 pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingOutput, ModelError> {
+    normalize_view(&data.view(), budget)
+}
+pub fn normalize_view(
+    data: &BindingDataView<'_>,
+    budget: &ResourceBudget,
+) -> Result<BindingOutput, ModelError> {
     let receivers = receiver_proofs(data, budget)?;
     let events = event_proofs(data, budget)?;
     normalize_with(data, &receivers, &events, budget)
@@ -375,17 +382,32 @@ pub fn normalize_prepared(
     data: &BindingData,
     budget: &ResourceBudget,
 ) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
+    normalize_prepared_view(&data.view(), budget)
+}
+pub fn normalize_prepared_view(
+    data: &BindingDataView<'_>,
+    budget: &ResourceBudget,
+) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
     let receivers = receiver_proofs(data, budget)?;
     let events = event_proofs(data, budget)?;
     let output = normalize_with(data, &receivers, &events, budget)?;
-    verify_enumerations(data, budget)?;
-    let verified = admit(data, &output, &receivers, &events, budget)?;
+    verify_enumerations_view(data, budget)?;
+    let verified = admit(data, &output.view(), &receivers, &events, budget)?;
     Ok((output, verified))
 }
 /// The owning compiler lends compact receiver/event admissions once for each complete event grain.
 /// No stored receiver or event assessment creates authority on this route.
 pub fn normalize_event_produced(
     data: &BindingData,
+    selected: Id<NormalizedCallEvent>,
+    receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget,
+) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
+    normalize_event_produced_view(&data.view(), selected, receivers, events, budget)
+}
+pub fn normalize_event_produced_view(
+    data: &BindingDataView<'_>,
     selected: Id<NormalizedCallEvent>,
     receivers: &super::receiver::VerifiedReceivers,
     events: &super::event_normalization::VerifiedEvents,
@@ -401,7 +423,7 @@ pub fn normalize_event_produced(
             "binding grain contains another event candidate domain",
         ));
     }
-    normalize_produced(data, receivers, events, budget)
+    normalize_produced_view(data, receivers, events, budget)
 }
 pub fn normalize_produced(
     data: &BindingData,
@@ -409,13 +431,21 @@ pub fn normalize_produced(
     events: &super::event_normalization::VerifiedEvents,
     budget: &ResourceBudget,
 ) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
+    normalize_produced_view(&data.view(), receivers, events, budget)
+}
+pub fn normalize_produced_view(
+    data: &BindingDataView<'_>,
+    receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents,
+    budget: &ResourceBudget,
+) -> Result<(BindingOutput, VerifiedBindings), ModelError> {
     let output = normalize_with(data, receivers, events, budget)?;
-    verify_enumerations(data, budget)?;
-    let verified = admit(data, &output, receivers, events, budget)?;
+    verify_enumerations_view(data, budget)?;
+    let verified = admit(data, &output.view(), receivers, events, budget)?;
     Ok((output, verified))
 }
 fn normalize_with(
-    data: &BindingData,
+    data: &BindingDataView<'_>,
     receivers: &super::receiver::VerifiedReceivers,
     events: &super::event_normalization::VerifiedEvents,
     budget: &ResourceBudget,
@@ -460,7 +490,7 @@ fn normalize_with(
     Ok(output)
 }
 fn assess_set(
-    data: &BindingData,
+    data: &BindingDataView<'_>,
     index: &Index<'_>,
     key: SetKey,
     attempts: &[Id<CallBindingAttempt>],
@@ -471,7 +501,7 @@ fn assess_set(
     let mut variants: ChargedMap<Option<Id<SignatureVariant>>, Vec<&CallBindingAttempt>> =
         Default::default();
     for id in attempts {
-        let row = need(&output.attempts, *id)?;
+        let row = need(&output.attempts.view(), *id)?;
         variants.update(&mut charge, row.variant, |vs| vs.push(row))?;
     }
     let mut assessments = Vec::new();
@@ -935,7 +965,7 @@ struct EnumerationAuthority {
     symbol_counts: ChargedMap<Id<ProviderSymbol>, usize>,
 }
 impl EnumerationAuthority {
-    fn capture(data: &BindingData, charge: &mut StateCharge) -> Result<Self, ModelError> {
+    fn capture(data: &BindingDataView<'_>, charge: &mut StateCharge) -> Result<Self, ModelError> {
         let mut result = Self::default();
         for row in data.signature_enumerations.iter() {
             result
@@ -1020,7 +1050,11 @@ impl EnumerationAuthority {
         }
         Ok(())
     }
-    fn require(&self, data: &BindingData, budget: &ResourceBudget) -> Result<(), ModelError> {
+    fn require(
+        &self,
+        data: &BindingDataView<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
         fn row<R: Record>(
             index: &ChargedMap<Id<R>, ContentHash>,
             row: &R,
@@ -1144,6 +1178,13 @@ impl VerifiedBindings {
         data: &BindingData,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        self.admit_enumerations_view(&data.view(), budget)
+    }
+    pub fn admit_enumerations_view(
+        &mut self,
+        data: &BindingDataView<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
         if !self
             ._charge
             .budget()
@@ -1154,7 +1195,7 @@ impl VerifiedBindings {
                 "enumeration predecessor foreign budget",
             ));
         }
-        verify_enumerations(data, budget)?;
+        verify_enumerations_view(data, budget)?;
         let mut charge = StateCharge::new(budget, "binding-native-enumeration-grain");
         let mut admitted = EnumerationAuthority::capture(data, &mut charge)?;
         self.enumerations
@@ -1164,6 +1205,13 @@ impl VerifiedBindings {
     pub(crate) fn require_enumerations(
         &self,
         data: &BindingData,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        self.require_enumerations_view(&data.view(), budget)
+    }
+    pub(crate) fn require_enumerations_view(
+        &self,
+        data: &BindingDataView<'_>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         if !self
@@ -1202,8 +1250,15 @@ pub fn verify(
     stored: &BindingOutput,
     budget: &ResourceBudget,
 ) -> Result<VerifiedBindings, ModelError> {
-    stored.matches(&normalize(data, budget)?)?;
-    verify_enumerations(data, budget)?;
+    verify_view(&data.view(), &stored.view(), budget)
+}
+pub fn verify_view(
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
+    budget: &ResourceBudget,
+) -> Result<VerifiedBindings, ModelError> {
+    stored.matches(&normalize_view(data, budget)?)?;
+    verify_enumerations_view(data, budget)?;
     let events = verify_upstream(data, budget)?;
     let receivers = receiver_proofs(data, budget)?;
     admit(data, stored, &receivers, &events, budget)
@@ -1214,6 +1269,14 @@ pub fn verify(
 pub fn admit_event(
     data: &BindingData,
     stored: &BindingOutput,
+    selected: Id<NormalizedCallEvent>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    admit_event_view(&data.view(), &stored.view(), selected, budget)
+}
+pub fn admit_event_view(
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
     selected: Id<NormalizedCallEvent>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -1231,21 +1294,28 @@ pub fn admit_event(
             "binding admission grain contains another event root",
         ));
     }
-    prepare(data, stored, budget).map(|_| ())
+    prepare_view(data, stored, budget).map(|_| ())
 }
 pub fn prepare(
     data: &BindingData,
     stored: &BindingOutput,
     budget: &ResourceBudget,
 ) -> Result<VerifiedBindings, ModelError> {
-    verify_enumerations(data, budget)?;
+    prepare_view(&data.view(), &stored.view(), budget)
+}
+pub fn prepare_view(
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
+    budget: &ResourceBudget,
+) -> Result<VerifiedBindings, ModelError> {
+    verify_enumerations_view(data, budget)?;
     let events = event_proofs(data, budget)?;
     let receivers = receiver_proofs(data, budget)?;
     admit(data, stored, &receivers, &events, budget)
 }
 fn admit(
-    data: &BindingData,
-    stored: &BindingOutput,
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
     receivers: &super::receiver::VerifiedReceivers,
     events: &super::event_normalization::VerifiedEvents,
     budget: &ResourceBudget,
@@ -1599,8 +1669,8 @@ fn admit(
     Ok(result)
 }
 fn admit_attempt_domain(
-    data: &BindingData,
-    stored: &BindingOutput,
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
     index: &Index<'_>,
 ) -> Result<(), ModelError> {
     for alternative in data.event_alternatives.iter() {
@@ -1677,8 +1747,8 @@ fn admit_attempt_domain(
 /// replay verifier checks production as a diagnostic; this checks the actual premises needed
 /// by a consumer and does not run predecessor normalization.
 fn admit_set_predicates(
-    data: &BindingData,
-    stored: &BindingOutput,
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
     index: &Index<'_>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -1739,8 +1809,8 @@ fn admit_set_predicates(
 }
 
 fn selected_source_body_closure(
-    data: &BindingData,
-    stored: &BindingOutput,
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
     row: &CallBindingAttempt,
     shape: &BindingShapeAdmission,
     effective: &EffectiveCallableAssessment,
@@ -1910,6 +1980,12 @@ pub(crate) fn verify_enumerations(
     data: &BindingData,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    verify_enumerations_view(&data.view(), budget)
+}
+pub(crate) fn verify_enumerations_view(
+    data: &BindingDataView<'_>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     let relation = Relation::of::<SignatureEnumerationObservation>();
     let definitions = crate::domain::validation::definitions();
     let definition = definitions
@@ -1962,8 +2038,8 @@ pub(crate) fn verify_enumerations(
     check.finish()
 }
 fn checked_enumeration<'a>(
-    data: &'a BindingData,
-    stored: &BindingOutput,
+    data: &BindingDataView<'a>,
+    stored: &BindingOutputView<'_>,
     row: &CallBindingAttempt,
     application: &ApplicableSignature<'_>,
 ) -> Result<Option<&'a SignatureEnumerationObservation>, ModelError> {
@@ -2049,8 +2125,8 @@ fn checked_enumeration<'a>(
     Ok(Some(header))
 }
 fn equivalent_shapes(
-    data: &BindingData,
-    stored: &BindingOutput,
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
     left: &CallBindingAttempt,
     right: &CallBindingAttempt,
 ) -> Result<bool, ModelError> {
@@ -2157,9 +2233,10 @@ impl InvariantCheck for BindingCheck {
     // reconstructs upstream callable/event premises, rather than trusting caller-supplied flags.
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         if self.admission {
-            return prepare(&self.data, &self.output, &self.budget).map(|_| ());
+            return prepare_view(&self.data.view(), &self.output.view(), &self.budget).map(|_| ());
         }
-        self.output.matches(&normalize(&self.data, &self.budget)?)
+        self.output
+            .matches(&normalize_view(&self.data.view(), &self.budget)?)
     }
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {
@@ -2178,7 +2255,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
     stages::Stage {
         captured_binding: None,
-name: "normalize_bindings",
+        name: "normalize_bindings",
         inputs: super::facts_stage_inputs(inputs),
         outputs: super::bindings::relations()
             .iter()
@@ -2193,51 +2270,37 @@ name: "normalize_bindings",
     }
 }
 fn verify_upstream(
-    data: &BindingData,
+    data: &BindingDataView<'_>,
     budget: &ResourceBudget,
 ) -> Result<super::event_normalization::VerifiedEvents, ModelError> {
-    let mut relations = super::relation_normalization::RelationData::new(budget);
-    let mut relation_output = super::relation_normalization::RelationOutput::new(budget);
-    macro_rules! entity_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { relations.facts.$field.insert(row.clone())?; })* }; }
-    macro_rules! entity_outputs { ($($field:ident: $ty:ty,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { relations.entities.$field.insert(row.clone())?; })* }; }
-    macro_rules! relation_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { relations.$field.insert(row.clone())?; })* }; }
-    macro_rules! relation_outputs { ($($field:ident: $ty:ty,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { relation_output.$field.insert(row.clone())?; })* }; }
-    crate::normalized_entity_inputs!(entity_inputs);
-    crate::normalized_entity_outputs!(entity_outputs);
-    relations
-        .entities
-        .matches(&super::entity_normalization::normalize(
-            relations.facts.inputs(),
-            budget,
-        )?)?;
-    crate::normalized_relation_inputs!(relation_inputs);
-    crate::normalized_relation_outputs!(relation_outputs);
-    relation_output.matches(&super::relation_normalization::normalize(
-        &relations, budget,
+    macro_rules! entity_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { super::entity_normalization::EntityDataView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    macro_rules! entity_outputs { ($($field:ident: $ty:ty,)*) => { super::entity_normalization::EntityOutputView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    let facts = crate::normalized_entity_inputs!(entity_inputs);
+    let entities = crate::normalized_entity_outputs!(entity_outputs);
+    entities.matches(&super::entity_normalization::normalize_view(
+        &facts, budget,
     )?)?;
-    drop(relations);
-    drop(relation_output);
-    let mut callable_data = super::callable_normalization::CallableData::new(budget);
-    let mut callable_output = super::callable_normalization::CallableOutput::new(budget);
-    let mut event_data = super::event_normalization::EventData::new(budget);
-    let mut event_output = super::event_normalization::EventOutput::new(budget);
-    // Both inventories remain executable owners. Adding a new upstream premise requires this
-    // collector to supply that nominal type, rather than maintaining a second hand-copied list.
-    macro_rules! callable_inputs { ($($field:ident: $ty:ty,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { callable_data.$field.insert(row.clone())?; })* }; }
-    macro_rules! callable_outputs { ($($field:ident: $ty:ty,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { callable_output.$field.insert(row.clone())?; })* }; }
-    macro_rules! event_inputs { ($($field:ident: $ty:ty,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { event_data.$field.insert(row.clone())?; })* }; }
-    macro_rules! event_outputs { ($($field:ident: $ty:ty,)*) => { $(for row in <BindingData as Source<$ty>>::rows(data).iter() { event_output.$field.insert(row.clone())?; })* }; }
-    crate::normalized_callable_inputs!(callable_inputs);
-    crate::normalized_callable_outputs!(callable_outputs);
-    callable_output.matches(&super::callable_normalization::normalize(
+    macro_rules! relation_inputs { ($($field:ident: $ty:ty => $family:ident,)*) => { super::relation_normalization::RelationDataView { facts,entities,$($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    macro_rules! relation_outputs { ($($field:ident: $ty:ty,)*) => { super::relation_normalization::RelationOutputView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    let relation_data = crate::normalized_relation_inputs!(relation_inputs);
+    let relation_output = crate::normalized_relation_outputs!(relation_outputs);
+    relation_output.matches(&super::relation_normalization::normalize_view(
+        &relation_data,
+        budget,
+    )?)?;
+    macro_rules! callable_inputs { ($($field:ident: $ty:ty,)*) => { super::callable_normalization::CallableDataView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    macro_rules! callable_outputs { ($($field:ident: $ty:ty,)*) => { super::callable_normalization::CallableOutputView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    let callable_data = crate::normalized_callable_inputs!(callable_inputs);
+    let callable_output = crate::normalized_callable_outputs!(callable_outputs);
+    callable_output.matches(&super::callable_normalization::normalize_view(
         &callable_data,
         budget,
     )?)?;
-    drop(callable_data);
-    drop(callable_output);
-    crate::normalized_event_inputs!(event_inputs);
-    crate::normalized_event_outputs!(event_outputs);
-    super::event_normalization::verify(&event_data, &event_output, budget)
+    macro_rules! event_inputs { ($($field:ident: $ty:ty,)*) => { super::event_normalization::EventDataView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    macro_rules! event_outputs { ($($field:ident: $ty:ty,)*) => { super::event_normalization::EventOutputView { $($field:<BindingDataView<'_> as Source<'_, $ty>>::rows(data),)* } }; }
+    let event_data = crate::normalized_event_inputs!(event_inputs);
+    let event_output = crate::normalized_event_outputs!(event_outputs);
+    super::event_normalization::verify_view(&event_data, &event_output, budget)
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {

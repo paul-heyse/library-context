@@ -1,7 +1,7 @@
 //! C0 public slots retain their complete alias, class-path and constructor dependencies.
 //! A referenced module or occurrence does not become a new public-slot root.
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, PreparedEdges},
     workspace::CompletedInputs,
 };
 use datafusion::prelude::SessionContext;
@@ -20,75 +20,6 @@ fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
         .ok_or(ModelError::Schema("C0 scoped relation absent"))
 }
 
-fn membership(source: TypeId, field: &str, kind: TypeId) -> bool {
-    use normalized::{callable_aspects::*, callables::*, entities::*, links::*};
-    let pair = |member: TypeId, owner: &str| source == member && field == owner;
-    pair(TypeId::of::<PublicExposureCandidate>(), "exposure")
-        || pair(TypeId::of::<SymbolEntityCandidate>(), "resolution")
-        || pair(TypeId::of::<EffectiveCallableAssessment>(), "callable")
-        || pair(TypeId::of::<SignatureVariant>(), "callable")
-        || pair(TypeId::of::<SignatureSlot>(), "variant")
-        || pair(TypeId::of::<SignatureSlotEntity>(), "slot")
-        || pair(TypeId::of::<SignatureSlotType>(), "slot")
-        || pair(TypeId::of::<SignatureReturnType>(), "variant")
-        || pair(TypeId::of::<CallableAspect>(), "assessment")
-        || pair(TypeId::of::<FieldEntity>(), "class")
-        || pair(TypeId::of::<FieldEntityLink>(), "field")
-        || pair(TypeId::of::<FieldDeclarationLink>(), "field")
-        || pair(TypeId::of::<FieldDefaultAssessment>(), "declaration")
-        || pair(TypeId::of::<ParameterEntityLink>(), "entity")
-        || pair(
-            TypeId::of::<syntax::ParameterSyntaxObservation>(),
-            "function",
-        )
-        || pair(
-            TypeId::of::<syntax::ParameterSyntaxObservation>(),
-            "parameter",
-        )
-        || pair(
-            TypeId::of::<syntax::DeclarationObservation>(),
-            "declaration",
-        )
-        || pair(TypeId::of::<syntax::DeclarationObservation>(), "parent")
-        || pair(TypeId::of::<OccurrenceOwnership>(), "occurrence")
-        || pair(TypeId::of::<lexical::BindingEvent>(), "site")
-        || pair(TypeId::of::<lexical::BindingObservation>(), "event")
-        || pair(TypeId::of::<lexical::ReferenceObservation>(), "read")
-        || pair(TypeId::of::<ReferenceEntityAssessment>(), "reference")
-        || pair(TypeId::of::<ReferenceEntityCandidate>(), "assessment")
-        || pair(TypeId::of::<AncestryEntityAssessment>(), "class")
-        || pair(TypeId::of::<AncestryEntityMember>(), "assessment")
-        || pair(TypeId::of::<SymbolEntityResolution>(), "entity")
-        || pair(TypeId::of::<SymbolEntityResolution>(), "symbol")
-        || pair(TypeId::of::<symbols::FunctionTraitObservation>(), "symbol")
-        || pair(
-            TypeId::of::<symbols::FunctionTraitObservation>(),
-            "defining_class",
-        )
-        || pair(TypeId::of::<symbols::ClassTraitObservation>(), "symbol")
-        || pair(
-            TypeId::of::<class_metadata::ClassMetadataObservation>(),
-            "class",
-        )
-        || pair(
-            TypeId::of::<class_metadata::ClassMemberObservation>(),
-            "class",
-        )
-        || (kind == TypeId::of::<source::Occurrence>()
-            && [
-                TypeId::of::<CallableEntity>(),
-                TypeId::of::<ClassEntity>(),
-                TypeId::of::<ParameterEntity>(),
-            ]
-            .contains(&source))
-        || (source == TypeId::of::<EntityRef>()
-            && [
-                TypeId::of::<CallableEntity>(),
-                TypeId::of::<ClassEntity>(),
-                TypeId::of::<ParameterEntity>(),
-            ]
-            .contains(&kind))
-}
 impl CatalogScopes {
     pub async fn prepare(
         access: &CompletedInputs,
@@ -118,94 +49,21 @@ impl CatalogScopes {
         session: &SessionContext,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        use normalized::entities::*;
         let names = typed::<symbols::PublicNameObservation>(&inputs)?;
-        let exposures = typed::<PublicExposure>(&inputs)?;
+        let root = tables.len();
         let mut bindings = tables.clone();
-        let root = bindings.len();
         bindings.push(tables[names].clone());
-        let mut plan = NominalClosure::new(bindings)?;
-        plan.pairs(
-            root,
-            names,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                identifier(&tables[names].alias)
-            ),
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = catalog_scope_program::core(inputs.clone(), &relations, model, budget)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            &bindings,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
         )?;
-        plan.pairs(
-            root,
-            exposures,
-            format!(
-                "SELECT observation AS source_id,id AS target_id FROM {}",
-                identifier(&tables[exposures].alias)
-            ),
-        )?;
-        let field_bindings = CatalogData::scoped_field_bindings(model, &inputs)?;
-        for (source, table) in tables.iter().enumerate() {
-            for (field_index, field) in table.relation.fields().iter().enumerate() {
-                let Some((kind, _)) = field.target() else {
-                    continue;
-                };
-                let Some(to) = field_bindings[source][field_index] else {
-                    continue;
-                };
-                let values = if field.list() {
-                    format!("UNNEST({})", identifier(field.name()))
-                } else {
-                    identifier(field.name())
-                };
-                plan.pairs(
-                    source,
-                    to,
-                    format!(
-                        "SELECT id AS source_id,{values} AS target_id FROM {}",
-                        identifier(&table.alias)
-                    ),
-                )?;
-                if !field.list() && membership(table.relation.type_id(), field.name(), kind) {
-                    plan.pairs(
-                        to,
-                        source,
-                        format!(
-                            "SELECT {} AS source_id,id AS target_id FROM {}",
-                            identifier(field.name()),
-                            identifier(&table.alias)
-                        ),
-                    )?;
-                }
-            }
-        }
-        // Alias slots select assignments by their exact module access and exported spelling.
-        // Module ownership never pulls every unrelated assignment into a public slot.
-        let scopes = typed::<lexical::LexicalScope>(&inputs)?;
-        let bindings = typed::<lexical::BindingObservation>(&inputs)?;
-        let events = typed::<lexical::BindingEvent>(&inputs)?;
-        let ownership = typed::<OccurrenceOwnership>(&inputs)?;
-        let refs = typed::<EntityRef>(&inputs)?;
-        let origins = typed::<symbols::ExportOrigin>(&inputs)?;
-        let provider_modules = typed::<calls::ProviderModule>(&inputs)?;
-        let table = |index: usize| identifier(&tables[index].alias);
-        plan.pairs(root,bindings,format!("SELECT n.id AS source_id,b.id AS target_id FROM {} n JOIN {} e ON e.observation=n.id LEFT JOIN {} origin ON origin.id=n.origin LEFT JOIN {} pm ON pm.id=origin.traced_module JOIN {} r ON r.module_module=COALESCE(pm.acquired_module,e.access) JOIN {} own ON own.entity=r.id JOIN {} s ON s.owner=own.owner AND s.kind={} JOIN {} ev ON ev.site=own.occurrence AND ev.name=COALESCE(origin.traced_name,n.name) JOIN {} b ON b.event=ev.id AND b.scope=s.id WHERE (origin.traced_module IS NULL OR pm.acquired_module IS NOT NULL) AND b.kind={} AND b.static_branch IS NULL",table(names),table(exposures),table(origins),table(provider_modules),table(refs),table(ownership),table(scopes),lexical::LexicalScopeKind::Module as i16,table(events),table(bindings),lexical::BindingEventKind::Assignment as i16))?;
-        // A class's complete binding domain includes non-declaration rebinding evidence.
-        let occurrences = typed::<source::Occurrence>(&inputs)?;
-        plan.pairs(
-            occurrences,
-            scopes,
-            format!(
-                "SELECT owner AS source_id,id AS target_id FROM {} WHERE kind={}",
-                table(scopes),
-                lexical::LexicalScopeKind::Class as i16
-            ),
-        )?;
-        plan.pairs(scopes,bindings,format!("SELECT s.id AS source_id,b.id AS target_id FROM {} s JOIN {} b ON b.scope=s.id WHERE s.kind={}",table(scopes),table(bindings),lexical::LexicalScopeKind::Class as i16))?;
-        // Formal parameter placements are necessary; function body placements are not.
-        let placements = typed::<syntax::SyntaxPlacement>(&inputs)?;
-        plan.pairs(occurrences,placements,format!("SELECT p.parent AS source_id,p.id AS target_id FROM {} p JOIN {} o ON o.id=p.occurrence WHERE o.syntax_kind={}",table(placements),table(occurrences),source::SyntaxKind::Parameter as i16))?;
-        // Signature completeness uses exact scope/context coverage rather than every run row.
-        let qualifications = typed::<assertion::AssertionQualification>(&inputs)?;
-        let coverage = typed::<attribution::ProviderCoverage>(&inputs)?;
-        plan.pairs(qualifications,coverage,format!("SELECT q.id AS source_id,c.id AS target_id FROM {} q JOIN {} c ON c.scope=q.scope AND c.context=q.context AND c.family={}",table(qualifications),table(coverage),attribution::FactFamily::Signatures as i16))?;
         let edges = plan.prepare(session, budget).await?;
         Ok(Self {
             inputs,

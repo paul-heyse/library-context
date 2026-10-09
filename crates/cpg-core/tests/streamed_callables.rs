@@ -211,8 +211,9 @@ async fn run(data: &CallableData, memory: usize, batch_rows: usize) -> Arc<Works
             memory_bytes: memory,
             batch_rows,
             partitions: 1,
-        }, crate::native_fixture::store()
-)
+        },
+        crate::native_fixture::store(),
+    )
     .unwrap();
     let facts = workspace.output(
         "callable-fixture",
@@ -291,6 +292,7 @@ async fn check_admission(
         &session,
         workspace.budget(),
         &cpg_core::workspace::Cancellation::default(),
+        &model,
     )
     .await
 }

@@ -1,10 +1,13 @@
 //! Receiver applicability owns one target and its complete syntax/placement candidate domains.
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, PreparedEdges},
     workspace::CompletedInputs,
 };
+#[cfg(test)]
 use futures::future::BoxFuture;
-use lctx_model::domain::{calls::*, normalized::receiver::ReceiverData, *};
+#[cfg(test)]
+use lctx_model::domain::calls::*;
+use lctx_model::domain::{normalized::receiver::ReceiverData, *};
 use std::{any::TypeId, sync::Arc};
 
 pub(super) struct ReceiverScopes {
@@ -14,6 +17,7 @@ pub(super) struct ReceiverScopes {
     _charge: charged::StateCharge,
 }
 
+#[cfg(test)]
 fn load_receiver_data<'a>(
     descriptor: &'a ReceiverScopes,
     access: &'a CompletedInputs,
@@ -74,103 +78,27 @@ impl ReceiverScopes {
                 })
             })
             .collect::<Result<_, ModelError>>()?;
-        Self::from_tables(inputs, tables, session, budget).await
+        Self::from_tables(inputs, tables, session, budget, model).await
     }
     pub(super) async fn from_tables(
         inputs: Vec<ValidationInput>,
         tables: Vec<ClosureTable>,
         session: &datafusion::prelude::SessionContext,
         budget: &resources::ResourceBudget,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
-        let mut plan = NominalClosure::new(tables.clone())?;
-        let index = |kind: TypeId| {
-            tables
-                .iter()
-                .position(|table| table.relation.type_id() == kind)
-                .ok_or_else(|| ModelError::Invalid("receiver nominal premise absent".into()))
-        };
-        // Forward nominal dependencies preserve source membership and the exact qualification.
-        for (source, table) in tables.iter().enumerate() {
-            for field in table.relation.fields().iter().filter(|field| !field.list()) {
-                if let Some((kind, _)) = field.target()
-                    && let Some(target) = tables
-                        .iter()
-                        .position(|table| table.relation.type_id() == kind)
-                {
-                    plan.follow(source, field.name(), target)?;
-                }
-            }
-        }
-        macro_rules! owned {
-            ($member:ty, $field:literal, $owner:ty) => {
-                plan.own(
-                    index(TypeId::of::<$member>())?,
-                    $field,
-                    index(TypeId::of::<$owner>())?,
-                )?;
-            };
-        }
-        owned!(CallTargetSupport, "assertion", CallTarget);
-        owned!(CallSyntaxSupport, "assertion", CallSyntax);
-        owned!(
-            syntax::SyntaxPlacementSupport,
-            "assertion",
-            syntax::SyntaxPlacement
-        );
-        owned!(
-            normalized::callables::EffectiveCallableAssessment,
-            "callable",
-            normalized::entities::CallableEntity
-        );
-        owned!(
-            normalized::callables::SignatureVariant,
-            "assessment",
-            normalized::callables::EffectiveCallableAssessment
-        );
-        if let (Some(assessments), Some(evidence)) = (
-            tables.iter().position(|table| {
-                table.relation.type_id() == TypeId::of::<normalized::receiver::ReceiverAssessment>()
-            }),
-            tables.iter().position(|table| {
-                table.relation.type_id() == TypeId::of::<normalized::receiver::ReceiverEvidence>()
-            }),
-        ) {
-            for field in tables[assessments]
-                .relation
-                .fields()
-                .iter()
-                .filter(|field| {
-                    field.target().map(|(kind, _)| kind) == Some(TypeId::of::<CallTarget>())
-                })
-            {
-                plan.own(
-                    assessments,
-                    field.name(),
-                    index(TypeId::of::<CallTarget>())?,
-                )?;
-            }
-            plan.own(evidence, "assessment", assessments)?;
-        }
-        let table = |kind: TypeId| -> Result<String, ModelError> {
-            Ok(identifier(&tables[index(kind)?].alias))
-        };
-        let targets = table(TypeId::of::<CallTarget>())?;
-        let qualifications = table(TypeId::of::<assertion::AssertionQualification>())?;
-        let syntax = table(TypeId::of::<CallSyntax>())?;
-        let placements = table(TypeId::of::<syntax::SyntaxPlacement>())?;
-        let destinations = table(TypeId::of::<CallDestination>())?;
-        let resolutions = table(TypeId::of::<normalized::entities::SymbolEntityResolution>())?;
-        let coverage = table(TypeId::of::<attribution::ProviderCoverage>())?;
-        plan.pairs(index(TypeId::of::<CallTarget>())?, index(TypeId::of::<CallSyntax>())?, format!(
-            "SELECT t.id AS source_id,s.id AS target_id FROM {targets} t JOIN {syntax} s ON t.site=s.site JOIN {qualifications} tq ON tq.id=t.qualification JOIN {qualifications} sq ON sq.id=s.qualification AND sq.context=tq.context"))?;
-        // Conflicting placement frames remain candidates: uniqueness must see the whole Value domain.
-        plan.pairs(index(TypeId::of::<CallSyntax>())?, index(TypeId::of::<syntax::SyntaxPlacement>())?, format!(
-            "SELECT s.id AS source_id,p.id AS target_id FROM {syntax} s JOIN {placements} p ON p.parent=s.callee AND p.field={}", lexical::SyntaxField::Value.code()))?;
-        plan.pairs(index(TypeId::of::<CallTarget>())?, index(TypeId::of::<normalized::entities::SymbolEntityResolution>())?, format!(
-            "SELECT t.id AS source_id,r.id AS target_id FROM {targets} t JOIN {destinations} d ON d.id=t.destination JOIN {qualifications} q ON q.id=t.qualification JOIN {resolutions} r ON r.symbol=COALESCE(d.resolved_symbol,d.overrides_symbol) AND r.context=q.context"))?;
-        // Coverage is a scope/context/family premise, never all neighbors of an input or run.
-        plan.pairs(index(TypeId::of::<assertion::AssertionQualification>())?, index(TypeId::of::<attribution::ProviderCoverage>())?, format!(
-            "SELECT q.id AS source_id,c.id AS target_id FROM {qualifications} q JOIN {coverage} c ON c.scope=q.scope AND c.context=q.context WHERE c.family IN ({},{})", attribution::FactFamily::Calls.code(), attribution::FactFamily::Syntax.code()))?;
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program =
+            normalized::normalization_scope_program::receiver(inputs.clone(), &relations, budget)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
         let mut charge = charged::StateCharge::new(budget, "receiver-scope-descriptors");
         charge.grow(
             inputs.capacity() * size_of::<ValidationInput>()
@@ -187,25 +115,7 @@ impl ReceiverScopes {
     pub(super) fn inputs(&self) -> &[ValidationInput] {
         &self.inputs
     }
-    pub(super) async fn root_grain(
-        &self,
-        kind: TypeId,
-        bytes: &[u8],
-        budget: &resources::ResourceBudget,
-    ) -> Result<crate::consumed_rows::PreparedClosure, ModelError> {
-        let root = self
-            .tables
-            .iter()
-            .position(|table| table.relation.type_id() == kind)
-            .ok_or_else(|| ModelError::Invalid("receiver admission root absent".into()))?;
-        let hex = bytes
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        self.edges
-            .grain(root, &format!("id=X'{hex}'"), budget)
-            .await
-    }
+    #[cfg(test)]
     pub(super) fn data<'a>(
         &'a self,
         access: &'a CompletedInputs,
@@ -406,5 +316,88 @@ mod receiver_scope_controls {
                 ..
             })
         ));
+    }
+}
+
+// Partition dictionaries borrow the one decoded root union, including unavailable optional inputs.
+macro_rules! selected_inputs {($($field:ident:$ty:ty,)*)=>{
+    pub(super) struct DataSelection<'a>{rows:&'a ReceiverData,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> DataSelection<'a>{
+        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a ReceiverData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(super) fn view(&self)->Result<normalized::receiver::ReceiverDataView<'_>,ModelError>{Ok(normalized::receiver::ReceiverDataView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_receiver_inputs!(selected_inputs);
+impl ReceiverScopes {
+    pub(super) async fn load_batch(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<ReceiverData, ModelError> {
+        let mut rows = ReceiverData::new(budget);
+        crate::scoped_batch::hydrate_union(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                if !rows.visit(input.name(), batch)? {
+                    return Err(ModelError::Schema("normalization union input undeclared"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok(rows)
+    }
+    pub(super) fn edges(&self) -> &PreparedEdges {
+        &self.edges
+    }
+    pub(super) fn table_for<R: Record>(&self) -> Result<usize, ModelError> {
+        self.tables
+            .iter()
+            .position(|t| t.relation.type_id() == TypeId::of::<R>())
+            .ok_or(ModelError::Schema("normalization batch root absent"))
+    }
+}
+
+macro_rules! selected_Receiver_output {($($field:ident:$ty:ty,)*)=>{
+    pub(super) struct ReceiverOutputSelection<'a>{rows:&'a normalized::receiver::ReceiverOutput,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> ReceiverOutputSelection<'a>{
+        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a normalized::receiver::ReceiverOutput,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(super) fn view(&self)->Result<normalized::receiver::ReceiverOutputView<'_>,ModelError>{Ok(normalized::receiver::ReceiverOutputView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_receiver_outputs!(selected_Receiver_output);
+impl ReceiverScopes {
+    pub(super) async fn load_receiver_admission(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<(ReceiverData, normalized::receiver::ReceiverOutput), ModelError> {
+        let mut rows = ReceiverData::new(budget);
+        let mut stored = normalized::receiver::ReceiverOutput::new(budget);
+        crate::scoped_batch::hydrate_union_first(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                let accepted = rows.visit(input.name(), batch)?;
+                let output = stored.visit(input.name(), batch)?;
+                if !accepted && !output {
+                    return Err(ModelError::Schema("admission union input undeclared"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok((rows, stored))
     }
 }

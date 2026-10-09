@@ -1,5 +1,5 @@
 //! Pure correspondence operations. Input selection/joins and store effects belong to the stage.
-use super::{Rows, entities::*, policy_revision};
+use super::{Rows, RowsView, entities::*, policy_revision};
 use crate::domain::{
     assertion::AssertionQualification,
     calls::*,
@@ -15,8 +15,12 @@ use crate::domain::{
 macro_rules! inputs {
     ($($field:ident: $ty:ty => $family:ident,)*) => {
         pub struct EntityInputs<'a> { $(pub $field: &'a Rows<$ty>,)* }
+        impl<'a> EntityInputs<'a> { pub fn view(&self)->EntityDataView<'a>{EntityDataView{$($field:self.$field.view(),)*}} }
+        #[derive(Clone, Copy)]
+        pub struct EntityDataView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
         pub struct EntityData { $(pub $field: Rows<$ty>,)* }
         impl EntityData {
+            pub fn view(&self)->EntityDataView<'_>{EntityDataView{$($field:self.$field.view(),)*}}
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn inputs(&self) -> EntityInputs<'_> { EntityInputs { $($field: &self.$field,)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
@@ -33,16 +37,17 @@ crate::normalized_entity_inputs!(inputs);
 macro_rules! outputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct EntityOutput { $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct EntityOutputView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        impl EntityOutputView<'_> { pub fn matches(&self,expected:&EntityOutput)->Result<(),ModelError>{$(if !self.$field.same(&expected.$field){return Err(ModelError::Invalid(format!("normalized entity closure differs: {}; {}",<$ty>::NAME,self.$field.difference(&expected.$field))));})* Ok(())} }
         impl EntityOutput {
+            pub fn view(&self)->EntityOutputView<'_>{EntityOutputView{$($field:self.$field.view(),)*}}
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })*
                 Ok(false)
             }
-            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> {
-                $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("normalized entity closure differs: {}; {}", <$ty>::NAME,self.$field.difference(&expected.$field)))); })*
-                Ok(())
-            }
+            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> { self.view().matches(expected) }
             pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
         }
     }
@@ -191,7 +196,7 @@ fn missing(what: &str) -> ModelError {
     ModelError::Invalid(format!("normalization requires {what}"))
 }
 fn context(
-    input: &EntityInputs<'_>,
+    input: &EntityDataView<'_>,
     id: Id<AssertionQualification>,
 ) -> Result<Id<crate::domain::attribution::AnalysisContext>, ModelError> {
     Ok(input
@@ -200,7 +205,7 @@ fn context(
         .ok_or_else(|| missing("assertion qualification"))?
         .context)
 }
-fn certain(input: &EntityInputs<'_>, id: Id<AssertionQualification>) -> Result<bool, ModelError> {
+fn certain(input: &EntityDataView<'_>, id: Id<AssertionQualification>) -> Result<bool, ModelError> {
     let q = input
         .qualifications
         .get(id)
@@ -214,11 +219,17 @@ pub fn normalize(
     input: EntityInputs<'_>,
     budget: &ResourceBudget,
 ) -> Result<EntityOutput, ModelError> {
+    normalize_view(&input.view(), budget)
+}
+pub fn normalize_view(
+    input: &EntityDataView<'_>,
+    budget: &ResourceBudget,
+) -> Result<EntityOutput, ModelError> {
     let mut output = EntityOutput::new(budget);
-    source_entities(&input, &mut output, budget)?;
-    symbol_entities(&input, &mut output, budget)?;
-    syntax_fields(&input, &mut output, budget)?;
-    public_entities(&input, &mut output, budget)?;
+    source_entities(input, &mut output, budget)?;
+    symbol_entities(input, &mut output, budget)?;
+    syntax_fields(input, &mut output, budget)?;
+    public_entities(input, &mut output, budget)?;
     Ok(output)
 }
 
@@ -237,22 +248,29 @@ pub fn normalize_scope(
     kernel: EntityKernel,
     budget: &ResourceBudget,
 ) -> Result<EntityOutput, ModelError> {
+    normalize_scope_view(&input.view(), kernel, budget)
+}
+pub fn normalize_scope_view(
+    input: &EntityDataView<'_>,
+    kernel: EntityKernel,
+    budget: &ResourceBudget,
+) -> Result<EntityOutput, ModelError> {
     let mut output = EntityOutput::new(budget);
     match kernel {
-        EntityKernel::Symbol => symbol_entities(&input, &mut output, budget)?,
-        EntityKernel::SyntaxField => syntax_fields(&input, &mut output, budget)?,
-        EntityKernel::Enumeration => public_entities(&input, &mut output, budget)?,
+        EntityKernel::Symbol => symbol_entities(input, &mut output, budget)?,
+        EntityKernel::SyntaxField => syntax_fields(input, &mut output, budget)?,
+        EntityKernel::Enumeration => public_entities(input, &mut output, budget)?,
         EntityKernel::Public => {
             // The public scope carries origin-matched symbols, including ambiguous alternatives.
-            symbol_entities(&input, &mut output, budget)?;
-            public_entities(&input, &mut output, budget)?;
+            symbol_entities(input, &mut output, budget)?;
+            public_entities(input, &mut output, budget)?;
         }
     }
     Ok(output)
 }
 
 fn source_entities(
-    input: &EntityInputs<'_>,
+    input: &EntityDataView<'_>,
     output: &mut EntityOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -321,7 +339,7 @@ fn source_entities(
     Ok(())
 }
 fn symbol_entities(
-    input: &EntityInputs<'_>,
+    input: &EntityDataView<'_>,
     output: &mut EntityOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -583,7 +601,7 @@ fn symbol_entities(
     Ok(())
 }
 fn syntax_fields(
-    input: &EntityInputs<'_>,
+    input: &EntityDataView<'_>,
     output: &mut EntityOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -620,7 +638,7 @@ fn syntax_fields(
     Ok(())
 }
 fn public_entities(
-    input: &EntityInputs<'_>,
+    input: &EntityDataView<'_>,
     output: &mut EntityOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -633,7 +651,7 @@ fn public_entities(
 }
 
 fn normalize_parameters(
-    input: &EntityInputs<'_>,
+    input: &EntityDataView<'_>,
     resolved: &ChargedMap<Id<ProviderSymbol>, Id<SymbolEntityResolution>>,
     output: &mut EntityOutput,
     budget: &ResourceBudget,
@@ -702,7 +720,7 @@ fn normalize_parameters(
 }
 
 fn normalize_exposures(
-    input: &EntityInputs<'_>,
+    input: &EntityDataView<'_>,
     resolved: &ChargedMap<Id<ProviderSymbol>, Id<SymbolEntityResolution>>,
     output: &mut EntityOutput,
     budget: &ResourceBudget,
@@ -974,6 +992,15 @@ pub struct PublicPathDecision {
 pub fn public_path_decision(
     input: &EntityInputs<'_>,
     output: &EntityOutput,
+    access: Id<Module>,
+    context: Id<attribution::AnalysisContext>,
+    name: &str,
+) -> Result<PublicPathDecision, ModelError> {
+    public_path_decision_view(&input.view(), &output.view(), access, context, name)
+}
+pub fn public_path_decision_view(
+    input: &EntityDataView<'_>,
+    output: &EntityOutputView<'_>,
     access: Id<Module>,
     context: Id<crate::domain::attribution::AnalysisContext>,
     name: &str,
@@ -1555,7 +1582,7 @@ impl InvariantCheck for EntityCheck {
 pub fn stage() -> stages::Stage {
     stages::Stage {
         captured_binding: None,
-name: "normalize_entities",
+        name: "normalize_entities",
         inputs: super::facts_stage_inputs(EntityData::stage_inputs()),
         outputs: super::entities::relations()
             .iter()

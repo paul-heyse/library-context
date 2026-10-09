@@ -1,4 +1,5 @@
 //! Retained declaration metadata. Recognition never admits a body, signature or equivalence.
+pub use super::rows::RowsView;
 use crate::domain::{
     calls::*,
     declarations::{ParameterDeclaration, SymbolDeclaration},
@@ -202,18 +203,24 @@ macro_rules! callable_aspect_outputs {
 }
 macro_rules! data {($($field:ident:$ty:ty,)*)=>{
     pub struct AspectData {$(pub $field:Rows<$ty>,)*}
+    #[derive(Clone, Copy)]
+    pub struct AspectDataView<'a> {$(pub $field:RowsView<'a,$ty>,)*}
     impl AspectData {pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
+        pub fn view(&self)->AspectDataView<'_> {AspectDataView {$($field:self.$field.view(),)*}}
         fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::completed::<$ty>()),*]}
     }
 };}
 crate::callable_aspect_inputs!(data);
 macro_rules! output {($($field:ident:$ty:ty,)*)=>{
     pub struct AspectOutput {$(pub $field:Rows<$ty>,)*}
+    #[derive(Clone, Copy)]
+    pub struct AspectOutputView<'a> {$(pub $field:RowsView<'a,$ty>,)*}
     impl AspectOutput {pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
+        pub fn view(&self)->AspectOutputView<'_> {AspectOutputView {$($field:self.$field.view(),)*}}
         pub fn matches(&self,other:&Self)->Result<(),ModelError> {$(if !self.$field.same(&other.$field) {return Err(invalid("callable metadata closure differs"));})*Ok(())}
     }
 };}
@@ -221,12 +228,12 @@ crate::callable_aspect_outputs!(output);
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
+fn need<'a, R: Record>(rows: &RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid("callable aspect premise absent"))
 }
 fn exact(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     q: Id<assertion::AssertionQualification>,
     context: Id<attribution::AnalysisContext>,
 ) -> Result<bool, ModelError> {
@@ -236,7 +243,7 @@ fn exact(
         && q.approximation == assertion::Approximation::Exact
         && q.condition == conditions::Diagram::always().id())
 }
-fn module_name<'a>(data: &'a AspectData, symbol: &ProviderSymbol) -> Option<&'a str> {
+fn module_name<'a>(data: &AspectDataView<'a>, symbol: &ProviderSymbol) -> Option<&'a str> {
     match data.provider_modules.get(symbol.module)? {
         ProviderModule::Acquired { module } => {
             data.modules.get(*module).map(|r| r.qualified_name.as_str())
@@ -245,11 +252,11 @@ fn module_name<'a>(data: &'a AspectData, symbol: &ProviderSymbol) -> Option<&'a 
         _ => None,
     }
 }
-fn standard_library(data: &AspectData, symbol: &ProviderSymbol, module: &str) -> bool {
+fn standard_library(data: &AspectDataView<'_>, symbol: &ProviderSymbol, module: &str) -> bool {
     matches!(data.provider_modules.get(symbol.module),Some(ProviderModule::Bundled {provider,bundle:ModuleBundle::Typeshed,name}) if *provider==symbol.provider && name==module)
 }
 fn same_span(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     left: Id<source::Occurrence>,
     right: Id<source::Occurrence>,
 ) -> Result<bool, ModelError> {
@@ -283,7 +290,7 @@ impl<'a> Iterator for SpanCandidates<'a> {
     }
 }
 impl<'a> TargetSpanIndex<'a> {
-    fn new(data: &'a AspectData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    fn new(data: &AspectDataView<'a>, budget: &ResourceBudget) -> Result<Self, ModelError> {
         // Per-target envelope includes the worst case of one B-tree key/node allowance and
         // one small vector per target, plus doubled reference-vector capacity. The fixed
         // envelope also covers the root node when it has very few entries. Reserve first.
@@ -317,7 +324,7 @@ impl<'a> TargetSpanIndex<'a> {
     }
     fn candidates(
         &self,
-        data: &AspectData,
+        data: &AspectDataView<'_>,
         expression: Id<source::Occurrence>,
     ) -> Result<SpanCandidates<'_>, ModelError> {
         let matched = if let Some(first) = self.first {
@@ -339,7 +346,7 @@ impl<'a> TargetSpanIndex<'a> {
 }
 
 fn root(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     decorator: &DeclarationDecorator,
 ) -> Result<Id<source::Occurrence>, ModelError> {
     if need(&data.occurrences, decorator.decorator)?.syntax_kind != source::SyntaxKind::Decorator {
@@ -362,7 +369,7 @@ fn root(
     Ok(first.occurrence)
 }
 fn resolution<'a>(
-    data: &'a AspectData,
+    data: &AspectDataView<'a>,
     target: &CallTarget,
     context: Id<attribution::AnalysisContext>,
 ) -> Result<Option<(&'a ProviderSymbol, &'a SymbolEntityResolution)>, ModelError> {
@@ -405,7 +412,7 @@ fn emit(
     Ok(())
 }
 fn related(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     argument: &CallArgument,
     context: Id<attribution::AnalysisContext>,
 ) -> Result<Option<Id<EntityRef>>, ModelError> {
@@ -445,7 +452,7 @@ fn related(
     }
     Ok(value)
 }
-fn pinned_fastmcp(data: &AspectData, symbol: &ProviderSymbol) -> Result<bool, ModelError> {
+fn pinned_fastmcp(data: &AspectDataView<'_>, symbol: &ProviderSymbol) -> Result<bool, ModelError> {
     let ProviderModule::Acquired { module } = need(&data.provider_modules, symbol.module)? else {
         return Ok(false);
     };
@@ -462,7 +469,7 @@ fn pinned_fastmcp(data: &AspectData, symbol: &ProviderSymbol) -> Result<bool, Mo
     Ok(false)
 }
 fn registration(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     target: &CallTarget,
     symbol: &ProviderSymbol,
     context: Id<attribution::AnalysisContext>,
@@ -566,7 +573,7 @@ fn registration(
     }
     Ok(found)
 }
-fn property_receiver(data: &AspectData, target: &CallTarget) -> Result<bool, ModelError> {
+fn property_receiver(data: &AspectDataView<'_>, target: &CallTarget) -> Result<bool, ModelError> {
     let Some(class) = target.receiver_class else {
         return Ok(false);
     };
@@ -576,7 +583,7 @@ fn property_receiver(data: &AspectData, target: &CallTarget) -> Result<bool, Mod
         && standard_library(data, class, "builtins"))
 }
 fn accessor_evidence(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     mut accept: impl FnMut(AspectSource, AspectKind, Id<EntityRef>) -> Result<(), ModelError>,
     member: &EffectiveDecoratorMember,
     expression: Id<source::Occurrence>,
@@ -718,7 +725,7 @@ fn accessor_evidence(
     Ok(())
 }
 fn accessors(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     out: &mut AspectOutput,
     member: &EffectiveDecoratorMember,
     expression: Id<source::Occurrence>,
@@ -736,7 +743,7 @@ type DecoratorPolicy = (AspectKind, Option<Id<CallArgument>>, Option<Id<EntityRe
 /// The admitted default classification for one actual field initializer. No output is minted by
 /// this predicate; production and import compare the same typed source ownership and policy.
 fn decorator_policy(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     target: &CallTarget,
     symbol: &ProviderSymbol,
     context: Id<attribution::AnalysisContext>,
@@ -795,7 +802,7 @@ fn decorator_policy(
     Ok((kind, argument, linked))
 }
 fn field_default(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     field: &FieldDeclarationLink,
     budget: &ResourceBudget,
 ) -> Result<FieldDefault, ModelError> {
@@ -892,19 +899,33 @@ pub enum AspectKernel {
     Field(Id<FieldDeclarationLink>),
     Class(Id<DeclarationObservation>),
 }
-/// Scope execution selects one declared semantic owner. The whole normalizer is diagnostic only.
+/// Owning inputs remain ingestion entry points; execution borrows their immutable rows.
 pub fn normalize_scope(
     data: &AspectData,
     kernel: AspectKernel,
     budget: &ResourceBudget,
 ) -> Result<AspectOutput, ModelError> {
-    normalize_kernel(data, Some(kernel), budget)
+    normalize_scope_view(&data.view(), kernel, budget)
 }
 pub fn normalize(data: &AspectData, budget: &ResourceBudget) -> Result<AspectOutput, ModelError> {
+    normalize_view(&data.view(), budget)
+}
+/// Scope execution selects one declared semantic owner. The whole normalizer is diagnostic only.
+pub fn normalize_scope_view(
+    data: &AspectDataView<'_>,
+    kernel: AspectKernel,
+    budget: &ResourceBudget,
+) -> Result<AspectOutput, ModelError> {
+    normalize_kernel(data, Some(kernel), budget)
+}
+pub fn normalize_view(
+    data: &AspectDataView<'_>,
+    budget: &ResourceBudget,
+) -> Result<AspectOutput, ModelError> {
     normalize_kernel(data, None, budget)
 }
 fn normalize_kernel(
-    data: &AspectData,
+    data: &AspectDataView<'_>,
     kernel: Option<AspectKernel>,
     budget: &ResourceBudget,
 ) -> Result<AspectOutput, ModelError> {
@@ -1036,11 +1057,41 @@ fn normalize_kernel(
     }
     Ok(out)
 }
-/// Necessary source/owner agreement for an advertised callable metadata property. This never
-/// builds a producer output or infers a body/signature proof from a metadata classification.
 pub fn admit_aspect(
     data: &AspectData,
     sources: &Rows<AspectSource>,
+    row: &CallableAspect,
+) -> Result<(), ModelError> {
+    admit_aspect_view(&data.view(), &sources.view(), row)
+}
+pub fn admit_default(
+    data: &AspectData,
+    defaults: &Rows<FieldDefault>,
+    row: &FieldDefaultAssessment,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    admit_default_view(&data.view(), &defaults.view(), row, budget)
+}
+/// Actual domain admission over exact borrowed inputs and advertised outputs. This checks the
+/// necessary properties; selected membership does not replace predicates or producer replay.
+pub fn admit_view(
+    data: &AspectDataView<'_>,
+    out: &AspectOutputView<'_>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    for row in out.fields.iter() {
+        admit_default_view(data, &out.defaults, row, budget)?;
+    }
+    for row in out.aspects.iter() {
+        admit_aspect_view(data, &out.sources, row)?;
+    }
+    super::symbolic_fields::admit(data, out, budget)
+}
+/// Necessary source/owner agreement for an advertised callable metadata property. This never
+/// builds a producer output or infers a body/signature proof from a metadata classification.
+pub fn admit_aspect_view(
+    data: &AspectDataView<'_>,
+    sources: &RowsView<'_, AspectSource>,
     row: &CallableAspect,
 ) -> Result<(), ModelError> {
     let assessment = need(&data.assessments, row.assessment)?;
@@ -1146,9 +1197,9 @@ pub fn admit_aspect(
     }
     Ok(())
 }
-pub fn admit_default(
-    data: &AspectData,
-    defaults: &Rows<FieldDefault>,
+pub fn admit_default_view(
+    data: &AspectDataView<'_>,
+    defaults: &RowsView<'_, FieldDefault>,
     row: &FieldDefaultAssessment,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -1171,6 +1222,16 @@ pub struct AspectScope {
     /// Advertised properties must remain admission roots even without an applicable source owner.
     pub admission_roots: Vec<ValidationInput>,
     pub memberships: Vec<(ValidationInput, &'static str, ValidationInput)>,
+}
+impl AspectScope {
+    pub fn program(
+        &self,
+        inputs: Vec<ValidationInput>,
+        model: &ValidatedModel,
+        budget: &ResourceBudget,
+    ) -> Result<super::aspect_program::AspectProgram, ModelError> {
+        super::aspect_program::build(self, inputs, model, budget)
+    }
 }
 pub fn scoped_inputs() -> Vec<ValidationInput> {
     super::facts_inputs(AspectData::inputs())
@@ -1338,13 +1399,7 @@ impl InvariantCheck for AdmissionCheck {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        for row in self.out.fields.iter() {
-            admit_default(&self.data, &self.out.defaults, row, &self.budget)?;
-        }
-        for row in self.out.aspects.iter() {
-            admit_aspect(&self.data, &self.out.sources, row)?;
-        }
-        super::symbolic_fields::admit(&self.data, &self.out, &self.budget)
+        admit_view(&self.data.view(), &self.out.view(), &self.budget)
     }
 }
 pub fn invariants() -> Vec<Invariant> {
@@ -1404,7 +1459,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
         captured_binding: None,
-name: "normalize_callable_aspects",
+        name: "normalize_callable_aspects",
         inputs: crate::domain::normalized::facts_stage_inputs(inputs),
         outputs: relations()
             .iter()
@@ -1482,12 +1537,14 @@ mod span_index_controls {
         expression: Id<source::Occurrence>,
     ) -> Result<Vec<Id<CallTarget>>, ModelError> {
         index
-            .candidates(data, expression)?
-            .filter_map(|target| match same_span(data, target.site, expression) {
-                Ok(true) => Some(Ok(target.id())),
-                Ok(false) => None,
-                Err(error) => Some(Err(error)),
-            })
+            .candidates(&data.view(), expression)?
+            .filter_map(
+                |target| match same_span(&data.view(), target.site, expression) {
+                    Ok(true) => Some(Ok(target.id())),
+                    Ok(false) => None,
+                    Err(error) => Some(Err(error)),
+                },
+            )
             .collect()
     }
     #[test]
@@ -1520,16 +1577,16 @@ mod span_index_controls {
         target(&mut data, other, 2);
         expected.sort();
         let retained = budget.reserved();
-        let index = TargetSpanIndex::new(&data, &budget).unwrap();
+        let index = TargetSpanIndex::new(&data.view(), &budget).unwrap();
         assert_eq!(scan(&index, &data, expression).unwrap(), expected);
         assert!(scan(&index, &data, nominal(99)).is_err());
         drop(index);
         assert_eq!(budget.reserved(), retained);
         // An absent target premise is retained, including when it cannot be bucketed.
         target(&mut data, nominal(99), 2);
-        let index = TargetSpanIndex::new(&data, &budget).unwrap();
+        let index = TargetSpanIndex::new(&data.view(), &budget).unwrap();
         assert!(scan(&index, &data, expression).is_err());
-        let actual = index.candidates(&data, expression);
+        let actual = index.candidates(&data.view(), expression);
         if let Ok(actual) = actual {
             let ids = actual.map(Record::id).collect::<Vec<_>>();
             assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
@@ -1541,12 +1598,12 @@ mod span_index_controls {
         drop(index);
         let tiny = ResourceBudget::fixed(1).unwrap();
         assert!(matches!(
-            TargetSpanIndex::new(&data, &tiny),
+            TargetSpanIndex::new(&data.view(), &tiny),
             Err(ModelError::Resource { .. })
         ));
         assert_eq!(tiny.reserved(), 0);
         let empty = AspectData::new(&budget);
-        let index = TargetSpanIndex::new(&empty, &budget).unwrap();
+        let index = TargetSpanIndex::new(&empty.view(), &budget).unwrap();
         assert!(scan(&index, &empty, nominal(99)).unwrap().is_empty());
     }
 }
@@ -1728,6 +1785,37 @@ mod bounded_admission_controls {
         data
     }
     #[test]
+    fn borrowed_kernels_and_admission_preserve_selected_premises_and_outputs() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let data = finite_fixture(&budget);
+        let whole = normalize(&data, &budget).unwrap();
+        whole
+            .matches(&normalize_view(&data.view(), &budget).unwrap())
+            .unwrap();
+        admit_view(&data.view(), &whole.view(), &budget).unwrap();
+        let field = data.fields.iter().next().unwrap();
+        let selected = [field.id()];
+        let _selection = budget
+            .reserve("aspect-view-selection-control", size_of_val(&selected))
+            .unwrap();
+        let mut view = data.view();
+        view.fields = RowsView::selected(&data.fields, &selected).unwrap();
+        let kernel = AspectKernel::Field(field.id());
+        let expected = normalize_scope(&data, kernel, &budget).unwrap();
+        let actual = normalize_scope_view(&view, kernel, &budget).unwrap();
+        actual.matches(&expected).unwrap();
+        assert_eq!(actual.fields.len(), 1);
+        admit_view(&view, &actual.view(), &budget).unwrap();
+        // A hydrated premise outside a selected view cannot satisfy a required lookup.
+        view.field_syntax = RowsView::selected(&data.field_syntax, &[]).unwrap();
+        assert!(normalize_scope_view(&view, kernel, &budget).is_err());
+        assert!(admit_view(&view, &actual.view(), &budget).is_err());
+        // Advertised rows still require their selected typed sources in actual admission.
+        let mut advertised = whole.view();
+        advertised.sources = RowsView::selected(&whole.sources, &[]).unwrap();
+        assert!(admit_view(&data.view(), &advertised, &budget).is_err());
+    }
+    #[test]
     fn scoped_kernels_preserve_the_actual_whole_normalizer_oracle() {
         let budget = ResourceBudget::fixed(4 << 20).unwrap();
         let data = finite_fixture(&budget);
@@ -1751,7 +1839,7 @@ mod bounded_admission_controls {
         }
         actual.matches(&expected).unwrap();
         assert_eq!(actual.symbolic_classes.len(), 1);
-        super::super::symbolic_fields::admit(&data, &actual, &budget).unwrap();
+        super::super::symbolic_fields::admit(&data.view(), &actual.view(), &budget).unwrap();
         for row in actual.fields.iter() {
             admit_default(&data, &actual.defaults, row, &budget).unwrap();
         }
@@ -1794,12 +1882,15 @@ mod bounded_admission_controls {
         aspect = out.aspects.iter().next().unwrap().clone();
         aspect.kind = AspectKind::FastMcpTool;
         assert!(admit_aspect(&data, &out.sources, &aspect).is_err());
-        super::super::symbolic_fields::admit(&data, &out, &budget).unwrap();
+        super::super::symbolic_fields::admit(&data.view(), &out.view(), &budget).unwrap();
         let mut advertised = AspectOutput::new(&budget);
         let mut class = out.symbolic_classes.iter().next().unwrap().clone();
         class.supported_record = true;
         advertised.symbolic_classes.insert(class).unwrap();
-        assert!(super::super::symbolic_fields::admit(&data, &advertised, &budget).is_err());
+        assert!(
+            super::super::symbolic_fields::admit(&data.view(), &advertised.view(), &budget)
+                .is_err()
+        );
         drop(advertised);
         drop(out);
         drop(data);

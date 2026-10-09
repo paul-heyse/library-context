@@ -9,12 +9,12 @@ use crate::domain::{
     calls::*,
     declarations::*,
     lexical::*,
-    normalized::{
-        Rows,
-        callable_aspects::{AspectData, AspectOutput, FieldDefault},
+    normalized::callable_aspects::{
+        AspectDataView, AspectOutput, AspectOutputView, FieldDefault, RowsView,
     },
     obligation::ObligationKind,
     resources::ResourceBudget,
+    scope_program::body_contains,
     source::*,
     symbols::*,
     syntax::*,
@@ -117,7 +117,11 @@ pub struct SourceFieldReaderLink {
     #[model(key, premise)]
     pub reader: Id<SourceFieldReader>,
 }
-fn exact(d: &AspectData, id: Id<AssertionQualification>, context: Id<AnalysisContext>) -> bool {
+fn exact(
+    d: &AspectDataView<'_>,
+    id: Id<AssertionQualification>,
+    context: Id<AnalysisContext>,
+) -> bool {
     d.qualifications.get(id).is_some_and(|q| {
         q.context == context
             && q.modality == Modality::Definite
@@ -125,7 +129,7 @@ fn exact(d: &AspectData, id: Id<AssertionQualification>, context: Id<AnalysisCon
             && q.condition == conditions::Diagram::always().id()
     })
 }
-fn same(d: &AspectData, a: Id<Occurrence>, b: Id<Occurrence>) -> bool {
+fn same(d: &AspectDataView<'_>, a: Id<Occurrence>, b: Id<Occurrence>) -> bool {
     d.occurrences
         .get(a)
         .zip(d.occurrences.get(b))
@@ -168,9 +172,9 @@ macro_rules! lexical_supports { ($($ty:ty),* $(,)?) => {$(
 )*}; }
 lexical_supports!(LexicalResolutionSupport, ReferenceSupport, BindingSupport);
 fn source<R: Assertion, S: SourceSupport<Assertion = R>>(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     row: &R,
-    supports: &Rows<S>,
+    supports: &RowsView<'_, S>,
     context: Id<AnalysisContext>,
 ) -> bool {
     supports
@@ -186,7 +190,7 @@ fn source<R: Assertion, S: SourceSupport<Assertion = R>>(
         })
 }
 fn symbol_for(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     occurrence: Id<Occurrence>,
     context: Id<AnalysisContext>,
 ) -> Option<Id<ProviderSymbol>> {
@@ -201,12 +205,12 @@ fn symbol_for(
     }
     Some(first.symbol)
 }
-fn method(
-    d: &AspectData,
+fn method<'a>(
+    d: &AspectDataView<'a>,
     function: Id<Occurrence>,
     class: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
-) -> Option<&FunctionTraitObservation> {
+) -> Option<&'a FunctionTraitObservation> {
     if d.decorators
         .iter()
         .any(|r| same(d, r.declaration, function))
@@ -232,11 +236,11 @@ fn method(
     }
     Some(row)
 }
-fn receiver(
-    d: &AspectData,
+fn receiver<'a>(
+    d: &AspectDataView<'a>,
     function: Id<Occurrence>,
     context: Id<AnalysisContext>,
-) -> Option<&ParameterSyntaxObservation> {
+) -> Option<&'a ParameterSyntaxObservation> {
     let mut rows = d.symbolic_parameter_syntax.iter().filter(|r| {
         same(d, r.function, function)
             && r.ordinal == 0
@@ -250,7 +254,7 @@ fn receiver(
     Some(first)
 }
 fn formal_read(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     read: Id<Occurrence>,
     parameter: Id<Occurrence>,
     context: Id<AnalysisContext>,
@@ -290,12 +294,12 @@ fn formal_read(
     }
     found
 }
-fn child(
-    d: &AspectData,
+fn child<'a>(
+    d: &AspectDataView<'a>,
     parent: Id<Occurrence>,
     field: SyntaxField,
     context: Id<AnalysisContext>,
-) -> Option<&SyntaxPlacement> {
+) -> Option<&'a SyntaxPlacement> {
     let mut rows = d.placements.iter().filter(|p| {
         p.parent.is_some_and(|p| same(d, p, parent))
             && p.field == field
@@ -309,7 +313,7 @@ fn child(
     Some(row)
 }
 fn attribute(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     site: Id<Occurrence>,
     receiver: &ParameterSyntaxObservation,
     context: Id<AnalysisContext>,
@@ -352,18 +356,13 @@ fn attribute(
     }
     name
 }
-fn contains(d: &AspectData, outer: Id<Occurrence>, inner: Id<Occurrence>) -> bool {
+fn contains(d: &AspectDataView<'_>, outer: Id<Occurrence>, inner: Id<Occurrence>) -> bool {
     d.occurrences
         .get(outer)
         .zip(d.occurrences.get(inner))
-        .is_some_and(|(a, b)| {
-            a.source == b.source
-                && a.start <= b.start
-                && a.end >= b.end
-                && b.structural_path.starts_with(&a.structural_path)
-        })
+        .is_some_and(|(a, b)| body_contains(a, b))
 }
-fn covered(d: &AspectData, class: Id<Occurrence>, context: Id<AnalysisContext>) -> bool {
+fn covered(d: &AspectDataView<'_>, class: Id<Occurrence>, context: Id<AnalysisContext>) -> bool {
     let Some(o) = d.occurrences.get(class) else {
         return false;
     };
@@ -392,17 +391,19 @@ fn covered(d: &AspectData, class: Id<Occurrence>, context: Id<AnalysisContext>) 
 }
 /// Compact nominal dependency preparation. The digest includes the complete class body and
 /// its declared memberships/coverage, never an unrelated sibling merely sharing an input.
+type ClassInventoryNode = ((&'static str, [u8; 16]), ContentHash, usize);
 struct ClassInventory<'a> {
-    data: &'a AspectData,
-    nodes: Vec<((&'static str, [u8; 16]), ContentHash)>,
-    indices: std::collections::BTreeMap<(&'static str, [u8; 16]), usize>,
-    edges: Vec<Vec<usize>>,
-    body_members: std::collections::BTreeMap<[u8; 16], Vec<usize>>,
+    data: AspectDataView<'a>,
+    nodes: Vec<ClassInventoryNode>,
+    graph: crate::domain::finite_scope::FiniteScope<'a>,
+    class_root: usize,
+    symbol_root: usize,
+    declaration_root: usize,
     budget: ResourceBudget,
     _reservation: Box<dyn crate::domain::resources::Reservation>,
 }
 impl<'a> ClassInventory<'a> {
-    fn prepare(d: &'a AspectData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    fn prepare(d: &AspectDataView<'a>, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut count = 0usize;
         let mut references = 0usize;
         macro_rules! count_rows {($($field:ident:$ty:ty,)*)=>{$(
@@ -410,73 +411,49 @@ impl<'a> ClassInventory<'a> {
             for row in d.$field.iter(){let _scratch=budget.reserve("source-class-reference-count",row.row_bytes().saturating_mul(16).saturating_add(4096))?;references=references.saturating_add(row.references().len());}
         )*};}
         crate::callable_aspect_inputs!(count_rows);
-        // Admits compact nodes, BTree bookkeeping, forward/reverse adjacency and one-row
-        // reference scratch before allocation. No labels, source bodies or rich rows are copied.
         let reservation = budget.reserve(
             "source-class-inventory",
             count
-                .saturating_mul(512)
-                .saturating_add(references.saturating_mul(256))
-                .saturating_add(1024),
+                .saturating_mul(1024)
+                .saturating_add(references.saturating_mul(384))
+                .saturating_add(4096),
         )?;
+        let model = crate::domain::model()?;
+        let semantic = super::aspect_program::class_inventory_program(
+            super::callable_aspects::scoped_inputs(),
+            &model,
+            budget,
+        )?;
+        let inputs = &semantic.program.inputs;
+        let mut finite = (0..inputs.len()).map(|_| Vec::new()).collect::<Vec<_>>();
         let mut nodes = Vec::with_capacity(count);
-        let mut indices = std::collections::BTreeMap::new();
         macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(
-            for row in d.$field.iter(){let key=(<$ty>::NAME,*row.id().bytes());indices.insert(key,nodes.len());nodes.push((key,row.content_digest()));}
+            let port=inputs.iter().position(|i|i.type_id()==std::any::TypeId::of::<$ty>()).ok_or(ModelError::Schema("class inventory input absent"))?;
+            for row in d.$field.iter(){
+                let mut value=crate::domain::finite_scope::FiniteScopeRow::of(row);
+                let any:&dyn std::any::Any=row;
+                if let Some(occurrence)=any.downcast_ref::<Occurrence>(){value=value.with_occurrence(occurrence);}
+                if let Some(declaration)=any.downcast_ref::<DeclarationObservation>(){value=value.with_code("kind",declaration.kind as i16);}
+                finite[port].push(value);nodes.push(((<$ty>::NAME,*row.id().bytes()),row.content_digest(),port));
+            }
         )*};}
         crate::callable_aspect_inputs!(rows);
-        let mut edges = vec![Vec::new(); count];
-        let mut body_members: std::collections::BTreeMap<[u8; 16], Vec<usize>> =
-            std::collections::BTreeMap::new();
-        let mut memberships = super::callable_aspects::aspect_scope()
-            .memberships
-            .into_iter()
-            .map(|(member, field, owner)| (member.name(), field, owner.name()))
-            .collect::<Vec<_>>();
-        for invariant in crate::domain::model()?.invariants() {
-            let check = (invariant.create)(budget);
-            if let Some(scope) = check.support_scope() {
-                memberships.push((scope.support.name(), "assertion", scope.assertion.name()));
-            }
-        }
-        macro_rules! dependencies {($($field:ident:$ty:ty,)*)=>{$(
-            let scalar_occurrences=<$ty>::fields().into_iter().filter(|field| !field.list() && field.target().is_some_and(|(_,name)|name==Occurrence::NAME)).map(|field|field.name()).collect::<Vec<_>>();
-            for row in d.$field.iter(){
-                let source=indices[&(<$ty>::NAME,*row.id().bytes())];
-                for reference in row.references(){
-                    if let Some(&target)=indices.get(&(reference.target,reference.key)){
-                        edges[source].push(target);
-                        if memberships.iter().any(|(member,field,owner)|*member==<$ty>::NAME && *field==reference.field && *owner==reference.target){edges[target].push(source);}
-                    }
-                    if reference.target==Occurrence::NAME && scalar_occurrences.contains(&reference.field){body_members.entry(reference.key).or_default().push(source);}
-                }
-            }
-        )*};}
-        crate::callable_aspect_inputs!(dependencies);
-        // Complete provider coverage is owned by qualification scope AND context.
-        let mut coverage_by_owner = std::collections::BTreeMap::new();
-        for coverage in d.symbolic_coverage.iter() {
-            coverage_by_owner
-                .entry((coverage.scope, coverage.context))
-                .or_insert_with(Vec::new)
-                .push(indices[&(ProviderCoverage::NAME, *coverage.id().bytes())]);
-        }
-        for q in d.qualifications.iter() {
-            let source = indices[&(AssertionQualification::NAME, *q.id().bytes())];
-            if let Some(coverage) = coverage_by_owner.get(&(q.scope, q.context)) {
-                edges[source].extend(coverage);
-            }
-        }
-        for targets in &mut edges {
-            targets.sort_unstable();
-            targets.dedup();
-        }
+        let class_root = semantic.class_root;
+        let symbol_root = semantic.symbol_root;
+        let declaration_root = semantic.declaration_root;
+        let graph = crate::domain::finite_scope::FiniteScope::new(
+            semantic.program,
+            finite,
+            &model,
+            budget,
+        )?;
         Ok(Self {
-            data: d,
+            data: *d,
             nodes,
-            indices,
-            edges,
-            body_members,
+            graph,
+            class_root,
+            symbol_root,
+            declaration_root,
             budget: budget.clone(),
             _reservation: reservation,
         })
@@ -487,90 +464,46 @@ impl<'a> ClassInventory<'a> {
         context: Id<AnalysisContext>,
         symbol: Id<ProviderSymbol>,
     ) -> Result<ContentHash, ModelError> {
-        let _scratch = self.budget.reserve(
-            "source-class-owner-inventory",
-            self.nodes.len().saturating_mul(32).saturating_add(1024),
-        )?;
-        let mut seen = vec![false; self.nodes.len()];
-        let mut pending = Vec::new();
-        fn enqueue(index: usize, seen: &mut [bool], pending: &mut Vec<usize>) {
-            if !seen[index] {
-                seen[index] = true;
-                pending.push(index);
-            }
-        }
-        let seed = |key: (&'static str, [u8; 16]), seen: &mut [bool], pending: &mut Vec<usize>| {
-            if let Some(&index) = self.indices.get(&key) {
-                enqueue(index, seen, pending);
-            }
-        };
-        seed((Occurrence::NAME, *class.bytes()), &mut seen, &mut pending);
-        seed(
-            (ProviderSymbol::NAME, *symbol.bytes()),
-            &mut seen,
-            &mut pending,
-        );
-        for declaration in self.data.declarations.iter().filter(|r| {
-            r.declaration == class
-                && r.kind == DeclarationKind::Class
-                && self
-                    .data
-                    .qualifications
-                    .get(r.qualification)
-                    .is_some_and(|q| q.context == context)
-        }) {
-            seed(
-                (DeclarationObservation::NAME, *declaration.id().bytes()),
-                &mut seen,
-                &mut pending,
-            );
-        }
-        if let Some(owner) = self.data.occurrences.get(class) {
-            for row in self.data.occurrences.iter().filter(|row| {
-                row.source == owner.source
-                    && row.start >= owner.start
-                    && row.end <= owner.end
-                    && row.structural_path.starts_with(&owner.structural_path)
-            }) {
-                seed(
-                    (Occurrence::NAME, *row.id().bytes()),
-                    &mut seen,
-                    &mut pending,
-                );
-                if let Some(members) = self.body_members.get(row.id().bytes()) {
-                    for &index in members {
-                        enqueue(index, &mut seen, &mut pending);
-                    }
-                }
-            }
-        }
-        for field in self.data.fields.iter().filter(|field| {
+        let mut charge = charged::StateCharge::new(&self.budget, "source-class-owner-selection");
+        charge.grow(
             self.data
-                .field_syntax
-                .get(field.declaration)
-                .is_some_and(|syntax| syntax.class == class)
+                .declarations
+                .len()
+                .saturating_mul(64)
+                .saturating_add(4096),
+        )?;
+        let mut roots = vec![
+            (self.class_root, *class.bytes()),
+            (self.symbol_root, *symbol.bytes()),
+        ];
+        for declaration in self.data.declarations.iter().filter(|r| {
+            super::aspect_program::class_declaration_owner(
+                r,
+                self.data.qualifications.get(r.qualification),
+                class,
+                context,
+            )
         }) {
-            seed(
-                (
-                    super::entities::FieldDeclarationLink::NAME,
-                    *field.id().bytes(),
-                ),
-                &mut seen,
-                &mut pending,
-            );
+            roots.push((self.declaration_root, *declaration.id().bytes()));
         }
-        while let Some(index) = pending.pop() {
-            for &next in &self.edges[index] {
-                enqueue(next, &mut seen, &mut pending);
+        let partitions = self.graph.select(
+            &roots,
+            &crate::domain::scope_program::ScopeParameters(vec![]),
+            &self.budget,
+        )?;
+        let mut selected = charged::ChargedSet::default();
+        for partition in partitions.partitions() {
+            for &key in partition {
+                selected.insert(&mut charge, key)?;
             }
         }
         let mut sink = KeySink::new("source-field-class-owner-inventory-v2");
         class.encode(&mut sink);
         context.encode(&mut sink);
         symbol.encode(&mut sink);
-        // Declaration macro order and nominal ID order remain canonical within the owner set.
-        for (index, ((relation, id), digest)) in self.nodes.iter().enumerate() {
-            if seen[index] {
+        // Keep the original declaration-macro and nominal ID order for the inventory digest.
+        for ((relation, id), digest, port) in &self.nodes {
+            if selected.contains(&(*port, *id)) {
                 sink.part(b"relation", relation.as_bytes());
                 sink.part(b"id", id);
                 digest.encode(&mut sink);
@@ -581,7 +514,7 @@ impl<'a> ClassInventory<'a> {
 }
 
 fn plain_init(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     function: Id<Occurrence>,
     symbol: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
@@ -665,7 +598,11 @@ fn plain_init(
     }
     true
 }
-fn spelling(d: &AspectData, site: Id<Occurrence>, context: Id<AnalysisContext>) -> Option<&str> {
+fn spelling<'a>(
+    d: &AspectDataView<'a>,
+    site: Id<Occurrence>,
+    context: Id<AnalysisContext>,
+) -> Option<&'a str> {
     let rows = d
         .spellings
         .iter()
@@ -681,11 +618,11 @@ fn spelling(d: &AspectData, site: Id<Occurrence>, context: Id<AnalysisContext>) 
     }
     Some(first.spelling.as_str())
 }
-fn literal(
-    d: &AspectData,
+fn literal<'a>(
+    d: &AspectDataView<'a>,
     site: Id<Occurrence>,
     context: Id<AnalysisContext>,
-) -> Option<&value::Literal> {
+) -> Option<&'a value::Literal> {
     let rows = d
         .details
         .iter()
@@ -705,7 +642,7 @@ fn literal(
     d.symbolic_literals.get(*literal)
 }
 fn standard_import(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     site: Id<Occurrence>,
     name: &str,
     context: Id<AnalysisContext>,
@@ -835,7 +772,7 @@ fn standard_import(
         })
 }
 fn standard_target(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     site: Id<Occurrence>,
     name: &str,
     context: Id<AnalysisContext>,
@@ -873,11 +810,11 @@ fn standard_target(
             && matches!(d.provider_modules.get(s.module), Some(ProviderModule::Bundled { provider, bundle: ModuleBundle::Typeshed, name }) if *provider == s.provider && name == "dataclasses")
     })
 }
-fn arguments(
-    d: &AspectData,
+fn arguments<'a>(
+    d: &AspectDataView<'a>,
     site: Id<Occurrence>,
     context: Id<AnalysisContext>,
-) -> Option<Vec<&CallArgument>> {
+) -> Option<Vec<&'a CallArgument>> {
     let mut calls = d.calls.iter().filter(|c| same(d, c.site, site));
     let call = calls.next()?;
     if calls.next().is_some()
@@ -897,7 +834,7 @@ fn arguments(
     Some(arguments)
 }
 fn decorator_options(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     decorator: &DeclarationDecorator,
     context: Id<AnalysisContext>,
 ) -> Option<(bool, bool)> {
@@ -941,11 +878,11 @@ fn decorator_options(
 // Synthesized initializer metadata supplies a source-field shape, never a source body.
 // Its native completeness receipt replaces the source enumeration that does not exist for
 // generated functions; exact slot replay still detects omission and reordered membership.
-fn generated_initializer_parameters(
-    d: &AspectData,
+fn generated_initializer_parameters<'a>(
+    d: &AspectDataView<'a>,
     symbol: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
-) -> Option<Vec<&SignatureParameter>> {
+) -> Option<Vec<&'a SignatureParameter>> {
     let mut signatures = d
         .symbolic_signatures
         .iter()
@@ -1025,11 +962,11 @@ fn generated_initializer_parameters(
     }
     Some(parameters)
 }
-fn initializer(
-    d: &AspectData,
+fn initializer<'a>(
+    d: &AspectDataView<'a>,
     class: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
-) -> Option<&FunctionTraitObservation> {
+) -> Option<&'a FunctionTraitObservation> {
     let mut rows = d.traits.iter().filter(|t| {
         t.defining_class == Some(class)
             && d.symbols
@@ -1052,11 +989,11 @@ fn initializer(
     Some(first)
 }
 fn field_default(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     syntax: &ClassFieldSyntaxObservation,
     field: &RecordFieldObservation,
     context: Id<AnalysisContext>,
-    out: &AspectOutput,
+    out: &AspectOutputView<'_>,
 ) -> bool {
     let links = d
         .fields
@@ -1105,7 +1042,7 @@ fn field_default(
     })
 }
 fn direct_member(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     class: Id<Occurrence>,
     node: Id<Occurrence>,
     context: Id<AnalysisContext>,
@@ -1122,11 +1059,11 @@ fn direct_member(
         && source(d, rows[0], &d.symbolic_placement_supports, context)
 }
 fn record_gate(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     class: Id<Occurrence>,
     symbol: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
-    out: &AspectOutput,
+    out: &AspectOutputView<'_>,
 ) -> Option<ObligationKind> {
     if !covered(d, class, context) {
         return Some(ObligationKind::IncompleteCoverage);
@@ -1375,8 +1312,8 @@ fn record_gate(
 /// Necessary fidelity and ownership of declared source-field properties. Classification helpers
 /// are shared with the writer; admission never regenerates a normalization output inventory.
 pub(super) fn admit(
-    d: &AspectData,
-    out: &AspectOutput,
+    d: &AspectDataView<'_>,
+    out: &AspectOutputView<'_>,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
     if out.symbolic_classes.len()
@@ -1616,14 +1553,14 @@ pub(super) fn admit(
     Ok(())
 }
 pub(super) fn normalize(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     out: &mut AspectOutput,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
     normalize_owner(d, out, None, b)
 }
 pub(super) fn normalize_class(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     out: &mut AspectOutput,
     owner: Id<DeclarationObservation>,
     b: &ResourceBudget,
@@ -1631,7 +1568,7 @@ pub(super) fn normalize_class(
     normalize_owner(d, out, Some(owner), b)
 }
 fn normalize_owner(
-    d: &AspectData,
+    d: &AspectDataView<'_>,
     out: &mut AspectOutput,
     owner: Option<Id<DeclarationObservation>>,
     b: &ResourceBudget,
@@ -1693,7 +1630,7 @@ fn normalize_owner(
             .expect("prepared inventory")
             .for_class(class, q.context, symbol)?;
         let reason = if traits.dataclass && !traits.synthesized {
-            record_gate(d, class, symbol, q.context, out)
+            record_gate(d, class, symbol, q.context, &out.view())
         } else {
             Some(ObligationKind::IncompleteDomain)
         };
@@ -1869,6 +1806,7 @@ fn normalize_owner(
 #[cfg(test)]
 mod inventory_controls {
     use super::*;
+    use crate::domain::normalized::callable_aspects::AspectData;
     fn nominal<T>(value: u8) -> Id<T> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
             _,
@@ -1893,7 +1831,7 @@ mod inventory_controls {
         let symbol = nominal(3);
         data.occurrences.insert(owner).unwrap();
         let digest = |data: &AspectData| {
-            ClassInventory::prepare(data, &budget)
+            ClassInventory::prepare(&data.view(), &budget)
                 .unwrap()
                 .for_class(class, context, symbol)
                 .unwrap()
@@ -1912,6 +1850,21 @@ mod inventory_controls {
             })
             .unwrap();
         assert_eq!(before, digest(&data));
+        {
+            let selected = [class];
+            let _selection = budget
+                .reserve("source-class-view-control", size_of_val(&selected))
+                .unwrap();
+            let mut view = data.view();
+            view.occurrences = RowsView::selected(&data.occurrences, &selected).unwrap();
+            assert_eq!(
+                before,
+                ClassInventory::prepare(&view, &budget)
+                    .unwrap()
+                    .for_class(class, context, symbol)
+                    .unwrap()
+            );
+        }
         let member = Occurrence {
             source: nominal(4),
             start: 3,
@@ -1930,12 +1883,12 @@ mod inventory_controls {
         assert_ne!(added, digest(&data));
         let rows_usage = budget.reserved();
         {
-            let _prepared = ClassInventory::prepare(&data, &budget).unwrap();
+            let _prepared = ClassInventory::prepare(&data.view(), &budget).unwrap();
         }
         assert_eq!(budget.reserved(), rows_usage);
         let tiny = ResourceBudget::fixed(1).unwrap();
         assert!(matches!(
-            ClassInventory::prepare(&data, &tiny),
+            ClassInventory::prepare(&data.view(), &tiny),
             Err(ModelError::Resource { .. })
         ));
         assert_eq!(tiny.reserved(), 0);

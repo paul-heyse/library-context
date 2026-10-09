@@ -2,14 +2,14 @@
 use super::{
     entities::ResolutionStatus,
     links::*,
-    relation_normalization::{RelationData, RelationOutput},
+    relation_normalization::{RelationDataView, RelationOutput},
 };
 use crate::domain::{
     assertion::*, attribution::*, resources::ResourceBudget, ruff::*, source::*, *,
 };
 use std::collections::BTreeMap;
 fn context(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     q: Id<AssertionQualification>,
 ) -> Result<Id<AnalysisContext>, ModelError> {
     data.facts
@@ -19,7 +19,7 @@ fn context(
         .ok_or_else(|| ModelError::Invalid("native lexical qualification missing".into()))
 }
 fn supported(
-    data: &RelationData,
+    data: &RelationDataView<'_>,
     q: Id<AssertionQualification>,
     subject: Id<Occurrence>,
     attribution: Option<SupportAttribution>,
@@ -81,8 +81,8 @@ fn supported(
                 occurrence: subject,
             })
 }
-pub(super) fn characterize(
-    data: &RelationData,
+pub(super) fn characterize_view(
+    data: &RelationDataView<'_>,
     out: &mut RelationOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {

@@ -1,17 +1,21 @@
 //! ClassOf is an expression-relative receiver operation, never an instance identity or runtime class.
 use super::{
-    Rows, callables::*, entities::*, policy_revision, signature_applicability::ScopeCatalog,
+    Rows, RowsView, callables::*, entities::*, policy_revision,
+    signature_applicability::ScopeCatalogView,
 };
 use crate::domain::charged::{ChargedMap, StateCharge};
 use crate::domain::{assertion::*, attribution::*, calls::*, source::*, syntax::*, *};
 use crate::{Domain, DomainCode, DomainSum};
-trait Source<R: Record> {
-    fn rows(&self) -> &Rows<R>;
+trait Source<'a, R: Record> {
+    fn rows(&self) -> RowsView<'a, R>;
 }
 macro_rules! input { ($($field:ident: $ty:ty,)*) => {
     pub struct ReceiverData { $(pub $field: Rows<$ty>,)* }
-    $(impl Source<$ty> for ReceiverData { fn rows(&self)->&Rows<$ty> { &self.$field } })*
+        #[derive(Clone, Copy)]
+        pub struct ReceiverDataView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+    $(impl<'a> Source<'a, $ty> for ReceiverDataView<'a> { fn rows(&self) -> RowsView<'a, $ty> { self.$field } })*
     impl ReceiverData {
+            pub fn view(&self) -> ReceiverDataView<'_> { ReceiverDataView { $($field: self.$field.view(),)* } }
         pub fn new(budget:&resources::ResourceBudget)->Self {Self { $($field: Rows::new(budget),)* }}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)}
         pub fn validation_inputs()->Vec<ValidationInput> {super::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*])}
@@ -21,10 +25,14 @@ macro_rules! input { ($($field:ident: $ty:ty,)*) => {
 crate::normalized_receiver_inputs!(input);
 macro_rules! output { ($($field:ident: $ty:ty,)*) => {
     pub struct ReceiverOutput { $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct ReceiverOutputView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        impl ReceiverOutputView<'_> { pub fn matches(&self, expected: &ReceiverOutput) -> Result<(), ModelError> { $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("receiver closure differs: {}", <$ty>::NAME))); })* Ok(()) } }
     impl ReceiverOutput {
+            pub fn view(&self) -> ReceiverOutputView<'_> { ReceiverOutputView { $($field: self.$field.view(),)* } }
         pub fn new(budget:&resources::ResourceBudget)->Self {Self { $($field: Rows::new(budget),)* }}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)}
-        pub fn matches(&self,other:&Self)->Result<(),ModelError> {$(if !self.$field.same(&other.$field) {return Err(ModelError::Invalid(format!("receiver closure differs: {}",<$ty>::NAME)));})* Ok(())}
+        pub fn matches(&self,other:&Self)->Result<(),ModelError> { self.view().matches(other) }
         pub fn validation_inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
     }
 }; }
@@ -192,17 +200,21 @@ impl VerifiedReceivers {
         self.proofs.get(&target)
     }
 }
-fn scopes(data: &ReceiverData) -> ScopeCatalog<'_> {
-    ScopeCatalog {
-        scopes: &data.scopes,
-        artifacts: &data.artifacts,
-        modules: &data.modules,
+fn scopes<'a>(data: &ReceiverDataView<'a>) -> ScopeCatalogView<'a> {
+    ScopeCatalogView {
+        scopes: data.scopes,
+        artifacts: data.artifacts,
+        modules: data.modules,
     }
 }
 fn exact(q: &AssertionQualification) -> bool {
     q.modality == Modality::Definite && q.approximation == Approximation::Exact
 }
-fn frame(data: &ReceiverData, q: &AssertionQualification, other: &AssertionQualification) -> bool {
+fn frame(
+    data: &ReceiverDataView<'_>,
+    q: &AssertionQualification,
+    other: &AssertionQualification,
+) -> bool {
     q.context == other.context
         && q.condition == other.condition
         && scopes(data).input(q.scope).is_some()
@@ -211,7 +223,7 @@ fn frame(data: &ReceiverData, q: &AssertionQualification, other: &AssertionQuali
         && q.approximation == Approximation::Exact
         && exact(other)
 }
-fn candidates(data: &ReceiverData, target: &CallTarget) -> bool {
+fn candidates(data: &ReceiverDataView<'_>, target: &CallTarget) -> bool {
     target.passing == Some(ReceiverPassing::Object)
         && target.class_method == Some(true)
         && target.static_method != Some(true)
@@ -221,7 +233,7 @@ fn candidates(data: &ReceiverData, target: &CallTarget) -> bool {
         )
 }
 fn known_descriptor<'a>(
-    data: &'a ReceiverData,
+    data: &ReceiverDataView<'a>,
     target: &CallTarget,
     q: &AssertionQualification,
 ) -> Option<&'a EffectiveCallableAssessment> {
@@ -260,7 +272,7 @@ fn known_descriptor<'a>(
     Some(a)
 }
 fn support_frame(
-    data: &ReceiverData,
+    data: &ReceiverDataView<'_>,
     s: Option<SupportAttribution>,
     q: &AssertionQualification,
     family: FactFamily,
@@ -320,7 +332,11 @@ fn support_frame(
 }
 // Native calls and canonical syntax have independent providers. Compose their exact
 // receipts only within one input, analysis context and extraction configuration.
-fn same_source_frame(data: &ReceiverData, left: Id<ProviderRun>, right: Id<ProviderRun>) -> bool {
+fn same_source_frame(
+    data: &ReceiverDataView<'_>,
+    left: Id<ProviderRun>,
+    right: Id<ProviderRun>,
+) -> bool {
     data.runs
         .get(left)
         .zip(data.runs.get(right))
@@ -331,7 +347,7 @@ fn same_source_frame(data: &ReceiverData, left: Id<ProviderRun>, right: Id<Provi
         })
 }
 fn derive(
-    data: &ReceiverData,
+    data: &ReceiverDataView<'_>,
     target: &CallTarget,
     premises: &mut Vec<ReceiverPremise>,
 ) -> Result<ReceiverAssessment, ReceiverReason> {
@@ -514,7 +530,7 @@ fn derive(
 }
 /// Owner-produced compact admissions for the complete selected receiver candidate domain.
 fn collect_native_premises(
-    data: &ReceiverData,
+    data: &ReceiverDataView<'_>,
     target: &CallTarget,
     premises: &mut Vec<ReceiverPremise>,
 ) {
@@ -565,10 +581,22 @@ pub fn normalize_produced(
     data: &ReceiverData,
     budget: &resources::ResourceBudget,
 ) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
+    normalize_produced_view(&data.view(), budget)
+}
+pub fn normalize_produced_view(
+    data: &ReceiverDataView<'_>,
+    budget: &resources::ResourceBudget,
+) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
     normalize_targets(data, None, budget)
 }
 pub fn normalize(
     data: &ReceiverData,
+    budget: &resources::ResourceBudget,
+) -> Result<ReceiverOutput, ModelError> {
+    normalize_view(&data.view(), budget)
+}
+pub fn normalize_view(
+    data: &ReceiverDataView<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<ReceiverOutput, ModelError> {
     Ok(normalize_targets(data, None, budget)?.0)
@@ -580,14 +608,28 @@ pub fn normalize_target(
     target: Id<CallTarget>,
     budget: &resources::ResourceBudget,
 ) -> Result<ReceiverOutput, ModelError> {
+    normalize_target_view(&data.view(), target, budget)
+}
+pub fn normalize_target_view(
+    data: &ReceiverDataView<'_>,
+    target: Id<CallTarget>,
+    budget: &resources::ResourceBudget,
+) -> Result<ReceiverOutput, ModelError> {
     if data.targets.get(target).is_none() {
         return Err(ModelError::Invalid("receiver root target absent".into()));
     }
-    Ok(normalize_target_produced(data, target, budget)?.0)
+    Ok(normalize_target_produced_view(data, target, budget)?.0)
 }
 /// Capture the applicable receiver at the actual owning derivation, without a second prepare.
 pub fn normalize_target_produced(
     data: &ReceiverData,
+    target: Id<CallTarget>,
+    budget: &resources::ResourceBudget,
+) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
+    normalize_target_produced_view(&data.view(), target, budget)
+}
+pub fn normalize_target_produced_view(
+    data: &ReceiverDataView<'_>,
     target: Id<CallTarget>,
     budget: &resources::ResourceBudget,
 ) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
@@ -597,7 +639,7 @@ pub fn normalize_target_produced(
     normalize_targets(data, Some(target), budget)
 }
 fn normalize_targets(
-    data: &ReceiverData,
+    data: &ReceiverDataView<'_>,
     selected: Option<Id<CallTarget>>,
     budget: &resources::ResourceBudget,
 ) -> Result<(ReceiverOutput, VerifiedReceivers), ModelError> {
@@ -699,21 +741,28 @@ pub fn verify(
     stored: &ReceiverOutput,
     budget: &resources::ResourceBudget,
 ) -> Result<VerifiedReceivers, ModelError> {
-    stored.matches(&normalize(data, budget)?)?;
+    verify_view(&data.view(), &stored.view(), budget)
+}
+pub fn verify_view(
+    data: &ReceiverDataView<'_>,
+    stored: &ReceiverOutputView<'_>,
+    budget: &resources::ResourceBudget,
+) -> Result<VerifiedReceivers, ModelError> {
+    stored.matches(&normalize_view(data, budget)?)?;
     if stored
         .receiver_assessments
         .iter()
         .any(|r| matches!(r, ReceiverAssessment::ClassOf { .. }))
     {
-        let mut input = super::callable_normalization::CallableData::new(budget);
-        let mut output = super::callable_normalization::CallableOutput::new(budget);
-        macro_rules! inputs {($($field:ident: $ty:ty,)*)=>{$(for row in <ReceiverData as Source<$ty>>::rows(data).iter(){input.$field.insert(row.clone())?;})*};}
-        macro_rules! outputs {($($field:ident: $ty:ty,)*)=>{$(for row in <ReceiverData as Source<$ty>>::rows(data).iter(){output.$field.insert(row.clone())?;})*};}
-        crate::normalized_callable_inputs!(inputs);
-        crate::normalized_callable_outputs!(outputs);
-        output.matches(&super::callable_normalization::normalize(&input, budget)?)?;
+        macro_rules! input {($($field:ident: $ty:ty,)*)=>{super::callable_normalization::CallableDataView { $($field:<ReceiverDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+        macro_rules! output {($($field:ident: $ty:ty,)*)=>{super::callable_normalization::CallableOutputView { $($field:<ReceiverDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+        let inputs = crate::normalized_callable_inputs!(input);
+        let outputs = crate::normalized_callable_outputs!(output);
+        outputs.matches(&super::callable_normalization::normalize_view(
+            &inputs, budget,
+        )?)?;
     }
-    prepare(data, stored, budget)
+    prepare_view(data, stored, budget)
 }
 
 /// Admit expression-relative receiver applicability from completed checked callable inputs.
@@ -723,11 +772,18 @@ pub fn admit(
     stored: &ReceiverOutput,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    prepare(data, stored, budget).map(|_| ())
+    admit_view(&data.view(), &stored.view(), budget)
 }
-pub(super) fn prepare(
-    data: &ReceiverData,
-    stored: &ReceiverOutput,
+pub fn admit_view(
+    data: &ReceiverDataView<'_>,
+    stored: &ReceiverOutputView<'_>,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
+    prepare_view(data, stored, budget).map(|_| ())
+}
+pub(super) fn prepare_view(
+    data: &ReceiverDataView<'_>,
+    stored: &ReceiverOutputView<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<VerifiedReceivers, ModelError> {
     let mut result = VerifiedReceivers {
@@ -883,7 +939,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
     stages::Stage {
         captured_binding: None,
-name: "normalize_receivers",
+        name: "normalize_receivers",
         inputs: super::facts_stage_inputs(inputs),
         outputs: relations()
             .iter()
@@ -951,9 +1007,9 @@ impl InvariantCheck for Check {
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         if self.admission {
-            return prepare(&self.input, &self.output, &self.budget).map(|_| ());
+            return prepare_view(&self.input.view(), &self.output.view(), &self.budget).map(|_| ());
         }
-        verify(&self.input, &self.output, &self.budget).map(|_| ())
+        verify_view(&self.input.view(), &self.output.view(), &self.budget).map(|_| ())
     }
 }
 
@@ -966,7 +1022,9 @@ pub(crate) fn invariants_refs() -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::signature_applicability::{Application, BindingAuthority, establish};
+    use super::super::signature_applicability::{
+        Application, BindingAuthority, ScopeCatalog, establish,
+    };
     use super::*;
     use std::collections::BTreeMap;
     #[test]

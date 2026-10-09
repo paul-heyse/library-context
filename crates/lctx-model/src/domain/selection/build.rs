@@ -119,6 +119,30 @@ impl Data {
         }
         self.source.visit_input(input, b)
     }
+    /// Preserve each finite member/witness domain while sharing one decoded batch union.
+    pub fn selected_copy(
+        &self,
+        inputs: &[ValidationInput],
+        contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut selected = Self::new(budget);
+        selected.source = self.source.selected_copy(inputs, contains, budget)?;
+        macro_rules! copy_evidence{($($field:ident:$ty:ty,)*)=>{$(c1::build::copy_selected_rows(&self.evidence.$field,&mut selected.evidence.$field,inputs,None,contains)?;)*};}
+        crate::catalog_evidence_outputs!(copy_evidence);
+        macro_rules! copy_facts{($($field:ident:$ty:ty,)*)=>{$(c1::build::copy_selected_rows(&self.facts.$field,&mut selected.facts.$field,inputs,None,contains)?;)*};}
+        crate::catalog_selection_inputs!(copy_facts);
+        if let Some(table) = inputs.iter().position(|input| {
+            input.type_id() == std::any::TypeId::of::<input::DistributionVerification>()
+        }) {
+            for (id, release) in self.verification_releases.iter() {
+                if contains(table, *id.bytes())? {
+                    selected.insert_verification(*id, *release)?;
+                }
+            }
+        }
+        Ok(selected)
+    }
     pub fn consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
         Self::inputs()
     }
@@ -1133,7 +1157,7 @@ pub fn stage(
     )?;
     Ok(Stage {
         captured_binding: None,
-name: "catalog_selection",
+        name: "catalog_selection",
         inputs,
         outputs,
         contributes: vec![],
@@ -1193,6 +1217,43 @@ mod compact_ownership_controls {
         );
         assert!(data.source.facts.verifications.is_empty());
         drop(data);
+        assert_eq!(budget.reserved(), 0);
+    }
+}
+#[cfg(test)]
+mod selected_copy_controls {
+    use super::*;
+    fn nominal<T>(value: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([value; 16].into_iter()))
+        .unwrap()
+    }
+    #[test]
+    fn selected_copy_preserves_only_selected_compact_distribution_ownership() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut union = Data::new(&budget);
+        let selected_id = nominal(1);
+        let excluded = nominal(2);
+        let release = nominal(3);
+        union.insert_verification(selected_id, release).unwrap();
+        union.insert_verification(excluded, nominal(4)).unwrap();
+        let inputs = vec![ValidationInput::of::<input::DistributionVerification>(&[
+            "id",
+        ])];
+        let data = union
+            .selected_copy(
+                &inputs,
+                &mut |table, key| Ok(table == 0 && key == *selected_id.bytes()),
+                &budget,
+            )
+            .unwrap();
+        assert_eq!(data.verification_releases.len(), 1);
+        assert_eq!(data.verification_releases.get(&selected_id), Some(&release));
+        assert!(data.verification_releases.get(&excluded).is_none());
+        drop(data);
+        drop(union);
         assert_eq!(budget.reserved(), 0);
     }
 }

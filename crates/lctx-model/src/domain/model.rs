@@ -1,20 +1,22 @@
 use super::{ContentHash, Field, KeySink, ModelError, Record};
 use arrow_schema::SchemaRef;
-use std::{any::TypeId, collections::HashSet};
+use std::{any::TypeId, collections::HashSet, sync::Arc};
 
+/// Immutable executable declaration metadata is shared by physical bindings and compiled scopes.
+/// Cloning a relation acquires another owner; it never copies field/arm/proof inventories.
 #[derive(Debug, Clone)]
 pub struct Relation {
     type_id: TypeId,
     name: &'static str,
-    fields: Vec<Field>,
-    invariant_refs: Vec<&'static str>,
-    publication_refs: Vec<&'static str>,
-    required: Vec<(TypeId, &'static str)>,
-    sum: Option<super::Sum>,
-    derivation: Option<super::derivation::Derivation>,
+    fields: Arc<[Field]>,
+    invariant_refs: Arc<[&'static str]>,
+    publication_refs: Arc<[&'static str]>,
+    required: Arc<[(TypeId, &'static str)]>,
+    sum: Option<Arc<super::Sum>>,
+    derivation: Option<Arc<super::derivation::Derivation>>,
     schema: SchemaRef,
     family: Option<super::attribution::FactFamily>,
-    projection_roles: Vec<super::projection::EndpointRole>,
+    projection_roles: Arc<[super::projection::EndpointRole]>,
     validate: fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
     proofs: fn(&arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>, ModelError>,
     hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
@@ -24,22 +26,22 @@ impl Relation {
         Self {
             type_id: TypeId::of::<R>(),
             name: R::NAME,
-            fields: R::fields(),
-            invariant_refs: R::invariant_refs(),
-            publication_refs: R::publication_refs(),
-            required: R::required_relations(),
-            sum: R::sum(),
-            derivation: R::derivation(),
+            fields: R::fields().into(),
+            invariant_refs: R::invariant_refs().into(),
+            publication_refs: R::publication_refs().into(),
+            required: R::required_relations().into(),
+            sum: R::sum().map(Arc::new),
+            derivation: R::derivation().map(Arc::new),
             schema: R::schema(),
             family: R::family(),
-            projection_roles: R::projection_roles(),
+            projection_roles: R::projection_roles().into(),
             validate: canonical::<R>,
             hash_rows: hash_rows::<R>,
             proofs: proofs::<R>,
         }
     }
     pub fn derivation(&self) -> Option<&super::derivation::Derivation> {
-        self.derivation.as_ref()
+        self.derivation.as_deref()
     }
     pub fn name(&self) -> &'static str {
         self.name
@@ -75,7 +77,7 @@ impl Relation {
             .collect()
     }
     pub fn sum(&self) -> Option<&super::Sum> {
-        self.sum.as_ref()
+        self.sum.as_deref()
     }
     pub fn fields(&self) -> &[Field] {
         &self.fields
@@ -345,7 +347,7 @@ impl ValidatedModel {
         for relation in &relations {
             digest.part(b"relation", relation.name.as_bytes());
             let mut roles = HashSet::new();
-            for role in &relation.projection_roles {
+            for role in relation.projection_roles.iter() {
                 if role.relation() != relation.name || !roles.insert(*role) {
                     return Err(ModelError::Invalid(format!(
                         "invalid projection role on {}",
@@ -354,7 +356,7 @@ impl ValidatedModel {
                 }
                 digest.part(b"projection-role", &(*role as i16).to_le_bytes());
             }
-            for (type_id, name) in &relation.required {
+            for (type_id, name) in relation.required.iter() {
                 if !relations
                     .iter()
                     .any(|r| r.type_id == *type_id && r.name == *name)
@@ -368,7 +370,7 @@ impl ValidatedModel {
             }
             let mut fields = HashSet::from(["id", "generation_id"]);
             let mut has_key = false;
-            for field in &relation.fields {
+            for field in relation.fields.iter() {
                 if !identifier(field.name())
                     || field.name().starts_with("__")
                     || !fields.insert(field.name())
@@ -1004,4 +1006,47 @@ pub trait PublicationCheck: Send + Sync {
         sources: &[super::analysis::sources::SourceSnapshot],
         profile: super::stages::Profile,
     ) -> Result<(), ModelError>;
+}
+
+#[cfg(test)]
+mod relation_metadata_controls {
+    use super::*;
+    #[test]
+    fn immutable_relation_clones_share_all_declaration_storage_and_keep_model_identity() {
+        let relation = Relation::of::<super::super::types::TypeTerm>();
+        let clone = relation.clone();
+        assert!(Arc::ptr_eq(&relation.fields, &clone.fields));
+        assert!(Arc::ptr_eq(&relation.invariant_refs, &clone.invariant_refs));
+        assert!(Arc::ptr_eq(
+            &relation.publication_refs,
+            &clone.publication_refs
+        ));
+        assert!(Arc::ptr_eq(&relation.required, &clone.required));
+        assert!(Arc::ptr_eq(
+            &relation.projection_roles,
+            &clone.projection_roles
+        ));
+        assert!(Arc::ptr_eq(
+            relation.sum.as_ref().unwrap(),
+            clone.sum.as_ref().unwrap()
+        ));
+        assert!(Arc::ptr_eq(&relation.schema, &clone.schema));
+        let owner = super::super::model().unwrap();
+        let before = owner.digest();
+        let proof = owner
+            .relations()
+            .iter()
+            .find(|r| r.derivation.is_some())
+            .expect("model has declared proofs");
+        let copy = proof.clone();
+        assert!(Arc::ptr_eq(
+            proof.derivation.as_ref().unwrap(),
+            copy.derivation.as_ref().unwrap()
+        ));
+        drop(relation);
+        drop(owner);
+        assert!(!clone.fields().is_empty());
+        assert!(copy.derivation().is_some());
+        assert_eq!(before, super::super::model().unwrap().digest());
+    }
 }

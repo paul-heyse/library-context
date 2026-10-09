@@ -75,6 +75,62 @@ impl ScopeIndex {
         }
         Ok(true)
     }
+    pub(crate) fn copy_selected_into(
+        &self,
+        target: &mut Self,
+        selected: &mut dyn FnMut(std::any::TypeId, [u8; 16]) -> Result<bool, ModelError>,
+    ) -> Result<(), ModelError> {
+        use std::any::TypeId;
+        for (id, value) in self.sources.iter() {
+            if selected(TypeId::of::<SourceArtifact>(), *id.bytes())? {
+                target.sources.insert(&mut target.charge, *id, *value)?;
+            }
+        }
+        for (id, value) in self.modules.iter() {
+            if selected(TypeId::of::<Module>(), *id.bytes())? {
+                target.modules.insert(&mut target.charge, *id, *value)?;
+            }
+        }
+        for &(corpus, library) in self.corpus.iter() {
+            let id = CorpusLibrary { corpus, library }.id();
+            if selected(TypeId::of::<CorpusLibrary>(), *id.bytes())? {
+                target
+                    .corpus
+                    .insert(&mut target.charge, (corpus, library))?;
+            }
+        }
+        for &(input, release) in self.distributions.iter() {
+            let ids = [
+                super::input::DistributionRole::FirstParty,
+                super::input::DistributionRole::Dependency,
+            ]
+            .map(|role| {
+                InputDistribution {
+                    input,
+                    release,
+                    role,
+                }
+                .id()
+            });
+            if selected(TypeId::of::<InputDistribution>(), *ids[0].bytes())?
+                || selected(TypeId::of::<InputDistribution>(), *ids[1].bytes())?
+            {
+                target
+                    .distributions
+                    .insert(&mut target.charge, (input, release))?;
+            }
+        }
+        for (id, row) in self.scopes.iter() {
+            if selected(TypeId::of::<CoverageScope>(), *id.bytes())? {
+                let _scratch = target.charge.budget().expect("scope budget").reserve(
+                    "selected-scope-clone",
+                    size_of::<CoverageScope>().saturating_add(row.heap_bytes()),
+                )?;
+                target.scopes.insert(&mut target.charge, *id, row.clone())?;
+            }
+        }
+        Ok(())
+    }
     pub fn scope(&self, id: Id<CoverageScope>) -> Result<&CoverageScope, ModelError> {
         self.scopes
             .get(&id)

@@ -65,6 +65,32 @@ impl EvidenceData {
             ))),
         }
     }
+    /// Copy one exact selected partition into charged builder-owned premises. The union
+    /// was decoded once; facts and later qualification epochs retain separate membership.
+    pub fn selected_copy(
+        &self,
+        inputs: &[ValidationInput],
+        contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut selected = Self::new(budget);
+        macro_rules! copy_core{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.core.$field,&mut selected.core.$field,inputs,None,contains)?;)*};}
+        crate::catalog_inputs!(copy_core);
+        macro_rules! copy_catalog{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.catalog.$field,&mut selected.catalog.$field,inputs,None,contains)?;)*};}
+        crate::catalog_outputs!(copy_catalog);
+        macro_rules! copy_facts{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.facts.$field,&mut selected.facts.$field,inputs,None,contains)?;)*};}
+        crate::catalog_evidence_inputs!(copy_facts);
+        macro_rules! copy_runtime{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.runtime.$field,&mut selected.runtime.$field,inputs,None,contains)?;)*};}
+        crate::catalog_runtime_inputs!(copy_runtime);
+        copy_selected_rows(
+            &self.local_qualifications,
+            &mut selected.local_qualifications,
+            inputs,
+            Some(PublicationBoundary::Local),
+            contains,
+        )?;
+        Ok(selected)
+    }
     pub fn consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
         Self::inputs()
     }
@@ -85,6 +111,33 @@ impl EvidenceData {
         rows.dedup_by_key(|r| (r.name(), r.prefix()));
         rows
     }
+}
+/// Copy only actual hydrated rows, preserving the nominal JOIN realization of absent keys.
+pub(crate) fn copy_selected_rows<R: Record>(
+    source: &Rows<R>,
+    target: &mut Rows<R>,
+    inputs: &[ValidationInput],
+    epoch: Option<PublicationBoundary>,
+    contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+) -> Result<(), ModelError> {
+    let prefix = epoch.or_else(|| is_vocabulary(R::NAME).then_some(PublicationBoundary::Facts));
+    let mut bindings = inputs.iter().enumerate().filter(|(_, input)| {
+        input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
+    });
+    let Some((table, _)) = bindings.next() else {
+        return Ok(());
+    };
+    if bindings.next().is_some() {
+        return Err(ModelError::Conflict(
+            "selected copy immutable namespace ambiguity",
+        ));
+    }
+    for row in source.iter() {
+        if contains(table, *row.id().bytes())? {
+            target.insert_borrowed(row)?;
+        }
+    }
+    Ok(())
 }
 macro_rules! data {($($f:ident:$ty:ty,)*)=>{
  pub struct EvidenceFacts {$(pub $f:Rows<$ty>,)*}
@@ -1123,7 +1176,7 @@ pub fn stage(
     )?;
     Ok(Stage {
         captured_binding: None,
-name: "catalog_evidence",
+        name: "catalog_evidence",
         inputs,
         outputs,
         contributes: vec![],
@@ -1156,4 +1209,51 @@ pub(crate) fn invocation_invariants_refs() -> Vec<&'static str> {
     let mut refs = vec!["catalog_evidence_invocation_closure"];
     refs.extend(super::frames::invariants_refs());
     refs
+}
+#[cfg(test)]
+mod selected_copy_controls {
+    use super::*;
+    fn nominal<T>(value: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([value; 16].into_iter()))
+        .unwrap()
+    }
+    #[test]
+    fn selected_copy_keeps_facts_and_local_qualification_membership_separate() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut union = EvidenceData::new(&budget);
+        let qualification = |context| assertion::AssertionQualification {
+            context,
+            scope: nominal(2),
+            condition: conditions::Diagram::always().id(),
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            modality: Modality::Definite,
+            approximation: assertion::Approximation::Exact,
+        };
+        let facts = qualification(nominal(3));
+        let local = qualification(nominal(4));
+        union.core.qualifications.insert_borrowed(&facts).unwrap();
+        union.local_qualifications.insert_borrowed(&local).unwrap();
+        let inputs = vec![
+            ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+                .at_epoch(PublicationBoundary::Facts),
+            ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+                .at_epoch(PublicationBoundary::Local),
+        ];
+        let selected = union
+            .selected_copy(
+                &inputs,
+                &mut |table, key| Ok(table == 1 && key == *local.id().bytes()),
+                &budget,
+            )
+            .unwrap();
+        assert!(selected.core.qualifications.is_empty());
+        assert_eq!(selected.local_qualifications.get(local.id()), Some(&local));
+        assert!(selected.local_qualifications.get(facts.id()).is_none());
+        drop(selected);
+        drop(union);
+        assert_eq!(budget.reserved(), 0);
+    }
 }

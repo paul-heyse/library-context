@@ -1,5 +1,5 @@
 //! C2 declaration domains consume completed C0/C1 receipts independently of optional behavior.
-use crate::consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier};
+use crate::consumed_rows::{ClosureTable, PreparedEdges, identifier};
 use crate::producer_operations::{self, Declaration};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use datafusion::execution::context::SessionContext;
@@ -97,45 +97,6 @@ fn load_inventory<'a, 'sources>(
         Ok(())
     })
 }
-type ScopedLoader = for<'a> fn(
-    &'a SelectionScopes,
-    &'a CompletedInputs,
-    &'a crate::consumed_rows::PreparedClosure,
-    &'a mut crate::consumed_rows::ConsumedInputs,
-    &'a mut Data,
-) -> BoxFuture<'a, Result<(), ModelError>>;
-fn load_scoped<'a, R: Record>(
-    scopes: &'a SelectionScopes,
-    access: &'a CompletedInputs,
-    scope: &'a crate::consumed_rows::PreparedClosure,
-    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
-    data: &'a mut Data,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    Box::pin(async move {
-        while let Some((input, permit)) = consumed.next::<R>(access)? {
-            let table = scopes
-                .inputs
-                .iter()
-                .position(|candidate| {
-                    candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
-                })
-                .ok_or(ModelError::Conflict("C2 scoped declaration"))?;
-            crate::consumed_rows::stream_query_at(
-                &permit,
-                &input,
-                access,
-                scope.session(),
-                &scope.select(table)?,
-                |_, batch| {
-                    data.visit_input(&input, batch)?;
-                    Ok(())
-                },
-            )
-            .await?;
-        }
-        Ok(())
-    })
-}
 fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelError>> {
     Box::pin(async move {
         let mut declarations: Vec<Declaration> = Vec::new();
@@ -169,46 +130,13 @@ struct SelectionScopes {
     inputs: Vec<ValidationInput>,
     edges: PreparedEdges,
     member: usize,
+    _charge: charged::StateCharge,
 }
 fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
     inputs
         .iter()
         .position(|input| input.type_id() == TypeId::of::<R>())
         .ok_or(ModelError::Schema("C2 declared scope relation absent"))
-}
-fn target(
-    inputs: &[ValidationInput],
-    source: usize,
-    kind: TypeId,
-) -> Result<Option<usize>, ModelError> {
-    let candidates: Vec<_> = inputs
-        .iter()
-        .enumerate()
-        .filter(|(_, input)| input.type_id() == kind)
-        .map(|(index, _)| index)
-        .collect();
-    if candidates.len() <= 1 {
-        return Ok(candidates.first().copied());
-    }
-    let prefix = if kind == TypeId::of::<assertion::AssertionQualification>() {
-        Some(
-            if inputs[source].type_id() == TypeId::of::<local_fields::FieldLocation>() {
-                stages::PublicationBoundary::Local
-            } else {
-                stages::PublicationBoundary::Facts
-            },
-        )
-    } else {
-        inputs[source].prefix()
-    };
-    let selected: Vec<_> = candidates
-        .into_iter()
-        .filter(|index| inputs[*index].prefix() == prefix)
-        .collect();
-    if selected.len() != 1 {
-        return Err(ModelError::Conflict("C2 dependency immutable epoch"));
-    }
-    Ok(selected.first().copied())
 }
 impl SelectionScopes {
     async fn prepare(
@@ -230,257 +158,55 @@ impl SelectionScopes {
                 })
             })
             .collect::<Result<_, ModelError>>()?;
-        Self::prepare_bound(inputs, tables, session, budget).await
+        Self::prepare_bound(inputs, tables, session, budget, model).await
     }
     async fn prepare_bound(
         inputs: Vec<ValidationInput>,
         tables: Vec<ClosureTable>,
         session: &SessionContext,
         budget: &resources::ResourceBudget,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
-        let member_table = typed::<catalog::CatalogMember>(&inputs)?;
+        let mut charge = charged::StateCharge::new(budget, "C2-scope-descriptors");
+        charge.grow(inputs.capacity() * 512)?;
         let member_link = typed::<catalog::CatalogMemberInvocation>(&inputs)?;
-        let core_invocation = typed::<analysis::catalog_core::Invocation>(&inputs)?;
         let occurrence = typed::<source::Occurrence>(&inputs)?;
+        let member = tables.len();
         let mut bindings = tables.clone();
-        let member = bindings.len();
-        bindings.push(tables[member_link].clone());
-        let head = bindings.len();
-        bindings.push(tables[occurrence].clone());
-        let mut plan = NominalClosure::new(bindings)?;
-        plan.pairs(
-            member,
-            member_link,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                identifier(&tables[member_link].alias)
-            ),
-        )?;
-        let memberships = build::memberships();
-        for (source, table) in tables.iter().enumerate() {
-            for field in table.relation.fields() {
-                let Some((kind, _)) = field.target() else {
-                    continue;
-                };
-                let Some(to) = target(&inputs, source, kind)? else {
-                    continue;
-                };
-                let values = if field.list() {
-                    format!("UNNEST({})", identifier(field.name()))
-                } else {
-                    identifier(field.name())
-                };
-                plan.pairs(
-                    source,
-                    to,
-                    format!(
-                        "SELECT id AS source_id,{values} AS target_id FROM {}",
-                        identifier(&table.alias)
-                    ),
-                )?;
-                if memberships.contains(&(table.relation.type_id(), field.name()))
-                    && table.relation.type_id()
-                        != TypeId::of::<catalog::evidence::FieldAccessAssessment>()
-                {
-                    if kind == TypeId::of::<catalog::CatalogMember>() {
-                        if table.relation.type_id()
-                            == TypeId::of::<catalog::CatalogMemberInvocation>()
-                        {
-                            continue;
-                        }
-                        let (joins, predicate) = if table.relation.type_id()
-                            == TypeId::of::<catalog::CatalogExposure>()
-                        {
-                            (
-                                format!(
-                                    " JOIN {} e ON r.exposure=e.id",
-                                    identifier(
-                                        &tables[typed::<normalized::entities::PublicExposure>(
-                                            &inputs
-                                        )?]
-                                        .alias
-                                    )
-                                ),
-                                "e.context=i.context",
-                            )
-                        } else if table.relation.type_id()
-                            == TypeId::of::<catalog::CatalogCallable>()
-                        {
-                            (
-                                format!(
-                                    " JOIN {} a ON r.assessment=a.id",
-                                    identifier(
-                                        &tables[typed::<
-                                            normalized::callables::EffectiveCallableAssessment,
-                                        >(&inputs)?]
-                                        .alias
-                                    )
-                                ),
-                                "a.context=i.context",
-                            )
-                        } else if table.relation.type_id()
-                            == TypeId::of::<catalog::evidence::ScenarioAssociation>()
-                        {
-                            let q = target(
-                                &inputs,
-                                source,
-                                TypeId::of::<assertion::AssertionQualification>(),
-                            )?
-                            .ok_or(ModelError::Schema("C2 scenario context"))?;
-                            (
-                                format!(
-                                    " JOIN {} q ON r.qualification=q.id",
-                                    identifier(&tables[q].alias)
-                                ),
-                                "q.context=i.context",
-                            )
-                        } else if table.relation.type_id()
-                            == TypeId::of::<catalog::evidence::DocumentAssociation>()
-                        {
-                            let candidate =
-                                typed::<normalized::links::MentionEntityCandidate>(&inputs)?;
-                            let assessment =
-                                typed::<normalized::links::MentionEntityAssessment>(&inputs)?;
-                            let mention = typed::<documents::DocumentMentionObservation>(&inputs)?;
-                            let q = target(
-                                &inputs,
-                                mention,
-                                TypeId::of::<assertion::AssertionQualification>(),
-                            )?
-                            .ok_or(ModelError::Schema("C2 mention context"))?;
-                            (
-                                format!(
-                                    " JOIN {} c ON r.candidate=c.id JOIN {} a ON c.assessment=a.id JOIN {} o ON a.observation=o.id JOIN {} q ON o.qualification=q.id",
-                                    identifier(&tables[candidate].alias),
-                                    identifier(&tables[assessment].alias),
-                                    identifier(&tables[mention].alias),
-                                    identifier(&tables[q].alias)
-                                ),
-                                "q.context=i.context",
-                            )
-                        } else {
-                            (String::new(), "TRUE")
-                        };
-                        plan.pairs(member,source,format!("SELECT l.id AS source_id,r.id AS target_id FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} r ON r.{}=l.member{joins} WHERE {predicate}",identifier(&tables[member_link].alias),identifier(&tables[core_invocation].alias),identifier(&table.alias),identifier(field.name())))?;
-                    } else {
-                        plan.pairs(
-                            to,
-                            source,
-                            format!(
-                                "SELECT {} AS source_id,id AS target_id FROM {}",
-                                identifier(field.name()),
-                                identifier(&table.alias)
-                            ),
-                        )?;
-                    }
-                }
-            }
-        }
-        // Coverage closure includes every fixed C0/C1 receipt in this member's input/context,
-        // including scopes with no declaration roots. The model filters the exact context.
-        for kind in [
-            TypeId::of::<analysis::catalog_core::Invocation>(),
-            TypeId::of::<analysis::catalog_evidence::Invocation>(),
-        ] {
-            let to = inputs
-                .iter()
-                .position(|input| input.type_id() == kind)
-                .ok_or(ModelError::Schema("C2 fixed frame scope"))?;
-            plan.pairs(member,to,format!("SELECT l.id AS source_id,i.id AS target_id FROM {} l JOIN {} m ON l.member=m.id JOIN {} c ON l.invocation=c.id JOIN {} i ON m.input=i.input AND c.context=i.context",identifier(&tables[member_link].alias),identifier(&tables[member_table].alias),identifier(&tables[core_invocation].alias),identifier(&tables[to].alias)))?;
-        }
-        for kind in [
-            TypeId::of::<analysis::catalog_core::AnalysisCoverage>(),
-            TypeId::of::<analysis::catalog_evidence::AnalysisCoverage>(),
-        ] {
-            let from = inputs
-                .iter()
-                .position(|input| input.type_id() == kind)
-                .ok_or(ModelError::Schema("C2 coverage scope"))?;
-            let field = tables[from]
-                .relation
-                .fields()
-                .iter()
-                .find(|field| field.name() == "invocation")
-                .ok_or(ModelError::Schema("C2 coverage invocation"))?;
-            let to = target(
-                &inputs,
-                from,
-                field
-                    .target()
-                    .ok_or(ModelError::Schema("C2 nominal coverage invocation"))?
-                    .0,
-            )?
-            .ok_or(ModelError::Schema("C2 coverage invocation owner"))?;
-            plan.own(from, "invocation", to)?;
-        }
-        let access = typed::<catalog::evidence::FieldAccessAssessment>(&inputs)?;
-        let option = typed::<catalog::CatalogOption>(&inputs)?;
-        let q = target(
-            &inputs,
-            access,
-            TypeId::of::<assertion::AssertionQualification>(),
-        )?
-        .ok_or(ModelError::Schema("C2 access context"))?;
-        plan.pairs(member,access,format!("SELECT l.id AS source_id,a.id AS target_id FROM {} l JOIN {} i ON l.invocation=i.id JOIN {} o ON o.member=l.member JOIN {} a ON a.option=o.id JOIN {} q ON a.qualification=q.id WHERE q.context=i.context",identifier(&tables[member_link].alias),identifier(&tables[core_invocation].alias),identifier(&tables[option].alias),identifier(&tables[access].alias),identifier(&tables[q].alias)))?;
-        // Decorator head syntax is its own namespace. Following a parent into ordinary syntax
-        // must not open the enclosing declaration's body or sibling statements.
-        let decorator = typed::<syntax::DeclarationDecorator>(&inputs)?;
-        plan.pairs(
-            decorator,
-            head,
-            format!(
-                "SELECT id AS source_id,decorator AS target_id FROM {}",
-                identifier(&tables[decorator].alias)
-            ),
-        )?;
-        plan.pairs(
-            head,
-            occurrence,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                identifier(&tables[occurrence].alias)
-            ),
-        )?;
-        let placement = typed::<syntax::SyntaxPlacement>(&inputs)?;
-        let syntax = format!(
-            "SELECT parent AS source_id,id AS target_id FROM {} WHERE field IN ({},{})",
-            identifier(&tables[placement].alias),
-            lexical::SyntaxField::Child as i16,
-            lexical::SyntaxField::Callee as i16
-        );
-        plan.pairs(head, placement, syntax)?;
-        plan.pairs(
-            placement,
-            head,
-            format!(
-                "SELECT id AS source_id,occurrence AS target_id FROM {} WHERE field IN ({},{})",
-                identifier(&tables[placement].alias),
-                lexical::SyntaxField::Child as i16,
-                lexical::SyntaxField::Callee as i16
-            ),
+        bindings.extend([tables[member_link].clone(), tables[occurrence].clone()]);
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = catalog_scope_program::selection(inputs.clone(), &relations, budget)?;
+        let plan = crate::scope_compilation::lower_compiled(
+            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            &bindings,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
         )?;
         let edges = plan.prepare(session, budget).await?;
         Ok(Self {
             inputs,
             edges,
             member,
+            _charge: charge,
         })
     }
-    async fn load(
+    async fn union(
         &self,
-        access: &CompletedInputs,
-        scope: &crate::consumed_rows::PreparedClosure,
-        budget: &resources::ResourceBudget,
+        selected: &crate::consumed_rows::PreparedRootBatch,
+        runtime: &Workspace,
     ) -> Result<Data, ModelError> {
-        let mut data = Data::new(budget);
-        let mut consumed = crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget)?;
-        let mut loaders: Vec<ScopedLoader> = Vec::new();
-        macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(loaders.push(load_scoped::<$ty>);)*};}
-        decoder_inputs!(scoped);
-        for loader in loaders {
-            loader(self, access, scope, &mut consumed, &mut data).await?;
-        }
-        consumed.finish(access.name())?;
+        let mut data = Data::new(runtime.budget());
+        crate::scoped_batch::hydrate_union(
+            selected,
+            &self.inputs,
+            runtime.budget(),
+            &runtime.cancellation(),
+            &mut |_, input, batch| data.visit_input(input, batch).map(|_| ()),
+        )
+        .await?;
         Ok(data)
     }
 }
@@ -537,6 +263,72 @@ fn publish_coverage<'a, 'sources>(
         output.push(invocation.clone()).await?;
         Ok(())
     })
+}
+type MemberDemand = (
+    crate::consumed_rows::PreparedRoot,
+    Id<catalog::CatalogMember>,
+    Id<attribution::AnalysisContext>,
+);
+async fn member_batch(
+    scopes: &SelectionScopes,
+    window: &[MemberDemand],
+    runtime: &Workspace,
+    output: &ProducerOutput,
+    invocations: &Rows<Invocation>,
+) -> Result<(), ModelError> {
+    let _roots = runtime.budget().reserve(
+        "C2-member-root-transfer",
+        window.len() * size_of::<crate::consumed_rows::PreparedRoot>(),
+    )?;
+    let roots = window.iter().map(|(root, _, _)| *root).collect::<Vec<_>>();
+    let selected = scopes
+        .edges
+        .batch_with_cancellation(&roots, runtime.budget(), &runtime.cancellation())
+        .await?;
+    let union = scopes.union(&selected, runtime).await?;
+    for (partition, (_, member, context)) in window.iter().enumerate() {
+        runtime.cancellation().check()?;
+        let data = union.selected_copy(
+            &scopes.inputs,
+            &mut |table, key| selected.contains(partition, table, key),
+            runtime.budget(),
+        )?;
+        let rows = build::member(&data, *member, *context, runtime.budget())?;
+        let links = selection::frames::links(
+            &rows,
+            invocations,
+            &data.source.catalog.members,
+            runtime.budget(),
+        )?;
+        publish_selection(&rows, output).await?;
+        producer_operations::emit(&links, output).await?;
+        tokio::task::yield_now().await;
+    }
+    Ok(())
+}
+async fn witness_batch(
+    scopes: &SelectionScopes,
+    roots: &[crate::consumed_rows::PreparedRoot],
+    runtime: &Workspace,
+    output: &ProducerOutput,
+) -> Result<(), ModelError> {
+    let selected = scopes
+        .edges
+        .batch_with_cancellation(roots, runtime.budget(), &runtime.cancellation())
+        .await?;
+    let union = scopes.union(&selected, runtime).await?;
+    for partition in 0..roots.len() {
+        runtime.cancellation().check()?;
+        let data = union.selected_copy(
+            &scopes.inputs,
+            &mut |table, key| selected.contains(partition, table, key),
+            runtime.budget(),
+        )?;
+        let rows = build::witnesses(&data, runtime.budget())?;
+        producer_operations::emit(&rows.witnesses, output).await?;
+        tokio::task::yield_now().await;
+    }
+    Ok(())
 }
 pub async fn produce(
     access: CompletedInputs,
@@ -661,39 +453,29 @@ pub async fn produce(
             })
             .filter(|a| a.null_count() == 0)
             .ok_or(ModelError::Invalid("C2 member has no C0 invocation".into()))?;
+        let _window = runtime
+            .budget()
+            .reserve("C2-member-window", 32 * size_of::<MemberDemand>())?;
+        let mut window = Vec::with_capacity(32);
         for index in 0..batch.num_rows() {
             runtime.cancellation().check()?;
-            let member = nominal(members.value(index))?;
-            let context = nominal(contexts.value(index))?;
-            let scope = scopes
-                .edges
-                .grain(
-                    scopes.member,
-                    &format!(
-                        "id=X'{}'",
-                        roots
-                            .value(index)
-                            .iter()
-                            .map(|byte| format!("{byte:02x}"))
-                            .collect::<String>()
-                    ),
-                    runtime.budget(),
-                )
-                .await?;
-            let data = scopes.load(&access, &scope, runtime.budget()).await?;
-            drop(scope);
-            let rows = build::member(&data, member, context, runtime.budget())?;
-            let links = selection::frames::links(
-                &rows,
-                &invocations,
-                &data.source.catalog.members,
-                runtime.budget(),
-            )?;
-            publish_selection(&rows, &output).await?;
-            producer_operations::emit(&links, &output).await?;
-            drop(links);
-            drop(rows);
-            drop(data);
+            let root = crate::consumed_rows::PreparedRoot {
+                table: scopes.member,
+                key: roots.value(index).try_into().map_err(ModelError::codec)?,
+                kind: crate::consumed_rows::PreparedRootKind::Virtual,
+            };
+            window.push((
+                root,
+                nominal(members.value(index))?,
+                nominal(contexts.value(index))?,
+            ));
+            if window.len() == 32 {
+                member_batch(&scopes, &window, runtime, &output, &invocations).await?;
+                window.clear();
+            }
+        }
+        if !window.is_empty() {
+            member_batch(&scopes, &window, runtime, &output, &invocations).await?;
         }
     }
     drop(roots);
@@ -721,25 +503,25 @@ pub async fn produce(
                         .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
                 })
                 .ok_or(ModelError::Schema("C2 witness identity"))?;
+            let _window = runtime.budget().reserve(
+                "C2-witness-window",
+                32 * size_of::<crate::consumed_rows::PreparedRoot>(),
+            )?;
+            let mut window = Vec::with_capacity(32);
             for index in 0..batch.num_rows() {
                 runtime.cancellation().check()?;
-                let predicate = format!(
-                    "id=X'{}'",
-                    ids.value(index)
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect::<String>()
-                );
-                let scope = scopes
-                    .edges
-                    .grain(root, &predicate, runtime.budget())
-                    .await?;
-                let data = scopes.load(&access, &scope, runtime.budget()).await?;
-                drop(scope);
-                let rows = build::witnesses(&data, runtime.budget())?;
-                producer_operations::emit(&rows.witnesses, &output).await?;
-                drop(rows);
-                drop(data);
+                window.push(crate::consumed_rows::PreparedRoot {
+                    table: root,
+                    key: ids.value(index).try_into().map_err(ModelError::codec)?,
+                    kind: crate::consumed_rows::PreparedRootKind::Physical,
+                });
+                if window.len() == 32 {
+                    witness_batch(&scopes, &window, runtime, &output).await?;
+                    window.clear();
+                }
+            }
+            if !window.is_empty() {
+                witness_batch(&scopes, &window, runtime, &output).await?;
             }
         }
     }
@@ -845,7 +627,8 @@ mod tests {
         data
     }
     #[tokio::test]
-    async fn member_grain_union_matches_finite_domains_and_excludes_unrelated_rich_members() {
+    async fn member_batch_decodes_overlap_once_matches_finite_domains_and_excludes_unrelated_members()
+     {
         let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
         let (session, inputs, tables) = fixture();
         let artifact = source::SourceArtifact::from_bytes(id(1), "api.py".into(), b"x").unwrap();
@@ -965,21 +748,48 @@ mod tests {
         }
         let expected = build::build(&all, &budget).unwrap();
         drop(all);
-        let scopes = SelectionScopes::prepare_bound(inputs, tables, &session, &budget)
-            .await
-            .unwrap();
-        let mut actual = build::Output::new(&budget);
-        for (link, invocation) in links.iter().zip(&core) {
-            let scope = scopes
-                .edges
-                .grain(
-                    scopes.member,
-                    &format!("id=X'{}'", link.id().hex()),
-                    &budget,
-                )
+        let scopes =
+            SelectionScopes::prepare_bound(inputs, tables, &session, &budget, &model().unwrap())
                 .await
                 .unwrap();
-            let data = hydrate(&scopes, &scope, &budget).await;
+        let roots = links
+            .iter()
+            .map(|link| crate::consumed_rows::PreparedRoot {
+                table: scopes.member,
+                key: *link.id().bytes(),
+                kind: crate::consumed_rows::PreparedRootKind::Virtual,
+            })
+            .collect::<Vec<_>>();
+        let selected = scopes.edges.batch(&roots, &budget).await.unwrap();
+        let mut union = Data::new(&budget);
+        let mut artifact_decodes = 0;
+        crate::scoped_batch::hydrate_union(
+            &selected,
+            &scopes.inputs,
+            &budget,
+            &crate::workspace::Cancellation::default(),
+            &mut |_, input, batch| {
+                if input.name() == source::SourceArtifact::NAME {
+                    artifact_decodes += batch.num_rows();
+                }
+                union.visit_input(input, batch).map(|_| ())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            artifact_decodes, 1,
+            "shared module artifact hydrated once across contexts and members"
+        );
+        let mut actual = build::Output::new(&budget);
+        for (partition, (link, invocation)) in links.iter().zip(&core).enumerate() {
+            let data = union
+                .selected_copy(
+                    &scopes.inputs,
+                    &mut |table, key| selected.contains(partition, table, key),
+                    &budget,
+                )
+                .unwrap();
             assert_eq!(data.source.catalog.members.len(), 1);
             assert!(data.source.catalog.members.get(sibling.id()).is_none());
             assert_eq!(data.source.facts.core_links.len(), 1);
@@ -998,6 +808,8 @@ mod tests {
         assert_eq!(actual.domains.len(), 21);
         drop(actual);
         drop(expected);
+        drop(union);
+        drop(selected);
         drop(scopes);
         assert_eq!(budget.reserved(), 0);
     }
@@ -1038,9 +850,10 @@ mod tests {
         let expected = build::build(&all, &budget).unwrap();
         drop(all);
         let root = typed::<attribution::ProviderCoverage>(&inputs).unwrap();
-        let scopes = SelectionScopes::prepare_bound(inputs, tables, &session, &budget)
-            .await
-            .unwrap();
+        let scopes =
+            SelectionScopes::prepare_bound(inputs, tables, &session, &budget, &model().unwrap())
+                .await
+                .unwrap();
         let scope = scopes
             .edges
             .grain(root, &format!("id=X'{}'", coverage.id().hex()), &budget)

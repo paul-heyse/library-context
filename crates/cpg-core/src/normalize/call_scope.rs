@@ -1,8 +1,11 @@
 //! Complete event candidate and binding-set grains over immutable typed premises.
+#[cfg(test)]
+use crate::consumed_rows::PreparedClosure;
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges},
     workspace::CompletedInputs,
 };
+#[cfg(test)]
 use futures::future::BoxFuture;
 use lctx_model::domain::{
     normalized::{binding_normalization::BindingData, event_normalization::EventData},
@@ -20,6 +23,7 @@ fn first_input<R: Record>(inputs: &[ValidationInput]) -> Option<(usize, &Validat
         .find(|(_, input)| input.type_id() == TypeId::of::<R>())
 }
 
+#[cfg(test)]
 fn read_first<'a, R: Record>(
     scopes: &'a CallScopes,
     access: &'a CompletedInputs,
@@ -44,6 +48,7 @@ fn read_first<'a, R: Record>(
     })
 }
 
+#[cfg(test)]
 fn load_event<'a>(
     call_scopes: &'a CallScopes,
     access: &'a CompletedInputs,
@@ -70,33 +75,12 @@ fn load_event<'a>(
         Ok(())
     })
 }
-fn load_binding<'a>(
-    call_scopes: &'a CallScopes,
-    access: &'a CompletedInputs,
-    grain: &'a PreparedClosure,
-    data: &'a mut BindingData,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CallScopes,
-        &'a CompletedInputs,
-        &'a PreparedClosure,
-        &'a mut BindingData,
-    ) -> BoxFuture<'a, Result<(), ModelError>>;
-    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(call_scopes: &'a CallScopes, access: &'a CompletedInputs, grain: &'a PreparedClosure, data: &'a mut BindingData) -> BoxFuture<'a, Result<(), ModelError>> {
-            read_first::<$ty>(call_scopes, access, grain, |batch| data.$field.decode(batch))
-        })*
-        const LOADERS: &[Loader] = &[$($field,)*];
-    };}
-    lctx_model::normalized_binding_inputs!(adapters);
-    Box::pin(async move {
-        for load in LOADERS {
-            load(call_scopes, access, grain, data).await?;
-        }
-        Ok(())
-    })
-}
 
+/// Candidate-family and admission policy passed together to the model scope declaration.
+pub(crate) struct CallScopeMode {
+    pub(crate) binding: bool,
+    pub(crate) admission: bool,
+}
 pub(crate) struct CallScopes {
     inputs: Vec<ValidationInput>,
     event_roots: Vec<(TypeId, usize)>,
@@ -131,7 +115,7 @@ impl CallScopes {
                 })
             })
             .collect::<Result<_, ModelError>>()?;
-        Self::from_tables(inputs, tables, session, budget, binding, false).await
+        Self::from_tables(inputs, tables, session, budget, binding, false, model).await
     }
     pub(super) async fn from_tables(
         inputs: Vec<ValidationInput>,
@@ -140,14 +124,15 @@ impl CallScopes {
         budget: &resources::ResourceBudget,
         binding: bool,
         admission: bool,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
         Self::from_tables_with(
             inputs,
             tables,
             session,
             budget,
-            binding,
-            admission,
+            CallScopeMode { binding, admission },
+            model,
             |_, _| Ok(()),
         )
         .await
@@ -157,10 +142,11 @@ impl CallScopes {
         mut tables: Vec<ClosureTable>,
         session: &datafusion::prelude::SessionContext,
         budget: &resources::ResourceBudget,
-        binding: bool,
-        admission: bool,
+        mode: CallScopeMode,
+        model: &ValidatedModel,
         extra: impl FnOnce(&mut NominalClosure, &[ClosureTable]) -> Result<(), ModelError>,
     ) -> Result<Self, ModelError> {
+        let CallScopeMode { binding, admission } = mode;
         let mut roots = if binding {
             vec![TypeId::of::<normalized::events::NormalizedCallEvent>()]
         } else {
@@ -180,374 +166,86 @@ impl CallScopes {
         if !binding && admission {
             roots.push(TypeId::of::<normalized::events::NormalizedCallEvent>());
         }
-        let mut event_roots = Vec::new();
+        // Own the caller's bindings before adding private root copies or entering preparation.
+        // The raw factory and the compiled plan have independent reservations.
+        let mut charge = charged::StateCharge::new(budget, "call-scope-descriptors");
+        charge.grow(
+            inputs
+                .capacity()
+                .saturating_mul(size_of::<ValidationInput>())
+                .saturating_add(
+                    inputs
+                        .iter()
+                        .map(|input| size_of_val(input.order()))
+                        .sum::<usize>(),
+                )
+                .saturating_add(tables.capacity().saturating_mul(size_of::<ClosureTable>()))
+                .saturating_add(
+                    tables
+                        .iter()
+                        .map(|table| {
+                            table
+                                .alias
+                                .capacity()
+                                .saturating_add(size_of_val(table.relation.fields()))
+                        })
+                        .sum::<usize>(),
+                )
+                .saturating_add(roots.len().saturating_mul(size_of::<(TypeId, usize)>())),
+        )?;
+        let additional = tables
+            .len()
+            .saturating_add(roots.len())
+            .saturating_sub(tables.capacity());
+        charge.grow(additional.saturating_mul(size_of::<ClosureTable>()))?;
+        tables.reserve_exact(roots.len());
+        let mut event_roots = Vec::with_capacity(roots.len());
         for kind in roots {
             let source = tables
                 .iter()
                 .position(|table| table.relation.type_id() == kind)
                 .ok_or_else(|| ModelError::Invalid("call root stream absent".into()))?;
             event_roots.push((kind, tables.len()));
+            charge.grow(
+                tables[source]
+                    .alias
+                    .capacity()
+                    .saturating_add(size_of_val(tables[source].relation.fields())),
+            )?;
             tables.push(tables[source].clone());
         }
-        let index = |kind: TypeId| {
-            tables[..inputs.len()]
+        let real = inputs.len();
+        let mut declarations = inputs.clone();
+        for table in &tables[real..] {
+            let source = tables[..real]
                 .iter()
-                .position(|table| table.relation.type_id() == kind)
-        };
-        let mut plan = NominalClosure::new(tables.clone())?;
-        // Forward dependencies never turn an occurrence or source artifact into additional roots.
-        for (source, table) in tables[..inputs.len()].iter().enumerate() {
-            for field in table.relation.fields().iter().filter(|field| !field.list()) {
-                if let Some((kind, _)) = field.target()
-                    && let Some(target) = index(kind)
-                {
-                    plan.follow(source, field.name(), target)?;
-                }
-            }
+                .position(|original| original.alias == table.alias)
+                .ok_or(ModelError::Conflict("call virtual physical binding"))?;
+            declarations.push(inputs[source].clone());
         }
-        macro_rules! own {
-            ($member:ty, $field:literal, $owner:ty) => {{
-                if let (Some(member), Some(owner)) = (
-                    index(TypeId::of::<$member>()),
-                    index(TypeId::of::<$owner>()),
-                ) {
-                    plan.own(member, $field, owner)?;
-                }
-            }};
-        }
-        macro_rules! own_existing {
-            ($member:ty, $field:literal, $owner:ty) => {{
-                if let (Some(member), Some(owner)) = (
-                    index(TypeId::of::<$member>()),
-                    index(TypeId::of::<$owner>()),
-                ) {
-                    plan.own_existing(member, $field, owner)?;
-                }
-            }};
-        }
-        use calls::*;
-        use normalized::{callables::*, entities::*, events::*};
-        own!(ProviderCallSiteSupport, "assertion", ProviderCallSite);
-        own!(CallTargetSupport, "assertion", CallTarget);
-        own!(CallResolutionSupport, "assertion", CallResolution);
-        own!(CallResolutionMember, "resolution", CallResolution);
-        own!(OccurrenceOwnership, "occurrence", source::Occurrence);
-        own!(CallSyntaxSupport, "assertion", CallSyntax);
-        own!(CallArgument, "call", CallSyntax);
-        own!(
-            syntax::SyntaxPlacementSupport,
-            "assertion",
-            syntax::SyntaxPlacement
-        );
-        own!(EffectiveCallableAssessment, "callable", CallableEntity);
-        own!(
-            EffectiveDecoratorMember,
-            "assessment",
-            EffectiveCallableAssessment
-        );
-        own!(
-            EffectiveCallableEvidence,
-            "assessment",
-            EffectiveCallableAssessment
-        );
-        own!(SignatureVariant, "callable", CallableEntity);
-        own!(SignatureVariant, "assessment", EffectiveCallableAssessment);
-        own!(SignatureSlot, "variant", SignatureVariant);
-        own!(SignatureSlotEntity, "slot", SignatureSlot);
-        own!(SignatureParameter, "signature", Signature);
-        own!(SignatureSupport, "assertion", Signature);
-        own!(
-            SignatureEnumerationMember,
-            "enumeration",
-            SignatureEnumerationObservation
-        );
-        own!(
-            SignatureEnumerationSupport,
-            "assertion",
-            SignatureEnumerationObservation
-        );
-        own!(
-            symbols::FunctionTraitSupport,
-            "assertion",
-            symbols::FunctionTraitObservation
-        );
-        own!(
-            symbols::ClassAncestrySupport,
-            "assertion",
-            symbols::ClassAncestryObservation
-        );
-        own!(
-            symbols::SymbolSequenceMember,
-            "sequence",
-            symbols::SymbolSequence
-        );
-        own!(
-            declarations::SymbolDeclarationSupport,
-            "assertion",
-            declarations::SymbolDeclaration
-        );
-        own!(CallEventSource, "event", NormalizedCallEvent);
-        own!(CallEventSourceEvidence, "source", CallEventSource);
-        own!(CallEventResolution, "event", NormalizedCallEvent);
-        own!(
-            CallEventResolutionEvidence,
-            "resolution",
-            CallEventResolution
-        );
-        own!(NormalizedCallAlternative, "event", NormalizedCallEvent);
-        own!(
-            CallAlternativeEvidence,
-            "alternative",
-            NormalizedCallAlternative
-        );
-        own!(EventAssessment, "event", NormalizedCallEvent);
-        own!(EventPhaseTarget, "assessment", EventAssessment);
-        own!(CallPolicyAssessment, "event", NormalizedCallEvent);
-        own!(CallPolicyAdmission, "assessment", CallPolicyAssessment);
-        own!(
-            normalized::dispatch::DispatchAssessment,
-            "event",
-            NormalizedCallEvent
-        );
-        own!(
-            normalized::dispatch::DispatchMember,
-            "assessment",
-            normalized::dispatch::DispatchAssessment
-        );
-        own!(
-            normalized::dispatch::DispatchEvidence,
-            "assessment",
-            normalized::dispatch::DispatchAssessment
-        );
-        own!(
-            normalized::bindings::CallBindingAttempt,
-            "event",
-            NormalizedCallEvent
-        );
-        own!(
-            normalized::bindings::CallBinding,
-            "attempt",
-            normalized::bindings::CallBindingAttempt
-        );
-        own!(
-            normalized::bindings::BindingSetAssessment,
-            "event",
-            NormalizedCallEvent
-        );
-        own!(
-            normalized::bindings::BindingVariantAssessment,
-            "set",
-            normalized::bindings::BindingSetAssessment
-        );
-        own!(
-            normalized::bindings::BindingSetMember,
-            "variant",
-            normalized::bindings::BindingVariantAssessment
-        );
-        own!(
-            normalized::bindings::BindingSetCoverage,
-            "set",
-            normalized::bindings::BindingSetAssessment
-        );
-        own!(
-            normalized::receiver::ReceiverEvidence,
-            "assessment",
-            normalized::receiver::ReceiverAssessment
-        );
-        if let (Some(assessments), Some(targets)) = (
-            tables[..inputs.len()].iter().position(|table| {
-                table.relation.type_id() == TypeId::of::<normalized::receiver::ReceiverAssessment>()
-            }),
-            tables[..inputs.len()]
-                .iter()
-                .position(|table| table.relation.type_id() == TypeId::of::<CallTarget>()),
-        ) {
-            for field in tables[assessments]
-                .relation
-                .fields()
-                .iter()
-                .filter(|field| {
-                    field.target().map(|(kind, _)| kind) == Some(TypeId::of::<CallTarget>())
-                })
-            {
-                plan.own(assessments, field.name(), targets)?;
-            }
-        }
-        // Candidate bags are defined by semantic context, not merely by a nominal reference.
-        let table = |kind: TypeId| index(kind).map(|i| identifier(&tables[i].alias));
-        macro_rules! pair {
-            ($from:ty, $to:ty, $sql:expr) => {{
-                if let (Some(from), Some(to)) =
-                    (index(TypeId::of::<$from>()), index(TypeId::of::<$to>()))
-                {
-                    plan.pairs(from, to, $sql)?;
-                }
-            }};
-        }
-        let qualifications = table(TypeId::of::<assertion::AssertionQualification>())
-            .ok_or(ModelError::Schema(assertion::AssertionQualification::NAME))?;
-        own_existing!(CallSyntax, "site", source::Occurrence);
-        if let (Some(syntax), Some(placements)) = (
-            table(TypeId::of::<CallSyntax>()),
-            table(TypeId::of::<syntax::SyntaxPlacement>()),
-        ) {
-            pair!(
-                CallSyntax,
-                syntax::SyntaxPlacement,
-                format!(
-                    "SELECT s.id AS source_id,p.id AS target_id FROM {syntax} s JOIN {placements} p ON p.parent=s.callee AND p.field={}",
-                    lexical::SyntaxField::Value.code()
-                )
-            );
-        }
-        if let Some(coverage) = table(TypeId::of::<attribution::ProviderCoverage>()) {
-            pair!(
-                assertion::AssertionQualification,
-                attribution::ProviderCoverage,
-                format!(
-                    "SELECT q.id AS source_id,c.id AS target_id FROM {qualifications} q JOIN {coverage} c ON c.scope=q.scope AND c.context=q.context WHERE c.family IN ({},{},{})",
-                    attribution::FactFamily::Calls.code(),
-                    attribution::FactFamily::Syntax.code(),
-                    attribution::FactFamily::Signatures.code()
-                )
-            );
-        }
-        if let Some(symbols) = table(TypeId::of::<ProviderSymbol>()) {
-            // A selected native symbol owns its complete enumeration alternatives. Constructor
-            // consumers must borrow the same per-symbol domain captured by the binding owner,
-            // including alternatives that have no normalized runtime signature variant.
-            own_existing!(Signature, "symbol", ProviderSymbol);
-            own_existing!(SignatureEnumerationObservation, "symbol", ProviderSymbol);
-            if let Some(resolutions) = table(TypeId::of::<SymbolEntityResolution>()) {
-                pair!(
-                    ProviderSymbol,
-                    SymbolEntityResolution,
-                    format!(
-                        "SELECT s.id AS source_id,r.id AS target_id FROM {symbols} s JOIN {resolutions} r ON r.symbol=s.id AND r.context=s.context"
-                    )
-                );
-            }
-            if let Some(traits) = table(TypeId::of::<symbols::FunctionTraitObservation>()) {
-                pair!(
-                    ProviderSymbol,
-                    symbols::FunctionTraitObservation,
-                    format!(
-                        "SELECT s.id AS source_id,t.id AS target_id FROM {symbols} s JOIN {traits} t ON t.symbol=s.id JOIN {qualifications} q ON q.id=t.qualification AND q.context=s.context UNION SELECT s.id AS source_id,t.id AS target_id FROM {symbols} s JOIN {traits} t ON t.overrides=s.id JOIN {symbols} candidate ON candidate.id=t.symbol AND candidate.context=s.context AND candidate.provider=s.provider"
-                    )
-                );
-            }
-            if let Some(ancestry) = table(TypeId::of::<symbols::ClassAncestryObservation>()) {
-                pair!(
-                    ProviderSymbol,
-                    symbols::ClassAncestryObservation,
-                    format!(
-                        "SELECT s.id AS source_id,a.id AS target_id FROM {symbols} s JOIN {ancestry} a ON a.class=s.id JOIN {qualifications} q ON q.id=a.qualification AND q.context=s.context"
-                    )
-                );
-            }
-            own_existing!(declarations::SymbolDeclaration, "symbol", ProviderSymbol);
-        }
-        if let (Some(symbols), Some(signatures), Some(variants)) = (
-            table(TypeId::of::<ProviderSymbol>()),
-            table(TypeId::of::<Signature>()),
-            table(TypeId::of::<SignatureVariant>()),
-        ) {
-            pair!(
-                ProviderSymbol,
-                SignatureVariant,
-                format!(
-                    "SELECT s.id AS source_id,v.id AS target_id FROM {symbols} s JOIN {signatures} sig ON sig.symbol=s.id JOIN {variants} v ON v.signature=sig.id"
-                )
-            );
-        }
-        if let (Some(signatures), Some(enumerations)) = (
-            table(TypeId::of::<Signature>()),
-            table(TypeId::of::<SignatureEnumerationObservation>()),
-        ) {
-            pair!(
-                Signature,
-                SignatureEnumerationObservation,
-                format!(
-                    "SELECT s.id AS source_id,e.id AS target_id FROM {signatures} s JOIN {enumerations} e ON e.symbol=s.symbol AND e.qualification=s.qualification AND e.role=s.role"
-                )
-            );
-        }
-        for (kind, virtual_root) in &event_roots {
-            let alias = identifier(&tables[*virtual_root].alias);
-            if *kind == TypeId::of::<flow::FlowValuePathObservation>() {
-                let real = index(*kind).expect("actual path root");
-                plan.pairs(
-                    *virtual_root,
-                    real,
-                    format!("SELECT id AS source_id,id AS target_id FROM {alias}"),
-                )?;
-                if let Some(steps) = index(TypeId::of::<flow::FlowCallStep>()) {
-                    let step_alias = identifier(&tables[steps].alias);
-                    plan.pairs(*virtual_root, steps, format!("SELECT p.id AS source_id,s.id AS target_id FROM {alias} p JOIN {step_alias} s ON s.path=p.path"))?;
-                }
-                if admission {
-                    if let (Some(events), Some(steps)) = (
-                        index(TypeId::of::<NormalizedCallEvent>()),
-                        table(TypeId::of::<flow::FlowCallStep>()),
-                    ) {
-                        let event_table = identifier(&tables[events].alias);
-                        plan.pairs(*virtual_root, events, format!("SELECT p.id AS source_id,e.id AS target_id FROM {alias} p JOIN {qualifications} q ON q.id=p.qualification JOIN {steps} s ON s.path=p.path JOIN {event_table} e ON e.site=s.call AND e.context=q.context"))?;
-                    }
-                    if let Some(links) = index(TypeId::of::<FlowCallEventLink>()) {
-                        let links_table = identifier(&tables[links].alias);
-                        plan.pairs(*virtual_root, links, format!("SELECT p.id AS source_id,l.id AS target_id FROM {alias} p JOIN {links_table} l ON l.observation=p.id"))?;
-                    }
-                }
-            } else if binding {
-                let real = index(*kind).expect("actual event root");
-                plan.pairs(
-                    *virtual_root,
-                    real,
-                    format!("SELECT id AS source_id,id AS target_id FROM {alias}"),
-                )?;
-            } else {
-                for candidate in [
-                    TypeId::of::<ProviderCallSite>(),
-                    TypeId::of::<CallTarget>(),
-                    TypeId::of::<CallResolution>(),
-                ] {
-                    let real = index(candidate).expect("actual event candidate");
-                    let candidates = identifier(&tables[real].alias);
-                    let sql = if *kind == TypeId::of::<NormalizedCallEvent>() {
-                        format!(
-                            "SELECT r.id AS source_id,c.id AS target_id FROM {alias} r JOIN {candidates} c ON c.site=r.site AND c.origin=r.origin JOIN {qualifications} cq ON cq.id=c.qualification AND cq.context=r.context"
-                        )
-                    } else {
-                        format!(
-                            "SELECT r.id AS source_id,c.id AS target_id FROM {alias} r JOIN {candidates} c ON c.site=r.site AND c.origin=r.origin JOIN {qualifications} rq ON rq.id=r.qualification JOIN {qualifications} cq ON cq.id=c.qualification AND cq.context=rq.context"
-                        )
-                    };
-                    plan.pairs(*virtual_root, real, sql)?;
-                }
-                if admission {
-                    let events = index(TypeId::of::<NormalizedCallEvent>())
-                        .ok_or(ModelError::Schema(NormalizedCallEvent::NAME))?;
-                    let event_table = identifier(&tables[events].alias);
-                    let sql = if *kind == TypeId::of::<NormalizedCallEvent>() {
-                        format!(
-                            "SELECT r.id AS source_id,e.id AS target_id FROM {alias} r JOIN {event_table} e ON e.site=r.site AND e.origin=r.origin AND e.context=r.context"
-                        )
-                    } else {
-                        format!(
-                            "SELECT r.id AS source_id,e.id AS target_id FROM {alias} r JOIN {qualifications} q ON q.id=r.qualification JOIN {event_table} e ON e.site=r.site AND e.origin=r.origin AND e.context=q.context"
-                        )
-                    };
-                    plan.pairs(*virtual_root, events, sql)?;
-                }
-            }
-        }
+        let relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = normalized::normalization_scope_program::calls(
+            declarations,
+            &relations,
+            real,
+            &event_roots,
+            binding,
+            admission,
+            budget,
+        )?;
+        let mut plan = crate::scope_compilation::lower_compiled(
+            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
+        drop(program);
+        drop(relations);
         extra(&mut plan, &tables)?;
         let edges = plan.prepare(session, budget).await?;
-        let mut charge = charged::StateCharge::new(budget, "call-scope-descriptors");
-        charge.grow(
-            inputs.capacity() * size_of::<ValidationInput>()
-                + tables.capacity() * size_of::<ClosureTable>(),
-        )?;
         Ok(Self {
             inputs,
             event_roots,
@@ -561,26 +259,7 @@ impl CallScopes {
     pub(crate) fn inputs(&self) -> &[ValidationInput] {
         &self.inputs
     }
-    pub(super) async fn root_grain(
-        &self,
-        kind: TypeId,
-        bytes: &[u8],
-        budget: &resources::ResourceBudget,
-    ) -> Result<PreparedClosure, ModelError> {
-        let root = self
-            .event_roots
-            .iter()
-            .find(|(candidate, _)| *candidate == kind)
-            .ok_or_else(|| ModelError::Invalid("call admission root absent".into()))?
-            .1;
-        let hex = bytes
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        self.edges
-            .grain(root, &format!("id=X'{hex}'"), budget)
-            .await
-    }
+    #[cfg(test)]
     pub(crate) async fn grain<R: Record>(
         &self,
         id: Id<R>,
@@ -601,6 +280,7 @@ impl CallScopes {
             .grain(root, &format!("id=X'{hex}'"), budget)
             .await
     }
+    #[cfg(test)]
     pub(super) fn event_data<'a, R: Record>(
         &'a self,
         access: &'a CompletedInputs,
@@ -611,19 +291,6 @@ impl CallScopes {
             let grain = self.grain(root, budget).await?;
             let mut data = EventData::new(budget);
             load_event(self, access, &grain, &mut data).await?;
-            Ok(data)
-        })
-    }
-    pub(super) fn binding_data<'a>(
-        &'a self,
-        access: &'a CompletedInputs,
-        event: Id<normalized::events::NormalizedCallEvent>,
-        budget: &'a resources::ResourceBudget,
-    ) -> BoxFuture<'a, Result<BindingData, ModelError>> {
-        Box::pin(async move {
-            let grain = self.grain(event, budget).await?;
-            let mut data = BindingData::new(budget);
-            load_binding(self, access, &grain, &mut data).await?;
             Ok(data)
         })
     }
@@ -916,5 +583,167 @@ mod call_scope_controls {
         .unwrap()
         .1;
         assert!(event.append(foreign).is_err());
+    }
+}
+
+impl CallScopes {
+    pub(crate) fn root_for<R: Record>(&self) -> Result<usize, ModelError> {
+        self.event_roots
+            .iter()
+            .find(|(kind, _)| *kind == TypeId::of::<R>())
+            .map(|(_, root)| *root)
+            .ok_or(ModelError::Schema("call batch root absent"))
+    }
+}
+
+macro_rules! selected_Event {($($field:ident:$ty:ty,)*)=>{
+    pub(super) struct EventSelection<'a>{rows:&'a EventData,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> EventSelection<'a>{
+        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a EventData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:first_input::<$ty>(inputs).map(|(table,_)|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(super) fn view(&self)->Result<normalized::event_normalization::EventDataView<'_>,ModelError>{Ok(normalized::event_normalization::EventDataView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_event_inputs!(selected_Event);
+impl CallScopes {
+    pub(super) async fn load_event_batch(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<EventData, ModelError> {
+        let mut rows = EventData::new(budget);
+        crate::scoped_batch::hydrate_union_first(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                if !rows.visit(input.name(), batch)? {
+                    return Err(ModelError::Schema("call union input undeclared"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok(rows)
+    }
+}
+
+macro_rules! selected_Binding {($($field:ident:$ty:ty,)*)=>{
+    pub(super) struct BindingSelection<'a>{rows:&'a BindingData,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> BindingSelection<'a>{
+        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a BindingData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:first_input::<$ty>(inputs).map(|(table,_)|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(super) fn view(&self)->Result<normalized::binding_normalization::BindingDataView<'_>,ModelError>{Ok(normalized::binding_normalization::BindingDataView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_binding_inputs!(selected_Binding);
+impl CallScopes {
+    pub(super) async fn load_binding_batch(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<BindingData, ModelError> {
+        let mut rows = BindingData::new(budget);
+        crate::scoped_batch::hydrate_union_first(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                if !rows.visit(input.name(), batch)? {
+                    return Err(ModelError::Schema("call union input undeclared"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok(rows)
+    }
+}
+
+macro_rules! selected_Event_output {($($field:ident:$ty:ty,)*)=>{
+    pub(super) struct EventOutputSelection<'a>{rows:&'a normalized::event_normalization::EventOutput,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> EventOutputSelection<'a>{
+        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a normalized::event_normalization::EventOutput,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(super) fn view(&self)->Result<normalized::event_normalization::EventOutputView<'_>,ModelError>{Ok(normalized::event_normalization::EventOutputView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_event_outputs!(selected_Event_output);
+impl CallScopes {
+    pub(super) async fn load_event_admission(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<(EventData, normalized::event_normalization::EventOutput), ModelError> {
+        let mut rows = EventData::new(budget);
+        let mut stored = normalized::event_normalization::EventOutput::new(budget);
+        crate::scoped_batch::hydrate_union_first(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                let accepted = rows.visit(input.name(), batch)?;
+                let output = stored.visit(input.name(), batch)?;
+                if !accepted && !output {
+                    return Err(ModelError::Schema("admission union input undeclared"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok((rows, stored))
+    }
+}
+
+macro_rules! selected_Binding_output {($($field:ident:$ty:ty,)*)=>{
+    pub(super) struct BindingOutputSelection<'a>{rows:&'a normalized::binding_normalization::BindingOutput,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> BindingOutputSelection<'a>{
+        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a normalized::binding_normalization::BindingOutput,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(super) fn view(&self)->Result<normalized::binding_normalization::BindingOutputView<'_>,ModelError>{Ok(normalized::binding_normalization::BindingOutputView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_binding_outputs!(selected_Binding_output);
+impl CallScopes {
+    pub(super) async fn load_binding_admission(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<
+        (
+            BindingData,
+            normalized::binding_normalization::BindingOutput,
+        ),
+        ModelError,
+    > {
+        let mut rows = BindingData::new(budget);
+        let mut stored = normalized::binding_normalization::BindingOutput::new(budget);
+        crate::scoped_batch::hydrate_union_first(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                let accepted = rows.visit(input.name(), batch)?;
+                let output = stored.visit(input.name(), batch)?;
+                if !accepted && !output {
+                    return Err(ModelError::Schema("admission union input undeclared"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok((rows, stored))
     }
 }

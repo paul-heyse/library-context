@@ -1,6 +1,6 @@
 //! Source containers, formal declarations and native slots have distinct identities.
 //! Consumers share this attachment rather than recovering a declaration by name or range.
-use super::binding_normalization::BindingData;
+use super::binding_normalization::{BindingData, BindingDataView};
 use crate::domain::{
     attribution::AnalysisContext,
     calls::SignatureParameter,
@@ -21,6 +21,14 @@ pub struct SourceParameterCorrespondence {
 /// Native slots are admitted only through same-context declarations of this source function.
 pub fn source_parameter(
     data: &BindingData,
+    parameter: &ParameterSyntaxObservation,
+    context: Id<AnalysisContext>,
+    budget: &ResourceBudget,
+) -> Result<Option<SourceParameterCorrespondence>, ModelError> {
+    source_parameter_view(&data.view(), parameter, context, budget)
+}
+pub fn source_parameter_view(
+    data: &BindingDataView<'_>,
     parameter: &ParameterSyntaxObservation,
     context: Id<AnalysisContext>,
     budget: &ResourceBudget,
@@ -112,6 +120,14 @@ pub fn source_parameter(
 /// Descriptor adjustment belongs to the normalized variant of this callable, not its spelling.
 pub fn is_bound_receiver(
     data: &BindingData,
+    parameter: &SourceParameterCorrespondence,
+    callable: Id<super::entities::CallableEntity>,
+    context: Id<AnalysisContext>,
+) -> bool {
+    is_bound_receiver_view(&data.view(), parameter, callable, context)
+}
+pub fn is_bound_receiver_view(
+    data: &BindingDataView<'_>,
     parameter: &SourceParameterCorrespondence,
     callable: Id<super::entities::CallableEntity>,
     context: Id<AnalysisContext>,

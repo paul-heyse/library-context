@@ -2,7 +2,7 @@
 //! Complete captured ancestry is never a closed runtime subclass universe.
 use super::{
     entities::*,
-    event_normalization::{EventData, EventOutput},
+    event_normalization::{EventDataView, EventOutput},
     events::*,
     policy_revision,
 };
@@ -139,15 +139,19 @@ impl ApplicableDispatch {
         }
     }
 }
-fn scope(data: &EventData, q: &AssertionQualification) -> Option<Id<input::InputRevision>> {
-    super::signature_applicability::ScopeCatalog {
-        scopes: &data.scopes,
-        artifacts: &data.artifacts,
-        modules: &data.modules,
+fn scope(data: &EventDataView<'_>, q: &AssertionQualification) -> Option<Id<input::InputRevision>> {
+    super::signature_applicability::ScopeCatalogView {
+        scopes: data.scopes,
+        artifacts: data.artifacts,
+        modules: data.modules,
     }
     .input(q.scope)
 }
-fn frame(data: &EventData, base: &AssertionQualification, q: &AssertionQualification) -> bool {
+fn frame(
+    data: &EventDataView<'_>,
+    base: &AssertionQualification,
+    q: &AssertionQualification,
+) -> bool {
     q.context == base.context
         && q.condition == base.condition
         && q.modality == Modality::Definite
@@ -156,7 +160,7 @@ fn frame(data: &EventData, base: &AssertionQualification, q: &AssertionQualifica
         && scope(data, q) == scope(data, base)
 }
 fn resolution<'a>(
-    data: &'a EventData,
+    data: &EventDataView<'a>,
     symbol: Id<ProviderSymbol>,
     q: &AssertionQualification,
     premises: &mut Vec<DispatchPremise>,
@@ -175,7 +179,7 @@ fn resolution<'a>(
     Ok(row)
 }
 fn support(
-    data: &EventData,
+    data: &EventDataView<'_>,
     s: Option<SupportAttribution>,
     q: &AssertionQualification,
     family: FactFamily,
@@ -237,7 +241,7 @@ fn support(
     Ok(s.run)
 }
 fn trait_row<'a>(
-    data: &'a EventData,
+    data: &EventDataView<'a>,
     symbol: Id<ProviderSymbol>,
     q: &AssertionQualification,
     provider: Id<Provider>,
@@ -305,7 +309,7 @@ fn trait_row<'a>(
     Ok(row)
 }
 fn mro(
-    data: &EventData,
+    data: &EventDataView<'_>,
     class: Id<ProviderSymbol>,
     q: &AssertionQualification,
     provider: Id<Provider>,
@@ -436,8 +440,8 @@ pub(crate) struct AssessedDispatch {
     pub members: Vec<DispatchMember>,
     _charge: StateCharge,
 }
-pub(crate) fn assess(
-    data: &EventData,
+pub(crate) fn assess_view(
+    data: &EventDataView<'_>,
     event: Id<NormalizedCallEvent>,
     target: &CallTarget,
     output: &mut EventOutput,

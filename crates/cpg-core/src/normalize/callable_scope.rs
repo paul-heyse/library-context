@@ -1,31 +1,16 @@
 //! Complete callable/descriptor and native-origin candidate groups selected before rich decode.
 use crate::{
-    consumed_rows::{
-        ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier, stream_batches,
-        stream_query_at,
-    },
+    consumed_rows::{ClosureTable, PreparedEdges, identifier},
     workspace::CompletedInputs,
 };
 use arrow_array::Array;
-use futures::future::BoxFuture;
+pub(super) use lctx_model::domain::normalized::normalization_scope_program::CallableKernel as Kernel;
 use lctx_model::domain::{
-    assertion::*,
-    attribution::*,
-    calls::*,
-    lexical::*,
-    normalized::{callable_normalization::CallableData, entities::*, links::*},
-    source::*,
-    syntax::*,
-    types::*,
+    calls::Signature,
+    normalized::{callable_normalization::CallableData, entities::CallableEntity},
     *,
 };
 use std::{any::TypeId, sync::Arc};
-#[derive(Clone, Copy)]
-pub(super) enum Kernel {
-    Callable,
-    Signature,
-    Overload,
-}
 pub(super) fn nominal<R>(bytes: &[u8]) -> Result<Id<R>, ModelError> {
     serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
         _,
@@ -37,73 +22,8 @@ pub(super) struct CallableScopes {
     inputs: Vec<ValidationInput>,
     tables: Vec<ClosureTable>,
     edges: PreparedEdges,
-    kernel: Kernel,
+    signature_root: Option<usize>,
     _charge: charged::StateCharge,
-}
-fn load_callable_data<'a>(
-    descriptor: &'a CallableScopes,
-    access: &'a CompletedInputs,
-    scope: &'a PreparedClosure,
-    data: &'a mut CallableData,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CallableScopes,
-        &'a CompletedInputs,
-        &'a PreparedClosure,
-        &'a mut CallableData,
-    ) -> BoxFuture<'a, Result<(), ModelError>>;
-    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(descriptor: &'a CallableScopes, access: &'a CompletedInputs, scope: &'a PreparedClosure, data: &'a mut CallableData) -> BoxFuture<'a, Result<(), ModelError>> {
-            Box::pin(async move {
-                let (table, input) = descriptor.inputs.iter().enumerate().find(|(_, input)| input.type_id() == TypeId::of::<$ty>()).ok_or(ModelError::Schema("callable typed scope loader"))?;
-                let permit = access.read_at::<$ty>(input.prefix())?;
-                stream_query_at(&permit, input, access, scope.session(), &scope.select(table)?, |_, batch| data.$field.decode(batch)).await
-            })
-        })*
-        const LOADERS: &[Loader] = &[$($field,)*];
-    };}
-    lctx_model::normalized_callable_inputs!(adapters);
-    Box::pin(async move {
-        for load in LOADERS {
-            load(descriptor, access, scope, data).await?;
-        }
-        Ok(())
-    })
-}
-fn load_callable_admission<'a>(
-    descriptor: &'a CallableScopes,
-    scope: &'a PreparedClosure,
-    cancellation: &'a crate::workspace::Cancellation,
-    data: &'a mut CallableData,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    type Loader = for<'a> fn(
-        &'a CallableScopes,
-        &'a PreparedClosure,
-        &'a crate::workspace::Cancellation,
-        &'a mut CallableData,
-    ) -> BoxFuture<'a, Result<(), ModelError>>;
-    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(descriptor: &'a CallableScopes, scope: &'a PreparedClosure, cancellation: &'a crate::workspace::Cancellation, data: &'a mut CallableData) -> BoxFuture<'a, Result<(), ModelError>> {
-            Box::pin(async move {
-                let index = descriptor.inputs.iter().position(|input| input.type_id() == TypeId::of::<$ty>()).ok_or(ModelError::Schema("callable admission typed decoder"))?;
-                let input = &descriptor.inputs[index];
-                if input.name() != <$ty>::NAME || descriptor.tables[index].relation.type_id() != TypeId::of::<$ty>() {
-                    return Err(ModelError::Schema("callable admission typed decoder"));
-                }
-                let sql = scope.select(index)?;
-                let mut visit = |batch: &arrow_array::RecordBatch| { cancellation.check()?; data.$field.decode(batch) };
-                stream_batches(input, scope.session(), &sql, None, &mut visit).await
-            })
-        })*
-        const LOADERS: &[Loader] = &[$($field,)*];
-    };}
-    lctx_model::normalized_callable_inputs!(adapters);
-    Box::pin(async move {
-        for load in LOADERS {
-            load(descriptor, scope, cancellation, data).await?;
-        }
-        Ok(())
-    })
 }
 
 impl CallableScopes {
@@ -127,141 +47,40 @@ impl CallableScopes {
                 })
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
-        Self::prepare_bound(inputs, tables, session, budget, kernel).await
+        Self::prepare_bound(inputs, tables, session, budget, kernel, model).await
     }
     async fn prepare_bound(
         inputs: Vec<ValidationInput>,
-        tables: Vec<ClosureTable>,
+        mut tables: Vec<ClosureTable>,
         session: &datafusion::prelude::SessionContext,
         budget: &resources::ResourceBudget,
         kernel: Kernel,
+        model: &ValidatedModel,
     ) -> Result<Self, ModelError> {
-        let index = |kind: TypeId| {
-            tables
+        let input_relations = tables
+            .iter()
+            .map(|table| table.relation.clone())
+            .collect::<Vec<_>>();
+        let program = normalized::normalization_scope_program::callable(
+            inputs.clone(),
+            &input_relations,
+            kernel,
+            budget,
+        )?;
+        let signature_root = program.signature_root();
+        if signature_root.is_some() {
+            let source = inputs
                 .iter()
-                .position(|table| table.relation.type_id() == kind)
-                .ok_or(ModelError::Schema("callable scope input"))
-        };
-        let table = |kind: TypeId| -> Result<String, ModelError> {
-            Ok(identifier(&tables[index(kind)?].alias))
-        };
-        let mut plan = NominalClosure::new(tables.clone())?;
-        for (source, relation) in tables.iter().enumerate() {
-            for field in relation.relation.fields() {
-                if let Some((target, _)) = field.target()
-                    && let Ok(target) = index(target)
-                {
-                    if field.list() {
-                        plan.pairs(
-                            source,
-                            target,
-                            format!(
-                                "SELECT id AS source_id,UNNEST({}) AS target_id FROM {}",
-                                identifier(field.name()),
-                                identifier(&relation.alias)
-                            ),
-                        )?;
-                    } else {
-                        plan.follow(source, field.name(), target)?;
-                    }
-                }
-            }
+                .position(|input| input.type_id() == TypeId::of::<Signature>())
+                .ok_or(ModelError::Schema("signature demand binding"))?;
+            tables.push(tables[source].clone());
         }
-        macro_rules! own {
-            ($member:ty,$field:literal,$owner:ty) => {
-                plan.own(
-                    index(TypeId::of::<$member>())?,
-                    $field,
-                    index(TypeId::of::<$owner>())?,
-                )?
-            };
-        }
-        own!(EntityRef, "callable_callable", CallableEntity);
-        own!(SymbolEntityResolution, "entity", EntityRef);
-        own!(CallableEntity, "source_declaration", Occurrence);
-        own!(DeclarationObservation, "declaration", Occurrence);
-        own!(DeclarationDecorator, "declaration", Occurrence);
-        own!(FunctionBodyObservation, "declaration", Occurrence);
-        own!(ReferenceEntityAssessment, "reference", ReferenceObservation);
-        own!(
-            ReferenceEntityCandidate,
-            "assessment",
-            ReferenceEntityAssessment
-        );
-        if index(TypeId::of::<
-            normalized::callables::EffectiveCallableAssessment,
-        >())
-        .is_ok()
-        {
-            own!(
-                normalized::callables::EffectiveCallableAssessment,
-                "callable",
-                CallableEntity
-            );
-            own!(
-                normalized::callables::EffectiveDecoratorMember,
-                "assessment",
-                normalized::callables::EffectiveCallableAssessment
-            );
-            own!(
-                normalized::callables::EffectiveCallableEvidence,
-                "assessment",
-                normalized::callables::EffectiveCallableAssessment
-            );
-        }
-        let resolutions = table(TypeId::of::<SymbolEntityResolution>())?;
-        let signatures = table(TypeId::of::<Signature>())?;
-        let traits = table(TypeId::of::<symbols::FunctionTraitObservation>())?;
-        // The actual model index chooses its final ID-ordered resolution by symbol. Context
-        // filtering here would discard uncertainty or change that existing choice.
-        plan.pairs(index(TypeId::of::<SymbolEntityResolution>())?,index(TypeId::of::<SymbolEntityResolution>())?,format!("SELECT a.id AS source_id,b.id AS target_id FROM {resolutions} a JOIN {resolutions} b ON a.symbol=b.symbol"))?;
-        plan.pairs(index(TypeId::of::<Signature>())?,index(TypeId::of::<SymbolEntityResolution>())?,format!("SELECT s.id AS source_id,r.id AS target_id FROM {signatures} s JOIN {resolutions} r ON s.symbol=r.symbol"))?;
-        plan.pairs(index(TypeId::of::<SymbolEntityResolution>())?,index(TypeId::of::<Signature>())?,format!("SELECT r.id AS source_id,s.id AS target_id FROM {resolutions} r JOIN {signatures} s ON s.symbol=r.symbol"))?;
-        plan.pairs(index(TypeId::of::<SymbolEntityResolution>())?,index(TypeId::of::<symbols::FunctionTraitObservation>())?,format!("SELECT r.id AS source_id,t.id AS target_id FROM {resolutions} r JOIN {traits} t ON t.symbol=r.symbol"))?;
-        let occurrences = table(TypeId::of::<Occurrence>())?;
-        let placements = table(TypeId::of::<SyntaxPlacement>())?;
-        let references = table(TypeId::of::<ReferenceObservation>())?;
-        let coverage = table(TypeId::of::<ProviderCoverage>())?;
-        let scopes = table(TypeId::of::<CoverageScope>())?;
-        let owners = table(TypeId::of::<OccurrenceOwnership>())?;
-        plan.pairs(index(TypeId::of::<Occurrence>())?,index(TypeId::of::<ProviderCoverage>())?,format!("SELECT o.id AS source_id,c.id AS target_id FROM {occurrences} o JOIN {scopes} scope ON scope.artifact_artifact=o.source JOIN {coverage} c ON c.scope=scope.id WHERE c.family={}",FactFamily::Syntax.code()))?;
-        // Descriptor children are a complete direct candidate domain. This is deliberately
-        // restricted to Decorator nodes: a declaration's whole Body is not a metadata premise.
-        plan.pairs(index(TypeId::of::<Occurrence>())?,index(TypeId::of::<SyntaxPlacement>())?,format!("SELECT o.id AS source_id,p.id AS target_id FROM {occurrences} o JOIN {placements} p ON p.parent=o.id WHERE o.syntax_kind={}",SyntaxKind::Decorator.code()))?;
-        plan.pairs(index(TypeId::of::<Occurrence>())?,index(TypeId::of::<ReferenceObservation>())?,format!("SELECT o.id AS source_id,r.id AS target_id FROM {occurrences} o JOIN {references} r ON r.read=o.id"))?;
-        // Only owned yield forms affect the generator predicate. Ordinary rich body rows and
-        // ownership paths must not enter an otherwise tiny callable metadata kernel.
-        plan.pairs(index(TypeId::of::<Occurrence>())?,index(TypeId::of::<OccurrenceOwnership>())?,format!("SELECT owner.id AS source_id,m.id AS target_id FROM {occurrences} owner JOIN {owners} m ON m.owner=owner.id JOIN {occurrences} child ON child.id=m.occurrence WHERE child.syntax_kind IN ({},{})",SyntaxKind::ExprYield.code(),SyntaxKind::ExprYieldFrom.code()))?;
-        if matches!(kernel, Kernel::Overload) {
-            own!(NativeSignatureObservation, "signature", Signature);
-        }
-        if matches!(kernel, Kernel::Signature) {
-            own!(ParameterEntityLink, "parameter", SignatureParameter);
-            own!(
-                SignatureTypeSubject,
-                "parameter_parameter",
-                SignatureParameter
-            );
-            own!(SignatureTypeObservation, "subject", SignatureTypeSubject);
-        }
-        if matches!(kernel, Kernel::Overload) {
-            own!(NativeOverloadCandidate, "trace", NativeOverloadObservation);
-            own!(
-                NativeOverloadSupport,
-                "assertion",
-                NativeOverloadObservation
-            );
-            own!(
-                NativeSignatureSupport,
-                "assertion",
-                NativeSignatureObservation
-            );
-            let traces = table(TypeId::of::<NativeOverloadObservation>())?;
-            let candidates = table(TypeId::of::<NativeOverloadCandidate>())?;
-            let native = table(TypeId::of::<NativeSignatureObservation>())?;
-            let qualifications = table(TypeId::of::<AssertionQualification>())?;
-            plan.pairs(index(TypeId::of::<NativeOverloadObservation>())?,index(TypeId::of::<NativeSignatureObservation>())?,format!("SELECT trace.id AS source_id,n.id AS target_id FROM {traces} trace JOIN {candidates} candidate ON candidate.trace=trace.id JOIN {qualifications} tq ON tq.id=trace.qualification JOIN {native} n ON n.metadata_origin=candidate.origin JOIN {qualifications} nq ON nq.id=n.qualification JOIN {signatures} signature ON signature.id=n.signature WHERE nq.context=tq.context AND signature.role={}",SignatureRole::EffectiveTyped.code()))?;
-        }
+        let plan = crate::scope_compilation::lower_compiled(
+            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
         let mut charge = charged::StateCharge::new(budget, "callable-scope-descriptors");
         charge.grow(
             inputs.capacity() * size_of::<ValidationInput>()
@@ -276,67 +95,8 @@ impl CallableScopes {
             inputs,
             tables,
             edges,
-            kernel,
+            signature_root,
             _charge: charge,
-        })
-    }
-    pub(super) fn data<'a, R: Record>(
-        &'a self,
-        access: &'a CompletedInputs,
-        selected: Id<R>,
-        budget: &'a resources::ResourceBudget,
-    ) -> BoxFuture<'a, Result<CallableData, ModelError>> {
-        self.data_selected(access, TypeId::of::<R>(), *selected.bytes(), budget)
-    }
-    fn data_selected<'a>(
-        &'a self,
-        access: &'a CompletedInputs,
-        kind: TypeId,
-        key: [u8; 16],
-        budget: &'a resources::ResourceBudget,
-    ) -> BoxFuture<'a, Result<CallableData, ModelError>> {
-        Box::pin(async move {
-            let root = self
-                .tables
-                .iter()
-                .position(|table| table.relation.type_id() == kind)
-                .ok_or(ModelError::Schema("callable kernel root"))?;
-            let bytes = key
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
-            let mut roots = vec![(root, format!("id=X'{bytes}'"))];
-            if matches!(self.kernel, Kernel::Signature) {
-                for (kind, predicate) in [
-                    (
-                        TypeId::of::<SignatureParameter>(),
-                        format!("signature=X'{bytes}'"),
-                    ),
-                    (
-                        TypeId::of::<NativeSignatureObservation>(),
-                        format!("signature=X'{bytes}'"),
-                    ),
-                    (
-                        TypeId::of::<SignatureTypeSubject>(),
-                        format!("return_signature=X'{bytes}'"),
-                    ),
-                ] {
-                    let table = self
-                        .tables
-                        .iter()
-                        .position(|table| table.relation.type_id() == kind)
-                        .ok_or(ModelError::Schema("signature member root"))?;
-                    roots.push((table, predicate));
-                }
-            }
-            let mut data = CallableData::new(budget);
-            // Member roots are selected explicitly, rather than making all alternative signatures'
-            // rich parameter shapes/native messages part of the descriptor assessment scope.
-            for (root, predicate) in roots {
-                let scope = self.edges.grain(root, &predicate, budget).await?;
-                load_callable_data(self, access, &scope, &mut data).await?;
-            }
-            Ok(data)
         })
     }
 }
@@ -350,6 +110,7 @@ pub(super) async fn validate_callables(
     session: &datafusion::prelude::SessionContext,
     budget: &resources::ResourceBudget,
     cancellation: &crate::workspace::Cancellation,
+    model: &ValidatedModel,
 ) -> Result<(), ModelError> {
     use futures::TryStreamExt;
     use normalized::{callable_normalization, callables::*};
@@ -406,6 +167,7 @@ pub(super) async fn validate_callables(
         session,
         budget,
         Kernel::Callable,
+        model,
     )
     .await?;
     let mut roots = crate::sql::query(session, &format!("SELECT id FROM {callable} ORDER BY id"))
@@ -420,34 +182,132 @@ pub(super) async fn validate_callables(
             .as_any()
             .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
             .ok_or(ModelError::Schema("callable admission roots"))?;
-        for row in 0..ids.len() {
-            cancellation.check()?;
-            let selected: Id<CallableEntity> = nominal(ids.value(row))?;
-            let bytes = ids
-                .value(row)
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
-            let scope = prepared
+        for start in (0..ids.len()).step_by(32) {
+            let end = (start + 32).min(ids.len());
+            let _root_charge =
+                budget.reserve("callable-admission-window", (end - start) * 128 + 4096)?;
+            let roots = (start..end)
+                .map(|index| {
+                    Ok(crate::consumed_rows::PreparedRoot {
+                        table: root,
+                        key: ids.value(index).try_into().map_err(ModelError::codec)?,
+                        kind: crate::consumed_rows::PreparedRootKind::Physical,
+                    })
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            let selected = prepared
                 .edges
-                .grain(root, &format!("id=X'{bytes}'"), budget)
+                .batch_with_cancellation(&roots, budget, cancellation)
                 .await?;
-            let mut data = CallableData::new(budget);
-            load_callable_admission(&prepared, &scope, cancellation, &mut data).await?;
-            let mut stored = callable_normalization::CallableOutput::new(budget);
-            // These predicates select stored membership independently of a producer's claimed
-            // premise closure. All expected premises still come from actual source candidates.
-            for query in [
-                format!("SELECT a.* FROM {assessment} a WHERE a.callable=X'{bytes}' ORDER BY a.id"),
-                format!("SELECT d.* FROM {decorator} d JOIN {assessment} a ON a.id=d.assessment WHERE a.callable=X'{bytes}' ORDER BY d.id"),
-                format!("SELECT p.* FROM {premise} p JOIN {evidence} e ON e.premise=p.id JOIN {assessment} a ON a.id=e.assessment WHERE a.callable=X'{bytes}' ORDER BY p.id"),
-                format!("SELECT e.* FROM {evidence} e JOIN {assessment} a ON a.id=e.assessment WHERE a.callable=X'{bytes}' ORDER BY e.id"),
-            ].into_iter().enumerate() {
-                let mut rows=crate::sql::query(session,&query.1).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-                while let Some(batch)=rows.try_next().await.map_err(ModelError::codec)? {cancellation.check()?;match query.0 {0=>stored.assessments.decode(&batch)?,1=>stored.decorators.decode(&batch)?,2=>stored.premises.decode(&batch)?,3=>stored.evidence.decode(&batch)?,_=>unreachable!()};tokio::task::yield_now().await;}
+            let (data, stored) = prepared
+                .load_admission(&selected, budget, cancellation)
+                .await?;
+            for (partition, index) in (start..end).enumerate() {
+                let inputs =
+                    DataSelection::new(&selected, partition, &prepared.inputs, &data, budget)?;
+                let outputs =
+                    OutputSelection::new(&selected, partition, &prepared.inputs, &stored, budget)?;
+                callable_normalization::admit_callable_view(
+                    &inputs.view()?,
+                    &outputs.view()?,
+                    nominal(ids.value(index))?,
+                    budget,
+                )?;
             }
-            callable_normalization::admit_callable(&data, &stored, selected, budget)?;
         }
     }
     Ok(())
+}
+
+// Partition dictionaries borrow the one decoded root union, including unavailable optional inputs.
+macro_rules! selected_inputs {($($field:ident:$ty:ty,)*)=>{
+    pub(super) struct DataSelection<'a>{rows:&'a CallableData,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> DataSelection<'a>{
+        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a CallableData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(super) fn view(&self)->Result<normalized::callable_normalization::CallableDataView<'_>,ModelError>{Ok(normalized::callable_normalization::CallableDataView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_callable_inputs!(selected_inputs);
+impl CallableScopes {
+    pub(super) async fn load_batch(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<CallableData, ModelError> {
+        let mut rows = CallableData::new(budget);
+        crate::scoped_batch::hydrate_union(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                if !rows.visit(input.name(), batch)? {
+                    return Err(ModelError::Schema("normalization union input undeclared"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok(rows)
+    }
+    pub(super) fn inputs(&self) -> &[ValidationInput] {
+        &self.inputs
+    }
+    pub(super) fn signature_root(&self) -> Option<usize> {
+        self.signature_root
+    }
+    pub(super) fn edges(&self) -> &PreparedEdges {
+        &self.edges
+    }
+    pub(super) fn table_for<R: Record>(&self) -> Result<usize, ModelError> {
+        self.tables
+            .iter()
+            .position(|t| t.relation.type_id() == TypeId::of::<R>())
+            .ok_or(ModelError::Schema("normalization batch root absent"))
+    }
+}
+
+macro_rules! selected_output {($($field:ident:$ty:ty,)*)=>{
+    struct OutputSelection<'a>{rows:&'a normalized::callable_normalization::CallableOutput,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> OutputSelection<'a>{
+        fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a normalized::callable_normalization::CallableOutput,budget:&resources::ResourceBudget)->Result<Self,ModelError>{Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})}
+        fn view(&self)->Result<normalized::callable_normalization::CallableOutputView<'_>,ModelError>{Ok(normalized::callable_normalization::CallableOutputView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::normalized_callable_outputs!(selected_output);
+impl CallableScopes {
+    async fn load_admission(
+        &self,
+        batch: &crate::consumed_rows::PreparedRootBatch,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<
+        (
+            CallableData,
+            normalized::callable_normalization::CallableOutput,
+        ),
+        ModelError,
+    > {
+        let mut rows = CallableData::new(budget);
+        let mut stored = normalized::callable_normalization::CallableOutput::new(budget);
+        crate::scoped_batch::hydrate_union(
+            batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |_, input, batch| {
+                let accepted = rows.visit(input.name(), batch)?;
+                let output = stored.visit(input.name(), batch)?;
+                if !accepted && !output {
+                    return Err(ModelError::Schema("callable admission union input"));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        Ok((rows, stored))
+    }
 }

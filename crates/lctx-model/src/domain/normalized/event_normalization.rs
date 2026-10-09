@@ -1,5 +1,5 @@
 //! Assemble the entire event and its attributed members before the single policy evaluator.
-use super::{Rows, entities::*, events::*, links::LinkReason, policy_revision};
+use super::{Rows, RowsView, entities::*, events::*, links::LinkReason, policy_revision};
 use crate::domain::{
     assertion::*,
     attribution::*,
@@ -10,14 +10,17 @@ use crate::domain::{
     source::Occurrence,
     *,
 };
-trait Source<R: Record> {
-    fn rows(&self) -> &Rows<R>;
+trait Source<'a, R: Record> {
+    fn rows(&self) -> RowsView<'a, R>;
 }
 macro_rules! inputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct EventData { $(pub $field: Rows<$ty>,)* }
-        $(impl Source<$ty> for EventData {fn rows(&self)->&Rows<$ty> {&self.$field}})*
+        #[derive(Clone, Copy)]
+        pub struct EventDataView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        $(impl<'a> Source<'a, $ty> for EventDataView<'a> { fn rows(&self) -> RowsView<'a, $ty> { self.$field } })*
         impl EventData {
+            pub fn view(&self) -> EventDataView<'_> { EventDataView { $($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
@@ -31,42 +34,42 @@ crate::normalized_event_inputs!(inputs);
 macro_rules! outputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct EventOutput { $(pub $field: Rows<$ty>,)* }
+        #[derive(Clone, Copy)]
+        pub struct EventOutputView<'a> { $(pub $field: RowsView<'a, $ty>,)* }
+        impl EventOutputView<'_> { pub fn matches(&self, expected: &EventOutput) -> Result<(), ModelError> { $(if !self.$field.same(&expected.$field) { return Err(ModelError::Invalid(format!("normalized event closure differs: {}", <$ty>::NAME))); })* Ok(()) } }
         impl EventOutput {
+            pub fn view(&self) -> EventOutputView<'_> { EventOutputView { $($field: self.$field.view(),)* } }
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
-            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> {
-                $(if !self.$field.same(&expected.$field) { return Err(invalid(format!("normalized event closure differs: {}", <$ty>::NAME))); })* Ok(())
-            }
+            pub fn matches(&self, expected: &Self) -> Result<(), ModelError> { self.view().matches(expected) }
             pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
         }
     }
 }
 crate::normalized_event_outputs!(outputs);
 fn receiver_proofs(
-    data: &EventData,
+    data: &EventDataView<'_>,
     budget: &ResourceBudget,
 ) -> Result<super::receiver::VerifiedReceivers, ModelError> {
-    let mut inputs = super::receiver::ReceiverData::new(budget);
-    let mut outputs = super::receiver::ReceiverOutput::new(budget);
-    macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <EventData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
-    macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <EventData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
-    crate::normalized_receiver_inputs!(input);
-    crate::normalized_receiver_outputs!(output);
-    super::receiver::prepare(&inputs, &outputs, budget)
+    macro_rules! input {($($field:ident: $ty:ty,)*)=>{super::receiver::ReceiverDataView { $($field:<EventDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+    macro_rules! output {($($field:ident: $ty:ty,)*)=>{super::receiver::ReceiverOutputView { $($field:<EventDataView<'_> as Source<'_, $ty>>::rows(data),)* } };}
+    let inputs = crate::normalized_receiver_inputs!(input);
+    let outputs = crate::normalized_receiver_outputs!(output);
+    super::receiver::prepare_view(&inputs, &outputs, budget)
 }
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
+fn need<'a, R: Record>(rows: &RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ModelError> {
     rows.get(id)
         .ok_or_else(|| invalid(format!("normalized event requires {}", R::NAME)))
 }
-fn qualification(
-    data: &EventData,
+fn qualification<'a>(
+    data: &EventDataView<'a>,
     id: Id<AssertionQualification>,
-) -> Result<&AssertionQualification, ModelError> {
+) -> Result<&'a AssertionQualification, ModelError> {
     need(&data.qualifications, id)
 }
 fn exact(q: &AssertionQualification) -> bool {
@@ -87,7 +90,7 @@ struct Index<'a> {
     _charge: StateCharge,
 }
 impl<'a> Index<'a> {
-    fn new(data: &'a EventData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    fn new(data: &EventDataView<'a>, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut index = Self {
             universe: Default::default(),
             owners: Default::default(),
@@ -236,9 +239,9 @@ impl VerifiedEvents {
 }
 /// Internal reconstruction assumes checked N1/N2 premises. Only full binding replay exposes an
 /// admission token outside this module family. Public validation returns no authority token.
-pub(super) fn verify(
-    data: &EventData,
-    stored: &EventOutput,
+pub(super) fn verify_view(
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
     budget: &ResourceBudget,
 ) -> Result<VerifiedEvents, ModelError> {
     let (expected, tokens) = evaluate(data, budget)?;
@@ -247,9 +250,9 @@ pub(super) fn verify(
 }
 /// Build only consumer admissions from immutable completed event rows. Event production and
 /// diagnostic replay remain separate: this path neither emits alternatives nor calls evaluate.
-pub(super) fn prepare(
-    data: &EventData,
-    stored: &EventOutput,
+pub(super) fn prepare_view(
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
     budget: &ResourceBudget,
 ) -> Result<VerifiedEvents, ModelError> {
     prepare_selected(data, stored, None, budget)
@@ -261,11 +264,19 @@ pub fn admit_event(
     key: EventKey,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    admit_event_view(&data.view(), &stored.view(), key, budget)
+}
+pub fn admit_event_view(
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
+    key: EventKey,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     prepare_selected(data, stored, Some(&[key]), budget).map(|_| ())
 }
-pub(super) fn prepare_consumed(
-    data: &EventData,
-    stored: &EventOutput,
+pub(super) fn prepare_consumed_view(
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
     budget: &ResourceBudget,
 ) -> Result<VerifiedEvents, ModelError> {
     let mut charge = StateCharge::new(budget, "consumed-event-root-keys");
@@ -277,8 +288,8 @@ pub(super) fn prepare_consumed(
     prepare_selected(data, stored, Some(&keys), budget)
 }
 fn prepare_selected(
-    data: &EventData,
-    stored: &EventOutput,
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
     selected: Option<&[EventKey]>,
     budget: &ResourceBudget,
 ) -> Result<VerifiedEvents, ModelError> {
@@ -602,7 +613,8 @@ fn prepare_selected(
             ));
         }
         let mut expected = EventOutput::new(budget);
-        let members = super::dispatch::assess(data, event.id(), target, &mut expected, budget)?;
+        let members =
+            super::dispatch::assess_view(data, event.id(), target, &mut expected, budget)?;
         if expected.dispatch_assessments.get(assessment.id()) != Some(assessment)
             || members
                 .members
@@ -737,8 +749,8 @@ fn prepare_selected(
 }
 
 fn admit_native_domain(
-    data: &EventData,
-    stored: &EventOutput,
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
     event: &NormalizedCallEvent,
     index: &Index<'_>,
     budget: &ResourceBudget,
@@ -927,9 +939,22 @@ pub fn validate(
     stored: &EventOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    stored.matches(&normalize(data, budget)?)
+    validate_view(&data.view(), &stored.view(), budget)
+}
+pub fn validate_view(
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    stored.matches(&normalize_view(data, budget)?)
 }
 pub fn normalize(data: &EventData, budget: &ResourceBudget) -> Result<EventOutput, ModelError> {
+    normalize_view(&data.view(), budget)
+}
+pub fn normalize_view(
+    data: &EventDataView<'_>,
+    budget: &ResourceBudget,
+) -> Result<EventOutput, ModelError> {
     Ok(evaluate(data, budget)?.0)
 }
 
@@ -940,7 +965,7 @@ type Correspondence = (
     LinkReason,
 );
 fn correspondence(
-    data: &EventData,
+    data: &EventDataView<'_>,
     index: &Index<'_>,
     destination: &CallDestination,
 ) -> Result<Correspondence, ModelError> {
@@ -1012,7 +1037,7 @@ fn correspondence(
     reason = "One call alternative threads the event, target, resolution, output and the alternative rows"
 )]
 fn alternative(
-    data: &EventData,
+    data: &EventDataView<'_>,
     index: &Index<'_>,
     output: &mut EventOutput,
     event: Id<NormalizedCallEvent>,
@@ -1058,7 +1083,7 @@ fn alternative(
                 support: support.id(),
             })?;
     }
-    let dispatch = super::dispatch::assess(data, event, target, output, budget)?;
+    let dispatch = super::dispatch::assess_view(data, event, target, output, budget)?;
     for member in dispatch.members.iter().filter(|m| !m.named) {
         let derived = NormalizedCallAlternative {
             event,
@@ -1088,7 +1113,7 @@ fn alternative(
     Ok(row)
 }
 fn evaluate(
-    data: &EventData,
+    data: &EventDataView<'_>,
     budget: &ResourceBudget,
 ) -> Result<(EventOutput, VerifiedEvents), ModelError> {
     let receiver_proofs = receiver_proofs(data, budget)?;
@@ -1103,6 +1128,13 @@ pub fn normalize_events_produced(
     receivers: &super::receiver::VerifiedReceivers,
     budget: &ResourceBudget,
 ) -> Result<(EventOutput, VerifiedEvents), ModelError> {
+    normalize_events_produced_view(&data.view(), receivers, budget)
+}
+pub fn normalize_events_produced_view(
+    data: &EventDataView<'_>,
+    receivers: &super::receiver::VerifiedReceivers,
+    budget: &ResourceBudget,
+) -> Result<(EventOutput, VerifiedEvents), ModelError> {
     evaluate_selected(data, None, receivers, budget)
 }
 pub fn normalize_event_produced(
@@ -1111,10 +1143,18 @@ pub fn normalize_event_produced(
     receivers: &super::receiver::VerifiedReceivers,
     budget: &ResourceBudget,
 ) -> Result<(EventOutput, VerifiedEvents), ModelError> {
+    normalize_event_produced_view(&data.view(), key, receivers, budget)
+}
+pub fn normalize_event_produced_view(
+    data: &EventDataView<'_>,
+    key: EventKey,
+    receivers: &super::receiver::VerifiedReceivers,
+    budget: &ResourceBudget,
+) -> Result<(EventOutput, VerifiedEvents), ModelError> {
     evaluate_selected(data, Some(key), receivers, budget)
 }
 fn evaluate_selected(
-    data: &EventData,
+    data: &EventDataView<'_>,
     selected: Option<EventKey>,
     receiver_proofs: &super::receiver::VerifiedReceivers,
     budget: &ResourceBudget,
@@ -1323,7 +1363,7 @@ fn evaluate_selected(
             alternatives.insert(native)?;
         }
         for alternative in alternatives.iter() {
-            let source = need(&output.alternative_sources, alternative.source)?;
+            let source = need(&output.alternative_sources.view(), alternative.source)?;
             let member = match source {
                 CallAlternativeSource::DerivedDispatch { member, .. } => {
                     output.dispatch_members.get(*member)
@@ -1339,7 +1379,7 @@ fn evaluate_selected(
                 }
             };
             if let Some(member) = member {
-                let assessment = need(&output.dispatch_assessments, member.assessment)?;
+                let assessment = need(&output.dispatch_assessments.view(), member.assessment)?;
                 tokens.dispatch.insert(
                     &mut tokens._charge,
                     alternative.id(),
@@ -1349,7 +1389,7 @@ fn evaluate_selected(
             alternative.id().encode(&mut digest);
             for support in index
                 .supports
-                .get(&need(&output.alternative_sources, alternative.source)?.target())
+                .get(&need(&output.alternative_sources.view(), alternative.source)?.target())
                 .into_iter()
                 .flatten()
             {
@@ -1441,7 +1481,7 @@ fn evaluate_selected(
                     &index,
                     alternative,
                     tokens.get(event),
-                    &output,
+                    &output.view(),
                 )? {
                     admitted.insert(&mut held, alternative.id())?;
                 }
@@ -1483,11 +1523,11 @@ fn evaluate_selected(
 }
 fn admits(
     policy: super::events::CallPolicy,
-    data: &EventData,
+    data: &EventDataView<'_>,
     index: &Index<'_>,
     alternative: &NormalizedCallAlternative,
     complete: Option<&CompleteEvent>,
-    output: &EventOutput,
+    output: &EventOutputView<'_>,
 ) -> Result<bool, ModelError> {
     use super::events::CallPolicy as Policy;
     let target = need(
@@ -1543,7 +1583,7 @@ fn admits(
     })
 }
 fn flow_links(
-    data: &EventData,
+    data: &EventDataView<'_>,
     output: &mut EventOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -1567,6 +1607,14 @@ fn flow_links(
 pub fn admit_flow_path(
     data: &EventData,
     stored: &EventOutput,
+    path: Id<FlowValuePathObservation>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    admit_flow_path_view(&data.view(), &stored.view(), path, budget)
+}
+pub fn admit_flow_path_view(
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
     path: Id<FlowValuePathObservation>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
@@ -1597,13 +1645,21 @@ pub fn normalize_flow_path(
     events: &VerifiedEvents,
     budget: &ResourceBudget,
 ) -> Result<EventOutput, ModelError> {
+    normalize_flow_path_view(&data.view(), path, events, budget)
+}
+pub fn normalize_flow_path_view(
+    data: &EventDataView<'_>,
+    path: Id<FlowValuePathObservation>,
+    events: &VerifiedEvents,
+    budget: &ResourceBudget,
+) -> Result<EventOutput, ModelError> {
     need(&data.paths, path)?;
     let mut output = EventOutput::new(budget);
     flow_links_with(data, &mut output, &events.flow, Some(path), budget)?;
     Ok(output)
 }
 fn flow_links_with(
-    data: &EventData,
+    data: &EventDataView<'_>,
     output: &mut EventOutput,
     events: &EventsBySite,
     selected: Option<Id<FlowValuePathObservation>>,
@@ -1709,9 +1765,9 @@ impl InvariantCheck for EventCheck {
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         if self.admission {
-            return prepare(&self.data, &self.output, &self.budget).map(|_| ());
+            return prepare_view(&self.data.view(), &self.output.view(), &self.budget).map(|_| ());
         }
-        verify(&self.data, &self.output, &self.budget).map(|_| ())
+        verify_view(&self.data.view(), &self.output.view(), &self.budget).map(|_| ())
     }
 }
 pub fn stage(profile: stages::Profile) -> stages::Stage {
@@ -1728,7 +1784,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
     stages::Stage {
         captured_binding: None,
-name: "normalize_events",
+        name: "normalize_events",
         inputs: super::facts_stage_inputs(inputs),
         outputs: super::events::relations()
             .iter()
@@ -1877,14 +1933,23 @@ mod preparation_controls {
     #[test]
     fn completed_event_preparation_retains_exact_admission_and_refuses_missing_candidate() {
         let (mut data, output, budget, event) = case();
-        let tokens = prepare(&data, &output, &budget).unwrap();
+        let tokens = prepare_view(&data.view(), &output.view(), &budget).unwrap();
         assert_eq!(
             tokens.get(event).unwrap().assessment(),
             output.assessments.iter().next().unwrap().id()
         );
         drop(tokens);
+        output
+            .matches(&normalize_view(&data.view(), &budget).unwrap())
+            .unwrap();
+        let mut selected = data.view();
+        selected.members = RowsView::selected(&data.members, &[]).unwrap();
+        assert!(prepare_view(&selected, &output.view(), &budget).is_err());
+        let mut advertised = output.view();
+        advertised.alternatives = RowsView::selected(&output.alternatives, &[]).unwrap();
+        assert!(prepare_view(&data.view(), &advertised, &budget).is_err());
         data.members = Rows::new(&budget);
-        assert!(prepare(&data, &output, &budget).is_err());
+        assert!(prepare_view(&data.view(), &output.view(), &budget).is_err());
     }
     #[test]
     fn completed_event_preparation_refuses_foreign_policy_without_replaying_output() {
@@ -1893,6 +1958,6 @@ mod preparation_controls {
         assessment.policy = ContentHash::of(b"foreign-policy");
         output.assessments = Rows::new(&budget);
         output.assessments.insert(assessment).unwrap();
-        assert!(prepare(&data, &output, &budget).is_err());
+        assert!(prepare_view(&data.view(), &output.view(), &budget).is_err());
     }
 }

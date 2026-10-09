@@ -1,7 +1,7 @@
 //! Callable metadata selects typed owner namespaces before rich decoding.
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier},
-    scoped_admission::{column, field_target, root_predicate},
+    consumed_rows::{ClosureTable, PreparedEdges, identifier},
+    scoped_admission::column,
     workspace::Cancellation,
 };
 use datafusion::prelude::SessionContext;
@@ -11,32 +11,17 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     *,
 };
-use std::any::TypeId;
 
-fn typed<R: Record>(inputs: &[ValidationInput]) -> Result<usize, ModelError> {
-    let mut choices = inputs
-        .iter()
-        .enumerate()
-        .filter(|(_, input)| input.type_id() == TypeId::of::<R>());
-    let (index, _) = choices
-        .next()
-        .ok_or(ModelError::Schema("aspect scope relation absent"))?;
-    if choices.next().is_some() {
-        return Err(ModelError::Conflict("aspect scope immutable binding"));
-    }
-    Ok(index)
-}
-fn bound(inputs: &[ValidationInput], input: &ValidationInput) -> Option<usize> {
-    inputs.iter().position(|candidate| {
-        candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
-    })
-}
 pub(crate) struct AspectScopes {
     pub inputs: Vec<ValidationInput>,
     pub roots: [usize; 3],
     pub root_tables: [String; 3],
     pub admission_roots: Vec<(usize, String)>,
     pub edges: PreparedEdges,
+    inventories: [std::sync::Arc<scope_program::CompiledScopeProgram>; 3],
+    bindings: Vec<ClosureTable>,
+    _charge: charged::StateCharge,
+    _program: std::sync::Arc<lctx_model::domain::scope_program::CompiledScopeProgram>,
 }
 impl AspectScopes {
     pub async fn prepare(
@@ -47,235 +32,144 @@ impl AspectScopes {
         session: &SessionContext,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        use lctx_model::domain::{
-            normalized::{callables::*, entities::*},
-            source::Occurrence,
-            syntax::*,
-        };
-        let real_roots: Vec<_> = scope
-            .roots
-            .iter()
-            .map(|input| {
-                bound(&inputs, input).ok_or(ModelError::Conflict("aspect root immutable epoch"))
+        Self::prepare_in(inputs, tables, scope, model, session, budget, None).await
+    }
+    pub async fn prepare_in(
+        inputs: Vec<ValidationInput>,
+        tables: Vec<ClosureTable>,
+        scope: &AspectScope,
+        model: &ValidatedModel,
+        session: &SessionContext,
+        budget: &ResourceBudget,
+        programs: Option<&std::sync::Mutex<lctx_model::domain::scope_program::ScopeInterner>>,
+    ) -> Result<Self, ModelError> {
+        let mut charge = charged::StateCharge::new(budget, "aspect-prepared-bindings");
+        charge.grow(inputs.len() * 2048 + 4096)?;
+        let inventories = (0..3)
+            .map(|index| {
+                let program =
+                    normalized::aspect_program::root_inventory(scope, inputs.clone(), index)?;
+                crate::scope_compilation::compile(&program, model, budget, programs)
             })
-            .collect::<Result<_, _>>()?;
-        let occurrence = typed::<Occurrence>(&inputs)?;
-        let qualification = typed::<assertion::AssertionQualification>(&inputs)?;
-        let mut bindings = tables.clone();
-        let roots: [usize; 3] = std::array::from_fn(|index| {
-            let root = bindings.len();
-            bindings.push(tables[real_roots[index]].clone());
-            root
-        });
-        let body = bindings.len();
-        bindings.push(tables[occurrence].clone());
-        let mut plan = NominalClosure::new(bindings)?;
-        for (virtual_root, real_root) in roots.iter().zip(&real_roots) {
-            plan.pairs(
-                *virtual_root,
-                *real_root,
-                format!(
-                    "SELECT id AS source_id,id AS target_id FROM {}",
-                    identifier(&tables[*real_root].alias)
-                ),
-            )?;
-        }
-        plan.pairs(
-            body,
-            occurrence,
-            format!(
-                "SELECT id AS source_id,id AS target_id FROM {}",
-                identifier(&tables[occurrence].alias)
-            ),
-        )?;
-        let table = |id: usize| identifier(&tables[id].alias);
-        let occurrence_table = table(occurrence);
-        let assessment = real_roots[0];
-        let field = real_roots[1];
-        let declaration = real_roots[2];
-        let callable = typed::<CallableEntity>(&inputs)?;
-        let field_syntax = typed::<ClassFieldSyntaxObservation>(&inputs)?;
-        let member = typed::<EffectiveDecoratorMember>(&inputs)?;
-        let decorator = typed::<DeclarationDecorator>(&inputs)?;
-        let span = |owners: String| {
-            format!(
-                "SELECT owner.root_id AS source_id,child.id AS target_id FROM ({owners}) owner JOIN {occurrence_table} parent ON parent.id=owner.occurrence JOIN {occurrence_table} child ON child.source=parent.source AND child.start>=parent.start AND child.\"end\"<=parent.\"end\" AND array_slice(child.structural_path,1,CAST(array_length(parent.structural_path) AS BIGINT))=parent.structural_path"
-            )
-        };
-        plan.pairs(roots[0],body,span(format!("SELECT a.id AS root_id,c.source_declaration AS occurrence FROM {} a JOIN {} c ON c.id=a.callable UNION SELECT m.assessment AS root_id,d.decorator AS occurrence FROM {} m JOIN {} d ON d.id=m.observation",table(assessment),table(callable),table(member),table(decorator))))?;
-        plan.pairs(roots[1],body,span(format!("SELECT f.id AS root_id,s.value AS occurrence FROM {} f JOIN {} s ON s.id=f.declaration UNION SELECT f.id AS root_id,s.target AS occurrence FROM {} f JOIN {} s ON s.id=f.declaration UNION SELECT f.id AS root_id,s.annotation AS occurrence FROM {} f JOIN {} s ON s.id=f.declaration",table(field),table(field_syntax),table(field),table(field_syntax),table(field),table(field_syntax))))?;
-        plan.pairs(
-            roots[2],
-            body,
-            span(format!(
-                "SELECT id AS root_id,declaration AS occurrence FROM {} WHERE kind={}",
-                table(declaration),
-                DeclarationKind::Class as i16
-            )),
-        )?;
-        // A class requires its actual field initializer metadata, including fields that have no
-        // rich subtree of their own. Supporting class references never enter the virtual root.
-        plan.pairs(roots[2],field,format!("SELECT d.id AS source_id,f.id AS target_id FROM {} d JOIN {} s ON s.class=d.declaration JOIN {} f ON f.declaration=s.id WHERE d.kind={}",table(declaration),table(field_syntax),table(field),DeclarationKind::Class as i16))?;
-        for (source, row) in tables.iter().enumerate() {
-            for field in row.relation.fields() {
-                let Some((kind, _)) = field.target() else {
-                    continue;
-                };
-                let Some(target) = field_target(&inputs, source, kind)? else {
-                    continue;
-                };
-                if field.list() {
-                    plan.pairs(
-                        source,
-                        target,
-                        format!(
-                            "SELECT id AS source_id,UNNEST({}) AS target_id FROM {}",
-                            identifier(field.name()),
-                            table(source)
-                        ),
-                    )?;
-                } else {
-                    plan.follow(source, field.name(), target)?;
-                    if kind == TypeId::of::<Occurrence>() {
-                        plan.pairs(
-                            body,
-                            source,
-                            format!(
-                                "SELECT {} AS source_id,id AS target_id FROM {}",
-                                identifier(field.name()),
-                                table(source)
-                            ),
-                        )?;
-                    }
-                }
-            }
-        }
-        for (member, field, owner) in &scope.memberships {
-            if let (Some(member), Some(owner)) = (bound(&inputs, member), bound(&inputs, owner)) {
-                plan.own(member, field, owner)?;
-            }
-        }
-        // Native support memberships come from the authoritative typed SupportScope contract.
-        // Discovery allocates no rich state and runs once per prepared input set.
-        for invariant in model.invariants() {
-            let check = (invariant.create)(budget);
-            if let Some(support) = check.support_scope()
-                && let (Some(member), Some(owner)) = (
-                    inputs
-                        .iter()
-                        .position(|input| input.type_id() == support.support.type_id()),
-                    inputs
-                        .iter()
-                        .position(|input| input.type_id() == support.assertion.type_id()),
-                )
-            {
-                plan.own(member, "assertion", owner)?;
-            }
-        }
-        if let Ok(coverage) = typed::<attribution::ProviderCoverage>(&inputs) {
-            plan.pairs(qualification,coverage,format!("SELECT q.id AS source_id,c.id AS target_id FROM {} q JOIN {} c ON c.scope=q.scope AND c.context=q.context",table(qualification),table(coverage)))?;
-        }
-        // Advertised rows root their real source namespace when it exists. If it does not,
-        // the row still runs the necessary predicate and is refused; it cannot vanish from work.
-        use lctx_model::domain::normalized::symbolic_fields::*;
-        let optional = |kind| inputs.iter().position(|input| input.type_id() == kind);
-        if let Some(index) = optional(TypeId::of::<callable_aspects::CallableAspect>()) {
-            plan.pairs(
-                index,
-                roots[0],
-                format!(
-                    "SELECT id AS source_id,assessment AS target_id FROM {}",
-                    table(index)
-                ),
-            )?;
-        }
-        if let Some(index) = optional(TypeId::of::<callable_aspects::FieldDefaultAssessment>()) {
-            plan.pairs(
-                index,
-                roots[1],
-                format!(
-                    "SELECT id AS source_id,declaration AS target_id FROM {}",
-                    table(index)
-                ),
-            )?;
-        }
-        for kind in [
-            TypeId::of::<SourceFieldClass>(),
-            TypeId::of::<SourceFieldStore>(),
-            TypeId::of::<SourceFieldReader>(),
-        ] {
-            if let Some(index) = optional(kind) {
-                plan.pairs(index,roots[2],format!("SELECT a.id AS source_id,d.id AS target_id FROM {} a JOIN {} d ON d.declaration=a.class WHERE d.kind={}",table(index),table(declaration),DeclarationKind::Class as i16))?;
-            }
-        }
-        if let (Some(index), Some(class)) = (
-            optional(TypeId::of::<SourceFieldAssociation>()),
-            optional(TypeId::of::<SourceFieldClass>()),
-        ) {
-            plan.pairs(index,roots[2],format!("SELECT a.id AS source_id,d.id AS target_id FROM {} a JOIN {} c ON c.id=a.class JOIN {} d ON d.declaration=c.class WHERE d.kind={}",table(index),table(class),table(declaration),DeclarationKind::Class as i16))?;
-        }
-        if let (Some(index), Some(association), Some(class)) = (
-            optional(TypeId::of::<SourceFieldReaderLink>()),
-            optional(TypeId::of::<SourceFieldAssociation>()),
-            optional(TypeId::of::<SourceFieldClass>()),
-        ) {
-            plan.pairs(index,roots[2],format!("SELECT l.id AS source_id,d.id AS target_id FROM {} l JOIN {} a ON a.id=l.association JOIN {} c ON c.id=a.class JOIN {} d ON d.declaration=c.class WHERE d.kind={}",table(index),table(association),table(class),table(declaration),DeclarationKind::Class as i16))?;
-        }
-        let admission_roots = scope
+            .collect::<Result<Vec<_>, ModelError>>()?
+            .try_into()
+            .map_err(|_| ModelError::Schema("aspect root inventory count"))?;
+        let semantic =
+            lctx_model::domain::normalized::aspect_program::build(scope, inputs, model, budget)?;
+        let roots = semantic.roots;
+        let root_tables =
+            std::array::from_fn(|i| tables[semantic.program.ports[roots[i]].input].alias.clone());
+        let admission_roots = semantic
             .admission_roots
             .iter()
-            .filter_map(|input| {
-                bound(&inputs, input).map(|index| (index, tables[index].alias.clone()))
-            })
+            .map(|&p| (p, tables[semantic.program.ports[p].input].alias.clone()))
             .collect();
-        let roots_tables = std::array::from_fn(|index| tables[real_roots[index]].alias.clone());
+        let inputs = semantic.program.inputs.clone();
+        let compiled = if let Some(programs) = programs {
+            programs
+                .lock()
+                .map_err(|_| ModelError::Conflict("scope interner poisoned"))?
+                .intern(semantic.program, model)?
+        } else {
+            lctx_model::domain::scope_program::ScopeInterner::new(budget)?
+                .intern(semantic.program, model)?
+        };
+        let plan = crate::scope_compilation::lower_compiled(
+            compiled.clone(),
+            &tables,
+            &scope_program::ScopeParameters(vec![]),
+            budget,
+        )?;
         Ok(Self {
             inputs,
             roots,
-            root_tables: roots_tables,
+            root_tables,
             admission_roots,
             edges: plan.prepare(session, budget).await?,
+            inventories,
+            bindings: tables,
+            _charge: charge,
+            _program: compiled,
         })
+    }
+    pub(crate) fn inventory_sql(
+        &self,
+        index: usize,
+        budget: &ResourceBudget,
+    ) -> Result<(String, Box<dyn resources::Reservation>), ModelError> {
+        let program = self
+            .inventories
+            .get(index)
+            .ok_or(ModelError::Schema("aspect root inventory"))?;
+        let charge = budget.reserve(
+            "aspect-root-query",
+            crate::scope_compilation::lowering_allowance(
+                program.program(),
+                &self.bindings,
+                &scope_program::ScopeParameters(vec![]),
+            ),
+        )?;
+        let queries = crate::scope_compilation::select_pair_queries(
+            program.program(),
+            &self.bindings,
+            &scope_program::ScopeParameters(vec![]),
+        )?;
+        let query = queries
+            .first()
+            .ok_or(ModelError::Schema("aspect root query"))?;
+        Ok((
+            format!(
+                "SELECT DISTINCT target_id AS id FROM ({}) roots ORDER BY id",
+                query.2
+            ),
+            charge,
+        ))
     }
 }
 
-pub(crate) async fn load_data(
-    scoped: &crate::consumed_rows::PreparedClosure,
+pub(crate) async fn load_batch(
+    batch: &crate::consumed_rows::PreparedRootBatch,
     inputs: &[ValidationInput],
     budget: &ResourceBudget,
+    cancellation: &Cancellation,
 ) -> Result<(AspectData, AspectOutput), ModelError> {
     let mut data = AspectData::new(budget);
     let mut out = AspectOutput::new(budget);
-    for (index, input) in inputs.iter().enumerate() {
-        let order = input
-            .order()
-            .iter()
-            .map(|field| identifier(field))
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT * FROM ({}) selected{}",
-            scoped.select(index)?,
-            if order.is_empty() {
-                String::new()
-            } else {
-                format!(" ORDER BY {order}")
+    crate::scoped_batch::hydrate_union(
+        batch,
+        inputs,
+        budget,
+        cancellation,
+        &mut |_, input, rows| {
+            if !data.visit(input.name(), rows)? && !out.visit(input.name(), rows)? {
+                return Err(ModelError::Schema("aspect batch input undeclared"));
             }
-        );
-        let mut rows = crate::sql::query(scoped.session(), &sql)
-            .await
-            .map_err(ModelError::codec)?
-            .execute_stream()
-            .await
-            .map_err(ModelError::codec)?;
-        while let Some(batch) = rows.try_next().await.map_err(ModelError::codec)? {
-            if !data.visit(input.name(), &batch)? && !out.visit(input.name(), &batch)? {
-                return Err(ModelError::Schema("aspect scoped input not declared"));
-            }
-        }
-    }
+            Ok(())
+        },
+    )
+    .await?;
     Ok((data, out))
 }
+macro_rules! selected_data {($($field:ident:$ty:ty,)*)=>{
+    pub(crate) struct AspectSelection<'a> {$( $field:crate::scoped_batch::SelectedRows<'a,$ty>,)*}
+    impl<'a> AspectSelection<'a> {
+        pub(crate) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],data:&'a AspectData,budget:&ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{$($field:crate::scoped_batch::SelectedRows::new(batch,partition,inputs.iter().position(|i|i.type_id()==std::any::TypeId::of::<$ty>()).ok_or(ModelError::Schema("aspect selected input absent"))?,&data.$field,budget)?,)*})
+        }
+        pub(crate) fn view(&self)->Result<callable_aspects::AspectDataView<'_>,ModelError>{Ok(callable_aspects::AspectDataView{$($field:self.$field.view()?,)*})}
+    }
+};}
+lctx_model::callable_aspect_inputs!(selected_data);
+macro_rules! selected_output {($($field:ident:$ty:ty,)*)=>{
+    pub(crate) struct OutputSelection<'a> {rows:&'a AspectOutput,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
+    impl<'a> OutputSelection<'a> {
+        pub(crate) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a AspectOutput,budget:&ResourceBudget)->Result<Self,ModelError>{
+            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==std::any::TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
+        }
+        pub(crate) fn view(&self)->Result<callable_aspects::AspectOutputView<'_>,ModelError>{Ok(callable_aspects::AspectOutputView{$($field:match &self.$field {Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
+    }
+};}
+lctx_model::callable_aspect_outputs!(selected_output);
 pub(crate) fn kernel(index: usize, id: [u8; 16]) -> Result<AspectKernel, ModelError> {
     let nominal = serde_json::to_value(id).map_err(ModelError::codec)?;
     Ok(match index {
@@ -307,21 +201,23 @@ pub(crate) async fn validate_aspects(
         .roots
         .iter()
         .enumerate()
-        .map(|(index, root)| (*root, prepared.root_tables[index].clone(), index == 2))
+        .map(|(index, root)| (*root, prepared.root_tables[index].clone(), Some(index)))
         .chain(
             prepared
                 .admission_roots
                 .iter()
-                .map(|(root, table)| (*root, table.clone(), false)),
+                .map(|(root, table)| (*root, table.clone(), None)),
         )
         .collect::<Vec<_>>();
-    for (root, table, class_only) in roots {
-        let filter = if class_only {
-            format!(" WHERE kind={}", syntax::DeclarationKind::Class as i16)
+    for (root, table, inventory) in roots {
+        let (sql, _query) = if let Some(index) = inventory {
+            prepared.inventory_sql(index, budget)?
         } else {
-            String::new()
+            (
+                format!("SELECT id FROM {} ORDER BY id", identifier(&table)),
+                budget.reserve("aspect-advertised-root-query", table.len() + 1024)?,
+            )
         };
-        let sql = format!("SELECT id FROM {}{filter} ORDER BY id", identifier(&table));
         let mut roots = crate::sql::query(session, &sql)
             .await
             .map_err(ModelError::codec)?
@@ -329,29 +225,45 @@ pub(crate) async fn validate_aspects(
             .await
             .map_err(ModelError::codec)?;
         while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
-            for row in 0..batch.num_rows() {
-                cancellation.check()?;
-                let id =
-                    column(&batch, "id", row)?.ok_or(ModelError::Schema("aspect owner root ID"))?;
-                let scoped = prepared
+            for first in (0..batch.num_rows()).step_by(32) {
+                let stop = (first + 32).min(batch.num_rows());
+                let _roots =
+                    budget.reserve("aspect-admission-batch-roots", (stop - first) * 128)?;
+                let requested = (first..stop)
+                    .map(|row| {
+                        Ok(crate::consumed_rows::PreparedRoot {
+                            table: root,
+                            key: column(&batch, "id", row)?
+                                .ok_or(ModelError::Schema("aspect owner root ID"))?,
+                            kind: if prepared.roots.contains(&root) {
+                                crate::consumed_rows::PreparedRootKind::Virtual
+                            } else {
+                                crate::consumed_rows::PreparedRootKind::Physical
+                            },
+                        })
+                    })
+                    .collect::<Result<Vec<_>, ModelError>>()?;
+                let selected = prepared
                     .edges
-                    .grain(root, &root_predicate(&[id]), budget)
+                    .batch_with_cancellation(&requested, budget, cancellation)
                     .await?;
-                let mut check = (invariant.create)(budget);
-                for (input_index, input) in invariant.inputs.iter().enumerate() {
-                    let mut rows =
-                        crate::sql::query(scoped.session(), &scoped.select(input_index)?)
-                            .await
-                            .map_err(ModelError::codec)?
-                            .execute_stream()
-                            .await
-                            .map_err(ModelError::codec)?;
-                    while let Some(batch) = rows.try_next().await.map_err(ModelError::codec)? {
-                        cancellation.check()?;
-                        check.visit_input(input, &batch)?;
-                    }
+                let (data, out) =
+                    load_batch(&selected, &prepared.inputs, budget, cancellation).await?;
+                for partition in 0..requested.len() {
+                    cancellation.check()?;
+                    let owner = AspectSelection::new(
+                        &selected,
+                        partition,
+                        &prepared.inputs,
+                        &data,
+                        budget,
+                    )?;
+                    let advertised =
+                        OutputSelection::new(&selected, partition, &prepared.inputs, &out, budget)?;
+                    crate::stage_runtime::borrowed_cpu("callable_aspect_admission", || {
+                        callable_aspects::admit_view(&owner.view()?, &advertised.view()?, budget)
+                    })?;
                 }
-                check.finish()?;
             }
         }
     }
@@ -361,7 +273,7 @@ pub(crate) async fn validate_aspects(
 #[cfg(test)]
 mod controls {
     use super::*;
-    use datafusion::{datasource::MemTable, prelude::SessionConfig};
+    use datafusion::datasource::MemTable;
     use lctx_model::domain::{
         assertion::{Approximation, AssertionQualification},
         attribution::Modality,
@@ -369,6 +281,7 @@ mod controls {
         source::{Occurrence, OccurrenceRole, SyntaxKind, SyntaxObservation},
         syntax::{ClassFieldSyntaxObservation, DeclarationDecorator},
     };
+    use std::any::TypeId;
     use std::sync::Arc;
     fn nominal<R>(byte: u8) -> Id<R> {
         serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
@@ -407,8 +320,7 @@ mod controls {
                 .clone();
             let budget = ResourceBudget::fixed(128 << 20).unwrap();
             let scope = (invariant.create)(&budget).aspect_scope().unwrap();
-            let session =
-                SessionContext::new_with_config(SessionConfig::new().with_target_partitions(1));
+            let session = SessionContext::new();
             let tables = invariant
                 .inputs
                 .iter()
@@ -549,7 +461,7 @@ mod controls {
         }
     }
     #[tokio::test]
-    async fn physical_owner_kernels_match_actual_oracle_and_exclude_unrelated_rich_rows() {
+    async fn batched_owner_kernels_match_actual_oracle_and_exclude_unrelated_rich_rows() {
         let fixture = Fixture::new();
         let baseline = fixture.budget.reserved();
         let prepared = AspectScopes::prepare(
@@ -563,6 +475,8 @@ mod controls {
         .await
         .unwrap();
         let mut actual = AspectOutput::new(&fixture.budget);
+        let mut requests = Vec::new();
+        let mut owners = Vec::new();
         for (index, ids) in [
             (
                 0,
@@ -584,33 +498,59 @@ mod controls {
             ),
         ] {
             for id in ids {
-                let grain = prepared
-                    .edges
-                    .grain(
-                        prepared.roots[index],
-                        &root_predicate(&[id]),
-                        &fixture.budget,
-                    )
-                    .await
-                    .unwrap();
-                let (data, prior) = load_data(&grain, &prepared.inputs, &fixture.budget)
-                    .await
-                    .unwrap();
-                assert!(data.spellings.is_empty());
-                assert!(data.occurrences.len() < fixture.data.occurrences.len());
-                let rows = callable_aspects::normalize_scope(
-                    &data,
-                    kernel(index, id).unwrap(),
-                    &fixture.budget,
-                )
-                .unwrap();
-                macro_rules! merge {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){actual.$field.insert(row.clone()).unwrap();})*};}
-                lctx_model::callable_aspect_outputs!(merge);
-                drop(prior);
-                drop(data);
-                drop(grain);
+                requests.push(crate::consumed_rows::PreparedRoot {
+                    table: prepared.roots[index],
+                    key: id,
+                    kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                });
+                owners.push((index, id));
             }
         }
+        requests.push(requests[0]);
+        owners.push(owners[0]);
+        let selected = prepared
+            .edges
+            .batch_with_cancellation(&requests, &fixture.budget, &Cancellation::default())
+            .await
+            .unwrap();
+        let (data, prior) = load_batch(
+            &selected,
+            &prepared.inputs,
+            &fixture.budget,
+            &Cancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert!(data.spellings.is_empty());
+        assert!(data.occurrences.len() < fixture.data.occurrences.len());
+        let mut partition_occurrences = 0;
+        for (partition, (index, id)) in owners.into_iter().enumerate() {
+            let selected_data = AspectSelection::new(
+                &selected,
+                partition,
+                &prepared.inputs,
+                &data,
+                &fixture.budget,
+            )
+            .unwrap();
+            let view = selected_data.view().unwrap();
+            partition_occurrences += view.occurrences.len();
+            let rows = callable_aspects::normalize_scope_view(
+                &view,
+                kernel(index, id).unwrap(),
+                &fixture.budget,
+            )
+            .unwrap();
+            macro_rules! merge {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){actual.$field.insert_borrowed(row).unwrap();})*};}
+            lctx_model::callable_aspect_outputs!(merge);
+        }
+        assert!(
+            data.occurrences.len() < partition_occurrences,
+            "shared physical body demand is hydrated once across root partitions"
+        );
+        drop(prior);
+        drop(data);
+        drop(selected);
         actual.matches(&fixture.out).unwrap();
         drop(actual);
         drop(prepared);

@@ -1105,48 +1105,59 @@ pub async fn prepare_source_calls(
             while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
                 let _transfer =
                     budget.reserve("SourceCall-root-transfer", logical_batch_bytes(&batch)?)?;
-                for row in 0..batch.num_rows() {
-                    runtime.cancellation().check()?;
-                    let event = execution_scope::nominal(
-                        &crate::scoped_admission::column(&batch, "id", row)?
-                            .ok_or(ModelError::Schema("SourceCall root ID"))?,
+                for start in (0..batch.num_rows()).step_by(32) {
+                    let end = (start + 32).min(batch.num_rows());
+                    let _keys = budget.reserve(
+                        "SourceCall-root-window",
+                        (end - start) * size_of::<[u8; 16]>(),
                     )?;
-                    let scope = scopes.scope(event, budget).await?;
-                    let selected = scopes.data(&scope, budget).await?;
-                    let (records, owner, payload) = prepare_event_produced(
-                        &selected,
-                        &invocation,
-                        definition,
-                        profile,
-                        budget,
-                        application,
-                        evaluations,
-                        bodies,
-                        event,
-                    )?;
-                    private_payloads.insert(invocation.id(), event, payload.bytes())?;
-                    drop(payload);
-                    produced
-                        .as_mut()
-                        .expect("actual SourceCall frame")
-                        .append(owner)?;
-                    run.bound = run
-                        .bound
-                        .checked_add(records.run.bound)
-                        .ok_or(ModelError::Conflict("SourceCall bound count overflow"))?;
-                    run.refused = run
-                        .refused
-                        .checked_add(records.run.refused)
-                        .ok_or(ModelError::Conflict("SourceCall refused count overflow"))?;
-                    if records.outcome.status == analysis::AnalysisStatus::Partial {
-                        outcome.status = records.outcome.status;
-                        outcome.reason = records.outcome.reason;
+                    let keys = (start..end)
+                        .map(|row| {
+                            crate::scoped_admission::column(&batch, "id", row)?
+                                .ok_or(ModelError::Schema("SourceCall root ID"))
+                        })
+                        .collect::<Result<Vec<_>, ModelError>>()?;
+                    let window = scopes
+                        .event_window(&keys, budget, &runtime.cancellation())
+                        .await?;
+                    for (partition, key) in keys.iter().enumerate() {
+                        runtime.cancellation().check()?;
+                        let event = execution_scope::nominal(key)?;
+                        let selected = window.data(partition, budget, &runtime.cancellation())?;
+                        let (records, owner, payload) = prepare_event_produced(
+                            &selected,
+                            &invocation,
+                            definition,
+                            profile,
+                            budget,
+                            application,
+                            evaluations,
+                            bodies,
+                            event,
+                        )?;
+                        private_payloads.insert(invocation.id(), event, payload.bytes())?;
+                        drop(payload);
+                        produced
+                            .as_mut()
+                            .expect("actual SourceCall frame")
+                            .append(owner)?;
+                        run.bound = run
+                            .bound
+                            .checked_add(records.run.bound)
+                            .ok_or(ModelError::Conflict("SourceCall bound count overflow"))?;
+                        run.refused = run
+                            .refused
+                            .checked_add(records.run.refused)
+                            .ok_or(ModelError::Conflict("SourceCall refused count overflow"))?;
+                        if records.outcome.status == analysis::AnalysisStatus::Partial {
+                            outcome.status = records.outcome.status;
+                            outcome.reason = records.outcome.reason;
+                        }
+                        emit_source_calls(&records, &output).await?;
+                        drop(records);
+                        drop(selected);
+                        tokio::task::yield_now().await;
                     }
-                    emit_source_calls(&records, &output).await?;
-                    drop(records);
-                    drop(selected);
-                    drop(scope);
-                    tokio::task::yield_now().await;
                 }
             }
         }
@@ -1571,65 +1582,70 @@ pub async fn enrich(
                 while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
                     let _transfer =
                         budget.reserve("Enriched-root-transfer", logical_batch_bytes(&batch)?)?;
-                    for row in 0..batch.num_rows() {
-                        runtime.cancellation().check()?;
-                        let key = crate::scoped_admission::column(&batch, "id", row)?
-                            .ok_or(ModelError::Schema("Enriched root ID"))?;
-                        let scope = if unowned {
-                            scopes
-                                .unowned_scope(execution_scope::nominal(&key)?, budget)
-                                .await?
-                        } else {
-                            scopes
-                                .owner_scope(execution_scope::nominal(&key)?, budget)
-                                .await?
-                        };
-                        let mut selected = scopes.enriched_data(&scope, budget).await?;
-                        source_call_scope::enriched_configuration(&data, &mut selected)?;
-                        let records = if unowned {
-                            enrich_unowned_statement(
-                                &selected,
-                                &invocation,
-                                definition,
-                                profile,
-                                budget,
-                                execution_scope::nominal(&key)?,
-                                &mut work,
-                            )?
-                        } else {
-                            let hydrated = source_call_scope::hydrate_selected(
-                                values, spool, parent, &selected, budget,
-                            )?;
-                            enrich_owner_produced(
-                                &selected,
-                                &invocation,
-                                definition,
-                                profile,
-                                budget,
-                                application,
-                                evaluations,
-                                Some(&hydrated),
-                                execution_scope::nominal(&key)?,
-                                &mut work,
-                            )?
-                        };
-                        for row in records.executions.iter() {
-                            counts.push(0, row)?;
+                    for start in (0..batch.num_rows()).step_by(32) {
+                        let end = (start + 32).min(batch.num_rows());
+                        let _keys = budget.reserve(
+                            "Enriched-root-window",
+                            (end - start) * size_of::<[u8; 16]>(),
+                        )?;
+                        let keys = (start..end)
+                            .map(|row| {
+                                crate::scoped_admission::column(&batch, "id", row)?
+                                    .ok_or(ModelError::Schema("Enriched root ID"))
+                            })
+                            .collect::<Result<Vec<_>, ModelError>>()?;
+                        let window = scopes
+                            .owner_window(&keys, unowned, budget, &runtime.cancellation())
+                            .await?;
+                        for (partition, key) in keys.iter().enumerate() {
+                            runtime.cancellation().check()?;
+                            let mut selected =
+                                window.enriched_data(partition, budget, &runtime.cancellation())?;
+                            source_call_scope::enriched_configuration(&data, &mut selected)?;
+                            let records = if unowned {
+                                enrich_unowned_statement(
+                                    &selected,
+                                    &invocation,
+                                    definition,
+                                    profile,
+                                    budget,
+                                    execution_scope::nominal(key)?,
+                                    &mut work,
+                                )?
+                            } else {
+                                let hydrated = source_call_scope::hydrate_selected(
+                                    values, spool, parent, &selected, budget,
+                                )?;
+                                enrich_owner_produced(
+                                    &selected,
+                                    &invocation,
+                                    definition,
+                                    profile,
+                                    budget,
+                                    application,
+                                    evaluations,
+                                    Some(&hydrated),
+                                    execution_scope::nominal(key)?,
+                                    &mut work,
+                                )?
+                            };
+                            for row in records.executions.iter() {
+                                counts.push(0, row)?;
+                            }
+                            for row in records.boundaries.iter() {
+                                counts.push(1, row)?;
+                            }
+                            for row in records.bodies.iter() {
+                                counts.push(2, row)?;
+                            }
+                            for row in records.body_boundaries.iter() {
+                                counts.push(3, row)?;
+                            }
+                            emit_enriched(&records, &output).await?;
+                            drop(records);
+                            drop(selected);
+                            tokio::task::yield_now().await;
                         }
-                        for row in records.boundaries.iter() {
-                            counts.push(1, row)?;
-                        }
-                        for row in records.bodies.iter() {
-                            counts.push(2, row)?;
-                        }
-                        for row in records.body_boundaries.iter() {
-                            counts.push(3, row)?;
-                        }
-                        emit_enriched(&records, &output).await?;
-                        drop(records);
-                        drop(selected);
-                        drop(scope);
-                        tokio::task::yield_now().await;
                     }
                 }
             }

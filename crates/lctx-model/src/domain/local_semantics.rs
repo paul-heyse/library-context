@@ -984,7 +984,7 @@ pub fn stage(
     )?;
     Ok(Stage {
         captured_binding: None,
-name: "analyze_local",
+        name: "analyze_local",
         inputs,
         outputs,
         contributes: vec![],
@@ -1633,4 +1633,46 @@ fn produce_fields(
 
 pub(crate) fn local_invariants_refs() -> Vec<&'static str> {
     vec!["local_semantic_replay"]
+}
+
+impl LocalData {
+    /// Current-source owned premises for the existing finite kernels after one union decode.
+    /// Multiple declared prefixes retain their original merged Rows realization.
+    pub fn selected_copy(
+        &self,
+        inputs: &[ValidationInput],
+        contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut selected = Self::new(budget);
+        macro_rules! copy_entry{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.entry.$field,&mut selected.entry.$field,inputs,contains)?;)*};}
+        crate::entry_value_inputs!(copy_entry);
+        macro_rules! copy_theory{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.theory.$field,&mut selected.theory.$field,inputs,contains)?;)*};}
+        crate::local_theory_inputs!(copy_theory);
+        macro_rules! copy_fields{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.fields.$field,&mut selected.fields.$field,inputs,contains)?;)*};}
+        crate::local_field_inputs!(copy_fields);
+        macro_rules! copy_local{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.$field,&mut selected.$field,inputs,contains)?;)*};}
+        crate::local_semantic_inputs!(copy_local);
+        Ok(selected)
+    }
+}
+fn copy_local_rows<R: Record>(
+    source: &Rows<R>,
+    target: &mut Rows<R>,
+    inputs: &[ValidationInput],
+    contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+) -> Result<(), ModelError> {
+    for row in source.iter() {
+        for (table, _) in inputs
+            .iter()
+            .enumerate()
+            .filter(|(_, input)| input.type_id() == std::any::TypeId::of::<R>())
+        {
+            if contains(table, *row.id().bytes())? {
+                target.insert_borrowed(row)?;
+                break;
+            }
+        }
+    }
+    Ok(())
 }

@@ -347,3 +347,13 @@ pub(super) fn selected<'a>(
     }
     Ok(out)
 }
+
+impl Data {
+    pub(crate) fn copy_selected_ownership(
+        &self,
+        target: &mut Self,
+        selected: &mut dyn FnMut(std::any::TypeId, [u8; 16]) -> Result<bool, ModelError>,
+    ) -> Result<(), ModelError> {
+        self.scope.copy_selected_into(&mut target.scope, selected)
+    }
+}
