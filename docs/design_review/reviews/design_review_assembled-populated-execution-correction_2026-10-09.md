@@ -111,7 +111,7 @@ Finding IDs are stable within this review. The coordinator’s [persisted-execut
 
 ### F01 — Known-export inspection now requires an unrelated frozen publication authority
 
-**Priority: High — deterministic valid-input regression.**  
+**Priority: High — deterministic valid-input regression.**
 **Principles/judgments:** FP-01, FP-02, FP-06; DP-08; A1/A3; G6.
 
 [AdmittedArtifact::verify_export](../../../crates/cpg-core/src/artifact.rs) verifies a transported copy against its already admitted manifest using a supplied resource Workspace. It returns `Result<(), ModelError>` and does not perform detached readmission.
@@ -132,7 +132,7 @@ Do not fix this by freezing the resource Workspace or importing content merely t
 
 ### F02 — Public publication entry points can bypass the semantic admission boundary
 
-**Priority: High — trust/capability boundary defect.**  
+**Priority: High — trust/capability boundary defect.**
 **Principles/judgments:** FP-02, FP-04, FP-05; DP-02, DP-03, DP-19; A2; G3/G5.
 
 Two exposed paths share this structural cause.
@@ -157,7 +157,7 @@ Do not add a second semantic validator in the native layer. Preserve core’s se
 
 ### F03 — Global closure can reject a canonical read that was already admitted
 
-**Priority: Medium — scheduling-dependent lifecycle regression.**  
+**Priority: Medium — scheduling-dependent lifecycle regression.**
 **Principles/judgments:** FP-02, FP-05; DP-08, DP-19; A3; G6.
 
 [retain_read_setup](../../../crates/lctx-surrealdb/src/compiler.rs) admits the read before spawning its setup driver. The final seal closes general admission and waits for those admitted operations.
@@ -181,7 +181,7 @@ A revealing schedule is:
 
 ### F04 — Cancellation after acknowledged marking loses the committed handle
 
-**Priority: High — retained completion-state gap.**  
+**Priority: High — retained completion-state gap.**
 **Principles/judgments:** FP-05; DP-05, DP-19, DP-21; A2; G5.
 
 `native publication.rs` (intermediate source) acknowledges the marker and records the committed handle in a **local** `Completion`, then awaits session invalidation and VIEWER readback.
@@ -200,7 +200,7 @@ Cleanup remains conservatively refused, so this is **not** a demonstrated rollba
 
 ### F05 — Acknowledged phase failures are reported as incomplete work
 
-**Priority: Medium — selected diagnostic contract incomplete.**  
+**Priority: Medium — selected diagnostic contract incomplete.**
 **Principles/judgments:** FP-06; DP-21; PJ1 operational observability.
 
 The `Phase` primitive appropriately emits no terminal on drop. That preserves the distinction between interrupted work and actual terminal work.
@@ -342,7 +342,7 @@ AGENTS, design-review skills, coordination routing, core/template 3.3, heuristic
 | **F04 — Acknowledged handle lost on cancellation** | **Source-resolved.** Checked marker acknowledgement records the pre-encoded exact handle in retained operation state before another await. Drain/refusal preserve it; abandon requires no committed effects. See [marker acknowledgement](../../../crates/lctx-publisher/src/native_publication.rs) and [abandon](../../../crates/lctx-surrealdb/src/compiler.rs). Record-then-drop and unknown-drop controls exist, but do not execute cancellation inside production marker/readback. |
 | **F05 — Failure phases appear incomplete** | **Substantially corrected, still open.** Admission, preparation, publication, compiler and CLI result owners now finish failure results; `Phase` drop remains silent. Native setup still has an early-return gap described below. |
 
-**F06 — Public post-closure reads lack a retained parent**  
+**F06 — Public post-closure reads lack a retained parent**
 **Medium; FP-02/05, DP-08/19/20; A2/A3, G3/G5/G6.**
 
 [completed_state_after_closure](../../../crates/lctx-surrealdb/src/compiler.rs) is public and checks only the permanent `seal_started` flag. It neither requires a live finalization guard nor registers parent ownership before its first await. Its descendants use [track_rows](../../../crates/lctx-surrealdb/src/compiler.rs), which deliberately permits closed-state execution.
@@ -351,7 +351,7 @@ After a seal attempt ends, a fresh caller can therefore start this read despite 
 
 **Proposed correction:** require a live, same-store finalization parent covering the entire operation, with no unguarded public route. Closure evidence should establish refusal without that parent and retained ownership across the read’s awaits.
 
-**Residual F05 — Native setup authentication failure has no terminal**  
+**Residual F05 — Native setup authentication failure has no terminal**
 **Medium; FP-06, DP-21.**
 
 [native setup](../../../crates/lctx-surrealdb/src/compiler.rs) emits `begin`, then authenticates through `await?` before entering the result block that emits terminals. An authentication rejection returns `Err` and silently drops the phase, making a completed failure look interrupted.

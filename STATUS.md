@@ -2,116 +2,92 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: populated execution plan authored; independent target review accepted scoped.**
-The operator committed and pushed the preceding PC/BC/CU tree as
-`dcb505d5a8c8c4760893f4d49b459b3d0bfce69d`. This continuation is committed locally in
-`e6a73d12`, `a148758c` and `70b8bf53`; final receipts and review documentation follow that source.
-The [persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
-owns source finding dispositions, current commands, receipts and remaining acceptance.
-The [correction plan §7](docs/plans/persisted-execution-corrections-plan_2026-10-07.md#7-verification-and-remaining-investigations)
-owns the bounded refinements. ADR-0133/0135 accept their architectural contracts;
-accepted decisions and successful slices do not establish whole-plan closure.
+**Current scope: populated execution correction implemented; targeted acceptance recorded.**
+The [populated companion](docs/plans/populated-journey-execution-amplification-plan_2026-10-09.md)
+defines PJ0–PJ3, materially triggered PJ4 and targeted PJ5. The integrated correction is committed locally on main as
+`2a62e817`; no push is requested. The
+[persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+owns finding disposition, exact current commands, failed/repaired receipts and remaining acceptance.
 
-**Implemented / independently source-reviewed, 2026-10-08:** first-native-operation failure
-attribution and retained read-setup ownership through delivery/cancellation and descendant drainage;
-restore Removed/Orphan preservation; borrowed filter interpretation and one lazy,
-charged static preparation per scan; complete streamed library eligibility into the existing
-compact sorter; fresh graph wiring-index reuse with independent cold decode validation.
-The obsolete whole-match library-input function is removed from the realization inventory.
-Independent review's reservation-handoff finding is source-resolved; final review found no
-remaining material findings, including the adjacent consumers and cold-fixture corrections.
-There is no measured runtime-speed claim.
+**Implemented / source-inspected, 2026-10-09:** ADR-0138 consolidates the native execution,
+supplier, completion and publication contracts. Fixed native envelopes and supplied scopes replace
+vocabulary-wide body/scope programs. Declaration-selected synchronous adapters validate bounded
+windows before effects; cold reconstruction compares complete actual bodies, envelopes and originals.
+The reviewed fixed-envelope snapshot is a **physical schema migration**. Completed-state format2,
+artifact format3, semantic digest domains and append-only codebooks are unchanged.
 
-**Verification prerequisites repaired:** flow oracle owns a native fixture and exposes producer
-stderr; native evaluator controls stay under serving; failed serving production blocks dependent
-steps. CLI profile/frontier cases are independently selectable with their original assertions.
-Ordinary CLI flow/compiler probes use the shared 64 GiB budget; available parallelism is preserved.
-Borrowed facts admission inputs replace 14-argument interfaces; dependency discovery retains the
-real path-included build dependencies and removes redundant ignore metadata.
+Final admission fences the full Workspace/native completion-binding-visibility handoff, drains
+content mutations and checks actual descriptors before attestation and semantic admission.
+Complete alias-aware pointer runs are prepared once; independent charged cursors retain scratch
+through worker terminality and the last consumer. Ordinary publication seals that admitted native
+owner. Detached artifacts and SQL staging restore remain independently admitted. Publisher's
+private workflow accepts only store/manifest-bound admission owners and retains its own effect
+session. Compiler admin clients and public seal/marker routes are removed. Live finalization
+parents cover post-closure reads; acknowledged committed identity survives cancellation/abandonment.
 
-**passed, 2026-10-08 (run IDs use UTC 2026-10-09):**
+Coarse phases use captured dispatch/span attribution across tasks, provider/fixture threads and
+borrowed CPU regions. Result owners emit terminals; drop leaves interruption incomplete.
+A composed core binary suppressed native macro callsites despite capturing ordinary scoped INFO;
+explicit fixed-metadata emission repairs that observed symptom and preserves filtering. Its
+underlying library/compiler cause remains unproven. Facts, invariant and frontier admission are
+separately attributable. No per-row telemetry, worker caps or measured speed claim is introduced.
 
-- Final focused native selection: 34 controls (`20261009T023103.222Z-6b45dc`), including
-  cancelled setup, sized reservations, supplier transport, failed import and streamed discovery.
-- Unchanged 4099-row/4 MiB closure control (`20261009T023103.219Z-93de53`).
-- Cold reconciliation/lifecycle:five initial passes and three corrected passes; the latter assert
-  exact retained conflicts, confirmed removal and independent database absence.
-- Three retained-member lifetime/budget controls (`20261009T023605.821Z-9328ad`).
-- CLI Catalog Facts/Normalized and Behavioral Facts; the other selected cases timed out.
-- Populated native/MCP/evaluator boundary (`20261009T023103.223Z-bda1ff`): both native
-  journeys and 35 Python controls passed; native bodies 1883.02s, full boundary 2439.61s.
-- Verification-harness 45 controls; native extension refresh; Ruff, types, deps and full
-  keep-going workspace/all-target Clippy after repairs; preceding documentation publication 346 pages.
-  Exact commands are in coordinator §9.1.
-- Earlier focused projection/completion/coverage 21, fingerprint 4 and normalization 2 controls
-  retain their preceding-source limits; they are not a whole-plan qualification.
+The [independent assembled review](docs/design_review/reviews/design_review_assembled-populated-execution-correction_2026-10-09.md)
+and bounded diagnostics reassessment conclude **Accept scoped at static / Implemented strength**.
+Current focused and populated acceptance is recorded below; enclosing qualification remains open.
 
-**Current failures / deferred:** the CLI run failed on unchanged 300s timeouts in Catalog Analysis,
-Catalog Catalog and Behavioral Normalized (`20261009T023103.219Z-3ed231`); three other cases passed.
-The fixture-backed flow oracle exceeded its unchanged 10s subprocess limit without comparison.
-The operator-deferred four 300s Behavioral stage controls remain deferred. Timeout reruns and an
-assembled `qualify` restart are not_run in the review scope; normal parallelism is preserved.
-Publisher fixture failures, native wrapped-cause/cleanup assertions, artifact-test imports and
-Clippy/Ruff/Hakari issues are corrected with affected reruns passed.
+**passed, 2026-10-09:**
 
-**Remaining acceptance:** native extension refresh passed before guards resumed.
-`just verify --select serving:mcp` completed naturally, covering actual fresh compilation,
-publication/backup/restore/tools and dependent Python controls with deterministic contract vectors.
-Whole PC6/CU6/BC3/BC5 acceptance and source findings stay open where required evidence is incomplete.
+- Final formatted-source native refresh, locked release CLI/evaluator build, 15 pure controls
+  and four source-fingerprint controls (`20261009T070023.218Z-35efa2`); `just ready`.
+- Current affected crate/test compile checks; final full keep-going workspace/all-target Clippy
+  (`20261009T055818.261Z-c08c03`) after applicable repairs.
+- Twelve pure codec/schema/adapter/reconstruction controls and reviewed snapshot acceptance.
+- Fifty-two controls in the 54-control native selection; its two failed backing expectations
+  were corrected without weakening checks, and their exact rerun passed
+  (`20261009T054808.562Z-cbcc63`), including independent database absence.
+- Actual core admission failure phase control (`20261009T055352.008Z-869ea3`); four current
+  native auth-refusal/filter/concurrent-attribution/abort controls (`20261009T055723.301Z-c3525e`).
+- Single Catalog Facts compile/admit/export, 138.296s (`20261009T054911.783Z-475010`);
+  intact/tampered known-export transport, 247.378s (`20261009T062646.015Z-b2b5ea`).
+- Two populated native journeys (1741.50s bodies), publication/tools/backup/fresh restore and
+  35 Python/MCP/native-evaluator controls (27.378s), `20261009T060142.629Z-c9c159`.
+- CLI Catalog Facts/Normalized and Behavioral Facts; foreign captured cold admission, within
+  the otherwise failed composite `20261009T052757.430Z-f56701`.
+- Applicable lint-agents/ADR/fixtures/gold/rules/Ruff/types/dependency leaves and corrected
+  rules-scan. Final dependency replay passed (`20261009T062616.617Z-e74670`) after recording
+  the external shared fixture dependency cargo-shear cannot discover. Hakari is regenerated;
+  no dependency version moved.
+- `just docs-check`: 349 canonical pages, zero link errors; ADR/Hakari freshness clean.
 
-**Rust compilation correction: compiler diagnostics passed; runtime acceptance remains bounded.**
-The [coroutine companion §7](docs/plans/rust-coroutine-compilation-amplification-plan_2026-10-08.md#7-source-obligation-coverage-and-current-handoff)
-owns confirmed inventories, compiler captures and their exact limits. Shared borrowed phases,
-opaque inventory adapters and typed synchronous leaves are integrated; CU5 retains checked `push`
-with its attributed-cost/contract trigger. Earlier actual candidate capture completed normal,
-harness and seven integration products; no whole-workspace speed claim is made.
-The [compilation coordinator §9/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#9-sole-compilation-cost-finding-disposition)
-owns BC3/BC5. ADR-0137's local-default installation remains qualification-gated; active defaults
-remain release. The preceding assembled release qualification failed; later focused repairs do
-not convert that run into a clean assembled pass.
+**Remaining failed boundaries:** initial core selections had the repaired phase-control failure
+and 19 combined 300s timeouts. Compiled-export publication also timed out at 300s. A split-test
+selector missed qualified names; its correction preserves the original 900s orchestration allowance.
+The seven-case frontier run finished: Behavioral Facts passed in 488.727s; six Normalized,
+Analysis or Catalog cases timed out at their unchanged 900s deadline
+(`20261009T055800.496Z-d3005d`). Retained phases place these observed long intervals in
+normalization, before final admission: Catalog callable aspects took 342.592s, while Behavioral
+upper cases had begun entity normalization. No universal freeze/read wait cycle is supported;
+the specific cause of the time between small CPU regions remains unproven. No failed composite
+is relabelled as a clean pass.
 
-**Integrated baseline:** immutable native contributions/views and frozen bindings; typed codec
-and bounded Arrow transfer; all compiler frontiers/profiles; selected analytical preparation and
-native closure; shared serving indexes; direct sealing; artifact/backup/restore/inspection;
-bounded final response encoding and readiness. PC0–PC5 are committed; PC6 acceptance remains open.
-Native phase/hotspot attribution remains unresolved; passing integration does not establish runtime fit.
+**Next:** the operator-deferred normalization/semantic-validation followup and enclosing
+qualification retain their existing owners; scoped maintenance and final preparation passed. The one populated
+`serving:mcp` run passed after a guard-free native refresh; its runtime evidence is distinct from
+build/wait time and does not establish a measured speedup. It precedes mechanical scoped
+formatting; final preparation and 19 pure/source-identity controls cover the formatted source. The coordinator retains the source
+boundaries and remaining large detached-publication/upper-frontier timeouts. Normalization and
+semantic-validation repeated-access avenues are recorded in the companion for the operator-deferred
+followup; static review identified no bounded PJ2/PJ3 correctness regression or freeze/read cycle.
 
-**Target review, source-inspected / Proposed remedies, 2026-10-08:** the
-[populated journey review](docs/design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md)
-concludes **Revise** execution fit: vocabulary-wide native lowering and repeated canonical membership
-preparation amplify physical work. Semantic ownership and current sequential composition retain
-their scoped judgment. Its diagnosis does not attribute the 31m23s native runtime to a phase.
-Review publication: `just docs-check` **passed**, 2026-10-08, 347 canonical pages; the completed
-journey retains its attributed receipt. Those are not fresh plan-authoring checks.
+**Enclosing boundaries remain open:** PC6/CU6/BC3/BC5, the operator-deferred timeout followup
+and assembled release `qualify`. Active defaults remain release until BC3 qualifies its candidate.
+Earlier successful populated acceptance (31m23s native bodies) describes the preceding source,
+not this physical schema. The coroutine/compilation companions retain their compiler evidence
+and source limits. Current focused passes do not establish whole-plan or performance qualification.
 
-**Proposed plan, 2026-10-09:** the
-[populated companion](docs/plans/populated-journey-execution-amplification-plan_2026-10-09.md)
-selects fixed native envelopes with typed ingress/supplied scopes, final compiler-content freeze
-and shared immutable pointer spools with independent charged cursors. Independent cold/physical
-admission and initial external readmission remain. Coordinator §8 owns scheduled review F01/F02;
-F03 stays source-deferred. RC01/RC02 are accepted, RC03/RC04 retained: native frontiers and SQL
-staging restore remain. PJ0 installs decisions/owners before production changes; none are applied.
-The plan captures every review investigation with its owner, evidence and trigger. Authoring
-product checks, native probes and performance measurements are **not_run**. The selector dry run
-resolved release boundaries; native fixtures are **blocked** by this session's missing user
-systemd bus, affecting execution/probes rather than static authoring. The
-[independent target-plan review](docs/design_review/reviews/design_review_populated-journey-execution-plan_2026-10-09.md)
-is **Accept scoped at Proposed strength**; its finalization-order/handoff correction is integrated,
-with no remaining blocking target finding. `just docs-check` **passed**, 2026-10-09,
-349 canonical pages and zero link errors. Production changes and product checks remain **not_run**.
-
-**Preservation / next:** document authoring/review is complete; next is detailed execution planning
-for PJ0/PJ1/PJ2/PJ3 and their shared consumers. Preserve the
-timeout follow-up and whole-plan open boundary; no authoring run resumes deferred qualification.
-PC3's isolated worktree retains an uncommitted planner-control copy already represented on main;
-preserve it until safe retirement is established. Shared caches and profiling evidence remain.
-No operator store/configuration, client registration, Qwen service, protected gold/heldout,
-real FastMCP/Q1 pilot, wheel, performance campaign, operator adoption or further push is requested.
-
-Workspace commands and maintenance follow [AGENTS.md](AGENTS.md#commands) and ADR-0134.
-The [workspace effectiveness plan](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md)
-retains its accepted design-phase boundary; no unrelated assembled gate is implied.
-Earlier evidence/retrieval, graph-native and programmatic evaluation obligations remain with
-[their coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion),
-[graph-native §7](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
-and the [evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md).
+**Preservation:** retain PC3's dirty isolated planner-control copy, shared intermediates and
+profiling/benchmark captures. No operator store/configuration, client registration, Qwen service,
+protected gold/heldout, real FastMCP/Q1 pilot, wheel, benchmark campaign, activation or push is requested.
+Earlier product/evidence/graph-native obligations remain with the plans linked by the coordinator.
+Workspace commands and end-of-turn maintenance follow [AGENTS.md](AGENTS.md#commands).
