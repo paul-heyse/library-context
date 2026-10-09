@@ -21,6 +21,7 @@ removed and recovered from Git (ADR-0042, [historical recovery](../../README.md#
 
 | Folder | Question | Current consumer |
 |---|---|---|
+| [`2026-10-09_agent-effectiveness-followup`](2026-10-09_agent-effectiveness-followup/README.md) | Which recent command failures and native tooling capabilities identify useful Codex-focused workstation/repository improvements? | [Agent effectiveness follow-up review](../reviews/design_review_agent-effectiveness-followup_2026-10-09.md) |
 | [`2026-10-07_agent-workspace-effectiveness`](2026-10-07_agent-workspace-effectiveness/README.md) | Which environment, command-surface, tooling and agent-configuration changes would make capable agents more effective here? | [Agent workspace effectiveness plan](../../plans/agent-workspace-effectiveness-plan_2026-10-07.md) |
 | [`2026-10-06_graph-native-remediation-capabilities`](2026-10-06_graph-native-remediation-capabilities/README.md) | Which built-in capabilities and foundation changes close the audit without replay, scalar crossings or extra lifecycle machinery? | [Graph-native remediation §9](../../plans/graph-native-pivot-plan_2026-10-05.md#9-remediation-and-improvement-execution) |
 | [`2026-10-06_graph-native-pivot-audit`](2026-10-06_graph-native-pivot-audit/README.md) | Does cold audit detect changed search data, and can failed selection already publish a serving pin? | [Graph-native implementation audit](../reviews/design_review_graph-native-pivot-implementation-audit_2026-10-06.md), F04/F05 |

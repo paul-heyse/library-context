@@ -1,0 +1,82 @@
+{
+  "window_start": "2026-10-06T04:00:00Z",
+  "cutoff": "2026-10-09T18:45:09Z",
+  "time_basis": "recorded completion event timestamp",
+  "excluded_threads": [
+    "01a121f2-de58-7573-a6ee-88bd39280f2a",
+    "01a121f4-9551-73f3-b7e8-c2bfaf9a38d5",
+    "01a121fc-86b8-70f3-a2b0-bf1849a8fc3b",
+    "01a121fc-cd05-75d2-980c-e1760e856266"
+  ],
+  "populated_threads": 115,
+  "stats": {
+    "candidate_files": 115,
+    "invocation:.exec": 17325,
+    "native_completions": 22211,
+    "exit_zero": 20484,
+    "invocation:collaboration.spawn_agent": 128,
+    "exit_nonzero": 1727,
+    "invocation:.request_user_input": 21,
+    "invocation:collaboration.followup_task": 417,
+    "invocation:collaboration.send_message": 3786,
+    "invocation:collaboration.list_agents": 104,
+    "invocation:collaboration.wait_agent": 655,
+    "invocation:clock.sleep": 1035,
+    "invocation:.request_user_input_async": 1,
+    "invocation:collaboration.interrupt_agent": 3,
+    "outer_error_candidates": 39,
+    "invalid_json_lines": 9,
+    "invocation:.wait": 43
+  },
+  "by_local_day": {
+    "2026-10-07": 5276,
+    "2026-10-08": 4647,
+    "2026-10-09": 4341,
+    "2026-10-06": 7947
+  },
+  "outcome_heuristics": {
+    "success": 20479,
+    "probe_miss": 1146,
+    "code_failure": 372,
+    "other_failure": 130,
+    "interrupted": 54,
+    "masked-failure": 5,
+    "usage_error": 3,
+    "env_failure": 22
+  },
+  "by_role": {
+    "root": 10319,
+    "design-reviewer": 1395,
+    "library-research": 587,
+    "code-mapper": 840,
+    "executor": 8071,
+    "implementation-reviewer": 445,
+    "explorer": 74,
+    "test-agent": 480
+  },
+  "by_cli_version": {
+    "0.161.0": 9917,
+    "0.160.0": 5787,
+    "0.160.1": 6507
+  },
+  "by_originator": {
+    "codex-tui": 22211
+  },
+  "by_command_class": {
+    "search-read": 13603,
+    "git": 3046,
+    "inline-script": 989,
+    "edit-shell": 1864,
+    "just": 606,
+    "process-monitor": 1213,
+    "raw": 826,
+    "other": 53,
+    "noop": 5,
+    "just-discovery": 6
+  },
+  "mcp_completions": {
+    "context7.resolve-library-id:completed": 147,
+    "context7.query-docs:completed": 179
+  },
+  "reused_extractor_sha256": "e81b87f405d4328a75878f383f2ba5df3ad2dc7ba6b334c06639bfc753443e8f"
+}

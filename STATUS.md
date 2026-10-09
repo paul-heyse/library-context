@@ -16,6 +16,13 @@ GK0–GK6 and GR0–GR5 are implemented in the current uncommitted tree on `d234
 prior GK0–GK5 foundations are committed as `da7c4747`. GK7/GR6 acceptance remains open.
 Preserve the operator's untracked hashing references. No push or operator activation requested.
 
+**Agent-effectiveness follow-up completed, 2026-10-09:** the [independent review](docs/design_review/reviews/design_review_agent-effectiveness-followup_2026-10-09.md)
+judges **Revise** at source-inspected strength. It owns unscheduled F01–F05 and Proposed native
+diagnostic/help opportunities; earlier findings retain their [workspace-plan owner](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md#9-finding-dispositions).
+The [evidence](docs/design_review/evidence/2026-10-09_agent-effectiveness-followup/README.md) includes
+October6–9 Codex failures/corrections. Remediation, configuration changes and product controls **not_run**.
+Publication **passed:** `just docs-check`, 362 canonical pages, zero link errors (2026-10-09).
+
 **Implemented / focused Tested or source-inspected, 2026-10-09:** ADR-0140 integrates selective
 portable products with model-owned scope programs. Requests carry exact role/order/prefix,
 model/code/configuration/profile and canonical output contracts; BLAKE3 durable identity and
