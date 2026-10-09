@@ -110,15 +110,27 @@ impl MaterializedGraph {
                 .try_add_edge(source, target, arc.id)
                 .map_err(ModelError::codec)?;
         }
-        Self::indexed(input.key(), graph, reservation)
+        Self::indexed_with_index(input.key(), graph, reservation, Some(index))
     }
     fn indexed(
         key: ProjectionKey,
         graph: ProgramGraph,
         reservation: Box<dyn Reservation>,
     ) -> Result<Self, ModelError> {
+        Self::indexed_with_index(key, graph, reservation, None)
+    }
+    fn indexed_with_index(
+        key: ProjectionKey,
+        graph: ProgramGraph,
+        reservation: Box<dyn Reservation>,
+        built_index: Option<BTreeMap<Id<EntityRef>, NodeIndex>>,
+    ) -> Result<Self, ModelError> {
         check_capacity(graph.node_count(), graph.edge_count())?;
-        let mut index = BTreeMap::new();
+        let fresh = built_index.is_some();
+        let mut index = built_index.unwrap_or_default();
+        if fresh && index.len() != graph.node_count() {
+            return Err(invalid("noncanonical graph entity universe"));
+        }
         let mut previous = None;
         for node in graph.node_indices() {
             let entity = &graph[node];
@@ -129,7 +141,13 @@ impl MaterializedGraph {
                 return Err(invalid("noncanonical graph entity universe"));
             }
             previous = Some(id);
-            index.insert(id, node);
+            if fresh {
+                if index.get(&id) != Some(&node) {
+                    return Err(invalid("noncanonical graph entity universe"));
+                }
+            } else {
+                index.insert(id, node);
+            }
         }
         let mut outgoing = vec![Vec::new(); graph.node_count()];
         let mut incoming = vec![Vec::new(); graph.node_count()];

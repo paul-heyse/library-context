@@ -2,7 +2,7 @@
 use crate::{PrivatePublication, abandon, begin, seal};
 use lctx_model::domain::{
     ModelError,
-    completion::{complete,Completion,RemoteState,StorageState},
+    completion::{Completion, RemoteState, StorageState, complete},
     graph::{Assertion, Entity, Manifest, Target, semantic_contract},
     serving::SnapshotHandle,
 };
@@ -18,7 +18,10 @@ use std::{
     path::Path,
 };
 
-pub(crate) async fn http(config: &RuntimeConfig, database: &str) -> Result<Surreal<Client>, ModelError> {
+pub(crate) async fn http(
+    config: &RuntimeConfig,
+    database: &str,
+) -> Result<Surreal<Client>, ModelError> {
     // The managed server exposes HTTP and gRPC on the same configured authority.
     let authority = config
         .endpoint
@@ -27,24 +30,32 @@ pub(crate) async fn http(config: &RuntimeConfig, database: &str) -> Result<Surre
     let client = Surreal::new::<Http>(authority)
         .await
         .map_err(ModelError::codec)?;
-    let setup=async {
-    client
-        .signin(Root {
-            username: config.username.clone(),
-            password: config.password.clone(),
-        })
-        .await
-        .map_err(ModelError::codec)?;
-    client
-        .use_ns(config.namespace.as_str())
-        .use_db(database)
-        .await
-        .map_err(ModelError::codec)?;
-        Ok::<(),ModelError>(())
-    }.await;
-    if let Err(error)=setup {
-        let mut completion=Completion::default();completion.step("restore HTTP setup session invalidation",client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));
-        return complete(Err(error),completion);
+    let setup = async {
+        client
+            .signin(Root {
+                username: config.username.clone(),
+                password: config.password.clone(),
+            })
+            .await
+            .map_err(ModelError::codec)?;
+        client
+            .use_ns(config.namespace.as_str())
+            .use_db(database)
+            .await
+            .map_err(ModelError::codec)?;
+        Ok::<(), ModelError>(())
+    }
+    .await;
+    if let Err(error) = setup {
+        let mut completion = Completion::default();
+        completion.step(
+            "restore HTTP setup session invalidation",
+            client
+                .invalidate()
+                .await
+                .map_err(|error| ModelError::Cause(Box::new(error))),
+        );
+        return complete(Err(error), completion);
     }
     Ok(client)
 }
@@ -87,9 +98,19 @@ pub async fn backup(
         handle.database.database.as_str(),
     )
     .await?;
-    let staged=match tempfile::NamedTempFile::new_in(parent) {
-        Ok(staged)=>staged,
-        Err(error)=>{let mut completion=Completion::default();completion.step("backup setup session invalidation",client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));return complete(Err(ModelError::Cause(Box::new(error))),completion);}
+    let staged = match tempfile::NamedTempFile::new_in(parent) {
+        Ok(staged) => staged,
+        Err(error) => {
+            let mut completion = Completion::default();
+            completion.step(
+                "backup setup session invalidation",
+                client
+                    .invalidate()
+                    .await
+                    .map_err(|error| ModelError::Cause(Box::new(error))),
+            );
+            return complete(Err(ModelError::Cause(Box::new(error))), completion);
+        }
     };
     // Transport only canonical families, originals and their native role arcs. Derived search
     // is rebuilt on restore; its optional array fields have a 3.3 export/import DDL mismatch.
@@ -130,7 +151,10 @@ pub async fn backup(
         .tables(tables)
         .await
         .map_err(ModelError::codec);
-    let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
+    let drained = client
+        .invalidate()
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)));
     drop(client);
     complete_backup(staged, output, result, drained, |parent| {
         std::fs::File::open(parent)?.sync_all()
@@ -144,33 +168,54 @@ fn complete_backup(
     drained: Result<(), ModelError>,
     sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> Result<(), ModelError> {
-    let mut completion=Completion::default();
-    completion.step("backup export session invalidation",drained);
-    let result=complete(result,completion);
+    let mut completion = Completion::default();
+    completion.step("backup export session invalidation", drained);
+    let result = complete(result, completion);
     if result.is_err() {
-        let mut completion=Completion::default();
-        let identity=staged.path().display().to_string();
-        completion.cleanup(identity,staged.close().map_err(|error|ModelError::Cause(Box::new(error))));
-        return complete(result,completion);
+        let mut completion = Completion::default();
+        let identity = staged.path().display().to_string();
+        completion.cleanup(
+            identity,
+            staged
+                .close()
+                .map_err(|error| ModelError::Cause(Box::new(error))),
+        );
+        return complete(result, completion);
     }
-    if let Err(error)=staged.as_file().sync_all() {
-        let mut completion=Completion::default();
-        let identity=staged.path().display().to_string();
-        completion.cleanup(identity,staged.close().map_err(|error|ModelError::Cause(Box::new(error))));
-        return complete(Err(ModelError::Cause(Box::new(error))),completion);
+    if let Err(error) = staged.as_file().sync_all() {
+        let mut completion = Completion::default();
+        let identity = staged.path().display().to_string();
+        completion.cleanup(
+            identity,
+            staged
+                .close()
+                .map_err(|error| ModelError::Cause(Box::new(error))),
+        );
+        return complete(Err(ModelError::Cause(Box::new(error))), completion);
     }
-    if let Err(error)=staged.persist_noclobber(output) {
-        let mut completion=Completion::default();
-        let identity=error.file.path().display().to_string();
-        completion.cleanup(identity,error.file.close().map_err(|error|ModelError::Cause(Box::new(error))));
-        return complete(Err(ModelError::Cause(Box::new(error.error))),completion);
+    if let Err(error) = staged.persist_noclobber(output) {
+        let mut completion = Completion::default();
+        let identity = error.file.path().display().to_string();
+        completion.cleanup(
+            identity,
+            error
+                .file
+                .close()
+                .map_err(|error| ModelError::Cause(Box::new(error))),
+        );
+        return complete(Err(ModelError::Cause(Box::new(error.error))), completion);
     }
-    let parent=output.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let mut completion=Completion::default();
-    completion.committed("published backup",output.display().to_string());
-    let result=sync_parent(parent).map_err(|error|ModelError::Cause(Box::new(error)));
-    if result.is_err() {completion.remote=RemoteState::Unknown;}
-    complete(result,completion)
+    let parent = output
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut completion = Completion::default();
+    completion.committed("published backup", output.display().to_string());
+    let result = sync_parent(parent).map_err(|error| ModelError::Cause(Box::new(error)));
+    if result.is_err() {
+        completion.remote = RemoteState::Unknown;
+    }
+    complete(result, completion)
 }
 
 /// Import a trusted current-format local dump privately, then copy canonical graph, exact completed state and
@@ -181,35 +226,108 @@ pub async fn restore(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let staging = begin(config).await?;
-    let result=async {
-        let manifest=import(config,input,&staging).await.map_err(|error|restore_phase("staging admission",error))?;
-        let fresh=begin(config).await?;
-        let result=async {
-            copy(config,&staging,&fresh,&manifest,native_definitions).await.map_err(|error|restore_phase("canonical copy",error))?;
-            seal(&fresh,&manifest,config,native_definitions).await.map_err(|error|restore_phase("final sealing",error))
-        }.await;
-        let mut completion=Completion::default();
-        if let Err(error)=&result && !error.has_committed_effect() {
-            if error.permits_storage_cleanup() {completion.step("fresh realization abandon",abandon(&fresh).await);}
-            else {completion.storage.push(StorageState::Orphan(fresh.database.as_str().into()));}
+    let result = async {
+        let manifest = import(config, input, &staging)
+            .await
+            .map_err(|error| restore_phase("staging admission", error))?;
+        let fresh = begin(config).await?;
+        let result = async {
+            copy(config, &staging, &fresh, &manifest, native_definitions)
+                .await
+                .map_err(|error| restore_phase("canonical copy", error))?;
+            seal(&fresh, &manifest, config, native_definitions)
+                .await
+                .map_err(|error| restore_phase("final sealing", error))
         }
-        complete(result,completion)
-    }.await;
-    let mut completion=Completion::default();
-    if let Ok(handle)=&result {completion.committed("sealed unselected database",serde_json::to_string(handle).map_err(ModelError::codec)?);}
-    if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup) {
-        completion.step("restore staging abandon",abandon(&staging).await);
-    } else {completion.storage.push(StorageState::Orphan(staging.database.as_str().into()));}
-    complete(result,completion)
+        .await;
+        let mut completion = Completion::default();
+        if let Err(error) = &result
+            && !error.has_committed_effect()
+        {
+            if error.permits_storage_cleanup() {
+                retain_abandon_outcome(
+                    &mut completion,
+                    fresh.database.as_str(),
+                    "fresh realization abandon",
+                    abandon(&fresh).await,
+                );
+            } else {
+                completion
+                    .storage
+                    .push(StorageState::Orphan(fresh.database.as_str().into()));
+            }
+        }
+        complete(result, completion)
+    }
+    .await;
+    let mut completion = Completion::default();
+    if let Ok(handle) = &result {
+        completion.committed(
+            "sealed unselected database",
+            serde_json::to_string(handle).map_err(ModelError::codec)?,
+        );
+    }
+    if result
+        .as_ref()
+        .err()
+        .is_none_or(ModelError::permits_storage_cleanup)
+    {
+        retain_abandon_outcome(
+            &mut completion,
+            staging.database.as_str(),
+            "restore staging abandon",
+            abandon(&staging).await,
+        );
+    } else {
+        completion
+            .storage
+            .push(StorageState::Orphan(staging.database.as_str().into()));
+    }
+    complete(result, completion)
 }
 
-fn restore_phase(phase:&'static str,error:ModelError)->ModelError {
+fn retain_abandon_outcome(
+    completion: &mut Completion,
+    database: &str,
+    step: &'static str,
+    result: Result<(), ModelError>,
+) {
+    // Abandon may remove the database and then fail session invalidation. Preserve its
+    // known storage outcome instead of classifying that later failure as an orphan.
+    let storage = match &result {
+        Err(ModelError::Completion(outcome)) => outcome
+            .completion
+            .storage
+            .iter()
+            .find(|state| match state {
+                StorageState::Removed(identity) | StorageState::Orphan(identity) => {
+                    identity == database
+                }
+            })
+            .cloned(),
+        _ => None,
+    }
+    .unwrap_or_else(|| {
+        if result.is_ok() {
+            StorageState::Removed(database.into())
+        } else {
+            StorageState::Orphan(database.into())
+        }
+    });
+    completion.storage.push(storage);
+    completion.step(step, result);
+}
+
+fn restore_phase(phase: &'static str, error: ModelError) -> ModelError {
     match error {
-        ModelError::Codec(detail)=>ModelError::Codec(format!("restore {phase}: {detail}")),
-        ModelError::Invalid(detail)=>ModelError::Invalid(format!("restore {phase}: {detail}")),
-        ModelError::Frontier(detail)=>ModelError::Frontier(format!("restore {phase}: {detail}")),
-        ModelError::Infrastructure {class,detail}=>ModelError::Infrastructure {class,detail:format!("restore {phase}: {detail}")},
-        other=>other,
+        ModelError::Codec(detail) => ModelError::Codec(format!("restore {phase}: {detail}")),
+        ModelError::Invalid(detail) => ModelError::Invalid(format!("restore {phase}: {detail}")),
+        ModelError::Frontier(detail) => ModelError::Frontier(format!("restore {phase}: {detail}")),
+        ModelError::Infrastructure { class, detail } => ModelError::Infrastructure {
+            class,
+            detail: format!("restore {phase}: {detail}"),
+        },
+        other => other,
     }
 }
 
@@ -220,11 +338,14 @@ async fn import(
 ) -> Result<Manifest, ModelError> {
     let client = http(config, staging.database.as_str()).await?;
     let imported = import_units(&client, input).await;
-    let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
+    let drained = client
+        .invalidate()
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)));
     drop(client);
-    let mut completion=Completion::default();
-    completion.step("restore import session invalidation",drained);
-    complete(imported,completion)?;
+    let mut completion = Completion::default();
+    completion.step("restore import session invalidation", drained);
+    complete(imported, completion)?;
     let reader = NativeReader::private(staging.loader.shared_client());
     let bytes: Vec<Bytes> = reader
         .query(
@@ -242,9 +363,24 @@ async fn import(
     if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
         return Err(ModelError::Conflict("restore semantic contract"));
     }
-    staging.loader.reconcile(&manifest).await.map_err(|error|restore_phase("staging graph reconciliation",error))?;
-    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(staging.loader.shared_client(),config.namespace.clone(),staging.database.clone());
-    if native.completed_state().await.map_err(|error|restore_phase("staging completed state",error))? != manifest.completed_state {return Err(ModelError::Conflict("restore completed state"));}
+    staging
+        .loader
+        .reconcile(&manifest)
+        .await
+        .map_err(|error| restore_phase("staging graph reconciliation", error))?;
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::from_existing(
+        staging.loader.shared_client(),
+        config.namespace.clone(),
+        staging.database.clone(),
+    );
+    if native
+        .completed_state()
+        .await
+        .map_err(|error| restore_phase("staging completed state", error))?
+        != manifest.completed_state
+    {
+        return Err(ModelError::Conflict("restore completed state"));
+    }
     Ok(manifest)
 }
 
@@ -260,110 +396,157 @@ async fn copy(
     native_definitions: &str,
 ) -> Result<(), ModelError> {
     fresh.loader.install(native_definitions).await?;
-    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(fresh.loader.shared_client(),config.namespace.clone(),fresh.database.clone());
-    let setup=async {
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::from_existing(
+        fresh.loader.shared_client(),
+        config.namespace.clone(),
+        fresh.database.clone(),
+    );
+    let setup = async {
         native.install_state_schema().await?;
         cpg_core::workspace::Workspace::new(
             std::sync::Arc::new(lctx_model::domain::model()?),
-            cpg_core::workspace::WorkspaceOptions::default(),native.clone(),
+            cpg_core::workspace::WorkspaceOptions::default(),
+            native.clone(),
         )
-    }.await;
-    let runtime=match setup {Ok(runtime)=>runtime,Err(error)=>{native.fail();return complete(Err(error),native.drain_report().await);}};
-    let source_state=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(staging.loader.shared_client(),config.namespace.clone(),staging.database.clone());
-    let result=async {
-    let state=tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
-    if source_state.export_state(state.path()).await.map_err(|error|restore_phase("completed-state export",error))? != manifest.completed_state {return Err(ModelError::Conflict("restore source state"));}
-
-    // Two passes: materialize every endpoint before constructing native role/reference arcs.
-    for references in [false, true] {
-        let mut after = RecordId::new("entity", "");
-        loop {
-            let (rows, last) = page::<Entity>(staging, "entity", after).await?;
-            if rows.is_empty() {
-                break;
-            }
-            if references {
-                fresh.loader.entity_references(&rows).await?
-            } else {
-                fresh.loader.entities(&rows).await?
-            }
-            after = last;
-        }
-        let mut after = RecordId::new("assertion", "");
-        loop {
-            let (rows, last) = page::<Assertion>(staging, "assertion", after).await?;
-            if rows.is_empty() {
-                break;
-            }
-            if references {
-                fresh.loader.assertion_references(&rows).await?
-            } else {
-                fresh.loader.assertions(&rows).await?
-            }
-            after = last;
-        }
     }
-    let source = NativeReader::private(staging.loader.shared_client());
-    for original in &manifest.originals {
-        let mut file = tempfile::tempfile().map_err(ModelError::codec)?;
-        let mut start = 0;
-        while start < original.byte_len {
-            let mut ranges=Vec::new();
-            for _ in 0..4 {
-                if start>=original.byte_len {break;}
-                let length=(original.byte_len-start).min(65536) as usize;
-                ranges.push((original.source,start,length));start+=length as u64;
+    .await;
+    let runtime = match setup {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            native.fail();
+            return complete(Err(error), native.drain_report().await);
+        }
+    };
+    let source_state = lctx_surrealdb::compiler::NativeCompilerStore::from_existing(
+        staging.loader.shared_client(),
+        config.namespace.clone(),
+        staging.database.clone(),
+    );
+    let result = async {
+        let state = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
+        if source_state
+            .export_state(state.path())
+            .await
+            .map_err(|error| restore_phase("completed-state export", error))?
+            != manifest.completed_state
+        {
+            return Err(ModelError::Conflict("restore source state"));
+        }
+
+        // Two passes: materialize every endpoint before constructing native role/reference arcs.
+        for references in [false, true] {
+            let mut after = RecordId::new("entity", "");
+            loop {
+                let (rows, last) = page::<Entity>(staging, "entity", after).await?;
+                if rows.is_empty() {
+                    break;
+                }
+                if references {
+                    fresh.loader.entity_references(&rows).await?
+                } else {
+                    fresh.loader.entities(&rows).await?
+                }
+                after = last;
             }
-            for bytes in source.original_bytes_batch(&ranges).await? {
-                file.write_all(&bytes).map_err(ModelError::codec)?;
+            let mut after = RecordId::new("assertion", "");
+            loop {
+                let (rows, last) = page::<Assertion>(staging, "assertion", after).await?;
+                if rows.is_empty() {
+                    break;
+                }
+                if references {
+                    fresh.loader.assertion_references(&rows).await?
+                } else {
+                    fresh.loader.assertions(&rows).await?
+                }
+                after = last;
             }
         }
-        file.rewind().map_err(ModelError::codec)?;
-        let mut bindings = Variables::new();
-        bindings.insert(
-            "source",
-            lctx_surrealdb::reader::target_id(Target::Entity(original.source)),
-        );
-        let headers: Vec<Bytes> = source
-            .query(
-                "SELECT VALUE canonical FROM entity WHERE id=$source",
-                bindings,
+        let source = NativeReader::private(staging.loader.shared_client());
+        for original in &manifest.originals {
+            let mut file = tempfile::tempfile().map_err(ModelError::codec)?;
+            let mut start = 0;
+            while start < original.byte_len {
+                let mut ranges = Vec::new();
+                for _ in 0..4 {
+                    if start >= original.byte_len {
+                        break;
+                    }
+                    let length = (original.byte_len - start).min(65536) as usize;
+                    ranges.push((original.source, start, length));
+                    start += length as u64;
+                }
+                for bytes in source.original_bytes_batch(&ranges).await? {
+                    file.write_all(&bytes).map_err(ModelError::codec)?;
+                }
+            }
+            file.rewind().map_err(ModelError::codec)?;
+            let mut bindings = Variables::new();
+            bindings.insert(
+                "source",
+                lctx_surrealdb::reader::target_id(Target::Entity(original.source)),
+            );
+            let headers: Vec<Bytes> = source
+                .query(
+                    "SELECT VALUE canonical FROM entity WHERE id=$source",
+                    bindings,
+                )
+                .await?;
+            let entity: Entity = serde_json::from_slice(
+                headers
+                    .first()
+                    .filter(|_| headers.len() == 1)
+                    .ok_or(ModelError::Schema("restored original source"))?,
             )
-            .await?;
-        let entity: Entity = serde_json::from_slice(
-            headers
-                .first()
-                .filter(|_| headers.len() == 1)
-                .ok_or(ModelError::Schema("restored original source"))?,
-        )
-        .map_err(ModelError::codec)?;
-        let Entity::Source(header) = entity else {
-            return Err(ModelError::Schema("restored original source"));
-        };
-        if header.content!=original.content || u64::try_from(header.byte_len).map_err(ModelError::codec)?!=original.byte_len {
-            return Err(ModelError::Conflict("restored original source metadata"));
+            .map_err(ModelError::codec)?;
+            let Entity::Source(header) = entity else {
+                return Err(ModelError::Schema("restored original source"));
+            };
+            if header.content != original.content
+                || u64::try_from(header.byte_len).map_err(ModelError::codec)? != original.byte_len
+            {
+                return Err(ModelError::Conflict("restored original source metadata"));
+            }
+            file.rewind().map_err(ModelError::codec)?;
+            fresh
+                .loader
+                .original_stream(
+                    original.source.0,
+                    original.content,
+                    original.byte_len,
+                    &mut file,
+                )
+                .await?;
         }
-        file.rewind().map_err(ModelError::codec)?;
+        native
+            .import_state(state.path(), &manifest.completed_state)
+            .await
+            .map_err(|error| restore_phase("completed-state import", error))?;
+        runtime.restore(manifest.profile).await?;
+        cpg_core::artifact::verify_restored(&runtime, manifest)
+            .await
+            .map_err(|error| restore_phase("restored artifact admission", error))?;
+        crate::materialize_search(&fresh.loader)
+            .await
+            .map_err(|error| restore_phase("search reconstruction", error))?;
         fresh
             .loader
-            .original_stream(
-                original.source.0,
-                original.content,
-                original.byte_len,
-                &mut file,
-            )
-            .await?;
+            .reconcile(manifest)
+            .await
+            .map_err(|error| restore_phase("final graph reconciliation", error))
     }
-    native.import_state(state.path(),&manifest.completed_state).await.map_err(|error|restore_phase("completed-state import",error))?;
-    runtime.restore(manifest.profile).await?;
-    cpg_core::artifact::verify_restored(&runtime,manifest).await.map_err(|error|restore_phase("restored artifact admission",error))?;
-    crate::materialize_search(&fresh.loader).await.map_err(|error|restore_phase("search reconstruction",error))?;
-    fresh.loader.reconcile(manifest).await.map_err(|error|restore_phase("final graph reconciliation",error))
-    }.await;
-    let mut completion=runtime.drain_report().await;
-    completion.step("restore source native drain",complete(Ok(()),source_state.drain_report().await));
-    if result.is_err() || !completion.failures.is_empty(){native.fail();}else{completion.step("restore native end writes",native.end_writes().await);}
-    complete(result,completion)
+    .await;
+    let mut completion = runtime.drain_report().await;
+    completion.step(
+        "restore source native drain",
+        complete(Ok(()), source_state.drain_report().await),
+    );
+    if result.is_err() || !completion.failures.is_empty() {
+        native.fail();
+    } else {
+        completion.step("restore native end writes", native.end_writes().await);
+    }
+    complete(result, completion)
 }
 
 async fn page<T: serde::de::DeserializeOwned>(
@@ -450,7 +633,10 @@ pub async fn retire(
         .map_err(ModelError::codec)?
         .check()
         .map_err(ModelError::codec)?;
-    client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)))?;
+    client
+        .invalidate()
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)))?;
     Ok(())
 }
 
@@ -462,14 +648,155 @@ mod grpc_export_fixture;
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn restore_failed_http_request_retains_primary_and_removed_staging_outcome() {
+        use lctx_model::domain::completion::{LocalState, RemoteState, StorageState};
+        use lctx_model::domain::serving::Name;
+        use lctx_surrealdb::{reader, surrealdb::types::Value};
+        let mut config = RuntimeConfig::read(&std::path::PathBuf::from(
+            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
+        ))
+        .unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        config.namespace = Name::new(format!("failed_restore_{}", std::process::id())).unwrap();
+        config.selection = scratch.path().join("selection.json");
+        let selected = b"selection must survive failed private import";
+        std::fs::write(&config.selection, selected).unwrap();
+        let input = scratch.path().join("failed.surql");
+        // The first default-sized request has independent effects on both sides of a
+        // checked failure. The trailing CREATE belongs to a separate, forbidden request.
+        let dump = format!(
+            "OPTION IMPORT; DEFINE TABLE import_probe SCHEMALESS; CREATE import_probe:before; THROW 'restore-owned-sentinel'; CREATE import_probe:within; {} CREATE import_probe:following;",
+            "RETURN 1;".repeat(lctx_model::domain::resources::TRANSFER_ROWS - 4)
+        );
+        std::fs::write(&input, &dump).unwrap();
+        let mut requests = crate::backup_import::Requests::new(dump.as_bytes());
+        assert!(
+            !requests
+                .next_request()
+                .unwrap()
+                .unwrap()
+                .contains("import_probe:following")
+        );
+        assert!(
+            requests
+                .next_request()
+                .unwrap()
+                .unwrap()
+                .contains("import_probe:following")
+        );
+        assert!(requests.next_request().unwrap().is_none());
+
+        let error = restore(&config, &input, "").await.unwrap_err();
+        assert!(
+            matches!(error.primary(), Some(ModelError::Cause(cause))
+            if cause.downcast_ref::<lctx_surrealdb::surrealdb::Error>()
+                .is_some_and(|error| error.is_thrown() && error.to_string().contains("restore-owned-sentinel"))),
+            "structured restore failure: {error:?}"
+        );
+        assert!(error.permits_storage_cleanup());
+        assert!(!error.has_committed_effect());
+        let ModelError::Completion(outcome) = error else {
+            panic!("restore completion outcome")
+        };
+        assert_eq!(outcome.completion.local, LocalState::Terminal);
+        assert_eq!(outcome.completion.remote, RemoteState::Confirmed);
+        assert!(outcome.completion.failures.is_empty());
+        let [StorageState::Removed(database)] = outcome.completion.storage.as_slice() else {
+            panic!("failed restore must report its removed private database")
+        };
+        let client = reader::authenticated(&config.endpoint, &config.root_credentials(), None)
+            .await
+            .unwrap();
+        client.use_ns(config.namespace.as_str()).await.unwrap();
+        let info = client
+            .query("INFO FOR NS;")
+            .await
+            .unwrap()
+            .check()
+            .unwrap()
+            .take::<Option<Value>>(0)
+            .unwrap()
+            .unwrap();
+        let Value::Object(info) = info else {
+            panic!("namespace info")
+        };
+        let Some(Value::Object(databases)) = info.get("databases") else {
+            panic!("namespace databases")
+        };
+        assert!(
+            databases.is_empty(),
+            "failed restore left a database: {databases:?}"
+        );
+        assert!(!databases.contains_key(database));
+        assert_eq!(std::fs::read(&config.selection).unwrap(), selected);
+        client
+            .query(format!("REMOVE NAMESPACE `{}`", config.namespace.as_str()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        client.invalidate().await.unwrap();
+    }
+
     #[test]
     fn restore_primary_and_cleanup_errors_are_structured() {
-        let mut completion=Completion::default();
-        completion.cleanup("staging",Err(ModelError::Codec("cleanup failure".into())));
-        let error=complete::<()>(Err(ModelError::Schema("terminal import failure")),completion).unwrap_err();
-        assert!(matches!(error.primary(),Some(ModelError::Schema("terminal import failure"))));
-        let ModelError::Completion(outcome)=error else{panic!()};
-        assert!(matches!(&outcome.completion.failures[0].error,ModelError::Codec(detail) if detail=="cleanup failure"));
+        let mut completion = Completion::default();
+        completion.cleanup("staging", Err(ModelError::Codec("cleanup failure".into())));
+        let error = complete::<()>(
+            Err(ModelError::Schema("terminal import failure")),
+            completion,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Schema("terminal import failure"))
+        ));
+        let ModelError::Completion(outcome) = error else {
+            panic!()
+        };
+        assert!(
+            matches!(&outcome.completion.failures[0].error,ModelError::Codec(detail) if detail=="cleanup failure")
+        );
+    }
+
+    #[test]
+    fn restore_abandon_retains_known_removal_after_session_failure() {
+        let mut abandoned = Completion::default();
+        abandoned.cleanup("staging", Ok(()));
+        abandoned.step(
+            "publication abandon session invalidation",
+            Err(ModelError::Codec("invalidation failure".into())),
+        );
+        let mut completion = Completion::default();
+        retain_abandon_outcome(
+            &mut completion,
+            "staging",
+            "restore staging abandon",
+            complete(Ok(()), abandoned),
+        );
+        let error = complete::<()>(
+            Err(ModelError::Schema("terminal import failure")),
+            completion,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Schema("terminal import failure"))
+        ));
+        let ModelError::Completion(outcome) = error else {
+            panic!("completion")
+        };
+        assert_eq!(
+            outcome.completion.storage,
+            vec![StorageState::Removed("staging".into())]
+        );
+        let ModelError::Completion(abandoned) = &outcome.completion.failures[0].error else {
+            panic!("abandon outcome")
+        };
+        assert!(
+            matches!(&abandoned.completion.failures[0].error,ModelError::Codec(detail) if detail=="invalidation failure")
+        );
     }
 
     #[tokio::test]
@@ -585,7 +912,10 @@ mod tests {
         .unwrap()
         .map_err(ModelError::codec);
         assert!(result.is_err(), "actual SDK destination write must fail");
-        let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
+        let drained = client
+            .invalidate()
+            .await
+            .map_err(|error| ModelError::Cause(Box::new(error)));
         drop(client);
         assert!(
             complete_backup(staged, &output, result, drained, |_| panic!(
@@ -624,7 +954,10 @@ mod tests {
         .await
         .unwrap()
         .map_err(ModelError::codec);
-        let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
+        let drained = client
+            .invalidate()
+            .await
+            .map_err(|error| ModelError::Cause(Box::new(error)));
         drop(client);
         complete_backup(staged, &output, result, drained, |parent| {
             std::fs::File::open(parent)?.sync_all()
@@ -654,7 +987,9 @@ mod tests {
             |_| panic!("failed export must not publish or sync directory"),
         )
         .unwrap_err();
-        assert!(matches!(error.primary(), Some(ModelError::Codec(message)) if message == "late export failure"));
+        assert!(
+            matches!(error.primary(), Some(ModelError::Codec(message)) if message == "late export failure")
+        );
         assert!(!output.exists());
         assert!(!provisional.exists());
     }
@@ -723,10 +1058,15 @@ mod tests {
         })
         .unwrap_err();
         assert!(error.has_committed_effect());
-        assert!(matches!(error.primary(),Some(ModelError::Cause(_))));
-        let ModelError::Completion(outcome)=error else {panic!()};
-        assert_eq!(outcome.completion.remote,RemoteState::Unknown);
-        assert_eq!(outcome.completion.committed[0].identity,output.display().to_string());
+        assert!(matches!(error.primary(), Some(ModelError::Cause(_))));
+        let ModelError::Completion(outcome) = error else {
+            panic!()
+        };
+        assert_eq!(outcome.completion.remote, RemoteState::Unknown);
+        assert_eq!(
+            outcome.completion.committed[0].identity,
+            output.display().to_string()
+        );
         assert_eq!(
             std::fs::read(&output).unwrap(),
             b"-- partial streamed dump\n"

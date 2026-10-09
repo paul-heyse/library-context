@@ -95,7 +95,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
         .unwrap()
         .check()
         .unwrap();
-    let definitions = lctx_serving::selection::native_definitions();
+    let definitions = "";
     let loader = Loader::new(client.clone());
     loader.install(definitions).await.unwrap();
     let input = InputRevision {

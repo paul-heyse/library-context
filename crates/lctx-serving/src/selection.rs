@@ -6,7 +6,10 @@ use lctx_model::domain::{
     selection,
     serving::*,
 };
-use lctx_surrealdb::{NativeReader, reader::target_id};
+use lctx_surrealdb::{
+    NativeReader,
+    reader::{NativeRows, target_id},
+};
 use surrealdb::types::Variables;
 
 /// The complete hydrated domain travels with its heap and vector-capacity reservation.
@@ -152,81 +155,172 @@ pub async fn members(
             _ => None,
         }),
     );
-    let inputs: Vec<surrealdb::types::Value> = reader
-        .query_native("RETURN fn::lctx_library_inputs($library);", vars.clone())
-        .await?;
     let mut sorted =
         lctx_surrealdb::acknowledged_candidates::AsyncCandidateSort::new(budget).await?;
-    for input in inputs {
-        vars.insert(
-            "scope",
-            format!(
-                "catalog_members|input|{}",
-                lctx_surrealdb::prepared::scope_string(&input)
-            ),
+    let discovery = async {
+        let packages = reader.query_stream(library_packages_sql(), vars.clone(), 1)?;
+        collect_library_candidates(reader, &mut vars, packages, &mut sorted).await
+    }
+    .await;
+    if let Err(error) = discovery {
+        let mut completion = domain::completion::Completion::default();
+        completion.step(
+            "native member candidate sorting drain",
+            sorted.drain().await,
         );
-        let mut rows = reader.query_stream(member_candidates_sql(), vars.clone(), 1)?;
-        while let Some(value) = rows.next().await? {
-            let surrealdb::types::Value::Object(row) = value else {
-                return Err(ModelError::Schema("native member candidate"));
-            };
-            let Some(surrealdb::types::Value::String(key)) = row.get("semantic_key") else {
-                return Err(ModelError::Schema("native member nominal identity"));
-            };
-            let Some(surrealdb::types::Value::RecordId(node)) = row.get("node") else {
-                return Err(ModelError::Schema("native member backing pointer"));
-            };
-            let key: [u8; 16] = hex::decode(key)
-                .map_err(ModelError::codec)?
-                .try_into()
-                .map_err(|_| ModelError::Schema("native member key width"))?;
-            sorted
-                .push(lctx_surrealdb::ordered_rows::Candidate {
-                    relation: catalog::CatalogMember::NAME.into(),
-                    key,
-                    node: node.clone(),
-                })
+        return domain::completion::complete(Err(error), completion);
+    }
+    let ordered_result = sorted.finish().await;
+    let mut ordered = match ordered_result {
+        Ok(ordered) => ordered,
+        Err(error) => {
+            let mut completion = domain::completion::Completion::default();
+            completion.step(
+                "native member candidate sorting drain",
+                sorted.drain().await,
+            );
+            return domain::completion::complete(Err(error), completion);
+        }
+    };
+    let result = async {
+        let mut members = Members::new(budget);
+        loop {
+            let candidates = ordered.next_batch(128).await?;
+            if candidates.is_empty() {
+                break;
+            }
+            let window = reader
+                .records_from_candidates::<catalog::CatalogMember>(&candidates)
                 .await?;
+            let mut transfer = StateCharge::new(budget, "native-member-hydration-window");
+            transfer.admit(&window)?;
+            for member in window {
+                // Moved strings become the retained owner's responsibility.
+                transfer.release(member.heap_bytes());
+                members.push(member)?;
+            }
         }
+        Ok(members)
     }
-    let mut ordered = sorted.finish().await?;
-    let mut members = Members::new(budget);
-    loop {
-        let candidates = ordered.next_batch(128).await?;
-        if candidates.is_empty() {
-            break;
+    .await;
+    let mut completion = domain::completion::Completion::default();
+    completion.step("native ordered members drain", ordered.drain().await);
+    domain::completion::complete(result, completion)
+}
+
+/// These branches stream compact discovery rows without union, distinct or ordering state.
+/// Package spelling is residual policy; physical endpoints drive both reverse branches.
+fn library_packages_sql() -> &'static str {
+    "SELECT VALUE id FROM entity WITH INDEX semantic_key WHERE semantic_type='packages' AND ($library=NONE OR $library=NULL OR body.name=$library);"
+}
+fn library_releases_sql() -> &'static str {
+    "SELECT VALUE in FROM reference WITH INDEX incoming WHERE out=$package AND field='package';"
+}
+fn library_inputs_sql() -> &'static str {
+    "SELECT VALUE in.body.input FROM participant WITH INDEX incoming WHERE out=$release AND field='release' AND in.semantic_type='input_distributions' AND in.body.role=0;"
+}
+
+async fn settle_discovery<T>(
+    rows: &mut NativeRows,
+    result: Result<T, ModelError>,
+) -> Result<T, ModelError> {
+    let mut completion = domain::completion::Completion::default();
+    completion.step(
+        "native member discovery stream drain",
+        rows.drain_transport().await,
+    );
+    domain::completion::complete(result, completion)
+}
+
+async fn collect_library_candidates(
+    reader: &NativeReader,
+    vars: &mut Variables,
+    mut packages: NativeRows,
+    sorted: &mut lctx_surrealdb::acknowledged_candidates::AsyncCandidateSort,
+) -> Result<(), ModelError> {
+    let result = async {
+        while let Some(package) = packages.next().await? {
+            let surrealdb::types::Value::RecordId(package) = package else {
+                return Err(ModelError::Schema("native library package pointer"));
+            };
+            vars.insert("package", package);
+            let mut releases = reader.query_stream(library_releases_sql(), vars.clone(), 1)?;
+            let result = async {
+                while let Some(release) = releases.next().await? {
+                    let surrealdb::types::Value::RecordId(release) = release else {
+                        return Err(ModelError::Schema("native library release pointer"));
+                    };
+                    vars.insert("release", release);
+                    let mut inputs = reader.query_stream(library_inputs_sql(), vars.clone(), 1)?;
+                    let result = async {
+                        while let Some(input) = inputs.next().await? {
+                            vars.insert(
+                                "scope",
+                                format!(
+                                    "catalog_members|input|{}",
+                                    lctx_surrealdb::prepared::scope_string(&input)
+                                ),
+                            );
+                            let mut rows =
+                                reader.query_stream(member_candidates_sql(), vars.clone(), 1)?;
+                            let result = async {
+                                while let Some(value) = rows.next().await? {
+                                    let surrealdb::types::Value::Object(row) = value else {
+                                        return Err(ModelError::Schema("native member candidate"));
+                                    };
+                                    let Some(surrealdb::types::Value::String(key)) =
+                                        row.get("semantic_key")
+                                    else {
+                                        return Err(ModelError::Schema(
+                                            "native member nominal identity",
+                                        ));
+                                    };
+                                    let Some(surrealdb::types::Value::RecordId(node)) =
+                                        row.get("node")
+                                    else {
+                                        return Err(ModelError::Schema(
+                                            "native member backing pointer",
+                                        ));
+                                    };
+                                    let key: [u8; 16] = hex::decode(key)
+                                        .map_err(ModelError::codec)?
+                                        .try_into()
+                                        .map_err(|_| {
+                                            ModelError::Schema("native member key width")
+                                        })?;
+                                    sorted
+                                        .push(lctx_surrealdb::ordered_rows::Candidate {
+                                            relation: catalog::CatalogMember::NAME.into(),
+                                            key,
+                                            node: node.clone(),
+                                        })
+                                        .await?;
+                                }
+                                Ok(())
+                            }
+                            .await;
+                            settle_discovery(&mut rows, result).await?;
+                        }
+                        Ok(())
+                    }
+                    .await;
+                    settle_discovery(&mut inputs, result).await?;
+                }
+                Ok(())
+            }
+            .await;
+            settle_discovery(&mut releases, result).await?;
         }
-        let window = reader
-            .records_from_candidates::<catalog::CatalogMember>(&candidates)
-            .await?;
-        let mut transfer = StateCharge::new(budget, "native-member-hydration-window");
-        transfer.admit(&window)?;
-        for member in window {
-            // The bounded transfer keeps its vector capacity; moved strings become
-            // the retained member owner's responsibility without double charging.
-            transfer.release(member.heap_bytes());
-            members.push(member)?;
-        }
+        Ok(())
     }
-    Ok(members)
+    .await;
+    settle_discovery(&mut packages, result).await
 }
 
 /// Candidate extraction has one indexed equality branch and no native union/order state.
 /// The path predicate is owned by the finite member operation, never request SQL.
 pub fn member_candidates_sql() -> &'static str {
     "SELECT semantic_key,id AS node FROM entity WITH INDEX by_scope WHERE semantic_type='catalog_members' AND scope_keys CONTAINS $scope AND ($member=NONE OR $member=NULL OR semantic_key=$member) AND ($path=NONE OR $path=NULL OR array::concat(string::split((SELECT VALUE out.body.qualified_name FROM reference WITH INDEX outgoing WHERE in=$parent.id AND field='access')[0],'.'),body.path)=$path);"
-}
-
-pub fn native_definitions() -> &'static str {
-    r#"
-DEFINE FUNCTION fn::lctx_library_inputs($name: option<string|null>) {
- LET $packages = SELECT VALUE id FROM entity WHERE semantic_type='packages' AND ($name=NONE OR $name=NULL OR body.name=$name);
- LET $releases = SELECT VALUE in FROM reference WHERE field='package' AND out IN $packages;
- LET $distributions = SELECT VALUE in FROM participant WHERE field='release' AND out IN $releases;
- RETURN SELECT VALUE body.input FROM assertion WHERE id IN $distributions AND semantic_type='input_distributions' AND body.role=0;
-};
-
-"#
 }
 
 #[cfg(test)]
@@ -339,5 +433,295 @@ mod retained_member_tests {
         assert_eq!(budget.reserved(), member_bytes);
         drop(rows);
         assert_eq!(budget.reserved(), 0);
+    }
+}
+
+#[cfg(test)]
+mod streamed_library_tests {
+    use super::*;
+    use domain::{
+        ContentHash,
+        graph::{Assertion, Entity},
+        input::{DistributionRole, InputDistribution, InputRevision, Package, Release},
+        source::{Module, SourceArtifact},
+    };
+    use lctx_surrealdb::{Credentials, Loader, reader};
+
+    #[tokio::test]
+    async fn native_library_discovery_preserves_complete_eligibility_and_drains_late_upstream_failure()
+     {
+        let cfg: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(
+                std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable native fixture"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let ns = "gn_library_discovery";
+        let db = format!("discovery_{}", std::process::id());
+        let credentials = Credentials::Root {
+            username: cfg["admin_user"].as_str().unwrap().into(),
+            password: cfg["admin_password"].as_str().unwrap().into(),
+        };
+        let client = reader::connect(
+            cfg["grpc_endpoint"].as_str().unwrap(),
+            &credentials,
+            ns,
+            &db,
+        )
+        .await
+        .unwrap();
+        client
+            .query(format!(
+                "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
+            ))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let loader = Loader::new(client.clone());
+        loader.install("").await.unwrap();
+        let package = Package {
+            name: "discovery-selected".into(),
+        };
+        let other = Package {
+            name: "discovery-other".into(),
+        };
+        let first = Release {
+            package: package.id(),
+            version: "1".into(),
+        };
+        let second = Release {
+            package: package.id(),
+            version: "2".into(),
+        };
+        let foreign = Release {
+            package: other.id(),
+            version: "1".into(),
+        };
+        let mut entities = vec![
+            Entity::from(package.clone()),
+            Entity::from(other),
+            Entity::from(first.clone()),
+            Entity::from(second.clone()),
+            Entity::from(foreign.clone()),
+        ];
+        let mut inputs = Vec::new();
+        let mut members = Vec::new();
+        for name in ["first", "second", "dependency", "foreign", "orphan"] {
+            let input = InputRevision {
+                manifest: ContentHash::of(name.as_bytes()),
+            };
+            let source =
+                SourceArtifact::from_bytes(input.id(), format!("{name}.py"), name.as_bytes())
+                    .unwrap();
+            let module = Module {
+                source: source.id(),
+                qualified_name: "discovery".into(),
+            };
+            let member = catalog::CatalogMember {
+                input: input.id(),
+                access: module.id(),
+                path: vec![name.into()],
+                name: name.into(),
+            };
+            entities.extend([
+                Entity::from(input.clone()),
+                Entity::from(source),
+                Entity::from(module),
+                Entity::from(member.clone()),
+            ]);
+            inputs.push(input);
+            members.push(member);
+        }
+        loader.entities(&entities).await.unwrap();
+        loader.entity_references(&entities).await.unwrap();
+        let assertions = [
+            InputDistribution {
+                input: inputs[0].id(),
+                release: first.id(),
+                role: DistributionRole::FirstParty,
+            },
+            InputDistribution {
+                input: inputs[0].id(),
+                release: second.id(),
+                role: DistributionRole::FirstParty,
+            },
+            InputDistribution {
+                input: inputs[1].id(),
+                release: second.id(),
+                role: DistributionRole::FirstParty,
+            },
+            InputDistribution {
+                input: inputs[2].id(),
+                release: second.id(),
+                role: DistributionRole::Dependency,
+            },
+            InputDistribution {
+                input: inputs[3].id(),
+                release: foreign.id(),
+                role: DistributionRole::FirstParty,
+            },
+        ]
+        .into_iter()
+        .map(|row| Assertion::from_record(row).unwrap())
+        .collect::<Vec<_>>();
+        loader.assertions(&assertions).await.unwrap();
+        loader.assertion_references(&assertions).await.unwrap();
+        let native = NativeReader::new(
+            client.clone(),
+            SnapshotHandle {
+                semantic: ContentHash::of(b"library discovery fixture"),
+                realization: lctx_surrealdb::schema::realization_identity(""),
+                database: DatabaseIdentity {
+                    namespace: Name::new(ns).unwrap(),
+                    database: Name::new(&db).unwrap(),
+                },
+            },
+        );
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let library = Name::new("discovery-selected").unwrap();
+        let mut expected = members[..2].to_vec();
+        expected.sort_by_key(Record::id);
+        let selected = super::members(&native, Some(&library), None, &budget)
+            .await
+            .unwrap();
+        assert_eq!(
+            selected.as_slice(),
+            expected,
+            "multiple releases/captures and duplicate input preserve complete nominal dedup"
+        );
+        drop(selected);
+        let unfiltered = super::members(&native, None, None, &budget).await.unwrap();
+        let mut expected_all = vec![members[0].clone(), members[1].clone(), members[3].clone()];
+        expected_all.sort_by_key(Record::id);
+        assert_eq!(
+            unfiltered.as_slice(),
+            expected_all,
+            "dependency and orphan input never widen unfiltered library eligibility"
+        );
+        drop(unfiltered);
+        assert!(
+            super::members(&native, Some(&Name::new("absent").unwrap()), None, &budget)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        for selector in [
+            OperationSelector::Member {
+                member: members[1].id(),
+            },
+            OperationSelector::PublicPath {
+                path: vec![
+                    Name::new("discovery").unwrap(),
+                    Name::new("second").unwrap(),
+                ],
+            },
+        ] {
+            let selected = super::members(&native, Some(&library), Some(&selector), &budget)
+                .await
+                .unwrap();
+            assert_eq!(selected.as_slice(), &members[1..2]);
+        }
+        assert_eq!(budget.reserved(), 0);
+        for library in [surrealdb::types::Value::None, surrealdb::types::Value::Null] {
+            let mut vars = Variables::new();
+            vars.insert("library", library);
+            let mut packages = native
+                .query_stream(library_packages_sql(), vars, 1)
+                .unwrap();
+            let mut count = 0;
+            while packages.next().await.unwrap().is_some() {
+                count += 1;
+            }
+            assert_eq!(
+                count, 2,
+                "missing/null library keeps the full package universe"
+            );
+        }
+        for (sql, index, binding, value) in [
+            (
+                library_packages_sql(),
+                "semantic_key",
+                "library",
+                surrealdb::types::Value::from_t(library.as_str().to_owned()),
+            ),
+            (
+                library_releases_sql(),
+                "incoming",
+                "package",
+                surrealdb::types::Value::RecordId(reader::target_id(
+                    domain::graph::Target::Entity(domain::graph::EntityId::of(package.id())),
+                )),
+            ),
+            (
+                library_inputs_sql(),
+                "incoming",
+                "release",
+                surrealdb::types::Value::RecordId(reader::target_id(
+                    domain::graph::Target::Entity(domain::graph::EntityId::of(second.id())),
+                )),
+            ),
+        ] {
+            let mut vars = Variables::new();
+            vars.insert(binding, value);
+            let plan: serde_json::Value = native
+                .query(format!("{} EXPLAIN", sql.trim_end_matches(';')), vars)
+                .await
+                .unwrap();
+            let plan = plan.to_string();
+            assert!(plan.contains(index), "{plan}");
+            for material in [
+                "UnionIndexScan",
+                "Sort",
+                "Aggregate",
+                "Distinct",
+                "TableScan",
+            ] {
+                assert!(
+                    !plan.contains(material),
+                    "discovery retains whole-match state: {plan}"
+                );
+            }
+        }
+        // The real parent stream emits a package, allowing all descendants to submit
+        // candidates, before its later terminal fails. It cannot seal sorted output.
+        let mut vars = Variables::new();
+        vars.insert("library", library.as_str().to_owned());
+        vars.insert("member", surrealdb::types::Value::Null);
+        vars.insert("path", surrealdb::types::Value::Null);
+        let packages = native
+            .query_stream(
+                format!(
+                    "{} THROW 'late upstream library failure';",
+                    library_packages_sql()
+                ),
+                vars.clone(),
+                2,
+            )
+            .unwrap();
+        let mut sorted = lctx_surrealdb::acknowledged_candidates::AsyncCandidateSort::new(&budget)
+            .await
+            .unwrap();
+        let before_candidates = budget.reserved();
+        let error = collect_library_candidates(&native, &mut vars, packages, &mut sorted)
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("late upstream library failure"),
+            "{error}"
+        );
+        assert!(
+            budget.reserved() > before_candidates,
+            "provisional upstream rows submitted candidates before the late failure"
+        );
+        sorted.drain().await.unwrap();
+        assert_eq!(budget.reserved(), 0);
+        client
+            .query(format!("REMOVE DATABASE {db}"))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
     }
 }
