@@ -17,11 +17,12 @@ Nothing here regenerates, formats or synchronizes. Uncommitted work is reported 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
 import sys
+import tempfile
+import tomllib
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
@@ -53,24 +54,25 @@ class Ran:
     stderr: str
 
 
-Runner = Callable[[Sequence[str]], Ran]
+Runner = Callable[..., Ran]
 
 
-def run(argv: Sequence[str]) -> Ran:
+def run(argv: Sequence[str], *, cwd: Path = ROOT, environment: dict | None = None) -> Ran:
     """Run a read-only check from the checkout root; a missing tool is exit 127."""
     env = dict(os.environ)
     env.update(GIT_OPTIONAL_LOCKS="0", CARGO_TERM_COLOR="never", NO_COLOR="1")
+    env.update(environment or {})
     try:
         done = subprocess.run(
             list(argv),
-            cwd=ROOT,
+            cwd=cwd,
             env=env,
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             check=False,
         )
-    except FileNotFoundError as error:
+    except OSError as error:
         return Ran(127, "", str(error))
     return Ran(done.returncode, done.stdout, done.stderr)
 
@@ -97,22 +99,126 @@ def _relative(path: str, root: Path) -> str:
 # Outputs
 
 
+def metadata_inputs(root: Path) -> dict[Path, bytes]:
+    """Capture Cargo's local declarations and target discovery without build/env trees.
+
+    All captured files become ordinary owned files. Unsupported escaping path declarations
+    are refused rather than exposing a writable manifest outside the capture.
+    """
+    root = root.resolve()
+    inputs = {}
+    excluded = {".git", ".venv", "target", "build", "__pycache__", "node_modules"}
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = [name for name in dirs if name not in excluded]
+        for name in files:
+            path = Path(directory) / name
+            if (
+                name not in {"Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml"}
+                and path.suffix != ".rs"
+                and not (
+                    path.parent.name in {".cargo", ".config"}
+                    and name in {"config", "config.toml", "hakari.toml"}
+                )
+            ):
+                continue
+            if not path.resolve().is_relative_to(root):
+                raise ValueError(f"input escapes checkout: {path}")
+            inputs[path] = path.read_bytes()
+    for path, data in list(inputs.items()):
+        if path.name != "Cargo.toml":
+            continue
+
+        def paths(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key in {"path", "workspace"} and isinstance(child, str):
+                        yield child
+                    elif key in {"members", "default-members", "exclude"} and isinstance(
+                        child, list
+                    ):
+                        yield from child
+                    else:
+                        yield from paths(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from paths(child)
+
+        for declaration in paths(tomllib.loads(data.decode())):
+            source = path.parent / declaration
+            if Path(declaration).is_absolute() or not source.resolve().is_relative_to(root):
+                raise ValueError(f"unsupported escaping path in {path}: {declaration}")
+            if source.is_file():
+                inputs[source] = source.read_bytes()
+    for parent in [root, *root.parents]:
+        for name in ("config", "config.toml"):
+            path = parent / ".cargo" / name
+            if path.is_file():
+                inputs[path] = path.read_bytes()
+    cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
+    for name in ("config", "config.toml"):
+        path = cargo_home / name
+        if path.is_file():
+            inputs[path.resolve()] = path.read_bytes()
+    if root / "Cargo.toml" not in inputs or root / "Cargo.lock" not in inputs:
+        raise ValueError("Cargo.toml or Cargo.lock missing; prepare the workspace explicitly")
+    return inputs
+
+
 def hakari(runner: Runner, root: Path = ROOT) -> Freshness:
     regenerate = "just build-features"
     generate = ("cargo", "hakari", "generate", "--diff")
     manage = ("cargo", "hakari", "manage-deps", "--dry-run")
-    lock = root / "Cargo.lock"
-    before = hashlib.sha256(lock.read_bytes()).hexdigest() if lock.exists() else None
-    diff, deps = runner(generate), runner(manage)
+    root = root.resolve()
+    try:
+        captured = metadata_inputs(root)
+        with tempfile.TemporaryDirectory(prefix="lctx-fresh-hakari-") as temporary:
+            owned = Path(temporary)
+            workspace = owned / root.relative_to(root.anchor)
+            for source, data in captured.items():
+                destination = owned / source.relative_to(source.anchor)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+            environment = {
+                "CARGO_NET_OFFLINE": "true",
+                "RUSTUP_AUTO_INSTALL": "0",
+                "CARGO_TARGET_DIR": str(owned / "target"),
+                "CARGO_BUILD_BUILD_DIR": str(owned / "intermediates"),
+            }
+            diff = runner(generate, cwd=workspace, environment=environment)
+            deps = runner(manage, cwd=workspace, environment=environment)
+            normalized_lock = (workspace / "Cargo.lock").read_bytes() != captured[
+                root / "Cargo.lock"
+            ]
+    except (OSError, ValueError) as error:
+        return Freshness("hakari", "not_run", regenerate, f"metadata capture unavailable: {error}")
+    try:
+        unchanged = metadata_inputs(root) == captured
+    except OSError, ValueError:
+        unchanged = False
+    if not unchanged:
+        return Freshness(
+            "hakari", "stale", regenerate, "inputs changed during observation; inconclusive"
+        )
     details = []
-    if lock.exists() and hashlib.sha256(lock.read_bytes()).hexdigest() != before:
-        details.append("cargo metadata rewrote Cargo.lock during the check")
     for argv, ran in ((generate, diff), (manage, deps)):
-        if ran.returncode not in (0, 1):
-            return _failed("hakari", regenerate, argv, ran)
-    if diff.returncode == 0 and deps.returncode == 0:
+        # Hakari uses 1 for drift AND metadata errors; only an actual diff/edit
+        # observation establishes stale. Offline resolution failure is a non-result.
+        if ran.returncode not in (0, 1) or (
+            ran.returncode == 1
+            and ("error:" in ran.stderr.lower() or "error:" in ran.stdout.lower())
+        ):
+            result = _failed("hakari", regenerate, argv, ran)
+            result.reason += (
+                "; prepare the pinned tools/locked offline dependencies explicitly, "
+                "then rerun just fresh hakari"
+            )
+            result.details = (ran.stderr or ran.stdout).strip().splitlines()[:8]
+            return result
+    if diff.returncode == 0 and deps.returncode == 0 and not normalized_lock:
         return Freshness("hakari", "clean", regenerate, "workspace-hack matches", details=details)
     reasons = []
+    if normalized_lock:
+        reasons.append("Cargo metadata normalized the captured lockfile (live file unchanged)")
     if diff.returncode == 1:
         changed = [
             line
@@ -132,6 +238,13 @@ def hakari(runner: Runner, root: Path = ROOT) -> Freshness:
         files=["crates/lctx-workspace-hack/Cargo.toml"] if diff.returncode == 1 else [],
         details=details,
     )
+
+
+def docs(runner: Runner, root: Path = ROOT) -> Freshness:
+    import docs as publisher
+
+    state, reason = publisher.observe_publication(root)
+    return Freshness("docs", state, "just docs-check", reason)
 
 
 def adr_index(runner: Runner, root: Path = ROOT) -> Freshness:
@@ -293,6 +406,7 @@ def insta(runner: Runner, root: Path = ROOT) -> list[Freshness]:
 
 CHECKS: dict[str, Callable[..., Freshness | list[Freshness]]] = {
     "hakari": hakari,
+    "docs": docs,
     "adr-index": adr_index,
     "skills": skills,
     "rust-fmt": rust_fmt,

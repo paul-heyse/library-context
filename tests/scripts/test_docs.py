@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -51,6 +52,62 @@ def settings():
         "site": {"repository": "https://example.test/repo", "branch": "main", "base_url": "/"},
         "tools": {"mdbook": "0.5.4"},
     }
+
+
+@pytest.fixture
+def publication(root, settings, monkeypatch):
+    """Real capture/annotation/Git with disposable identifiable renderer stand-ins."""
+    settings["tools"] = {"mdbook": "0.5.4", "pagefind": "1.5.2", "lychee": "0.24.2"}
+    site = ["[site]"] + [f"{k}={json.dumps(v)}" for k, v in settings["site"].items()]
+    site += ["[tools]"] + [f"{k}={json.dumps(v)}" for k, v in settings["tools"].items()]
+    site += ["[publication]"] + [f"{k}={json.dumps(v)}" for k, v in settings["publication"].items()]
+    for collection in settings["collections"]:
+        site += ["[[collections]]"] + [f"{k}={json.dumps(v)}" for k, v in collection.items()]
+    (root / "docs/site.toml").write_text("\n".join(site))
+    (root / "docs/book.toml").write_text('[book]\ntitle="Test"\n[output.html]\n')
+    (root / "docs/theme").mkdir()
+    (root / "docs/theme/search.js").write_text("// captured theme")
+    (root / ".gitignore").write_text("/build/\n/.tools/\n")
+    for args in [
+        ("init", "-q"),
+        ("config", "user.name", "Test"),
+        ("config", "user.email", "test@example.invalid"),
+        ("add", "."),
+        ("commit", "-qm", "fixture"),
+    ]:
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+    binaries = root / ".tools"
+    binaries.mkdir()
+    for name, version in settings["tools"].items():
+        path = binaries / name
+        path.write_text(f"#!/bin/sh\necho '{name} {version}'\n")
+        path.chmod(0o755)
+    monkeypatch.setattr(
+        docs.shutil,
+        "which",
+        lambda name: str(binaries / name) if (binaries / name).exists() else None,
+    )
+    original_run = docs.run
+
+    def renderer(argv, **kwargs):
+        name = Path(argv[0]).name
+        if name == "git" or "--version" in argv:
+            return original_run(argv, **kwargs)
+        if name == "mdbook":
+            candidate, destination = Path(argv[2]), Path(argv[-1])
+            destination.mkdir()
+            for source in (candidate / "src").rglob("*.md"):
+                if source.name == "SUMMARY.md":
+                    continue
+                path = destination / source.relative_to(candidate / "src").with_suffix(".html")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    '<html lang="en"><head></head><main>' + source.read_text() + "</main></html>"
+                )
+        return subprocess.CompletedProcess(argv, 0, "")
+
+    monkeypatch.setattr(docs, "run", renderer)
+    return root, settings, renderer
 
 
 def test_discovery_add_delete_deterministic_and_standard_scope(root, settings):
@@ -215,27 +272,169 @@ def test_bootstrap_installs_a_pin_exactly_and_an_unversioned_tool_at_the_latest(
 
 
 @pytest.mark.parametrize("tool", ["mdbook", "pagefind", "lychee"])
-def test_pipeline_failure_preserves_previous_artifact(root, settings, monkeypatch, tool):
+def test_pipeline_failure_preserves_previous_artifact(publication, monkeypatch, tool):
+    root, settings, renderer = publication
     destination = root / "build/docs/site"
     destination.mkdir(parents=True)
     (destination / "old.html").write_text("last successful artifact")
-    monkeypatch.setattr(docs, "check_tools", lambda _: None)
-    monkeypatch.setattr(docs, "discover", lambda *_: [])
-    monkeypatch.setattr(docs, "stage", lambda *args: [])
-    monkeypatch.setattr(docs, "annotate", lambda *args: None)
 
     def fake(argv, **kwargs):
-        if argv[0] == tool:
+        if Path(argv[0]).name == tool and "--version" not in argv:
             raise subprocess.CalledProcessError(1, argv)
-        if argv[0] == "mdbook":
-            Path(argv[-1]).mkdir()
-        return subprocess.CompletedProcess(argv, 0)
+        return renderer(argv, **kwargs)
 
     monkeypatch.setattr(docs, "run", fake)
     with pytest.raises(subprocess.CalledProcessError):
         docs.build(root, settings)
     assert (destination / "old.html").read_text() == "last successful artifact"
     assert list((root / "build/docs").iterdir()) == [destination]
+
+
+def test_receipt_matches_capture_and_observation_does_not_render(publication, monkeypatch):
+    root, settings, renderer = publication
+    site = docs.build(root, settings)
+    receipt = json.loads((site / docs.RECEIPT).read_text())
+    assert receipt["files"]["README.md"] == docs.digest((root / "README.md").read_bytes())
+    assert receipt["tools"]["mdbook"]["version"] == "mdbook 0.5.4"
+
+    def read_only(argv, **kwargs):
+        assert argv[0] == "git", "freshness must not execute a renderer or tool binary"
+        return renderer(argv, **kwargs)
+
+    monkeypatch.setattr(docs, "run", read_only)
+    assert docs.observe_publication(root)[0] == "clean"
+    assert json.loads((site / docs.RECEIPT).read_text()) == receipt
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "page",
+        "membership",
+        "book",
+        "config",
+        "theme",
+        "tool",
+        "missing-tool",
+        "git",
+        "publisher",
+        "selection",
+        "environment",
+    ],
+)
+def test_receipt_stale_for_output_affecting_inputs(publication, monkeypatch, change):
+    root, settings, _ = publication
+    docs.build(root, settings)
+    if change == "page":
+        (root / "README.md").write_text("# Changed\n")
+    elif change == "membership":
+        (root / "docs/design/new.md").write_text("# Added page\n")
+    elif change == "book":
+        (root / "docs/book.toml").write_text("# changed config")
+    elif change == "config":
+        with (root / "docs/site.toml").open("a") as stream:
+            stream.write("\n# changed selection declaration\n")
+    elif change == "theme":
+        (root / "docs/theme/search.js").write_text("// newer theme")
+    elif change == "tool":
+        # Same declared/printed version, different actual executable bytes.
+        with (root / ".tools/mdbook").open("a") as stream:
+            stream.write("# changed binary\n")
+    elif change == "missing-tool":
+        (root / ".tools/mdbook").unlink()
+    elif change == "git":
+        subprocess.run(
+            ["git", "-C", str(root), "commit", "--allow-empty", "-qm", "new revision"], check=True
+        )
+    elif change == "publisher":
+        monkeypatch.setattr(docs, "publisher_identity", lambda: {"docs.py": "changed"})
+    elif change == "environment":
+        monkeypatch.setenv("MDBOOK_BOOK__TITLE", "Different rendered title")
+    else:
+        receipt = root / "build/docs/site" / docs.RECEIPT
+        data = json.loads(receipt.read_text())
+        data["selection"]["collections"] = []
+        receipt.write_text(json.dumps(data))
+    assert docs.observe_publication(root)[0] == ("not_run" if change == "selection" else "stale")
+
+
+@pytest.mark.parametrize("change", ["page", "theme", "tool", "git"])
+def test_drift_during_render_refuses_publication_preserving_prior_site(
+    publication, monkeypatch, change
+):
+    root, settings, renderer = publication
+    site = docs.build(root, settings)
+    before = {p.relative_to(site): p.read_bytes() for p in site.rglob("*") if p.is_file()}
+
+    def edit_during_render(argv, **kwargs):
+        result = renderer(argv, **kwargs)
+        if Path(argv[0]).name == "mdbook" and "--version" not in argv:
+            if change == "page":
+                (root / "README.md").write_text("# Concurrent newer source\n")
+                assert "Concurrent newer" not in (Path(argv[-1]) / "README.html").read_text()
+            elif change == "theme":
+                (root / "docs/theme/search.js").write_text("// concurrent newer theme")
+            elif change == "tool":
+                with (root / ".tools/pagefind").open("a") as stream:
+                    stream.write("# concurrent replacement\n")
+            else:
+                subprocess.run(
+                    ["git", "-C", str(root), "commit", "--allow-empty", "-qm", "concurrent"],
+                    check=True,
+                )
+        return result
+
+    monkeypatch.setattr(docs, "run", edit_during_render)
+    with pytest.raises(ValueError, match="inputs changed"):
+        docs.build(root, settings)
+    assert before == {p.relative_to(site): p.read_bytes() for p in site.rglob("*") if p.is_file()}
+    assert list(site.parent.iterdir()) == [site]
+    assert docs.observe_publication(root)[0] == "stale"
+
+
+def test_missing_partial_receipt_never_clean(root):
+    assert docs.observe_publication(root)[0] == "not_run"
+    site = root / "build/docs/site"
+    site.mkdir(parents=True)
+    (site / docs.RECEIPT).write_text('{"schema": 1, "files": {}}')
+    assert docs.observe_publication(root)[0] == "not_run"
+
+
+def test_partial_publication_cannot_certify_full_selection(publication):
+    root, settings, _ = publication
+    (root / "docs/design/extra.md").write_text("# Extra page\n")
+    settings["publication"]["exclude"] = ["docs/design/extra.md"]
+    site = docs.build(root, settings)
+    assert not (site / "docs/design/extra.html").exists()
+    assert docs.observe_publication(root)[0] == "stale"
+
+
+def test_referenced_asset_bytes_are_captured_and_observed(publication):
+    root, settings, _ = publication
+    asset = root / "docs/image.svg"
+    asset.write_text("<svg>first</svg>")
+    (root / "README.md").write_text('# Home\n<img src="docs/image.svg">\n')
+    site = docs.build(root, settings)
+    assert (site / "docs/image.svg").read_bytes() == asset.read_bytes()
+    assert docs.observe_publication(root)[0] == "clean"
+    asset.write_text("<svg>second</svg>")
+    assert docs.observe_publication(root)[0] == "stale"
+
+
+def test_omitted_dynamic_inventory_cannot_report_clean(publication):
+    root, settings, _ = publication
+    asset = root / "docs/image.svg"
+    asset.write_text("<svg>first</svg>")
+    (root / "README.md").write_text('# Home\n<img src="docs/image.svg">\n')
+    site = docs.build(root, settings)
+    path = site / docs.RECEIPT
+    receipt = json.loads(path.read_text())
+    receipt["files"].pop("docs/image.svg")
+    receipt["references"].pop("docs/image.svg")
+    path.write_text(json.dumps(receipt))
+    asset.write_text("<svg>newer</svg>")
+    state, reason = docs.observe_publication(root)
+    assert state == "not_run" and "integrity" in reason
 
 
 def test_replacement_removes_deleted_pages(tmp_path):

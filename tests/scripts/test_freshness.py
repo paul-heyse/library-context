@@ -19,7 +19,7 @@ class Fake:
         self.answers = answers
         self.calls: list[tuple[str, ...]] = []
 
-    def __call__(self, argv: Sequence[str]) -> Ran:
+    def __call__(self, argv: Sequence[str], **kwargs) -> Ran:
         self.calls.append(tuple(argv))
         joined = " ".join(argv)
         for key, ran in self.answers.items():
@@ -32,6 +32,8 @@ CLEAN = Ran(0, "", "")
 
 
 def test_hakari_clean_stale_and_undecided(tmp_path: Path) -> None:
+    (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers=[]\n")
+    (tmp_path / "Cargo.lock").write_text("version = 4\n")
     fake = Fake({"generate --diff": CLEAN, "manage-deps --dry-run": CLEAN})
     assert freshness.hakari(fake, tmp_path).state == "clean"
     assert {c[2] for c in fake.calls} == {"generate", "manage-deps"}
@@ -48,6 +50,84 @@ def test_hakari_clean_stale_and_undecided(tmp_path: Path) -> None:
     missing = Ran(127, "", "No such file: cargo")
     undecided = freshness.hakari(Fake({"generate": missing, "manage-deps": CLEAN}), tmp_path)
     assert undecided.state == "not_run" and "exit 127" in undecided.reason
+
+
+def test_hakari_capture_owns_mutations_and_detects_concurrent_inputs(tmp_path):
+    (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers=[]\n")
+    (tmp_path / "Cargo.lock").write_text("version = 4\n# stale lock\n")
+    original = {name: (tmp_path / name).read_bytes() for name in ("Cargo.toml", "Cargo.lock")}
+    for directory in ("target", "build", ".venv"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "Cargo.toml").write_text("must not copy")
+
+    def mutate_copy(argv, *, cwd, environment):
+        assert cwd != tmp_path and environment["CARGO_NET_OFFLINE"] == "true"
+        assert not any((cwd / directory).exists() for directory in ("target", "build", ".venv"))
+        assert not any(path.is_symlink() for path in cwd.rglob("*"))
+        (cwd / "Cargo.lock").write_text("normalized lock")
+        (cwd / "Cargo.toml").write_text("edited only in capture")
+        return CLEAN
+
+    freshness.hakari(mutate_copy, tmp_path)
+    assert original == {name: (tmp_path / name).read_bytes() for name in original}
+
+    def concurrent_edit(argv, **kwargs):
+        (tmp_path / "Cargo.toml").write_text("concurrent edit")
+        return CLEAN
+
+    result = freshness.hakari(concurrent_edit, tmp_path)
+    assert result.state == "stale" and "inconclusive" in result.reason
+    assert (tmp_path / "Cargo.toml").read_text() == "concurrent edit"
+
+
+def test_hakari_missing_offline_resolution_never_certifies_clean(tmp_path):
+    (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers=[]\n")
+    (tmp_path / "Cargo.lock").write_text("version=4\n")
+    result = freshness.hakari(
+        Fake({"cargo": Ran(1, "", "error: no matching package found offline")}), tmp_path
+    )
+    assert result.state == "not_run"
+
+
+def test_hakari_actual_stale_lock_metadata_preserves_live_bytes(tmp_path):
+    import shutil
+
+    if not shutil.which("cargo") or not shutil.which("cargo-hakari"):
+        pytest.skip("installed Cargo/Hakari required for native metadata control")
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nresolver="2"\nmembers=["app", "hack"]\n')
+    for name in ("app", "hack"):
+        source = tmp_path / name / "src"
+        source.mkdir(parents=True)
+        (source / "lib.rs").write_text("")
+        (source.parent / "Cargo.toml").write_text(
+            f'[package]\nname="{name}"\nversion="0.1.0"\nedition="2021"\n'
+            + ("\n### BEGIN HAKARI SECTION\n### END HAKARI SECTION\n" if name == "hack" else "")
+        )
+    (tmp_path / ".config").mkdir()
+    (tmp_path / ".config/hakari.toml").write_text('hakari-package="hack"\nresolver="2"\n')
+    lock = tmp_path / "Cargo.lock"
+    lock.write_text("version=4\n# deliberately stale: no package entries\n")
+    before = freshness.metadata_inputs(tmp_path)
+    observed = []
+
+    def native(argv, **kwargs):
+        result = freshness.run(argv, **kwargs)
+        observed.append((kwargs["cwd"] / "Cargo.lock").read_bytes())
+        return result
+
+    result = freshness.hakari(native, tmp_path)
+    assert result.state in {"clean", "stale"}, result
+    assert observed and observed[0] != before[lock]
+    assert freshness.metadata_inputs(tmp_path) == before
+    assert not (tmp_path / "target").exists()
+
+
+def test_docs_observation_uses_publisher_owner_only(tmp_path, monkeypatch):
+    import docs
+
+    monkeypatch.setattr(docs, "observe_publication", lambda root: ("stale", "changed source"))
+    result = freshness.docs(Fake({}), tmp_path)
+    assert result.state == "stale" and result.regenerate == "just docs-check"
 
 
 def test_formatting_reports_files_and_never_formats(tmp_path: Path) -> None:

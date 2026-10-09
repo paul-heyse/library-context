@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
+import os
 import posixpath
 import re
 import shutil
@@ -12,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
@@ -22,6 +24,14 @@ from repo_paths import local_skill
 
 ROOT = Path(__file__).resolve().parents[1]
 SCOPES = {"Current", "Reference", "History"}
+RECEIPT = ".publication.json"
+
+
+def receipt_digest(body: dict) -> str:
+    """Detect incomplete/corrupted inventories; this is integrity, not authentication."""
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -226,6 +236,7 @@ def rewrite_links(
     tracked: set[str],
     settings: dict,
     revision: str,
+    capture: PublicationCapture | None = None,
 ) -> str:
     for offset, tag, attrs in reversed(Links(text).tags):
         original_length = len(tag)
@@ -238,7 +249,10 @@ def rewrite_links(
             relative = Path(
                 posixpath.normpath(posixpath.join(page.path.parent.as_posix(), unquote(url.path)))
             )
-            if local_skill(root, root / relative):
+            reference = (
+                capture.reference(relative) if capture else reference_identity(root, relative)
+            )
+            if reference["local"]:
                 tag = re.sub(r"\s" + attr + r'="[^"]*"', "", tag, count=1)
                 tag = (
                     tag[:-1]
@@ -257,13 +271,12 @@ def rewrite_links(
                 p.with_suffix(".md") for p in published
             }:
                 continue
-            if source.suffix == ".html" and (root / source.with_suffix(".md")).is_file():
-                source = source.with_suffix(".md")
+            source = Path(reference["source"])
             original = checked(root, source)
             exists_in_git = source.as_posix() in tracked or any(
                 name.startswith(source.as_posix().rstrip("/") + "/") for name in tracked
             )
-            if not original.exists():
+            if reference["kind"] == "missing":
                 raise ValueError(
                     f"{page.path}: unresolved publication/source target: {value} ({source})"
                 )
@@ -274,7 +287,10 @@ def rewrite_links(
             ):
                 destination = checked(site, source)
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(original, destination)
+                if capture:
+                    destination.write_bytes(capture.read_input(source))
+                else:
+                    shutil.copyfile(original, destination)
                 continue
             if not exists_in_git:
                 tag = re.sub(r"\s" + attr + r'="[^"]*"', "", tag, count=1)
@@ -286,7 +302,7 @@ def rewrite_links(
                     tag += '<span class="local-reference-label">[uncommitted local source] </span>'
                 continue
             # An omitted source is a reference, never an attempted HTML chapter.
-            kind = "tree" if original.is_dir() else "blob"
+            kind = "tree" if reference["kind"] == "directory" else "blob"
             new = f"{settings['site']['repository']}/{kind}/{revision}/{quote(source.as_posix())}"
             if url.fragment:
                 new += "#" + url.fragment
@@ -308,19 +324,28 @@ def scope_options(pages: list[Page]) -> list[str]:
     ]
 
 
-def annotate(root: Path, site: Path, pages: list[Page], settings: dict) -> None:
-    revision = run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True).stdout.strip()
+def annotate(
+    root: Path,
+    site: Path,
+    pages: list[Page],
+    settings: dict,
+    capture: PublicationCapture | None = None,
+) -> None:
+    context = capture.git if capture else git_context(root)
+    revision = context["revision"]
     # A scope with no pages (History once retired records leave the tree) is never offered.
     scopes = ",".join(scope_options(pages))
-    dirty = bool(run(["git", "status", "--porcelain"], cwd=root, capture_output=True).stdout)
-    tracked = tracked_files(root)
+    dirty = bool(context["dirty"])
+    tracked = set(context["tracked"])
     published = {p.path.with_suffix(".html") for p in pages}
     errors = []
     for page in pages:
         path = site / page.path.with_suffix(".html")
         text = path.read_text()
         try:
-            text = rewrite_links(root, site, page, text, published, tracked, settings, revision)
+            text = rewrite_links(
+                root, site, page, text, published, tracked, settings, revision, capture
+            )
         except ValueError as error:
             errors.append(str(error))
             continue
@@ -366,7 +391,225 @@ def annotate(root: Path, site: Path, pages: list[Page], settings: dict) -> None:
         .replace("data-pagefind-body", 'data-pagefind-ignore="all"')
     )
     (site / "index.html").write_text(landing)
-    shutil.copytree(root / "docs/theme", site / "theme", dirs_exist_ok=True)
+    if capture:
+        for relative, data in capture.files.items():
+            if relative.is_relative_to("docs/theme"):
+                destination = site / "theme" / relative.relative_to("docs/theme")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+    else:
+        shutil.copytree(root / "docs/theme", site / "theme", dirs_exist_ok=True)
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def git_context(root: Path) -> dict:
+    environment = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    return {
+        "revision": run(
+            ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, env=environment
+        ).stdout.strip(),
+        "dirty": run(
+            ["git", "status", "--porcelain"], cwd=root, capture_output=True, env=environment
+        ).stdout,
+        "tracked": sorted(tracked_files(root)),
+    }
+
+
+def reference_identity(root: Path, relative: Path) -> dict:
+    if local_skill(root, root / relative):
+        return {"local": True, "source": relative.as_posix(), "kind": "local"}
+    checked(root, relative)
+    source = relative
+    if source.suffix == ".html" and checked(root, source.with_suffix(".md")).is_file():
+        source = source.with_suffix(".md")
+    path = checked(root, source)
+    kind = "file" if path.is_file() else "directory" if path.is_dir() else "missing"
+    return {"local": False, "source": source.as_posix(), "kind": kind}
+
+
+def publication_paths(root: Path, settings: dict) -> set[Path]:
+    """The publisher owns its input inventory, including discovered membership."""
+    paths = {
+        Path("docs/site.toml"),
+        Path("docs/book.toml"),
+        Path("docs/design_review/design_principles/standard.toml"),
+    }
+    excluded = set(settings["publication"]["exclude"])
+    for collection in settings["collections"]:
+        for pattern in collection["include"]:
+            checked(root, pattern)
+            matches = {p.relative_to(root) for p in root.glob(pattern) if p.is_file()}
+            if not matches:
+                raise ValueError(f"empty publication selection: {pattern}")
+            paths.update(p for p in matches if p.as_posix() not in excluded)
+    paths.update(p.relative_to(root) for p in sections.source_paths(root))
+    paths.update(Path(p) for p in settings["publication"]["assets"])
+    paths.update(p.relative_to(root) for p in (root / "docs/theme").rglob("*") if p.is_file())
+    index = Path(".claude/skills/README.md")
+    if (root / index).exists():
+        paths.add(index)
+    return paths
+
+
+def publisher_identity() -> dict:
+    identities = {}
+    for module in (sys.modules[__name__], sections, sys.modules[local_skill.__module__]):
+        filename = module.__file__
+        if filename is None:
+            raise ValueError(f"publisher module has no source file: {module.__name__}")
+        path = Path(filename)
+        identities[path.name] = digest(path.read_bytes())
+    return identities
+
+
+def tool_identities(settings: dict, *, check_versions: bool) -> dict:
+    identities = {}
+    for tool, declared in settings["tools"].items():
+        resolved = shutil.which(tool)
+        if not resolved:
+            raise ValueError(f"missing {tool}; run just bootstrap-docs")
+        binary = Path(resolved).resolve()
+        identity = {
+            "path": str(binary),
+            "sha256": digest(binary.read_bytes()),
+            "declared": declared,
+        }
+        if check_versions:
+            output = run([str(binary), "--version"], capture_output=True).stdout.strip()
+            if declared and not re.search(
+                r"(?<![\d.])v?" + re.escape(declared) + r"(?![\d.])", output
+            ):
+                raise ValueError(
+                    f"{tool}: expected {declared}, got {output}; run just bootstrap-docs"
+                )
+            identity["version"] = output
+            if digest(binary.read_bytes()) != identity["sha256"]:
+                raise ValueError(f"{tool} changed during version observation")
+        identities[tool] = identity
+    return identities
+
+
+@dataclass
+class PublicationCapture:
+    root: Path
+    settings: dict
+    files: dict[Path, bytes]
+    git: dict
+    tools: dict
+    publisher: dict
+    environment: dict[str, str]
+    references: dict[str, dict] = field(default_factory=dict)
+
+    def reference(self, relative: Path) -> dict:
+        key = relative.as_posix()
+        if key not in self.references:
+            self.references[key] = reference_identity(self.root, relative)
+        return self.references[key]
+
+    def read_input(self, relative: Path) -> bytes:
+        if relative not in self.files:
+            self.files[relative] = checked(self.root, relative).read_bytes()
+        return self.files[relative]
+
+    def receipt(self) -> dict:
+        body = {
+            "schema": 2,
+            "selection": self.settings,
+            "files": {p.as_posix(): digest(data) for p, data in sorted(self.files.items())},
+            "git": {**self.git, "tracked": digest("\0".join(self.git["tracked"]).encode())},
+            "tools": self.tools,
+            "publisher": self.publisher,
+            "environment": {
+                key: digest(value.encode())
+                for key, value in self.environment.items()
+                if key.startswith(("MDBOOK_", "PAGEFIND_", "LYCHEE_", "LC_"))
+                or key in {"LANG", "TZ", "SOURCE_DATE_EPOCH"}
+            },
+            "references": self.references,
+        }
+        return {**body, "receipt_sha256": receipt_digest(body)}
+
+    def stage_inputs(self, destination: Path) -> None:
+        for relative, data in self.files.items():
+            path = destination / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+
+
+def capture_publication(
+    root: Path, settings: dict, *, check_versions: bool = True
+) -> PublicationCapture:
+    # Copy caller overrides as well as the on-disk configuration. A partial/overridden
+    # publication therefore cannot certify the default full site.
+    selection = json.loads(json.dumps(settings))
+    return PublicationCapture(
+        root,
+        selection,
+        {p: checked(root, p).read_bytes() for p in publication_paths(root, selection)},
+        git_context(root),
+        tool_identities(selection, check_versions=check_versions),
+        LOADED_PUBLISHER_IDENTITY if check_versions else publisher_identity(),
+        dict(os.environ),
+    )
+
+
+def current_receipt(root: Path, settings: dict, previous: dict) -> dict:
+    current = capture_publication(root, settings, check_versions=False)
+    for tool, identity in current.tools.items():
+        old = previous["tools"].get(tool, {})
+        # No executable invocation during freshness observation. Identical binary bytes
+        # retain the version actually checked at publication; changed bytes mismatch.
+        if all(old.get(key) == value for key, value in identity.items()):
+            identity["version"] = old.get("version")
+    for key in previous["references"]:
+        current.reference(Path(key))
+    for key in previous["files"]:
+        current.read_input(Path(key))
+    return current.receipt()
+
+
+def observe_publication(root: Path) -> tuple[str, str]:
+    """Read-only input agreement; never build, install, render or run a tool binary."""
+    path = root / "build/docs/site" / RECEIPT
+    if not path.is_file():
+        return "not_run", "publication receipt missing; run just docs-check"
+    try:
+        previous = json.loads(path.read_text())
+        if (
+            not isinstance(previous, dict)
+            or previous.get("schema") != 2
+            or not all(
+                isinstance(previous.get(key), dict)
+                for key in (
+                    "selection",
+                    "files",
+                    "git",
+                    "tools",
+                    "publisher",
+                    "references",
+                    "environment",
+                )
+            )
+            or not previous["files"]
+            or not previous["tools"]
+            or any(
+                not isinstance(tool, dict) or not tool.get("version")
+                for tool in previous["tools"].values()
+            )
+        ):
+            return "not_run", "publication receipt incomplete; run just docs-check"
+        body = {key: value for key, value in previous.items() if key != "receipt_sha256"}
+        if previous.get("receipt_sha256") != receipt_digest(body):
+            return "not_run", "publication receipt integrity mismatch; run just docs-check"
+        current = current_receipt(root, config(root), previous)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as error:
+        return "stale", f"publication inputs unavailable or changed: {error}"
+    if current != previous:
+        return "stale", "publication inputs differ; run just docs-check"
+    return "clean", "named publication inputs match (not link acceptance)"
 
 
 def check_tools(settings: dict) -> None:
@@ -411,17 +654,25 @@ def build(root: Path, settings: dict) -> Path:
         or urlsplit(base).netloc
     ):
         raise ValueError("site base_url must be an absolute URL path ending in / without ..")
-    check_tools(settings)
-    pages = discover(root, settings)
+    capture = capture_publication(root, settings)
+    settings = capture.settings
     work = root / "build/docs"
     work.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="candidate-", dir=work) as temporary:
         candidate = Path(temporary)
-        pages = stage(root, candidate, pages, settings)
+        inputs = candidate / "inputs"
+        capture.stage_inputs(inputs)
+        pages = stage(inputs, candidate, discover(inputs, settings), settings)
         site = candidate / "site"
-        run(["mdbook", "build", str(candidate), "--dest-dir", str(site)])
-        annotate(root, site, pages, settings)
-        run(["pagefind", "--site", str(site), "--output-subdir", "pagefind"])
+        run(
+            [capture.tools["mdbook"]["path"], "build", str(candidate), "--dest-dir", str(site)],
+            env=capture.environment,
+        )
+        annotate(root, site, pages, settings, capture)
+        run(
+            [capture.tools["pagefind"]["path"], "--site", str(site), "--output-subdir", "pagefind"],
+            env=capture.environment,
+        )
         link_root = site
         if base != "/":
             link_root = candidate / "link-root"
@@ -430,15 +681,23 @@ def build(root: Path, settings: dict) -> Path:
             mount.symlink_to(site, target_is_directory=True)
         run(
             [
-                "lychee",
+                capture.tools["lychee"]["path"],
                 "--offline",
                 "--include-fragments=anchor-only",
                 "--root-dir",
                 str(link_root.resolve()),
                 "--no-progress",
                 str(site),
-            ]
+            ],
+            env=capture.environment,
         )
+        receipt = capture.receipt()
+        (site / RECEIPT).write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+        if current_receipt(root, settings, receipt) != receipt:
+            raise ValueError(
+                "publication inputs changed during rendering; prior site preserved; "
+                "rerun just docs-check"
+            )
         replace_site(site, work / "site")
     print(f"docs: passed; {len(pages)} canonical pages; {work / 'site'}")
     return work / "site"
@@ -524,6 +783,11 @@ def main() -> int:
                 ]
             )
     return 0
+
+
+# Bind a publication to the implementation loaded by this process. Reading newer
+# live source at capture time must not certify an older already-imported publisher.
+LOADED_PUBLISHER_IDENTITY = publisher_identity()
 
 
 if __name__ == "__main__":
