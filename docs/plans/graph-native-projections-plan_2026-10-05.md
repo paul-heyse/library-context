@@ -1,5 +1,12 @@
 # Named graph projections, analytics and export
 
+**Proposed compiler continuation, 2026-10-09:** [GK2/GK4](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+compile reusable selected layouts and relation kernels; [GR2/GR4](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md)
+add exact topology products and complete invalidation. This supersedes topology-only placement
+as a restriction on new relation operations, while each projection keeps its independent
+universe, typed roles, direction, multiplicity, nominal IDs and governed uncertainty. The
+persisted coordinator owns new finding disposition and acceptance; original receipts remain scoped.
+
 **Persisted follow-up implementation paused, 2026-10-07:** the [persisted graph execution plan](persisted-graph-execution-plan_2026-10-07.md) owns the current combined execution, catalog-speed F01–F05 and additional same-pattern corrections. PG2/PG4/PG6 move private and published projection consumers onto shared native selections and indexed prepared rows. Projection universes, roles, multiplicity, losses and pure kernel meanings remain. Preparation follows actual selected-method demand; IPC workspace access is the prior implementation. Original dated receipts and prior audit findings retain their scope; only that new plan owns these follow-up findings.
 
 The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC3/PC4 migrate projection query preparation and selected streams while preserving context, universe and canonical ordering. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.

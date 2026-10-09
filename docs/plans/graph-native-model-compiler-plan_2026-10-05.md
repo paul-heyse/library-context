@@ -1,5 +1,12 @@
 # Graph-native model and compiler
 
+**Proposed target continuation, 2026-10-09:** [GK0–GK7](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+compile model-owned relation/scope operations and shared root demand; [GR0–GR6](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md)
+add selective pure-product reuse. These replace overlapping open scope/preparation and cross-run
+deferrals. Existing semantic meanings, captured suppliers and admission remain foundations;
+[persisted coordinator §7.1/§8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns the current combined route and graph/hash disposition. Prior dated evidence stays scoped.
+
 **Persisted follow-up implementation paused, 2026-10-07:** the [persisted graph execution plan](persisted-graph-execution-plan_2026-10-07.md) owns the current combined execution, catalog-speed F01–F05 and additional same-pattern corrections. PG1–PG4 replace the store-free workspace with exact native completed views, shared access and demand-driven preparation. Model meanings and pure kernels remain owned here; the prior IPC/export receipts below describe their original implementation boundary; the current compiler uses native completed views. Original dated receipts and prior audit findings retain their scope; only that new plan owns these follow-up findings.
 
 The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC1/PC2 complete operation outcomes and captured-provider admission; PC3/PC4 complete shared lowering and candidate execution. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.

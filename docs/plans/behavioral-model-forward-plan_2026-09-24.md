@@ -1062,6 +1062,13 @@ controls. They do not establish positive ANN admission, larger-corpus scaling or
 
 ### 6.2 Product-target findings and recommendation disposition
 
+**Current compiler follow-up, Proposed, 2026-10-09:** [persisted coordinator §7.1/§8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns the graph/hash review's scheduled F01/F02, accepted RC01/RC02 and GK/GR replacement route.
+Its companions now design model-owned relation compilation and selective cross-run reuse;
+earlier broad reuse/preparation deferrals do not postpone this target. Product/research findings
+and original acceptance below retain their own scope. This schedules neither protected evaluation
+nor the retained Stage3–5 research backlog.
+
 **Single current owner.** AP refers to the
 [target review](../design_review/reviews/design_review_api-evidence-product_2026-09-28.md).
 R01–R08 are external recommendation IDs, not claims of defects independently demonstrated by them.
@@ -1183,10 +1190,10 @@ owns their semantic/lifecycle contracts and the source review §8 retains the co
 
 | Candidate / responsible owner | Activation and settling evidence |
 |---|---|
-| Salsa / catalog derivation owner | Repeated fine-grained build workload shows coarse reuse is insufficient. Compare isolated 0.28.2 catalog DB in bounded worker or disposable versioned persisted cache with coarse baseline; cold/reused/reloaded equality after doc/signature/member/evidence/coordinate/policy changes, work/time/memory/cache-size evidence and cancellation. No automatic pin upgrade, daemon or canonical cache |
+| Salsa / catalog derivation owner | GR0–GR6 now select native portable pure products and complete dependency propagation. Salsa0.28.5 is an acknowledged persistence/backdating alternative if a long-lived fine-grained mutable-query workload subsumes that owner. Compare cold/reused/reloaded equality and complete doc/signature/member/evidence/coordinate/policy dependencies, cancellation and retained state; no parallel canonical authority or automatic pin upgrade. |
 | Ascent / named recursive analysis owner | Genuine supported recursive multi-relation rules outgrow a clear worklist; rule/evidence/conflict/coverage semantics plus cycles/reconvergence/unknown/removal controls. Cooperative timeout cannot justify completeness; existing semantic Ascent/datafrog research criteria remain |
 | Differential Dataflow / future view-maintenance owner | Actual continuous insert/delete view maintenance, with explicit update/time/frontier and recovery contracts |
-| Moka / Rust request owner | Measured repeated immutable-generation selection/hydration cost; full request/generation/semantic/rank/render keys, concurrent initializer/error/cancellation and memory controls; one cache, no leases/credentials or global FastMCP-cache shortcut |
+| Moka / Rust request owner | GR5 selects Moka0.12.16's future cache for same-pin preparation with full dependency/evidence, charged value ownership and fenced/drained retirement. Cached data never grants a lease/credential. A measured speed claim still needs measurement, but static repeated-work evidence suffices to design the route. |
 | Typed dense collections / classifier kernel | Multiple dense index domains are actually needed. TiVec/TiSlice for simple side arrays, cranelift-entity for primary/secondary maps; canonical mapping, generation and slice-rebasing controls |
 | lasso, roaring / measured kernel | Allocation or sparse-set cost demonstrated against standard strings/maps or existing fixedbitset; no persisted interner/arena IDs or truncated 128-bit identities |
 | trybuild / wire-contract tests | Meaningful cross-module ID/state invariants justify compile-fail and passing cases; otherwise a compile-fail doctest |

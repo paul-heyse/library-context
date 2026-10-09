@@ -1,5 +1,12 @@
 # Evidence-preserving retrieval and primary programmatic evaluation
 
+**Proposed execution continuation, 2026-10-09:** the [GK compiler](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+and [GR reuse](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md) plans improve pure
+catalog/evidence/selection preparation and pinned native requests. Existing embedding reuse,
+winning-witness semantics, primary programmatic evaluation and protected-population separation
+retain their owners. The persisted coordinator owns graph/hash findings and affected acceptance;
+this ER/EV coordinator retains its original findings, quality and real-library obligations.
+
 **Persisted follow-up implementation paused, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. ER/EV meaning and original findings stay here; affected native contexts, manifest/state transport and primary evaluator consumers migrate with PG4–PG9. No protected populations or outer studies are activated.
 
 The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC3/PC4 supply corrected published eligibility/selection; PC6 qualifies the affected actual native/MCP/evaluator journey. Evaluation meaning and populations remain unchanged. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.

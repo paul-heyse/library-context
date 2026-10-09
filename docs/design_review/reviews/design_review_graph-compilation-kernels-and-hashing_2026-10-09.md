@@ -83,7 +83,10 @@ The consequence is avoidable work proportional to root count times shared select
 
 **Closure:** a traced overlapping assessment/class/field case shows one preparation and bounded shared demand, exact per-owner results, unchanged negative coverage and same-key conflict behavior; an outlier shows bounded combined live state and cancellation/drain. Compare independent expected membership and clean computation, rather than only the number of helper calls. Measurements are required only for a quantitative improvement claim.
 
-**Disposition:** this review retains **Deferred — architectural target decision**, until subsequent plan creation schedules the correction. Existing repeated-access/timeout obligations remain at the populated companion §6 and persisted coordinator; this finding neither renames nor closes them. Responsible components: `cpg-core` selection/normalization/admission and the owning model kernels. Trigger: selecting the relation-operation/prepared-selector redesign or adding another materially overlapping consumer.
+**Disposition transferred, 2026-10-09:** [persisted coordinator §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+now owns scheduled correction and closure; GK/GR companions develop it. The operator selected the
+replacement target and accepted RC01/RC02. This review retains its dated diagnosis; overlapping
+repeated-access/timeout obligations are preserved, not automatically closed or a reason to defer.
 
 <a id="F02"></a>
 ### F02 — Class/body and coverage scope semantics are independently interpreted in model and compiler selection
@@ -100,7 +103,10 @@ This does not combine producer and admission into a circular oracle. Admission m
 
 **Closure:** change one relevant body/coverage membership rule at its owner and inspect both computation and selected admission/native lowering; independent cases establish complete intended domains and no foreign-context leakage. Replacing the selector mechanism requires no new independently authored domain interpretation. Responsible owner: normalized callable/source-field model with `cpg-core` scoped adapters.
 
-**Disposition:** **Deferred — required target decision**, source-owned here until scheduled; revisit on the next callable/source-field scope extension or mechanism substitution. This finding is not a claim that every scope family has the same defect. Existing compiler/reference closure controls and their current dispositions remain independent.
+**Disposition transferred, 2026-10-09:** [persisted coordinator §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns current status; GK1–GK3/GK7 schedule the model scope correction. This dated finding is not
+a claim that every scope family has the same defect. Existing reference/admission controls remain
+independent, with no verified closure implied by target selection.
 
 F02's complete operation contract enables a sound F01 batch boundary. It is lower in immediate workload consequence but a prerequisite to sharing work without changing meaning. F01 also has narrower remedies that do not require a general compiler. Neither finding establishes that cross-run caching is necessary.
 
@@ -274,7 +280,9 @@ No probe was needed to establish the structural findings. Candidate readiness re
 
 ## Rule impacts and next decision
 
-Rule changes are recommendations only. This review neither applies nor supersedes them.
+The rule impacts below retain the review's original recommendations. The operator explicitly
+accepted both on 2026-10-09; the coordinator and GK0/GR0 own their decision/implementation route.
+This review applies no rule or production change.
 
 | ID | Current rule/owner | Proposed change and dependency | If the rule is kept |
 |---|---|---|---|

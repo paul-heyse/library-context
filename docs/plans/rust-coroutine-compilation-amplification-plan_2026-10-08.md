@@ -86,13 +86,20 @@ at the coordinator, not new defects in this plan.
 
 ### 3.1 Loader composition
 
+**Proposed replacement composition, 2026-10-09:** [GK1–GK4](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+move complete scope meaning to model-owned programs and compile shared demand; [GR1–GR4](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md)
+add qualified program/product reuse. The containment contract below remains: thin typed leaves,
+uniform non-generic async mechanics, exact ordering/cardinality, charged lifetimes and drainage.
+GK migrations supersede open duplicate loader routes rather than implementing both designs.
+
 Generate ordered typed adapter entries directly from each existing semantic inventory. A typed
 adapter is an ordinary function returning a borrowed opaque future before the broad driver owns
 it. Its record-specific work acquires the exact permit and supplies the synchronous decode/visit
 callback. A shared non-generic loop owns sequential traversal and awaits uniform futures.
 
-Keep scope policy local: frame, summary, model, selection, synthesis and retrieval owners decide
-which declaration and SQL apply. Reuse uniform traversal only where contracts agree. No independent
+Keep scope policy with its model owner: frame, summary, model, selection, synthesis and retrieval
+declare their complete operation; native/DataFusion/graph compilers realize it without independently
+deciding its meaning. Reuse uniform traversal only where contracts agree. No independent
 maintained decoder registry, schema-wide runtime data model or universal operation context is
 introduced. Inventories that overlap remain ordered entries; `ConsumedInputs` remains responsible
 for whether a declaration still needs work. A repeated type is not sufficient grounds to remove
@@ -258,7 +265,7 @@ required to correct the architecture; unfinished captures remain partial.
 
 ## 7. Source obligation coverage and current handoff
 
-**Current continuation, 2026-10-08:** the operator committed/pushed the preceding PC/BC/CU implementation as `dcb505d5a8c8c4760893f4d49b459b3d0bfce69d`. The [persisted coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07) now owns follow-up execution receipts for native cause attribution, bounded selection/eligibility, cold transport and repaired verification prerequisites. The four300s Behavioral controls remain explicitly deferred; CU6 runtime acceptance, BC3 installation and BC5 release acceptance remain open. Earlier receipts below retain their original source/date and are not promoted to current-source acceptance.
+**Current continuation, 2026-10-08:** the operator committed/pushed the preceding PC/BC/CU implementation as `dcb505d5a8c8c4760893f4d49b459b3d0bfce69d`. The [persisted coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07) now owns follow-up execution receipts for native cause attribution, bounded selection/eligibility, cold transport and repaired verification prerequisites. The four300s Behavioral controls remain failed/open; GK/GR now schedule the replacement structural correction and final-source acceptance. CU6 runtime acceptance, BC3 installation and BC5 release acceptance remain open. Earlier receipts below retain their original source/date and are not promoted to current-source acceptance.
 
 Both populated native journeys and the 35 dependent Python controls passed in that coordinator's `20261009T023103.223Z-bda1ff` receipt. Their 31m23s native execution prompted the [populated journey target review](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md). The [populated companion](populated-journey-execution-amplification-plan_2026-10-09.md) now develops its Proposed physical lowering/preparation; the persisted coordinator owns scheduled findings. PJ2 must retain coarse shared future/stream boundaries and synchronous typed leaves rather than recreating vocabulary-wide generic async dispatch. PJ1/PJ3/PJ5 preserve owned kernels, retained read setup and acknowledged scratch/cursor drainage; runtime topology observations are distinct from compiler-cost evidence. CU6 can consume valid matching-source/profile acceptance at that coordinator, but this earlier successful boundary does not close deferred CU6/BC/PC obligations.
 

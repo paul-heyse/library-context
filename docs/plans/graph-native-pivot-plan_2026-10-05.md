@@ -1,5 +1,11 @@
 # Graph-native replacement — implementation coordinator
 
+**Proposed compiler continuation, 2026-10-09:** the persisted coordinator's
+[§7.1 replacement map](persisted-graph-execution-plan_2026-10-07.md#71-replacement-execution-and-cross-plan-contracts-2026-10-09)
+and GK/GR companions supersede overlapping open preparation, scope-lowering and cross-run
+deferrals. This older coordinator retains graph-audit meanings and dated evidence; it gains no
+second graph/hash finding register or implied acceptance of the replacement implementation.
+
 **Persisted follow-up implementation paused, 2026-10-07:** [Persisted graph execution](persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. Its PG0–PG9 replace the store-free compiler placement and ordinary self-export/readmission, and integrate matching defects across serving, transport and restore. This coordinator retains its two nominated 2026-10-05 reviews, original audit findings and dated receipts; it does not own or close the new plan findings.
 
 The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC0–PC6 complete the exposed admission, completion, selection/schema and restore boundaries before remaining integrated acceptance. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.

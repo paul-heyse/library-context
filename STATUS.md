@@ -2,14 +2,20 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: graph compilation and hashing design review; earlier implementation paused.**
-The [principal review](docs/design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md)
-concludes **Revise scoped relation-operation composition**, at static/source-inspected strength.
-It recommends **Proposed** model-owned scope operations and shared prepared selection, with
-graph/native/relational lowerings and qualified hashing or incremental reuse where their contracts fit.
-The review owns its new unscheduled findings and unapplied rule impacts; no remediation or rule
-change is implemented. Product tests, probes and benchmarks are **not_run** for this review.
-**passed, 2026-10-09:** `just docs-check` — 350 canonical pages, zero link errors.
+**Current scope: graph compiler and selective-reuse plans created; production paused.**
+The [persisted coordinator §7.1/§8](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+now owns the scheduled graph/hash F01/F02 and replacement mapping. The operator accepted
+RC01/RC02 on 2026-10-09: [compiler/kernels](docs/plans/graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+and [reuse/invalidation](docs/plans/graph-compilation-reuse-and-invalidation-plan_2026-10-09.md)
+supersede conflicting open SQL-only/per-root and cross-run-deferral routes. The target is
+**Proposed**: model-owned scope programs, shared root partitions, native/relational/graph
+lowerings, BLAKE3 portable products and XXH3 exact-equality program interning. Fresh attempt
+ownership, provenance and independent admission remain required after a cache hit.
+The [independent plan-target review](docs/design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md)
+concludes **Accept scoped at Proposed/interface strength**. Its cache-retirement ordering gap is
+corrected in the target; the runtime race control remains open in coordinator §8. No production,
+dependency or architectural-owner change is implemented; product checks are **not_run**.
+**passed, 2026-10-09:** final `just docs-check` — 353 canonical pages, zero link errors.
 
 **Previous implementation checkpoint: populated correction implemented; targeted acceptance recorded.**
 The [populated companion](docs/plans/populated-journey-execution-amplification-plan_2026-10-09.md)
@@ -80,19 +86,16 @@ upper cases had begun entity normalization. No universal freeze/read wait cycle 
 the specific cause of the time between small CPU regions remains unproven. No failed composite
 is relabelled as a clean pass.
 
-**Next:** select the review's target and create its implementation plan, resolving operation ownership,
-shared demand and reuse contracts before choosing lowerings or cache libraries. The existing
-operator-deferred normalization/semantic-validation followup and enclosing
-qualification retain their existing owners; scoped maintenance and final preparation passed. The one populated
-`serving:mcp` run passed after a guard-free native refresh; its runtime evidence is distinct from
-build/wait time and does not establish a measured speedup. It precedes mechanical scoped
-formatting; final preparation and 19 pure/source-identity controls cover the formatted source. The coordinator retains the source
-boundaries and remaining large detached-publication/upper-frontier timeouts. Normalization and
-semantic-validation repeated-access avenues are recorded in the companion for the operator-deferred
-followup; static review identified no bounded PJ2/PJ3 correctness regression or freeze/read cycle.
+**Next:** plan detailed execution from GK0/GR0/GK1, then working
+shared selection and consumer migrations. Normalization/semantic-validation repeated-access
+corrections are scheduled in GK2/GK3/GR4 rather than deferred for overlap. Causal runtime
+attribution remains unproven. The coordinator retains large detached-publication/upper-frontier
+timeouts and all surviving PC/CU/BC controls. Prior populated `serving:mcp` acceptance and final
+formatted-source preparation retain their dated/source boundaries and establish no speedup.
 
-**Enclosing boundaries remain open:** PC6/CU6/BC3/BC5, the operator-deferred timeout followup
-and assembled release `qualify`. Active defaults remain release until BC3 qualifies its candidate.
+**Enclosing boundaries remain open:** PC6/CU6/BC3/BC5, affected timeout acceptance
+and assembled release `qualify`, now mapped to GK7/GR6 final-source qualification.
+Active defaults remain release until BC3 qualifies its candidate.
 Earlier successful populated acceptance (31m23s native bodies) describes the preceding source,
 not this physical schema. The coroutine/compilation companions retain their compiler evidence
 and source limits. Current focused passes do not establish whole-plan or performance qualification.

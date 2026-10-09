@@ -181,11 +181,23 @@ requires all confirmed migrations and justified exclusions. Existing BC2/BC4 wor
 
 ## 6. Migration and deliberate limits
 
+**Proposed execution refinement, 2026-10-09:** [GK0–GK7](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+and [GR0–GR6](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md) replace overlapping open
+loader/preparation and no-cross-run premises with a model-owned compiler and pure-product reuse.
+BC1 containment, BC2 full provenance/cold semantics and BC3/BC5 acceptance survive, mapped at
+persisted coordinator §7.1. New compiled program orchestration remains non-generic/coarse async;
+typed kernels remain synchronous. No older acceptance is a prerequisite to planning the stronger target.
+
 This is a direct source cutover within the current design. Owned batch signatures, shared mechanics and grouped targets replace their prior paths completely. Existing public artifacts retain their supported fields; composition identity is carried by the existing execution-implementation hash. Supplier/cold-admission semantics remain ADR-0138's contracts. Do not add an old borrowing API, legacy target aliases or a dual provenance writer for convenience.
 
 The candidate profile is temporary qualification state, not a standing second default. After passing, transfer its overrides to test, remove it and check the resulting actual default selection. An implementation failure keeps the current default intact until corrected; release availability is not evidence that the candidate passed.
 
-Keep shared/final artifact directory ownership and sccache unchanged. Initial profile/fingerprint changes can require dependency rebuilding and do not warrant cache cleanup. Source membership remains conservative at crate granularity and root-lockfile scope; further granularity requires a concrete invalidation consumer and complete dependency evidence. No automatic cross-run incremental executor or cache accounting system is introduced.
+Keep shared/final artifact directory ownership and sccache unchanged. Initial profile/fingerprint
+changes can require dependency rebuilding and do not warrant cache cleanup. BC2 implementation
+provenance remains conservative at crate/root-lockfile granularity. GR0/GR4 provide concrete
+computational/value dependency domains and qualified selective cross-run reuse separately; they
+never weaken captured supplier compatibility or copy an old completed view after provenance changes.
+No background incremental service or new accounting subsystem is introduced.
 
 ## 7. Verification and acceptance
 
@@ -213,7 +225,7 @@ Current available command forms include `just verify --print --select compiler:p
 | Runtime overhead of erasure | **Scheduled in BC1/BC5 and companion CU1–CU6.** Owned batch-level requests, coarse borrowed adapters/phases and actual operational controls; compare timing only under separately named conditions before claiming equivalent performance. Correct a material regression before closure. |
 | Whole-operation containment, recurrence and output refinement | **Scheduled in companion CU0–CU6.** Mandatory assessment of every named candidate; correct confirmed patterns with their consumers and justify exclusions. Preserve specialized selection/cardinality, inspect children/drop bodies, and retain current output API unless residual evidence plus preserved buffering/error/cancellation semantics justify CU5. |
 | O1 versus O0 | **O1 selected; qualification scheduled in BC3.** Known O0 stack failures prevent automatic fallback. Any failure drives coherent future/stack ownership correction. |
-| Exact provider closure | **Selected at conservative normal/build crate/asset scope in BC2.** Mutation/deletion/relocation and capture consumers establish completeness. Finer lockfile/source granularity is deferred until repeated relevant invalidation exposes a concrete need. |
+| Exact provider closure | **Selected at conservative normal/build crate/asset scope in BC2.** Mutation/deletion/relocation and capture consumers establish completeness. GR0/GR4 now define qualified computational/value domains for concrete reuse consumers; finer provider implementation-source granularity remains a separate completeness decision, never inferred from value equality. |
 | Best harness grouping | **Selected in §3.4; qualified in BC4.** Discovery, source inclusion, selected-case equivalence and fixture independence settle the physical migration. Residual skew can justify changing groups; it cannot justify dropping controls. |
 | Pinned compiler regression | **Deferred.** Revisit only for a residual symptom matched to the actual pinned phase/settings after structural corrections, or a deliberately selected toolchain change. Existing reports are leads, not diagnoses. |
 | Host dependency optimization | **Deferred.** Revisit if remaining macro/build-script compilation or execution is a demonstrated bottleneck; qualify both sides before changing existing O2/O3 overrides. |
@@ -541,7 +553,7 @@ they are outside this correction-and-diagnosis completion boundary.
 
 ## 13. Coroutine architecture review checkpoint, 2026-10-08
 
-**Runtime follow-up, Proposed 2026-10-09:** the [populated companion](populated-journey-execution-amplification-plan_2026-10-09.md) owns native write/preparation improvements and coarse runtime phase evidence. Its PJ2 dispatch retains BC1/CU's shared future boundaries; runtime preparation does not undo the compiler-cost correction or justify per-row erasure/tasks. The persisted coordinator owns new populated findings and PJ5's native/CLI/cold/MCP acceptance, which may supply BC5/CU6 only with matching source/profile and the actual required controls. BC3 default installation remains independently qualification-gated; release remains active, and operator-deferred timeout/assembled obligations stay open. Existing compiler captures are not runtime phase attribution or new-schema acceptance.
+**Runtime follow-up, Proposed 2026-10-09:** the [populated companion](populated-journey-execution-amplification-plan_2026-10-09.md) owns native write/preparation improvements and coarse runtime phase evidence. Its PJ2 dispatch retains BC1/CU's shared future boundaries; runtime preparation does not undo the compiler-cost correction or justify per-row erasure/tasks. The persisted coordinator owns new populated findings and PJ5's native/CLI/cold/MCP acceptance, which may supply BC5/CU6 only with matching source/profile and the actual required controls. BC3 default installation remains independently qualification-gated; release remains active, and timeout/assembled obligations stay open under the GK7/GR6 replacement route at coordinator §7.1. Existing compiler captures are not runtime phase attribution or new-schema acceptance.
 
 The [independent coroutine design/target review](../design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md)
 is complete. **Decision: Revise for A4; A1–A3 and semantic/lifecycle gates hold within the

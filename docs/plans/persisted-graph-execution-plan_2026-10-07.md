@@ -1,16 +1,23 @@
-# Persisted graph compilation and shared efficient execution
+# Graph compilation, persisted execution and selective reuse
 
 Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
 
 **Accepted persisted foundation and corrective target; production integrated, focused acceptance incomplete, 2026-10-08. No performance measurement.**
 **Proposed physical-execution refinement, 2026-10-09:** the [populated-journey companion](populated-journey-execution-amplification-plan_2026-10-09.md) develops operation-shaped native enforcement and final canonical preparation. This coordinator remains the sole scheduled-finding and integrated-acceptance owner. Operator acceptance of its RC01/RC02 does not apply the new schema or establish implementation.
+**Proposed replacement target, 2026-10-09:** the operator accepted graph/hash RC01 and RC02.
+The [compiler companion](graph-compilation-kernels-and-hashing-plan_2026-10-09.md) and
+[reuse companion](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md) replace conflicting
+open per-root/SQL-only and dependency-foundations-only routes with model-owned relation compilation,
+shared prepared demand and selective cross-run reuse. Earlier work is not a prerequisite to design
+this replacement; its surviving guarantees and acceptance obligations remain owned here.
 This document coordinates the next hard design pivot. Its source is the
 [catalog compilation speed review](../design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md),
 especially F01–F05 and RC01/RC02, together with the operator's 2026-10-07 selection of persisted
 graph compilation and comparable corrections throughout the codebase. The operator confirmed
-direct sealing, internal contribution/view identity, and dependency foundations now rather than
-cross-run incremental execution. Those choices replace the review's preferred in-process compiler
-alternative; its diagnoses, preservation obligations and uncertainty remain applicable.
+direct sealing, internal contribution/view identity, and dependency foundations on 2026-10-07.
+The 2026-10-09 accepted reuse horizon below supersedes that choice's cross-run deferral. Native
+persistence and direct sealing remain foundations; the new operation compiler does not restore a
+second canonical store. The earlier review's diagnoses and preservation obligations remain applicable.
 
 The [correction-causes review](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md) subsequently identified incomplete admission/completion contracts and native execution amplification. Its [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) defines PC0–PC6, integrated below. Both correction-causes RC01/RC02 were operator-accepted on2026-10-07. They are different from the catalog-speed rule impacts above.
 
@@ -28,8 +35,8 @@ Arrow/DataFusion computation where they fit the actual operation. Compile, admit
 same private native database. Ordinary publication must not export, reconstruct and re-ingest
 the compiler's own output.
 
-The stored option is selected for useful graph access now and a durable foundation for future
-selective invalidation and other consumers. Persistence alone does not remove repeated work.
+The stored option supplies useful graph access and exact dependency foundations. Selective
+invalidation and reuse are now scheduled through GR0–GR6. Persistence alone does not remove repeated work.
 The target also replaces the identified variants with common access, conversion, batching,
 preparation and validity mechanisms. Domain policies remain with their semantic owners.
 
@@ -59,8 +66,9 @@ replace PC6 acceptance. Coroutine F01 disposition remains solely with the compil
 
 Migrate all affected compiler frontiers (`facts`, `normalized`, `analysis`, `catalog`), Catalog
 and Behavioral profiles, shared projection/analysis/admission consumers, and the non-compiler
-paths in §2. Behavioral functionality is preserved, not expanded. Cross-run invalidation,
-automatic recompilation, resumable attempts, distributed execution, compatibility readers,
+paths in §2. Behavioral functionality is preserved, not expanded. Cross-run invalidation and
+pure-product reuse are included; background automatic recompilation, resumable attempts,
+distributed execution, compatibility readers,
 historical runtime archives and a second storage backend are not introduced. Protected evaluation
 populations remain sealed; the primary programmatic and outer agentic roles remain unchanged.
 
@@ -104,9 +112,11 @@ expected bodies independently. Programmatic evaluation remains an adjacent contr
 | Catalog-speed RC01 | **Accepted:** ordinary compilation seals its own admitted persisted realization; external imports and stored reconciliation remain independent exposures. | PG0 supersedes ADR-0128's portable-roundtrip/post-compile-only publication clauses and updates storage §6.1. |
 | Catalog-speed RC02 | **Accepted:** exact immutable contribution/view identity replaces eager whole-prefix content identity internally. Deterministic final content identity remains. | PG0/PG1 revise `SourceSnapshot`, completed-input bindings, manifests, observation/cache identities and their consumers. Do not relabel membership as canonical content. |
 | Native compiler placement | **Selected explicitly:** store-free compilation is displaced. | PG0 replaces DESIGN §B3/§B7/§B12, semantic-model §15.1/§15.11, storage §5/§6/§6.2 and associated instructions. Restate surviving ADR-0128 obligations in the replacement ADR. |
-| Reuse horizon | **Foundations now:** persist exact completed inputs, meaningful dependencies and products; no cross-run scheduler/invalidation executor. | PG1/PG7 give the persisted state real inspection/transport consumers; defer the executor with a named trigger in §10. |
+| Reuse horizon | **Superseded, 2026-10-09:** exact persisted dependencies now feed selective cross-run pure-product reuse and dependency propagation. | GR0–GR6 replace the earlier foundations-only deferral, retaining independent current ownership/admission. |
 | [Correction-causes RC01](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#rc01) | **Accepted:** table-specific scope inventories and scalar projections only for actual consumers. | PC0 complementary decision/owner updates; PC3 physical schema, reconciliation and realization cutover. |
 | [Correction-causes RC02](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md#rc02) | **Accepted:** later independent units may execute within a failed private restore request. | PC0 records the changed failure boundary; PC1 preserves complete outcomes; PC5 batches units and abandons failed staging. |
+| [Graph/hash RC01](../design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md#RC01) | **Accepted, 2026-10-09:** model-owned relation operations may lower to graph kernels, indexed native queries or relational execution. | GK0/GK1 replace §15.10's topology-only/SQL-only restriction and duplicated scope interpretations; §B3 remains compatible. |
+| [Graph/hash RC02](../design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md#RC02) | **Accepted, 2026-10-09:** selective cross-run reuse is a current target. | GK0/GR0 route complementary ADR/owner changes for §15.1 and §14.2 before dependent implementation. Native canonical authority and independent admission remain. |
 
 Plan approval is not implementation or finding closure. PG0 has installed the selected target through ADR-0138; implementation and verification of its dependent packages remain in progress.
 The new ADR must preserve graph identity/role fidelity, programmatic assertions, native query
@@ -231,6 +241,12 @@ must address that ownership explicitly. This is an execution policy, not a speed
 
 ### 5.1 Native access and request-local indexing
 
+**Replacement scope contract, Proposed, 2026-10-09:** GK1/GK2 govern roots, body/context/coverage
+membership and negative domains once in the model, then compile shared root partitions to these
+native providers or compact Rust kernels. The access/index capabilities below remain useful;
+separately authored per-consumer scope SQL is retired during GK3–GK5. Native selection is a
+lowering of meaning, not the owner of meaning. GR1–GR5 add qualified program/product/pin reuse.
+
 Extend the existing native reader/loader capabilities rather than add a backend-neutral provider
 framework. Internal operation context binds either an exact private completed view or a sealed
 read-only snapshot, plus demand, budget, cancellation and lifetime. A private input view is not a
@@ -299,7 +315,8 @@ Resolve selected method/effect dependencies before preparation. All-disabled A1 
 owned NotRequested outcomes and necessary frame provenance without kernel-only hydration/indexes.
 A0's required call/definition topology remains. Selected methods prepare their actual union once.
 Reuse exact-input inference/cache batching and winning values; query-only policy changes do not
-invalidate document values. No generic new cache, GPU upgrade or automatic cross-run reuse.
+invalidate document values. Embedding cache ownership remains distinct. GR2–GR4 add qualified
+pure compiler products; no GPU upgrade or duplicate vector cache is scheduled.
 
 For S0, retain a compact spool of completed documentary findings/support and emitter keys after
 its first necessary pass; the second phase uses that output plus later embedding/literal results.
@@ -402,7 +419,64 @@ supporting plans. Those plans retain semantic responsibilities and original rece
 owns the combined new execution and finding disposition. The evidence/evaluation plans consume
 the changed native boundary without becoming a second correction ledger.
 
+### 7.1 Replacement execution and cross-plan contracts, 2026-10-09
+
+The two graph/hash companions define GK0–GK7 and GR0–GR6. Their precedence applies to open
+target/implementation routes, not historical evidence. The combined result is one model-owned
+operation compiler, shared prepared roots/layouts, native canonical persistence, exact pure
+product reuse and current independent completion/admission/publication.
+
+| Existing work | Replacement/preservation and completion route |
+|---|---|
+| PG2/PG4/PG6 and PC3/PC4 selected access | GK1/GK2 own complete semantic scopes and compile indexed native/DataFusion or compact graph demand; GK3–GK5 migrate actual consumers. Existing table lowering, terminality, bounded candidate ordering/residuals and exact hydration remain mechanisms or required behavior under a replacement. |
+| PJ4 normalization/validation/browse deferrals | GK3/GK5 schedule these reviewed repeated-access routes now. PJ2 fixed envelopes/typed ingress and PJ3 freeze/pointer-run preparation remain implemented foundations; no new global mutable generation cache is inferred. |
+| BC1/CU1–CU4 containment | New compiler uses shared non-generic orchestration and thin synchronous typed leaves. GK4/GK7 preserve exact cardinality, order, charging, first-error and compiler-boundary evidence; no duplicate loader migration is required when the new target replaces that route. |
+| BC2 conservative source/provenance membership | Retain full implementation and supplier provenance; GR0/GR4 introduce explicitly qualified computational/value domains. Old view identity is never reused because rows merely look equal. BC2 mutation/cold controls remain independently required. |
+| Dependency-foundations-only horizon | GR0–GR4 deliver portable products, complete dependency tokens/reverse graph, invalidation and current ownership/admission. Embedding cache, publication effects and read capabilities retain their existing owners. |
+| PC6/CU6/BC3/BC5/PG9/PJ5 acceptance | GK7/GR6 join surviving behavior controls on final source/profile. Existing failed timeouts remain failures until affected reruns pass; obsolete routes can be superseded only with a replacement behavior/control map. No historical pass qualifies the new compiler. |
+
+Execution begins with GK0/GR0 decisions and GK1 scope semantics, then GK2/GR1 working shared
+selection/program identity. GK3–GK5 migrate concrete consumers; GR2 supplies exact portable
+reuse, GR3/GR4 integrate dependency propagation and finer domains, GR5 supplies pinned-request
+reuse. GK6 assembles them; GK7/GR6 finish affected qualification and retirement. Producers and
+actual consumers land together, with one owner for shared model/schema/native/manifest edits.
+Available independent work depends on delivered contract slices, not completion of older plans.
+
+GK0/GR0 schedule architectural decisions and owner changes; this plan-authoring turn applies
+neither production changes nor new runtime policy. Operator databases/configuration and activation
+remain held. Native persistence does not require every domain operation to be a native query,
+and compiled graph intent does not require every algorithm to be serialized into a universal IR.
+
 ## 8. Sole finding disposition
+
+### Graph/hash review findings transferred on 2026-10-09
+
+Both findings are **Open; corrective target Proposed and rule changes operator-accepted**.
+This is their sole current disposition owner. Their source assessment remains dated and is not
+rewritten as implementation acceptance. The new target supersedes overlapping open routes;
+PC6/CU6/BC3/BC5 and remaining timed-out boundaries survive until matching evidence resolves them.
+
+| Source finding | Responsible components and packages | Required closure evidence |
+|---|---|---|
+| [Graph/hash F01](../design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md#F01) — repeated per-root planning/hydration | Model/compiler/native selected-access; GK2–GK7, GR1–GR6 | Shared prepared selection and bounded hydration reach every applicable consumer with exact owner partitions, complete negative domains and conflict/cancellation/skew controls. Same/cold/hit/changed-input products match independent expected membership and clean computation; no latency attribution inferred. |
+| [Graph/hash F02](../design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md#F02) — independently interpreted body/coverage scope | Normalized scope/ClassInventory and compiler/admission adapters; GK1–GK3/GK7 | One complete owned body/initializer/qualification/coverage operation, independent nested/foreign/missing cases, rule extension and contrasting lowering without recovering domain meaning from the adapter; competing interpretations removed. |
+
+The seven opportunity routes and library/investigation decisions are developed in the two
+companions, not another status register. Scope ownership is prerequisite to aggressive sharing;
+reuse does not close the older catalog-speed, correction or populated findings automatically.
+
+### Plan-target review finding transferred on 2026-10-09
+
+The [independent target-plan review](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md)
+accepts the revised combined target at **Proposed/interface strength**. Its F01 is distinct from
+source graph/hash F01. The document correction resolves its target-order gap; implementation
+and the revealing lifecycle control remain **Open / not_run** under GR5/GR6.
+
+| Source finding | Responsible component and disposition | Required implementation evidence |
+|---|---|---|
+| [Plan-target F01](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md#F01) — cache insertion racing viewer retirement | Viewer/cache lifecycle, GR5/GR6. **Target corrected at Proposed strength, 2026-10-09**: fence admission/retries, drain initialization/insertion owners, release final cache references, then wait external leases. | Race completing initialization against retirement; no cache-owned pin/charge survives final release, while an external borrower retains its own pin/charge until release. Production closure requires that control and actual consumer integration. |
+
+### Retained catalog-speed and additional findings
 
 Catalog-speed F01–F05 and D01–D04 remain **Open** while integrated acceptance proceeds. The additional implementation-review F01 passed its original two-family cold-backing boundary; required projection/metadata families have reopened the broader backing boundary below. Bounded implemented/tested slices in §9.1 do not establish enclosing finding closure. Acceptance of a decision is not verified closure. Source-review IDs retain their original scope; additional IDs below are this
 plan's source-inspected defects, not retroactive edits to the original independent review.
@@ -674,7 +748,11 @@ contracts. No new dependency, backend or server configuration is selected in thi
 | Embedded primary store / raw Arrow protocol | Not selected: second lifecycle or unstable core/new protocol scope without a current requirement. Remote persisted host already serves compiler and consumers. |
 | GQL, MCP, SurrealKit, live/changefeeds and extra frontends | No demonstrated role in the required corrections. Revisit only for an actual consumer; no new migration/coordination service for fresh generated databases. |
 
-Native placement remains settled. The correction plan changes incomplete contracts and physical routes within it. Its §7 owns three concrete acceptance investigations: actual single-prefix/contributor/published plans, failed multi-unit import behavior, and new-format captured-build cold admission. The ordered union-index alternative retains a result-sized dedup set in pinned3.3 source; PC4 therefore selects the existing native external-run kernel instead. Table-specific scalar consumers are mapped in correction plan §4.1. These choices and the source review's unqualified remedies are not new runtime evidence.
+Native persistence/direct sealing remains selected. The scope compiler can replace physical
+routes where its owned operation is better served by graph or relational kernels; the correction
+plan's §7 still owns actual single-prefix/contributor/published-plan, failed-import and captured-build
+admission investigations. PC4's bounded external ordering remains a useful lowering. Supersession
+requires an explicit preservation/consumer/evidence map, not deletion of these obligations.
 
 The earlier bounded investigations remain where their implementation evidence is still incomplete:
 PG1 verifies complete registry coverage and membership index/key layout with real field types;
@@ -683,9 +761,11 @@ compact S0 spool and actual selected-method dependency union; PG8 verifies alloc
 ordering and necessary delivery stabilization. Resolve them before their dependent package is
 declared ready; they do not reopen native query adoption or introduce mandatory per-query proof.
 
-Future release/configuration changes can use persisted dependencies to identify affected products;
-the executor remains deferred until that incremental workflow is explicitly requested. It must
-handle deletions, changed membership and negative selections, not only updated returned rows.
+Release/configuration changes use GR3/GR4's declared dependency graph to identify affected pure
+products. Selective cross-run execution is explicitly requested and scheduled; no overlap deferral
+remains. It handles deletions, changed membership, missing targets and negative selections, not
+only updated returned rows. Exact-view dependencies remain until a complete finer domain is
+implemented; current provenance/admission refresh even when a pure value is equal.
 An added analytic requests its actual inputs and reuses the same access/preparation; a new original
 consumer reuses verified range batches; a new record extends the model and mechanical codecs,
 not a second repository/classifier. A new transport consumes completed typed output through the
@@ -694,10 +774,29 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
+**2026-10-09: graph/hash replacement target planned; production paused.** The operator accepted
+both source-review rule changes and instructed stronger designs to supersede overlapping open
+routes. GK/GR companions now own the detailed target; §7.1 maps replacement and preserved
+acceptance, §8 owns transferred F01/F02. Static/interface evidence supports the chosen compiler
+and content-addressed reuse direction; implementation/benefit remain Proposed/unmeasured.
+The [independent target-plan review](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md)
+accepts the revised target at Proposed/interface strength, after correcting the GR5 retirement
+order; §8 retains its separate implementation obligation. Documentation outcomes are recorded
+in STATUS. Next execution planning uses GK0/GR0/GK1 and working prerequisites, not a return to
+the older deferred normalization route.
+
 **2026-10-08: PC0–PC6 execution resumed; corrective target accepted under ADR-0138.** The [independent correction-plan review](../design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md) accepted PC0–PC6 at Proposed strength, with no remaining blocking design finding; runtime closure remains open. Native compiler and adjacent shared operations are on main; current targeted receipts and remaining checks are in §9.1. The correction plan develops all six new findings and both accepted rule changes; §8 owns their current disposition. The independent
 [target-plan review](../design_review/reviews/design_review_persisted-graph-execution-plan_2026-10-07.md)
 accepted the Proposed architecture. Its frozen-universe, deferred-reference, exact-statistics
 and complete-body obligations remain binding during implementation. Source acceptance and
 bounded successful controls do not establish the whole pivot or measured compilation speed.
 
-PC0–PC5 contracts and consumer migrations remain integrated in the committed baseline. PJ0–PJ3 and bounded assembled-review corrections are now implemented on main; targeted current-source acceptance has been recorded, with deferred timeout and enclosing qualification limits. The [populated companion](populated-journey-execution-amplification-plan_2026-10-09.md) develops their contracts and records the bounded residual assessment. §8 owns scheduled findings; §9.1 owns actual passed controls, failed/repaired receipts and the passed populated native/MCP/evaluator boundary. Earlier populated passes describe the preceding physical schema. The independent assembled review accepts static / Implemented strength, not whole-plan or performance qualification. The operator selected targeted completion; assembled `qualify`, timeout followup and PC6/CU6/BC3/BC5 remain open. The integrated correction is committed as `2a62e817`; remaining broad acceptance and normalization/validation amplification stay with their deferred owners. PC3's isolated dirty planner-control copy and shared profiling/build assets remain preserved. No further push is requested.
+PC0–PC5 contracts and consumer migrations remain integrated in the committed baseline. PJ0–PJ3
+and bounded assembled-review corrections are implemented on main as `2a62e817`; prior targeted
+acceptance and its remaining timeouts/qualification limits stay in §9.1. Earlier populated passes
+describe the preceding physical schema. The independent assembled review accepts its scoped
+static/Implemented source, not the new GK/GR target or whole-plan performance. Normalization and
+validation amplification now have scheduled replacement packages GK2/GK3/GR4; causal runtime
+attribution remains unproven. Assembled `qualify`, affected timeout reruns and PC6/CU6/BC3/BC5 are
+open under the final-source route in §7.1. PC3's dirty worktree and shared profiling/build assets
+remain preserved. No push or operator adoption is requested.

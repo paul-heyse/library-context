@@ -6,6 +6,13 @@ This supporting plan develops the [populated journey target review](../design_re
 
 ## 1. Outcome, baseline and workload
 
+**Proposed replacement target, 2026-10-09:** the accepted graph/hash RC01/RC02 now schedule
+[model-owned relation compilation](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+and [selective reuse](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md). GK2/GK3/GK5
+supersede this plan's normalization/validation/browse preparation deferrals where reviewed
+amplification exists. PJ2/PJ3 remain implemented preservation constraints; coordinator §7.1/§8
+own replacement mapping and finding status. Plan authoring still does not resume tests or production.
+
 At source baseline `3c76f172`, two independently populated native journeys passed in 1883.02s of test execution; the complete `just verify --select serving:mcp` boundary passed in 2439.61s, including builds and 35 dependent Python controls. These are attributed 2026-10-08 local receipts, not new checks or internal phase measurements. They establish neither the dominant runtime phase nor any remedy's speed.
 
 The intended workload is pinned-library compilation into complete attributed facts/catalogs, followed by repeated admission/publication reads and connected tools. Relevant growth axes are records, semantic families, completed contributors, aliases, scope skew and concurrent independent requests. Typed model authority, uncertainty, graph meaning and actual originals remain unchanged.
@@ -151,7 +158,11 @@ PJ packages extend the existing undertaking; they do not renumber or close PC/CU
 
 PJ1 can be developed alongside PJ0. PJ2 and PJ3 are logically independent after their shared contracts are settled, but share native/loader/cold paths: coordinate a single writer or isolated revisions. Neither waits for unrelated BC3 profile installation. Integrate both before long populated acceptance; do not repeat that journey after every slice.
 
-PJ4 is not permission to begin an unspecified redesign. A trigger produces a bounded decision with affected consumers and closure evidence; absent the trigger, keep the existing mechanism. PJ5 consumes valid matching-source/profile receipts at the coordinator rather than replaying another plan's identical check. Existing timeout deferral remains until its owner is explicitly reactivated.
+GK/GR now provide the specified redesign for model-owned scopes, shared preparation and qualified
+reuse; it does not wait for PJ4 or older acceptance to finish. Other PJ4 avenues still need their
+named semantic/consumer decision. PJ5 consumes matching-source/profile receipts at the coordinator
+and joins GK7/GR6 affected final acceptance. Runtime timeout causation is unresolved; the reviewed
+normalization/validation structural corrections are scheduled, not deferred by overlap.
 
 ## 6. Investigation routes and support limits
 
@@ -161,13 +172,13 @@ PJ4 is not permission to begin an unspecified redesign. A trigger produces a bou
 | F01 closed-shape lowering | Native codec/schema and independent reconstruction; exact unknown/extra/missing tags/fields, required/inactive arms, NONE/NULL and supplied-scope disagreement | Target selected in §3.1; PJ2 functional controls establish equivalence at supported ingress/cold/publication boundaries, not raw SQL. |
 | F02 candidate × owner access | Completed-view selection owner; exact pinned-engine plans, duplicates, candidate/contributor skew and terminal behavior | PJ4 if contributor growth materially affects selection; existing bounded point lookup remains until a better complete route is qualified. |
 | Runtime topology and aggregate permits | Compiler/runtime/native-call owners; actual caller/bridge/server/worker topology, overlap, admission/charge duration and drain | PJ1 representativeness; PJ4 placement/permit change only for demonstrated contention or a new overlap requirement. Started blocking tasks must be retained/drained. |
-| Browse static preparation | Serving classification/browse owner; immutable member/context/capture closure versus request policy, complete counts/alternatives/unknowns and retained-state burden | PJ4 if attributable repeated preparation is material. No automatic classification cache or narrower semantic universe. |
+| Browse static preparation | Serving classification/browse owner; immutable member/context/capture closure versus request policy, complete counts/alternatives/unknowns and retained-state burden | GK5/GR5 schedule model-owned same-pin preparation now; complete evidence/policy dependencies and retained-state controls, without narrowing the semantic universe. |
 | Data-only restore | Publisher transport/admission owner; complete graph/original/state codecs, executable isolation and cold corruption rejection | Deferred investigation; revisit RC04 only if staging/copy burden or a new transport consumer warrants replacement. No replacement implemented here. |
-| Borrowed graph algorithm adapter | Projection and named algorithm owner; exact trait bounds, nominal/local mapping, isolates/direction/multiplicity | Deferred until a consumer cannot use the existing view. Node/output filtering must preserve intermediate reachability semantics. |
-| Batch lowering live intermediates | Native ingestion/resource owner; simultaneous Arrow/bodies/decoded rows/maps/aliases before loader windows, actual accounting/lifetimes | PJ4 on memory-shaped failure or PJ2 evidence of avoidable selected-batch expansion. Incoming bounds apply; downstream windows alone do not establish aggregate live state. |
+| Borrowed graph algorithm adapter | Projection and named algorithm owner; exact trait bounds, nominal/local mapping, isolates/direction/multiplicity | GK2/GK4 qualify contrasting compact layouts against the actual owned operation. Existing branded views remain where fit; output filtering cannot shrink required intermediates. |
+| Batch lowering live intermediates | Native ingestion/resource owner; simultaneous Arrow/bodies/decoded rows/maps/aliases before loader windows, actual accounting/lifetimes | GK2/GK3 shared hydration must account for union/owner views and simultaneous state. Incoming bounds apply; downstream windows alone do not establish aggregate live state. |
 | Alternative intermediate persistence | Compiler/native dependency owner; durable inspection/recovery value versus pure transformation/effect crossings | Deferred under retained RC03; new operator rule decision before selecting another placement. One canonical semantic authority remains required. |
 | Review F03 independent read/completion | Native lifecycle and overlapping consumer owner; retained old-view stream, distinct completion, late failure/cancellation and global refusal | Source-owned Deferred until supported independent overlap or demonstrated unrelated blocking. Sequential pre-final composition remains the scoped supported premise. |
-| Residual optional execution | Upper-operation owner; actual demanded predecessors, not registration inventory | Deferred until a concrete consumer/source observation shows avoidable work. Keep current explicit NotRequested and shared graph preparation. |
+| Residual optional execution | Upper-operation owner; actual demanded predecessors, not registration inventory | GK4/GR4 cover actual method demand and eligible pure products; keep explicit NotRequested, required full universes and existing embedding cache. |
 
 These are local decision routes, not a second finding register. Quantitative runtime/peak-memory benefits remain unmeasured. Static evidence may establish removal of a repeated program or inventory; representative measurement is needed to quantify its consequence.
 
@@ -181,8 +192,8 @@ builds closures for selected observation roots. The owners are
 [`consumed_rows.rs`](../../crates/cpg-core/src/consumed_rows.rs).
 Those files and the native scan path are unchanged by PJ2/PJ3; scope indexes/predicates remain.
 No bounded correctness regression or supported freeze/read cycle was identified. Preserve these
-specific repeated-effect paths for the operator-deferred timeout followup; this is not approval
-for a new normalization redesign. Receiver CPU observations do not bound callable-aspect CPU
+specific repeated-effect paths as GK2/GK3/GR4 migration cases, now explicitly scheduled by the
+operator's graph/hash decision. Receiver CPU observations do not bound callable-aspect CPU
 work, whose synchronous kernel is not separately instrumented. The coordinator retains actual
 durations, outcomes and the incomplete Behavioral entity-normalization observations.
 
@@ -191,7 +202,8 @@ semantic path registers the completed relation set, checks uncached nominal-refe
 with separate queries, then runs applicable invariants and scoped closure validators. It does
 not freeze content, prepare canonical rows or call `wait_scans`; the new completion-owner handoff
 has already returned. This supports a further concrete validation/access-amplification avenue,
-not a PJ2/PJ3 wait-cycle diagnosis or a measured attribution. Follow the same deferred owner.
+not a PJ2/PJ3 wait-cycle diagnosis or a measured attribution. GK3 covers this distinct
+reference/invariant demand under coordinator disposition; causal runtime investigation remains separate.
 
 ## 7. Verification, migration and completion
 
@@ -215,7 +227,12 @@ Current command routes, statically resolved on 2026-10-09:
 - `serving:rust` selects native serving. Narrow these with actual affected target/filter arguments.
 - `serving:mcp` builds CLI/evaluator, runs both native journeys, then Python controls. A pytest filter does not skip native preparation.
 
-At functional completion PJ5 schedules affected leaves once. The operator selected targeted completion: focused controls and one integrated populated native/MCP/evaluator boundary. Assembled release `just qualify` and the deferred timeout campaign remain open and not_run; do not silently resume deferred cases. Record every failed/blocked/not_run obligation rather than converting focused passes into full qualification. BC3 retains its qualified-default installation gate; release remains current until that gate completes. No floating toolchain, dependency re-resolution, cargo clean or new job/worker caps.
+At functional completion PJ5 schedules affected leaves once. The preceding operator selection
+completed a targeted populated boundary; its historical passes remain scoped. GK7/GR6 now schedule
+affected final-source assembled qualification and surviving timeout/PC/CU/BC controls after the
+replacement works. Authoring runs no product tests. Record each failed/blocked/not_run obligation;
+BC3 retains its qualified-default gate and release stays current until it passes. No floating
+toolchain, wholesale dependency re-resolution, cargo clean or job/worker caps are introduced.
 
 A new schema uses fresh fixtures. No operator rebuild/selection, real FastMCP/Qwen pilot, protected evaluation, wheel, benchmark campaign or push is implied. Preserve profiling captures, shared caches and the dirty PC3 worktree. No performance threshold or real-library claim is an acceptance substitute.
 
@@ -237,7 +254,7 @@ Before implementation, a fresh independent design/target reviewer assesses this 
 
 F01/F02 scheduling transfers their mutable disposition to the coordinator, with source links retained. This plan owns design and package prerequisites, not another progress ledger. F03 and unscheduled alternatives retain source-owned deferrals until their triggers warrant a scoped decision.
 
-**Execution checkpoint, 2026-10-09:** PJ0–PJ3 and the bounded assembled-review corrections are **Implemented**; targeted PJ5 acceptance is recorded with remaining timeout limits. The [independent assembled review](../design_review/reviews/design_review_assembled-populated-execution-correction_2026-10-09.md) accepts scoped at static / Implemented strength. Current passed controls, normalization timeouts and the passed populated native/MCP/evaluator boundary are recorded only in [coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07). The earlier target-plan review accepted Proposed strength and corrected finalization order and the complete workspace/native handoff before implementation. Neither review acceptance nor focused controls establish enclosing finding closure or a measured speed improvement. Enduring physical contracts are recorded in their semantic/storage owners through ADR-0138; the deferred timeout campaign and PC6/CU6/BC3/BC5 remain open.
+**Execution checkpoint, 2026-10-09:** PJ0–PJ3 and the bounded assembled-review corrections are **Implemented**; targeted PJ5 acceptance is recorded with remaining timeout limits. The [independent assembled review](../design_review/reviews/design_review_assembled-populated-execution-correction_2026-10-09.md) accepts scoped at static / Implemented strength. Current passed controls, normalization timeouts and the passed populated native/MCP/evaluator boundary are recorded only in [coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07). The earlier target-plan review accepted Proposed strength and corrected finalization order and the complete workspace/native handoff before implementation. Neither review acceptance nor focused controls establish enclosing finding closure or a measured speed improvement. Enduring physical contracts are recorded in their semantic/storage owners through ADR-0138; failed timeout and PC6/CU6/BC3/BC5 acceptance remain open under the GK7/GR6 final-source route.
 
 ### Pinned capability evidence
 

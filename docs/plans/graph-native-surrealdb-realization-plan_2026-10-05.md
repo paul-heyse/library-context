@@ -1,5 +1,13 @@
 # SurrealDB realization and immutable publication
 
+**Proposed compiler continuation, 2026-10-09:** [GK/GR](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md)
+retain native canonical persistence/direct sealing and add a separate disposable native store
+for portable pure products, with complete manifests, narrow capabilities, current admission and
+explicit lifetime/retirement. Cached acceleration state is not a published realization. Native
+transport/terminality, pinning and independent actual-state reconstruction remain required;
+the persisted coordinator owns new findings and final-source acceptance. No operator activation
+or new database is performed by this plan update.
+
 **Persisted follow-up implementation paused, 2026-10-07:** the [persisted graph execution plan](persisted-graph-execution-plan_2026-10-07.md) owns the current combined execution, catalog-speed F01–F05 and additional same-pattern corrections. PG1/PG2/PG5/PG7 extend the current native layer for complete typed bodies, immutable membership, direct same-database sealing and completed-state transport. The managed server, canonical semantics, terminal finality and reader pinning remain; post-compile-only loading is displaced. Original dated receipts and prior audit findings retain their scope; only that new plan owns these follow-up findings.
 
 The [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) supplies the Proposed continuation: PC1/PC3 complete failure outcomes and table-specific schema/reconciliation; PC4 replaces whole-match candidates; PC5 changes restore request granularity. [Persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns the correction-causes findings; this document adds no second disposition. Plan authoring does not resume production.

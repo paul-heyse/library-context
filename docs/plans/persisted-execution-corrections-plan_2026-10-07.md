@@ -3,9 +3,21 @@
 **Accepted target / production integrated; enclosing acceptance open, 2026-10-08 (ADR-0138).**
 This supporting plan integrates the [correction-causes review](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md), including F01–F06, secondary capability recommendations and remaining investigations. The [persisted execution coordinator](persisted-graph-execution-plan_2026-10-07.md) owns the combined PG0–PG9 undertaking, current finding dispositions and execution evidence. This document owns the corrective design and PC0–PC6 packages; it does not create a second progress ledger.
 
+**Proposed replacement route, 2026-10-09:** [model-owned relation compilation](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+and [selective reuse](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md) supersede open
+per-consumer scope interpretations and the cross-run exclusion below. PC1/PC2 outcomes/suppliers,
+PC3 physical fidelity, PC4 bounded selection and PC5 restore isolation remain foundations and
+required behavior. Coordinator §7.1 maps replacements; §8 retains sole disposition. No production
+or acceptance is established by this update.
+
 ## 1. Outcome, baseline and foundations
 
-Complete the existing native compiler, publication, restore and selected-access boundaries so that captured facts retain their own supplier authority, failed operations retain complete outcomes, and growing selections/schema/dumps do not acquire avoidable whole-match state or scalar transport overhead. Preserve the pinned API/evidence product and both compiler profiles. Native persistence, exact completed views and direct sealing remain selected; no second backend, universal executor, historical runtime archive or cross-run scheduler is introduced.
+Complete the native compiler, publication, restore and selected-access boundaries so captured facts
+retain supplier authority, failures retain complete outcomes and growing selections/schema/dumps
+avoid whole-match state and scalar transport overhead. Preserve both profiles, native persistence,
+exact completed views and direct sealing. GK/GR now schedule model-owned operation compilation
+and selective cross-run pure-product reuse; no second primary backend, universal executor or
+historical runtime archive is introduced.
 
 Source inspected at `43cd6501`, refreshed against documentation-only `593aebf3`, 2026-10-07, with the four uncommitted core/semantic-owner files identified by the source review's §10 hashes unchanged. Their `AdmittedFacts` reporting and nine-premise reuse corrections are useful implemented foundations, not completed restored-journey acceptance. Source review and coordinator receipts retain their original dates, sources and limits. The latest availability run failed in database setup before its assertions; declaration batching has compile-only evidence. The separate restore failure reached cold validation/copy and then coverage admission. Neither failure proves the other's cause.
 
@@ -58,6 +70,12 @@ This is an explicit completed-state/identity migration. Embed captured bindings 
 
 ### 4.1 Shared prepared demand and table-specific scope layout — F03/F05
 
+**Current target refinement, Proposed:** GK1/GK2 supply complete model-owned scope operations
+and shared root partitions. Core and native SQL no longer independently decide body/coverage
+meaning. The mechanical lowering, table layouts and exact terminals below remain implementation
+capabilities; native selection, dense graph or DataFusion realize the same owned domain. GR2–GR4
+may reuse portable pure products, while checked properties/native providers remain attempt-bound.
+
 `lctx-surrealdb` owns the mechanical lowering of typed relation/field/value demand. Domain callers retain policy: selected context, exact owner universe, closure direction, residual meaning and requested order. A prepared operation carries bound values, preparatory statements, selected-result statement positions and expected terminals. Prepending `LET` cannot silently change the result read by `NativeReader::query` or its two-result `records` route. Preparation computes compact request constants only, never whole-match arrays.
 
 Distinguish private exact completed views from published pinned handles. Migrate compiler predicates and the DataFusion adapter, NativeReader record selection, projection roots/edges, the member-selection function and capability-search selection. Native serving execution may remain native where its operation has a qualified bounded result or uses streamed query fragments from this lowering authority. Retire the whole-match `fn::lctx_member_keys` RETURN array and capability-search key/origin arrays: member selection uses streamed compact candidates and PC4 ordering; capability scoring receives the owned eligibility predicate before each channel's limit, rather than collecting every eligible unit into a Rust Vec. Check origin-kind membership through bounded/indexed reference access without pre-materializing all origins. Preserve complete eligibility, ranking and context/path semantics; independently limiting chunks before eligibility is not a replacement. Remove obsolete function definitions from the realization inventory. This keeps serving policy with its owner and avoids scalar Rust round trips; leaving a whole-match function behind is not migration. Preserve missing/null fallbacks, context predicates and every mandatory driver under Eq/IN/residual/OR composition. An arbitrary OR is not treated as a required indexed conjunct.
@@ -107,6 +125,13 @@ Aggregate contiguous units in order, retaining at most one whole lookahead unit.
 Accepted RC02 permits later independent units in the failed request to have executed. Submit no later request. Preserve the first observed import failure and all relevant session/drain/staging cleanup outcomes through PC1. Never publish failed staging. Reconnect/cold validation and independent reconciliation still follow successful import; import mode bypasses field processing, so request success does not prove valid stored derived values. Whole restore also needs PC2's new captured bindings and PC3's rebuilt definitions.
 
 ## 6. Packages, dependencies and migration
+
+**2026-10-09 precedence:** the coordinator's §7.1 and GK/GR companion dependencies replace open
+PC3/PC4 implementation routes where they duplicate semantic interpretation or preparation.
+Retain each PC1–PC6 behavior/control, mapping its actual consumer to the replacement before
+retiring a route. Earlier package numbering and receipts are not reset. PC6 joins the affected
+GK7/GR6 final-source native/transport/admission acceptance; it is not a prerequisite to designing
+or implementing the stronger compiler.
 
 Packages describe delivered behavior, not a fresh numbering of PG0–PG9. The root owns shared declarations, state/schema versions, integration and disposition. Logical independence does not permit competing writers in model/native/manifest files. Execution resumes from `3c04f991` and the four preserved dirty admission/semantic-owner files. The selected sequence is PC0 → PC1 → PC5 → PC2 → PC3 → PC4 → PC6; ready isolated work may proceed without overlapping writers.
 
