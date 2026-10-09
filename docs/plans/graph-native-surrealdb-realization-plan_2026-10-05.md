@@ -1,5 +1,13 @@
 # SurrealDB realization and immutable publication
 
+**Unified target supersession, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) replaces conflicting
+private/disposable database, database-wide fingerprint/VIEWER and seal/retirement assumptions
+below. Shared payloads, exact manifests and definition epochs preserve canonical meaning,
+native terminality and independent admission. UP5/UP6 own actual reader/backup/restore migration;
+UP9 integrates affected remaining acceptance. Prior descriptions/receipts remain their baseline,
+not prescriptions to restore a disposable product store or database per realization.
+
 **Proposed compiler continuation, 2026-10-09:** [GK/GR](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md)
 retain native canonical persistence/direct sealing and add a separate disposable native store
 for portable pure products, with complete manifests, narrow capabilities, current admission and

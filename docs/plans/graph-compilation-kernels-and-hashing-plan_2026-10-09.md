@@ -9,6 +9,14 @@ The [reuse companion](graph-compilation-reuse-and-invalidation-plan_2026-10-09.m
 products, fingerprints, dependency propagation and cross-run reuse. Neither companion is a
 second progress ledger.
 
+**Unified persistence integration, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) supplies shared native
+payload/anchor/exact-view resolution and checked attachment. GK retains model-owned operations,
+complete membership/absence, canonical programs, exact-equality hashing and finite kernels.
+UP2/UP4 migrate physical binding consumers; UP5 migrates scoped reader pins. UP7's stable logical
+fixtures replace disposable acceptance setup; UP9 integrates surviving GK7/GR6 obligations.
+Existing compiled code and receipts remain their dated baseline, not unified-store qualification.
+
 ## 1. Outcome and assessed foundations
 
 Compile model-owned relation operations into shared prepared execution. The operation owner

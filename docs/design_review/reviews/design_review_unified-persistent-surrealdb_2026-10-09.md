@@ -324,7 +324,12 @@ The following are recommended changes, not applied decisions.
 
 Existing persisted/GK/GR/NE scheduled findings and receipts remain with the [persisted coordinator](../../plans/persisted-graph-execution-plan_2026-10-07.md). Storage work remains with its [plan disposition owner](../../plans/storage-lifecycle-management-plan_2026-10-09.md#9-finding-disposition-owner). This review creates no parallel implementation ledger.
 
-**F01-F08 are deferred from implementation pending a unified-persistent target plan.** The trigger is authorization of that design/implementation scope. Plan creation should transfer these stable source IDs into the existing coordinator's disposition route and present RC01-RC07 explicitly. Deferral does not establish conformance.
+**Disposition transferred, 2026-10-09:** the operator explicitly accepted each RC01–RC07 during
+plan preparation. The [unified companion](../../plans/unified-persistent-surrealdb-plan_2026-10-09.md)
+develops the Proposed target and UP0–UP9. F01–F08 are **Open / scheduled** at the
+[persisted coordinator's sole disposition owner](../../plans/persisted-graph-execution-plan_2026-10-07.md#unified-persistence-findings-transferred-on-2026-10-09).
+This transfer changes status ownership, not the original review judgment or evidence strength;
+plan acceptance is not implementation closure.
 
 ## 9. Verification, uncertainty and final decision
 

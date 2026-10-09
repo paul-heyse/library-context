@@ -1,5 +1,17 @@
 # Agent effectiveness follow-up plan
 
+**Unified persistence integration, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) replaces disposable
+server/database provisioning with stable service attachment and logical test attempts. Preserve
+AF1/AF4 run/child/cleanup certainty, recovery and truthful observations; UP1/UP7 consume their
+current working interfaces. AF6/AF7 arbitrary SQL/native MCP cannot inherit canonical-store
+access: ordinary access uses the Rust exact-view boundary; privileged diagnostics use only
+synthetic validation under maintenance, credentials excluded from main, and existing native-output
+limits. UP7 rebases AF6/AF7/AF8 command examples and scoped outcomes. Disposable wording below
+records the currently implemented baseline, not a shared-store fallback. AF findings/receipts
+remain here; unified findings stay with the persisted coordinator. This addition does not claim
+the concurrent AF implementation was reviewed or run by the unified-plan author.
+
 **Status, 2026-10-09: Proposed; plan authoring only.** This document schedules the
 [follow-up review](../design_review/reviews/design_review_agent-effectiveness-followup_2026-10-09.md)
 and its [command retrospective](../design_review/evidence/2026-10-09_agent-effectiveness-followup/retrospective.md).

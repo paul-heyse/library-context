@@ -1,5 +1,13 @@
 # Native graph retrieval, selection and evidence serving
 
+**Unified target supersession, Proposed, 2026-10-09:** the
+[unified companion UP5](unified-persistent-surrealdb-plan_2026-10-09.md#6-manifest-publication-scoped-access-and-recovery-assets)
+replaces database-equals-snapshot access with exact manifest membership, immutable definition
+epochs and scoped pins. Preserve query meaning, ranking fidelity and evidence/resource/cursor
+closure; all selection and forward/reverse traversal use the shared resolver. Search eligibility
+precedes limits, with explicitly qualified exact/approximate policy. Existing dated receipts stay
+at their original scope; no additional serving framework or second findings ledger is created.
+
 **Proposed target continuation, 2026-10-09:** [GK5](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
 and [GR5](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md) supply model-owned scope
 compilation and viewer-owned prepared metadata/qualified closure reuse. They supersede blanket

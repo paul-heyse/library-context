@@ -13,6 +13,14 @@ The [kernel plan](graph-compilation-kernels-and-hashing-plan_2026-10-09.md) and
 and product contracts. This companion refines their physical execution and lifecycle composition;
 it is neither a second scheduler nor a second progress ledger.
 
+**Unified persistence integration, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) replaces private database
+ownership, replay-only canonical reuse and database-wide snapshot access. Preserve NE's exact
+bindings, independent admission, wake-driven handoffs, relevant completion, stable flights and
+deliberate observation. UP4/UP5 extend those actual consumers; UP7 rebases fixture/diagnostic
+interfaces against current AF work; UP8 composes client/server retention. UP9 integrates the
+remaining NE9/GK7/GR6 acceptance; existing timeouts and assertion receipts remain unchanged.
+
 ## 1. Outcome, baseline and assessed foundations
 
 Make necessary native work follow actual immutable membership and compatible physical inputs,
@@ -192,6 +200,12 @@ Independent detached imports retain their own admission owner and cannot inherit
 
 ### 3.4 Reuse compact tokens and one typed product — F03/F04
 
+**Replacement target:** UP3/UP4 attach compatible admitted immutable content through a current
+checked binding without canonical replay. The typed-candidate route below remains relevant for
+untrusted portable values and cold validation; its implementation-era mandatory fresh-ingress
+wording does not require replaying already admitted canonical content. Current attribution,
+complete membership/absence, independent semantic predicates and effect certainty remain.
+
 For enabled selected products, fetch union content tokens once per exact input/relation in a
 prepared root group. Derive each root's role-associated membership/presence/content domain from
 that shared compact inventory. Keep missing and empty outcomes, complete negative dependencies,
@@ -366,6 +380,12 @@ inspection. No dependency bump is required by this plan. Any later capability cl
 selected skill/Context7 and exact-lock qualification route before implementation relies on it.
 
 ## 7. Verification, retirement and completion
+
+The unified target's UP9 is the combined final-source acceptance owner, with this plan's NE9,
+GK7/GR6 and surviving PC/PJ/CU/BC controls as explicit contributors. UP7 replaces disposable
+fixtures with stable service/logical attempts; controls still execute their decision under test.
+UP8 extends retention to canonical reachability/pins, not generic cache eviction. Earlier dated
+receipts below are neither rerun nor promoted by this planning update.
 
 During implementation, compile checks and minimal revealing affected controls establish correct
 behavior and its first-principles value. Resolve recipes/filters with `just verify --print`, select

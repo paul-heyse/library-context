@@ -2,6 +2,15 @@
 
 **Proposed implementation plan · 2026-10-09.** This document schedules storage-lifecycle changes; authoring it does not implement or activate them. Preserve warm caches, current performance settings and concurrent work. No cleanup, archival transfer, configuration change or operator-store action is part of plan authoring.
 
+**Unified native integration, Proposed, 2026-10-09:** the
+[unified companion UP8](unified-persistent-surrealdb-plan_2026-10-09.md#73-native-lifecycle-owns-internal-retirement)
+adds native shared-content reachability, pins, unresolved-effect protection and bounded recovery.
+The native owner exposes eligibility/retirement; this manager observes and delegates, never
+deletes RocksDB internals. Warm canonical content has no age deadline. Stable service/coordination
+roots survive worktree deletion and compose with §3.4 hierarchical protection. Existing storage
+F01–F03 remain here; unified F08 remains with the persisted coordinator, not a duplicate ledger.
+Plan authoring performs no adoption, cleanup, operator-store inspection or activation.
+
 ## 1. Outcome, basis and completion boundary
 
 Make repository-associated content manageable by executable rules from creation through reuse, retention and retirement. Ordinary work keeps immediately useful compiler, package, environment, model and tool caches. Released outputs retire automatically; active, retained, shared or uncertain content remains protected with a programmatically discoverable reason. If protected working content exceeds available capacity, report that shortfall and provide an explicit storage-placement route rather than silently degrading reuse or compiler settings.

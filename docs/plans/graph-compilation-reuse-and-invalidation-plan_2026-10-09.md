@@ -8,6 +8,14 @@ The [persisted coordinator](persisted-graph-execution-plan_2026-10-07.md) owns a
 source finding dispositions and combined acceptance. This document owns reuse contracts and
 GR0–GR6 packages, not another findings/status ledger.
 
+**Unified target supersession, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) replaces disposable reuse
+storage and mandatory canonical row replay with shared immutable content and checked current
+attachment. GR's complete dependencies, full equality, provenance, cold admission and viewer
+lifetime guarantees survive. Existing GR0–GR5 receipts describe the implemented replay baseline;
+UP4 migrates actual reuse consumers and UP9 integrates surviving GR6 acceptance. The persisted
+coordinator remains the sole findings/receipt owner.
+
 ## 1. Selected direction and baseline
 
 Use a model-owned content-addressed cache of pure compiled-operation products, persisted through
@@ -158,19 +166,18 @@ incremental edge-deletion algorithm or introduce background automatic recompilat
 
 ## 4. Persisted store, concurrency and fresh admission
 
-`lctx-surrealdb` owns one disposable, version-qualified compiler-reuse database on the configured
-native server, separate from attempt-private and selected operator databases. An explicit reuse
-store configuration/capability supplies its namespace/database; fixture launchers own disposable
-instances. Its narrow operations are lookup, checked complete insertion, lease/pin and retirement.
-Core receives no raw admin/publication client or permission to select/publish this database.
-One server/store implementation is reused; no daemon or second primary backend is introduced.
+The [unified target §3–§5](unified-persistent-surrealdb-plan_2026-10-09.md#3-one-service-explicit-attachment-and-maintenance)
+selects one durable service and stable shared content/control ownership. Completed canonical
+products reside with exact memberships, manifests and guards in main, not a disposable compiler
+cache. Ordinary attachment validates the selected generation without installing schema. Narrow
+lookup/checked-attach/pin/retirement operations grant neither raw admin access nor publication.
+Optional portable acceleration remains only where it serves a distinct consumer.
 
-Cache tables contain canonical request/product manifests, typed output bodies/content and
-dependency edges. They are derived acceleration state, never completed compiler-view authority
-or served snapshots. A version header covers cache encoding/schema and program/result contracts;
-incompatible entries are discarded/rebuilt. Private cache metadata alone does not change artifact
-format3/completed-state format2 or existing nominal hash domains. Any required published-format
-change is a separately explicit GK0 decision, not a silent cache side effect.
+Retained admitted products and optional portable values have different trust/lifetime contracts.
+An admitted product can support checked attachment; an arbitrary cache envelope cannot. Exact
+request/product manifests, canonical content and dependencies retain explicit versions. UP0
+defines affected shared-address/publication formats and their migration; do not silently alter
+nominal identity or assume current artifact3/completed-state2 can encode the replacement.
 
 Only terminally successful, fully accounted products may enter the cache. Store header/output
 manifest/payload as one complete immutable entry or leave it unreachable; interrupted/partial,
@@ -187,15 +194,15 @@ entries are evicted and fresh computation supplies the result; diagnostics retai
 A determinism conflict fails the owning operation for correction. No arbitrary cache envelope
 mints a checked-input, admitted-facts, publisher handle, reader credential or completion receipt.
 
-Cached rows enter the current attempt through ordinary typed ingress. Register the current
-ContributionSpec and exact dependency descriptors, complete its write/binding visibility handoff,
-then perform the required semantic/global/final admission and freeze/drain sequence. Cached
-canonical rows can match an old value; its completed owner/provenance is never blindly copied.
-Independent cold import/restore and actual-state reconciliation remain separate trust boundaries.
-Originals, contextual evidence and full model predicates still govern validity. The cache does
-not replay providers as an admission oracle or skip finalization.
+UP3/UP4 replace mandatory canonical replay with checked attachment of retained admitted content.
+Establish current ContributionSpec/dependencies/attribution and fenced binding visibility without
+rewriting equal payloads. Never copy a prior runtime grant or relabel provenance. Optional portable
+values that lack admitted-content authority still enter through independently checked typed
+ingress. Semantic/global/final admission, original/evidence closure, cold import/restore and
+actual-state reconciliation retain their distinct trust boundaries. A product certificate is
+not an admission oracle or permission to skip finalization.
 
-Retained state uses the existing runtime budget and explicit configured cache byte allowance;
+Replaceable acceleration state uses the existing runtime budget and explicit configured cache byte allowance;
 choose the allowance in runtime configuration, not another hardcoded1GiB cap or test-thread cap.
 Estimate/charge entry growth before allocation, spill bounded canonical transfers and preserve
 live consumer leases during retirement. Evict oldest unleased derived entries to respect the
@@ -237,7 +244,15 @@ no cache-owned pin or charge after the final release.
 The canonical program interner remains non-evicting within its model/program lifetime, because
 cache eviction cannot guarantee pointer/dense-ID uniqueness while old values remain alive.
 
+Shared admitted content is not eligible for generic cache eviction. UP8's native reachability,
+pin and unresolved-effect guards replace that policy at the authoritative boundary; retention
+pressure can still evict unleased derived acceleration without evicting a published dependency.
+
 ## 5. Packages and complete opportunity coverage
+
+The GR package table below retains the implemented baseline and semantic obligations. UP2/UP3/UP4
+replace GR2's disposable-store/replay realization; UP5/UP8 extend pin/retention composition;
+UP9 integrates surviving GR6 evidence. They do not require completing the superseded realization.
 
 | Package | Working prerequisite | Result and actual consumers |
 |---|---|---|
@@ -272,6 +287,11 @@ reuse remains its owned subsystem. Each actual operation gets an eligible produc
 an explicit effect/semantic reason it must execute afresh; no blanket caching of every stage.
 
 ## 6. Acceptance, investigations and cutover
+
+**Unified acceptance route, Proposed:** UP9 now integrates the affected GR6/NE9/GK7 controls
+and surviving coordinator obligations on the shared-store target. UP7 supplies stable logical
+fixtures; earlier disposable-fixture wording below describes the implementation-era recipe,
+not a fallback. Preserve independent clean/cold comparisons and actual current attribution.
 
 **Implemented / focused Tested, 2026-10-09; integrated acceptance open.** Independent small expected graphs/rows challenge production declarations;
 clean-rebuild equivalence is necessary for finer incremental claims but is not the only oracle.

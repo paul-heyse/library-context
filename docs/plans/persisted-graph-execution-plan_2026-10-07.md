@@ -1,5 +1,13 @@
 # Graph compilation, persisted execution and selective reuse
 
+**Unified persistence target, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) develops operator-accepted
+RC01–RC07 and UP0–UP9. One durable service, shared immutable payloads/exact views, checked
+attachment, manifest publication and durable effect/pin/retirement replace conflicting open
+private-database, mandatory-replay and database-wide-reader prescriptions. Existing code and
+dated receipts below remain the implemented baseline, not acceptance of this replacement.
+§7.3 coordinates the new target; §8 owns its source findings; §9.1 retains all actual receipts.
+
 Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
 
 **Implemented, 2026-10-09:** persisted completion/publication and populated correction foundations,
@@ -19,8 +27,9 @@ especially F01–F05 and RC01/RC02, together with the operator's 2026-10-07 sele
 graph compilation and comparable corrections throughout the codebase. The operator confirmed
 direct sealing, internal contribution/view identity, and dependency foundations on 2026-10-07.
 The 2026-10-09 accepted reuse horizon below supersedes that choice's cross-run deferral. Native
-persistence and direct sealing remain foundations; the new operation compiler does not restore a
-second canonical store. The earlier review's diagnoses and preservation obligations remain applicable.
+persistence and publication without ordinary self-export/import remain foundations. UP0–UP9
+replace database sealing with exact manifest publication; no second canonical store is restored.
+The earlier review's diagnoses and preservation obligations remain applicable.
 
 The [correction-causes review](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md) subsequently identified incomplete admission/completion contracts and native execution amplification. Its [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) defines PC0–PC6, integrated below. Both correction-causes RC01/RC02 were operator-accepted on2026-10-07. They are different from the catalog-speed rule impacts above.
 
@@ -34,9 +43,9 @@ contracts; PG0 changes those contracts before dependent implementation. The oper
 Persist captured inputs, completed typed products and their dependency relationships in the
 managed local SurrealDB graph during compilation. Use indexed set-shaped access, graph adjacency
 and suitable native computation over those inputs; retain model-owned Rust kernels and bulk
-Arrow/DataFusion computation where they fit the actual operation. Compile, admit and seal the
-same private native database. Ordinary publication must not export, reconstruct and re-ingest
-the compiler's own output.
+Arrow/DataFusion computation where they fit the actual operation. Compile and admit exact views
+in shared immutable native content, then publish their manifest without sealing the whole database.
+Ordinary publication must not export, reconstruct and re-ingest the compiler's own output.
 
 The stored option supplies useful graph access and exact dependency foundations. Selective
 invalidation and reuse are now scheduled through GR0–GR6. Persistence alone does not remove repeated work.
@@ -130,9 +139,11 @@ append-only codebooks and rebuilding from pinned inputs. Retire only its replace
 
 ### 4.1 One database, one payload owner
 
-Use the existing managed authenticated SurrealDB3.3 RocksDB server and remote Rust gRPC SDK.
-One compilation owns one STRICT private database from first persisted output through final
-sealing. `lctx-surrealdb` owns mechanical schemas/codecs/access/write finality; `cpg-core` owns
+Use one managed authenticated SurrealDB3.3 RocksDB service and remote Rust gRPC SDK.
+The [unified target §3–§4](unified-persistent-surrealdb-plan_2026-10-09.md#3-one-service-explicit-attachment-and-maintenance)
+replaces the implemented private-database lifecycle with stable main/validation responsibilities,
+immutable payloads/nominal anchors and exact view-relative resolution. `lctx-surrealdb` owns
+mechanical schemas/codecs/access/write finality; `cpg-core` owns
 orchestration and pure operation adapters; `lctx-model` owns records, operations, dependencies
 and validation. `lctx-publisher` owns external visibility and import/restore. Dependency direction
 is `cpg-core → lctx-surrealdb → lctx-model`, with no reverse core dependency in native storage.
@@ -173,7 +184,7 @@ They describe existing completed products, not a historical event/receipt ledger
 
 | Contract | Required meaning and physical realization |
 |---|---|
-| Typed row key | Relation plus complete nominal semantic key; native graph target is a mechanical mapping. Same key/different payload is a conflict; identical rows share one value. Hash equality alone never authorizes conflicting payloads. |
+| Typed row key | Relation plus complete nominal semantic key; native payload address is a separate model/codec/content mapping. Same key/different payload in one view is a conflict; different views may select different revisions. Equal canonical payloads share. Hash equality alone never authorizes conflicting payloads. |
 | Producer contribution | Stable producer/operation identity, profile, model/record contract, implementation/settings, exact predecessor views, declared outputs and actual outcome. Compact membership links select its emitted rows. |
 | Completed view | Exact immutable set of completed contribution identities for each relation and publication boundary; overlapping memberships deduplicate nominal rows. Later contributions cannot widen it. |
 | Dependency | Product-to-input view/selection and answer-affecting model/configuration/implementation/specification/original dependencies. Absence-sensitive reads bind the membership universe, not merely the rows returned. |
@@ -226,9 +237,10 @@ Legal data cycles do not legalize proof cycles.
 Keep transactions around bounded writes/completion controls only. Extraction, streaming reads,
 CPU kernels, inference and external file writes happen outside them. Preserve durable Every sync,
 terminal SDK checks and writer ownership. A known aborted transaction may retry its bounded write
-under unchanged premises; an unknown write/COMMIT acknowledgement fails the disposable attempt.
-There is no resumability journal. Drain and abandon only that owned private database; report an
-unselected orphan if cleanup fails, never sweep unrelated operator databases or claim success.
+under unchanged premises; unknown write/COMMIT acknowledgment is reconciled through its durable
+operation identity before retry or cleanup. [UP3](unified-persistent-surrealdb-plan_2026-10-09.md#5-attempts-checked-reuse-and-durable-recovery)
+retains completed prerequisites and protects unresolved staging/effects; it introduces neither
+arbitrary pending resume nor whole-database abandonment. No sweep touches unrelated operator data.
 PC1 completes this behavior with one model-owned outcome composition: primary cause, every material finalization failure, local terminality, remote-effect certainty and private-resource disposition remain distinct. Preserve already sealed/persisted effects when later cleanup fails; no error implies rollback. Construction, compile/inspection, publication/import, backup and restore siblings all consume it. The [supporting contract](persisted-execution-corrections-plan_2026-10-07.md#31-one-complete-operation-outcome--f01) owns the details.
 
 **Implemented / targeted verification in progress, 2026-10-07:** compiler, loader and retained-state
@@ -358,25 +370,27 @@ full keys and exact conflict/dedup rules. Compute completed-state content indepe
 both in the manifest. This scans necessary final content but never reconstructs every preceding
 prefix. Original bytes and consumed embedding values retain their complete ownership and policy.
 
-Install identity/enforcement and compiler lookup indexes before their first use. Build serving-only
-secondary/full-text/HNSW indexes after their rows are available and before sealing. Initial builds
-use checked synchronous DEFINE INDEX as a simple readiness barrier; concurrent builds are not
-selected for this private-load lifecycle. Scope indexes used by compilation stay available early.
-Do not postpone uniqueness constraints or imply index construction is free.
+Install identity/enforcement and compiler lookup indexes before their first use. UP5 replaces
+the private-load index/seal lifecycle with immutable named definition epochs and per-manifest
+readiness. Shared search must qualify exact-view eligibility before limits, including actual
+approximate candidate behavior; an explicit exact eligible-vector policy is the initial safe
+route where that behavior is unqualified. Scope indexes stay available early. Do not postpone
+uniqueness constraints or imply index construction is free.
 
-Direct sealing accepts an owned completed native authority, not a public caller-supplied marker.
-All writers/read streams drain; final semantic admission, independently stored content/state
-reconciliation, search readiness and executable-definition inventory succeed; writable ownership
-ends; VIEWER reconnect and complete marker checks succeed before emitting an **unselected** handle.
-Reuse the existing publisher lifecycle and server; ordinary compilation performs no portable
-export/re-import or final bulk database re-ingestion. Selection and reader-drained retirement stay
-explicit. No whole extraction/compute/inference transaction or mutable selected snapshot.
+Manifest publication accepts owned completed native authority, not a public caller-supplied marker.
+Its exact read set and producing effects freeze/drain; final semantic admission, stored content/state
+reconciliation, search readiness and executable-definition inventory succeed before a short
+guarded visibility transition emits an **unselected** handle. Other attempts can continue writing.
+Internal VIEWER credentials are not a raw snapshot capability. UP5 migrates publisher, reader,
+CLI/PyO3/MCP/evaluator and every evidence/cursor route together. Ordinary compilation performs
+no portable export/re-import or final bulk database re-ingestion. Selection and pin-safe retirement
+stay explicit. No whole extraction/compute/inference transaction or mutable selected snapshot.
 
 | Interface | Target behavior |
 |---|---|
-| `lctx compile … --through … --profile …` | Same cumulative frontiers/profiles; runtime config/native readiness now apply to every compilation target. Outputs an unselected sealed persisted result. |
-| `--artifact-only --output DIR` | One native compiler produces a new-format complete portable export without selected-snapshot adoption. The native dependency is explicit; no store-free fallback compiler. Owned private staging is discarded after verified export/file completion. |
-| `publish-artifact` | Fresh private import of the new complete graph plus completed state; external semantic/reference/state validation remains. No old-format reader. |
+| `lctx compile … --through … --profile …` | Same cumulative frontiers/profiles; explicit runtime readiness; outputs an unselected immutable published manifest over shared content. |
+| `--artifact-only --output DIR` | Native compiler produces a complete portable export without selection. No store-free fallback. Attempt-scoped staging/pins release only after actual terminality; retained shared content follows native policy. |
+| `publish-artifact` | Untrusted logical import through stable validation, then independent semantic/reference/state admission into shared main content. No private database or old-format reader. |
 | Native compiler API | Exact completed-view read capability and bounded producer-write capability; pure model operations still accept explicit values without a server. Ordinary publication consumes owned completed-native state. |
 | Snapshot show/query/audit | Show graph and completed-state identities and summaries; read-only queries inspect dependency/product membership. Cold audit checks actual stored state, not an internal compiler replay. |
 | Backup/restore | Include graph/original content, compact completed-state family and necessary non-graph backing values. Restore checks exact membership/dependencies and rebuilds derived definitions/indexes. No missing state silently inferred from final graph. |
@@ -481,14 +495,59 @@ not another canonical store, scheduler or mutable validity authority.
 
 NE1's prepared binding and NE0's decision/transport slices precede their actual consumers.
 NE5 and NE7 can advance on independent ready contracts; shared native/core files retain one
-writer. NE4 does not gate cold-path fixes. NE9/GK7/GR6 now own the common final-source retirement
-and assembled acceptance, including surviving PC6/CU6/BC5 and affected CLI/native/MCP/transport
-controls. BC3 retains its separate candidate-profile gate and release defaults until qualified.
+writer. NE4 does not gate cold-path fixes. NE9/GK7/GR6 retain their final-source retirement and
+acceptance obligations; §7.3 integrates them into UP9's new common acceptance, including surviving
+PC6/CU6/BC5 and affected CLI/native/MCP/transport controls. BC3 retains its separate candidate-profile gate and release defaults until qualified.
 Old timeouts and canceled/not_run boundaries remain unqualified; optional reuse cannot explain
 first cache-off timeouts. No new native run, environment synchronization or production change
 is authorized by this document integration.
 
+### 7.3 Unified persistence replacement and common acceptance, 2026-10-09
+
+The [unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) owns UP0–UP9.
+Its source RC01–RC07 were individually operator-accepted on2026-10-09. UP0 changes decision/model
+contracts before dependent implementation; UP1 supplies stable service attachment; UP2 provides
+actual payload/anchor/exact-view resolution; UP3 supplies fenced current attachment/pins/effects.
+UP4 migrates eligible compiler reuse, UP5 manifest publication and scoped serving, UP6 portable
+recovery, UP7 stable tests/worktrees/diagnostics and UP8 native retention/composed resources.
+UP9 owns the new combined cutover/acceptance, absorbing affected remaining NE9/GK7/GR6/PJ5/PC6
+obligations rather than requiring superseded private-database designs to finish first. Unrelated
+BC3 candidate-profile and real-library/operator adoption boundaries remain separate.
+
+The same current domain/dependency declarations govern meaning; there is no second scheduler,
+canonical store, mutable cache-validity authority or findings ledger. AF1/AF4 ownership/outcomes,
+AF6/AF7 diagnostic integration and storage-management delegation are prerequisites at their
+specific boundaries, not whole-plan barriers. Preserve concurrent AF corrections and rebase its
+interfaces; arbitrary SQL/native MCP is not safe merely because a stable store is attached.
+No service, test run, store, selection or cleanup action is authorized by this document update.
+
 ## 8. Sole finding disposition
+
+### Unified-persistence findings transferred on 2026-10-09
+
+This is the sole current disposition of source-review F01–F08. All are **Open / scheduled**;
+the [independent target-plan assessment](../design_review/reviews/design_review_unified-persistent-surrealdb-plan_2026-10-09.md)
+accepts the corrected Proposed target, not implementation. Package coverage in the companion is not another status
+table. Target-plan acceptance or an accepted rule does not establish implementation closure.
+
+| Source finding | Responsible component / packages | Closure evidence |
+|---|---|---|
+| [Unified F01](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F01) | Service/fixture/native content; UP0/1/2/7/9 | Two worktrees attach to one existing service/content without provisioning/replay; close/restart preserves other consumers and admitted data. |
+| [Unified F02](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F02) | Model/native exact resolver; UP0/2/5/6 | Equal payload sharing and cross-view revisions; same-view conflicts, forward/reverse foreign endpoints and missing originals reject; isolates/parallel arcs retained. |
+| [Unified F03](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F03) | Publisher/reader/serving; UP0/3/5/6 | B publishes while A remains pinned with exact definitions/evidence/cursors; pending/unrelated content and search candidates cannot leak into A. |
+| [Unified F04](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F04) | Model/core reuse/current binding; UP2/3/4/9 | No-replay unchanged attachment; changed membership/deletion/coverage/model/code/provenance agrees with independently specified cold outcomes. |
+| [Unified F05](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F05) | Native attempt/effect recovery; UP0/3/6/8 | Delayed writes, lost commit response, client death, concurrent conflicts and restart settle exact committed identity or explicit uncertainty. |
+| [Unified F06](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F06) | Fixture/test/run/worktree; UP1/3/7/9 | Complete setup/teardown migration, ordinary concurrent isolation, fresh negative/cold controls and explicit disruptive maintenance; no scratch fallback. |
+| [Unified F07](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F07) | Core/native/serving resource composition; UP2/4/5/7/8 | Revealing cold/warm, high-degree/global cases plus source inspection of simultaneous representations, backpressure/release and suitable kernel placement. |
+| [Unified F08](../design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md#F08) | Native lifecycle/storage delegation; UP3/5/6/8 | Shared two-view retention, pin/retire races, interrupted cleanup, unresolved effects and worktree removal preserve protected content. |
+
+The [target-plan TF01](../design_review/reviews/design_review_unified-persistent-surrealdb-plan_2026-10-09.md#TF01)
+is **resolved in the Proposed document / implementation Open**, owned by publisher/native UP6/UP9.
+It replaces ordinary Root-based dump execution with data-only lowering, definition comparison,
+fresh mutable control identities and explicit maintenance recovery. Closure needs concurrent
+same-dump imports/unrelated tests and refusal of USE/DDL/control-ID injection plus complete cold
+admission. This refinement does not close source F02/F05/F06 or create a second finding ledger.
+
 
 ### Native-efficiency findings transferred on 2026-10-09
 
@@ -715,6 +774,11 @@ paths are deleted, and targeted actual native/MCP/evaluator journeys plus affect
 Report stopped, failed and not_run evidence honestly. Update STATUS from that actual boundary.
 
 ### 9.1 Current execution checkpoint, 2026-10-07
+
+**Unified plan authoring, 2026-10-09:** UP0–UP9 and cross-plan supersession are Proposed;
+source RC01–RC07 are explicitly accepted. This transfers finding ownership and schedules the
+replacement, not runtime closure. No new build, test, service/database operation, cleanup,
+activation or performance receipt is created. Existing receipts below keep their original source.
 
 **NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
 operator-accepted complementary target. Exact bindings, membership access, typed replay,
@@ -1186,6 +1250,12 @@ bounded encoder, without redefining semantics. These are extension scenarios, no
 features silently scheduled here.
 
 ## 11. Current plan checkpoint
+
+**2026-10-09: unified persistence planned, production not_run.** UP0 decisions/contracts and UP1
+explicit durable attachment are the next new scope; UP2/UP3 deliver the exact shared-content and
+fenced-binding prerequisites before their consumers migrate. Source findings remain Open in §8.
+The common final acceptance is UP9 with the surviving obligations identified in §7.3. Historical
+timeouts, integrated implementation and bounded passes below are not rewritten or promoted.
 
 **2026-10-09: GK0–GK6/GR0–GR5 integrated, Implemented / focused Tested; enclosing qualification open.**
 ADR-0139 and the architectural owners install model-owned relation scope compilation, canonical

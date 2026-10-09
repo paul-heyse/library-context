@@ -10,6 +10,14 @@ PC3 physical fidelity, PC4 bounded selection and PC5 restore isolation remain fo
 required behavior. Coordinator §7.1 maps replacements; §8 retains sole disposition. No production
 or acceptance is established by this update.
 
+**Unified persistence integration, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) replaces private attempt
+databases with fenced logical attempts and manifest publication. PC1 outcome certainty, PC2
+captured supplier contracts, PC4 exact selection and PC6 cold/populated controls survive.
+UP6 preserves PC5's bounded parser/terminal lessons but replaces ordinary administrative dump
+execution with data-only restore lowering; UP9 integrates the remaining acceptance. No old
+receipt is upgraded and no unrelated correction is restarted.
+
 ## 1. Outcome, baseline and foundations
 
 Complete the native compiler, publication, restore and selected-access boundaries so captured facts
@@ -123,6 +131,15 @@ Implement the existing NativeExec wrapper's fetch support by faithfully delegati
 Keep compact Arrow edge builders: generic FixedSizeBinary coalescing can retain larger backing slices. Keep shared futures for interrupted/retried joins and explicit drain ownership: JoinSet shutdown aborts and does not replace completion of submitted native work. Keep checked generated-declaration windows restricted to their finite supported generated syntax. Grammar-aware generalization is deferred until a declaration actually needs embedded delimiters/blocks; use the pinned parser then, never expand raw splitting to arbitrary SQL.
 
 ## 5. Whole import units in bounded requests — F06
+
+**Replacement ordinary-restore route:** [UP6](unified-persistent-surrealdb-plan_2026-10-09.md#6-manifest-publication-scoped-access-and-recovery-assets)
+treats SQL export as untrusted data/definition metadata, not executable requests. It validates
+the selected installed epoch, rejects scope/admin/arbitrary-effect syntax, creates fresh logical
+staging/guards and uses checked typed insertion before independent admission. The parser/byte/
+transaction/terminal observations below describe current implementation primitives; they do
+not authorize executing Root-based import into shared validation. Whole-service definition/control
+recovery is a distinct explicit maintenance operation. Concurrent same-dump imports and tests,
+attempted USE/DDL and injected control identities are required revealing cases.
 
 The pinned parser continues to own statement boundaries, initial import-option admission and whole transactions. Separate `next_unit` from request aggregation: each unit supplies serialized SQL plus its actual statement count, including transaction control statements. Preserve rejection of nested/incomplete transactions and duplicate/noninitial request modes.
 

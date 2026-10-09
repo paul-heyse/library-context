@@ -1,5 +1,13 @@
 # Graph-native replacement — implementation coordinator
 
+**Unified persistence continuation, Proposed, 2026-10-09:** the
+[persisted coordinator §7.3](persisted-graph-execution-plan_2026-10-07.md#73-unified-persistence-replacement-and-common-acceptance-2026-10-09)
+and [unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) supersede conflicting
+private/disposable database and database-wide publication assumptions in the retained series.
+This coordinator retains its original findings/receipts; new unified findings and combined
+UP9 acceptance remain with the persisted coordinator. Native graph meaning, independent
+admission, terminality and pinned evidence are preserved; no operator adoption is performed.
+
 **Proposed compiler continuation, 2026-10-09:** the persisted coordinator's
 [§7.1 replacement map](persisted-graph-execution-plan_2026-10-07.md#71-replacement-execution-and-cross-plan-contracts-2026-10-09)
 and GK/GR companions supersede overlapping open preparation, scope-lowering and cross-run

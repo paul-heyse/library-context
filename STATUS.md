@@ -2,18 +2,19 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Unified persistent SurrealDB review completed, 2026-10-09:** the
-[independent design/target review](docs/design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md)
-judges the unified target **Revise** and recommends a **Proposed** single durable service with
-shared immutable content, checked attachment, view-scoped publication and durable effect fencing.
-F01–F08/RC01–RC07 remain in that source review until plan creation transfers scheduled scope;
-existing execution and storage findings retain their current owners below. Patched gRPC is the
-preferred immediate transport; progressive WebSocket remains a qualified alternative.
-Next: create the unified target plan and resolve shared content/publication/recovery boundaries.
-Publication **passed:** `just docs`,371pages, zero link errors; scoped `git diff --check` passed.
-`just docs-check` **failed** on the pre-existing concurrent stale ADR index, left untouched.
-Product builds/tests, service/database operations and activation **not_run** for this static
-review. Existing qualification is undisturbed.
+**Unified persistent SurrealDB plan authored, 2026-10-09:** the
+[companion UP0–UP9](docs/plans/unified-persistent-surrealdb-plan_2026-10-09.md) develops a **Proposed**
+single durable service, shared payloads/exact views, checked attachment, manifest publication,
+durable recovery and pin-safe retirement. RC01–RC07 are individually operator-accepted.
+The [independent target assessment](docs/design_review/reviews/design_review_unified-persistent-surrealdb-plan_2026-10-09.md)
+accepts the corrected Proposed design; TF01's data-only restore boundary is resolved in the plan.
+[Persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#unified-persistence-findings-transferred-on-2026-10-09)
+owns Open source F01–F08, TF01 implementation and actual receipts. UP9 integrates surviving
+PC/PJ/GK/GR/NE/CU/BC acceptance; BC3 remains separate. Patched gRPC is the initial transport.
+Next: UP0 decisions/contracts and UP1 explicit durable attachment, then working UP2/UP3 boundaries.
+Documentation **passed**, 2026-10-09: `just docs-check`,374 canonical pages, zero link errors.
+Product builds/tests, service/database operations, cleanup and activation **not_run** for plan
+authoring; concurrent AF work and qualification are preserved.
 
 **Storage lifecycle plan authored, 2026-10-09:** the [plan §9](docs/plans/storage-lifecycle-management-plan_2026-10-09.md#9-finding-disposition-owner)
 owns scheduled storage F01–F03; the [independent target review](docs/design_review/reviews/design_review_storage-lifecycle-plan_2026-10-09.md)
@@ -100,7 +101,7 @@ this task authors the plan only. Publication **passed**, 2026-10-09: `just docs-
 - **not_run on final source:** BC3 candidate qualification and remaining assembled boundaries
  and leaves. Release remains default.
 
-**Next:** finish resumed qualification and resolve source-specific failures without weakening controls.
+**Existing qualification follow-up:** resolve source-specific failures without weakening controls.
 Qualify BC3 separately before
 installing the ordinary test profile. Record source-specific closure; retain failed composites.
 The operator restored40GiB free after the filesystem fell below1GiB; focused validation resumed.

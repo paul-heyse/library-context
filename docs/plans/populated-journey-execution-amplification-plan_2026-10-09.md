@@ -4,6 +4,13 @@
 
 This supporting plan develops the [populated journey target review](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md). The [persisted-execution coordinator](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns scheduled finding disposition, combined dependencies and actual receipts. Its §9.1 records the successful populated boundary and outstanding timeout/whole-plan limits. Existing PC/CU/BC packages retain their identities and remaining obligations.
 
+**Unified persistence integration, Proposed, 2026-10-09:** the
+[unified companion](unified-persistent-surrealdb-plan_2026-10-09.md) replaces private-database
+publication with exact immutable manifests. PJ's typed lowering, mutation-only freeze, shared
+pointer preparation and independent cold reconciliation remain. UP2/UP5 scope them to shared
+payloads/views; UP7 migrates fixtures and fresh corruption controls; UP9 integrates PJ5 and
+surviving acceptance. Existing populated passes retain their preceding physical-schema scope.
+
 ## 1. Outcome, baseline and workload
 
 **Proposed replacement target, 2026-10-09:** the accepted graph/hash RC01/RC02 now schedule
@@ -76,6 +83,12 @@ Use existing typed enum/record callbacks and generated declaration metadata. Do 
 The shared coarse future/stream boundaries corrected under CU/BC remain. Generated dispatch invokes synchronous typed leaves; it must not recreate a large generic async inventory loop or per-row task/trait-object machinery. Adding an unrelated record can extend the one prepared lookup and model declarations, but not an existing row's body/scope validation program or native DDL union.
 
 ### 3.3 Freeze compiler content at final admission — F02
+
+Under the unified target, this freeze closes the current attempt's content/effects and exact
+read set, not all shared-store writers. UP3 preserves the native visibility handoff and
+acknowledgment certainty; UP5 publishes its manifest while unrelated attempts/readers proceed.
+Do not interpret the implementation-era global seal/removal wording below as database-wide
+shutdown or deletion. Its independent frozen-state admission obligations remain.
 
 Final artifact admission follows completed compilation; no production caller completes another contribution after successful admission. Select an **irreversible final compiler-content freeze**, rather than caching every mutable attempt generation.
 
