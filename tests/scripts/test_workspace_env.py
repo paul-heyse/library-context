@@ -228,6 +228,80 @@ def test_unknown_requirements_are_not_observed():
         observe("native-store")
 
 
+def test_sync_observes_and_validates_inside_exclusive_ownership(
+    isolated_locks, tmp_path, monkeypatch
+):
+    root = tmp_path / "checkout"
+    resource = resources_for("tools", root, {})[0]
+    observations = []
+    launched = []
+
+    def check(requirement, *, root, env):
+        assert any(h.pid == os.getpid() and h.mode == "exclusive" for h in holders(resource))
+        observations.append(requirement)
+        return workspace_env.Readiness(requirement, "tools", len(observations) > 1, (), "state")
+
+    def run(argv, **kwargs):
+        assert any(h.pid == os.getpid() and h.mode == "exclusive" for h in holders(resource))
+        launched.append(argv)
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(workspace_env, "observe", check)
+    monkeypatch.setattr(workspace_env.subprocess, "run", run)
+    assert workspace_env.sync("tools", root=root, env=dict(os.environ), report=lambda _: None) == 0
+    assert observations == ["tools", "tools"] and len(launched) == 1
+    assert not holders(resource)
+
+
+def test_queued_sync_rechecks_after_reader_publishes_current_state(
+    isolated_locks, tmp_path, monkeypatch
+):
+    import threading
+
+    root = tmp_path / "checkout"
+    state = tmp_path / "current"
+    release = tmp_path / "release"
+    script = (
+        "from pathlib import Path; import sys,time; import workspace_env; "
+        "root,state,release=map(Path,sys.argv[1:]); "
+        "\nwith workspace_env.ownership('shared','tools',root=root):"
+        "\n print('held',flush=True)"
+        "\n while not release.exists(): time.sleep(.01)"
+        "\n state.write_text('current')"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", script, str(root), str(state), str(release)],
+        env=child_env(PYTHONPATH=str(ROOT / "scripts")),
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert child.stdout is not None and child.stdout.readline().strip() == "held"
+    seen = []
+
+    def check(requirement, *, root, env):
+        seen.append(state.exists())
+        return workspace_env.Readiness(requirement, "tools", state.exists(), (), "state")
+
+    resource = resources_for("tools", root, {})[0]
+
+    def unblock():
+        wait_for(lambda: any(h.pid == os.getpid() for h in holders(resource, gate=True)))
+        release.touch()
+
+    helper = threading.Thread(target=unblock)
+    monkeypatch.setattr(workspace_env, "observe", check)
+    helper.start()
+    try:
+        assert (
+            workspace_env.sync("tools", root=root, env=dict(os.environ), report=lambda _: None) == 0
+        )
+        assert seen == [True]  # no stale pre-acquisition observation or unnecessary sync
+    finally:
+        release.touch()
+        helper.join(10)
+        child.wait(10)
+
+
 def test_pending_sync_is_not_starved_by_a_stream_of_new_readers(isolated_locks):
     """flock has no writer preference; the gate makes new readers queue behind a pending sync."""
     (environment,) = resources_for("tools")

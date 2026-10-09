@@ -17,9 +17,9 @@ Readiness observes and never synchronizes (ADR-0134): a missing prerequisite is 
 its repair route. Fixture-backed boundaries each get an owned native SurrealDB attachment
 (``surrealdb_fixture``); ``--attach ID`` uses a kept fixture instead. Outcomes are ``passed``,
 ``failed``, ``blocked`` or ``not_run``; ``blocked`` needs evidence (a failed readiness
-observation, a fixture OOM or server end, launch error 127). Interruption is the run's
-termination, never an outcome. Execution always runs under a run handle (``runs.py``): logs and
-``summary.json`` live in its directory, and ``just runs`` observes, cancels and prunes it.
+observation, evidenced fixture infrastructure failure, an actual launch error). Interruption is
+the run's termination, never an outcome. Execution always runs under a run handle (``runs.py``):
+logs and ``summary.json`` live in its directory; ``just runs`` observes, cancels and prunes it.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from typing import Any
 import runs
 import workspace_env
 from build_environment import ROOT, normalized_env
-from harness import OUTCOMES, write_json_atomic
+from harness import OUTCOMES, FileDisplay, tail_bytes, write_json_atomic
 
 SCHEMA = 1
 DEFAULT_CARGO_PROFILE = "release"  # Change only after local-profile qualification.
@@ -713,7 +713,8 @@ def step_argv(
             *restricted_arguments(step, nextest_args),
         )
     elif step.tool == "pytest":
-        extra = ("--collect-only", "-q") if listing else ("-q",)
+        # Collection needs node IDs; repo addopts already contains -q, and -qq hides them.
+        extra = ("--collect-only", "-o", "addopts=", "-q") if listing else ("-q",)
         argv = (*PYTEST, *step.argv, *extra, *pytest_args)
     else:
         argv = step.argv
@@ -904,12 +905,20 @@ class Interrupted(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class LaunchResult:
+    """A failed launch has no child exit; 127 from a launched child is still its exit."""
+
+    exit: int | None
+    launch_error: dict[str, Any] | None = None
+
+
 @dataclass
 class Runtime:
     """Everything execution touches outside this module; tests replace it with fakes."""
 
     observe: Callable[[set[str]], dict[str, Any]]
-    run: Callable[[Sequence[str], Mapping[str, str], Path, bool], int]
+    run: Callable[[Sequence[str], Mapping[str, str], Path, bool], LaunchResult]
     fixture: Callable[[Options], contextlib.AbstractContextManager[Any]]
     owner: Callable[[frozenset[str], Callable[[str], None]], contextlib.AbstractContextManager[Any]]
     progress: Callable[..., None] = lambda **_: None
@@ -920,6 +929,10 @@ class Runtime:
 
 
 def _fixture_blocked(error: BaseException) -> str | None:
+    from surrealdb_fixture import FixtureBlocked
+
+    if not isinstance(error, FixtureBlocked):
+        return None
     kind = getattr(error, "kind", None)
     detail = getattr(error, "detail", None)
     if kind is None or detail is None:
@@ -928,24 +941,9 @@ def _fixture_blocked(error: BaseException) -> str | None:
     return f"fixture {kind}: {detail}" + (f"; repair: {repair}" if repair else "")
 
 
-def _server_end(attachment: Any) -> tuple[str, str] | None:
-    """(outcome, reason) when the fixture server ended during a step. Only the fixture's OOM
-    report is infrastructure evidence (plan §5.8.5); any other end is a product failure."""
-    server = getattr(attachment, "server", None)
-    if server is None:
-        return None
-    ended = server.exited()
-    if ended is None:
-        return None
-    if ended == "oom-kill":
-        return "blocked", f"fixture OOM: server {server.id} was oom-killed (evidence: oom-kill)"
-    return "failed", f"fixture server exited ({ended}) during the step"
-
-
 def run_boundary(
     planned: Planned,
     runtime: Runtime,
-    observations: Mapping[str, Any],
     options: Options,
     log: Path,
     live: bool,
@@ -971,12 +969,6 @@ def run_boundary(
 
     if runtime.stop():
         return done("not_run", "interrupted before it started")
-    missing = [observations[r] for r in sorted(boundary.requirements) if not observations[r].ready]
-    if missing:
-        reason = "; ".join(
-            f"prerequisite {o.requirement}: {o.repair or o.message()}" for o in missing
-        )
-        return done("blocked", reason)
     log.parent.mkdir(parents=True, exist_ok=True)
     runtime.progress(current_command=boundary.id, waiting_reason=None)
 
@@ -987,6 +979,13 @@ def run_boundary(
     try:
         with runtime.owner(boundary.requirements, waiting) as owned:
             runtime.progress(waiting_reason=None)
+            observations = runtime.observe(set(boundary.requirements))
+            missing = [o for o in observations.values() if not o.ready]
+            if missing:
+                reason = "; ".join(
+                    f"prerequisite {o.requirement}: {o.repair or o.message()}" for o in missing
+                )
+                return done("blocked", reason)
             # Children reuse this ownership instead of acquiring again (§5.8.4).
             base = owned.environment(runtime.base_env)
             fixture_scope = (
@@ -998,7 +997,11 @@ def run_boundary(
                 )
     except Interrupted:
         return done("not_run", "interrupted")
-    except Exception as error:  # evidence-bearing fixture failures are infrastructure
+    except Exception as error:  # Interpret only explicit fixture outcomes.
+        from surrealdb_fixture import FixtureFailed
+
+        if isinstance(error, FixtureFailed):
+            return done("failed", f"fixture {error.kind}: {error.detail}")
         blocked = _fixture_blocked(error)
         if blocked is None:
             raise
@@ -1069,18 +1072,35 @@ def _run_steps(
             current_command=f"{boundary.id} {step.name}: {shlex.join(planned_step.argv)}"
         )
         began = time.monotonic()
-        code = runtime.run(planned_step.argv, step_env, log, live)
+        launched = runtime.run(planned_step.argv, step_env, log, live)
+        code = launched.exit
         record.update(exit=code, duration=round(time.monotonic() - began, 3))
+        if launched.launch_error is not None:
+            record["launch_error"] = launched.launch_error
         if runtime.stop():
             record["outcome"] = "not_run"
             raise Interrupted
-        ended = _server_end(attachment) if attachment is not None else None
-        if ended:
-            record.update(outcome=ended[0], server_end=ended[1])
-            return done(*ended)
-        if code == 127:
+        if attachment is not None:
+            from surrealdb_fixture import server_end_outcome
+
+            observed = server_end_outcome(attachment.server, code)
+            if observed["server_end"] is not None:
+                cause = observed["cause"]
+                record.update(
+                    outcome=observed["outcome"],
+                    server_end=observed["server_end"],
+                    fixture_cause=cause,
+                )
+                return done(observed["outcome"], f"fixture {cause['kind']}: {cause['detail']}")
+        if launched.launch_error is not None:
             record["outcome"] = "blocked"
-            return done("blocked", f"launch: cannot start {planned_step.argv[0]} (exit 127)")
+            error = launched.launch_error
+            return done(
+                "blocked",
+                f"launch: cannot start {planned_step.argv[0]} "
+                f"({error['kind']}, errno {error['errno']}); "
+                "repair: check executable availability, permissions and host resources",
+            )
         if code != 0:
             record["outcome"] = "failed"
             if step.produces_serving:
@@ -1112,16 +1132,11 @@ def execute(
     on_result: Callable[[list[dict[str, Any]]], None] = lambda _results: None,
 ) -> list[dict[str, Any]]:
     """Run every planned boundary; one boundary's outcome never decides another's."""
-    requirements = set().union(*(p.boundary.requirements for p in plan))
-    observations = runtime.observe(requirements)
-    for observation in observations.values():
-        if not observation.ready:
-            runtime.report(observation.message())
     results: list[dict[str, Any]] = []
     for planned in plan:
         log = log_dir / f"{planned.boundary.family}-{planned.boundary.name}.log"
         runtime.report(f"-- {planned.boundary.id}: running (log {log})")
-        result = run_boundary(planned, runtime, observations, options, log, live)
+        result = run_boundary(planned, runtime, options, log, live)
         results.append(result)
         _report_result(result, runtime.report, live)
         on_result(results)
@@ -1136,10 +1151,12 @@ def _report_result(result: dict[str, Any], report: Callable[[str], None], live: 
     report(line)
     if result["outcome"] == "failed" and not live:
         try:
-            lines = Path(result["log"]).read_text(errors="replace").splitlines()
+            lines = (
+                tail_bytes(Path(result["log"]), TAIL_LINES).decode(errors="replace").splitlines()
+            )
         except OSError:
             return
-        report("\n".join(f"   | {text}" for text in lines[-TAIL_LINES:]))
+        report("\n".join(f"   | {text}" for text in lines))
         report(f"   full log: {result['log']}")
 
 
@@ -1147,10 +1164,11 @@ def _report_result(result: dict[str, Any], report: Callable[[str], None], live: 
 # Real runtime pieces
 
 
-def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -> int:
+def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -> LaunchResult:
     """Run one step in this process group; its output goes to the boundary log (and stdout with
-    --live). A missing executable is exit 127."""
+    --live). Actual launch errors are separate from a launched child's exit."""
     with open(log, "ab") as handle:
+        display_offset = handle.tell()
         handle.write(f"$ {shlex.join(argv)}\n".encode())
         handle.flush()
         try:
@@ -1159,19 +1177,18 @@ def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -
                 cwd=ROOT,
                 env=dict(env),
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE if live else handle,
+                stdout=handle,
                 stderr=subprocess.STDOUT,
             )
         except OSError as error:
             handle.write(f"cannot launch {argv[0]}: {error}\n".encode())
-            return 127
-        if live:
-            assert child.stdout is not None
-            for chunk in iter(lambda: child.stdout.read1(65536), b""):  # type: ignore[union-attr]
-                handle.write(chunk)
-                sys.stdout.buffer.write(chunk)
-                sys.stdout.buffer.flush()
-        return child.wait()
+            return LaunchResult(None, {"kind": type(error).__name__, "errno": error.errno})
+        display = FileDisplay(log, offset=display_offset).start() if live else None
+        try:
+            return LaunchResult(child.wait())
+        finally:
+            if display is not None:
+                display.close()
 
 
 @contextlib.contextmanager
@@ -1301,37 +1318,63 @@ def list_plan(plan: Sequence[Planned], options: Options, env: Mapping[str, str])
     status = 0
     for planned in plan:
         print(f"{planned.boundary.id}")
-        for planned_step in planned.steps:
-            step = planned_step.step
-            if step.tool not in TOOLS:
-                continue
-            argv = step_argv(
-                planned.boundary,
-                step,
-                planned.selection["nextest_args"],
-                planned.selection["pytest_args"],
-                options,
-                listing=True,
-                cargo_profile=planned.selection["cargo_profile"],
+        with environment_owner(planned.boundary.requirements) as owned:
+            # Discovery compiles/collects, but does not start a native server.
+            observations = observe_requirements(
+                set(planned.boundary.requirements) & set(PYTHON_REQUIREMENTS)
             )
+            missing = [o for o in observations.values() if not o.ready]
+            if missing:
+                for observation in missing:
+                    print(f"  blocked: {observation.message()}")
+                status = 1
+                continue
+            status = max(status, _list_boundary(planned, options, owned.environment(env)))
+    return status
+
+
+def _list_boundary(planned: Planned, options: Options, env: Mapping[str, str]) -> int:
+    """Discover one boundary while its caller holds publication ownership."""
+    status = 0
+    for planned_step in planned.steps:
+        step = planned_step.step
+        if step.tool not in TOOLS:
+            continue
+        argv = step_argv(
+            planned.boundary,
+            step,
+            planned.selection["nextest_args"],
+            planned.selection["pytest_args"],
+            options,
+            listing=True,
+            cargo_profile=planned.selection["cargo_profile"],
+        )
+        try:
             done = subprocess.run(argv, cwd=ROOT, env=dict(env), capture_output=True, text=True)
-            if done.returncode:
-                status = 1
-                tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
-                print(f"  {step.name}: listing failed (exit {done.returncode})")
-                print("\n".join(f"    {line}" for line in tail))
-                continue
-            names = (
-                nextest_matches(done.stdout)
-                if step.tool == "nextest"
-                else [line for line in done.stdout.splitlines() if "::" in line]
+        except OSError as error:
+            print(
+                f"  {step.name}: blocked: cannot launch {argv[0]} "
+                f"({type(error).__name__}, errno {error.errno}); repair: check executable/PATH"
             )
-            print(f"  {step.name}: {len(names)} test(s)")
-            if not names:
-                status = 1
-                print(f"  {step.name}: empty required selection")
-            for name in names:
-                print(f"    {name}")
+            status = 1
+            continue
+        if done.returncode:
+            status = 1
+            tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
+            print(f"  {step.name}: listing failed (exit {done.returncode})")
+            print("\n".join(f"    {line}" for line in tail))
+            continue
+        names = (
+            nextest_matches(done.stdout)
+            if step.tool == "nextest"
+            else [line for line in done.stdout.splitlines() if "::" in line]
+        )
+        print(f"  {step.name}: {len(names)} test(s)")
+        if not names:
+            status = 1
+            print(f"  {step.name}: empty required selection")
+        for name in names:
+            print(f"    {name}")
     return status
 
 
@@ -1381,7 +1424,18 @@ class _CargoProfile(argparse.Action):
 
 
 def help_epilog() -> str:
-    lines = ["boundaries (FAMILY:BOUNDARY; a family selects all of its boundaries):"]
+    lines = [
+        "examples:",
+        "  just verify --print --select model --nextest-args '--tests'",
+        "  just run --background --label deps -- just verify --select leaf:deps",
+        "  just verify --rerun RUN     # failed, blocked and unreached selections only",
+        "Background ownership belongs to just run; verify has no --background option.",
+        "--live is best-effort display. Boundary logs and RUN/summary.json "
+        "hold full output/results.",
+        "Cargo accepts repeated -p PACKAGE with one --tests; nextest discovery builds binaries.",
+        "",
+        "boundaries (FAMILY:BOUNDARY; a family selects all of its boundaries):",
+    ]
     for boundary in BOUNDARIES:
         needs = ", ".join(sorted(boundary.requirements)) or "none"
         tools = "/".join(sorted(boundary.tools())) or "-"
@@ -1411,7 +1465,9 @@ def parser() -> argparse.ArgumentParser:
     mode.add_argument("--print", action="store_true", help="static plan; builds nothing")
     mode.add_argument("--list", action="store_true", help="tool discovery; builds")
     top.add_argument("--json", action="store_true", help="--print as JSON")
-    top.add_argument("--live", action="store_true", help="stream step output")
+    top.add_argument(
+        "--live", action="store_true", help="best-effort live display; full output in logs"
+    )
     top.add_argument("--rerun", metavar="RUN", help="failed/blocked/unexecuted boundaries of RUN")
     top.add_argument("--qualify", action="store_true", help="every boundary and leaf")
     top.add_argument("--cli", action="store_true", help="store: build and exercise the native CLI")

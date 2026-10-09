@@ -463,27 +463,28 @@ def sync(
     """Prepare one route under exclusive ownership; a current environment is left untouched."""
     if route not in ROUTES:
         raise KeyError(f"unknown preparation route: {route}")
-    before = observe(route, root=root, env=env)
-    if before.ready:
-        report(f"sync {route}: already current")
-        return 0
-    report(f"sync {route}: {before.detail}")
-    with ownership("exclusive", route, root=root, env=env, report=report):
+    with ownership("exclusive", route, root=root, env=env, report=report) as owned:
+        selected = owned.environment(os.environ if env is None else env)
+        before = observe(route, root=root, env=selected)
+        if before.ready:
+            report(f"sync {route}: already current")
+            return 0
+        report(f"sync {route}: {before.detail}")
         command = sync_command(route, root)
         report("$ " + shlex.join(command))
         try:
             code = subprocess.run(
-                command, cwd=root, env=uv_environment(route, root, env), check=False
+                command, cwd=root, env=uv_environment(route, root, selected), check=False
             ).returncode
         except OSError as error:
             report(f"sync {route}: blocked: cannot launch uv ({error})")
             return 127
-    if code:
-        report(f"sync {route}: failed (uv exited {code})")
-        return code
-    after = observe(route, root=root, env=env)
-    report(f"sync {route}: {'passed' if after.ready else 'failed: ' + after.detail}")
-    return 0 if after.ready else 1
+        if code:
+            report(f"sync {route}: failed (uv exited {code})")
+            return code
+        after = observe(route, root=root, env=selected)
+        report(f"sync {route}: {'passed' if after.ready else 'failed: ' + after.detail}")
+        return 0 if after.ready else 1
 
 
 # ---------------------------------------------------------------------------------------------

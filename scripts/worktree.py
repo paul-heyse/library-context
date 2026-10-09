@@ -345,11 +345,14 @@ def _listing(script: str, args: Sequence[str], key: str, directory: Path) -> lis
 
 
 def _unit_description(unit: str) -> str:
+    from surrealdb_fixture import systemd_environment
+
     result = subprocess.run(
         ("systemctl", "--user", "show", "-p", "Description", "--value", unit),
         capture_output=True,
         text=True,
         check=False,
+        env=systemd_environment(),
     )
     return result.stdout.strip()
 
@@ -366,6 +369,22 @@ def live_state(target: Path) -> list[Live]:
     for row in _listing(
         "surrealdb_fixture.py", ("--list", "--json"), "LCTX_FIXTURES_ROOT", fixtures
     ):
+        if row.get("protected"):
+            recover = row.get("kind") in {"kept", "run"} and not (
+                row.get("kind") == "run" and row.get("owner_alive")
+            )
+            found.append(
+                Live(
+                    "unresolved fixture",
+                    row["id"],
+                    f"{row.get('unit', 'unreadable fixture record')}, "
+                    f"cleanup {row.get('cleanup', 'unknown')}",
+                    ("surrealdb_fixture.py", "--stop", row["id"], "--force", "--no-sweep")
+                    if recover
+                    else None,
+                )
+            )
+            continue
         state = str(row.get("state") or "")
         if row.get("kind") == "unrecorded":
             # `systemctl list-units` columns after the unit: LOAD ACTIVE SUB DESCRIPTION.
@@ -407,9 +426,15 @@ def live_state(target: Path) -> list[Live]:
             )
     runs = target / "build" / "runs"
     for row in _listing("runs.py", ("list", "--json"), "LCTX_RUNS_ROOT", runs):
-        if row.get("state") == "running":
+        if row.get("protected", True) or row.get("owner_live") or row.get("survivors"):
             text = row.get("label") or " ".join(row.get("argv") or [])
-            found.append(Live("running run", row["id"], text, ("runs.py", "cancel", row["id"])))
+            kind = "running run" if row.get("state") == "running" else "unresolved run"
+            cleanup = (row.get("cleanup") or {}).get("status", "unknown")
+            found.append(
+                Live(
+                    kind, row["id"], f"{text}; cleanup {cleanup}", ("runs.py", "cancel", row["id"])
+                )
+            )
     return found
 
 

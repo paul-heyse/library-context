@@ -48,7 +48,9 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+import fcntl
 import hashlib
+import http.client
 import json
 import os
 import random
@@ -58,6 +60,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -71,12 +74,15 @@ from typing import Any
 
 from harness import (
     ProcessIdentity,
-    group_members,
+    SpawnGuard,
+    cleanup_group,
     hold_lock,
     lock_held,
+    observe_exit,
     read_json,
-    signal_group,
+    recorded_group,
     spawn_group,
+    try_hold_lock,
     write_json_atomic,
 )
 
@@ -164,6 +170,37 @@ class PortCollision(RuntimeError):
     pass
 
 
+class FixtureFailed(RuntimeError):
+    """A fixture failure without evidence for an infrastructure/blocked classification."""
+
+    def __init__(self, kind: str, detail: str) -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+
+    def message(self) -> str:
+        return f"fixture: failed: {self.kind}: {self.detail}"
+
+
+class FixtureQueryError(RuntimeError):
+    """Sanitized request/statement evidence; never retain SQL or native error bodies."""
+
+    def __init__(self, diagnostic: dict[str, Any]) -> None:
+        self.diagnostic = diagnostic
+        transport = diagnostic["transport"]
+        if transport["status"] != "OK":
+            detail = f"transport {transport['category']}"
+            if transport.get("http_status") is not None:
+                detail += f" HTTP {transport['http_status']}"
+        else:
+            detail = "statements " + ", ".join(
+                f"{row['index']}:{row['category']}"
+                for row in diagnostic["statements"]
+                if row["status"] != "OK"
+            )
+        super().__init__(f"fixture query failed: {detail}")
+
+
 # ---------------------------------------------------------------------------------------------
 # The pinned binary and substrate readiness
 
@@ -223,7 +260,37 @@ def verify_binary(env: Mapping[str, str] | None = None, *, runner: Runner = subp
     raise FixtureBlocked("binary", "; ".join(problems) or "no candidate", BINARY_REPAIR)
 
 
-def systemd_available(*, runner: Runner = subprocess.run) -> str | None:
+SYSTEMD_RUNTIME_ROOT = Path("/run/user")
+
+
+def systemd_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Fill absent login routing from the existing same-user runtime and bus only.
+
+    This is local subprocess routing, not session creation or a change to global/parent state.
+    Explicit runtime/bus selections are preserved, including an unavailable selected runtime.
+    """
+    env = dict(os.environ if source is None else source)
+    runtime = (
+        Path(env["XDG_RUNTIME_DIR"])
+        if "XDG_RUNTIME_DIR" in env
+        else SYSTEMD_RUNTIME_ROOT / str(os.getuid())
+    )
+    try:
+        directory, bus = runtime.stat(), (runtime / "bus").stat()
+    except OSError:
+        return env
+    if directory.st_uid != os.getuid() or not stat.S_ISDIR(directory.st_mode):
+        return env
+    if bus.st_uid != os.getuid() or not stat.S_ISSOCK(bus.st_mode):
+        return env
+    env.setdefault("XDG_RUNTIME_DIR", str(runtime))
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime / 'bus'}")
+    return env
+
+
+def systemd_available(
+    *, runner: Runner = subprocess.run, env: Mapping[str, str] | None = None
+) -> str | None:
     """None when a user systemd manager answers, else why not."""
     try:
         result = runner(
@@ -232,6 +299,7 @@ def systemd_available(*, runner: Runner = subprocess.run) -> str | None:
             text=True,
             timeout=15,
             check=False,
+            env=systemd_environment(env),
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return f"cannot run systemctl --user ({error})"
@@ -275,7 +343,7 @@ def substrate_readiness(
         binary = verify_binary(env, runner=runner)
     except FixtureBlocked as blocked:
         return Readiness(requirement, False, blocked.detail, blocked.repair)
-    missing = systemd_available(runner=runner)
+    missing = systemd_available(runner=runner, env=env)
     if missing:
         return Readiness(requirement, False, missing, SYSTEMD_REPAIR)
     return Readiness(requirement, True, f"{binary} {VERSION}")
@@ -321,29 +389,30 @@ def owner_alive(identity: Mapping[str, Any] | None, lock: Path) -> bool:
     return identity is not None and ProcessIdentity.from_json(identity).alive()
 
 
-def owned_survivors(leader: Mapping[str, Any] | None) -> list[int] | None:
-    """Live members of a recorded command group, [] when none, None when unknowable here."""
-    if not leader:
-        return []
-    identity = ProcessIdentity.from_json(leader)
-    if identity.previous_boot():
-        return []
-    if identity.foreign():
-        return None
+def _current_lock(path: Path, descriptor: int) -> bool:
+    """A flock on an unlinked/replaced inode grants no authority over the current path."""
     try:
-        current = ProcessIdentity.of(identity.pid)
-    except ProcessLookupError:
-        current = None
-    # A pid is never reused while it still names a live process group, so a different process
-    # leading that pid means our group emptied earlier.
-    if current is not None and current.start_ticks != identity.start_ticks:
-        return []
-    return group_members(identity.pid)
+        opened, current = os.fstat(descriptor), path.stat()
+        return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+    except OSError:
+        return False
+
+
+def _current_fixture(server: Server, descriptor: int) -> bool:
+    return (
+        _current_lock(server.directory / "owner.lock", descriptor)
+        and read_json(server.directory / "record.json") == server.record
+    )
 
 
 def systemctl(*args: str, runner: Runner = subprocess.run) -> subprocess.CompletedProcess:
     return runner(
-        ["systemctl", "--user", *args], capture_output=True, text=True, timeout=60, check=False
+        ["systemctl", "--user", *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=systemd_environment(),
     )
 
 
@@ -413,7 +482,7 @@ def _setup(what: str) -> Iterator[None]:
     """Fixture setup failures become classifiable ``FixtureBlocked("readiness")`` evidence."""
     try:
         yield
-    except FixtureBlocked:
+    except FixtureBlocked, FixtureFailed:
         raise
     except SETUP_ERRORS as error:
         raise FixtureBlocked("readiness", f"{what}: {type(error).__name__}: {error}") from error
@@ -434,6 +503,7 @@ class Server:
     report: Callable[[str], None] = field(default=_stderr, repr=False)
     _lock: int | None = field(default=None, repr=False)
     _ended: str | None = field(default=None, repr=False)
+    _cleanup_protected: bool = field(default=False, repr=False)
 
     # -- identity ------------------------------------------------------------------------------
     @property
@@ -479,7 +549,7 @@ class Server:
     ) -> Server:
         env = os.environ if env is None else env
         binary = verify_binary(env)
-        missing = systemd_available()
+        missing = systemd_available(env=env)
         if missing:
             raise FixtureBlocked("systemd", missing, SYSTEMD_REPAIR)
         root = fixtures_root(env)
@@ -494,7 +564,7 @@ class Server:
                 continue
         directory.chmod(0o700)
         owner = ProcessIdentity.of().to_json()
-        lock = hold_lock(directory / "owner.lock") if kind == "run" else None
+        lock = hold_lock(directory / "owner.lock")
         password = secrets.token_urlsafe(32)
         environment = directory / "server.env"
         fd = os.open(environment, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -525,6 +595,9 @@ class Server:
         except BaseException:
             server.destroy()
             raise
+        if kind == "kept" and server._lock is not None:
+            os.close(server._lock)
+            server._lock = None
         return server
 
     @classmethod
@@ -579,7 +652,8 @@ class Server:
         try:
             if self.kind == "run":
                 self._reset_unit()
-                env = {k: os.environ[k] for k in PASSED_THROUGH if k in os.environ}
+                routed = systemd_environment()
+                env = {k: routed[k] for k in PASSED_THROUGH if k in routed}
                 env.update(_read_env(self.directory / "server.env"))
                 command = [
                     "systemd-run",
@@ -634,6 +708,7 @@ class Server:
                     text=True,
                     timeout=60,
                     check=False,
+                    env=systemd_environment(),
                 )
                 if result.returncode:
                     raise FixtureBlocked("launch", f"systemd-run failed: {result.stderr.strip()}")
@@ -718,7 +793,13 @@ class Server:
                     raise self.oom("during readiness")
                 if "Address already in use" in tail:
                     raise PortCollision(tail)
-                raise FixtureBlocked("readiness", f"server ended ({ended}) before ready: {tail}")
+                outcome = _classify_server_end(self, ended, None)
+                cause = outcome["cause"]
+                if outcome["outcome"] == "blocked":
+                    raise FixtureBlocked(cause["kind"], cause["detail"], cause.get("repair"))
+                raise FixtureFailed(
+                    "server_end_unknown", "server ended before ready; cause unknown"
+                )
             try:
                 with urllib.request.urlopen(self.endpoint + "/ready", timeout=1) as response:
                     healthy = response.status == 200
@@ -739,10 +820,23 @@ class Server:
         if self.kind == "kept":
             before = self.exited()
             systemctl("stop", self.unit)
-            settled_result(self.unit)
+            state = settled_result(self.unit)
+            if state.get("LoadState") != "not-found" and state.get("ActiveState") not in (
+                "inactive",
+                "failed",
+            ):
+                return "cleanup-unresolved"
             systemctl("reset-failed", self.unit)
             return None if before in (None, "exit 0") else before
         if self.process is None:
+            systemctl("stop", self.unit)
+            state = settled_result(self.unit)
+            if state.get("LoadState") != "not-found" and state.get("ActiveState") not in (
+                "inactive",
+                "failed",
+            ):
+                return "cleanup-unresolved"
+            systemctl("reset-failed", self.unit)
             return None
         ended = self.exited()
         if ended is None:
@@ -776,17 +870,76 @@ class Server:
                 "launch", f"port {self.port} taken on restart: {collision}"
             ) from collision
 
-    def destroy(self) -> str | None:
+    def destroy(self, *, recover: bool = False) -> str | None:
         """Stop the server and remove all of its state. Returns a non-clean ending, if any."""
-        ended = None
-        try:
+        with contextlib.ExitStack() as recovery_locks:
+            lock = self._lock
+            if lock is None:
+                try:
+                    lock = try_hold_lock(self.directory / "owner.lock")
+                except OSError:
+                    lock = None
+                if lock is None:
+                    self.report(
+                        f"fixture {self.id}: live or unavailable server owner; "
+                        "cancel it before recovery"
+                    )
+                    return "cleanup-unresolved"
+                recovery_locks.callback(os.close, lock)
+            if not _current_fixture(self, lock):
+                self.report(f"fixture {self.id}: ownership path or record changed; state retained")
+                return "cleanup-unresolved"
+            # EX on the current fixture freezes new attachments; EX on every existing
+            # attachment excludes live owners before any recovery receipt is rewritten.
+            attachments = _attachments(self.directory)
+            for path, _ in attachments:
+                try:
+                    attachment_lock = try_hold_lock(path / "owner.lock")
+                except OSError:
+                    attachment_lock = None
+                if attachment_lock is None:
+                    self.report(
+                        f"fixture {self.id}/{path.name}: live attachment owner; "
+                        "cancel it before recovery"
+                    )
+                    return "cleanup-unresolved"
+                recovery_locks.callback(os.close, attachment_lock)
+                if not _current_lock(path / "owner.lock", attachment_lock):
+                    self.report(
+                        f"fixture {self.id}/{path.name}: ownership path changed; state retained"
+                    )
+                    return "cleanup-unresolved"
+            if recover:
+                for path, _ in attachments:
+                    record = read_json(path / "record.json")
+                    if record and (record.get("command") or record.get("command_cleanup")):
+                        _recover_attachment(path, record)
+                self._cleanup_protected = False
+            if self._cleanup_protected or any(
+                record is None
+                or _cleanup_pending(record)
+                or _command_observation(record)["status"] == "owned"
+                for _, record in _attachments(self.directory)
+            ):
+                self.report(
+                    f"fixture {self.id}: cleanup unresolved; state retained; "
+                    f"recover with --stop {self.id} --force"
+                )
+                if self._lock is not None:
+                    os.close(self._lock)
+                    self._lock = None
+                return "cleanup-unresolved"
             ended = self.stop_process(grace=STOP_GRACE)
-        finally:
+            if ended == "cleanup-unresolved":
+                self.record["cleanup"] = {"status": "unknown", "reason": "server stop unconfirmed"}
+                self.write()
+                self.report(f"fixture {self.id}: server stop unconfirmed; state retained")
+                return ended
             shutil.rmtree(self.directory, ignore_errors=True)
             if self._lock is not None:
                 os.close(self._lock)
                 self._lock = None
-        return ended
+            return ended
 
     # -- queries -------------------------------------------------------------------------------
     def request(
@@ -807,17 +960,53 @@ class Server:
     def query(
         self, sql: str, *, namespace: str | None = None, database: str | None = None
     ) -> list[dict[str, Any]]:
-        request = self.request("/sql", sql.encode(), namespace, database)
-        with urllib.request.urlopen(request, timeout=25) as response:
-            result = json.load(response)
-        if not isinstance(result, list):
-            raise RuntimeError("fixture query returned no statement results")
-        failures = [row for row in result if row.get("status") != "OK"]
-        if failures:
-            # SQL/errors can contain bound secrets; retain the shape, not the body.
-            kinds = ", ".join(str(row.get("kind", "statement")) for row in failures)
-            raise RuntimeError(f"fixture query failed: {kinds}")
-        return result
+        diagnostic = self.diagnose(sql, namespace=namespace, database=database)
+        if diagnostic["outcome"] != "passed":
+            raise FixtureQueryError(diagnostic)
+        return diagnostic["statements"]
+
+    def diagnose(
+        self, sql: str, *, namespace: str | None = None, database: str | None = None
+    ) -> dict[str, Any]:
+        """Execute explicitly effectful SQL, preserving indexed outcomes, not error text.
+
+        Successful values are intentional query output. Causes/categories never contain the
+        query, native messages, response headers, credentials or bindings.
+        """
+        transport: dict[str, Any] = {"status": "OK", "category": "http", "http_status": 200}
+        statements: list[dict[str, Any]] = []
+        try:
+            request = self.request("/sql", sql.encode(), namespace, database)
+            with urllib.request.urlopen(request, timeout=25) as response:
+                transport["http_status"] = response.status
+                result = json.load(response)
+            if not isinstance(result, list) or not result:
+                raise ValueError("missing statement envelopes")
+            for index, row in enumerate(result):
+                if not isinstance(row, dict) or row.get("status") not in ("OK", "ERR"):
+                    raise ValueError("invalid statement envelope")
+                ok = row["status"] == "OK"
+                statement: dict[str, Any] = {
+                    "index": index,
+                    "status": row["status"],
+                    "category": "success" if ok else "statement_refused",
+                }
+                if ok:
+                    statement["result"] = row.get("result")
+                statements.append(statement)
+        except urllib.error.HTTPError as error:
+            transport = {"status": "ERR", "category": "http_refused", "http_status": error.code}
+            error.close()
+        except OSError, http.client.HTTPException:
+            transport = {"status": "ERR", "category": "connection"}
+        except ValueError:
+            transport = {"status": "ERR", "category": "invalid_envelope"}
+        passed = transport["status"] == "OK" and all(r["status"] == "OK" for r in statements)
+        return {
+            "outcome": "passed" if passed else "failed",
+            "transport": transport,
+            "statements": statements,
+        }
 
 
 def _read_env(path: Path) -> dict[str, str]:
@@ -844,6 +1033,8 @@ class Attachment:
     extra_env: dict[str, str] = field(default_factory=dict)
     _lock: int | None = field(default=None, repr=False)
     _retaining: Path | None = field(default=None, repr=False)
+    _command_cleanup: dict[str, Any] | None = field(default=None, repr=False)
+    _unreaped_child: subprocess.Popen | None = field(default=None, repr=False)
 
     @property
     def scratch(self) -> Path:
@@ -867,6 +1058,31 @@ class Attachment:
 
     @classmethod
     def create(cls, server: Server) -> Attachment:
+        with contextlib.ExitStack() as creation_lock:
+            lock = server._lock
+            if lock is None:
+                try:
+                    lock = os.open(
+                        server.directory / "owner.lock",
+                        os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC,
+                        0o600,
+                    )
+                    creation_lock.callback(os.close, lock)
+                    fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise FixtureBlocked("ownership", "fixture recovery is active") from None
+                except OSError:
+                    raise FixtureBlocked(
+                        "ownership", "fixture ownership path unavailable"
+                    ) from None
+            if not _current_fixture(server, lock):
+                raise FixtureBlocked(
+                    "ownership", "fixture ownership path or record changed; reopen the fixture"
+                )
+            return cls._create_owned(server)
+
+    @classmethod
+    def _create_owned(cls, server: Server) -> Attachment:
         while True:
             attachment_id = secrets.token_hex(4)
             directory = server.directory / "attachments" / attachment_id
@@ -1039,6 +1255,23 @@ class Attachment:
     # -- teardown ------------------------------------------------------------------------------
     def release(self) -> None:
         """Remove this attachment's namespace and files; retained serving content is kept."""
+        if (
+            (
+                self._command_cleanup is not None
+                and self._command_cleanup.get("status") != "confirmed"
+            )
+            or _cleanup_pending(read_json(self.directory / "record.json"))
+            or _command_observation(read_json(self.directory / "record.json"))["status"] == "owned"
+        ):
+            self.server._cleanup_protected = True
+            if self._lock is not None:
+                os.close(self._lock)
+                self._lock = None
+            self.server.report(
+                f"fixture {self.server.id}/{self.id}: command cleanup unresolved; "
+                "attachment retained"
+            )
+            return
         self.abandon_serving()
         try:
             if self.server.exited() is None and self.namespace not in retained_namespaces(
@@ -1101,6 +1334,103 @@ def serving_available(server: Server, name: str) -> dict[str, Any]:
     return identity
 
 
+def inspection_scope(server: Server, configuration: Path) -> tuple[str, str]:
+    """Select exact live attachment or checked retained content; never guess a namespace.
+
+    The selected file must belong to this fixture, not an operator configuration. Reading it
+    does not transfer its ownership, change its record or create a replacement attachment.
+    """
+    if server.exited() is not None:
+        raise FixtureBlocked("scope", "selected fixture server has ended")
+    path = configuration.resolve()
+    for directory, record in _attachments(server.directory):
+        if path != (directory / "runtime.json").resolve():
+            continue
+        if not record or not lock_held(directory / "owner.lock"):
+            raise FixtureBlocked("scope", "selected attachment is no longer owned")
+        config = read_json(path)
+        expected_namespace = f"fixture_{server.id}_{directory.name}"
+        if not isinstance(config, dict) or any(
+            (
+                config.get("fixture") != server.id,
+                config.get("attachment") != directory.name,
+                record.get("fixture") != server.id,
+                record.get("namespace") != expected_namespace,
+                config.get("namespace") != expected_namespace,
+                config.get("endpoint") != server.endpoint,
+                config.get("server", {}).get("binary_sha256") != server.record["binary"]["sha256"],
+                config.get("database") != "core",
+                config.get("admin_user") != ADMIN_USER,
+                config.get("admin_password") != server.password,
+            )
+        ):
+            raise FixtureBlocked("scope", "attachment configuration identity does not match")
+        namespace, database = expected_namespace, "core"
+        break
+    else:
+        for identity in retained_identities(server):
+            if path != Path(identity.get("configuration", {}).get("path", "")).resolve():
+                continue
+            if (
+                identity.get("fixture") != server.id
+                or path
+                != (
+                    server.directory / "serving" / _identifier(identity["name"]) / "viewer.json"
+                ).resolve()
+            ):
+                raise FixtureBlocked("scope", "retained configuration identity does not match")
+            checked = serving_available(server, identity["name"])
+            content = checked["content"]["database"]
+            namespace, database = content["namespace"], content["database"]
+            break
+        else:
+            raise FixtureBlocked("scope", "configuration is not owned by this disposable fixture")
+    namespace, database = _identifier(namespace), _identifier(database)
+    result = server.query("INFO FOR NAMESPACE;", namespace=namespace)[0]["result"]
+    if database not in result.get("databases", {}):
+        raise FixtureBlocked("scope", "selected database is no longer present")
+    return namespace, database
+
+
+MCP_AUTH_ENV = "LCTX_FIXTURE_MCP_AUTH"
+
+
+def mcp_invocation(
+    attachment: Attachment, arguments: Sequence[str], *, non_sensitive: bool = False
+) -> tuple[list[str], dict[str, str]]:
+    """Invocation-only native HTTP client configuration; no registry or bridge.
+
+    Native tool errors are not sanitized. Only explicitly acknowledged synthetic/non-sensitive
+    content of this live disposable attachment is supported. Every tool call must supply the
+    namespace and database; HTTP scope headers are an additional default, not mutable USE state.
+    """
+    if not non_sensitive:
+        raise FixtureBlocked("mcp", "native MCP output requires --non-sensitive acknowledgement")
+    if attachment.namespace in retained_namespaces(attachment.server):
+        raise FixtureBlocked("mcp", "native MCP does not support retained content")
+    namespace, database = inspection_scope(attachment.server, attachment.config_path)
+    command = [
+        "codex",
+        "--no-daemon",
+        "-c",
+        "mcp_servers.lctx_fixture.url=" + json.dumps(attachment.endpoint + "/mcp"),
+        "-c",
+        "mcp_servers.lctx_fixture.env_http_headers={Authorization="
+        + json.dumps(MCP_AUTH_ENV)
+        + "}",
+        "-c",
+        "mcp_servers.lctx_fixture.http_headers={Surreal-NS="
+        + json.dumps(namespace)
+        + ",Surreal-DB="
+        + json.dumps(database)
+        + "}",
+        *arguments,
+    ]
+    credentials = f"{ADMIN_USER}:{attachment.server.password}"
+    environment = {MCP_AUTH_ENV: "Basic " + base64.b64encode(credentials.encode()).decode()}
+    return command, environment
+
+
 # ---------------------------------------------------------------------------------------------
 # Library entry point
 
@@ -1115,15 +1445,27 @@ def fixture(
         if sweep_first:
             sweep(report=report)
         server = Server.create("run", memory=memory or configured_memory(), report=report)
+    attachment: Attachment | None = None
     ended: str | None = None
+    outcome: dict[str, Any] | None = None
     try:
         with _setup("attaching to the run-owned fixture"):
             attachment = Attachment.create(server)
         yield attachment
     finally:
+        outcome = server_end_outcome(server, 0)
+        if attachment is not None:
+            attachment.release()
         ended = server.destroy()
     if ended == "oom-kill":
         raise server.oom("while in use")
+    if ended == "cleanup-unresolved":
+        raise FixtureFailed("cleanup", "command group cleanup unresolved; fixture records retained")
+    if outcome and outcome["outcome"] == "blocked":
+        cause = outcome["cause"]
+        raise FixtureBlocked(cause["kind"], cause["detail"], cause.get("repair"))
+    if outcome and outcome["outcome"] == "failed":
+        raise FixtureFailed(outcome["cause"]["kind"], outcome["cause"]["detail"])
 
 
 def configured_memory(explicit: str | None = None) -> int:
@@ -1153,7 +1495,52 @@ def _attachments(directory: Path) -> list[tuple[Path, dict[str, Any] | None]]:
 
 
 def _attachment_live(path: Path, record: dict[str, Any] | None) -> bool:
-    return owner_alive((record or {}).get("owner"), path / "owner.lock")
+    return owner_alive((record or {}).get("owner"), path / "owner.lock") or _cleanup_pending(record)
+
+
+def _command_observation(record: Mapping[str, Any] | None) -> dict[str, Any]:
+    record = record or {}
+    command, cleanup = record.get("command") or {}, record.get("command_cleanup") or {}
+    if not command and not cleanup:
+        return {"status": "gone", "members": []}
+    if not cleanup and not any(command.get(key) for key in ("leader", "argv", "started")):
+        return {"status": "gone", "members": []}
+    if cleanup.get("status") == "confirmed":
+        return {"status": "gone", "members": []}
+    leader = command.get("leader")
+    if (not leader or "start_ticks" not in leader) and record.get("owner"):
+        with contextlib.suppress(ValueError, KeyError, TypeError):
+            if ProcessIdentity.from_json(record["owner"]).previous_boot():
+                return {"status": "gone", "members": [], "reason": "previous boot"}
+    if leader:
+        leader = {**leader, "pgid": leader.get("pgid", leader.get("pid"))}
+    return recorded_group(leader, members=cleanup.get("members", []))
+
+
+def _cleanup_pending(record: Mapping[str, Any] | None) -> bool:
+    cleanup = (record or {}).get("command_cleanup")
+    if cleanup is not None:
+        if _command_observation(record).get("reason") == "previous boot":
+            return False
+        return cleanup.get("status") != "confirmed"
+    return _command_observation(record)["status"] == "unknown"
+
+
+def _recover_attachment(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    """Explicit selected recovery: revalidate historical group ownership before signalling."""
+    observation = _command_observation(record)
+    if observation["status"] == "gone":
+        cleanup = {"status": "confirmed", "survivors": []}
+    elif observation["status"] == "owned":
+        cleanup = cleanup_group(int(record["command"]["leader"]["pid"]), grace=STOP_GRACE)
+    else:
+        cleanup = {
+            "status": "unknown",
+            "reason": observation.get("reason", "identity unavailable"),
+            "members": (record.get("command_cleanup") or {}).get("members", []),
+        }
+    write_json_atomic(path / "record.json", {**record, "command_cleanup": cleanup})
+    return cleanup
 
 
 def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
@@ -1162,7 +1549,14 @@ def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
     seen_units = set()
     for directory, record in records(env):
         if record is None:
-            rows.append({"id": directory.name, "kind": "incomplete", "directory": str(directory)})
+            rows.append(
+                {
+                    "id": directory.name,
+                    "kind": "incomplete",
+                    "directory": str(directory),
+                    "protected": True,
+                }
+            )
             continue
         unit = record["unit"]
         seen_units.add(unit)
@@ -1182,11 +1576,25 @@ def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
                 "owner_alive": record["kind"] == "kept"
                 or owner_alive(owner, directory / "owner.lock"),
                 "attachments": f"{live}/{len(attachments)}",
+                "protected": bool(
+                    record.get("cleanup") and record["cleanup"].get("status") != "confirmed"
+                )
+                or any(
+                    data is None
+                    or _cleanup_pending(data)
+                    or _command_observation(data)["status"] != "gone"
+                    for _, data in attachments
+                ),
                 "port": record["port"],
                 "memory_max": record["memory_max"],
                 "memory_current": state.get("MemoryCurrent"),
                 "created": record["created"],
                 "serving": [i["name"] for i in retained_identities(Server(directory, record, ""))],
+                "cleanup": {
+                    path.name: ((data or {}).get("command_cleanup") or {}).get("status", "unknown")
+                    for path, data in attachments
+                    if data is None or _cleanup_pending(data)
+                },
             }
         )
     listed = systemctl("list-units", "--all", "--plain", "--no-legend", f"{UNIT_PREFIX}*")
@@ -1232,61 +1640,104 @@ def sweep(
     removed = []
     for directory, record in records(env):
         if record is None:
-            # A creation that died before its first record: no lock holder, at least a minute old.
-            if (
-                not lock_held(directory / "owner.lock")
-                and time.time() - directory.stat().st_mtime > 60
-            ):
-                shutil.rmtree(directory, ignore_errors=True)
-                removed.append(f"{directory.name} (incomplete)")
+            # Only a provably empty pre-record creation is disposable. Unreadable
+            # receipts and attachment/evidence directories remain recovery evidence.
+            try:
+                old = time.time() - directory.stat().st_mtime > 60
+                lock = try_hold_lock(directory / "owner.lock") if old else None
+            except OSError:
+                continue
+            if lock is not None:
+                try:
+                    if _current_lock(directory / "owner.lock", lock) and set(
+                        directory.iterdir()
+                    ) == {directory / "owner.lock"}:
+                        shutil.rmtree(directory)
+                        removed.append(f"{directory.name} (incomplete)")
+                finally:
+                    os.close(lock)
             continue
         if record.get("checkout") != str(ROOT):
             continue
-        attachments = _attachments(directory)
-        if record["kind"] == "kept":
-            server = Server(
-                directory, record, _read_env(directory / "server.env").get("SURREAL_PASS", "")
+        if record.get("cleanup") and record["cleanup"].get("status") != "confirmed":
+            report(
+                f"fixture {record['id']}: server cleanup unresolved; "
+                f"select --stop {record['id']} --force"
             )
-            for path, data in attachments:
-                if _attachment_live(path, data):
+            continue
+        attachments = _attachments(directory)
+        if any(data is None or _cleanup_pending(data) for _, data in attachments):
+            report(
+                f"fixture {record['id']}: unresolved cleanup preserved; "
+                f"select --stop {record['id']} --force to recover"
+            )
+            continue
+        try:
+            password = _read_env(directory / "server.env").get("SURREAL_PASS", "")
+        except OSError:
+            continue
+        server = Server(directory, record, password, report=report)
+        if record["kind"] == "kept":
+            # A shared fixture lock excludes stop/destroy for the entire scan; each
+            # attachment's exclusive lock and fresh receipt exclude its live owner.
+            with contextlib.ExitStack() as sweep_locks:
+                try:
+                    server_lock = os.open(
+                        directory / "owner.lock", os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600
+                    )
+                    sweep_locks.callback(os.close, server_lock)
+                    fcntl.flock(server_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except OSError:
                     continue
-                survivors = owned_survivors((data or {}).get("command", {}).get("leader"))
-                if survivors:  # live consumers of a dead launcher: preserved
+                if not _current_fixture(server, server_lock):
                     continue
-                if survivors is None:  # foreign pid namespace: never touched
-                    continue
-                namespace = (data or {}).get("namespace")
-                with contextlib.suppress(OSError, RuntimeError, urllib.error.URLError):
-                    if (
-                        namespace
-                        and server.exited() is None
-                        and namespace not in retained_namespaces(server)
-                    ):
-                        server.query(f"REMOVE NAMESPACE IF EXISTS {_identifier(namespace)};")
-                shutil.rmtree(path, ignore_errors=True)
-                removed.append(f"{record['id']}/{path.name}")
+                for path, _ in _attachments(directory):
+                    try:
+                        lock = try_hold_lock(path / "owner.lock")
+                    except OSError:
+                        continue
+                    if lock is None:
+                        continue
+                    try:
+                        data = read_json(path / "record.json")
+                        if not _current_lock(path / "owner.lock", lock) or data is None:
+                            continue
+                        try:
+                            identity = (
+                                ProcessIdentity.from_json(data["owner"])
+                                if data.get("owner")
+                                else None
+                            )
+                            if identity and (identity.alive() or identity.foreign()):
+                                continue
+                        except ValueError, KeyError, TypeError:
+                            continue
+                        if _cleanup_pending(data) or _command_observation(data)["status"] != "gone":
+                            continue
+                        namespace = data.get("namespace")
+                        with contextlib.suppress(OSError, RuntimeError, urllib.error.URLError):
+                            if (
+                                namespace
+                                and server.exited() is None
+                                and namespace not in retained_namespaces(server)
+                            ):
+                                server.query(
+                                    f"REMOVE NAMESPACE IF EXISTS {_identifier(namespace)};"
+                                )
+                        shutil.rmtree(path, ignore_errors=True)
+                        removed.append(f"{record['id']}/{path.name}")
+                    finally:
+                        os.close(lock)
             continue
         owner = record.get("owner")
         if owner_alive(owner, directory / "owner.lock"):
             continue
         if owner and ProcessIdentity.from_json(owner).foreign():
             continue
-        leaders = [(data or {}).get("command", {}).get("leader") for _, data in attachments]
-        survivors = [owned_survivors(leader) for leader in leaders]
-        if any(s is None for s in survivors):
-            continue
-        for leader, members in zip(leaders, survivors, strict=True):
-            if members and leader:
-                report(f"fixture {record['id']}: terminating surviving command tree {members}")
-                signal_group(int(leader["pid"]), grace=STOP_GRACE)
-        server_identity = record.get("server")
-        if server_identity and ProcessIdentity.from_json(server_identity).alive():
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(int(server_identity["pid"]), signal.SIGKILL)
-        systemctl("stop", record["unit"])
-        systemctl("reset-failed", record["unit"])
-        shutil.rmtree(directory, ignore_errors=True)
-        removed.append(record["id"])
+        # Recovery and deletion both occur inside destroy's current fixture and
+        # attachment locks; the inventory above grants no mutation authority.
+        if server.destroy(recover=True) != "cleanup-unresolved":
+            removed.append(record["id"])
     removed += _sweep_empty_scopes({d.name for d, _ in records(env)})
     for item in removed:
         report(f"fixture sweep: removed {item}")
@@ -1325,11 +1776,26 @@ def run_attached(
     requirements: Sequence[str] = (),
     cwd: Path | None = None,
     report: Callable[[str], None] = _stderr,
+    child_env: Mapping[str, str] | None = None,
 ) -> int:
     """Run the command in its own process group with this attachment's environment. A signal to
     the launcher stops the command's group; the caller tears the state down."""
     from build_environment import normalized_env
 
+    previous_cleanup = getattr(attachment, "_command_cleanup", None)
+    directory = getattr(attachment, "directory", None)
+    previous_record = read_json(directory / "record.json") if directory is not None else None
+    if (previous_cleanup is not None and previous_cleanup.get("status") != "confirmed") or (
+        previous_record
+        and (
+            _cleanup_pending(previous_record)
+            or _command_observation(previous_record)["status"] == "owned"
+        )
+    ):
+        raise FixtureFailed(
+            "cleanup",
+            "prior command cleanup unresolved; select fixture recovery before another command",
+        )
     stack = contextlib.ExitStack()
     with stack:
         env = normalized_env(attachment.environment(), native_inputs=False)
@@ -1342,44 +1808,163 @@ def run_attached(
                 )
             )
             env = owned.environment(env)
+        if child_env:
+            env.update(child_env)
+        intent = {"argv": list(command), "leader": None, "started": now()}
+        attachment._write_record(
+            intent, command_cleanup={"status": "unknown", "reason": "launch pending"}
+        )
         try:
             child = spawn_group(command, death_signal=signal.SIGTERM, env=env, cwd=cwd)
         except OSError as error:
+            attachment._command_cleanup = {"status": "confirmed", "survivors": []}
+            attachment._write_record(
+                None, command_cleanup=attachment._command_cleanup, child_exit_code=None
+            )
             raise FixtureBlocked("launch", f"cannot start {command[0]!r}: {error}") from error
-        leader = ProcessIdentity.of(child.pid).to_json()
-        attachment._write_record({"argv": list(command), "leader": leader, "started": now()})
+        guard = SpawnGuard(child, grace=STOP_GRACE / 2)
+        attachment._command_cleanup = {"status": "unknown"}
+        attachment._unreaped_child = child
+        server = getattr(attachment, "server", None)
+        if server is not None:
+            server._cleanup_protected = True
+        command_record = {
+            "argv": list(command),
+            "leader": {"pid": child.pid, "pgid": child.pid},
+            "started": now(),
+        }
+        code: int | None = None
         try:
-            while True:
+            with guard:
+                command_record["leader"] = {
+                    **ProcessIdentity.of(child.pid).to_json(),
+                    "pgid": child.pid,
+                }
+                attachment._write_record(
+                    command_record, command_cleanup=attachment._command_cleanup
+                )
                 try:
-                    return child.wait(0.5)
-                except subprocess.TimeoutExpired:
-                    continue
-        except _Interrupted:
-            for sig in TERMINATING:
-                signal.signal(sig, signal.SIG_IGN)
-            signal_group(child.pid, grace=STOP_GRACE / 2)
-            raise
+                    while True:
+                        code = observe_exit(child)
+                        if code is not None:
+                            break
+                        time.sleep(0.5)
+                except _Interrupted:
+                    for sig in TERMINATING:
+                        signal.signal(sig, signal.SIG_IGN)
+                    raise
         finally:
-            if child.poll() is not None and group_members(child.pid):
-                signal_group(child.pid, grace=STOP_GRACE / 2)
+            attachment._command_cleanup = guard.cleanup
+            if guard.cleanup["status"] == "confirmed":
+                attachment._unreaped_child = None
+            if server is not None:
+                server._cleanup_protected = guard.cleanup["status"] != "confirmed"
+            updates = {
+                "command_cleanup": guard.cleanup,
+                "child_exit_code": code if code is not None else guard.returncode,
+            }
+            if (
+                guard.cleanup["status"] != "confirmed"
+                and "start_ticks" not in command_record["leader"]
+            ):
+                with contextlib.suppress(OSError):
+                    command_record["leader"] = {
+                        **ProcessIdentity.of(child.pid).to_json(),
+                        "pgid": child.pid,
+                    }
+            try:
+                attachment._write_record(command_record, **updates)
+            except Exception as error:
+                if guard.cleanup["status"] != "confirmed":
+                    # Preserve the initial receipt even when its higher-level publisher failed.
+                    # In-memory protection remains if the filesystem also rejects this write.
+                    with contextlib.suppress(Exception):
+                        path = attachment.directory / "record.json"
+                        write_json_atomic(
+                            path, {**(read_json(path) or {}), "command": command_record, **updates}
+                        )
+                report(f"fixture: command cleanup receipt not written: {type(error).__name__}")
+        if guard.cleanup["status"] != "confirmed":
+            report(f"fixture: command cleanup {guard.cleanup['status']}")
+            return code or 1
+        assert code is not None
+        return code
+
+
+def server_end_outcome(
+    server: Server, child_exit_code: int | None, *, cancelled: bool = False
+) -> dict[str, Any]:
+    """Shared direct/verification policy, keeping the actual child result independently.
+
+    An unexplained end is failed with unknown cause, never inferred OOM or a product defect.
+    Only positive substrate evidence is blocked. Cancellation leaves unexecuted work not_run.
+    """
+    return _classify_server_end(server, server.exited(), child_exit_code, cancelled=cancelled)
+
+
+def _classify_server_end(
+    server: Server, ended: str | None, child_exit_code: int | None, *, cancelled: bool = False
+) -> dict[str, Any]:
+    """Apply policy to one captured observation, including during readiness."""
+    result: dict[str, Any] = {
+        "outcome": "not_run"
+        if child_exit_code is None
+        else "passed"
+        if child_exit_code == 0
+        else "failed",
+        "exit_code": child_exit_code,
+        "child_exit_code": child_exit_code,
+        "server_end": ended,
+        "cause": None,
+    }
+    if cancelled:
+        result.update(outcome="not_run", termination="cancelled")
+        return result
+    if ended == "oom-kill":
+        blocked = server.oom("while the command ran")
+        result.update(
+            outcome="blocked",
+            exit_code=EXIT_BLOCKED,
+            cause={"kind": "oom", "detail": blocked.detail, "repair": blocked.repair},
+        )
+    elif ended == "result resources":
+        result.update(
+            outcome="blocked",
+            exit_code=EXIT_BLOCKED,
+            cause={"kind": "infrastructure", "detail": "fixture unit could not allocate resources"},
+        )
+    elif ended is not None:
+        result.update(
+            outcome="failed",
+            exit_code=child_exit_code or 1,
+            cause={
+                "kind": "server_end_unknown",
+                "detail": "fixture server ended unexpectedly; cause unknown",
+            },
+        )
+    return result
 
 
 def _finish(server: Server, code: int, report: Callable[[str], None]) -> int:
-    ended = server.exited()
-    if ended == "oom-kill":
-        report(server.oom("while the command ran").message())
-        return EXIT_BLOCKED
-    if ended is not None:
+    result = server_end_outcome(server, code)
+    if result["cause"]:
         report(
-            f"fixture: blocked: readiness: server {server.id} ended ({ended}) during the command"
+            f"fixture: {result['outcome']}: {result['cause']['kind']}: "
+            f"{result['cause']['detail']}; child exit={code}"
         )
-        return EXIT_BLOCKED
-    return code
+    return result["exit_code"]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="just fixture", description=(__doc__ or "").split("\n\n")[0]
+        prog="just fixture",
+        description=(__doc__ or "").split("\n\n")[0],
+        epilog="Draft syntax: surreal validate --stdin "
+        "(syntax only, not schema/runtime acceptance). "
+        "--attach alone creates a fresh namespace. To inspect previous content select its "
+        "exact live --inspect-config or checked --serving NAME. SQL can mutate data. "
+        "Native MCP errors are not sanitized: only acknowledged synthetic/non-sensitive "
+        "attachments are supported; supply namespace/database on every tool call.",
     )
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--keep", action="store_true", help="create a kept fixture; print its ID")
@@ -1389,7 +1974,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     action.add_argument("--list", action="store_true", help="inventory (never sweeps)")
     action.add_argument("--sweep", action="store_true", help="sweep dead owners' state only")
     parser.add_argument("--json", action="store_true", help="--list as JSON")
-    parser.add_argument("--force", action="store_true", help="--stop despite live attachments")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="selected --stop recovery; never bypasses live owner locks or unconfirmed cleanup",
+    )
     parser.add_argument("--no-sweep", action="store_true", help="skip the automatic start sweep")
     parser.add_argument(
         "--memory", help=f"MemoryMax (LCTX_FIXTURE_MEMORY, default {DEFAULT_MEMORY})"
@@ -1404,6 +1993,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     serving = parser.add_mutually_exclusive_group()
     serving.add_argument("--retain-serving", metavar="NAME", help="record retained serving content")
     serving.add_argument("--serving", metavar="NAME", help="reuse retained serving content")
+    parser.add_argument(
+        "--inspect-config",
+        type=Path,
+        metavar="PATH",
+        help="exact live attachment/retained config on --attach ID; never operator state",
+    )
+    diagnostic = parser.add_mutually_exclusive_group()
+    diagnostic.add_argument(
+        "--sql",
+        metavar="FILE|-",
+        help="execute effectful SQL and print sanitized indexed JSON outcomes",
+    )
+    diagnostic.add_argument(
+        "--mcp",
+        action="store_true",
+        help="launch a fresh native Codex HTTP MCP task; argv after -- are Codex arguments",
+    )
+    parser.add_argument(
+        "--non-sensitive",
+        action="store_true",
+        help="acknowledge native MCP may expose full errors from "
+        "synthetic/non-sensitive attachment content",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -1423,8 +2035,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.stop:
         server = Server.open(args.stop)
-        if server.kind == "run" and owner_alive(
-            server.record.get("owner"), server.directory / "owner.lock"
+        if (
+            server.kind == "run"
+            and not args.force
+            and owner_alive(server.record.get("owner"), server.directory / "owner.lock")
         ):
             _stderr(f"fixture {args.stop} is run-owned by a live launcher; cancel that command")
             return 1
@@ -1434,7 +2048,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if attached and not args.force:
             _stderr(f"fixture {args.stop} has live attachments {attached}; pass --force to stop")
             return 1
-        ended = server.destroy()
+        ended = server.destroy(recover=True)
+        if ended == "cleanup-unresolved":
+            _stderr(f"fixture {args.stop}: cleanup unresolved; state retained")
+            return 1
         print(f"fixture {args.stop}: stopped{f' (had ended: {ended})' if ended else ''}")
         return 0
     if args.restart:
@@ -1444,8 +2061,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         server.restart()
         print(f"fixture {server.id}: restarted on {server.endpoint}")
         return 0
-    if not command and not args.keep:
+    if not command and not args.keep and not args.sql and not args.mcp:
         parser.error("provide a command after --")
+    if args.sql and command:
+        parser.error("--sql does not accept a child command")
+    if args.inspect_config and (not args.attach or not args.sql):
+        parser.error("--inspect-config requires --attach ID and --sql")
+    if args.mcp and (args.serving or args.retain_serving):
+        parser.error("native MCP supports fresh disposable attachments only, not retained content")
+    if args.mcp and not args.non_sensitive:
+        parser.error("--mcp requires --non-sensitive; native errors are not sanitized")
+    if args.sql and args.retain_serving:
+        parser.error("--retain-serving requires a producer command")
     if (args.retain_serving or args.serving) and not args.attach and not args.keep:
         parser.error("--retain-serving/--serving need a kept fixture (--keep or --attach)")
 
@@ -1463,13 +2090,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 parser.error(f"{args.attach} is not a kept fixture")
             ended = server.exited()
             if ended is not None:
-                raise (
-                    server.oom("before attaching")
-                    if ended == "oom-kill"
-                    else FixtureBlocked(
-                        "readiness", f"kept fixture {server.id} is not running ({ended})"
-                    )
-                )
+                observed = _classify_server_end(server, ended, None)
+                cause = observed["cause"]
+                if observed["outcome"] == "blocked":
+                    raise FixtureBlocked(cause["kind"], cause["detail"], cause.get("repair"))
+                raise FixtureFailed(cause["kind"], cause["detail"])
             server.ready()
         else:
             server = Server.create(
@@ -1482,8 +2107,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if args.keep:
                 print(server.id, flush=True)
-        if not command:
+        if not command and not args.sql and not args.mcp:
             return 0
+        if args.sql and args.inspect_config:
+            namespace, database = inspection_scope(server, args.inspect_config)
+            sql = sys.stdin.read() if args.sql == "-" else Path(args.sql).read_text()
+            diagnostic_result = server.diagnose(sql, namespace=namespace, database=database)
+            print(
+                json.dumps(
+                    {
+                        "fixture": server.id,
+                        "namespace": namespace,
+                        "database": database,
+                        **diagnostic_result,
+                    },
+                    indent=2,
+                )
+            )
+            code = _finish(server, 0 if diagnostic_result["outcome"] == "passed" else 1, _stderr)
+            return code
         attachment = Attachment.create(server)
         if args.retain_serving:
             attachment.retain_serving(args.retain_serving)
@@ -1493,12 +2135,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"fixture {server.id}: reusing serving {args.serving!r}; skipped producer "
                 f"{shlex.join(reuse['skipped_obligations'][0]['producer'])}"
             )
-        code = run_attached(
-            attachment,
-            command,
-            requirements=python_requirements(command, args.requires),
-            cwd=Path.cwd(),
-        )
+        if args.sql:
+            configuration = (
+                Path(attachment.extra_env["LCTX_NATIVE_SERVING_CONFIG"])
+                if args.serving
+                else attachment.config_path
+            )
+            namespace, database = inspection_scope(server, configuration)
+            sql = sys.stdin.read() if args.sql == "-" else Path(args.sql).read_text()
+            diagnostic_result = server.diagnose(sql, namespace=namespace, database=database)
+            print(
+                json.dumps(
+                    {
+                        "fixture": server.id,
+                        "namespace": namespace,
+                        "database": database,
+                        **diagnostic_result,
+                    },
+                    indent=2,
+                )
+            )
+            code = 0 if diagnostic_result["outcome"] == "passed" else 1
+        else:
+            child_env = None
+            if args.mcp:
+                command, child_env = mcp_invocation(
+                    attachment, command, non_sensitive=args.non_sensitive
+                )
+                _stderr(
+                    f"fixture MCP: native errors are unsanitized; each call must pass "
+                    f"namespace={attachment.namespace} database=core; retained content unsupported"
+                )
+            code = run_attached(
+                attachment,
+                command,
+                requirements=python_requirements(command, args.requires),
+                cwd=Path.cwd(),
+                child_env=child_env,
+            )
         code = _finish(server, code, _stderr)
         if args.retain_serving:
             if code == 0:
@@ -1507,14 +2181,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                     f"fixture {server.id}: retained serving {args.retain_serving!r}:"
                     f" {identity['content']}"
                 )
-            else:
+            elif (attachment._command_cleanup or {}).get("status") == "confirmed":
                 shutil.rmtree(
                     server.directory / "serving" / args.retain_serving, ignore_errors=True
                 )
+        attachment.release()
+        attachment = None
+        if server.kind == "run":
+            ended = server.destroy()
+            if ended == "oom-kill":
+                _stderr(server.oom("while the command ran").message())
+                code = EXIT_BLOCKED
+            elif ended == "cleanup-unresolved":
+                code = code or 1
+            server = None
         return code
     except FixtureBlocked as blocked:
         _stderr(blocked.message())
         code = EXIT_BLOCKED
+        return code
+    except FixtureFailed as failed:
+        _stderr(failed.message())
+        code = 1
         return code
     except _Interrupted as interrupted:
         code = 128 + interrupted.signum

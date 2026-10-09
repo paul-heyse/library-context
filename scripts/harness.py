@@ -7,12 +7,14 @@ alive. A foreign identity is never signalled.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import fcntl
 import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -152,6 +154,137 @@ def signal_group(pgid: int, *, grace: float = 10.0) -> bool:
     return not group_members(pgid)
 
 
+def cleanup_group(pgid: int, *, grace: float = 10.0) -> dict[str, Any]:
+    """Observe cleanup of a directly owned group; an attempt alone is never confirmation."""
+    identities = []
+    try:
+        survivors = group_members(pgid)
+        for pid in survivors:
+            # A disappearing member must not prevent the cleanup attempt.
+            with contextlib.suppress(OSError):
+                identities.append(ProcessIdentity.of(pid).to_json())
+        if survivors and not signal_group(pgid, grace=grace):
+            return {"status": "failed", "survivors": group_members(pgid), "members": identities}
+        remaining = group_members(pgid)
+        return {"status": "failed" if remaining else "confirmed", "survivors": remaining}
+    except PermissionError as error:
+        return {"status": "failed", "error": type(error).__name__, "members": identities}
+    except Exception as error:
+        return {"status": "unknown", "error": type(error).__name__, "members": identities}
+
+
+def observe_exit(child: subprocess.Popen) -> int | None:
+    """Observe actual child exit without reaping its leader or releasing its numeric identity.
+
+    A SpawnGuard consumer must use this instead of Popen.poll/wait/communicate. The guard is
+    the sole reaper: a waitable leader, including a zombie, pins the PID/process-group ID until
+    owned-group cleanup finishes. Cached Popen.returncode is still truthful after guard exit,
+    but it cannot authorize any later numeric-group cleanup.
+    """
+    if child.returncode is not None:
+        return child.returncode
+    status = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    if status is None:
+        return None
+    if status.si_code == os.CLD_EXITED:
+        return status.si_status
+    if status.si_code in (os.CLD_KILLED, os.CLD_DUMPED):
+        return -status.si_status
+    raise ChildProcessError("child terminal status unavailable")
+
+
+class SpawnGuard:
+    """Install immediately after spawn, before identity/receipt work can fail.
+
+    Consumers observe_exit without reaping. The guard keeps the original leader waitable
+    throughout cleanup, then reaps after confirmation. Losing that pin refuses numeric cleanup;
+    discovering current members alone cannot establish that a reused group is still ours.
+    Historical recovery must establish identity separately before calling cleanup_group.
+    """
+
+    def __init__(self, child: subprocess.Popen, *, grace: float = 10.0) -> None:
+        self.child = child
+        self.pgid = child.pid
+        self.grace = grace
+        self.cleanup: dict[str, Any] = {"status": "unknown"}
+        self.returncode: int | None = None
+
+    def __enter__(self) -> SpawnGuard:
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        if self.child.returncode is not None:
+            self.returncode = self.child.returncode
+            self.cleanup = {"status": "unknown", "reason": "leader reaped before cleanup"}
+            return
+        try:
+            self.returncode = observe_exit(self.child)
+        except OSError:
+            self.cleanup = {"status": "unknown", "reason": "leader no longer waitable"}
+            return
+        self.cleanup = cleanup_group(self.pgid, grace=self.grace)
+        if self.cleanup["status"] == "confirmed":
+            self.returncode = self.child.wait()
+        elif self.returncode is None:
+            # Preserve the actual leader result even when descendant cleanup is unresolved;
+            # leave it unreaped so no later direct-owner cleanup can follow a reused group ID.
+            with contextlib.suppress(OSError):
+                self.returncode = observe_exit(self.child)
+
+
+def recorded_group(
+    child: Mapping[str, Any] | None, *, members: Sequence[Mapping[str, Any]] = ()
+) -> dict[str, Any]:
+    """Observe an old group's identity without treating an unknowable group as absent.
+
+    An extant leader (including a zombie) with matching kernel start time identifies the
+    group. With an absent leader, an empty group is gone, but surviving members alone cannot
+    exclude a subsequently reused group id. Foreign namespaces never authorize signalling.
+    """
+    if not child:
+        return {"status": "unknown", "reason": "no child identity"}
+    try:
+        identity = ProcessIdentity.from_json(child)
+        if identity.previous_boot():
+            return {"status": "gone", "members": [], "reason": "previous boot"}
+        if identity.foreign():
+            return {"status": "unknown", "reason": "foreign pid namespace"}
+        pgid = int(child["pgid"])
+        if pgid != identity.pid:
+            return {"status": "unknown", "reason": "group identity mismatch"}
+        fields = _stat_fields(identity.pid)
+        if fields is not None and int(fields[19]) != identity.start_ticks:
+            return {"status": "unknown", "reason": "reused pid"}
+        current_members = group_members(pgid)
+        if not current_members:
+            return {"status": "gone", "members": []}
+        if fields is None or int(fields[2]) != pgid:
+            # A surviving member recorded by the direct owner establishes uninterrupted group
+            # identity after leader exit; a group id cannot be reused while that member lives.
+            for member in members:
+                known = ProcessIdentity.from_json(member)
+                if known.pid in current_members and known.alive():
+                    return {"status": "owned", "members": current_members}
+            return {"status": "unknown", "reason": "group leader identity unavailable"}
+        return {"status": "owned", "members": current_members}
+    except OSError, ValueError, KeyError, TypeError:
+        return {"status": "unknown", "reason": "child identity unavailable"}
+
+
+def try_hold_lock(path: Path) -> int | None:
+    """Acquire the same exclusive owner lock without waiting on a live supervisor."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(descriptor)
+        return None
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
 def hold_lock(path: Path) -> int:
     """An exclusive flock held until this process exits (close-on-exec, never inherited)."""
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
@@ -198,3 +331,188 @@ def read_json(path: Path) -> Any | None:
         return json.loads(path.read_text())
     except OSError, ValueError:
         return None
+
+
+LOG_BLOCK = 64 * 1024
+
+
+def tail_bytes(
+    path: Path, lines: int, *, block_size: int = LOG_BLOCK, end_offset: int | None = None
+) -> bytes:
+    """Read only the requested LF/CRLF suffix, preserving bytes and an unfinished last line."""
+    if lines < 0:
+        raise ValueError("tail lines must be nonnegative")
+    if block_size <= 0:
+        raise ValueError("block_size must be positive")
+    if lines == 0:
+        return b""
+    with path.open("rb") as handle:
+        size = handle.seek(0, os.SEEK_END)
+        position = size if end_offset is None else min(size, end_offset)
+        if not position:
+            return b""
+        handle.seek(position - 1)
+        needed = lines + (handle.read(1) == b"\n")
+        blocks = []
+        found = 0
+        while position and found < needed:
+            size = min(position, block_size)
+            position -= size
+            handle.seek(position)
+            block = handle.read(size)
+            blocks.append(block)
+            found += block.count(b"\n")
+        data = b"".join(reversed(blocks))
+    cursor = len(data) - (data.endswith(b"\n"))
+    for _ in range(lines):
+        cursor = data.rfind(b"\n", 0, cursor)
+        if cursor < 0:
+            return data
+    return data[cursor + 1 :]
+
+
+def iter_file_chunks(
+    path: Path,
+    *,
+    offset: int = 0,
+    follow: bool = False,
+    alive: Callable[[], bool] = lambda: True,
+    block_size: int = LOG_BLOCK,
+):
+    """Yield bytes once from an offset; follow replacement/truncation from their new start.
+
+    Bytes (including incomplete UTF-8 characters/lines) are forwarded intact without a text
+    decoder losing a trailing fragment. A final drain occurs after the producer ends.
+    """
+    if offset < 0 or block_size <= 0:
+        raise ValueError("offset must be nonnegative and block_size positive")
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        while True:
+            chunk = handle.read(block_size)
+            if chunk:
+                yield chunk
+                continue
+            if not follow:
+                return
+            try:
+                current = path.stat()
+            except FileNotFoundError:
+                current = None
+            if current is not None:
+                opened = os.fstat(handle.fileno())
+                if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+                    # Keep the context manager's descriptor lifetime while replacing its file.
+                    replacement = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+                    try:
+                        os.dup2(replacement, handle.fileno())
+                    finally:
+                        os.close(replacement)
+                    handle.seek(0)
+                    continue
+                if current.st_size < handle.tell():
+                    handle.seek(0)
+                    continue
+            if not alive():
+                final = handle.read(block_size)
+                if final:
+                    yield final
+                    continue
+                return
+            time.sleep(0.05)
+
+
+class FileDisplay:
+    """Best-effort file observer in its own process, never part of the product child group.
+
+    start()/close() never raise; construction and failed display cannot determine command
+    outcome. close asks for a final drain, then detaches a blocked sink by stopping the observer.
+    Only the observer can block writing to a terminal; its one-block buffer cannot grow a queue.
+    """
+
+    def __init__(self, path: Path, *, sink_fd: int = 1, offset: int = 0, banner: str = "") -> None:
+        self.path, self.sink_fd, self.offset, self.banner = path, sink_fd, offset, banner
+        self.process: subprocess.Popen | None = None
+        self.control: int | None = None
+
+    def start(self) -> FileDisplay:
+        read_end = write_end = None
+        try:
+            read_end, write_end = os.pipe()
+            self.process = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve()),
+                    "_display",
+                    str(self.path),
+                    str(read_end),
+                    str(self.offset),
+                    self.banner,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=self.sink_fd,
+                stderr=subprocess.DEVNULL,
+                pass_fds=(read_end,),
+                start_new_session=True,
+                preexec_fn=_death_signal(signal.SIGTERM, os.getpid()),
+            )
+            self.control = write_end
+            write_end = None
+        except Exception:
+            pass
+        finally:
+            for descriptor in (read_end, write_end):
+                if descriptor is not None:
+                    os.close(descriptor)
+        return self
+
+    def close(self) -> None:
+        try:
+            if self.control is not None:
+                os.close(self.control)
+                self.control = None
+            if self.process is not None:
+                try:
+                    self.process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    self.process.terminate()
+                    try:
+                        self.process.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait()
+        except Exception:
+            pass
+
+    def __enter__(self) -> FileDisplay:
+        return self.start()
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.close()
+
+
+def _display(path: Path, control: int, offset: int, banner: str) -> None:
+    os.set_blocking(control, False)
+
+    def alive() -> bool:
+        try:
+            return os.read(control, 1) != b""
+        except BlockingIOError:
+            return True
+
+    def write(chunk: bytes) -> None:
+        while chunk:
+            written = os.write(1, chunk)
+            chunk = chunk[written:]
+
+    try:
+        if banner:
+            write((banner + "\n").encode())
+        for chunk in iter_file_chunks(path, offset=offset, follow=True, alive=alive):
+            write(chunk)
+    except OSError, ValueError:
+        pass
+
+
+if __name__ == "__main__" and len(sys.argv) == 6 and sys.argv[1] == "_display":
+    _display(Path(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), sys.argv[5])

@@ -78,6 +78,7 @@ def test_foreground_preserves_failure_streams_output_and_records(root: Path) -> 
     assert set(record) == {
         "schema", "id", "argv", "cwd", "label", "mode", "owner", "child", "phase",
         "current_command", "waiting_reason", "started", "ended", "exit", "termination", "logs",
+        "launch_error", "supervisor_error", "cleanup",
     }  # fmt: skip
     assert record["id"] == run_dir.name and record["label"] == "fails"
     assert record["argv"] == ["bash", "-c", "echo out; echo err >&2; exit 7"]
@@ -99,7 +100,8 @@ def test_missing_command_is_a_recorded_launch_error(root: Path) -> None:
     result = cli("run", "--", "definitely-not-a-command-xyz")
     assert result.returncode == 127
     record = record_of("last")
-    assert record["exit"] == {"code": 127} and record["termination"] == "completed"
+    assert record["exit"] is None and record["termination"] == "completed"
+    assert record["cleanup"]["status"] == "confirmed"
     assert "launch_error" in record
     background = cli("run", "--background", "--", "definitely-not-a-command-xyz")
     assert background.returncode == 127
@@ -315,3 +317,329 @@ def test_label_resolves_to_its_newest_run(root: Path) -> None:
     cli("run", "--label", "again", "--", "true")
     cli("run", "--label", "again", "--", "false")
     assert status("again")["exit"] == {"code": 1}
+
+
+@pytest.mark.parametrize("failure", ["identity", "receipt", "progress", "final_receipt"])
+def test_post_spawn_failure_cleans_actual_group(root, monkeypatch, failure, capsys):
+    run_dir = runs.new_run_dir()
+    owner = runs.Owner(
+        run_dir, ["sleep", "120"], label=None, cwd=str(root.parent), mode="foreground", stream=False
+    )
+    spawned = []
+    original_spawn = runs.spawn_group
+    original_write = owner.write
+    writes = 0
+
+    def spawn(*args, **kwargs):
+        child = original_spawn(*args, **kwargs)
+        spawned.append(child)
+        return child
+
+    def write():
+        nonlocal writes
+        writes += 1
+        if (failure == "receipt" and writes == 2) or (failure == "final_receipt" and writes >= 3):
+            raise OSError("injected record failure")
+        original_write()
+
+    monkeypatch.setattr(runs, "spawn_group", spawn)
+    monkeypatch.setattr(owner, "write", write)
+    if failure == "identity":
+        monkeypatch.setattr(
+            runs.ProcessIdentity,
+            "of",
+            classmethod(lambda cls, pid=None: (_ for _ in ()).throw(OSError("identity"))),
+        )
+    if failure == "progress":
+        monkeypatch.setattr(
+            owner, "_fold_progress", lambda: (_ for _ in ()).throw(ValueError("progress"))
+        )
+    if failure == "final_receipt":
+        owner.argv = ["true"]
+    assert owner.run() != 0
+    assert spawned and group_members(spawned[0].pid) == []
+    assert spawned[0].returncode is not None
+    assert owner.record["supervisor_error"]
+    assert owner.record["cleanup"]["status"] == "confirmed"
+    assert not runs.lock_held(run_dir / runs.OWNER_LOCK)
+    if failure == "final_receipt":
+        assert owner.record["exit"] == {"code": 0}
+        assert "receipt failed" in capsys.readouterr().err
+
+
+def _historical_record(run_dir, child):
+    owner = ProcessIdentity.of().to_json() | {"start_ticks": 0}
+    record = {
+        "schema": 1,
+        "id": run_dir.name,
+        "owner": owner,
+        "child": child,
+        "termination": "completed",
+        "exit": {"code": 7},
+        "ended": runs.now(),
+        "extension": {"unknown": "preserve me"},
+    }
+    runs.write_json_atomic(run_dir / runs.RECORD, record)
+    (run_dir / runs.OUTPUT).write_bytes(b"retained capture\x00")
+    return record
+
+
+def test_legacy_observation_preserves_bytes_and_selected_recovery_preserves_exit(root):
+    child = runs.spawn_group(["true"])
+    identity = ProcessIdentity.of(child.pid).to_json() | {"pgid": child.pid}
+    child.wait()
+    run_dir = runs.new_run_dir()
+    original = _historical_record(run_dir, identity)
+    before = (run_dir / runs.RECORD).read_bytes()
+    capture = (run_dir / runs.OUTPUT).read_bytes()
+    observed = runs.view(run_dir)
+    assert observed["cleanup"]["status"] == "unknown"
+    assert run_dir not in runs.prune_candidates(0, None)
+    assert (run_dir / runs.RECORD).read_bytes() == before
+    final = runs.cancel(run_dir, grace=0.1)
+    assert final["cleanup"]["status"] == "confirmed" and final["schema"] == 2
+    assert final["exit"] == original["exit"] and final["extension"] == original["extension"]
+    assert (run_dir / runs.OUTPUT).read_bytes() == capture
+    assert run_dir in runs.prune_candidates(0, None)
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+def test_recovery_does_not_signal_foreign_or_reused_pid(root, foreign):
+    child = runs.spawn_group(["sleep", "120"])
+    try:
+        identity = ProcessIdentity.of(child.pid).to_json() | {"pgid": child.pid}
+        if foreign:
+            identity["pid_namespace"] += 1
+        else:
+            identity["start_ticks"] += 1
+        run_dir = runs.new_run_dir()
+        _historical_record(run_dir, identity)
+        recovered = runs.cancel(run_dir, grace=0.1)
+        assert recovered["cleanup"]["status"] == "unknown"
+        assert child.poll() is None
+        assert run_dir not in runs.prune_candidates(0, None)
+    finally:
+        runs.signal_group(child.pid, grace=0.1)
+        child.wait()
+
+
+def test_failed_cleanup_is_protected_and_retry_keeps_child_exit(root, monkeypatch):
+    child = runs.spawn_group(["sleep", "120"])
+    run_dir = runs.new_run_dir()
+    identity = ProcessIdentity.of(child.pid).to_json() | {"pgid": child.pid}
+    _historical_record(run_dir, identity)
+    cleanup = runs.cleanup_group
+    try:
+        monkeypatch.setattr(runs, "cleanup_group", lambda *_args, **_kw: {"status": "failed"})
+        first = runs.cancel(run_dir, grace=0.1)
+        assert first["cleanup"]["status"] == "failed" and child.poll() is None
+        assert run_dir not in runs.prune_candidates(0, None)
+        monkeypatch.setattr(runs, "cleanup_group", cleanup)
+        second = runs.cancel(run_dir, grace=0.1)
+        assert second["cleanup"]["status"] == "confirmed"
+        assert second["exit"] == {"code": 7} and len(second["recovery"]) == 2
+        assert group_members(child.pid) == []
+    finally:
+        cleanup(child.pid, grace=0.1)
+        child.wait()
+
+
+def test_live_owner_recovery_only_writes_request_and_preserves_legacy_record(root, monkeypatch):
+    run_dir = runs.new_run_dir()
+    record = _historical_record(run_dir, None)
+    descriptor = runs.hold_lock(run_dir / runs.OWNER_LOCK)
+    original = (run_dir / runs.RECORD).read_bytes()
+    try:
+        monkeypatch.setattr(runs, "_wait_terminal", lambda *_args: record)
+        monkeypatch.setattr(
+            runs, "signal_group", lambda *_args, **_kw: pytest.fail("live owner owns signalling")
+        )
+        result = runs.cancel(run_dir, grace=0.1)
+        assert result["cancel_result"] == "requested; cleanup unresolved"
+        assert (run_dir / runs.CANCEL).exists()
+        assert (run_dir / runs.RECORD).read_bytes() == original
+    finally:
+        os.close(descriptor)
+
+
+def test_prune_rechecks_retention_under_owner_lock(root, monkeypatch):
+    assert cli("run", "--", "true").returncode == 0
+    run_dir = runs.resolve("last")
+    acquire = runs.try_hold_lock
+
+    def retain_before_acquisition(path):
+        (run_dir / runs.RETAIN).touch()
+        return acquire(path)
+
+    monkeypatch.setattr(runs, "try_hold_lock", retain_before_acquisition)
+    assert (
+        runs.cmd_prune(argparse.Namespace(keep=0, older_than=None, dry_run=False, json=True)) == 0
+    )
+    assert (run_dir / runs.RECORD).exists()
+
+
+def test_dead_recovery_rereads_after_exclusive_acquisition(root, monkeypatch):
+    child = runs.spawn_group(["true"])
+    identity = ProcessIdentity.of(child.pid).to_json() | {"pgid": child.pid}
+    child.wait()
+    run_dir = runs.new_run_dir()
+    record = _historical_record(run_dir, identity)
+    acquire = runs.try_hold_lock
+
+    def publish_before_acquisition(path):
+        # A preceding owner/recovery completes just before we acquire; stale observation must
+        # not clobber its newer exit/extension. The real flock still protects our publication.
+        runs.write_json_atomic(
+            run_dir / runs.RECORD, record | {"exit": {"code": 23}, "newer": True}
+        )
+        return acquire(path)
+
+    monkeypatch.setattr(runs, "try_hold_lock", publish_before_acquisition)
+    recovered = runs.cancel(run_dir, grace=0.1)
+    assert recovered["exit"] == {"code": 23} and recovered["newer"] is True
+
+
+@pytest.mark.parametrize("refusal,status", [(False, "failed"), (True, "unknown")])
+def test_terminal_child_keeps_failed_cleanup_recoverable(root, monkeypatch, refusal, status):
+    import harness
+
+    run_dir = runs.new_run_dir()
+    owner = runs.Owner(
+        run_dir,
+        ["sh", "-c", "sleep 120 & exit 0"],
+        label=None,
+        cwd=str(root.parent),
+        mode="foreground",
+        stream=False,
+    )
+    cleanup = harness.cleanup_group
+
+    def refuse(*_args, **_kwargs):
+        if refusal:
+            raise OSError("injected uncertain signalling")
+        return False
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(harness, "signal_group", refuse)
+            assert owner.run() == 1
+        record = runs.load_record(run_dir)
+        assert record["exit"] == {"code": 0}
+        assert record["cleanup"]["status"] == status
+        assert runs.group_of(record)["status"] == "owned"
+        assert run_dir not in runs.prune_candidates(0, None)
+        recovered = runs.cancel(run_dir, grace=0.1)
+        assert recovered["cleanup"]["status"] == "confirmed"
+        assert recovered["exit"] == {"code": 0}
+        assert group_members(record["child"]["pgid"]) == []
+    finally:
+        if owner.record.get("child"):
+            cleanup(owner.record["child"]["pgid"], grace=0.1)
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def test_nonconsuming_or_broken_output_does_not_block_child_or_log(root, broken):
+    size = 1024 * 1024
+    launcher = subprocess.Popen(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "run",
+            "--",
+            sys.executable,
+            "-c",
+            f"import sys; sys.stdout.buffer.write(b'x'*{size})",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        if broken:
+            launcher.stdout.close()
+        assert launcher.wait(timeout=15) == 0
+        run_dir = runs.resolve("last")
+        assert (run_dir / runs.OUTPUT).read_bytes() == b"x" * size
+        record = runs.load_record(run_dir)
+        assert record["exit"] == {"code": 0}
+        assert record["supervisor_error"] is None
+        assert record["cleanup"]["status"] == "confirmed"
+    finally:
+        if launcher.poll() is None:
+            launcher.kill()
+            launcher.wait()
+        launcher.stdout.close()
+
+
+def test_cancellation_remains_usable_with_nonconsuming_output(root):
+    launcher = subprocess.Popen(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "run",
+            "--label",
+            "blocked-display",
+            "--",
+            sys.executable,
+            "-c",
+            "import sys,time; sys.stdout.buffer.write(b'x'*1048576); "
+            "sys.stdout.flush(); time.sleep(120)",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        wait_for(
+            lambda: (
+                root.exists()
+                and any(
+                    (d / runs.OUTPUT).exists() and (d / runs.OUTPUT).stat().st_size == 1048576
+                    for d in root.iterdir()
+                )
+            )
+        )
+        result = cli("cancel", "blocked-display", "--json")
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["cleanup"]["status"] == "confirmed"
+        assert launcher.wait(timeout=15) != 0
+        assert (runs.resolve("blocked-display") / runs.OUTPUT).stat().st_size == 1048576
+    finally:
+        if launcher.poll() is None:
+            launcher.kill()
+            launcher.wait()
+        launcher.stdout.close()
+
+
+def test_logs_tail_zero_is_empty(root):
+    assert cli("run", "--", "printf", "one\\ntwo\\n").returncode == 0
+    result = cli("logs", "last", "--tail", "0")
+    assert result.returncode == 0 and result.stdout == ""
+
+
+def test_run_owner_keeps_leader_unreaped_until_cleanup(root, monkeypatch):
+    import harness
+
+    run_dir = runs.new_run_dir()
+    owner = runs.Owner(
+        run_dir,
+        ["sh", "-c", "sleep 120 & exit 9"],
+        label=None,
+        cwd=str(root.parent),
+        mode="foreground",
+        stream=False,
+    )
+    cleanup = harness.cleanup_group
+    pins = []
+
+    def check_pin(pgid, **kwargs):
+        status = os.waitid(os.P_PID, pgid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        assert status is not None and status.si_status == 9
+        pins.append(pgid)
+        return cleanup(pgid, **kwargs)
+
+    monkeypatch.setattr(harness, "cleanup_group", check_pin)
+    assert owner.run() == 9
+    record = runs.load_record(run_dir)
+    assert record["exit"] == {"code": 9}
+    assert record["cleanup"]["status"] == "confirmed"
+    assert pins == [record["child"]["pid"]]
+    assert group_members(pins[0]) == []

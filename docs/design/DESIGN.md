@@ -109,6 +109,20 @@ after an environment change. **Accepted, implementation in progress (2026-10-07,
   The turn reports any skipped step. The default operator store is inspected
 only by explicit operator action; qualification owns disposable store configuration.
 
+**Implemented / Tested at focused scope, 2026-10-09:** managed discovery and execution hold effective
+shared resource ownership before readiness observation and throughout use; explicit preparation
+rechecks and validates inside exclusive ownership. Run ownership covers every post-spawn failure;
+child exit, supervisor/launch failure and cleanup certainty remain distinct. Failed/unknown cleanup
+is recoverable and protected from pruning/removal. Historical records are read without rewriting;
+selected explicit recovery may upgrade a released record under its owner lock without losing
+original fields, exits or captures. Full file logs are authoritative and detachable display cannot
+block supervision. Fixture diagnostics reuse identified content and native protocols, with raw
+MCP output limited to non-sensitive disposable contexts. The
+[agent-effectiveness plan](../plans/agent-effectiveness-followup-plan_2026-10-09.md) owns the dated
+controls and operator-scoped acceptance. Product qualification and measured effectiveness are separate.
+
+> Decision: ADR-0142
+
 **Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and
 acceptance, using reusable evidence, design-review, execution, implementation-review and functional
 testing roles. Shared responsibilities and permitted effects live in [agent role contracts](../../.agents/roles/README.md);

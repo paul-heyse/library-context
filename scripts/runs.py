@@ -30,6 +30,7 @@ alive, `interrupted` when the owner is dead without a terminal record, otherwise
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -47,18 +48,26 @@ from typing import Any
 
 from harness import (
     TERMINATIONS,
+    FileDisplay,
     ProcessIdentity,
+    SpawnGuard,
+    cleanup_group,
     group_members,
     hold_lock,
+    iter_file_chunks,
     lock_held,
+    observe_exit,
     read_json,
+    recorded_group,
     signal_group,
     spawn_group,
+    tail_bytes,
+    try_hold_lock,
     write_json_atomic,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = 1
+SCHEMA = 2
 RECORD = "record.json"
 OUTPUT = "output.log"
 LAUNCHER = "launcher.log"
@@ -106,7 +115,12 @@ def owner_of(record: dict[str, Any]) -> ProcessIdentity:
 
 
 def owner_alive(run_dir: Path, record: dict[str, Any]) -> bool:
-    return owner_of(record).alive() or lock_held(run_dir / OWNER_LOCK)
+    if (run_dir / OWNER_LOCK).exists():
+        return lock_held(run_dir / OWNER_LOCK)
+    try:
+        return owner_of(record).alive()
+    except OSError, KeyError, ValueError, TypeError:
+        return False
 
 
 def state_of(run_dir: Path, record: dict[str, Any] | None) -> str:
@@ -114,9 +128,40 @@ def state_of(run_dir: Path, record: dict[str, Any] | None) -> str:
     otherwise the record's termination; `unknown` before the first record is written."""
     if record is None:
         return "unknown"
+    if owner_alive(run_dir, record):
+        return "running"
     if record.get("termination"):
         return record["termination"]
-    return "running" if owner_alive(run_dir, record) else "interrupted"
+    return "interrupted"
+
+
+def cleanup_of(record: dict[str, Any] | None) -> dict[str, Any]:
+    """The one reader of current and historical cleanup evidence; never infer from termination."""
+    evidence = (record or {}).get("cleanup")
+    if isinstance(evidence, dict) and evidence.get("status") in ("confirmed", "failed", "unknown"):
+        return evidence
+    return {"status": "unknown"}
+
+
+def protected_from_removal(run_dir: Path, record: dict[str, Any] | None = None) -> bool:
+    record = load_record(run_dir) if record is None else record
+    if record is None or owner_alive(run_dir, record):
+        return True
+    return cleanup_protected(record)
+
+
+def cleanup_protected(record: dict[str, Any]) -> bool:
+    """Cleanup/identity protection independent of an owner's lock held by the caller."""
+    observed = group_of(record)
+    return (
+        cleanup_of(record)["status"] != "confirmed"
+        or observed["status"] == "owned"
+        or (record.get("child") is not None and observed["status"] == "unknown")
+    )
+
+
+def group_of(record: dict[str, Any]) -> dict[str, Any]:
+    return recorded_group(record.get("child"), members=cleanup_of(record).get("members") or ())
 
 
 def all_runs() -> list[Path]:
@@ -153,17 +198,9 @@ def resolve(ref: str) -> Path:
 
 
 def child_survivors(record: dict[str, Any]) -> list[int]:
-    """Live members of the run's own command group; empty when it is gone or not provably ours."""
-    child = record.get("child")
-    if not child:
-        return []
-    identity = ProcessIdentity.from_json(child)
-    if identity.foreign():
-        return []
-    members = group_members(int(child["pgid"]))
-    if identity.pid in members and not identity.alive():
-        return []  # the pgid now leads someone else's group
-    return members
+    """Provably owned members only. Use group_observation to distinguish unknown from gone."""
+    observation = group_of(record)
+    return observation.get("members", []) if observation["status"] == "owned" else []
 
 
 def view(run_dir: Path) -> dict[str, Any]:
@@ -172,13 +209,17 @@ def view(run_dir: Path) -> dict[str, Any]:
     state = state_of(run_dir, record)
     data: dict[str, Any] = dict(record or {"id": run_dir.name})
     data["state"] = state
+    data["cleanup"] = cleanup_of(record)
+    data["owner_live"] = record is not None and owner_alive(run_dir, record)
+    data["group_observation"] = group_of(record or {})
+    data["protected"] = protected_from_removal(run_dir, record)
     data["dir"] = str(run_dir)
     if record is not None and state == "running":
         progress = read_json(run_dir / PROGRESS) or {}
         for field in PROGRESS_FIELDS:
             if field in progress:
                 data[field] = progress[field]
-    if record is not None and state in ("running", "interrupted"):
+    if record is not None:
         data["survivors"] = child_survivors(record)
     data["retained"] = (run_dir / RETAIN).exists()
     summary = run_dir / SUMMARY
@@ -293,6 +334,9 @@ class Owner:
             "ended": None,
             "exit": None,
             "termination": None,
+            "launch_error": None,
+            "supervisor_error": None,
+            "cleanup": {"status": "unknown"},
             "logs": {"output": str(run_dir / OUTPUT), "launcher": str(run_dir / LAUNCHER)},
         }
         self._progress_seen: Any = None
@@ -317,55 +361,102 @@ class Owner:
         return changed
 
     def run(self, ready: Callable[[str], None] = lambda _message: None) -> int:
-        for signum in LAUNCHER_SIGNALS:
-            signal.signal(signum, self._on_signal)
-        # Held (close-on-exec, so never by the command) until this process exits.
-        self._lock_fd = hold_lock(self.dir / OWNER_LOCK)
-        self.write()
-        env = dict(os.environ)
-        env["LCTX_RUN_ID"] = self.record["id"]
-        env["LCTX_RUN_DIR"] = str(self.dir)
-        output_path = self.dir / OUTPUT
-        with open(output_path, "ab") as output, open(output_path, "rb") as tail:
-            try:
-                # Leader of its own session (for group signalling), tied to this owner by a
-                # parent-death SIGTERM; the leader is responsible for its group on SIGTERM.
-                child = spawn_group(
-                    self.argv,
-                    env=env,
-                    cwd=self.record["cwd"],
-                    stdin=subprocess.DEVNULL,
-                    stdout=output,
-                    stderr=subprocess.STDOUT,
-                    death_signal=signal.SIGTERM,
-                )
-            except OSError as error:
-                code = 127 if isinstance(error, FileNotFoundError) else 126
-                output.write(f"runs: cannot start {self.argv[0]!r}: {error}\n".encode())
-                output.flush()
-                self.record.update(
-                    phase="ended",
-                    ended=now(),
-                    exit={"code": code},
-                    termination="completed",
-                    launch_error=str(error),
-                )
-                self.write()
-                self._drain(tail)
-                ready(f"error {code}")
-                return code
-            self.record["child"] = {**ProcessIdentity.of(child.pid).to_json(), "pgid": child.pid}
-            self.record["phase"] = "running"
+        previous_signals = {sig: signal.signal(sig, self._on_signal) for sig in LAUNCHER_SIGNALS}
+        lock_fd = hold_lock(self.dir / OWNER_LOCK)
+        child = None
+        guard = None
+        display = None
+        try:
             self.write()
-            ready("ok")
-            returncode = self._own(child, tail)
-        return self._finalize(returncode)
+            env = dict(os.environ)
+            env["LCTX_RUN_ID"] = self.record["id"]
+            env["LCTX_RUN_DIR"] = str(self.dir)
+            output_path = self.dir / OUTPUT
+            with open(output_path, "ab") as output:
+                if self.stream:
+                    display = FileDisplay(
+                        output_path, banner=f"runs: {self.dir.name}  ({output_path})"
+                    )
+                    display.start()
+                try:
+                    child = spawn_group(
+                        self.argv,
+                        env=env,
+                        cwd=self.record["cwd"],
+                        stdin=subprocess.DEVNULL,
+                        stdout=output,
+                        stderr=subprocess.STDOUT,
+                        death_signal=signal.SIGTERM,
+                    )
+                except OSError as error:
+                    code = 127 if isinstance(error, FileNotFoundError) else 126
+                    self.record.update(
+                        phase="ended",
+                        ended=now(),
+                        termination="completed",
+                        launch_error={"kind": type(error).__name__, "errno": error.errno},
+                        cleanup={"status": "confirmed", "reason": "child not launched"},
+                    )
+                    output.write(f"runs: cannot start {self.argv[0]!r}: {error}\n".encode())
+                    output.flush()
+                    self.write()
+                    ready(f"error {code}")
+                    return code
+                # No fallible identity capture or publication precedes the direct-ownership guard.
+                with SpawnGuard(child, grace=5.0) as guard:
+                    self.record["child"] = {"pid": child.pid, "pgid": child.pid}
+                    self.record["child"].update(ProcessIdentity.of(child.pid).to_json())
+                    self.record["phase"] = "running"
+                    self.write()
+                    ready("ok")
+                    returncode = self._own(child)
+                    self.record["exit"] = _exit_of(returncode)
+                    survivors = group_members(child.pid)
+                    if survivors:
+                        self.record["survivors_terminated"] = survivors
+                self.record["cleanup"] = {**guard.cleanup, "observed": now()}
+            return self._finalize(returncode)
+        except Exception as error:
+            if guard is not None:
+                self.record["cleanup"] = {**guard.cleanup, "observed": now()}
+            if child is not None:
+                try:
+                    observed_exit = guard.returncode if guard is not None else observe_exit(child)
+                except OSError:
+                    observed_exit = None
+                if observed_exit is not None:
+                    self.record["exit"] = _exit_of(observed_exit)
+            self.record.update(
+                phase="ended",
+                ended=now(),
+                supervisor_error={"kind": type(error).__name__},
+            )
+            try:
+                self.write()
+            except Exception as receipt_error:
+                print(
+                    f"runs: supervisor receipt failed ({type(receipt_error).__name__}); "
+                    f"run {self.dir}",
+                    file=sys.stderr,
+                )
+            print(
+                f"runs: supervisor failed ({type(error).__name__}); run {self.dir}", file=sys.stderr
+            )
+            with contextlib.suppress(Exception):
+                ready("error 1")
+            # Keep an actual nonzero child status; a successful child cannot hide owner failure.
+            return _status_of(self.record["exit"]) or 1
+        finally:
+            if display is not None:
+                display.close()
+            os.close(lock_fd)
+            for sig, previous in previous_signals.items():
+                signal.signal(sig, previous)
 
-    def _own(self, child: subprocess.Popen, tail: Any) -> int:
+    def _own(self, child: subprocess.Popen) -> int:
         handled = False
         while True:
-            returncode = child.poll()
-            self._drain(tail)
+            returncode = observe_exit(child)
             if self._fold_progress():
                 self.write()
             if returncode is not None:
@@ -378,25 +469,7 @@ class Owner:
                 signal_group(child.pid)
                 continue
             time.sleep(POLL)
-        # The leader is gone; anything left in its group is an owned leak.
-        survivors = group_members(child.pid)
-        if survivors:
-            self.record["survivors_terminated"] = survivors
-            signal_group(child.pid, grace=5.0)
-        self._drain(tail)
         return returncode
-
-    def _drain(self, tail: Any) -> None:
-        if not self.stream:
-            return
-        chunk = tail.read()
-        if not chunk:
-            return
-        try:
-            sys.stdout.buffer.write(chunk)
-            sys.stdout.buffer.flush()
-        except BrokenPipeError, ValueError:
-            self.stream = False
 
     def _finalize(self, returncode: int) -> int:
         self._fold_progress()
@@ -416,7 +489,8 @@ class Owner:
         self.write()
         if self.received is not None and returncode >= 0:
             return 128 + int(self.received)
-        return _status_of(self.record["exit"])
+        status = _status_of(self.record["exit"])
+        return status or (0 if cleanup_of(self.record)["status"] == "confirmed" else 1)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -456,8 +530,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     cwd = os.getcwd()
     if not args.background:
         owner = Owner(run_dir, argv, label=args.label, cwd=cwd, mode="foreground", stream=True)
-        print(f"runs: {run_dir.name}  ({run_dir / OUTPUT})", file=sys.stderr)
-        sys.stderr.flush()
         return owner.run()
     return _launch_background(run_dir, argv, args)
 
@@ -582,7 +654,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             text = text[:57] + "..."
         print(
             f"{data['id']}  {data['state']:<11} {_exit_text(data.get('exit')):<14} "
-            f"{duration:>7}  {text}"
+            f"cleanup={data['cleanup']['status']:<9} {duration:>7}  {text}"
         )
     return 0
 
@@ -601,6 +673,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         ("ended", data.get("ended")),
         ("duration", _age(data.get("started"), data.get("ended"))),
         ("phase", data.get("phase")),
+        ("cleanup", data["cleanup"]["status"]),
+        ("supervisor", data.get("supervisor_error")),
         ("command", data.get("current_command")),
         ("waiting", data.get("waiting_reason")),
         ("exit", _exit_text(data.get("exit")) if data.get("exit") else None),
@@ -633,24 +707,21 @@ def cmd_logs(args: argparse.Namespace) -> int:
     path = run_dir / OUTPUT
     out = sys.stdout.buffer
     try:
-        with open(path, "rb") as handle:
-            if args.tail is not None:
-                lines = handle.read().splitlines(keepends=True)
-                out.write(b"".join(lines[-args.tail :]))
-            else:
-                shutil.copyfileobj(handle, out)
+        offset = 0
+        if args.tail is not None:
+            # The offset is captured before suffix reading, so appended bytes are followed from
+            # this boundary rather than silently discarded by a later size observation.
+            offset = path.stat().st_size
+            out.write(tail_bytes(path, args.tail, end_offset=offset))
             out.flush()
-            while args.follow:
-                chunk = handle.read()
-                if chunk:
-                    out.write(chunk)
-                    out.flush()
-                    continue
-                if state_of(run_dir, load_record(run_dir)) != "running":
-                    out.write(handle.read())
-                    out.flush()
-                    break
-                time.sleep(0.2)
+        for chunk in iter_file_chunks(
+            path,
+            offset=offset,
+            follow=args.follow,
+            alive=lambda: state_of(run_dir, load_record(run_dir)) == "running",
+        ):
+            out.write(chunk)
+            out.flush()
     except FileNotFoundError:
         print(f"runs: {run_dir.name} has no output yet", file=sys.stderr)
         return 1
@@ -672,41 +743,81 @@ def _wait_terminal(run_dir: Path, timeout: float) -> dict[str, Any] | None:
 
 
 def cancel(run_dir: Path, *, grace: float = 10.0) -> dict[str, Any]:
-    """Stop one run's own command group; other runs are untouched. Returns the resulting view."""
+    """Request a live owner to stop; recover a dead owner only under its exclusive lock."""
     record = load_record(run_dir)
-    state = state_of(run_dir, record)
-    if record is None or record.get("termination") or state not in ("running", "interrupted"):
-        return {**view(run_dir), "cancel_result": f"not cancelled: already {state}"}
-    survivors = child_survivors(record)
-    if state == "running":
+    if record is None:
+        return {**view(run_dir), "cancel_result": "unresolved: no record"}
+    # The request protocol is the only operation permitted while another writer owns the lock.
+    had_owner_lock = (run_dir / OWNER_LOCK).exists()
+    descriptor = try_hold_lock(run_dir / OWNER_LOCK)
+    if descriptor is None:
         write_json_atomic(
             run_dir / CANCEL, {"requested": now(), "by": ProcessIdentity.of().to_json()}
         )
-        if survivors:
-            signal_group(int(record["child"]["pgid"]), grace=grace)
         final = _wait_terminal(run_dir, grace + 15.0)
-        if final is not None and final.get("termination"):
+        if final is not None and cleanup_of(final)["status"] == "confirmed":
             return {**view(run_dir), "cancel_result": "cancelled"}
-        if final is not None and owner_alive(run_dir, final):
-            return {**view(run_dir), "cancel_result": "signalled; the owner has not finalized"}
-        record = load_record(run_dir) or record  # owner died meanwhile: finalize below
-        survivors = child_survivors(record)
-    # Interrupted: the owner is dead, so this command finalizes the record.
-    stopped = signal_group(int(record["child"]["pgid"]), grace=grace) if survivors else True
-    record.update(
-        phase="ended",
-        ended=now(),
-        termination="cancelled" if survivors else "interrupted",
-        cancel={
-            "requested": now(),
-            "by": ProcessIdentity.of().to_json(),
-            "owner_dead": True,
-            "survivors_signalled": survivors,
-            "stopped": stopped,
-        },
-    )
-    write_json_atomic(run_dir / RECORD, record)
-    return {**view(run_dir), "cancel_result": record["termination"]}
+        if lock_held(run_dir / OWNER_LOCK):
+            return {**view(run_dir), "cancel_result": "requested; cleanup unresolved"}
+        # The owner died during the request: retry the same exclusive acquisition and reread.
+        return cancel(run_dir, grace=grace)
+    try:
+        record = load_record(run_dir)
+        if record is None:
+            return {**view(run_dir), "cancel_result": "unresolved: no record"}
+        # Existing supervisors always hold owner.lock. A lockless historical live identity is
+        # protected too; it is not permission to create a second writer.
+        try:
+            lockless_live = (
+                not had_owner_lock and owner_of(record).alive() and not record.get("termination")
+            )
+        except OSError, KeyError, TypeError, ValueError:
+            lockless_live = False
+        if lockless_live:
+            write_json_atomic(
+                run_dir / CANCEL, {"requested": now(), "by": ProcessIdentity.of().to_json()}
+            )
+            result = "requested; cleanup unresolved"
+        else:
+            observation = group_of(record)
+            if observation["status"] == "owned":
+                cleanup = cleanup_group(int(record["child"]["pgid"]), grace=grace)
+            elif observation["status"] == "gone":
+                cleanup = {"status": "confirmed", "survivors": []}
+            elif record.get("launch_error") and not record.get("child"):
+                cleanup = {"status": "confirmed", "reason": "child not launched"}
+            else:
+                cleanup = {"status": "unknown", "reason": observation.get("reason")}
+            recovery = {
+                "requested": now(),
+                "by": ProcessIdentity.of().to_json(),
+                "owner_dead": True,
+                "group_observation": observation,
+                "cleanup": cleanup,
+            }
+            # Selected, explicit recovery upgrades in place, retaining every historical field,
+            # including exit, unknown extensions, paths and captures.
+            if record.get("schema") != SCHEMA:
+                record.setdefault("legacy_record", dict(record))
+            record["schema"] = SCHEMA
+            record["cleanup"] = {**cleanup, "observed": now()}
+            record.setdefault("launch_error", None)
+            record.setdefault("supervisor_error", None)
+            record.setdefault("recovery", []).append(recovery)
+            record.setdefault("cancel", recovery)
+            if not record.get("termination"):
+                record.update(
+                    phase="ended",
+                    ended=now(),
+                    termination="cancelled" if observation.get("members") else "interrupted",
+                )
+            write_json_atomic(run_dir / RECORD, record)
+            result = (
+                record["termination"] if cleanup["status"] == "confirmed" else "unresolved recovery"
+            )
+    finally:
+        os.close(descriptor)
+    return {**view(run_dir), "cancel_result": result}
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:
@@ -716,7 +827,7 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     else:
         exit_ = f", {_exit_text(data.get('exit'))}" if data.get("exit") else ""
         print(f"{data['id']}  {data['cancel_result']}  (state {data['state']}{exit_})")
-    return 0 if data.get("termination") else 1
+    return 0 if data["cleanup"]["status"] == "confirmed" else 1
 
 
 def cmd_retain(args: argparse.Namespace) -> int:
@@ -749,7 +860,12 @@ def prune_candidates(keep: int | None, older_than: float | None) -> list[Path]:
     completed = []
     for run_dir in all_runs():
         record = load_record(run_dir)
-        if record is None or not record.get("termination") or (run_dir / RETAIN).exists():
+        if (
+            record is None
+            or not record.get("termination")
+            or (run_dir / RETAIN).exists()
+            or protected_from_removal(run_dir, record)
+        ):
             continue
         completed.append((run_dir, record))
     selected = completed[keep or 0 :] if keep is not None else completed
@@ -767,8 +883,25 @@ def prune_candidates(keep: int | None, older_than: float | None) -> list[Path]:
 def cmd_prune(args: argparse.Namespace) -> int:
     doomed = prune_candidates(args.keep, args.older_than)
     if not args.dry_run:
+        removed = []
         for run_dir in doomed:
-            shutil.rmtree(run_dir)
+            descriptor = try_hold_lock(run_dir / OWNER_LOCK)
+            if descriptor is None:
+                continue
+            try:
+                record = load_record(run_dir)
+                if (
+                    record is None
+                    or not record.get("termination")
+                    or (run_dir / RETAIN).exists()
+                    or cleanup_protected(record)
+                ):
+                    continue
+                shutil.rmtree(run_dir)
+                removed.append(run_dir)
+            finally:
+                os.close(descriptor)
+        doomed = removed
     if args.json:
         print(json.dumps({"removed": [d.name for d in doomed], "dry_run": args.dry_run}))
     else:
@@ -780,7 +913,22 @@ def cmd_prune(args: argparse.Namespace) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
-    top = argparse.ArgumentParser(prog="runs", description=__doc__.split("\n\n")[0])
+    top = argparse.ArgumentParser(
+        prog="runs",
+        description=__doc__.split("\n\n")[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  just run --background --label deps -- just verify --select leaf:deps
+  just runs status deps --json
+  just runs list --json
+  just runs logs deps --tail 30
+  just runs retain deps
+
+status/list/cancel/prune support --json; retain prints plain text (no --json).
+Process exit and cleanup certainty are separate; cancel retries unresolved cleanup.
+Full logs: build/runs/RUN/output.log; verification results: build/runs/RUN/summary.json.
+Live output is best effort; retained files remain authoritative.""",
+    )
     sub = top.add_subparsers(dest="action")
 
     run = sub.add_parser("run", help="run a command under a run handle")

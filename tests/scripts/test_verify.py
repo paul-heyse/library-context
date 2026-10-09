@@ -5,6 +5,8 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +170,11 @@ class FakeServer:
     def exited(self) -> str | None:
         return self.ended
 
+    def oom(self, when):
+        from surrealdb_fixture import FixtureBlocked
+
+        return FixtureBlocked("oom", f"server {self.id} oom-kill {when}", "check fixture memory")
+
 
 class FakeAttachment:
     def __init__(self, scratch: Path) -> None:
@@ -222,7 +229,7 @@ class Fake:
         self.attachments: list[FakeAttachment] = []
         self.on_run = None
 
-    def run(self, argv, env, log, live) -> int:
+    def run(self, argv, env, log, live) -> verify.LaunchResult:
         self.commands.append(tuple(argv))
         self.envs.append(dict(env))
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -231,7 +238,9 @@ class Fake:
         if self.on_run:
             self.on_run(argv)
         joined = " ".join(argv)
-        return next((code for key, code in self.codes.items() if key in joined), 0)
+        return verify.LaunchResult(
+            next((code for key, code in self.codes.items() if key in joined), 0)
+        )
 
     @contextlib.contextmanager
     def fixture(self, options):
@@ -283,7 +292,8 @@ def test_blocked_needs_evidence_and_names_its_repair():
     (result,) = verify.execute(
         plan_of("--select", "model"), launch.runtime(), Options(), launch.logs
     )
-    assert result["outcome"] == "blocked" and "exit 127" in result["reason"]
+    assert result["outcome"] == "failed" and "exited 127" in result["reason"]
+    assert result["steps"][0]["exit"] == 127 and "launch_error" not in result["steps"][0]
 
     oom = Fake()
     oom.on_run = lambda argv: setattr(oom.attachments[-1].server, "ended", "oom-kill")
@@ -312,6 +322,98 @@ def test_fixture_launch_failure_is_blocked_with_its_evidence(monkeypatch):
     (result,) = verify.execute(plan_of("--select", "store"), runtime, Options(), fake.logs)
     assert result["outcome"] == "blocked"
     assert result["reason"] == "fixture readiness: server did not answer; repair: retry"
+
+
+def test_unknown_fixture_end_before_step_is_failed_with_no_child_exit():
+    from surrealdb_fixture import FixtureFailed
+
+    fake = Fake()
+
+    @contextlib.contextmanager
+    def failing(options):
+        raise FixtureFailed("server_end_unknown", "server ended; cause unknown")
+        yield
+
+    runtime = fake.runtime()
+    runtime.fixture = failing
+    (result,) = verify.execute(plan_of("--select", "store"), runtime, Options(), fake.logs)
+    assert result["outcome"] == "failed" and "cause unknown" in result["reason"]
+    assert not any("exit" in step for step in result["steps"]) and not fake.commands
+
+
+@pytest.mark.parametrize("failure", ["missing", "permission"])
+def test_actual_launch_failure_has_no_child_exit_and_is_blocked(tmp_path, failure):
+    executable = tmp_path / failure
+    if failure == "permission":
+        executable.write_text("#!/bin/sh\nexit 0\n")
+        executable.chmod(0o600)
+    launched = verify.launch([str(executable)], dict(os.environ), tmp_path / "launch.log", False)
+    assert launched.exit is None and launched.launch_error is not None
+    fake = Fake()
+    runtime = fake.runtime()
+    runtime.run = lambda *args: launched
+    (result,) = verify.execute(plan_of("--select", "model"), runtime, Options(), fake.logs)
+    assert result["outcome"] == "blocked" and "repair:" in result["reason"]
+    assert result["steps"][0]["exit"] is None
+    assert result["steps"][0]["launch_error"] == launched.launch_error
+
+
+def test_actual_child_exit_127_is_failed_not_launch_failure(tmp_path):
+    import sys
+
+    launched = verify.launch(
+        [sys.executable, "-c", "raise SystemExit(127)"],
+        dict(os.environ),
+        tmp_path / "child.log",
+        False,
+    )
+    assert launched.exit == 127 and launched.launch_error is None
+    fake = Fake()
+    runtime = fake.runtime()
+    runtime.run = lambda *args: launched
+    (result,) = verify.execute(plan_of("--select", "model"), runtime, Options(), fake.logs)
+    assert result["outcome"] == "failed" and result["steps"][0]["exit"] == 127
+
+
+@pytest.mark.parametrize("sink", ["stalled", "broken"])
+def test_verify_live_sink_cannot_stall_capture_or_child_completion(tmp_path, sink):
+    import sys
+
+    log, state = tmp_path / "boundary.log", tmp_path / "observer.json"
+    script = r"""
+import json, os, sys
+from pathlib import Path
+import verify
+from harness import FileDisplay
+class Observed(FileDisplay):
+    def close(self):
+        super().close()
+        Path(sys.argv[2]).write_text(json.dumps({"observer_exit": self.process.poll()}))
+verify.FileDisplay = Observed
+command = [sys.executable, '-c', "import os; os.write(1, b'x' * (2 * 1024 * 1024) + b'\\n')"]
+result = verify.launch(command, dict(os.environ), Path(sys.argv[1]), True)
+assert result.exit == 0
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-c", script, str(log), str(state)],
+        env=dict(os.environ, PYTHONPATH=str(verify.ROOT / "scripts")),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert child.stdout is not None
+    if sink == "broken":
+        child.stdout.close()
+    try:
+        assert child.wait(timeout=15) == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+        child.stdout.close()
+        assert child.stderr is not None
+        child.stderr.close()
+    assert log.read_bytes().endswith(b"x" * (2 * 1024 * 1024) + b"\n")
+    assert json.loads(state.read_text())["observer_exit"] is not None
 
 
 def test_interruption_is_a_termination_and_unstarted_boundaries_are_not_run():
@@ -474,6 +576,82 @@ def test_readiness_observes_native_substrate_and_never_synchronizes():
     assert observed["native-store"].ready is False
 
 
+def test_execution_reobserves_each_boundary_under_real_ownership(tmp_path, monkeypatch):
+    import workspace_env
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.delenv("LCTX_ENV_OWNERSHIP", raising=False)
+    fake = Fake()
+    runtime = fake.runtime()
+    resource = workspace_env.resources_for("tools", tmp_path, {})[0]
+    observed = []
+
+    def observe(required):
+        assert any(h.pid == os.getpid() for h in workspace_env.holders(resource))
+        observed.append(set(required))
+        return {r: Readiness(r, r, len(observed) == 1, (), "changed publication") for r in required}
+
+    runtime.observe = observe
+    runtime.owner = lambda required, report: workspace_env.ownership(
+        "shared", required, root=tmp_path, env=dict(os.environ), report=report
+    )
+    results = verify.execute(
+        plan_of("--select", "tooling:python", "--select", "providers:extract"),
+        runtime,
+        Options(),
+        fake.logs,
+    )
+    assert [r["outcome"] for r in results] == ["passed", "blocked"]
+    assert len(fake.commands) == 1 and len(observed) == 2
+    assert not workspace_env.holders(resource)
+
+
+def test_listing_observes_and_collects_under_real_ownership(tmp_path, monkeypatch):
+    import workspace_env
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.delenv("LCTX_ENV_OWNERSHIP", raising=False)
+    resource = workspace_env.resources_for("tools", tmp_path, {})[0]
+    events = []
+
+    def held():
+        assert any(h.pid == os.getpid() for h in workspace_env.holders(resource))
+
+    def observe(required):
+        held()
+        events.append("observe")
+        return {r: Readiness(r, r, True, (), "ready") for r in required}
+
+    def collect(argv, **kwargs):
+        held()
+        assert kwargs["env"][workspace_env.OWNERSHIP_KEY]
+        events.append("collect")
+        return subprocess.CompletedProcess(argv, 0, "test.py::case\n", "")
+
+    monkeypatch.setattr(
+        verify,
+        "environment_owner",
+        lambda required: workspace_env.ownership(
+            "shared", required, root=tmp_path, env=dict(os.environ)
+        ),
+    )
+    monkeypatch.setattr(verify, "observe_requirements", observe)
+    monkeypatch.setattr(verify.subprocess, "run", collect)
+    assert verify.list_plan(plan_of("--select", "tooling:python"), Options(), {}) == 0
+    assert events == ["observe", "collect"] and not workspace_env.holders(resource)
+
+
+def test_listing_reports_actual_launch_failure_without_exit_127_inference(monkeypatch, capsys):
+    monkeypatch.setattr(verify, "observe_requirements", lambda required: {})
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError(2, "missing tool")
+
+    monkeypatch.setattr(verify.subprocess, "run", missing)
+    assert verify.list_plan(plan_of("--select", "analytics"), Options(), {}) == 1
+    assert "blocked: cannot launch cargo" in capsys.readouterr().out
+
+
 def test_every_named_default_target_exists():
     """Against Cargo's own report (cargo metadata, read-only)."""
     known = verify.cargo_targets()
@@ -555,7 +733,9 @@ def test_a_server_exit_without_oom_evidence_is_a_failure():
     fake.on_run = lambda argv: setattr(fake.attachments[-1].server, "ended", "exit-code")
     (result,) = verify.execute(plan_of("--select", "store"), fake.runtime(), Options(), fake.logs)
     assert result["outcome"] == "failed"
-    assert result["reason"] == "fixture server exited (exit-code) during the step"
+    assert "cause unknown" in result["reason"]
+    step = next(s for s in result["steps"] if "exit" in s)
+    assert step["exit"] == 0 and step["server_end"] == "exit-code"
     assert result["steps"][-1]["outcome"] == "failed"
 
 
@@ -699,6 +879,11 @@ def test_target_directory_uses_effective_override_and_profile_mapping(tmp_path, 
 
 
 def test_print_and_list_use_the_same_resolved_profile_without_real_builds(monkeypatch, capsys):
+    monkeypatch.setattr(
+        verify,
+        "observe_requirements",
+        lambda required: {r: Readiness(r, r, True, (), "ready") for r in required},
+    )
     plans = plan_of("--select", "model", "--cargo-profile", "test")
     monkeypatch.setattr(verify, "base_environment", lambda: {"CARGO_TARGET_DIR": "/intentional"})
     description = verify.describe(plans, {}, Options())
@@ -863,6 +1048,11 @@ def test_provider_group_scope_is_mandatory_and_user_filters_intersect_even_on_ta
 
 
 def test_provider_discovery_has_same_mandatory_intersection_as_execution(monkeypatch):
+    monkeypatch.setattr(
+        verify,
+        "observe_requirements",
+        lambda required: {r: Readiness(r, r, True, (), "ready") for r in required},
+    )
     plans = plan_of("--select", "providers:extract", "--nextest-args", "-E 'test(harness::)' --lib")
     calls = []
     monkeypatch.setattr(

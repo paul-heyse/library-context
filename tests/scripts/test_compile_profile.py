@@ -1137,3 +1137,26 @@ def test_cargo_prefix_recovery_only_drops_unterminated_final_line(
     assert Path(session["path"]).read_bytes() == raw
     if partial:
         assert session["dropped_tail_bytes"] == len(b'{"unfinished":')
+
+
+def test_capture_completeness_requires_final_receipt_and_cleanup():
+    run = {"state": "completed", "exit": {"code": 0}, "cleanup": {"status": "confirmed"}}
+    meta = {
+        "ended": runs.now(),
+        "product": {"exit_code": 0},
+        "telemetry": {"outcome": "passed", "observers_pending": False},
+    }
+    assert profile.capture_completeness(run, meta)["status"] == "complete"
+    assert profile.capture_completeness(run, {})["status"] == "partial"
+    assert (
+        profile.capture_completeness(run | {"cleanup": {"status": "failed"}}, meta)["status"]
+        == "partial"
+    )
+    assert (
+        profile.capture_completeness(run | {"supervisor_error": {"kind": "OSError"}}, meta)[
+            "status"
+        ]
+        == "partial"
+    )
+    legacy = {"state": "completed", "exit": {"code": 0}}
+    assert profile.capture_completeness(legacy, meta)["status"] == "partial"

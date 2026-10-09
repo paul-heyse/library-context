@@ -78,7 +78,7 @@ Keep `build/native/runtime.json` outside Git and mode 0600. Its closed fields ar
 The root installer creates private databases and their database-scoped VIEWER user. Product
 serving receives only the emitted `selected.serving.json`: endpoint, database VIEWER credentials
 and the absolute path of the single atomic selection file. New sessions read that handle once;
-running sessions retain their pin. Never pass runtime configuration to MCP, log secrets, or share a
+running sessions retain their pin. Never pass operator runtime configuration to MCP, log secrets, or share a
 mutable SDK database-selection context between readers. The current SDK runtime accepts reviewed
 3.3 engines; another server family requires checking its protocol and physical contracts first.
 
@@ -237,3 +237,50 @@ Logical text is declared by the model field type independently of Arrow storage.
 projections preserve exact `Utf8Text`, including enum fields, and exclude opaque byte/vector
 payloads. The 2026-10-06 field-contract migration changes model schema identity; rebuild artifacts
 and realizations from current inputs rather than retaining an old-format reader.
+
+
+## Disposable agent diagnostics
+
+**Implemented; focused acceptance 2026-10-09 (ADR-0142).** The fixture owner exposes SQL diagnostics
+and an invocation-scoped native MCP client against its disposable server. These do not register
+a client or change an operator database. `just fixture --help` owns the exact grammar.
+
+```sh
+# Native draft syntax check; valid syntax can still fail schema/type/runtime checks.
+printf 'RETURN 1;\n' | surreal validate --stdin
+# A fresh disposable namespace. SQL is explicitly effectful and may mutate its selected scope.
+printf 'INFO FOR DB;\n' | just fixture --sql -
+# Identify existing live attachment content explicitly (its owner must still hold the lease).
+just fixture --attach FIXTURE --inspect-config /absolute/attachment/runtime.json --sql query.surql
+# Select checked retained serving content instead of guessing a previous namespace.
+just fixture --attach FIXTURE --serving NAME --sql query.surql
+# Fresh local Codex task with this attachment's native HTTP MCP endpoint.
+just fixture --mcp --non-sensitive
+```
+
+`--attach FIXTURE` alone creates a new namespace. Existing-content inspection validates the exact
+configuration, server and content owner. SQL output separates transport refusal from indexed
+statement statuses; harness errors omit SQL, bind and credential values. Successful requested
+results remain data, so choose the inspection query accordingly. An unexplained server end is
+`failed` with unknown cause; evidenced OOM/infrastructure refusal is `blocked` (75). Actual child
+exit remains separately recorded by the shared outcome policy. Unresolved command cleanup
+preserves attachment/server recovery records. `just fixture --stop FIXTURE --force` retries the
+selected recovery; `--force` never bypasses identity checks or cleanup confirmation.
+
+MCP uses the existing server's `/mcp`, not `surreal mcp` (which creates another datastore).
+The launcher supplies transport authentication through a child-only environment variable and
+invocation configuration, and holds the attachment until the client exits. Native errors are raw:
+`--non-sensitive` acknowledges that this route is for synthetic/non-sensitive disposable content.
+Retained or operator configurations are not accepted for MCP. Pass the emitted namespace and
+database on every native tool call; admin transport authentication is not a tenant boundary.
+Mixed statements can yield `isError: false` with `has_errors: true`; inspect statement statuses.
+Native result truncation is not full-result evidence. Sanitized HTTP diagnostics remain usable
+when native MCP fails.
+
+**Exercised, 2026-10-09:** disposable native validation, schema/index INFO and bounded EXPLAIN,
+wrong/live scope checks, mixed HTTP statement outcomes and redaction, native MCP auth/refusal and
+mixed results. A fresh installed Codex 0.162.0 app-server client completed initialization and
+reported the fixture's tools, without a model turn or persistent registration. These establish
+diagnostic capability, not product gRPC acceptance, operator adoption or measured effectiveness.
+The [follow-up plan](plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
+owns the scoped receipts and remaining limits.

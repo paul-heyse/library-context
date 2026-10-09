@@ -278,7 +278,12 @@ def test_removal_refuses_live_fixture_and_running_run_naming_them(repo, tmp_path
     finally:
         process.kill()
         process.wait()
-    # Once its owner is gone nothing is live; the dead state goes with the tree.
+    # A dead owner with no child identity leaves cleanup unknown; force cannot orphan it.
+    assert worktree.remove("live", force=True, root=repo, base=base, report=lambda _: None) == 1
+    assert target.exists()
+    record = json.loads((run / "record.json").read_text())
+    record.update(schema=2, termination="interrupted", cleanup={"status": "confirmed"})
+    (run / "record.json").write_text(json.dumps(record))
     assert worktree.remove("live", force=True, root=repo, base=base, report=lambda _: None) == 0
 
 
@@ -311,7 +316,7 @@ def test_force_stops_kept_fixtures_through_their_route_before_removal(repo, tmp_
                 "state": "loaded active running lctx fixture other",
             },
         ],
-        "runs.py": [{"id": "r1", "state": "completed", "argv": ["true"]}],
+        "runs.py": [{"id": "r1", "state": "completed", "argv": ["true"], "protected": False}],
     }
     calls: list[tuple] = []
 
@@ -350,3 +355,42 @@ def test_unknown_fixture_state_is_not_absent(repo, tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match=r"cannot inspect .*no bus"):
         worktree.remove("unknown", root=repo, base=base, report=lambda _: None)
     assert (base / "unknown").exists()
+
+
+@pytest.mark.parametrize("kind", ["run", "kept", "incomplete"])
+def test_ended_fixture_with_unresolved_cleanup_protects_worktree(repo, tmp_path, monkeypatch, kind):
+    base = tmp_path / "wt"
+    worktree.create("protected", root=repo, base=base, prepare=False, report=lambda _: None)
+    target = base / "protected"
+    fixtures = [
+        {
+            "id": "pending",
+            "kind": kind,
+            "unit": "fixture.scope",
+            "state": "gone",
+            "owner_alive": False,
+            "protected": True,
+            "cleanup": {"a": "unknown"},
+        }
+    ]
+    monkeypatch.setattr(
+        worktree,
+        "_listing",
+        lambda script, *args: fixtures if script == "surrealdb_fixture.py" else [],
+    )
+    attempted = []
+
+    def refuse(script, args, *unused):
+        attempted.append((script, *args))
+        return subprocess.CompletedProcess(args, 1, "", "cleanup identity unresolved")
+
+    monkeypatch.setattr(worktree, "_harness", refuse)
+    assert (
+        worktree.remove("protected", force=True, root=repo, base=base, report=lambda _: None) == 1
+    )
+    assert target.exists()
+    assert bool(attempted) is (kind != "incomplete")
+    fixtures.clear()  # only confirmed owner recovery permits removal
+    assert (
+        worktree.remove("protected", force=True, root=repo, base=base, report=lambda _: None) == 0
+    )

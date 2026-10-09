@@ -965,7 +965,28 @@ def status_data(ref: str) -> dict[str, Any]:
                 "recent_hotspots": sampled_report(recent, readonly=True) if recent else None,
             }
         )
+    data["capture"] = capture_completeness(data["run"], data["profile"] or {})
     return data
+
+
+def capture_completeness(run: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    """Completion is evidenced by capture finalization, independently of child exit."""
+    reasons = []
+    if run.get("state") != "completed":
+        reasons.append("run not completed")
+    if runs.cleanup_of(run)["status"] != "confirmed":
+        reasons.append("run cleanup unresolved")
+    if run.get("supervisor_error") or run.get("launch_error"):
+        reasons.append("run supervisor or launch failed")
+    product = meta.get("product") or {}
+    if not meta.get("ended") or product.get("exit_code") is None:
+        reasons.append("capture final receipt missing")
+    if product.get("exit_code") != 0 or product.get("signals"):
+        reasons.append("product interrupted or failed")
+    telemetry = meta.get("telemetry") or {}
+    if telemetry.get("outcome") != "passed" or telemetry.get("observers_pending"):
+        reasons.append("telemetry not complete")
+    return {"status": "partial" if reasons else "complete", "reasons": reasons}
 
 
 def format_guard(path: Path) -> dict[str, Any]:
@@ -1113,10 +1134,8 @@ def report_data(ref: str, *, force: bool = False) -> dict[str, Any]:
         "product": meta.get("product"),
         "telemetry": meta.get("telemetry"),
         "cargo_sessions": meta.get("cargo_sessions"),
-        "partial": status["run"].get("state") in ("cancelled", "interrupted", "running")
-        or (meta.get("product") or {}).get("exit_code", 0) != 0
-        or bool((meta.get("product") or {}).get("signals"))
-        or any(r["partial"] for r in reports),
+        "capture": status["capture"],
+        "partial": status["capture"]["status"] != "complete" or any(r["partial"] for r in reports),
         "units": reports,
         "generated": runs.now(),
     }
