@@ -161,11 +161,12 @@ def _flow(source: str, value: object, runtime_bindings: dict | None = None) -> t
         model = subprocess.run(
             command,
             cwd=temp,
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
             timeout=10,
         )
+        assert model.returncode == 0, f"flow producer exited {model.returncode}: {model.stderr}"
         observed = subprocess.run(
             [sys.executable, "-I", "-c", WORKER, str(path), json.dumps(value)],
             cwd=temp,

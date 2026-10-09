@@ -32,5 +32,10 @@ toml.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
+# Both build dependencies are used by the #[path]-included shared fingerprint source
+# scripts/producer_fingerprint.rs, outside cargo-shear's package scan.
+[package.metadata.cargo-shear]
+ignored = ["blake3", "toml"]
+
 [lints]
 workspace = true

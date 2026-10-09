@@ -48,7 +48,8 @@ def test_drill_selection_is_one_static_plan_with_each_filter_at_its_owner(monkey
     )
     code = verify.main(
         [
-            "--select", "compiler:producer", "--nextest-args", "--test compiler_artifacts -E 'test(graph_artifact::)'",
+            "--select", "compiler:producer", "--nextest-args",
+            "--test compiler_artifacts -E 'test(graph_artifact::)'",
             "--select", "compiler:cli", "--nextest-args", "--test compile_artifact",
             "--select", "store", "--nextest-args", "--test publication",
             "--select", "serving:mcp", "--pytest-args", "-k native_session",
@@ -180,6 +181,7 @@ class FakeAttachment:
     def environment(self, source):
         env = dict(source)
         env["LCTX_SURREAL_TEST_CONFIG"] = "cfg"
+        env["LCTX_COMPILER_RUNTIME_CONFIG"] = "compiler-cfg"
         env.update(self.extra_env)
         return env
 
@@ -321,6 +323,39 @@ def test_interruption_is_a_termination_and_unstarted_boundaries_are_not_run():
     assert [r["outcome"] for r in results] == ["not_run", "not_run"]
     assert results[0]["reason"] == "interrupted"
     assert results[1]["reason"] == "interrupted before it started"
+
+
+def test_flow_oracle_owns_native_configuration_and_tools():
+    fake = Fake()
+    (result,) = verify.execute(
+        plan_of("--select", "oracles:flow"), fake.runtime(), Options(), fake.logs
+    )
+    assert result["outcome"] == "passed"
+    assert len(fake.attachments) == 1
+    assert all(env.get("LCTX_COMPILER_RUNTIME_CONFIG") for env in fake.envs)
+
+
+def test_unconfigured_tooling_excludes_native_consumers():
+    (planned,) = plan_of("--select", "tooling:python")
+    assert not planned.boundary.fixture
+    command = argv_of(planned, "pytest")
+    assert "--ignore=tests/scripts/test_programmatic_native.py" in command
+    assert "--ignore=tests/scripts/test_programmatic_native_numeric.py" in command
+    (serving,) = plan_of("--select", "serving:mcp")
+    assert "tests/scripts/test_programmatic_native.py" in argv_of(serving, "pytest")
+    assert "tests/scripts/test_programmatic_native_numeric.py" in argv_of(serving, "pytest")
+
+
+def test_failed_native_publication_keeps_dependent_evaluator_not_run():
+    fake = Fake({"native_journey": 1})
+    (result,) = verify.execute(
+        plan_of("--select", "serving:mcp"), fake.runtime(), Options(), fake.logs
+    )
+    assert result["outcome"] == "failed"
+    assert len(fake.commands) == 2
+    assert result["steps"][-1]["name"] == "pytest"
+    assert result["steps"][-1]["outcome"] == "blocked"
+    assert "native serving production" in result["steps"][-1]["reason"]
 
 
 def test_mcp_journey_produces_restarts_then_runs_pytest_with_the_serving_config():
@@ -554,12 +589,19 @@ def test_named_target_narrows_and_unknown_names_the_package_set():
 
 # BC3/BC4: command planning and receipt controls only; no Rust execution or qualification.
 
+
 def test_cargo_profiles_are_shared_or_scoped_and_nextest_runner_profile_is_independent():
     model, analytics = plan_of(
-        "--cargo-profile", "local-test-candidate",
-        "--select", "model",
-        "--select", "analytics", "--cargo-profile", "test",
-        "--nextest-args", "--profile ci -E 'test(ids)'",
+        "--cargo-profile",
+        "local-test-candidate",
+        "--select",
+        "model",
+        "--select",
+        "analytics",
+        "--cargo-profile",
+        "test",
+        "--nextest-args",
+        "--profile ci -E 'test(ids)'",
     )
     assert model.selection["cargo_profile"] == "local-test-candidate"
     assert analytics.selection["cargo_profile"] == "test"
@@ -568,14 +610,20 @@ def test_cargo_profiles_are_shared_or_scoped_and_nextest_runner_profile_is_indep
         assert argv[argv.index("--cargo-profile") + 1] == profile
         assert "--release" not in argv
     assert argv_of(analytics, "nextest")[-4:] == ("--profile", "ci", "-E", "test(ids)")
-    default, = plan_of("--select", "model")
+    (default,) = plan_of("--select", "model")
     assert default.selection["cargo_profile"] == "release"
     namespace, _ = shortcut("model", "--cargo-profile", "test")
     assert namespace.selections[0].cargo_profile == "test"
 
 
 def test_profile_arguments_cannot_bypass_the_resolved_owner():
-    for argument in ("--release", "-r", "-rEtest(ids)", "--cargo-profile=test", "--cargo-profile test"):
+    for argument in (
+        "--release",
+        "-r",
+        "-rEtest(ids)",
+        "--cargo-profile=test",
+        "--cargo-profile test",
+    ):
         with pytest.raises(PlanError, match="verify --cargo-profile"):
             plan_of("--select", "model", "--nextest-args", argument)
     for profile in ("../release", "", "debug", "test/other"):
@@ -589,10 +637,14 @@ def test_profile_arguments_cannot_bypass_the_resolved_owner():
 def test_local_profiles_drive_build_test_doc_and_actual_cli_environment():
     options = Options(cli=True)
     store, mcp, docs = plan_of(
-        "--cargo-profile", "local-test-candidate",
-        "--select", "store",
-        "--select", "serving:mcp",
-        "--select", "tooling:docs",
+        "--cargo-profile",
+        "local-test-candidate",
+        "--select",
+        "store",
+        "--select",
+        "serving:mcp",
+        "--select",
+        "tooling:docs",
         options=options,
     )
     for planned in (store, mcp, docs):
@@ -627,16 +679,23 @@ def test_target_directory_uses_effective_override_and_profile_mapping(tmp_path, 
     config_file = tmp_path / ".cargo/override.toml"
     config_file.write_text('[build]\ntarget-dir = "from-file"\n')
     assert verify.target_directory({}) == tmp_path / "configured"
-    assert verify.target_directory({"CARGO_BUILD_TARGET_DIR": "build-env"}) == tmp_path / "build-env"
+    assert (
+        verify.target_directory({"CARGO_BUILD_TARGET_DIR": "build-env"}) == tmp_path / "build-env"
+    )
     assert verify.target_directory({"CARGO_TARGET_DIR": "/intentional"}) == Path("/intentional")
-    assert verify.target_directory({"CARGO_TARGET_DIR": "/intentional"}, (str(config_file),)) == tmp_path / "from-file"
+    assert (
+        verify.target_directory({"CARGO_TARGET_DIR": "/intentional"}, (str(config_file),))
+        == tmp_path / "from-file"
+    )
     target = verify.target_directory({}, ('build.target-dir="command-line"',))
     assert target == tmp_path / "command-line"
     assert verify.artifact_directory(target, "test") == target / "debug"
     assert verify.artifact_directory(target, "dev") == target / "debug"
     assert verify.artifact_directory(target, "release") == target / "release"
     assert verify.artifact_directory(target, "bench") == target / "release"
-    assert verify.artifact_directory(target, "local-test-candidate") == target / "local-test-candidate"
+    assert (
+        verify.artifact_directory(target, "local-test-candidate") == target / "local-test-candidate"
+    )
 
 
 def test_print_and_list_use_the_same_resolved_profile_without_real_builds(monkeypatch, capsys):
@@ -652,7 +711,18 @@ def test_print_and_list_use_the_same_resolved_profile_without_real_builds(monkey
 
     def listing(argv, **kwargs):
         calls.append(tuple(argv))
-        return type("Listed", (), {"returncode": 0, "stdout": '{"rust-suites": {"model": {"testcases": {"ids": {"filter-match": {"status": "matches"}}}}}}', "stderr": ""})()
+        return type(
+            "Listed",
+            (),
+            {
+                "returncode": 0,
+                "stdout": (
+                    '{"rust-suites": {"model": {"testcases": '
+                    '{"ids": {"filter-match": {"status": "matches"}}}}}}'
+                ),
+                "stderr": "",
+            },
+        )()
 
     monkeypatch.setattr(verify.subprocess, "run", listing)
     assert verify.list_plan(plans, Options(), {}) == 0
@@ -661,10 +731,12 @@ def test_print_and_list_use_the_same_resolved_profile_without_real_builds(monkey
     assert "--release" not in calls[0]
 
 
-def test_qualify_remains_release_after_local_default_changes_and_refuses_weakening(monkeypatch, tmp_path):
+def test_qualify_remains_release_after_local_default_changes_and_refuses_weakening(
+    monkeypatch, tmp_path
+):
     monkeypatch.setattr(verify, "DEFAULT_CARGO_PROFILE", "test")
     # Test the owner transition without claiming that the future profile is qualified.
-    ordinary, = plan_of("--select", "model")
+    (ordinary,) = plan_of("--select", "model")
     assert ordinary.selection["cargo_profile"] == "test"
     qualified = verify.resolve([], Options(qualify=True))
     assert all(p.selection["cargo_profile"] == "release" for p in qualified)
@@ -673,8 +745,12 @@ def test_qualify_remains_release_after_local_default_changes_and_refuses_weakeni
         with pytest.raises(PlanError, match="requires Cargo profile release"):
             plan_of("--qualify", "--cargo-profile", profile)
     config = tmp_path / "weaken.toml"
-    config.write_text('[profile.release]\nopt-level=0\n')
-    for override in ('profile.release.opt-level=0', 'env.CARGO_PROFILE_RELEASE_OPT_LEVEL="0"', str(config)):
+    config.write_text("[profile.release]\nopt-level=0\n")
+    for override in (
+        "profile.release.opt-level=0",
+        'env.CARGO_PROFILE_RELEASE_OPT_LEVEL="0"',
+        str(config),
+    ):
         with pytest.raises(PlanError, match="profile configuration overrides"):
             verify.resolve([], Options(qualify=True, cargo_config=(override,)))
     monkeypatch.setenv("CARGO_PROFILE_RELEASE_LTO", "off")
@@ -683,21 +759,33 @@ def test_qualify_remains_release_after_local_default_changes_and_refuses_weakeni
 
 
 def test_production_only_oracle_and_native_extension_are_explicit(monkeypatch):
-    oracle, mcp = plan_of("--cargo-profile", "local-test-candidate", "--select", "oracles", "--select", "serving:mcp")
+    oracle, mcp = plan_of(
+        "--cargo-profile", "local-test-candidate", "--select", "oracles", "--select", "serving:mcp"
+    )
     assert oracle.selection["cargo_profile"] == "release"
     assert all(s.cargo_profile == "release" for s in oracle.steps)
-    assert argv_of(oracle, "build")[argv_of(oracle, "build").index("--target-dir") + 1] == str(verify.ROOT / "target")
+    assert argv_of(oracle, "build")[argv_of(oracle, "build").index("--target-dir") + 1] == str(
+        verify.ROOT / "target"
+    )
     assert mcp.selection["cargo_profile"] == "local-test-candidate"
     assert mcp.selection["production_only"] == ["native-python preparation: release"]
 
 
-def test_rerun_preserves_new_profiles_and_historical_release_when_default_changes(tmp_path, monkeypatch):
+def test_rerun_preserves_new_profiles_and_historical_release_when_default_changes(
+    tmp_path, monkeypatch
+):
     run = tmp_path / "run"
     run.mkdir()
     monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
     plans = plan_of(
-        "--select", "model", "--cargo-profile", "local-test-candidate",
-        "--select", "analytics", "--cargo-profile", "test",
+        "--select",
+        "model",
+        "--cargo-profile",
+        "local-test-candidate",
+        "--select",
+        "analytics",
+        "--cargo-profile",
+        "test",
     )
     summary = verify.Summary(run / "summary.json", plans, Options())
     assert summary.data["plan"][0]["steps"][0]["cargo_profile"] == "local-test-candidate"
@@ -709,41 +797,67 @@ def test_rerun_preserves_new_profiles_and_historical_release_when_default_change
     monkeypatch.setattr(verify, "DEFAULT_CARGO_PROFILE", "test")
     selections, options = verify.rerun_selection("prior")
     assert [s.cargo_profile for s in selections] == ["local-test-candidate", "test"]
-    assert [p.selection["cargo_profile"] for p in verify.resolve(selections, options)] == ["local-test-candidate", "test"]
+    assert [p.selection["cargo_profile"] for p in verify.resolve(selections, options)] == [
+        "local-test-candidate",
+        "test",
+    ]
     data = json.loads((run / "summary.json").read_text())
     del data["boundaries"][0]["selection"]["cargo_profile"]
     del data["plan"][1]["cargo_profile"]
     (run / "summary.json").write_text(json.dumps(data))
     selections, options = verify.rerun_selection("historical")
-    assert [p.selection["cargo_profile"] for p in verify.resolve(selections, options)] == ["release", "release"]
+    assert [p.selection["cargo_profile"] for p in verify.resolve(selections, options)] == [
+        "release",
+        "release",
+    ]
 
 
 def test_provider_group_scope_is_mandatory_and_user_filters_intersect_even_on_target_override():
-    provider, = plan_of("--select", "providers:extract")
+    (provider,) = plan_of("--select", "providers:extract")
     argv = argv_of(provider, "nextest")
     assert verify.target_options(argv) == [
-        ("--lib", None), ("--test", "acquisition"), ("--test", "bundle"),
-        ("--test", "extraction_contracts"), ("--test", "extraction_types"),
-        ("--test", "extraction_calls"), ("--test", "extraction_syntax"),
+        ("--lib", None),
+        ("--test", "acquisition"),
+        ("--test", "bundle"),
+        ("--test", "extraction_contracts"),
+        ("--test", "extraction_types"),
+        ("--test", "extraction_calls"),
+        ("--test", "extraction_syntax"),
     ]
     predicate = argv[argv.index("-E") + 1]
     assert "binary(=extraction_normalized)" not in predicate
-    for case in ("harness", "typed_conformance", "typed_flow", "typed_calls", "native_overload_origins", "typed_ruff_context"):
+    for case in (
+        "harness",
+        "typed_conformance",
+        "typed_flow",
+        "typed_calls",
+        "native_overload_origins",
+        "typed_ruff_context",
+    ):
         assert f"test(/^{case}::/)" in predicate
-    assert "kind(lib)" in predicate and "binary(=acquisition)" in predicate and "binary(=bundle)" in predicate
-    provider, = plan_of(
-        "--select", "providers:extract", "--nextest-args",
+    assert (
+        "kind(lib)" in predicate
+        and "binary(=acquisition)" in predicate
+        and "binary(=bundle)" in predicate
+    )
+    (provider,) = plan_of(
+        "--select",
+        "providers:extract",
+        "--nextest-args",
         "--tests -E 'test(flow)' --filter-expr='test(calls)'",
     )
     argv = argv_of(provider, "nextest")
     assert argv.count("-E") == 1
     selected_scope = verify.PROVIDER_FILTER
-    assert argv[argv.index("-E") + 1] == f"(package(=cpg-extract)) & ({selected_scope}) & ((test(flow)) | (test(calls)))"
+    assert (
+        argv[argv.index("-E") + 1]
+        == f"(package(=cpg-extract)) & ({selected_scope}) & ((test(flow)) | (test(calls)))"
+    )
     assert "--filter-expr=test(calls)" not in argv
     assert "kind(lib)" in argv[argv.index("-E") + 1]
     assert "--no-tests=fail" in argv
     # Unrestricted compiler producer still selects all of its lib/integration targets.
-    compiler, = plan_of("--select", "compiler:producer")
+    (compiler,) = plan_of("--select", "compiler:producer")
     assert "--lib" in argv_of(compiler, "nextest") and "--tests" in argv_of(compiler, "nextest")
     assert "-E" not in argv_of(compiler, "nextest")
 
@@ -751,7 +865,25 @@ def test_provider_group_scope_is_mandatory_and_user_filters_intersect_even_on_ta
 def test_provider_discovery_has_same_mandatory_intersection_as_execution(monkeypatch):
     plans = plan_of("--select", "providers:extract", "--nextest-args", "-E 'test(harness::)' --lib")
     calls = []
-    monkeypatch.setattr(verify.subprocess, "run", lambda argv, **kw: calls.append(tuple(argv)) or type("Listed", (), {"returncode": 0, "stdout": '{"rust-suites": {"extract": {"testcases": {"harness": {"filter-match": {"status": "matches"}}}}}}', "stderr": ""})())
+    monkeypatch.setattr(
+        verify.subprocess,
+        "run",
+        lambda argv, **kw: (
+            calls.append(tuple(argv))
+            or type(
+                "Listed",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": (
+                        '{"rust-suites": {"extract": {"testcases": '
+                        '{"harness": {"filter-match": {"status": "matches"}}}}}}'
+                    ),
+                    "stderr": "",
+                },
+            )()
+        ),
+    )
     assert verify.list_plan(plans, Options(), {}) == 0
     run = argv_of(plans[0], "nextest")
     assert calls[0][calls[0].index("-E") + 1] == run[run.index("-E") + 1]
@@ -759,7 +891,9 @@ def test_provider_discovery_has_same_mandatory_intersection_as_execution(monkeyp
     assert calls[0][calls[0].index("--cargo-profile") + 1] == "release"
 
 
-def test_qualifier_focused_reruns_keep_release_acceptance_guards_and_provenance(tmp_path, monkeypatch):
+def test_qualifier_focused_reruns_keep_release_acceptance_guards_and_provenance(
+    tmp_path, monkeypatch
+):
     run = tmp_path / "run"
     run.mkdir()
     monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
@@ -781,7 +915,9 @@ def test_qualifier_focused_reruns_keep_release_acceptance_guards_and_provenance(
         verify.resolve(selections, options)
     monkeypatch.delenv("CARGO_PROFILE_RELEASE_OPT_LEVEL")
     with pytest.raises(PlanError, match="profile configuration overrides"):
-        verify.resolve(selections, dataclasses.replace(options, cargo_config=("profile.release.opt-level=0",)))
+        verify.resolve(
+            selections, dataclasses.replace(options, cargo_config=("profile.release.opt-level=0",))
+        )
     with pytest.raises(PlanError, match="requires Cargo profile release"):
         verify.resolve([Selection("model:rust", cargo_profile="test")], options)
     # A failed focused rerun must carry the constraint into the next generation too.
@@ -800,22 +936,31 @@ def test_explicit_provider_target_keeps_only_its_exact_scope_or_empty_failure():
         ("--test extraction_calls", verify.PROVIDER_TARGET_FILTERS[5][2]),
         ("--test extraction_normalized", "none()"),
     ):
-        provider, = plan_of("--select", "providers:extract", "--nextest-args", target)
+        (provider,) = plan_of("--select", "providers:extract", "--nextest-args", target)
         argv = argv_of(provider, "nextest")
         assert argv[argv.index("-E") + 1] == f"(package(=cpg-extract)) & ({expected})"
         assert "--no-tests=fail" in argv
 
 
 def test_provider_tests_target_includes_library_and_allowed_integrations():
-    provider, = plan_of("--select", "providers:extract", "--nextest-args", "--tests")
+    (provider,) = plan_of("--select", "providers:extract", "--nextest-args", "--tests")
     argv = argv_of(provider, "nextest")
     assert "--tests" in argv
     predicate = argv[argv.index("-E") + 1]
     assert "kind(lib)" in predicate
     assert "binary(=acquisition)" in predicate and "binary(=bundle)" in predicate
-    for case in ("harness", "typed_conformance", "typed_flow", "typed_calls", "native_overload_origins", "typed_ruff_context"):
+    for case in (
+        "harness",
+        "typed_conformance",
+        "typed_flow",
+        "typed_calls",
+        "native_overload_origins",
+        "typed_ruff_context",
+    ):
         assert f"test(/^{case}::/)" in predicate
-    specific, = plan_of("--select", "providers:extract", "--nextest-args", "--test extraction_calls")
+    (specific,) = plan_of(
+        "--select", "providers:extract", "--nextest-args", "--test extraction_calls"
+    )
     specific_argv = argv_of(specific, "nextest")
     specific_predicate = specific_argv[specific_argv.index("-E") + 1]
     assert "kind(lib)" not in specific_predicate
@@ -824,7 +969,13 @@ def test_provider_tests_target_includes_library_and_allowed_integrations():
 
 
 def test_discovery_empty_required_selection_fails_without_rust_execution(monkeypatch):
-    monkeypatch.setattr(verify.subprocess, "run", lambda *a, **kw: type("Listed", (), {"returncode": 0, "stdout": '{"rust-suites": {}}', "stderr": ""})())
+    monkeypatch.setattr(
+        verify.subprocess,
+        "run",
+        lambda *a, **kw: type(
+            "Listed", (), {"returncode": 0, "stdout": '{"rust-suites": {}}', "stderr": ""}
+        )(),
+    )
     assert verify.list_plan(plan_of("--select", "model"), Options(), {}) == 1
 
 

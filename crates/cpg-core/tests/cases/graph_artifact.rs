@@ -1,9 +1,5 @@
 //! Actual persisted compilation admits completed native graph views before publication.
 use crate::catalog_runtime as runtime;
-#[path = "../fixtures/scoped_source_execution.rs"]
-mod scoped_source_execution;
-#[path = "../fixtures/scoped_summary.rs"]
-mod scoped_summary;
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},

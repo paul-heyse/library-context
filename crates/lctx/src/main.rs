@@ -487,7 +487,7 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         source::*, stages::Profile, syntax::SubjectBoundary, value::*, *,
     };
     use std::sync::Arc;
-    let budget = ResourceBudget::fixed(1 << 30)?;
+    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)?;
     let name = file
         .file_name()
         .context("flow file has no name")?
@@ -715,7 +715,9 @@ fn run() -> anyhow::Result<()> {
                 &libraries.join(&name),
                 &envs.join(&name),
             )?;
-            let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 30)?;
+            let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )?;
             let captured = cpg_extract::acquisition::capture(
                 &inventory,
                 &budget,

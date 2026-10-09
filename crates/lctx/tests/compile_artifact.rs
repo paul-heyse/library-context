@@ -15,14 +15,16 @@ fn ordinary_compile_requires_native_configuration_before_acquisition() {
 }
 #[tokio::test]
 async fn missing_native_storage_is_refused_without_creating_it_or_acquiring() {
-    use lctx_surrealdb::{RuntimeConfig, reader};
-    use lctx_surrealdb::surrealdb::types::Value;
     use lctx_model::domain::serving::Name;
+    use lctx_surrealdb::surrealdb::types::Value;
+    use lctx_surrealdb::{RuntimeConfig, reader};
     use std::os::unix::fs::PermissionsExt;
 
     let fixture: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(std::env::var_os("LCTX_SURREAL_TEST_CONFIG").expect("owned native fixture")).unwrap(),
-    ).unwrap();
+        &std::fs::read(std::env::var_os("LCTX_SURREAL_TEST_CONFIG").expect("owned native fixture"))
+            .unwrap(),
+    )
+    .unwrap();
     let root = tempfile::tempdir().unwrap();
     for missing_namespace in [true, false] {
         let config = RuntimeConfig {
@@ -33,7 +35,10 @@ async fn missing_native_storage_is_refused_without_creating_it_or_acquiring() {
             viewer_password: "unpublished_fixture_viewer".into(),
             namespace: Name::new(if missing_namespace {
                 format!("uninstalled_namespace_{}", std::process::id())
-            } else {fixture["namespace"].as_str().unwrap().into()}).unwrap(),
+            } else {
+                fixture["namespace"].as_str().unwrap().into()
+            })
+            .unwrap(),
             cache_database: Name::new(format!("uninstalled_cache_{}", std::process::id())).unwrap(),
             selection: root.path().join("selected.json"),
         };
@@ -42,13 +47,23 @@ async fn missing_native_storage_is_refused_without_creating_it_or_acquiring() {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         let result = Command::new(env!("CARGO_BIN_EXE_lctx"))
             .current_dir(root.path())
-            .args(["compile", "absent", "--through", "facts", "--runtime-config"])
-            .arg(&path).output().unwrap();
+            .args([
+                "compile",
+                "absent",
+                "--through",
+                "facts",
+                "--runtime-config",
+            ])
+            .arg(&path)
+            .output()
+            .unwrap();
         assert!(!result.status.success());
         assert!(String::from_utf8_lossy(&result.stderr).contains("storage is not installed"));
         assert!(!root.path().join("libraries").exists());
         assert!(!config.selection.exists());
-        let client = reader::authenticated(&config.endpoint, &config.root_credentials(), None).await.unwrap();
+        let client = reader::authenticated(&config.endpoint, &config.root_credentials(), None)
+            .await
+            .unwrap();
         let (sql, group, absent) = if missing_namespace {
             ("INFO FOR ROOT", "namespaces", config.namespace.as_str())
         } else {
@@ -56,8 +71,12 @@ async fn missing_native_storage_is_refused_without_creating_it_or_acquiring() {
             ("INFO FOR NS", "databases", config.cache_database.as_str())
         };
         let mut response = client.query(sql).await.unwrap().check().unwrap();
-        let Value::Object(info) = response.take::<Value>(0).unwrap() else {panic!("native inventory");};
-        let Some(Value::Object(members)) = info.get(group) else {panic!("native inventory group");};
+        let Value::Object(info) = response.take::<Value>(0).unwrap() else {
+            panic!("native inventory");
+        };
+        let Some(Value::Object(members)) = info.get(group) else {
+            panic!("native inventory group");
+        };
         assert!(!members.contains_key(absent));
         client.invalidate().await.unwrap();
     }
@@ -176,8 +195,10 @@ fn cli(root: &std::path::Path) -> Command {
     }
     command
 }
-#[test]
-fn native_fixture_cli_exports_both_profiles_at_every_frontier() {
+fn native_fixture_cli_exports(
+    profile: lctx_model::domain::stages::Profile,
+    frontier: lctx_model::domain::admission::Frontier,
+) {
     use datafusion::arrow::{
         array::{BinaryArray, FixedSizeBinaryArray},
         ipc::reader::FileReader,
@@ -186,141 +207,151 @@ fn native_fixture_cli_exports_both_profiles_at_every_frontier() {
         ContentHash,
         admission::Frontier,
         graph::{Assertion, Entity, FamilyHasher, GraphFamily, Manifest},
-        stages::Profile,
     };
     let directory = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(directory.path()).unwrap();
     installed_fixture(&root);
-    for profile in Profile::ALL {
-        for frontier in [
-            Frontier::Facts,
-            Frontier::Normalized,
-            Frontier::Analysis,
-            Frontier::Catalog,
-        ] {
-            let destination = root.join(format!("{}-{}", profile.name(), frontier.name()));
-            let mut command = cli(&root);
-            command
-                .args(["compile", "demo", "--artifact-only", "--output"])
-                .arg(&destination)
-                .args(["--profile", profile.name(), "--through", frontier.name()])
-                .arg("--runtime-config")
-                .arg(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler native fixture"));
-            if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
-                command.args(["--techniques", "default", "--embedder", "none"]);
-            }
-            let result = command.output().unwrap();
-            assert!(
-                result.status.success(),
-                "{} {}: {}",
-                profile.name(),
-                frontier.name(),
-                String::from_utf8_lossy(&result.stderr)
-            );
-            let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-            let manifest: Manifest =
-                serde_json::from_slice(&std::fs::read(destination.join("manifest.json")).unwrap())
-                    .unwrap();
-            manifest.validate().unwrap();
-            assert_eq!(manifest.profile, profile);
-            assert_eq!(manifest.frontier, frontier);
-            assert_eq!(response["profile"], profile.name());
-            assert_eq!(response["frontier"], frontier.name());
-            assert_eq!(response["content"], manifest.content().hex());
-            assert_eq!(response["artifact"], destination.to_string_lossy().as_ref());
-            assert_eq!(response["published"], false);
-            assert!(manifest.embeddings.is_empty());
-            let mut found_original = false;
-            let mut found_api = false;
-            for (file, family) in [
-                ("entities.arrow", GraphFamily::Entities),
-                ("assertions.arrow", GraphFamily::Assertions),
-            ] {
-                let reader =
-                    FileReader::try_new(std::fs::File::open(destination.join(file)).unwrap(), None)
-                        .unwrap();
-                let mut hasher = FamilyHasher::new(family);
-                for batch in reader {
-                    let batch = batch.unwrap();
-                    let ids = batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<FixedSizeBinaryArray>()
-                        .unwrap();
-                    let contents = batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<FixedSizeBinaryArray>()
-                        .unwrap();
-                    let payloads = batch
-                        .column(2)
-                        .as_any()
-                        .downcast_ref::<BinaryArray>()
-                        .unwrap();
-                    for row in 0..batch.num_rows() {
-                        let (id, content) = if family == GraphFamily::Entities {
-                            let entity: Entity =
-                                serde_json::from_slice(payloads.value(row)).unwrap();
-                            entity.validate().unwrap();
-                            if let Entity::Source(source) = &entity
-                                && source.path == "demo/__init__.py"
-                            {
-                                assert_eq!(source.content, ContentHash::of(SOURCE.as_bytes()));
-                                found_original = true;
-                            }
-                            if let Entity::CatalogMember(member) = &entity
-                                && member.name == "api"
-                                && member.path == ["api"]
-                            {
-                                found_api = true;
-                            }
-                            (entity.id().0, entity.content())
-                        } else {
-                            let assertion: Assertion =
-                                serde_json::from_slice(payloads.value(row)).unwrap();
-                            assertion.validate().unwrap();
-                            (assertion.id().0, assertion.content())
-                        };
-                        assert_eq!(ids.value(row), id.0);
-                        assert_eq!(contents.value(row), content.0);
-                        assert!(hasher.push(id, content).unwrap());
-                    }
-                }
-                assert_eq!(
-                    manifest
-                        .families
-                        .iter()
-                        .find(|expected| expected.family == family)
-                        .unwrap(),
-                    &hasher.finish()
-                );
-            }
-            assert!(found_original);
-            if frontier == Frontier::Catalog {
-                assert!(
-                    found_api,
-                    "mandatory catalog must contain demo.api without brief seeds"
-                );
-            }
-            assert!(manifest.originals.iter().any(|original| {
-                std::fs::read(destination.join(format!("original-{}.bin", original.source.0.hex())))
-                    .unwrap()
-                    == SOURCE.as_bytes()
-            }));
-            for original in &manifest.originals {
-                let bytes = std::fs::read(
-                    destination.join(format!("original-{}.bin", original.source.0.hex())),
-                )
-                .unwrap();
-                assert_eq!(bytes.len() as u64, original.byte_len);
-                assert_eq!(ContentHash::of(&bytes), original.content);
-            }
-            let acquisition = std::fs::read_to_string(root.join("uv-args")).unwrap();
-            assert!(acquisition.lines().any(|arg| arg == "--frozen"));
-            assert!(acquisition.lines().any(|arg| arg == "--no-install-project"));
-        }
+    let destination = root.join(format!("{}-{}", profile.name(), frontier.name()));
+    let mut command = cli(&root);
+    command
+        .args(["compile", "demo", "--artifact-only", "--output"])
+        .arg(&destination)
+        .args(["--profile", profile.name(), "--through", frontier.name()])
+        .arg("--runtime-config")
+        .arg(
+            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("owned compiler native fixture"),
+        );
+    if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
+        command.args(["--techniques", "default", "--embedder", "none"]);
     }
+    let result = command.output().unwrap();
+    assert!(
+        result.status.success(),
+        "{} {}: {}",
+        profile.name(),
+        frontier.name(),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    let manifest: Manifest =
+        serde_json::from_slice(&std::fs::read(destination.join("manifest.json")).unwrap()).unwrap();
+    manifest.validate().unwrap();
+    assert_eq!(manifest.profile, profile);
+    assert_eq!(manifest.frontier, frontier);
+    assert_eq!(response["profile"], profile.name());
+    assert_eq!(response["frontier"], frontier.name());
+    assert_eq!(response["content"], manifest.content().hex());
+    assert_eq!(response["artifact"], destination.to_string_lossy().as_ref());
+    assert_eq!(response["published"], false);
+    assert!(manifest.embeddings.is_empty());
+    let mut found_original = false;
+    let mut found_api = false;
+    for (file, family) in [
+        ("entities.arrow", GraphFamily::Entities),
+        ("assertions.arrow", GraphFamily::Assertions),
+    ] {
+        let reader =
+            FileReader::try_new(std::fs::File::open(destination.join(file)).unwrap(), None)
+                .unwrap();
+        let mut hasher = FamilyHasher::new(family);
+        for batch in reader {
+            let batch = batch.unwrap();
+            let ids = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            let contents = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            let payloads = batch
+                .column(2)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                let (id, content) = if family == GraphFamily::Entities {
+                    let entity: Entity = serde_json::from_slice(payloads.value(row)).unwrap();
+                    entity.validate().unwrap();
+                    if let Entity::Source(source) = &entity
+                        && source.path == "demo/__init__.py"
+                    {
+                        assert_eq!(source.content, ContentHash::of(SOURCE.as_bytes()));
+                        found_original = true;
+                    }
+                    if let Entity::CatalogMember(member) = &entity
+                        && member.name == "api"
+                        && member.path == ["api"]
+                    {
+                        found_api = true;
+                    }
+                    (entity.id().0, entity.content())
+                } else {
+                    let assertion: Assertion = serde_json::from_slice(payloads.value(row)).unwrap();
+                    assertion.validate().unwrap();
+                    (assertion.id().0, assertion.content())
+                };
+                assert_eq!(ids.value(row), id.0);
+                assert_eq!(contents.value(row), content.0);
+                assert!(hasher.push(id, content).unwrap());
+            }
+        }
+        assert_eq!(
+            manifest
+                .families
+                .iter()
+                .find(|expected| expected.family == family)
+                .unwrap(),
+            &hasher.finish()
+        );
+    }
+    assert!(found_original);
+    if frontier == Frontier::Catalog {
+        assert!(
+            found_api,
+            "mandatory catalog must contain demo.api without brief seeds"
+        );
+    }
+    assert!(manifest.originals.iter().any(|original| {
+        std::fs::read(destination.join(format!("original-{}.bin", original.source.0.hex())))
+            .unwrap()
+            == SOURCE.as_bytes()
+    }));
+    for original in &manifest.originals {
+        let bytes =
+            std::fs::read(destination.join(format!("original-{}.bin", original.source.0.hex())))
+                .unwrap();
+        assert_eq!(bytes.len() as u64, original.byte_len);
+        assert_eq!(ContentHash::of(&bytes), original.content);
+    }
+    let acquisition = std::fs::read_to_string(root.join("uv-args")).unwrap();
+    assert!(acquisition.lines().any(|arg| arg == "--frozen"));
+    assert!(acquisition.lines().any(|arg| arg == "--no-install-project"));
 }
+
+macro_rules! native_frontier_case {
+    ($name:ident, $profile:ident, $frontier:ident) => {
+        #[test]
+        fn $name() {
+            native_fixture_cli_exports(
+                lctx_model::domain::stages::Profile::$profile,
+                lctx_model::domain::admission::Frontier::$frontier,
+            );
+        }
+    };
+}
+native_frontier_case!(native_cli_catalog_facts, Catalog, Facts);
+native_frontier_case!(native_cli_catalog_normalized, Catalog, Normalized);
+native_frontier_case!(native_cli_catalog_analysis, Catalog, Analysis);
+native_frontier_case!(native_cli_catalog_catalog, Catalog, Catalog);
+native_frontier_case!(native_cli_behavioral_facts, Behavioral, Facts);
+native_frontier_case!(native_cli_behavioral_normalized, Behavioral, Normalized);
+native_frontier_case!(native_cli_behavioral_analysis, Behavioral, Analysis);
+native_frontier_case!(native_cli_behavioral_catalog, Behavioral, Catalog);
+
 #[test]
 fn artifact_frontier_and_lower_options_refuse_before_acquisition() {
     let directory = tempfile::tempdir().unwrap();

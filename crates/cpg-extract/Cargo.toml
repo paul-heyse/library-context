@@ -69,9 +69,5 @@ sha2.workspace = true
 serde_json.workspace = true
 insta.workspace = true
 
-# The shared build source is reached through #[path], outside this package's scanner.
-[package.metadata.cargo-shear]
-ignored = ["blake3"]
-
 [lints]
 workspace = true

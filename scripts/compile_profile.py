@@ -477,7 +477,8 @@ class OwnedCommandTree:
                         continue
                     parent = int(fields[1])
                     parent_identity = (
-                        self.subreaper.owner if parent == os.getpid() and self.subreaper
+                        self.subreaper.owner
+                        if parent == os.getpid() and self.subreaper
                         else self.processes[parent]
                     )
                     if not capture().identity_matches(parent, parent_identity):
@@ -765,7 +766,10 @@ def cmd_internal(args: argparse.Namespace) -> int:
                 if len(descendants.processes) != retained_descendants:
                     retained_descendants = len(descendants.processes)
                     try:
-                        write_json_atomic(directory / "owned-descendants.json", list(descendants.processes.values()))
+                        write_json_atomic(
+                            directory / "owned-descendants.json",
+                            list(descendants.processes.values()),
+                        )
                     except OSError as error:
                         stream_errors.append(f"descendant identity receipt: {error}")
                 if received:
@@ -773,8 +777,10 @@ def cmd_internal(args: argparse.Namespace) -> int:
                     if time.monotonic() - stopping_at[0] >= 5:
                         descendants.signal_escaped(signal.SIGKILL)
             code = child.poll()
-            if code is not None and not stdout_thread.is_alive() and (
-                not received or descendants is None or not descendants.escaped()
+            if (
+                code is not None
+                and not stdout_thread.is_alive()
+                and (not received or descendants is None or not descendants.escaped())
             ):
                 break
             time.sleep(0.1)

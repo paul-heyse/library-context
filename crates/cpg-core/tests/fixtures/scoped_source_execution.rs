@@ -1,5 +1,5 @@
 //! Actual scoped producers compared with a finite independent whole-operation oracle.
-use super::runtime;
+use crate::catalog_runtime as runtime;
 use cpg_core::{
     compilation::{self, PreparedCompilation},
     workspace::{CompletedInputs, Workspace, WorkspaceOptions},
@@ -116,8 +116,9 @@ async fn run(profile: Profile) {
             memory_bytes: 1 << 30,
             partitions: 1,
             batch_rows: 7,
-        }, crate::native_fixture::store()
-)
+        },
+        crate::native_fixture::store(),
+    )
     .unwrap();
     let captured = runtime::capture("scoped_source_execution", profile, workspace.budget());
     let configuration = ContentHash::of(b"scoped-source-oracle");

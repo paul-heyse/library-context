@@ -30,6 +30,6 @@ workspace = true
 
 # Used by the shared catalog_runtime.rs fixture included from cpg-core tests.
 [package.metadata.cargo-shear]
-ignored = ["cpg-extract", "datafusion"]
+ignored = ["datafusion"]
 # backup.rs includes this test module through an explicit #[path].
 ignored-paths = ["tests/fixtures/grpc_export.rs"]

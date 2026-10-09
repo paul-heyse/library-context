@@ -530,35 +530,11 @@ impl Workspace {
     fn availability_from_rows(
         &self,
         profile: Profile,
-        inputs: &[lctx_model::domain::input::InputRevision],
-        artifacts: &[lctx_model::domain::source::SourceArtifact],
-        uses: &[lctx_model::domain::input::ArtifactUse],
         scope_rows: Vec<lctx_model::domain::source::CoverageScope>,
-        rows: &[lctx_model::domain::attribution::ProviderCoverage],
-        providers: &[lctx_model::domain::attribution::Provider],
-        runs: &[lctx_model::domain::attribution::ProviderRun],
-        families: &[lctx_model::domain::attribution::RunFamily],
-        contexts: &[lctx_model::domain::attribution::AnalysisContext],
-        contributions: &[lctx_model::domain::completed::CompletedContribution],
-        authority: &std::collections::BTreeSet<ContentHash>,
-        bound_sources: &BTreeMap<String, lctx_model::domain::analysis::sources::SourceSnapshot>,
+        facts: crate::facts::RecordedFacts<'_>,
     ) -> Result<AdmittedFacts, ModelError> {
-        let recorded = crate::facts::recorded_coverage(
-            &self.model,
-            profile,
-            inputs,
-            artifacts,
-            uses,
-            providers,
-            runs,
-            families,
-            contexts,
-            contributions,
-            authority,
-            bound_sources,
-            rows,
-            &self.budget,
-        )?;
+        let rows = facts.observed;
+        let recorded = crate::facts::recorded_coverage(&self.model, profile, &facts, &self.budget)?;
         let scopes = scope_rows.into_iter().map(|row| (row.id(), row)).collect();
         let availability = lctx_model::domain::admission::ScopedAvailability::from_completed(
             profile,
@@ -686,18 +662,20 @@ impl Workspace {
         let _descriptors = self.facts_descriptor_charge(&contributions)?;
         let value = self.availability_from_rows(
             profile,
-            &inputs,
-            &artifacts,
-            &uses,
             scopes,
-            &rows,
-            &providers,
-            &runs,
-            &families,
-            &contexts,
-            &contributions,
-            &authority,
-            &bound_sources,
+            crate::facts::RecordedFacts {
+                inputs: &inputs,
+                artifacts: &artifacts,
+                uses: &uses,
+                observed: &rows,
+                recorded: &providers,
+                runs: &runs,
+                families: &families,
+                contexts: &contexts,
+                contributions: &contributions,
+                authority: &authority,
+                bound_sources: &bound_sources,
+            },
         )?;
         Ok(self
             .remember_facts_availability(key, value)?
@@ -777,18 +755,20 @@ impl Workspace {
         let _descriptors = self.facts_descriptor_charge(&contributions)?;
         let value = self.availability_from_rows(
             profile,
-            &inputs,
-            &artifacts,
-            &uses,
             scopes,
-            &rows,
-            &providers,
-            &runs,
-            &families,
-            &contexts,
-            &contributions,
-            &authority,
-            &bound_sources,
+            crate::facts::RecordedFacts {
+                inputs: &inputs,
+                artifacts: &artifacts,
+                uses: &uses,
+                observed: &rows,
+                recorded: &providers,
+                runs: &runs,
+                families: &families,
+                contexts: &contexts,
+                contributions: &contributions,
+                authority: &authority,
+                bound_sources: &bound_sources,
+            },
         )?;
         self.remember_facts_availability(key, value)
     }

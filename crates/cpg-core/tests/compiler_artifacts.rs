@@ -3,6 +3,10 @@
 mod catalog_runtime;
 #[path = "fixtures/native.rs"]
 mod native_fixture;
+#[path = "fixtures/scoped_source_execution.rs"]
+mod scoped_source_execution;
+#[path = "fixtures/scoped_summary.rs"]
+mod scoped_summary;
 
 #[path = "cases/entry_value_publication.rs"]
 mod entry_value_publication;
