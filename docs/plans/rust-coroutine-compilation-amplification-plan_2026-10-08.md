@@ -258,6 +258,10 @@ required to correct the architecture; unfinished captures remain partial.
 
 ## 7. Source obligation coverage and current handoff
 
+**Current continuation, 2026-10-08:** the operator committed/pushed the preceding PC/BC/CU implementation as `dcb505d5a8c8c4760893f4d49b459b3d0bfce69d`. The [persisted coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07) now owns follow-up execution receipts for native cause attribution, bounded selection/eligibility, cold transport and repaired verification prerequisites. The four300s Behavioral controls remain explicitly deferred; CU6 runtime acceptance, BC3 installation and BC5 release acceptance remain open. Earlier receipts below retain their original source/date and are not promoted to current-source acceptance.
+
+Both populated native journeys and the 35 dependent Python controls now passed in that coordinator's `20261009T023103.223Z-bda1ff` receipt. Their 31m23s native execution prompted the [populated journey target review](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md), which separates runtime work amplification from corrected Rust compilation structures and retains synchronous owned kernels/terminal lifetime guarantees. Its new findings remain source-owned until plan creation; this successful boundary does not close the deferred CU6/BC/PC obligations.
+
 | Review reference | Route in this plan | Current disposition owner |
 |---|---|---|
 | F01 loader composition | §3.1; CU0–CU4; exact-prefix/order/failure controls | Coordinator §9 F01 |

@@ -2,116 +2,101 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: Rust coroutine corrections integrated; acceptance in progress, 2026-10-08.**
-The [companion](docs/plans/rust-coroutine-compilation-amplification-plan_2026-10-08.md#7-source-obligation-coverage-and-current-handoff) owns CU0–CU6 consumers, source identities and current receipts.
-The [compilation coordinator §9/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#9-sole-compilation-cost-finding-disposition) retains source finding disposition and BC3/BC5 closure; PC acceptance remains separate.
-**Implemented / source reviewed:** structural/shared frame phases and all named confirmed inventories, including C0/documentary, execution/normalization children, local analysis and native inventory. Independent review found no material defect across24 source files. CU5 retains buffered checked `push` with an attributed-cost/contract trigger.
-**passed (2026-10-08):** final core/model all-test compile check;13 actual focused candidate controls; final profiled normal/harness plus seven integration products (`20261008T225117.998Z-e84d9b`,2m51s, exit0).
-**Diagnostic limits:** the preceding instrumented run hit filesystem exhaustion after normal codegen; raw completed/partial evidence is retained. The replacement's parent/child/drop assessment found no attributed relocated runaway; no whole-workspace speed or runtime-performance claim.
-**Cancelled by authorization:** old native build `20261008T202337.170Z-114602`, without a test verdict or surviving fixture.
-**Current acceptance:** release `qualify` (`20261008T225907.834Z-dd7ee2`) has model/provider/compiler/CLI/store/serving failures/timeouts; both MCP journeys failed native member-selection requests, and later oracle/tooling/Clippy/Ruff/dependency checks also failed; docs/types and other applicable leaves passed. Reviewed repairs are integrated, with explicit mixed-source boundaries: six-crate all-test compile,757 model tests,17 focused compiler,12 store and3 native codec/cancellation controls passed; both repaired native serving controls passed. Ordinary Workspace/compiler/MCP/corpus defaults now use shared64GiB headroom and automatic CPU partitioning; intentional budget oracles remain. The integrated compiler capture passed; four broader Behavioral stage controls still timed out and are deferred by the operator for a later focused review. Latest six-crate/corpus compile and docs checks passed; affected Clippy still fails on baseline defects. CU6 runtime acceptance remains open; native preparation/acceptance must refresh after final scoped formatting. BC3/BC5 and F01–F04 remain open; companion §7 owns exact receipts and PC follow-up.
-[ADR-0137](docs/adr/0137-qualified-local-compilation.md) retains the qualified local-default target; active defaults remain release. Available compiler/test parallelism, production settings and PC dirty work are preserved. Previous C1 partial diagnostic and tooling receipts remain at coordinator §11/§12.
+**Current scope: populated journey passed; execution-amplification target review delivered.**
+The operator committed and pushed the preceding PC/BC/CU tree as
+`dcb505d5a8c8c4760893f4d49b459b3d0bfce69d`. This continuation is committed locally in
+`e6a73d12`, `a148758c` and `70b8bf53`; final receipts and review documentation follow that source.
+The [persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+owns source finding dispositions, current commands, receipts and remaining acceptance.
+The [correction plan §7](docs/plans/persisted-execution-corrections-plan_2026-10-07.md#7-verification-and-remaining-investigations)
+owns the bounded refinements. ADR-0133/0135 accept their architectural contracts;
+accepted decisions and successful slices do not establish whole-plan closure.
 
-**Persisted graph correction packages PC0–PC6 remain pending acceptance.**
-The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)
-owns this scope and all scheduled source-review finding dispositions. [ADR-0133](docs/adr/0133-persisted-graph-compilation.md)
-accepts native persisted compilation and direct sealing. Implementation receipts below are bounded;
-this pivot is not accepted or measured yet.
-The [correction plan](docs/plans/persisted-execution-corrections-plan_2026-10-07.md) integrates all six
-correction-causes findings, secondary capabilities and investigations. Both RC01/RC02 are accepted.
-The [independent target review](docs/design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md)
-accepts its Proposed architecture; [coordinator §8](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
-owns the still-open findings. ADR-0135 installs the accepted operation-contract target. Production
-migration and focused acceptance are in progress; no finding is closed by the decision alone.
+**Implemented / independently source-reviewed, 2026-10-08:** first-native-operation failure
+attribution and retained read-setup ownership through delivery/cancellation and descendant drainage;
+restore Removed/Orphan preservation; borrowed filter interpretation and one lazy,
+charged static preparation per scan; complete streamed library eligibility into the existing
+compact sorter; fresh graph wiring-index reuse with independent cold decode validation.
+The obsolete whole-match library-input function is removed from the realization inventory.
+Independent review's reservation-handoff finding is source-resolved; final review found no
+remaining material findings, including the adjacent consumers and cold-fixture corrections.
+There is no measured runtime-speed claim.
 
-**Execution resources, 2026-10-08 (carried forward by ADR-0137): implemented / focused tested.** Available Cargo/compiler/test parallelism; disposable SurrealDB defaults to16GiB with8GiB tracked threshold and explicit overrides.
-**passed (original resource scope):** fixture/build-helper pytest, automatic-worker probe, actual fixture startup, ruff, lint-agents, adr-lint and docs-check (340 pages, zero link errors).
+**Verification prerequisites repaired:** flow oracle owns a native fixture and exposes producer
+stderr; native evaluator controls stay under serving; failed serving production blocks dependent
+steps. CLI profile/frontier cases are independently selectable with their original assertions.
+Ordinary CLI flow/compiler probes use the shared 64 GiB budget; available parallelism is preserved.
+Borrowed facts admission inputs replace 14-argument interfaces; dependency discovery retains the
+real path-included build dependencies and removes redundant ignore metadata.
 
-**Workspace effectiveness, 2026-10-08: implemented** with design-phase acceptance ([plan](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md):
-§9 dispositions, §12 checkpoint; [ADR-0134](docs/adr/0134-scoped-preparation-and-maintenance.md); [implementation review](docs/design_review/reviews/design_review_agent-workspace-implementation_2026-10-08.md) findings fixed).
-Commands and readiness follow [AGENTS.md](AGENTS.md#commands); `just fresh` reports 103 committed unformatted Rust files (AE-23) for a whole-tree `turn-end`.
-**Checks, 2026-10-08:** **passed** lint-agents, adr-lint, types, deps, ruff (harness) and docs-check (338 pages), plus harness unit tests and each packet's premise/value checks (plan §9).
-**not_run:** qualify, wide families and the full mcp journey (design-phase scope); whole-tree turn-end (paused files dirty; the scoped form was used).
+**passed, 2026-10-08 (run IDs use UTC 2026-10-09):**
 
-**Integrated on main:** immutable native contributions/views and frozen bindings; typed codec/Arrow bridge;
-all compiler frontiers/profiles, selected analytical preparation and native selected closure; shared
-serving indexes; direct sealing; artifact/backup/restore/inspection; bounded final encoding and readiness.
-[Plan §9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07) owns verification and remaining scope.
+- Final focused native selection: 34 controls (`20261009T023103.222Z-6b45dc`), including
+  cancelled setup, sized reservations, supplier transport, failed import and streamed discovery.
+- Unchanged 4099-row/4 MiB closure control (`20261009T023103.219Z-93de53`).
+- Cold reconciliation/lifecycle:five initial passes and three corrected passes; the latter assert
+  exact retained conflicts, confirmed removal and independent database absence.
+- Three retained-member lifetime/budget controls (`20261009T023605.821Z-9328ad`).
+- CLI Catalog Facts/Normalized and Behavioral Facts; the other selected cases timed out.
+- Populated native/MCP/evaluator boundary (`20261009T023103.223Z-bda1ff`): both native
+  journeys and 35 Python controls passed; native bodies 1883.02s, full boundary 2439.61s.
+- Verification-harness 45 controls; native extension refresh; Ruff, types, deps and full
+  keep-going workspace/all-target Clippy after repairs; preceding documentation publication 346 pages.
+  Exact commands are in coordinator §9.1.
+- Earlier focused projection/completion/coverage 21, fingerprint 4 and normalization 2 controls
+  retain their preceding-source limits; they are not a whole-plan qualification.
 
-**Current verification, 2026-10-07:** the plan §9.1 owns commands, logs and boundaries.
+**Current failures / deferred:** the CLI run failed on unchanged 300s timeouts in Catalog Analysis,
+Catalog Catalog and Behavioral Normalized (`20261009T023103.219Z-3ed231`); three other cases passed.
+The fixture-backed flow oracle exceeded its unchanged 10s subprocess limit without comparison.
+The operator-deferred four 300s Behavioral stage controls remain deferred. Timeout reruns and an
+assembled `qualify` restart are not_run in the review scope; normal parallelism is preserved.
+Publisher fixture failures, native wrapped-cause/cleanup assertions, artifact-test imports and
+Clippy/Ruff/Hakari issues are corrected with affected reruns passed.
 
-- **passed:** exact model contributions/views, identity/encoding/declaration controls and
-  twelve readiness-launcher controls. The fixtures retain independent expected values.
-- **passed:** affected native persistence, reconciliation, original-owner and lifecycle controls,
-  including actual full4096 values and the original default-stack cancellation boundary.
-- **passed:** declaration-derived backing for all88 required non-graph families, opaque snapshot
-  transport and byte-exact numeric canonicalization; empty input retains explicit no-scope.
-- **passed:** actual4099-row selected closure under its unchanged4MiB native read budget,
-  unrelated4MiB body, corruption, pending exclusion and stream-lifetime assertions. Subsequent
-  point-reader/grouped-field corrections also passed both final native closure controls (173.38s).
-- **passed:**23 pure selected serving controls, actual capability-union isolation, native
-  missing-store refusal, CLI early option/destination refusals and exact bounded wire controls.
-- **passed:** fresh dedicated native `compiler_views`, eight controls on `32a2b9fb`, including
-  >128 key/field demands, residual filtering, frozen overlap and coherent membership renaming.
-- **passed:** current point-source Rust/Python development bridge build, atomic installation,
-  fresh-process import/exit and `just ready`. No wheel or environment synchronization.
-- **passed:** all-target Clippy on the preceding prepared-query/serving source (1m29s).
-  Latest parser/core changes, formatting, generated ADR/features and docs leaves remain open.
-- **passed:** all three native closure controls and the actual CallScope orphan/skew control.
-  Exact owner presence retains the unchanged large-read budget and frozen epochs.
-- **passed:** finite model parameter-render and S0 named-parameter selection controls; latest
-  core/lib/affected-test compile check. Revised availability reuse control passed on `c327adba`;
-  recorded-provider admission is being corrected and needs a subsequent focused rerun.
-- **passed after prerequisite correction:**35 actual Python MCP/native-evaluator selections on
-  the retained owned snapshot; first selection33passed/2failed, both fault controls reran passed.
-  Persistent restart passed. This is bounded native evidence, not a clean assembled gate.
-- **partial / paused:** final compiler, CLI, external publication/transport and actual native
-  MCP/programmatic evaluation. No enclosing acceptance or measured speed claim is established.
+**Remaining acceptance:** native extension refresh passed before guards resumed.
+`just verify --select serving:mcp` completed naturally, covering actual fresh compilation,
+publication/backup/restore/tools and dependent Python controls with deterministic contract vectors.
+Whole PC6/CU6/BC3/BC5 acceptance and source findings stay open where required evidence is incomplete.
 
-**Corrections integrated:** locked native planner inspection found that multi-value `IN` could
-retain only the compound relation prefix. Selected reads and overlap counts now use bounded
-writer-derived membership RecordIds and verified contributor metadata. Atomic field windows
-use their scope index; residual filters and exact frozen membership remain. Independent review
-confirmed the subsequent cancellation-resumption ownership and cold membership-ID corrections.
-Forward traversal fields now share one projected read over the exact table/frontier; both
-actual closure controls pass, including nullable links and distinct target epochs. Actual
-`EXPLAIN` found inline scope expressions bypassing its index; preceding compact native constants
-correct the plan shape. Expanded atomic Eq/IN/OR controls pass (`9d7f4d27`); the updated development
-bridge builds, atomically installs and imports successfully.
+**Rust compilation correction: compiler diagnostics passed; runtime acceptance remains bounded.**
+The [coroutine companion §7](docs/plans/rust-coroutine-compilation-amplification-plan_2026-10-08.md#7-source-obligation-coverage-and-current-handoff)
+owns confirmed inventories, compiler captures and their exact limits. Shared borrowed phases,
+opaque inventory adapters and typed synchronous leaves are integrated; CU5 retains checked `push`
+with its attributed-cost/contract trigger. Earlier actual candidate capture completed normal,
+harness and seven integration products; no whole-workspace speed claim is made.
+The [compilation coordinator §9/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#9-sole-compilation-cost-finding-disposition)
+owns BC3/BC5. ADR-0137's local-default installation remains qualification-gated; active defaults
+remain release. The preceding assembled release qualification failed; later focused repairs do
+not convert that run into a clean assembled pass.
 
-**Remaining acceptance:** earlier publication controls exposed omitted backing and a synchronous
-coverage read on a current-thread client runtime; both source defects are corrected. Older stopped
-publication/analytic diagnostics are not acceptance. Temporary coreO0 controls exceeded their
-8MiB test/main stacks; current controls use child-only32MiB stacks, with unchanged production
-profiles and runtime settings. The preceding CLI rerun completed six profile/frontier cases,
-then failed Behavioral Analysis with unconfirmed cleanup. Its error path now preserves both
-original and cleanup failures; the current-source rerun remains pending. The first direct extension
-installer replaced its own loaded mapping and crashed; the corrected atomic installer passed.
-Readiness/check logs distinguish these failures from successful subsequent controls.
-The final native journey completed compilation/admission/direct sealing and all ten tool assertions;
-its backup passed, then restore hit the20s HTTP import deadline. The second browse-scope/vocabulary
-journey passed. Exact pinned statement parsing now bounds imports while keeping transactions whole;
-parser controls and current CLI build pass. Retained-snapshot restore got through import, cold
-state validation and native copy, then failed exact expected coverage during semantic admission.
-That mismatch remains under investigation; no check or runtime limit was weakened.
-The stopped older analytic failure was optional producer replay after compilation, not production
-admission. Generic fixtures now use semantic admission; selected diagnostics remain explicit.
-S0's missing incoming parameter-link selection is corrected and independently reviewed.
+**Integrated baseline:** immutable native contributions/views and frozen bindings; typed codec
+and bounded Arrow transfer; all compiler frontiers/profiles; selected analytical preparation and
+native closure; shared serving indexes; direct sealing; artifact/backup/restore/inspection;
+bounded final response encoding and readiness. PC0–PC5 are committed; PC6 acceptance remains open.
+Native phase/hotspot attribution remains unresolved; passing integration does not establish runtime fit.
 
-**Current execution:** PC0 is committed; PC1–PC5 production/contracts and their controls are
-integrated as dirty main changes. Independent review corrections cover cold table inventories,
-charged member retention, canonical input companions and physical member hydration.
-Authorized Cargo lock-cycle recovery is recorded in coordinator §9.1; test verdicts remain pending.
-PC6 fresh restored coverage, both-profile/frontier and native/MCP/evaluator acceptance remains open.
-The coordinator §9.1 owns current receipts. PC3's isolated worktree remains pending retirement
-once its integrated changes and acceptance are secured. Operator stores/configuration, Qwen,
-protected gold/heldout, shared caches and unrelated host processes remain preserved.
-No wheel, real FastMCP/Q1 pilot, performance campaign, operator adoption or push is requested.
+**Target review, source-inspected / Proposed remedies, 2026-10-08:** the
+[populated journey review](docs/design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md)
+concludes **Revise** execution fit: vocabulary-wide native lowering and repeated canonical membership
+preparation amplify physical work. Semantic ownership and current sequential composition retain
+their scoped judgment. The review owns new unscheduled findings and investigations, including
+overlapping-read completion, runtime placement and data-only restore; no rule or production change
+is applied. Its diagnosis does not attribute the 31m23s native runtime to a particular phase.
+Review publication: `just docs-check` **passed**, 2026-10-08, 347 canonical pages; product checks
+are **not_run** for this documentation scope. The completed journey retains its attributed receipt.
 
-The earlier ER/EV and graph-native audit receipts remain with their original coordinators:
-[evidence/evaluation §6](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion),
-[graph-native §7/§8.1](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities).
-The [evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md) continues to own the
-independent primary programmatic loop, with agentic input to both system and evaluator revisions.
-Earlier FastMCP catalog attempts were stopped without a verdict; real Catalog/Behavioral pilots,
-Q1 usefulness and selected-snapshot adoption remain held.
+**Preservation / next:** integrate that review's recommendations, rule impacts and investigations
+through plan creation. Preserve the timeout follow-up and whole-plan open boundary.
+PC3's isolated worktree retains an uncommitted planner-control copy already represented on main;
+preserve it until safe retirement is established. Shared caches and profiling evidence remain.
+No operator store/configuration, client registration, Qwen service, protected gold/heldout,
+real FastMCP/Q1 pilot, wheel, performance campaign, operator adoption or further push is requested.
+
+Workspace commands and maintenance follow [AGENTS.md](AGENTS.md#commands) and ADR-0134.
+The [workspace effectiveness plan](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md)
+retains its accepted design-phase boundary; no unrelated assembled gate is implied.
+Earlier evidence/retrieval, graph-native and programmatic evaluation obligations remain with
+[their coordinator](docs/plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#6-finding-disposition-investigation-outcomes-and-completion),
+[graph-native §7](docs/plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities)
+and the [evaluation plan](docs/plans/programmatic-evaluation-plan_2026-10-06.md).
