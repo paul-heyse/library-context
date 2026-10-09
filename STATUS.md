@@ -2,6 +2,19 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+**Unified persistent SurrealDB review completed, 2026-10-09:** the
+[independent design/target review](docs/design_review/reviews/design_review_unified-persistent-surrealdb_2026-10-09.md)
+judges the unified target **Revise** and recommends a **Proposed** single durable service with
+shared immutable content, checked attachment, view-scoped publication and durable effect fencing.
+F01–F08/RC01–RC07 remain in that source review until plan creation transfers scheduled scope;
+existing execution and storage findings retain their current owners below. Patched gRPC is the
+preferred immediate transport; progressive WebSocket remains a qualified alternative.
+Next: create the unified target plan and resolve shared content/publication/recovery boundaries.
+Publication **passed:** `just docs`,371pages, zero link errors; scoped `git diff --check` passed.
+`just docs-check` **failed** on the pre-existing concurrent stale ADR index, left untouched.
+Product builds/tests, service/database operations and activation **not_run** for this static
+review. Existing qualification is undisturbed.
+
 **Storage lifecycle plan authored, 2026-10-09:** the [plan §9](docs/plans/storage-lifecycle-management-plan_2026-10-09.md#9-finding-disposition-owner)
 owns scheduled storage F01–F03; the [independent target review](docs/design_review/reviews/design_review_storage-lifecycle-plan_2026-10-09.md)
 accepts the corrected **Proposed / scoped** design. Operator-confirmed choices preserve warm
@@ -23,7 +36,8 @@ accepted RC01–RC05, exact membership access, shared immutable preparation, sco
 completion, stable live flights and explicit Selected/Complete observation. Independent source
 reviews accepted the corrected examined implementation; integrated NE9/GK7/GR6 remains open.
 GK0–GK6/GR0–GR5 are committed in `2a9a3771`; SDK backport is committed in `18ae9076`.
-Remaining current NE implementation is uncommitted.
+Current NE implementation and follow-up corrections are committed in `05cc139b`; integrated
+acceptance remains open.
 
 The SDK3.3.0 now has a narrow vendored gRPC physical-terminal backport. Successful application
 End retains the transport through checked EOF and late errors. SDK3.3.2 retains the same gap.
