@@ -355,6 +355,8 @@ mod native_controls {
         drop(selected);
         drop(edges);
         drop(session);
+        // Exact-view compact preparation is charged to the retained native store.
+        drop(store);
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test(flavor = "multi_thread")]
@@ -406,6 +408,8 @@ mod native_controls {
         drop(edges);
         drop(session);
         drop(admin);
+        // Exact-view compact preparation is charged to the retained native store.
+        drop(store);
         assert_eq!(budget.reserved(), 0);
     }
 }

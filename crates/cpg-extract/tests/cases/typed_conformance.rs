@@ -62,7 +62,40 @@ struct Rows {
 }
 use crate::typed_driver;
 use crate::inspector;
-inspector!(Inspect, ProviderCoverage, Occurrence, SyntaxObservation);
+inspector!(SelectedObservation, SourceArtifact, lctx_model::domain::flow::FlowUse);
+inspector!(CompleteObservation, complete);
+
+#[test]
+fn declared_empty_observation_is_distinct_from_an_undeclared_relation() {
+    let mut demand=typed_driver::ObservationDemand::selected();
+    demand.include::<SourceArtifact>();
+    let typed_driver::ObservationDemand::Selected(empty)=demand else {unreachable!()};
+    let tables=Arc::new(std::sync::Mutex::new(empty));
+    assert!(typed_driver::rows::<SourceArtifact>(&tables).is_empty());
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(||typed_driver::rows::<Occurrence>(&tables))).is_err());
+}
+
+#[tokio::test]
+async fn selected_and_complete_observation_keep_the_same_admitted_native_content() {
+    let files=BTreeMap::from([("observation.py".into(),b"value = 1\n".to_vec())]);
+    let selected=typed_driver::Tables::default();
+    let complete=typed_driver::Tables::default();
+    let selected_digest=typed_driver::run(&files,SelectedObservation(selected.clone())).await.unwrap();
+    let complete_digest=typed_driver::run(&files,CompleteObservation(complete.clone())).await.unwrap();
+    assert_eq!(selected_digest,complete_digest,"inspection never changes workspace admission or identity");
+    assert_eq!(selected.lock().unwrap().len(),2,"only declared families are observed");
+    assert_eq!(typed_driver::rows::<SourceArtifact>(&selected),typed_driver::rows::<SourceArtifact>(&complete));
+    assert!(typed_driver::rows::<lctx_model::domain::flow::FlowUse>(&selected).is_empty(),"catalog profile declares an empty behavioral family");
+    assert!(!typed_driver::rows::<Occurrence>(&complete).is_empty());
+    assert!(complete.lock().unwrap().len()>selected.lock().unwrap().len());
+}
+
+inspector!(
+    Inspect,
+    lctx_model::domain::attribution::ProviderCoverage,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::source::SyntaxObservation
+);
 struct Run {
     digest: ContentHash,
     rows: Rows,
@@ -206,14 +239,20 @@ async fn stages_relocate_deterministically_and_disclose_coverage() {
             .all(|o| o.source != artifact(&files, "_invalid/undecodable.py").id()),
         "undecodable bytes never reach the analyzer"
     );
-    // Exports and Signatures follow the syntax: complete for the clean module, partial or unavailable otherwise.
-    for family in [FactFamily::Exports, FactFamily::Signatures] {
+    // Canonical source exports and native public enumeration disclose their own syntax
+    // boundary; test each provider explicitly rather than choosing by coverage row identity.
+    for (family, provider) in [
+        (FactFamily::Exports, cpg_extract::ruff_context::provider()),
+        (FactFamily::Exports, pyrefly_provider()),
+        (FactFamily::Signatures, pyrefly_provider()),
+    ] {
         let of = |path: &str| {
             left.rows
                 .coverage
                 .iter()
                 .find(|c| {
                     c.family == family
+                        && c.provider == Some(provider.id())
                         && c.scope
                             == CoverageScope::Artifact {
                                 artifact: artifact(&files, path).id(),
@@ -226,12 +265,12 @@ async fn stages_relocate_deterministically_and_disclose_coverage() {
         assert_eq!(
             of("sample.py"),
             (CoverageStatus::CompleteUnderStatedModel, None),
-            "{family:?}"
+            "{family:?}/{}", provider.tool
         );
         assert_eq!(
             of("_invalid/broken.py"),
             (CoverageStatus::Partial, Some(ObligationKind::SyntaxError)),
-            "{family:?}"
+            "{family:?}/{}", provider.tool
         );
         assert_eq!(
             of("_invalid/undecodable.py"),
@@ -239,7 +278,7 @@ async fn stages_relocate_deterministically_and_disclose_coverage() {
                 CoverageStatus::Unavailable,
                 Some(ObligationKind::UndecodableSource)
             ),
-            "{family:?}"
+            "{family:?}/{}", provider.tool
         );
     }
     // The recognizer and independent Ruff contextual pass both disclose Lexical coverage.

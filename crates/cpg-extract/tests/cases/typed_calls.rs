@@ -7,19 +7,22 @@ use lctx_model::domain::{
 use typed_driver::{files, rows, run};
 inspector!(
     Calls,
-    ProviderCallable,
-    ProviderCallSite,
-    ProviderSymbol,
-    CallTarget,
-    CallResolution,
-    CallChannel,
-    CallDestination,
-    Receiver,
-    AssertionQualification,
-    SourceArtifact,
-    Occurrence,
-    ProviderCoverage,
-    SubjectBoundary
+    lctx_model::domain::calls::ProviderCallable,
+    lctx_model::domain::calls::ProviderCallSite,
+    lctx_model::domain::calls::ProviderSymbol,
+    lctx_model::domain::calls::CallTarget,
+    lctx_model::domain::calls::CallResolution,
+    lctx_model::domain::calls::CallChannel,
+    lctx_model::domain::calls::CallDestination,
+    lctx_model::domain::calls::Receiver,
+    lctx_model::domain::assertion::AssertionQualification,
+    lctx_model::domain::source::SourceArtifact,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::attribution::ProviderCoverage,
+    lctx_model::domain::syntax::SubjectBoundary,
+    lctx_model::domain::calls::CallOriginStep,
+    lctx_model::domain::source::Module,
+    lctx_model::domain::calls::ProviderModule
 );
 #[tokio::test]
 async fn variants_keep_channels_phases_and_native_owners() {

@@ -3,6 +3,7 @@
 use super::*;
 use crate::{consumed_rows::ClosureTable, workspace::ProductCandidate};
 use datafusion::datasource::MemTable;
+#[cfg(test)]
 use lctx_surrealdb::surrealdb::types::Value;
 
 struct CachedInputs {
@@ -11,39 +12,26 @@ struct CachedInputs {
     session: datafusion::prelude::SessionContext,
     // Every decoded Arrow batch remains charged through predicate execution. The session owns
     // only bounded transfer batches, never a deserialized semantic capability.
-    _charges: Vec<Box<dyn resources::Reservation>>,
+    _candidate: Arc<ProductCandidate>,
 }
 async fn inputs(
     access: &CompletedInputs,
     runtime: &Workspace,
     mut invariant: Invariant,
     outputs: Vec<Relation>,
-    candidate: &ProductCandidate,
+    candidate: &Arc<ProductCandidate>,
 ) -> Result<CachedInputs, ModelError> {
     invariant.inputs.retain(|input| access.table_for(input).is_ok()
         || (input.prefix().is_none() && outputs.iter().any(|output| output.name() == input.name())));
-    let session = access.session(runtime).await?;
-    let mut charges = Vec::new();
+    let session = access.predicate_session(runtime).await?;
     let mut tables = Vec::new();
     for input in &invariant.inputs {
         let relation = runtime.model().relation(input.name())
             .ok_or(ModelError::Schema("cached normalization relation"))?.clone();
         let alias = if let Ok(alias) = access.table_for(input) { alias } else {
-            let section = candidate.sections().iter().find(|section| section.name == input.name())
-                .ok_or(ModelError::Conflict("cached normalization complete output domain"))?;
-            let _decode = runtime.budget().reserve("cached-normalization-body-decode",
-                section.bytes.len().saturating_mul(8).saturating_add(4096))?;
-            let bodies: Vec<Value> = serde_json::from_slice(&section.bytes).map_err(ModelError::codec)?;
-            if bodies.len() as u64 != section.rows {
-                return Err(ModelError::Conflict("cached normalization output count"));
-            }
-            let mut batches = Vec::new();
-            for window in bodies.chunks(resources::TRANSFER_ROWS) {
-                runtime.cancellation().check()?;
-                let batch = lctx_surrealdb::codec::decode_bodies(&relation, window.to_vec(), runtime.budget())?;
-                charges.push(runtime.budget().reserve("cached-normalization-predicate-table", logical_batch_bytes(&batch)?)?);
-                batches.push(batch);
-            }
+            let batches = candidate.batches(input.name())
+                .ok_or(ModelError::Conflict("cached normalization complete output domain"))?
+                .to_vec();
             let alias = format!("cached_normalization_{}", relation.name());
             let provider = MemTable::try_new(relation.schema().clone(), vec![batches]).map_err(ModelError::codec)?;
             session.register_table(&alias, Arc::new(provider)).map_err(ModelError::codec)?;
@@ -51,11 +39,11 @@ async fn inputs(
         };
         tables.push(ClosureTable { relation, alias });
     }
-    Ok(CachedInputs { invariant, tables, session, _charges: charges })
+    Ok(CachedInputs { invariant, tables, session, _candidate: candidate.clone() })
 }
 
 pub(super) async fn receivers(
-    access: &CompletedInputs, runtime: &Workspace, candidate: &ProductCandidate,
+    access: &CompletedInputs, runtime: &Workspace, candidate: &Arc<ProductCandidate>,
 ) -> Result<normalized::receiver::VerifiedReceivers, ModelError> {
     let invariant = normalized::receiver::invariants().into_iter()
         .find(|invariant| invariant.purpose == InvariantPurpose::Admission)
@@ -66,7 +54,7 @@ pub(super) async fn receivers(
         .ok_or(ModelError::Conflict("receiver product application absent"))
 }
 pub(super) async fn events(
-    access: &CompletedInputs, runtime: &Workspace, candidate: &ProductCandidate,
+    access: &CompletedInputs, runtime: &Workspace, candidate: &Arc<ProductCandidate>,
 ) -> Result<normalized::event_normalization::VerifiedEvents, ModelError> {
     let invariant = normalized::event_normalization::invariants().into_iter()
         .find(|invariant| invariant.purpose == InvariantPurpose::Admission)
@@ -77,7 +65,7 @@ pub(super) async fn events(
         .ok_or(ModelError::Conflict("event product application absent"))
 }
 pub(super) async fn bindings(
-    access: &CompletedInputs, runtime: &Workspace, candidate: &ProductCandidate,
+    access: &CompletedInputs, runtime: &Workspace, candidate: &Arc<ProductCandidate>,
 ) -> Result<normalized::binding_normalization::VerifiedBindings, ModelError> {
     let invariant = normalized::binding_normalization::invariants().into_iter()
         .find(|invariant| invariant.purpose == InvariantPurpose::Admission)

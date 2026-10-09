@@ -9,7 +9,15 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(Facts, CallTarget);
+inspector!(Facts => {
+    let mut demand=typed_driver::ObservationDemand::selected();
+    macro_rules! select { ($($field:ident:$ty:ty $(=> $family:ident)?,)*) => {$(demand.include::<$ty>();)*}; }
+    lctx_model::normalized_entity_inputs!(select);
+    lctx_model::normalized_event_inputs!(select);
+    demand.include::<lctx_model::domain::calls::CallTarget>();
+    demand.include::<lctx_model::domain::input::ArtifactUse>();
+    demand
+});
 #[tokio::test]
 async fn native_official_doc_sites_keep_alias_targets_and_source_receipts_without_flow() {
     let tables = typed_driver::Tables::default();

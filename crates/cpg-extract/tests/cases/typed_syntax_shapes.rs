@@ -95,7 +95,31 @@ impl Facts {
 
 use crate::typed_driver;
 use crate::inspector;
-inspector!(Inspect, SourceArtifact, Occurrence);
+inspector!(
+    Inspect,
+    lctx_model::domain::source::SourceArtifact,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::source::Module,
+    lctx_model::domain::syntax::SyntaxPlacement,
+    lctx_model::domain::syntax::SyntaxDetailObservation,
+    lctx_model::domain::syntax::SyntaxDetail,
+    lctx_model::domain::syntax::DeclarationObservation,
+    lctx_model::domain::syntax::DeclarationDecorator,
+    lctx_model::domain::syntax::ImportAliasObservation,
+    lctx_model::domain::syntax::DunderAllObservation,
+    lctx_model::domain::syntax::ParameterSyntaxObservation,
+    lctx_model::domain::calls::CallSyntax,
+    lctx_model::domain::calls::ProviderSymbol,
+    lctx_model::domain::declarations::SymbolDeclaration,
+    lctx_model::domain::calls::Signature,
+    lctx_model::domain::assertion::AssertionQualification,
+    lctx_model::domain::types::GenericSpecializationObservation,
+    lctx_model::domain::calls::CallArgument,
+    lctx_model::domain::value::Literal,
+    lctx_model::domain::value::LiteralSetMember,
+    lctx_model::domain::syntax::SubjectBoundary,
+    lctx_model::domain::attribution::ProviderCoverage
+);
 async fn run(files: BTreeMap<String, Vec<u8>>, limits: SyntaxLimits) -> Facts {
     let tables = typed_driver::Tables::default();
     typed_driver::run_with(

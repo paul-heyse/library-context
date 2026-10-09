@@ -1,6 +1,6 @@
 //! Attempt-owned external ordering of physical rows and compact nominal candidates.
 use lctx_model::domain::{
-    ModelError,
+    ContentHash, ModelError,
     resources::{Reservation, ResourceBudget},
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,8 @@ pub struct Candidate {
     pub relation: String,
     pub key: [u8; 16],
     pub node: RecordId,
+    /// Present only for a membership read under its exact completed owner.
+    pub content: Option<ContentHash>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -551,7 +553,18 @@ impl SortedCandidates {
 }
 /// Owns the final scratch run and its reader reservation until terminal consumption/drop.
 pub struct OrderedCandidates(Ordered<Compact>);
+/// Compact immutable exact-view selection. Cursors own independent charged readers.
+#[derive(Clone)]
+pub struct PreparedCandidates(Arc<Run<Compact>>);
+impl PreparedCandidates {
+    pub fn cursor_with_budget(&self, budget: &ResourceBudget) -> Result<OrderedCandidates, ModelError> {
+        Ordered::open_in(self.0.clone(), Some(budget.clone())).map(OrderedCandidates)
+    }
+}
 impl OrderedCandidates {
+    pub fn into_prepared(self) -> PreparedCandidates {
+        PreparedCandidates(self.0.run.clone())
+    }
     pub fn rewind(&mut self) -> Result<(), ModelError> {
         self.0.rewind()
     }
@@ -568,6 +581,7 @@ mod tests {
         let mut nominal = [0; 16];
         nominal[15] = key;
         Candidate {
+            content: None,
             relation: relation.into(),
             key: nominal,
             node: RecordId::new("entity", node),

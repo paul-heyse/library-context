@@ -158,12 +158,8 @@ fn native_overload_origins_preserve_original_vectors_and_selection_limits() {
 use crate::typed_driver;
 use crate::inspector;
 use lctx_model::domain::{types::*, *};
-inspector!(
-    OriginFacts,
-    NativeOverloadObservation,
-    NativeOverloadCandidate,
-    NativeOverloadSupport
-);
+// Independent invariant replay consumes complete negative domains and native premises.
+inspector!(OriginFacts, complete);
 #[tokio::test]
 async fn native_origin_vectors_survive_canonical_attachment_and_replay() {
     let tables = typed_driver::Tables::default();

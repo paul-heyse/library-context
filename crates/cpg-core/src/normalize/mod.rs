@@ -184,6 +184,7 @@ impl EntityScopes {
             tables.push(tables[source].clone());
         }
         let compiled = crate::scope_compilation::compile(program.program(), model, budget, None)?;
+        drop(program);
         let identity = compiled.identity();
         let plan = crate::scope_compilation::lower_compiled(
             compiled,
@@ -668,6 +669,7 @@ impl RelationScopes {
             .ok_or(ModelError::Schema("relation scope root binding"))?;
         tables.push(tables[physical].clone());
         let compiled = crate::scope_compilation::compile(program.program(), model, budget, None)?;
+        drop(program);
         let plan = crate::scope_compilation::lower_compiled(
             compiled,
             &tables,
@@ -1601,6 +1603,7 @@ async fn prepare_enumeration_authority(
         runtime.budget(),
         Some(runtime.scope_programs()),
     )?;
+    drop(program);
     let edges = crate::scope_compilation::lower_compiled(
         compiled,
         &tables,

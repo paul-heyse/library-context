@@ -16,7 +16,14 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(Facts, ModuleResolutionObservation);
+inspector!(Facts => {
+    let mut demand=typed_driver::ObservationDemand::selected();
+    macro_rules! select { ($($field:ident:$ty:ty $(=> $family:ident)?,)*) => {$(demand.include::<$ty>();)*}; }
+    lctx_model::normalized_entity_inputs!(select);
+    lctx_model::normalized_relation_inputs!(select);
+    demand.include::<lctx_model::domain::symbols::ModuleResolutionObservation>();
+    demand
+});
 async fn fixture() -> (RelationData, ResourceBudget) {
     let tables = typed_driver::Tables::default();
     typed_driver::run(&files("module_resolution"), Facts(tables.clone()))

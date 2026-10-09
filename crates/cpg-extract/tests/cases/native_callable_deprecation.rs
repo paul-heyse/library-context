@@ -3,7 +3,14 @@ use crate::typed_driver;
 use crate::inspector;
 use lctx_model::domain::{calls::*, types::*, *};
 use typed_driver::{files, rows};
-inspector!(Facts, Signature);
+inspector!(
+    Facts,
+    lctx_model::domain::calls::Signature,
+    lctx_model::domain::types::NativeSignatureObservation,
+    lctx_model::domain::calls::ProviderSymbol,
+    lctx_model::domain::types::TypeTerm,
+    lctx_model::domain::types::TypeSequenceMember
+);
 #[tokio::test]
 async fn native_deprecation_preserves_overload_origin_and_optional_message() {
     let tables = typed_driver::Tables::default();

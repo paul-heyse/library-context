@@ -307,6 +307,7 @@ async fn collect_library_candidates(
                                             relation: catalog::CatalogMember::NAME.into(),
                                             key,
                                             node: node.clone(),
+                                            content: None,
                                         })
                                         .await?;
                                 }

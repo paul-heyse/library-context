@@ -4,11 +4,16 @@ use lctx_model::domain::{Key,KeySink,compilation_product::*};
 use lctx_surrealdb::surrealdb::types::Value;
 
 pub(crate) struct ProductCandidate {
-    sections:Vec<ProductSection>,
-    _charge:Box<dyn Reservation>,
+    sections: Vec<(Relation, Vec<RecordBatch>)>,
+    _charge: Box<dyn Reservation>,
 }
 impl ProductCandidate {
-    pub(crate) fn sections(&self)->&[ProductSection]{&self.sections}
+    pub(crate) fn sections(&self) -> impl Iterator<Item = (&Relation, &[RecordBatch])> {
+        self.sections.iter().map(|(relation, batches)| (relation, batches.as_slice()))
+    }
+    pub(crate) fn batches(&self, name: &str) -> Option<&[RecordBatch]> {
+        self.sections.iter().find(|(relation, _)| relation.name() == name).map(|(_, batches)| batches.as_slice())
+    }
 }
 
 impl Workspace {
@@ -22,7 +27,7 @@ impl Workspace {
     }
 }
 struct ReplayWriter {relation:Relation,contribution:bool}
-struct PreparedReplay {sections:Vec<(Relation,Vec<RecordBatch>)>,_charge:Box<dyn Reservation>}
+type PreparedReplay = ProductCandidate;
 impl ErasedWriter for ReplayWriter {
     fn as_any_mut(&mut self)->&mut dyn Any {self}
     fn close(self:Box<Self>,_model:Arc<ValidatedModel>,_budget:ResourceBudget)->BoxFuture<'static,Result<PendingRelation,ModelError>> {
@@ -38,9 +43,9 @@ impl ProducerOutput {
             // The model contract includes typed schemas, invariants and their implementation.
             self.workspace.model.digest().encode(&mut contract);
         }
-        let dependencies=self.inputs.relations.iter().enumerate().map(|(index,((name,prefix),source))|DependencyToken {
-            kind:DependencyKind::ExactView,role:format!("input/{index}"),relation:(*name).into(),
-            prefix:prefix.map(|p|p.name().into()),identity:source.snapshot.identity(),
+        let dependencies=self.inputs.ordered_bindings().into_iter().map(|((name,_),source)|DependencyToken {
+            kind:DependencyKind::ExactView,role:format!("input/{}",source.role),relation:name.into(),
+            prefix:source.resolved.map(|p|p.name().into()),identity:source.snapshot.identity(),
         }).collect();
         let request=ProductRequest{kind:ProductKind::PureRows,operation:self.name.into(),model:self.workspace.model.digest(),implementation:self.implementation,
             policy:ContentHash::of(&lctx_model::domain::SEMANTIC_POLICY_REVISION.to_le_bytes()),result_contract:contract.finish(),configuration:self.configuration,
@@ -60,16 +65,14 @@ impl ProducerOutput {
             let leased=self.workspace.native_call(async move{cache_read.lookup(&lookup,&budget).await}).await?;
             if let Some(leased)=leased {
                 let product=leased.product();
-                let private_bytes=product.sections.iter().map(|section|section.name.capacity()+section.bytes.capacity()+128).sum::<usize>();
-                let charge=match self.workspace.budget.reserve("cached-private-validation",private_bytes) {
-                    Ok(charge)=>charge,
-                    Err(ModelError::Resource{..}|ModelError::Limit{..})=>{
-                        drop(leased);*self.product_capture.lock().map_err(|_|poisoned())?=Some(request);return Ok(None);
-                    },Err(error)=>return Err(error),
+                let prepared = match decode_product_rows(product, &self.workspace.model, self.workspace.budget(), self.workspace.options.batch_rows) {
+                    Ok(candidate) => {
+                        let candidate = Arc::new(candidate);
+                        check(candidate.clone()).await.and_then(|()| Arc::try_unwrap(candidate)
+                            .map_err(|_| ModelError::Conflict("cached predicate retained replay candidate")))
+                    },
+                    Err(error) => Err(error),
                 };
-                let private=Arc::new(ProductCandidate{sections:product.sections.clone(),_charge:charge});
-                let valid=match self.validate_product_rows(product){Ok(())=>check(private).await,Err(error)=>Err(error)};
-                let prepared=valid.and_then(|()|self.prepare_replay(product));
                 if let Err(error)=prepared {
                     if !crate::sql::product_fallback_allowed(&error) {
                         return Err(error);
@@ -93,61 +96,66 @@ impl ProducerOutput {
             *self.product_capture.lock().map_err(|_|poisoned())?=Some(request);Ok(None)
         }.boxed()
     }
-    fn validate_product_rows(&self,product:&PortableProduct)->Result<(),ModelError> {
-        validate_product_rows(product,&self.workspace.model,self.workspace.budget(),self.workspace.options.batch_rows)
-    }
-    fn prepare_replay(&self,product:&PortableProduct)->Result<PreparedReplay,ModelError> {
-        let mut charge=self.workspace.budget.reserve("prepared-cached-product-ingress",0)?;
-        let mut sections=Vec::new();
-        for section in &product.sections {
-            let relation=self.workspace.model.relation(&section.name).ok_or(ModelError::Schema("cached product relation"))?.clone();
-            let _scratch=self.workspace.budget.reserve("cached-product-decode",section.bytes.len().saturating_mul(16).saturating_add(1024))?;
-            let rows:Vec<Value>=serde_json::from_slice(&section.bytes).map_err(ModelError::codec)?;
-            let mut batches=Vec::new();
-            for window in rows.chunks(self.workspace.options.batch_rows) {
-                let batch=lctx_surrealdb::codec::decode_bodies(&relation,window.to_vec(),self.workspace.budget())?;
-                charge.try_resize(charge.size().saturating_add(lctx_model::domain::logical_batch_bytes(&batch)?).saturating_add(4096))?;
-                batches.push(batch);
-            }
-            charge.try_resize(charge.size().saturating_add(1024))?;
-            sections.push((relation,batches));
-        }Ok(PreparedReplay{sections,_charge:charge})
-    }
     async fn replay_product_rows(&self,prepared:PreparedReplay)->Result<(),ModelError> {
-        let PreparedReplay{sections,_charge}=prepared;
-        let producer=self.registration_request().await?;
+        let ProductCandidate{sections,_charge}=prepared;
+        // Prepare the complete writer inventory and its allocations before native
+        // registration. No optional-product fallback is permitted after that first effect.
+        let scope = self.producing_scope()?;
+        {
+            let mut writers = self.writers.lock().map_err(|_| poisoned())?;
+            if sections.iter().any(|(relation, _)| writers.contains_key(relation.name())) {
+                return Err(ModelError::Conflict("cached output already declared"));
+            }
+            for (relation, _) in &sections {
+                writers.insert(relation.name(), Box::new(ReplayWriter {
+                    contribution: lctx_model::domain::stages::is_epoch_shared(relation.name()), relation: relation.clone(),
+                }));
+            }
+        }
+        let registration = self.registration_request();
+        let producer = registration.await?;
         for (relation,batches) in sections {
             self.workspace.cancellation.check()?;
-            {
-                let mut writers=self.writers.lock().map_err(|_|poisoned())?;
-                if writers.insert(relation.name(),Box::new(ReplayWriter{contribution:lctx_model::domain::stages::is_epoch_shared(relation.name()),relation:relation.clone()})).is_some() {
-                    return Err(ModelError::Conflict("cached output already declared"));
-                }
-            }
             for batch in batches {
-                let native=self.workspace.native.clone();let relation=relation.clone();
-                self.workspace.native_call(async move{native.write_batch(&producer,&relation,&batch).await}).await?;
+                let native=self.workspace.native.clone();let relation=relation.clone();let scope=scope.clone();
+                self.workspace.native_call(async move{scope.run(native.write_batch(&producer,&relation,&batch)).await}).await?;
             }
         }Ok(())
     }
 }
 /// One canonical typed-body/global-order check shared by whole-stage and selected products.
+#[cfg(test)]
 pub(crate) fn validate_product_rows(product:&PortableProduct,model:&ValidatedModel,budget:&ResourceBudget,batch_rows:usize)->Result<(),ModelError> {
-        product.validate()?;
-        for section in &product.sections {
-            let relation=model.relation(&section.name).ok_or(ModelError::Schema("cached product relation"))?;
-            let _scratch=budget.reserve("cached-canonical-body-validation",section.bytes.len().saturating_mul(16).saturating_add(1024))?;
-            let rows:Vec<Value>=serde_json::from_slice(&section.bytes).map_err(ModelError::codec)?;
-            if rows.len() as u64!=section.rows {return Err(ModelError::Conflict("cached product row count"));}
-            let mut content=relation.content();
-            for window in rows.chunks(batch_rows) {
-                let batch=lctx_surrealdb::codec::decode_bodies(relation,window.to_vec(),budget)?;
-                relation.hash_rows(&batch,&mut content)?;
-                let bodies=canonical_bodies(relation,&batch)?;
-                if bodies!=window {return Err(ModelError::Conflict("cached product canonical typed body"));}
-            }
-        }Ok(())
+    decode_product_rows(product, model, budget, batch_rows).map(drop)
 }
+/// Decode one charged typed candidate. Canonical checks, semantic predicates and ingress all
+/// use these batches; no encoded clone or second JSON/Arrow decoder exists on the hit path.
+pub(crate) fn decode_product_rows(product:&PortableProduct,model:&ValidatedModel,budget:&ResourceBudget,batch_rows:usize)->Result<ProductCandidate,ModelError> {
+    product.validate()?;
+    if batch_rows == 0 { return Err(ModelError::Schema("cached product batch rows")); }
+    let mut charge = budget.reserve("cached-typed-product", 0)?;
+    let mut sections = Vec::new();
+    for section in &product.sections {
+        let relation=model.relation(&section.name).ok_or(ModelError::Schema("cached product relation"))?;
+        let _scratch=budget.reserve("cached-canonical-body-validation",section.bytes.len().saturating_mul(16).saturating_add(1024))?;
+        let rows:Vec<Value>=serde_json::from_slice(&section.bytes).map_err(ModelError::codec)?;
+        if rows.len() as u64!=section.rows {return Err(ModelError::Conflict("cached product row count"));}
+        let mut content=relation.content();
+        let mut batches = Vec::new();
+        for window in rows.chunks(batch_rows) {
+            let batch=lctx_surrealdb::codec::decode_bodies(relation,window.to_vec(),budget)?;
+            relation.hash_rows(&batch,&mut content)?;
+            let bodies=canonical_bodies(relation,&batch)?;
+            if bodies!=window {return Err(ModelError::Conflict("cached product canonical typed body"));}
+            charge.try_resize(charge.size().saturating_add(lctx_model::domain::logical_batch_bytes(&batch)?).saturating_add(4096))?;
+            batches.push(batch);
+        }
+        charge.try_resize(charge.size().saturating_add(1024))?;
+        sections.push((relation.clone(), batches));
+    }
+    Ok(ProductCandidate { sections, _charge: charge })
+}
+
 impl Workspace {
     pub(super) async fn retain_product(&self,request:ProductRequest,id:ContentHash,outcome:ProviderOutcome)->Result<(),ModelError> {
         match self.retain_product_owned(request,id,outcome).await {
@@ -162,8 +170,7 @@ impl Workspace {
         let mut sections=Vec::new();
         for name in &request.outputs {
             let relation=self.model.relation(name).ok_or(ModelError::Schema("product capture relation"))?.clone();
-            let view=self.native.contribution_view(id,&relation).await?;
-            let mut stream=self.native.scan_batches(&view,&relation,None,None,self.budget(),self.options.batch_rows).await?;
+            let mut stream=self.native.scan_contribution_batches(id,&relation,self.budget(),self.options.batch_rows).await?;
             let mut values=Vec::new();
             while let Some(batch)=stream.try_next().await.map_err(crate::sql::model_error)? {
                 self.cancellation.check()?;

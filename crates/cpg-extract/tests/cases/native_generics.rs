@@ -14,7 +14,8 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(Facts, Signature);
+// This control reconstructs the complete native inventory or compares complete output.
+inspector!(Facts, complete);
 async fn fixture() -> (typed_driver::Tables, BindingData, ResourceBudget) {
     let tables = typed_driver::Tables::default();
     typed_driver::run(&files("native_generics"), Facts(tables.clone()))

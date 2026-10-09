@@ -11,11 +11,11 @@ use lctx_model::domain::{
 use typed_driver::{files, rows, run};
 inspector!(
     Traits,
-    ClassTraitObservation,
-    ClassTraitSupport,
-    ProviderSymbol,
-    ProviderRun,
-    ProviderSurface
+    lctx_model::domain::symbols::ClassTraitObservation,
+    lctx_model::domain::symbols::ClassTraitSupport,
+    lctx_model::domain::calls::ProviderSymbol,
+    lctx_model::domain::attribution::ProviderRun,
+    lctx_model::domain::assertion::ProviderSurface
 );
 
 #[tokio::test]

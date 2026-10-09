@@ -1390,10 +1390,10 @@ fn session<S: ProviderSink + 'static>(
         }
     }
     for row in public.enumerations {
-        let q = accesses
+        let (q, native_parse_error) = accesses
             .iter()
             .find(|(_, module, _, _, _)| *module == row.access)
-            .map(|(_, _, q, _, _)| q)
+            .map(|(_, _, q, native_parse_error, _)| (q, *native_parse_error))
             .ok_or_else(|| invalid("native export source qualification absent".into()))?;
         let status = match row.status {
             ExportEnumerationStatus::Complete => CoverageStatus::CompleteUnderStatedModel,
@@ -1408,8 +1408,15 @@ fn session<S: ProviderSink + 'static>(
             family: FactFamily::Exports,
             run: Some(run.id()),
             status,
-            reason: (status != CoverageStatus::CompleteUnderStatedModel)
-                .then_some(ObligationKind::OutsideProviderModel),
+            // The native enumeration is already partial for a recovered parse. Preserve
+            // that known cause instead of flattening it into a provider-model boundary.
+            reason: (status != CoverageStatus::CompleteUnderStatedModel).then_some(
+                if status == CoverageStatus::Partial && native_parse_error {
+                    ObligationKind::SyntaxError
+                } else {
+                    ObligationKind::OutsideProviderModel
+                },
+            ),
             diagnostic: (status != CoverageStatus::CompleteUnderStatedModel)
                 .then(|| format!("native public enumeration {:?}/{:?}", row.status, row.basis)),
         })?;

@@ -2,7 +2,7 @@
 use lctx_model::domain::{ModelError, ValidationInput, resources::{ResourceBudget, Reservation}, serving::{ResourceLimits, SnapshotHandle}};
 use lctx_surrealdb::{batches::CanonicalBatches, scope::PreparedServingScope};
 use moka::future::Cache;
-use std::{future::Future, pin::Pin, hash::{Hash, Hasher}, sync::{Arc, Mutex}};
+use std::{collections::HashMap, future::Future, pin::Pin, hash::{Hash, Hasher}, sync::{Arc, Mutex}};
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
 #[derive(Clone)]
@@ -29,46 +29,87 @@ struct ChargedPreparedValue {
     _key: ExactPreparedKey,
     _lease: ValueLease,
 }
+type Retention = Cache<ExactPreparedKey, Arc<ChargedPreparedValue>>;
+type Terminal = Result<Arc<ChargedPreparedValue>, Arc<ModelError>>;
+struct Flight {
+    terminal: Mutex<Option<Terminal>>,
+    changed: Notify,
+    _charge: Box<dyn Reservation>,
+}
+impl Flight {
+    async fn wait(&self)->Result<Arc<ChargedPreparedValue>,ModelError> {
+        loop {
+            let changed=self.changed.notified();tokio::pin!(changed);changed.as_mut().enable();
+            if let Some(result)=self.terminal.lock().expect("preparation terminal").clone() {
+                return result.map_err(ModelError::SharedCause);
+            }
+            changed.await;
+        }
+    }
+}
 #[derive(Default)]
-struct State { closing: bool, owners: usize, values: usize, requests: usize }
+struct State {
+    closing: bool, owners: usize, values: usize, requests: usize,
+    retention: Option<Retention>, generation: u64, publication: u64,
+    flights: HashMap<ExactPreparedKey,Arc<Flight>>,
+}
 #[derive(Default)]
 struct Lifecycle { state: Mutex<State>, changed: Notify }
 pub(crate) struct RequestLease(Arc<Lifecycle>);
 impl Drop for RequestLease { fn drop(&mut self) { let mut s=self.0.state.lock().expect("preparation lifecycle");s.requests-=1; self.0.changed.notify_waiters(); } }
-struct InsertionOwner {lifecycle:Arc<Lifecycle>,_charge:Option<Box<dyn Reservation>>}
-impl Drop for InsertionOwner { fn drop(&mut self) { let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");s.owners-=1; self.lifecycle.changed.notify_waiters(); } }
+struct InsertionOwner {lifecycle:Arc<Lifecycle>,key:ExactPreparedKey,flight:Arc<Flight>}
+impl Drop for InsertionOwner { fn drop(&mut self) {
+    // Also make an unwinding loader terminal, so cancellation/panic cannot strand waiters.
+    let mut terminal=self.flight.terminal.lock().expect("preparation terminal");
+    if terminal.is_none() {*terminal=Some(Err(Arc::new(ModelError::codec("preparation loader ended without a terminal result"))));}
+    drop(terminal);self.flight.changed.notify_waiters();
+    let removed={let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");
+        s.owners-=1;
+        if s.flights.get(&self.key).is_some_and(|flight|Arc::ptr_eq(flight,&self.flight)) {
+            s.publication=s.publication.wrapping_add(1);
+            let removed=s.flights.remove(&self.key);
+            // Do not retain an uncharged high-water allocation after flight charges leave.
+            if s.flights.is_empty() {s.flights=HashMap::new();}
+            else if s.flights.capacity()>s.flights.len().saturating_mul(4) {s.flights.shrink_to_fit();}
+            removed
+        }else{None}
+    };
+    drop(removed);self.lifecycle.changed.notify_waiters();
+} }
 struct ValueLease { lifecycle: Arc<Lifecycle>, _pin: SnapshotHandle }
 impl Drop for ValueLease { fn drop(&mut self) { let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");s.values-=1;self.lifecycle.changed.notify_waiters(); } }
 /// One viewer and one immutable handle. Eviction never releases a borrower's charge.
 pub(crate) struct PreparedCache {
     pin: SnapshotHandle,
-    cache: Mutex<Cache<ExactPreparedKey, Arc<ChargedPreparedValue>>>,
     capacity: u64,
     lifecycle: Arc<Lifecycle>,
     budget: ResourceBudget,
     queries: Arc<Semaphore>,
     cpu: Arc<Semaphore>,
+    #[cfg(test)] after_miss: Mutex<Option<(Arc<Notify>,Arc<Semaphore>)>>,
 }
 impl PreparedCache {
     pub(crate) fn new(pin: SnapshotHandle, shared:&ResourceBudget, limits:&ResourceLimits, queries:Arc<Semaphore>, cpu:Arc<Semaphore>)->Result<Arc<Self>,ModelError> {
         let budget=ResourceBudget::scoped(shared, limits.preparation_bytes as usize)?;
         let capacity=limits.preparation_bytes.div_ceil(1024).min(u64::from(u32::MAX)-1);
-        Ok(Arc::new(Self { pin, cache:Mutex::new(Self::empty_cache(capacity)), capacity,
-            lifecycle:Arc::default(), budget,queries,cpu }))
+        let lifecycle=Arc::new(Lifecycle {state:Mutex::new(State {retention:Some(Self::empty_cache(capacity)),..Default::default()}),changed:Notify::new()});
+        Ok(Arc::new(Self { pin, capacity, lifecycle, budget,queries,cpu,
+            #[cfg(test)] after_miss:Mutex::new(None),
+        }))
     }
     fn empty_cache(capacity:u64)->Cache<ExactPreparedKey,Arc<ChargedPreparedValue>> {
         Cache::builder().max_capacity(capacity)
             .weigher(|_:&ExactPreparedKey,v:&Arc<ChargedPreparedValue>|weight_units(v.budget.reserved().saturating_add(v._key._charge.size())).unwrap_or(u32::MAX))
             .build()
     }
-    fn current_cache(&self)->Cache<ExactPreparedKey,Arc<ChargedPreparedValue>> {
-        self.cache.lock().expect("preparation cache generation").clone()
-    }
     fn release_optional_retention(&self) {
         // Moka logical invalidation defers payload destruction. Replace its replaceable
         // retention owner instead: once active initializers release their clones, dropping
         // the old cache destroys its unborrowed values. External Arc borrowers remain live.
-        let old=std::mem::replace(&mut *self.cache.lock().expect("preparation cache generation"),Self::empty_cache(self.capacity));
+        let old={let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");
+            s.generation=s.generation.wrapping_add(1);
+            s.retention.replace(Self::empty_cache(self.capacity))
+        };
         drop(old);
     }
     fn reserve_capture(&self,owner:&'static str,bytes:usize)->Result<Box<dyn Reservation>,ModelError> {
@@ -106,44 +147,96 @@ impl PreparedCache {
         }
     }
     async fn load(self:&Arc<Self>, key:ExactPreparedKey, initialize:Initializer)->Result<Arc<ChargedPreparedValue>,ModelError> {
-        // Fence every insertion owner before spawning. Dropping the requesting future does not
-        // abort this task, Moka initialization, or submitted native work.
-        let mut owner={let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");if s.closing{return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}s.owners+=1;InsertionOwner{lifecycle:self.lifecycle.clone(),_charge:None}};
-        if let Some(value)=self.current_cache().get(&key).await {return Ok(value)}
-        // Admission accounts the erased future, Tokio task, initializer captures and Moka
-        // waiter metadata before spawning; canceled waiters retain this charge to terminality.
-        // Existing configured preparation bytes bound the queue without a worker/thread cap.
-        owner._charge=Some(self.reserve_capture("viewer-insertion-owner",4096)?);
-        let this=self.clone();
-        tokio::spawn(async move {
-            let _owner=owner;
-            for retry in 0..2 {
-            let initialize_key=key.clone();
-            let generation=this.current_cache();
-            let result = generation.try_get_with(key.clone(), async {
-                let _query=this.queries.clone().acquire_owned().await.map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable))?;
-                let _cpu=this.cpu.clone().acquire_owned().await.map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable))?;
-                if this.lifecycle.state.lock().expect("preparation lifecycle").closing {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
-                let budget=ResourceBudget::scoped(&this.budget,this.budget.limit())?;
-                let data=initialize(budget.clone()).await?;
-                let lease={let mut s=this.lifecycle.state.lock().expect("preparation lifecycle");s.values+=1;ValueLease {lifecycle:this.lifecycle.clone(),_pin:this.pin.clone()} };
-                Ok(Arc::new(ChargedPreparedValue {data,budget,_key:initialize_key,_lease:lease}))
-            }).await;
-            drop(generation);
-            if retry==0 && result.as_ref().is_err_and(|e| matches!(e.primary(),Some(ModelError::Resource{..}|ModelError::Limit{..}))) {
-                // Optional retention yields to required fresh preparation. Live borrowers remain
-                // charged; removing only cache references cannot fabricate free memory.
-                this.release_optional_retention();continue;
-            }
-            if let Ok(value)=&result {
-                if weight_units(value.budget.reserved().saturating_add(value._key._charge.size())).is_none(){
-                    let generation=this.current_cache();generation.invalidate(&key).await;generation.run_pending_tasks().await;
+        // A waiter owns only its independent wait; the flight owns the loader to terminality.
+        if self.lifecycle.state.lock().expect("preparation lifecycle").closing {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
+        let _waiter=self.reserve_capture("viewer-preparation-waiter",1024)?;
+        let mut candidate=None;
+        let mut initialize=Some(initialize);
+        let flight=loop {
+            let (retention,generation,publication)={
+                let s=self.lifecycle.state.lock().expect("preparation lifecycle");
+                if s.closing {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
+                if let Some(flight)=s.flights.get(&key) {break flight.clone();}
+                (s.retention.as_ref().expect("viewer retention").clone(),s.generation,s.publication)
+            };
+            let cached=retention.get(&key).await;
+            drop(retention);
+            if let Some(value)=cached {
+                if self.lifecycle.state.lock().expect("preparation lifecycle").closing {
+                    return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));
                 }
+                return Ok(value);
             }
-            return result.map_err(ModelError::SharedCause);
+            #[cfg(test)] {
+                let pause=self.after_miss.lock().unwrap().take();
+                if let Some((reached,gate))=pause {reached.notify_one();let _permit=gate.acquire().await.unwrap();}
             }
-            unreachable!("preparation retry returns its terminal result")
-        }).await.map_err(|e|ModelError::codec(e.to_string()))?
+            // Reserve before locking: reclaiming retention can destroy a ValueLease.
+            if candidate.is_none() {
+                candidate=Some(Arc::new(Flight {terminal:Mutex::new(None),changed:Notify::new(),
+                    _charge:self.reserve_capture("viewer-preparation-flight",4096)?}));
+            }
+            let owner={
+                let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");
+                if s.closing {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
+                if let Some(flight)=s.flights.get(&key) {break flight.clone();}
+                // Completion and replacement use this same lock. A stale asynchronous miss
+                // cannot install after another loader published and removed its flight.
+                if s.generation!=generation || s.publication!=publication {continue;}
+                let flight=candidate.take().expect("charged flight");
+                s.flights.insert(key.clone(),flight.clone());s.owners+=1;
+                InsertionOwner {lifecycle:self.lifecycle.clone(),key:key.clone(),flight}
+            };
+            let flight=owner.flight.clone();
+            let this=self.clone();
+            let initialize=initialize.take().expect("flight initializer");
+            let loader_key=key.clone();
+            tokio::spawn(async move {
+                let owner=owner;
+                let result=this.initialize(&loader_key,&initialize).await.map_err(Arc::new);
+                // Keep the flight joinable during optional publication. Waiters own their
+                // terminal Arc independently, and never depend on deferred Moka maintenance.
+                *owner.flight.terminal.lock().expect("preparation terminal")=Some(result.clone());
+                if let Ok(value)=&result {
+                    let retention={let s=this.lifecycle.state.lock().expect("preparation lifecycle");
+                        if !s.closing && weight_units(value.budget.reserved().saturating_add(value._key._charge.size())).is_some() {
+                            s.retention.clone()
+                        }else{None}
+                    };
+                    // Replacement while insert is pending may forgo retention entirely.
+                    if let Some(retention)=retention {retention.insert(loader_key.clone(),value.clone()).await;}
+                }
+                // Drain reader/layout captures before advertising loader drainage to close.
+                drop(initialize);drop(loader_key);drop(result);
+                drop(owner); // Exact identity removal and publication sequence advance.
+            });
+            break flight;
+        };
+        // A joiner never retains a second initializer's charged captures while waiting.
+        drop(candidate);drop(initialize);drop(key);
+        flight.wait().await
+    }
+    async fn initialize(&self,key:&ExactPreparedKey,initialize:&Initializer)->Result<Arc<ChargedPreparedValue>,ModelError> {
+        for retry in 0..2 {
+            // Close fences retries as well as initial installation and queued admission.
+            if self.lifecycle.state.lock().expect("preparation lifecycle").closing {
+                return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));
+            }
+            let result=async {
+                let _query=self.queries.clone().acquire_owned().await.map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable))?;
+                let _cpu=self.cpu.clone().acquire_owned().await.map_err(|_|ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable))?;
+                if self.lifecycle.state.lock().expect("preparation lifecycle").closing {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
+                let budget=ResourceBudget::scoped(&self.budget,self.budget.limit())?;
+                let data=initialize(budget.clone()).await?;
+                let lease={let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");s.values+=1;ValueLease {lifecycle:self.lifecycle.clone(),_pin:self.pin.clone()} };
+                Ok(Arc::new(ChargedPreparedValue {data,budget,_key:key.clone(),_lease:lease}))
+            }.await;
+            if retry==0 && result.as_ref().is_err_and(|e|matches!(e.primary(),Some(ModelError::Resource{..}|ModelError::Limit{..}))) {
+                self.release_optional_retention();continue;
+            }
+            return result;
+        }
+        unreachable!("preparation retry returns its terminal result")
     }
     pub(crate) async fn close(&self) {
         {self.lifecycle.state.lock().expect("preparation lifecycle").closing=true;}
@@ -253,8 +346,11 @@ mod controls {
         })};
         started.notified().await;
         first.abort();
+        assert!(first.await.is_err());
+        cache.release_optional_retention();
         let second={let cache=cache.clone();let count=count.clone();tokio::spawn(async move {cache.load(key(&cache),Box::new(move|budget|{count.fetch_add(1,Ordering::SeqCst);Box::pin(async move {Ok(PreparedData::Test {_charge:budget.reserve("test-payload",4096)?})})})).await})};
-        while cache.lifecycle.state.lock().unwrap().owners<2 {tokio::task::yield_now().await;}
+        while Arc::strong_count(cache.lifecycle.state.lock().unwrap().flights.values().next().unwrap())<3 {tokio::task::yield_now().await;}
+        assert_eq!(cache.lifecycle.state.lock().unwrap().owners,1,"pressure preserves the one admitted loader");
         gate.add_permits(1);
         let held=second.await.unwrap().unwrap();assert_eq!(count.load(Ordering::SeqCst),1);
         cache.release_optional_retention();
@@ -282,6 +378,73 @@ mod controls {
     fn weight_units_use_checked_ceiling_without_truncating_large_payloads() {
         assert_eq!(weight_units(1),Some(1));assert_eq!(weight_units(1024),Some(1));assert_eq!(weight_units(1025),Some(2));
         assert_eq!(weight_units(usize::MAX),None);
+    }
+    #[tokio::test]
+    async fn stale_retention_miss_rechecks_completed_publication_before_installing() {
+        let (cache,shared)=make_cache();
+        let reached=Arc::new(Notify::new());let gate=Arc::new(Semaphore::new(0));
+        *cache.after_miss.lock().unwrap()=Some((reached.clone(),gate.clone()));
+        let count=Arc::new(AtomicUsize::new(0));
+        let stale={let cache=cache.clone();let count=count.clone();tokio::spawn(async move {
+            cache.load(key(&cache),Box::new(move|budget|{count.fetch_add(1,Ordering::SeqCst);Box::pin(async move {Ok(PreparedData::Test{_charge:budget.reserve("stale",4096)?})})})).await
+        })};
+        reached.notified().await;
+        let completed=cache.load(key(&cache),Box::new({let count=count.clone();move|budget|{count.fetch_add(1,Ordering::SeqCst);Box::pin(async move {Ok(PreparedData::Test{_charge:budget.reserve("completed",4096)?})})}})).await.unwrap();
+        while cache.lifecycle.state.lock().unwrap().owners!=0 {tokio::task::yield_now().await;}
+        assert!(cache.lifecycle.state.lock().unwrap().flights.is_empty());
+        gate.add_permits(1);
+        let reused=stale.await.unwrap().unwrap();
+        assert!(Arc::ptr_eq(&completed,&reused));assert_eq!(count.load(Ordering::SeqCst),1);
+        drop(completed);drop(reused);cache.close().await;drop(cache);assert_eq!(shared.reserved(),0);
+    }
+    #[tokio::test]
+    async fn stale_owner_cannot_remove_a_replacement_flight() {
+        let (cache,shared)=make_cache();let exact=key(&cache);
+        let flight=||Arc::new(Flight {terminal:Mutex::new(None),changed:Notify::new(),_charge:cache.budget.reserve("test-flight",4096).unwrap()});
+        let old=flight();let current=flight();
+        {let mut s=cache.lifecycle.state.lock().unwrap();s.owners=1;s.flights.insert(exact.clone(),current.clone());}
+        drop(InsertionOwner {lifecycle:cache.lifecycle.clone(),key:exact.clone(),flight:old.clone()});
+        assert!(old.terminal.lock().unwrap().as_ref().unwrap().is_err());
+        {let s=cache.lifecycle.state.lock().unwrap();assert!(Arc::ptr_eq(s.flights.get(&exact).unwrap(),&current));assert_eq!(s.publication,0);}
+        let removed=cache.lifecycle.state.lock().unwrap().flights.remove(&exact);
+        drop(removed);drop(old);drop(current);drop(exact);cache.close().await;drop(cache);assert_eq!(shared.reserved(),0);
+    }
+    #[tokio::test]
+    async fn close_fences_resource_retry_and_queued_loader_admission() {
+        let (cache,shared)=make_cache();let gate=Arc::new(Semaphore::new(0));let started=Arc::new(Notify::new());let count=Arc::new(AtomicUsize::new(0));
+        let request={let cache=cache.clone();let gate=gate.clone();let started=started.clone();let count=count.clone();tokio::spawn(async move {
+            cache.load(key(&cache),Box::new(move|budget|{let gate=gate.clone();let started=started.clone();let count=count.clone();Box::pin(async move {
+                count.fetch_add(1,Ordering::SeqCst);started.notify_one();let _permit=gate.acquire().await.unwrap();
+                Ok(PreparedData::Test{_charge:budget.reserve("resource-refusal",budget.limit()+1)?})
+            })})).await
+        })};
+        started.notified().await;
+        let queued={let cache=cache.clone();tokio::spawn(async move {
+            cache.load(cache.key("queued",&[],&[],&[],&[]).unwrap(),Box::new(|_|Box::pin(async {panic!("closed queued loader must not initialize")}))).await
+        })};
+        while cache.lifecycle.state.lock().unwrap().owners!=2 {tokio::task::yield_now().await;}
+        let closing={let cache=cache.clone();tokio::spawn(async move {cache.close().await})};
+        while !cache.lifecycle.state.lock().unwrap().closing {tokio::task::yield_now().await;}
+        gate.add_permits(1);
+        for result in [request.await.unwrap(),queued.await.unwrap()] {
+            assert!(matches!(result.err().unwrap().primary(),Some(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable))));
+        }
+        assert_eq!(count.load(Ordering::SeqCst),1);closing.await.unwrap();drop(cache);assert_eq!(shared.reserved(),0);
+    }
+    #[tokio::test]
+    async fn close_fences_a_suspended_retention_miss() {
+        let (cache,shared)=make_cache();let reached=Arc::new(Notify::new());let gate=Arc::new(Semaphore::new(0));
+        *cache.after_miss.lock().unwrap()=Some((reached.clone(),gate.clone()));
+        let request={let cache=cache.clone();let lease=cache.admit_request().unwrap();tokio::spawn(async move {
+            let _lease=lease;
+            cache.load(key(&cache),Box::new(|_|Box::pin(async {panic!("closed miss must not initialize")}))).await
+        })};
+        reached.notified().await;
+        let closing={let cache=cache.clone();tokio::spawn(async move {cache.close().await})};
+        while !cache.lifecycle.state.lock().unwrap().closing {tokio::task::yield_now().await;}
+        assert!(!closing.is_finished());gate.add_permits(1);
+        assert!(matches!(request.await.unwrap().err().unwrap().primary(),Some(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable))));
+        closing.await.unwrap();drop(cache);assert_eq!(shared.reserved(),0);
     }
     #[tokio::test]
     async fn optional_retention_yields_to_required_preparation_without_releasing_borrowers() {

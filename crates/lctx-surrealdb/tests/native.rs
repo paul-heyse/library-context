@@ -36,8 +36,8 @@ async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_
     let expected: Value = native.query_native(sql, Variables::new()).await.unwrap();
     let Value::Object(session) = &expected else { panic!("session descriptor must be an object") };
     assert!(matches!(session.get("id"), Some(Value::Uuid(_))));
-    assert_eq!(session.get("ns"), Some(&Value::from(cfg["namespace"].as_str().unwrap())));
-    assert_eq!(session.get("db"), Some(&Value::from(cfg["database"].as_str().unwrap())));
+    assert_eq!(session.get("ns"), Some(&Value::String(cfg["namespace"].as_str().unwrap().to_owned())));
+    assert_eq!(session.get("db"), Some(&Value::String(cfg["database"].as_str().unwrap().to_owned())));
     // Revealing contrast: cloning Surreal itself recreates a distinct authenticated session.
     let independent = NativeReader::private(std::sync::Arc::new(client.as_ref().clone()));
     let other: Value = independent.query_native(sql, Variables::new()).await.unwrap();

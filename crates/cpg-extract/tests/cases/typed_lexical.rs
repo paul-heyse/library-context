@@ -127,7 +127,23 @@ fn b(kind: BindingEventKind, line: usize) -> To {
 
 use crate::typed_driver;
 use crate::inspector;
-inspector!(Inspect, SourceArtifact, Occurrence);
+inspector!(
+    Inspect,
+    lctx_model::domain::source::SourceArtifact,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::lexical::LexicalScope,
+    lctx_model::domain::lexical::LexicalScopeObservation,
+    lctx_model::domain::lexical::LexicalScopeSupport,
+    lctx_model::domain::lexical::BindingEvent,
+    lctx_model::domain::lexical::BindingObservation,
+    lctx_model::domain::lexical::ReferenceObservation,
+    lctx_model::domain::lexical::LexicalTarget,
+    lctx_model::domain::lexical::LexicalResolution,
+    lctx_model::domain::lexical::LexicalResolutionSupport,
+    lctx_model::domain::assertion::AssertionQualification,
+    lctx_model::domain::attribution::Provider,
+    lctx_model::domain::attribution::ProviderCoverage
+);
 async fn run(case: &str) -> Facts {
     let files = typed_driver::files(case);
     let tables = typed_driver::Tables::default();

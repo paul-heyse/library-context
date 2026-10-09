@@ -5,18 +5,18 @@ use lctx_model::domain::{protocols::*, source::*, types::*, *};
 use typed_driver::{files, rows, run};
 inspector!(
     Protocols,
-    NativeExitObservation,
-    NativeExitSupport,
-    NativeTerminalObservation,
-    NativeTerminalSupport,
-    NativeExitDiagnostic,
-    NativeExitDiagnosticSupport,
-    TypeTerm,
-    TypeSequence,
-    TypeSequenceMember,
+    lctx_model::domain::protocols::NativeExitObservation,
+    lctx_model::domain::protocols::NativeExitSupport,
+    lctx_model::domain::protocols::NativeTerminalObservation,
+    lctx_model::domain::protocols::NativeTerminalSupport,
+    lctx_model::domain::protocols::NativeExitDiagnostic,
+    lctx_model::domain::protocols::NativeExitDiagnosticSupport,
+    lctx_model::domain::types::TypeTerm,
+    lctx_model::domain::types::TypeSequence,
+    lctx_model::domain::types::TypeSequenceMember,
     lctx_model::domain::value::Literal,
-    Occurrence,
-    SourceArtifact
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::source::SourceArtifact
 );
 
 #[tokio::test]

@@ -16,7 +16,8 @@ use lctx_model::domain::{
 };
 use lctx_model::domain::{calls::ProviderModule, normalized::Rows};
 use typed_driver::{files, rows};
-inspector!(Facts, PublicNameObservation);
+// Independent invariant replay consumes complete negative domains and native premises.
+inspector!(Facts, complete);
 async fn fixture() -> (
     typed_driver::Tables,
     EntityData,

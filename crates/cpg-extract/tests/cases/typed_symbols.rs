@@ -12,24 +12,24 @@ use typed_driver::{files, rows, run};
 
 inspector!(
     Symbols,
-    SourceArtifact,
-    Module,
-    Occurrence,
-    ProviderModule,
-    ProviderSymbol,
-    SymbolObservation,
-    FunctionTraitObservation,
-    ClassTraitObservation,
-    ClassAncestryObservation,
-    SymbolSequenceMember,
-    Signature,
-    SignatureParameter,
-    ParameterShape,
-    ParameterAnnotationObservation,
-    SymbolDeclaration,
-    ParameterDeclaration,
-    ProviderCoverage,
-    SubjectBoundary
+    lctx_model::domain::source::SourceArtifact,
+    lctx_model::domain::source::Module,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::calls::ProviderModule,
+    lctx_model::domain::calls::ProviderSymbol,
+    lctx_model::domain::symbols::SymbolObservation,
+    lctx_model::domain::symbols::FunctionTraitObservation,
+    lctx_model::domain::symbols::ClassTraitObservation,
+    lctx_model::domain::symbols::ClassAncestryObservation,
+    lctx_model::domain::symbols::SymbolSequenceMember,
+    lctx_model::domain::calls::Signature,
+    lctx_model::domain::calls::SignatureParameter,
+    lctx_model::domain::calls::ParameterShape,
+    lctx_model::domain::symbols::ParameterAnnotationObservation,
+    lctx_model::domain::declarations::SymbolDeclaration,
+    lctx_model::domain::declarations::ParameterDeclaration,
+    lctx_model::domain::attribution::ProviderCoverage,
+    lctx_model::domain::syntax::SubjectBoundary
 );
 
 struct Facts {
@@ -379,16 +379,17 @@ async fn keys_are_per_file_and_nested_classes_stay_apart() {
 
 inspector!(
     Names,
-    SourceArtifact,
-    Module,
-    Occurrence,
-    ProviderModule,
-    ExportOrigin,
-    PublicNameObservation,
-    ParameterDocObservation,
+    lctx_model::domain::source::SourceArtifact,
+    lctx_model::domain::source::Module,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::calls::ProviderModule,
+    lctx_model::domain::symbols::ExportOrigin,
+    lctx_model::domain::symbols::PublicNameObservation,
+    lctx_model::domain::symbols::ParameterDocObservation,
     lctx_model::domain::assertion::Evidence,
-    ModuleResolutionObservation,
-    ProviderCoverage
+    lctx_model::domain::symbols::ModuleResolutionObservation,
+    lctx_model::domain::symbols::ExportEnumerationObservation,
+    lctx_model::domain::attribution::ProviderCoverage
 );
 
 #[tokio::test]
@@ -503,12 +504,13 @@ async fn public_names_docs_and_module_resolutions_are_stated() {
 
 inspector!(
     Public,
-    SourceArtifact,
-    Module,
-    ProviderModule,
-    ExportOrigin,
-    PublicNameObservation,
-    ProviderCoverage
+    lctx_model::domain::source::SourceArtifact,
+    lctx_model::domain::source::Module,
+    lctx_model::domain::calls::ProviderModule,
+    lctx_model::domain::symbols::ExportOrigin,
+    lctx_model::domain::symbols::PublicNameObservation,
+    lctx_model::domain::attribution::ProviderCoverage,
+    lctx_model::domain::assertion::AssertionQualification
 );
 
 #[tokio::test]

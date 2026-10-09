@@ -321,7 +321,12 @@ Compatible selected roots share bounded acquisition; actual kernels and independ
 retain their authorities. [§15.10](sections/semantic-model.md#section-15-10) owns the implementation
 boundary and remaining qualification. Selective cross-run products remain an accepted target.
 
-> Decision: ADR-0140, ADR-0139, ADR-0138, ADR-0126
+**Implemented / focused Tested, 2026-10-09 (ADR-0141); coordinated acceptance open.** Exact ordered completed-input bindings supply shared
+provider/logical preparation and compatible typed inputs. Independent checks retain their own
+state, complete negative domains and current semantic acceptance. Physical sharing follows
+exact immutable premises and operational ownership, not alias or prior validity alone.
+
+> Decision: ADR-0141, ADR-0140, ADR-0139, ADR-0138, ADR-0126
 
 <a id="section-b4"></a>
 
@@ -427,7 +432,11 @@ stored content/state, ready indexes and executable definitions after drainage, e
 ownership and verifies VIEWER reconnect before an unselected handle. Detached external import
 retains independent admission. Publication does not select; readers pin a complete realization.
 
-> Decision: ADR-0138
+**Implemented / focused Tested, 2026-10-09 (ADR-0141); coordinated acceptance open.** Local contribution visibility waits for its actual
+producing descendants, with a native-owned terminal handoff. Final content freeze, admission,
+seal and abandonment retain global failure propagation, drainage and remote certainty.
+
+> Decision: ADR-0141, ADR-0138
 
 <a id="section-b8"></a>
 

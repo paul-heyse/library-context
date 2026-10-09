@@ -585,19 +585,23 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     };
     use std::{fs::File, io::Read};
     let admitted = compiled(Profile::Catalog, Frontier::Normalized, None, 4096).await;
-    let workspace = Workspace::new(
-        Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions::default(),
-        crate::native_fixture::store(),
-    )
-    .unwrap();
+    // Each candidate owns a fresh importer, so a prior admission's mutation fence
+    // cannot substitute for the intended transport or semantic rejection.
+    let importer = || {
+        Workspace::new(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            WorkspaceOptions::default(),
+            crate::native_fixture::store(),
+        )
+        .unwrap()
+    };
     let root = tempfile::tempdir().unwrap();
     let output = root.path().join("graph");
     admitted.export(&output).await.unwrap();
-    admitted.verify_export(&output, &workspace).await.unwrap();
+    admitted.verify_export(&output, &importer()).await.unwrap();
     let manifest = admitted.manifest().clone();
     drop(admitted);
-    let verified = artifact::verify_export(&output, &workspace).await.unwrap();
+    let verified = artifact::verify_export(&output, &importer()).await.unwrap();
     assert_eq!(verified.manifest(), &manifest);
     assert_eq!(
         verified
@@ -633,7 +637,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed.semantic_contract = ContentHash::of(b"another model");
     write_manifest(&changed);
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact semantic contract"
         ))
@@ -642,7 +646,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed.families[0].rows += 1;
     write_manifest(&changed);
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact graph family"
         ))
@@ -655,7 +659,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     });
     write_manifest(&changed);
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact graph families"
         ))
@@ -664,7 +668,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed.originals.pop().unwrap();
     write_manifest(&changed);
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact source membership"
         ))
@@ -674,7 +678,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed.projections[0].definition = ContentHash::of(b"another projection");
     write_manifest(&changed);
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact projection definition"
         ))
@@ -688,7 +692,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     });
     write_manifest(&changed);
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact embedding membership"
         ))
@@ -727,7 +731,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     noncanonical[0] = RecordBatch::try_new(first.schema(), columns).unwrap();
     write_batches(&noncanonical);
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact canonical payload"
         ))
@@ -774,7 +778,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed = manifest.clone();
     changed.families[0] = family.finish();
     write_manifest(&changed);
-    let error = artifact::verify_export(&output, &workspace)
+    let error = artifact::verify_export(&output, &importer())
         .await
         .err()
         .unwrap();
@@ -789,20 +793,21 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     let bytes = std::fs::read(&file).unwrap();
     std::fs::write(&file, b"tampered").unwrap();
     assert!(matches!(
-        artifact::verify_export(&output, &workspace).await,
+        artifact::verify_export(&output, &importer()).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact original bytes"
         ))
     ));
     std::fs::write(&file, &bytes).unwrap();
     std::fs::remove_file(&file).unwrap();
-    assert!(artifact::verify_export(&output, &workspace).await.is_err());
+    assert!(artifact::verify_export(&output, &importer()).await.is_err());
     std::fs::write(&file, &bytes).unwrap();
-    artifact::verify_export(&output, &workspace).await.unwrap();
+    artifact::verify_export(&output, &importer()).await.unwrap();
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn remediation_detached_admission_refuses_unsupported_facts_with_consistent_hashes() {
+// The graph copy is edited independently of its retained native state. Consumers below
+// distinguish that physical mismatch from a coherently rebuilt semantic candidate.
+async fn export_without_syntax_support() -> (tempfile::TempDir, std::path::PathBuf, artifact::VerifiedExport) {
     use datafusion::arrow::{
         array::{Array, BinaryArray, FixedSizeBinaryArray, UInt32Array},
         compute::take,
@@ -816,16 +821,20 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     };
     use std::fs::File;
     let admitted = compiled(Profile::Catalog, Frontier::Facts, None, 256).await;
-    let runtime = Workspace::new(
-        Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions::default(),
-        crate::native_fixture::store(),
-    )
-    .unwrap();
+    // Each complete detached admission owns a fresh native realization: a successful
+    // admission permanently freezes its content and cannot import the next candidate.
+    let importer = || {
+        Workspace::new(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            WorkspaceOptions::default(),
+            crate::native_fixture::store(),
+        )
+        .unwrap()
+    };
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("graph");
     admitted.export(&output).await.unwrap();
-    artifact::verify_export(&output, &runtime).await.unwrap();
+    let verified = artifact::verify_export(&output, &importer()).await.unwrap();
     let file = output.join("assertions.arrow");
     let reader = FileReader::try_new(File::open(&file).unwrap(), None).unwrap();
     let schema = reader.schema();
@@ -896,16 +905,121 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         serde_json::to_vec(&manifest).unwrap(),
     )
     .unwrap();
-    let error = match artifact::verify_export(&output, &runtime).await {
-        Ok(_) => panic!("unsupported facts admitted"),
-        Err(error) => error,
+    (directory, output, verified)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn detached_transport_refuses_graph_and_retained_membership_disagreement() {
+    let (_directory, output, _verified) = export_without_syntax_support().await;
+    let importer = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions::default(), crate::native_fixture::store()).unwrap();
+    let error = artifact::verify_export(&output, &importer).await.err().expect("graph/state mismatch admitted");
+    assert!(matches!(error.primary(), Some(lctx_model::domain::ModelError::Conflict(
+        "completed membership backing/visibility"))), "{error}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn remediation_detached_admission_refuses_unsupported_facts_with_consistent_hashes() {
+    use datafusion::arrow::{array::{Array, BinaryArray}, ipc::reader::FileReader};
+    use futures::TryStreamExt;
+    use lctx_model::domain::{
+        ModelError, Record,
+        analysis::sources::SourceSnapshot,
+        completed::{CompletedBinding, ContributionSpec},
+        graph::{Assertion, Entity},
+        source::SyntaxSupport,
+        stages::ProviderOutcome,
     };
-    assert!(
-        error
-            .to_string()
-            .contains("assertion has no attributed support"),
-        "{error}"
-    );
+    use std::{collections::{BTreeMap, BTreeSet}, fs::File};
+    let (directory, output, verified) = export_without_syntax_support().await;
+    let candidate = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions::default(), crate::native_fixture::store()).unwrap();
+    let bindings = verified.native().bindings().await.unwrap().into_iter()
+        .filter(|binding| binding.boundary.is_none()).collect::<Vec<_>>();
+    let relations = bindings.iter().map(|binding| candidate.model().relation(&binding.view.relation)
+        .unwrap().clone()).collect::<Vec<_>>();
+    // A neutral import owns these typed rows; it inherits no captured-provider grant.
+    // Completion, rather than authored descriptor edits, computes every exact native hash.
+    let id = candidate.native().begin_contribution(ContributionSpec {
+        captured_binding: None,
+        producer: "unsupported-facts-semantic-import".into(),
+        profile: Profile::Catalog,
+        model: candidate.model().digest(),
+        implementation: ContentHash::of(b"detached-support-control/v1"),
+        configuration: None,
+        inputs: vec![],
+        outputs: relations.iter().map(|relation| relation.name().to_owned()).collect::<BTreeSet<_>>(),
+    }).await.unwrap();
+    let mut omitted = 0;
+    for (binding, relation) in bindings.iter().zip(&relations) {
+        if relation.name() == SyntaxSupport::NAME {
+            omitted += binding.view.rows;
+            continue; // The declared support output is coherently empty before ingress.
+        }
+        let mut batches = verified.native().scan_batches(&binding.view, relation, None, None,
+            candidate.budget(), candidate.options().batch_rows).await.unwrap();
+        while let Some(batch) = batches.try_next().await.unwrap() {
+            candidate.native().write_batch(&id, relation, &batch).await.unwrap();
+        }
+    }
+    assert!(omitted > 0);
+    let views = candidate.native().complete_contribution(id, ProviderOutcome::Complete,
+        &relations, &BTreeMap::new()).await.unwrap();
+    for relation in &relations {
+        let view = views[relation.name()].clone();
+        candidate.native().bind(CompletedBinding {
+            boundary: None,
+            source: SourceSnapshot::of_completed_view(relation, candidate.model().digest(), &view).unwrap(),
+            view,
+            configuration: None,
+        }).await.unwrap();
+    }
+    candidate.native().verify_state().await.unwrap();
+    let state_path = directory.path().join("coherent-completed-state.jsonl");
+    let state = candidate.native().export_state(&state_path).await.unwrap();
+
+    let importer = Workspace::new(candidate.model().clone(), WorkspaceOptions::default(),
+        crate::native_fixture::store()).unwrap();
+    // The edited canonical graph and original bytes match the neutral candidate. Decode
+    // one exported Arrow batch at a time, retaining no whole-graph resident collection.
+    for (file, entities) in [("entities.arrow", true), ("assertions.arrow", false)] {
+        let reader = FileReader::try_new(File::open(output.join(file)).unwrap(), None).unwrap();
+        for batch in reader {
+            let batch = batch.unwrap();
+            let _decode = importer.budget().reserve("detached-support-control-decode",
+                lctx_model::domain::logical_batch_bytes(&batch).unwrap().saturating_mul(4)).unwrap();
+            let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap();
+            if entities {
+                let rows = (0..batch.num_rows()).map(|row| serde_json::from_slice::<Entity>(payloads.value(row)).unwrap()).collect::<Vec<_>>();
+                importer.native().import_entities(&rows).await.unwrap();
+            } else {
+                let rows = (0..batch.num_rows()).map(|row| serde_json::from_slice::<Assertion>(payloads.value(row)).unwrap()).collect::<Vec<_>>();
+                importer.native().import_assertions(&rows).await.unwrap();
+            }
+        }
+    }
+    for original in &verified.manifest().originals {
+        let mut file = File::open(output.join(format!("original-{}.bin", original.source.0.hex()))).unwrap();
+        importer.native().import_original_stream(original.source.0, original.content,
+            original.byte_len, &mut file).await.unwrap();
+    }
+    // This performs the full independent cold backing/membership/descriptor audit first.
+    // No baseline manifest is relabelled as authority for the neutral owner's new lineage.
+    importer.native().import_state(&state_path, &state).await.unwrap();
+    importer.restore(Profile::Catalog).await.unwrap();
+    assert_eq!(importer.native().completed_state().await.unwrap(), state);
+    let restored = importer.native().contributions().await.unwrap();
+    assert_eq!(restored.len(), 1);
+    assert!(restored[0].spec.captured_binding.is_none());
+    assert_eq!(restored[0].outputs[SyntaxSupport::NAME].rows, 0);
+    // The shared production semantic admission sees an actual assertion with no support.
+    // This control establishes necessary semantics, not captured-producer frontier authority.
+    let error = importer.admit_semantics(Profile::Catalog).await.err().expect("unsupported facts admitted");
+    assert!(matches!(error.primary(), Some(ModelError::Invalid(message))
+        if message == "assertion has no attributed support"), "{error}");
+    candidate.drain().await.unwrap();
+    importer.drain().await.unwrap();
+    verified.native().drain().await.unwrap();
 }
 
 async fn detached_frontier_without_producer_replay(profile: Profile, frontier: Frontier) {

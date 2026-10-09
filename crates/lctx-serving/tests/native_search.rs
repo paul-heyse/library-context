@@ -216,6 +216,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
             relation: CatalogMember::NAME.into(),
             key: *row.id().bytes(),
             node: reader::target_id(Target::Entity(EntityId::of(row.id()))),
+            content: None,
         })
         .collect::<Vec<_>>();
     let mut bindings = Variables::new();

@@ -1151,6 +1151,7 @@ pub fn entity(
             );
         }
     }
+    b.reserve_retained(roots.capacity() * size_of::<(TypeId, usize)>())?;
     Ok(NormalizationProgram {
         inner: b.finish()?,
         signature_root: None,
@@ -1523,6 +1524,7 @@ pub fn relation(
             );
         }
     }
+    b.reserve_retained(size_of::<(TypeId, usize)>())?;
     Ok(NormalizationProgram {
         inner: b.finish()?,
         signature_root: None,

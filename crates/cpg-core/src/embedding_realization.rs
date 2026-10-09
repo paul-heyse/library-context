@@ -425,6 +425,13 @@ impl<'a> Session<'a> {
             }
         })
     }
+    fn effect_bytes(&self, text_bytes: usize) -> Result<usize, ModelError> {
+        (self.configuration.specification().dimensions as usize)
+            .checked_mul(128)
+            .and_then(|n| n.checked_add(8192))
+            .and_then(|n| text_bytes.checked_mul(4).and_then(|text| n.checked_add(text)))
+            .ok_or_else(|| ModelError::Invalid("embedding effect allocation overflow".into()))
+    }
     /// Deduplicate before effects and use the existing service/cache batch interfaces. Chunks
     /// bound transient strings/vectors; refusals retain per-text admission and availability.
     pub async fn prepare<'d>(
@@ -434,18 +441,47 @@ impl<'a> Session<'a> {
         const CHUNK: usize = 64;
         let mut requests = BTreeMap::new();
         let mut request_charge = charged::StateCharge::new(&self.budget, "embedding-request-batch");
+        let mut effect_bytes = 0usize;
         for document in documents {
             let spec = self.configuration.specification();
-            let bound = document
+            let text_bound = document
                 .len()
                 .checked_mul(spec.document_template.matches("{text}").count())
                 .and_then(|n| n.checked_add(spec.document_template.len()))
-                .and_then(|n| n.checked_mul(2))
                 .ok_or_else(|| {
                     ModelError::Invalid("embedding request allocation overflow".into())
                 })?;
+            let request_bytes = |length: usize| {
+                length
+                    .checked_add(size_of::<String>() + size_of::<ContentHash>() + 64)
+                    .ok_or_else(|| {
+                        ModelError::Invalid("embedding request allocation overflow".into())
+                    })
+            };
+            let bound = text_bound.checked_mul(2).ok_or_else(|| {
+                ModelError::Invalid("embedding request allocation overflow".into())
+            })?;
+            let retained_bound = request_bytes(text_bound)?;
+            // Pending strings remain charged while effects run. Include the next temporary
+            // rendering and retained request before copying it; transfer/compute windows do
+            // not determine how many service buffers this session can admit together.
+            let needed = self
+                .effect_bytes(text_bound)?
+                .checked_add(effect_bytes)
+                .and_then(|n| n.checked_add(bound))
+                .and_then(|n| n.checked_add(retained_bound))
+                .ok_or_else(|| {
+                    ModelError::Invalid("embedding batch allocation overflow".into())
+                })?;
+            if !requests.is_empty()
+                && needed > self.budget.limit().saturating_sub(self.budget.reserved())
+            {
+                self.prepare_chunk(std::mem::take(&mut requests)).await?;
+                request_charge = charged::StateCharge::new(&self.budget, "embedding-request-batch");
+                effect_bytes = 0;
+            }
             let _copy = self.budget.reserve("embedding-request", bound)?;
-            let request = spec.document_text(document);
+            let request = self.configuration.specification().document_text(document);
             let key = input_hash(&request);
             if self.values.contains_key(&key)
                 || self.refusals.contains_key(&key)
@@ -453,12 +489,16 @@ impl<'a> Session<'a> {
             {
                 continue;
             }
-            request_charge
-                .grow(request.len() + size_of::<String>() + size_of::<ContentHash>() + 64)?;
+            effect_bytes = effect_bytes.checked_add(self.effect_bytes(request.len())?).ok_or_else(|| {
+                ModelError::Invalid("embedding batch allocation overflow".into())
+            })?;
+            request_charge.grow(request_bytes(request.len())?)?;
             requests.insert(key, request);
+            drop(_copy);
             if requests.len() == CHUNK {
                 self.prepare_chunk(std::mem::take(&mut requests)).await?;
                 request_charge = charged::StateCharge::new(&self.budget, "embedding-request-batch");
+                effect_bytes = 0;
             }
         }
         if !requests.is_empty() {
@@ -470,12 +510,16 @@ impl<'a> Session<'a> {
         &mut self,
         requests: BTreeMap<ContentHash, String>,
     ) -> Result<(), Error> {
-        let spec = self.configuration.specification().clone();
+        let effect_bytes = requests.values().try_fold(0usize, |bytes, request| {
+            bytes.checked_add(self.effect_bytes(request.len())?).ok_or_else(|| {
+                ModelError::Invalid("embedding batch allocation overflow".into())
+            })
+        })?;
         let _effect = self.budget.reserve(
             "embedding-effect-buffers",
-            requests.len() * (spec.dimensions as usize * 128 + 8192)
-                + requests.values().map(|s| s.len() * 4).sum::<usize>(),
+            effect_bytes,
         )?;
+        let spec = self.configuration.specification().clone();
         let keys = requests.keys().copied().collect::<Vec<_>>();
         let mut cached = if let Some(cache) = &self.cache {
             cache.cached(&spec, &keys).await?
@@ -733,6 +777,87 @@ mod tests {
                     .collect())
             })
         }
+    }
+    #[tokio::test]
+    async fn effect_batches_follow_available_budget_and_keep_nonadjacent_winners() {
+        let provider = Changing {
+            specification: FakeEmbedder::new().spec().clone(),
+            batches: Default::default(),
+            unavailable: false,
+        };
+        assert_eq!(provider.spec().dimensions, 4096);
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        // Other attempt-owned state reduces the service allowance without changing its limit.
+        let retained = budget.reserve("fixture-retained-inputs", 2 << 20).unwrap();
+        let configuration =
+            Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
+        let mut session = Session::selected(configuration, &provider, None, &budget).unwrap();
+        let documents: Vec<_> = (0..20).map(|index| format!("document-{index}")).collect();
+        session
+            .prepare(
+                documents[..12]
+                    .iter()
+                    .map(String::as_str)
+                    .chain([documents[0].as_str()])
+                    .chain(documents[12..].iter().map(String::as_str))
+                    .chain([documents[0].as_str(), documents[3].as_str()]),
+            )
+            .await
+            .unwrap();
+        let first = session.realize(&documents[0]).await.unwrap().digest();
+        let later = session.realize(&documents[3]).await.unwrap().digest();
+        assert_ne!(first, later, "later service calls actually change their answers");
+        assert_eq!(session.realize(&documents[0]).await.unwrap().digest(), first);
+        session.prepare([documents[0].as_str()]).await.unwrap();
+        let batches = provider.batches.lock().unwrap();
+        assert!(batches.len() > 1);
+        assert!(batches.iter().all(|batch| batch.len() <= 3));
+        assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), documents.len());
+        for document in &documents {
+            assert_eq!(batches.iter().flatten().filter(|text| *text == document).count(), 1);
+        }
+        assert_eq!(session.values.len(), documents.len());
+        assert_eq!(
+            session.spool.as_ref().unwrap().metadata().unwrap().len(),
+            documents.len() as u64 * u64::from(provider.spec().dimensions) * 4
+        );
+        drop(batches);
+        drop(session);
+        assert_eq!(budget.reserved(), retained.size());
+        drop(retained);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn oversized_single_effect_refuses_before_cache_token_or_service_calls() {
+        let provider = Counter {
+            fake: FakeEmbedder::new(),
+            tokens: AtomicUsize::new(0),
+            embeddings: AtomicUsize::new(0),
+            over: false,
+        };
+        let budget = ResourceBudget::fixed(512 << 10).unwrap();
+        let cache = Arc::new(Cache::default());
+        let configuration =
+            Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
+        let mut session =
+            Session::selected(configuration, &provider, Some(cache.clone()), &budget).unwrap();
+        let before = budget.reserved();
+        assert!(session.effect_bytes(usize::MAX).is_err());
+        assert!(matches!(
+            session.prepare(["one request"]).await,
+            Err(Error::Model(ModelError::Resource {
+                owner: "embedding-effect-buffers",
+                ..
+            }))
+        ));
+        assert!(cache.lookups.lock().unwrap().is_empty());
+        assert!(cache.admissions.lock().unwrap().is_empty());
+        assert_eq!(provider.tokens.load(Ordering::SeqCst), 0);
+        assert_eq!(provider.embeddings.load(Ordering::SeqCst), 0);
+        assert!(session.values.is_empty() && session.refusals.is_empty());
+        assert_eq!(budget.reserved(), before);
+        drop(session);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn private_spill_keeps_nonadjacent_first_winners_with_bounded_vectors_and_batches() {

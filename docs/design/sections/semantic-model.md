@@ -793,6 +793,20 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 
 ## §15.11 Compilation and physical realization
 
+**Implemented / focused Tested, 2026-10-09 (ADR-0141); coordinated acceptance open.** Exact declared-input bindings share compatible
+immutable preparation while semantic checks remain independently owned. Local contribution
+completion closes and drains its actual producing reads/writes and cleanup descendants, then
+uses a native-owned terminal handoff for descriptor visibility. Unrelated immutable readers
+cannot extend this local wait. Global failure propagation, final content freeze, admission,
+seal and abandonment retain their existing drainage/certainty contracts; local completion
+does not grant publication authority. The native-efficiency companion owns migration and acceptance.
+
+**Implemented / focused Tested, 2026-10-09; coordinated acceptance open.** Native transfer windows and
+DataFusion compute batches have separate meanings. Transfer size does not configure compute
+repartitioning; conservative cardinality estimates guide partition benefit while available-CPU
+parallelism remains available for substantial work. Selected cardinality stays inexact, including
+empty selections, so planning cannot erase native authority checks through exact aggregate statistics.
+
 **Implemented / focused acceptance in progress, 2026-10-09 (ADR-0138).** The compiler owns one private STRICT native database from its first output. Model-owned contribution specifications declare producer/code/settings and exact consumed views; immutable completed memberships and current/frozen semantic-boundary bindings define readable inputs. Pending contributions cannot widen a completed view. Completion validates local shape, canonical keys, reference closure, outcomes and applicable cross-element invariants; unchanged exact premises retain their validated status. Shared vocabulary unions exact nominal keys with full-payload conflict checks.
 
 Canonical graph payloads and complete generated native bodies share one immutable value owner. A single declaration-derived inventory governs non-graph compiler backing across schema, writes, scans and bounded cold model regeneration. It preserves projection headers/chunks and other required intermediate fields; no manually maintained type whitelist owns coverage. Regenerated canonical bytes, full nominal keys and retained content must agree at external exposure. ArtifactChunk exposes the existing original_chunk bytes through typed metadata rather than copying original bytes into compiler backing. Native selected/projected scans and bulk Arrow/DataFusion compute serve each operation's physical demand. Pure model kernels remain usable without a server. Cancellation drains submitted writes and reader transports before an owned attempt is removed.
@@ -812,11 +826,16 @@ attributed outcomes. The execution plan owns current focused evidence for this c
 
 The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 
-> Decision: ADR-0138, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
+> Decision: ADR-0141, ADR-0138, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 
 ## §15.12 Serving
+
+**Implemented / focused Tested, 2026-10-09 (ADR-0141); coordinated acceptance open.** One pinned viewer owns stable charged live
+initializations independently of optional Moka value retention. Pressure cannot split a live
+same-key loader; waiters cancel independently and retain exact pins/result charges. Closing
+fences new flights/retries, drains submitted owners and external leases, then invalidates the reader.
 
 **Implemented / focused Tested native serving, 2026-10-06.** Rust owns operation meaning, predicate-specific
 selection, scope and uncertainty. SurrealQL functions/native queries realize fixed evidence paths,
@@ -830,7 +849,7 @@ The pivot removes PostgreSQL-serving effects. The accepted persisted target dire
 schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-> Decision: ADR-0138, ADR-0114, ADR-0116
+> Decision: ADR-0141, ADR-0138, ADR-0114, ADR-0116
 
 <a id="section-15-13"></a>
 

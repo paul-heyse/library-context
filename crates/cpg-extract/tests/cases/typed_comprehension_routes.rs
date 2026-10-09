@@ -3,7 +3,12 @@ use crate::typed_driver;
 use crate::inspector;
 use lctx_model::domain::{lexical::SyntaxField, source::*, syntax::*, *};
 use typed_driver::{files, rows, run};
-inspector!(Routes, Occurrence, SyntaxPlacement, SyntaxObservation);
+inspector!(
+    Routes,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::syntax::SyntaxPlacement,
+    lctx_model::domain::source::SyntaxObservation
+);
 #[tokio::test]
 async fn native_comprehensions_keep_element_clause_target_iter_and_filter_routes() {
     let tables = typed_driver::Tables::default();

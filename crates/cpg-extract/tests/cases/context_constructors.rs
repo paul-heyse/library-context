@@ -3,7 +3,21 @@ use crate::typed_driver;
 use crate::inspector;
 use lctx_model::domain::{calls::*, source::*, symbols::SymbolObservation, *};
 use typed_driver::{files, rows};
-inspector!(Facts, CallTarget);
+inspector!(
+    Facts,
+    lctx_model::domain::calls::CallTarget,
+    lctx_model::domain::calls::ProviderSymbol,
+    lctx_model::domain::calls::ProviderModule,
+    lctx_model::domain::symbols::SymbolObservation,
+    lctx_model::domain::calls::CallDestination,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::calls::Receiver,
+    lctx_model::domain::calls::Signature,
+    lctx_model::domain::calls::SignatureParameter,
+    lctx_model::domain::calls::ParameterShape,
+    lctx_model::domain::calls::SignatureEnumerationObservation,
+    lctx_model::domain::calls::SignatureEnumerationMember
+);
 
 #[tokio::test]
 async fn captured_context_constructors_keep_all_overloads_and_unknown_initializers() {

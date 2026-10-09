@@ -10,7 +10,8 @@ use cpg_extract::{
 };
 use lctx_model::domain::{batching::TransferLimits, stages::Profile};
 use typed_driver::Tables;
-inspector!(All, source::Occurrence);
+// This control reconstructs the complete native inventory or compares complete output.
+inspector!(All, complete);
 fn captured(reverse: bool, profile: Profile) -> std::sync::Arc<CapturedInputs> {
     let mut inputs = vec![];
     for label in ["one", "two"] {

@@ -55,42 +55,66 @@ pub fn rows<R: Record>(tables: &Tables) -> Vec<R> {
         .unwrap()
         .get(R::NAME)
         .map(|b| R::decode(b).unwrap())
-        .unwrap_or_default()
+        .unwrap_or_else(||panic!("undeclared observer relation {}",R::NAME))
 }
 
+/// Select only the independent assertion's inputs, or explicitly request the complete inventory.
+/// Typed empty batches preserve the distinction between declared absence and unobserved data.
+pub enum ObservationDemand {
+    Selected(BTreeMap<&'static str,arrow_array::RecordBatch>),
+    Complete,
+}
+impl ObservationDemand {
+    pub fn selected()->Self {Self::Selected(BTreeMap::new())}
+    pub fn include<R:Record>(&mut self) {
+        let Self::Selected(tables)=self else {panic!("complete observation has no selection")};
+        tables.insert(R::NAME,arrow_array::RecordBatch::new_empty(R::schema()));
+    }
+}
 pub trait Inspector {
     fn tables(&self) -> Tables;
+    fn demand(&self)->ObservationDemand;
 }
 /// Copy small fixture outputs for independent assertions, after the actual compiler completed them.
-pub fn observe(workspace: &Workspace, tables: &Tables) -> Result<(), ModelError> {
-    let mut tables = tables
-        .lock()
-        .map_err(|_| ModelError::Invalid("test observer poisoned".into()))?;
+pub async fn observe(workspace: &Workspace, tables: &Tables, demand:ObservationDemand) -> Result<(), ModelError> {
+    let complete=matches!(&demand,ObservationDemand::Complete);
+    let mut observed=match demand {
+        ObservationDemand::Selected(tables)=>tables,
+        ObservationDemand::Complete=>workspace.model().relations().iter().map(|relation|
+            (relation.name(),arrow_array::RecordBatch::new_empty(relation.schema().clone()))).collect(),
+    };
     for relation in workspace.completed_relations()? {
-        let batches = relation
-            .batches()?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(ModelError::codec)?;
-        if let Some(first) = batches.first() {
-            tables.insert(
-                relation.name(),
-                arrow_select::concat::concat_batches(&first.schema(), &batches)
-                    .map_err(ModelError::codec)?,
-            );
-        }
+        if !complete && !observed.contains_key(relation.name()) {continue;}
+        let mut stream=relation.batches_async().await?;
+        let mut batches=Vec::new();
+        while let Some(batch)=stream.next_async().await {batches.push(batch?);}
+        let batch=if batches.is_empty() {arrow_array::RecordBatch::new_empty(relation.schema().clone())}
+            else {arrow_select::concat::concat_batches(relation.schema(),&batches).map_err(ModelError::codec)?};
+        observed.insert(relation.name(),batch);
     }
+    // No observer mutex is held across native I/O, waiting, decoding or concatenation.
+    *tables.lock().map_err(|_| ModelError::Invalid("test observer poisoned".into()))?=observed;
     Ok(())
 }
 
 /// Names the independent expectations' observed tables without declaring a production writer.
 #[macro_export]
 macro_rules! inspector {
-    ($name:ident, $($ty:ty),+ $(,)?) => {
+    ($name:ident, complete) => {$crate::inspector!($name => typed_driver::ObservationDemand::Complete);};
+    ($name:ident $(, $ty:ty)* $(,)?) => {
+        $crate::inspector!($name => {
+            let mut demand=typed_driver::ObservationDemand::selected();
+            $(demand.include::<$ty>();)*
+            demand
+        });
+    };
+    ($name:ident => $demand:expr) => {
         pub struct $name(pub typed_driver::Tables);
         impl typed_driver::Inspector for $name {
             fn tables(&self) -> typed_driver::Tables {
                 self.0.clone()
             }
+            fn demand(&self)->typed_driver::ObservationDemand {$demand}
         }
     };
 }
@@ -250,7 +274,7 @@ pub async fn run_profile_with_budget<I: Inspector>(
     )?;
     cpg_core::facts::compile_facts(&workspace, &captured, profile, providers, limits).await?;
     workspace.validate().await?;
-    observe(&workspace, &inspect.tables())?;
+    observe(&workspace, &inspect.tables(),inspect.demand()).await?;
     workspace.identity()
 }
 

@@ -5,15 +5,15 @@ use lctx_model::domain::{attribution::*, ruff::*, source::*, syntax::*, *};
 use typed_driver::{files, rows, run};
 inspector!(
     Context,
-    RuffContextObservation,
-    RuffContextSupport,
-    Occurrence,
-    SyntaxObservation,
-    DeclarationObservation,
-    DeclarationDecorator,
-    Provider,
-    ProviderRun,
-    ProviderCoverage
+    lctx_model::domain::ruff::RuffContextObservation,
+    lctx_model::domain::ruff::RuffContextSupport,
+    lctx_model::domain::source::Occurrence,
+    lctx_model::domain::source::SyntaxObservation,
+    lctx_model::domain::syntax::DeclarationObservation,
+    lctx_model::domain::syntax::DeclarationDecorator,
+    lctx_model::domain::attribution::Provider,
+    lctx_model::domain::attribution::ProviderRun,
+    lctx_model::domain::attribution::ProviderCoverage
 );
 #[tokio::test]
 async fn aliased_overloads_and_local_spelling_keep_distinct_semantics() {

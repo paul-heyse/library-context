@@ -2,7 +2,12 @@ use crate::typed_driver;
 use crate::inspector;
 use lctx_model::domain::{calls::ProviderSymbol, captures::*, *};
 use typed_driver::{files, rows};
-inspector!(Captures, CaptureObservation, CaptureSupport, ProviderSymbol);
+inspector!(
+    Captures,
+    lctx_model::domain::captures::CaptureObservation,
+    lctx_model::domain::captures::CaptureSupport,
+    lctx_model::domain::calls::ProviderSymbol
+);
 #[tokio::test]
 async fn captures_have_native_declaring_identity_in_both_profiles_without_value_or_timing_claims() {
     let input = files("capture_observations");

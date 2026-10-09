@@ -9,7 +9,14 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(Facts, CallTarget);
+inspector!(Facts => {
+    let mut demand=typed_driver::ObservationDemand::selected();
+    macro_rules! select { ($($field:ident:$ty:ty $(=> $family:ident)?,)*) => {$(demand.include::<$ty>();)*}; }
+    lctx_model::normalized_entity_inputs!(select);
+    lctx_model::normalized_event_inputs!(select);
+    demand.include::<lctx_model::domain::calls::CallTarget>();
+    demand
+});
 async fn fixture() -> (EventData, EventOutput) {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(&files("pysa_variants"), Facts(tables.clone()))

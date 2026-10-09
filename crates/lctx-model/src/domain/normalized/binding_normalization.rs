@@ -498,9 +498,14 @@ fn assess_set(
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "binding-variant-set");
+    // Production discovers alternatives/variants/syntax in a different order from the
+    // independent stored-row reader. Closed membership has one canonical ID order.
+    charge.grow(attempts.len().saturating_mul(size_of::<Id<CallBindingAttempt>>()))?;
+    let mut ordered = attempts.to_vec();
+    ordered.sort_unstable();
     let mut variants: ChargedMap<Option<Id<SignatureVariant>>, Vec<&CallBindingAttempt>> =
         Default::default();
-    for id in attempts {
+    for id in &ordered {
         let row = need(&output.attempts.view(), *id)?;
         variants.update(&mut charge, row.variant, |vs| vs.push(row))?;
     }
@@ -2314,4 +2319,72 @@ fn verify_upstream(
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {
     vec!["normalized_binding_closure", "normalized_binding_admission"]
+}
+
+#[cfg(test)]
+mod set_order_controls {
+    use super::*;
+
+    fn nominal<T>(value: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _, serde::de::value::Error,
+        >::new([value; 16].into_iter())).unwrap()
+    }
+
+    #[test]
+    fn closed_binding_set_preserves_membership_across_attempt_permutations() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        {
+            let data = BindingData::new(&budget);
+            let view = data.view();
+            let index = Index::new(&view, &budget).unwrap();
+            let event = nominal(1);
+            let key = (event, None, CallPhase::Call, CallChannel::Direct.id());
+            let attempts = [2, 3].map(|value| CallBindingAttempt {
+                alternative: nominal(value),
+                variant: None,
+                syntax: None,
+                policy: policy_revision(),
+                event,
+                signature: None,
+                arguments: None,
+                receiver: Receiver::None {}.id(),
+                receiver_assessment: None,
+                dispatch_member: None,
+                effective: None,
+                adjustment: SignatureAdjustment::Unknown,
+                authority: BindingAuthority::SourceInspection,
+                authority_reason: AuthorityReason::SignatureUnknown,
+                outcome: BindingOutcome::Undetermined,
+                reason: BindingReason::MissingSignature,
+                refusal: None,
+                bindings: ContentHash::of(&[value]),
+            });
+            let assess = |rows: &[CallBindingAttempt], ids: &[Id<CallBindingAttempt>]| {
+                let mut output = BindingOutput::new(&budget);
+                for row in rows { output.attempts.insert(row.clone()).unwrap(); }
+                assess_set(&view, &index, key, ids, &mut output, &budget).unwrap();
+                output
+            };
+            let mut ids = attempts.each_ref().map(Record::id);
+            ids.sort_unstable();
+            let canonical = assess(&attempts, &ids);
+            let reversed = assess(&attempts, &[ids[1], ids[0]]);
+            canonical.matches(&reversed).unwrap();
+            assert_eq!(canonical.members.len(), 2);
+            let set = canonical.sets.iter().next().unwrap();
+            assert!(!set.unique);
+            assert!(!set.coverage_complete);
+            assert_eq!(set.reason, BindingSetReason::IncompleteCoverage);
+
+            let mut changed = attempts.clone();
+            changed[0].bindings = ContentHash::of(b"changed attempt content");
+            let changed = assess(&changed, &ids);
+            assert_ne!(set.members, changed.sets.iter().next().unwrap().members);
+            let missing = assess(&attempts, &[ids[0]]);
+            assert_eq!(missing.members.len(), 1);
+            assert_ne!(set.members, missing.sets.iter().next().unwrap().members);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
 }

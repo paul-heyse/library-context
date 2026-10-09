@@ -5,23 +5,8 @@ use lctx_model::domain::{
     assertion::AssertionQualification, calls::*, class_metadata::*, normalized::Rows, types::*, *,
 };
 use typed_driver::{files, rows, run};
-inspector!(
-    Metadata,
-    ClassMetadataObservation,
-    ClassMetadataSupport,
-    ClassMemberObservation,
-    ClassMemberSupport,
-    RecordOptions,
-    RecordTransformDefaults,
-    RecordTransformFieldSpecifier,
-    ProviderSymbol,
-    TypeObservation,
-    TypeTerm,
-    AssertionQualification,
-    RecordFieldObservation,
-    lctx_model::domain::source::Occurrence,
-    lctx_model::domain::syntax::SyntaxPlacement
-);
+// Shared-validator mutations require the complete independent negative domain.
+inspector!(Metadata, complete);
 #[tokio::test]
 async fn native_class_metadata_keeps_effective_options_and_unknown_abstract_absence() {
     let tables = typed_driver::Tables::default();

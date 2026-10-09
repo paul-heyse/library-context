@@ -311,7 +311,7 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
     let error = publish_values(&workspace, "conflict", &[("shared", "changed")])
         .await
         .unwrap_err();
-    assert!(matches!(error, ModelError::Conflict(_)), "{error}");
+    assert!(matches!(error.primary(), Some(ModelError::Conflict("native same-key payload"))), "{error}");
     assert_eq!(
         workspace.relation(FullValue::NAME).unwrap().view_identity(),
         content
@@ -320,7 +320,10 @@ async fn canonical_values_merge_exactly_and_preserve_analytic_and_retrieval_view
         frozen.relation::<FullValue>().unwrap().view_identity(),
         original.view_identity()
     );
-    workspace.drain().await.unwrap();
+    let completion = workspace.drain_report().await;
+    assert_eq!(completion.local, completion::LocalState::Terminal);
+    assert_eq!(completion.remote, completion::RemoteState::Confirmed);
+    assert!(!completion.failures.is_empty(), "the failed producer must poison final admission");
 }
 
 #[tokio::test]
@@ -349,10 +352,13 @@ async fn projected_value_conflicts_preserve_the_completed_view() {
         Err(error) => Err(error),
     };
     let error = result.unwrap_err();
-    assert!(matches!(error, ModelError::Conflict(_)), "{error}");
+    assert!(matches!(error.primary(), Some(ModelError::Conflict("native same-key payload"))), "{error}");
     assert_eq!(workspace.relation(ProjectedValue::NAME).unwrap().view_identity(), projected_content);
     assert_eq!(frozen.relation::<ProjectedValue>().unwrap().view_identity(), projected_content);
-    workspace.drain().await.unwrap();
+    let completion = workspace.drain_report().await;
+    assert_eq!(completion.local, completion::LocalState::Terminal);
+    assert_eq!(completion.remote, completion::RemoteState::Confirmed);
+    assert!(!completion.failures.is_empty(), "the failed producer must poison final admission");
 }
 
 #[path = "fixtures/native.rs"]

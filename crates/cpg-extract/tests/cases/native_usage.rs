@@ -3,7 +3,8 @@ use crate::typed_driver;
 use crate::inspector;
 use lctx_model::domain::{calls::*, source::*, types::*, *};
 use typed_driver::{files, rows};
-inspector!(Facts, ProviderCallSite);
+// Independent invariant replay consumes complete negative domains and native premises.
+inspector!(Facts, complete);
 #[tokio::test]
 async fn aliases_reexports_rebinding_receivers_and_failed_overload_traces_remain_distinct() {
     let files = files("native_usage");

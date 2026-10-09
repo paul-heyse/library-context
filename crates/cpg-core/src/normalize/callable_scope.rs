@@ -77,6 +77,7 @@ impl CallableScopes {
             tables.push(tables[source].clone());
         }
         let compiled = crate::scope_compilation::compile(program.program(), model, budget, None)?;
+        drop(program);
         let identity = compiled.identity();
         let plan = crate::scope_compilation::lower_compiled(
             compiled,

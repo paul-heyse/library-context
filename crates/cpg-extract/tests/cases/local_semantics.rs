@@ -13,7 +13,8 @@ use lctx_model::domain::{
     value::*,
     *,
 };
-inspector!(Facts, calls::CallTarget);
+// This control reconstructs the complete native inventory or compares complete output.
+inspector!(Facts, complete);
 async fn fixture() -> (
     LocalData,
     local::AnalysisInvocation,

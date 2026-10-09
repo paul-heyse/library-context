@@ -11,12 +11,8 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(
-    Facts,
-    RuffBindingObservation,
-    RuffDefinitionObservation,
-    RuffContextObservation
-);
+// Independent invariant replay consumes complete negative domains and native premises.
+inspector!(Facts, complete);
 async fn fixture() -> typed_driver::Tables {
     let tables = typed_driver::Tables::default();
     typed_driver::run(&files("native_lexical"), Facts(tables.clone()))

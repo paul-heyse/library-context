@@ -2,7 +2,7 @@
 //! work and its acknowledgement in the owner; dropping the owner closes admission and
 //! lets already acknowledged blocking work release scratch and guards at its terminal.
 use crate::ordered_rows::{
-    Candidate, OrderedCandidates, OrderedRows, PreparedRows, SortedCandidates, SortedRows,
+    Candidate, OrderedCandidates, OrderedRows, PreparedCandidates, PreparedRows, SortedCandidates, SortedRows,
 };
 use futures::{
     FutureExt,
@@ -30,6 +30,7 @@ enum Input {
 enum Output {
     Ack,
     Prepared(PreparedRows),
+    PreparedCandidates(PreparedCandidates),
     Candidates(Vec<Candidate>, Box<dyn Reservation>),
     Rows(Vec<Value>, Box<dyn Reservation>),
 }
@@ -76,6 +77,7 @@ impl Owner {
         guard: impl Send + 'static,
         physical: bool,
         prepared: Option<PreparedRows>,
+        prepared_candidates: Option<PreparedCandidates>,
         register: Option<Box<dyn FnOnce(BlockingTerminal) + Send>>,
     ) -> Result<Self, ModelError> {
         let (sender, mut receiver) = mpsc::channel::<Command>(1);
@@ -100,6 +102,8 @@ impl Owner {
                         prepared
                             .cursor_with_budget(&worker_budget)
                             .map(Kernel::OrderedRows)
+                    } else if let Some(prepared) = prepared_candidates {
+                        prepared.cursor_with_budget(&worker_budget).map(Kernel::OrderedCandidates)
                     } else if physical {
                         SortedRows::with_budget(&worker_budget).map(Kernel::Rows)
                     } else {
@@ -153,6 +157,9 @@ impl Owner {
                                 Ok(Output::Ack)
                             }
                             Input::Prepare => match std::mem::replace(&mut kernel, Kernel::Taken) {
+                                Kernel::OrderedCandidates(ordered) => {
+                                    Ok(Output::PreparedCandidates(ordered.into_prepared()))
+                                }
                                 Kernel::OrderedRows(ordered) => {
                                     Ok(Output::Prepared(ordered.into_prepared()))
                                 }
@@ -307,6 +314,18 @@ impl Owner {
         self.drain().await?;
         Ok(prepared)
     }
+    async fn prepare_candidates(&mut self) -> Result<PreparedCandidates, ModelError> {
+        self.acknowledge().await?;
+        self.submit(Input::Finish, 0)?;
+        self.acknowledge().await?;
+        self.submit(Input::Prepare, 0)?;
+        let prepared = match self.acknowledge().await? {
+            Some(Output::PreparedCandidates(prepared)) => prepared,
+            _ => return Err(ModelError::Schema("prepared candidate response")),
+        };
+        self.drain().await?;
+        Ok(prepared)
+    }
     async fn next(&mut self, max: usize) -> Result<Output, ModelError> {
         if self.pending.is_none() {
             self.submit(Input::Next(max), 0)?;
@@ -342,7 +361,7 @@ impl AsyncCandidateSort {
         budget: &ResourceBudget,
         owner: impl Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, false, None, None).await.map(Self)
+        Owner::new(budget, owner, false, None, None, None).await.map(Self)
     }
     /// Register a join observer before the first initialization await. The observer can
     /// retain an operation lease and report late errors after this caller is dropped.
@@ -351,7 +370,7 @@ impl AsyncCandidateSort {
         owner: impl Send + 'static,
         register: impl FnOnce(BlockingTerminal) + Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, false, None, Some(Box::new(register)))
+        Owner::new(budget, owner, false, None, None, Some(Box::new(register)))
             .await
             .map(Self)
     }
@@ -366,6 +385,9 @@ impl AsyncCandidateSort {
             exhausted: false,
         })
     }
+    pub async fn prepare(&mut self) -> Result<PreparedCandidates, ModelError> {
+        self.0.prepare_candidates().await
+    }
     pub async fn drain(&mut self) -> Result<(), ModelError> {
         self.0.drain().await
     }
@@ -376,6 +398,16 @@ pub struct AsyncOrderedCandidates {
     exhausted: bool,
 }
 impl AsyncOrderedCandidates {
+    pub async fn new_registered(
+        prepared: PreparedCandidates,
+        budget: &ResourceBudget,
+        owner: impl Send + 'static,
+        register: impl FnOnce(BlockingTerminal) + Send + 'static,
+    ) -> Result<Self, ModelError> {
+        Owner::new(budget, owner, false, None, Some(prepared), Some(Box::new(register)))
+            .await
+            .map(|owner| Self { owner, retained: None, exhausted: false })
+    }
     pub async fn next_batch(&mut self, max: usize) -> Result<Vec<Candidate>, ModelError> {
         if self.exhausted {
             self.owner.drain().await?;
@@ -408,7 +440,7 @@ impl AsyncPhysicalSort {
         owner: impl Send + 'static,
         register: impl FnOnce(BlockingTerminal) + Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, true, None, Some(Box::new(register)))
+        Owner::new(budget, owner, true, None, None, Some(Box::new(register)))
             .await
             .map(Self)
     }
@@ -444,6 +476,7 @@ impl AsyncOrderedRows {
             owner,
             true,
             Some(prepared),
+            None,
             Some(Box::new(register)),
         )
         .await
@@ -494,6 +527,7 @@ mod tests {
         let mut nominal = [0; 16];
         nominal[15] = key;
         Candidate {
+            content: None,
             relation: "package".into(),
             key: nominal,
             node: RecordId::new("entity", format!("{:03}", 255 - key)),

@@ -231,7 +231,15 @@ use lctx_model::domain::{
     },
     *,
 };
-inspector!(ReferenceFacts, Occurrence);
+inspector!(ReferenceFacts => {
+    let mut demand=typed_driver::ObservationDemand::selected();
+    macro_rules! select { ($($field:ident:$ty:ty $(=> $family:ident)?,)*) => {$(demand.include::<$ty>();)*}; }
+    lctx_model::normalized_entity_inputs!(select);
+    lctx_model::normalized_relation_inputs!(select);
+    demand.include::<lctx_model::domain::source::Occurrence>();
+    demand.include::<source::SourceArtifact>();
+    demand
+});
 
 /// Compare only nominally admitted original name reads, not ty's broader alias/member search.
 fn compare_normalized_names(db: &ProjectDatabase) {

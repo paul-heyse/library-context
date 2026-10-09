@@ -1,6 +1,6 @@
 //! Optimizer-visible projected reads over one exact completed native membership universe.
 use crate::{
-    compiler::{NativeCompilerStore, NativePredicate},
+    compiler::{NativeCompilerStore, NativePredicate, ProducingScope},
     projected_arrow::ProjectedBuilder,
 };
 use arrow_schema::{SchemaRef, SortOptions};
@@ -44,6 +44,7 @@ pub fn table_provider(
         budget,
         batch_rows,
         keys: vec![],
+        producing: None,
     }))
 }
 #[derive(Clone)]
@@ -54,12 +55,22 @@ struct SelectedKeys {
 }
 #[derive(Clone)]
 struct NativeTable {
+    producing: Option<ProducingScope>,
     keys: Vec<SelectedKeys>,
     store: Arc<NativeCompilerStore>,
     view: CompletedView,
     relation: Relation,
     budget: ResourceBudget,
     batch_rows: usize,
+}
+/// Bind a producer's physical read owner before plans or delayed streams are created.
+/// Finite tables need no native read owner and retain their existing route.
+pub fn bind_producing(provider: &Arc<dyn TableProvider>, scope: &ProducingScope) -> Result<Arc<dyn TableProvider>, ModelError> {
+    let Some(source) = provider.downcast_ref::<NativeTable>() else { return Ok(provider.clone()); };
+    if !scope.belongs_to(&source.store) { return Err(ModelError::Conflict("foreign producing provider store")); }
+    let mut selected = source.clone();
+    selected.producing = Some(scope.clone());
+    Ok(Arc::new(selected))
 }
 /// Bind sorted, distinct nominal keys before payload selection. The existing key owner charge
 /// follows providers, physical plans and active streams even after the grain scope is dropped.
@@ -95,7 +106,11 @@ pub fn is_native_table(provider: &Arc<dyn TableProvider>) -> bool {
 pub async fn content_tokens(provider:&Arc<dyn TableProvider>,keys:&[[u8;16]],budget:&ResourceBudget)->Result<Option<Vec<([u8;16],lctx_model::domain::ContentHash)>>,ModelError> {
     let Some(source)=provider.downcast_ref::<NativeTable>() else{return Ok(None)};
     if !source.keys.is_empty() {return Ok(None)} // A filtered provider requires its declared domain.
-    source.store.row_tokens(&source.view,&source.relation,keys,budget).await.map(Some)
+    let read = source.store.row_tokens(&source.view,&source.relation,keys,budget);
+    match &source.producing {
+        Some(scope) => scope.run(read).await,
+        None => read.await,
+    }.map(Some)
 }
 pub fn select_field_table(
     provider: &Arc<dyn TableProvider>,
@@ -135,19 +150,19 @@ fn row_statistics(
     filtered: bool,
 ) -> Statistics {
     let mut statistics = Statistics::new_unknown(schema.as_ref());
-    statistics.num_rows = if filtered || keys.iter().any(|selection| selection.field.is_some()) {
-        Precision::Absent
-    } else if keys.is_empty() {
-        usize::try_from(rows)
-            .map(Precision::Exact)
-            .unwrap_or(Precision::Absent)
-    } else {
-        let upper = keys
-            .iter()
-            .map(|selection| selection.keys.len())
-            .min()
-            .unwrap_or(0);
-        Precision::Inexact(usize::try_from(rows).map_or(upper, |rows| rows.min(upper)))
+    // Every predicate is a subset of the immutable view. Nominal ID selections also
+    // have a key-count upper bound; non-unique field selections do not. Keep estimates
+    // inexact whenever selection/filter exists, even for zero: native authority must
+    // still be checked when the source is executed.
+    let upper = keys.iter()
+        .filter(|selection| selection.field.is_none())
+        .map(|selection| selection.keys.len())
+        .chain(usize::try_from(rows).ok())
+        .min();
+    statistics.num_rows = match upper {
+        Some(rows) if !filtered && keys.is_empty() => Precision::Exact(rows),
+        Some(upper) => Precision::Inexact(upper),
+        None => Precision::Absent,
     };
     statistics
 }
@@ -236,6 +251,7 @@ impl TableProvider for NativeTable {
             }
         });
         let partition = Arc::new(NativePartition {
+            producing: self.producing.clone(),
             store: self.store.clone(),
             view: self.view.clone(),
             relation: self.relation.clone(),
@@ -274,6 +290,7 @@ impl TableProvider for NativeTable {
     }
 }
 struct NativePartition {
+    producing: Option<ProducingScope>,
     store: Arc<NativeCompilerStore>,
     view: CompletedView,
     relation: Relation,
@@ -305,7 +322,7 @@ impl PartitionStream for NativePartition {
         let budget = self.budget.clone();
         let batch_rows = self.batch_rows;
         let keys = self.keys.clone();
-        if keys.is_empty() {
+        let stream = if keys.is_empty() {
             let stream = futures::stream::once(async move {
                 scan_batches(
                     store, view, relation, projection, predicate, budget, batch_rows,
@@ -328,6 +345,13 @@ impl PartitionStream for NativePartition {
                 batch_rows,
                 self.schema.clone(),
             )
+        };
+        match &self.producing {
+            Some(scope) => match scope.bind_stream(stream) {
+                Ok(stream) => Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream)),
+                Err(error) => Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), futures::stream::once(async move { Err(df_error(error)) }))),
+            },
+            None => stream,
         }
     }
 }
@@ -659,7 +683,17 @@ pub async fn scan_batches(
     let rows = store
         .scan_rows(&view, &relation, Some(&columns), predicate, &budget)
         .await?;
-    let builder = ProjectedBuilder::new(relation, schema.clone(), &budget)?;
+    batches_from_rows(rows, relation, schema, &budget, batch_rows)
+}
+/// Share bounded Arrow transfer after the native owner has admitted the exact row selection.
+pub(crate) fn batches_from_rows(
+    rows: crate::compiler::CompilerRows,
+    relation: Relation,
+    schema: SchemaRef,
+    budget: &ResourceBudget,
+    batch_rows: usize,
+) -> Result<SendableRecordBatchStream, ModelError> {
+    let builder = ProjectedBuilder::new(relation, schema.clone(), budget)?;
     let stream = futures::stream::try_unfold(
         (rows, builder, false),
         move |(mut rows, mut builder, done)| async move {
@@ -1197,6 +1231,28 @@ mod tests {
             ],
             "capability reporting returns exactly one answer per filter"
         );
+    }
+    #[tokio::test]
+    async fn selection_statistics_preserve_conservative_cardinality_and_transfer_rows() {
+        let store = NativeCompilerStore::from_existing(Arc::new(surrealdb::Surreal::init()),
+            Name::new("statistics").unwrap(), Name::new("statistics").unwrap());
+        let relation = Relation::of::<Release>();
+        let view = CompletedView::new(Release::NAME.into(),
+            [ContentHash::of(b"statistics")].into(), 64).unwrap();
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let provider = table_provider(store, view, relation.clone(), budget.clone(), 7).unwrap();
+        assert_eq!(provider.downcast_ref::<NativeTable>().unwrap().batch_rows, 7);
+        let selected = SelectedKeys { keys: Arc::new(vec![[1; 16], [2; 16]]), field: None,
+            _charge: Arc::new(StateCharge::new(&budget, "statistics-selected-keys")) };
+        let field = SelectedKeys { field: Some("package"), ..selected.clone() };
+        let empty = SelectedKeys { keys: Arc::new(vec![]), ..selected.clone() };
+        assert_eq!(row_statistics(relation.schema(), 64, &[], false).num_rows, Precision::Exact(64));
+        assert_eq!(row_statistics(relation.schema(), 64, &[], true).num_rows, Precision::Inexact(64));
+        assert_eq!(row_statistics(relation.schema(), 64, &[selected.clone()], false).num_rows, Precision::Inexact(2));
+        assert_eq!(row_statistics(relation.schema(), 64, &[field.clone()], false).num_rows, Precision::Inexact(64),
+            "non-unique field keys cannot certify a nominal row-count bound");
+        assert_eq!(row_statistics(relation.schema(), 64, &[selected, field], true).num_rows, Precision::Inexact(2));
+        assert_eq!(row_statistics(relation.schema(), 64, &[empty], true).num_rows, Precision::Inexact(0));
     }
     #[tokio::test]
     async fn native_id_ordering_survives_selection_projection_and_fetch() {

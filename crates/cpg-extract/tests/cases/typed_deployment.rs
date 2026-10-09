@@ -8,14 +8,14 @@ use std::{collections::BTreeMap, sync::Arc};
 use typed_driver::rows;
 inspector!(
     Deployment,
-    DeploymentObservation,
-    TaskReportObservation,
-    TaskReport,
-    ReportedEnvironment,
-    ReportValue,
-    ReportEntry,
-    ProviderCoverage,
-    DerivedArtifact
+    lctx_model::domain::deployment::DeploymentObservation,
+    lctx_model::domain::deployment::TaskReportObservation,
+    lctx_model::domain::deployment::TaskReport,
+    lctx_model::domain::deployment::ReportedEnvironment,
+    lctx_model::domain::deployment::ReportValue,
+    lctx_model::domain::deployment::ReportEntry,
+    lctx_model::domain::attribution::ProviderCoverage,
+    lctx_model::domain::input::DerivedArtifact
 );
 fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))

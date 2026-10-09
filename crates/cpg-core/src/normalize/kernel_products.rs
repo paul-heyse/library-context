@@ -59,18 +59,14 @@ pub(super) async fn entity_hit(request: &ProductRequest, runtime: &Workspace)
     let Some(entry) = entry else { return Ok(None); };
     let decode = (|| {
         let product = entry.product();
-        crate::workspace::validate_product_rows(product, runtime.model(), runtime.budget(), resources::TRANSFER_ROWS)?;
+        let candidate = crate::workspace::decode_product_rows(product, runtime.model(), runtime.budget(), resources::TRANSFER_ROWS)?;
         if product.outcome != ProductOutcome::Complete {
             return Err(ModelError::Conflict("entity kernel product outcome"));
         }
         let mut rows = entity_normalization::EntityOutput::new(runtime.budget());
-        for section in &product.sections {
-            let relation = runtime.model().relation(&section.name).ok_or(ModelError::Schema("entity product relation"))?;
-            let values: Vec<Value> = serde_json::from_slice(&section.bytes).map_err(ModelError::codec)?;
-            if section.rows != values.len() as u64 { return Err(ModelError::Conflict("entity product row count")); }
-            for window in values.chunks(resources::TRANSFER_ROWS) {
-                let batch = lctx_surrealdb::codec::decode_bodies(relation, window.to_vec(), runtime.budget())?;
-                if !rows.visit(&section.name, &batch)? { return Err(ModelError::Schema("entity product output inventory")); }
+        for (relation, batches) in candidate.sections() {
+            for batch in batches {
+                if !rows.visit(relation.name(), batch)? { return Err(ModelError::Schema("entity product output inventory")); }
             }
         }
         Ok(rows)
@@ -153,18 +149,14 @@ pub(super) async fn callable_hit(request: &ProductRequest, runtime: &Workspace)
     let Some(entry) = entry else { return Ok(None); };
     let decode = (|| {
         let product = entry.product();
-        crate::workspace::validate_product_rows(product, runtime.model(), runtime.budget(), resources::TRANSFER_ROWS)?;
+        let candidate = crate::workspace::decode_product_rows(product, runtime.model(), runtime.budget(), resources::TRANSFER_ROWS)?;
         if product.outcome != ProductOutcome::Complete {
             return Err(ModelError::Conflict("callable kernel product outcome"));
         }
         let mut rows = callable_normalization::CallableOutput::new(runtime.budget());
-        for section in &product.sections {
-            let relation = runtime.model().relation(&section.name).ok_or(ModelError::Schema("callable product relation"))?;
-            let values: Vec<Value> = serde_json::from_slice(&section.bytes).map_err(ModelError::codec)?;
-            if section.rows != values.len() as u64 { return Err(ModelError::Conflict("callable product row count")); }
-            for window in values.chunks(resources::TRANSFER_ROWS) {
-                let batch = lctx_surrealdb::codec::decode_bodies(relation, window.to_vec(), runtime.budget())?;
-                if !rows.visit(&section.name, &batch)? { return Err(ModelError::Schema("callable product output inventory")); }
+        for (relation, batches) in candidate.sections() {
+            for batch in batches {
+                if !rows.visit(relation.name(), batch)? { return Err(ModelError::Schema("callable product output inventory")); }
             }
         }
         Ok(rows)
@@ -228,18 +220,14 @@ pub(super) async fn aspect_hit(request: &ProductRequest, runtime: &Workspace)
     let Some(entry) = entry else { return Ok(None); };
     let decode = (|| {
         let product = entry.product();
-        crate::workspace::validate_product_rows(product, runtime.model(), runtime.budget(), resources::TRANSFER_ROWS)?;
+        let candidate = crate::workspace::decode_product_rows(product, runtime.model(), runtime.budget(), resources::TRANSFER_ROWS)?;
         if product.outcome != ProductOutcome::Complete {
             return Err(ModelError::Conflict("aspect kernel product outcome"));
         }
         let mut rows = callable_aspects::AspectOutput::new(runtime.budget());
-        for section in &product.sections {
-            let relation = runtime.model().relation(&section.name).ok_or(ModelError::Schema("aspect product relation"))?;
-            let values: Vec<Value> = serde_json::from_slice(&section.bytes).map_err(ModelError::codec)?;
-            if section.rows != values.len() as u64 { return Err(ModelError::Conflict("aspect product row count")); }
-            for window in values.chunks(resources::TRANSFER_ROWS) {
-                let batch = lctx_surrealdb::codec::decode_bodies(relation, window.to_vec(), runtime.budget())?;
-                if !rows.visit(&section.name, &batch)? { return Err(ModelError::Schema("aspect product output inventory")); }
+        for (relation, batches) in candidate.sections() {
+            for batch in batches {
+                if !rows.visit(relation.name(), batch)? { return Err(ModelError::Schema("aspect product output inventory")); }
             }
         }
         Ok(rows)

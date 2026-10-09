@@ -1,8 +1,9 @@
 # Native execution efficiency: shared preparation and scoped ownership
 
-**Proposed implementation target · 2026-10-09.** Native-efficiency review RC01–RC05 were
-explicitly accepted by the operator during plan preparation. This document designs and schedules
-the corrections; it does not implement them or resume qualification.
+**Accepted target; implementation in progress · 2026-10-09.** Native-efficiency review RC01–RC05
+were explicitly accepted by the operator during plan preparation. Execution is authorized;
+ADR-0141 records the complementary access/preparation/completion decision. The coordinator
+§8/§9.1 owns finding disposition and current implementation/verification receipts.
 
 This companion develops the [native-execution efficiency review](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md).
 The [persisted coordinator](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
@@ -22,8 +23,9 @@ completion and stable serving initialization whose lifetime survives optional re
 
 Authoring baseline: main `d2341cc4`, 2026-10-09, plus the frozen dirty GK/GR/native/serving tree.
 The source review inspected `85e8b9cb` plus that implementation; the intervening commit published
-its review and handoff, not production corrections. The stable SDK-session patch is present but
-**not compiled or runtime-qualified**. The operator's hashing references, PC3 worktree, profiling
+its review and handoff, not production corrections. At authoring, the stable SDK-session patch was
+**not compiled or runtime-qualified**; its execution receipt now lives in coordinator §9.1.
+The operator's hashing references, PC3 worktree, profiling
 captures and shared Cargo intermediates remain preserved.
 
 Assessment uses core/template3.3, efficient-architecture heuristics1.0 and code-intelligence1.5
@@ -341,8 +343,9 @@ benchmark campaign, telemetry service or proof ledger is required.
 |---|---|
 | **Native planner and unrelated-owner work — NE2** | Inspect exact3.3 equality-prefix plan and a revealing disposable query when needed. Reject union distinct, Cartesian preparation, whole-match arrays and unqualified materialization. Qualify compact exact-view preparation for repeated demand where scalar-prefix residuals are disproportionate; do not hide startup cost |
 | **Grain/full-input compatibility — NE1/NE3** | Trace actual invariant input order, roles, scope/context and negative domains. Select a typed shared representation/sorted replay owner only where it preserves separate checks and stays charged. If one invariant requires new state, retain its independent fold |
-| **Cold product capture — NE4** | Compare one actual-output read/encoding with capture from submitted values plus actual completion equality. Adopt the latter only with complete counts/keys/content, duplicate semantics, acknowledged effects and no additional whole-output residency; otherwise retain the independent read and eliminate duplicate representation work |
+| **Cold product capture — NE4** | Execution decision2026-10-09: retain one actual completed-output read and canonical encoding. Submitted transfer values are not an independent fold of acknowledged exact singleton membership, and retaining them through completion would add output residency without establishing that equality. Capture now uses a checked read-only singleton selection, avoiding optional canonical-view metadata. Typed replay removes redundant representation work; no write-time certificate replaces native completion/readback. Focused state identity/refusal controls passed; full matrix qualification remains open in coordinator §9.1 |
 | **Session/authentication cause — NE0** | Existing patch must pass actual same-session/lifetime/late-error controls. Historical disposed fixture logs cannot prove server auth cause; reopen attribution only with an actual initiating failure. No token-expiry, query-budget or timeout increase is selected |
+| **Transport terminality and WebSocket — NE0/NE9, refined during execution2026-10-09** | Repeated selected reads reproduce gRPC cancellation/h2 failure even in isolation. Independent exact SDK/tonic/h2 inspection establishes skipped physical terminal/status, while causality remains subject to actual corrected reruns. Backport physical drainage at SDK3.3.0; published3.3.2 retains the gap. Current PSE-arrow WebSocket and stock Rust SDK still buffer whole results. A progressive server `query_stream` integration is a future alternative requiring equivalent bounded transfer, cancellation and backup support, not an endpoint-only replacement |
 | **Bridge/descendant ownership — NE5/NE6** | Trace where synchronous callbacks execute and which read/write work produces each outcome. Require wakeups without runtime-worker deadlock and terminal leases for relevant descendants. Global error poisoning/final drainage must survive local completion |
 | **Flight/retention pressure — NE7** | Same-key request across generation replacement must join the same admitted flight. Deterministic completion/removal/close cases settle ownership; metadata, waiters and external results remain charged. Moka alone does not certify this lifetime |
 | **Setup/runtime sharing — NE8** | Keep fresh attempt isolation; share stable transport/runtime/compiled schema preparation only with a suitable process owner. No evidence currently makes thread exhaustion or setup the dominant failure |
@@ -421,17 +424,16 @@ close unrelated obligations.
 | F06 / RC02 | §3.5, NE0/NE6/NE9; relevant completion/final certainty | Coordinator §8 |
 | F07 / RC04 | §3.6, NE7/NE9; stable flights and evictable retention | Coordinator §8 |
 | F08 / RC05 | §3.6, NE8/NE9; purposeful selected/full observation | Coordinator §8 |
-| SDK patch and timed failures / review §1 | §1, NE0/NE9; matching-source transport and independent historical boundaries | Coordinator §9.1; patch unverified, acceptance open |
+| SDK patch and timed failures / review §1 | §1, NE0/NE9; matching-source transport and independent historical boundaries | Coordinator §9.1; focused SDK control passed2026-10-09, integrated acceptance open |
 | Existing sharing / contracts / fidelity tables | §1/§3/§5/§7; retained model, graph, original, admission and pin guarantees | Existing owner/plan obligations unchanged |
 | Review graph integration / extension scenarios | §3.1/§5/§6; resolved bindings now, named-consumer trigger for wider orchestration | Selected contract plus explicit conditional investigation |
 | Review alternatives/library fit and uncertainties | §3.2/§3.3/§6; exact locked contracts and bounded package decisions | Selected, conditional and deferred routes stated |
 | Review A1/A3/A4 and unresolved G3/G5/G7/G8/CI-G2 breadth | §3/§6/§7, NE9; independent design and matching-source enforcement/evidence checks | No enclosing acceptance inferred from authoring |
 
 This table maps obligations; mutable status remains in coordinator §8/§9.1. Source-review
-assessments remain dated, with their disposition links transferred. The next authorized phase
-is detailed execution planning from NE0/NE1 and the actual native/query/lifetime prerequisite
-slices. No production package, native run, environment sync, operator action or measured-benefit
-campaign is executed by creating these documents.
+assessments remain dated, with their disposition links transferred. Execution now integrates NE0–NE9 from the actual native/query/lifetime prerequisite slices.
+The authoring-only boundary below remains historical; it does not restrict the subsequently
+authorized implementation. Operator action and a measured-benefit campaign remain outside scope.
 
 **Independent target assessment, 2026-10-09:** the [fresh plan-target review](../design_review/reviews/design_review_native-execution-efficiency-plan_2026-10-09.md)
 accepts the coordinated target at Proposed / Interface-checked strength, with no new blocking

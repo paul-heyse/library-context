@@ -11,7 +11,8 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(Facts, CallTarget);
+// This control reconstructs the complete native inventory or compares complete output.
+inspector!(Facts, complete);
 async fn fixture_tables() -> (
     BindingData,
     BindingOutput,

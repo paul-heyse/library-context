@@ -17,7 +17,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-inspector!(Nothing, SourceArtifact);
+inspector!(Nothing => typed_driver::ObservationDemand::selected());
 
 fn repo() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))

@@ -12,12 +12,8 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(
-    Facts,
-    RuffDiagnosticObservation,
-    PyreflyDiagnosticObservation,
-    NativeParameterDefinitionObservation
-);
+// Evidence reconstruction includes the independent complete native premise inventory.
+inspector!(Facts, complete);
 async fn fixture() -> typed_driver::Tables {
     let tables = typed_driver::Tables::default();
     typed_driver::run(&files("native_diagnostics"), Facts(tables.clone()))

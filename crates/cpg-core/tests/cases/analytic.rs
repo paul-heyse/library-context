@@ -249,6 +249,11 @@ impl Embedder for ContractEmbedder {
     fn endpoint(&self) -> &str {
         self.inner.endpoint()
     }
+    fn document_tokenizer(
+        &self,
+    ) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
+        self.inner.document_tokenizer()
+    }
     fn count_tokens<'a>(&'a self, text: &'a str) -> EmbedFuture<'a, usize> {
         if self.available {
             self.inner.count_tokens(text)

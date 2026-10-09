@@ -15,7 +15,16 @@ use lctx_model::domain::{
     *,
 };
 use std::collections::BTreeMap;
-inspector!(Facts, CallTarget);
+inspector!(Facts => {
+    let mut demand=typed_driver::ObservationDemand::selected();
+    macro_rules! select { ($($field:ident:$ty:ty $(=> $family:ident)?,)*) => {$(demand.include::<$ty>();)*}; }
+    lctx_model::entry_value_inputs!(select);
+    lctx_model::normalized_binding_inputs!(select);
+    lctx_model::normalized_entity_inputs!(select);
+    lctx_model::normalized_relation_inputs!(select);
+    demand.include::<lctx_model::domain::calls::CallTarget>();
+    demand
+});
 async fn fixture() -> (EntryData, BindingData, BindingOutput, ResourceBudget) {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(

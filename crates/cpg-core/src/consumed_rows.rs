@@ -138,7 +138,7 @@ pub fn stream_where_at<'a, R: Record>(
     };
     let mut consume = consume;
     let visit: BatchConsumer<'a> = Box::new(move |batch| consume(input, batch));
-    stream_checked_owned(checked, declaration, session, selected, None, visit)
+    stream_checked_owned(checked, declaration, session, selected, None, Some(inputs), visit)
 }
 /// Stream an owner-declared SELECT after checking the exact nominal record and captured view.
 /// Joins and closure predicates are supplied by the owning semantic kernel.
@@ -175,6 +175,7 @@ pub(crate) fn stream_query_filter_at<'a, R: Record>(
         session,
         Ok(selected.to_owned()),
         predicate,
+        Some(inputs),
         visit,
     )
 }
@@ -208,12 +209,13 @@ fn stream_checked_owned<'a>(
     session: &'a SessionContext,
     selected: Result<String, ModelError>,
     predicate: Option<datafusion::logical_expr::Expr>,
+    inputs: Option<&'a CompletedInputs>,
     mut consume: BatchConsumer<'a>,
 ) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         let selected = selected?;
         checked?;
-        stream_batches(declaration, session, &selected, predicate, consume.as_mut()).await
+        stream_batches_prepared(declaration, session, &selected, predicate, inputs, consume.as_mut()).await
     })
 }
 
@@ -225,6 +227,16 @@ pub(crate) fn stream_batches<'a>(
     session: &'a SessionContext,
     selected: &'a str,
     predicate: Option<datafusion::logical_expr::Expr>,
+    consume: &'a mut (dyn FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError> + Send),
+) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
+    stream_batches_prepared(declaration, session, selected, predicate, None, consume)
+}
+fn stream_batches_prepared<'a>(
+    declaration: &'a ValidationInput,
+    session: &'a SessionContext,
+    selected: &'a str,
+    predicate: Option<datafusion::logical_expr::Expr>,
+    inputs: Option<&'a CompletedInputs>,
     consume: &'a mut (dyn FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError> + Send),
 ) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
@@ -242,9 +254,10 @@ pub(crate) fn stream_batches<'a>(
                 format!(" ORDER BY {order}")
             }
         );
-        let mut selected = crate::sql::query(session, &sql)
-            .await
-            .map_err(crate::sql::model_error)?;
+        let mut selected = match inputs {
+            Some(inputs) => inputs.query_template(session, declaration, &sql).await?,
+            None => crate::sql::query(session, &sql).await.map_err(crate::sql::model_error)?,
+        };
         if let Some(predicate) = predicate {
             selected = selected.filter(predicate).map_err(crate::sql::model_error)?;
         }
@@ -286,6 +299,7 @@ mod checked_stream_controls {
             &session,
             Ok("not valid SQL".to_owned()),
             None,
+            None,
             consume,
         );
         assert_eq!(budget.reserved(), 4096);
@@ -312,6 +326,7 @@ mod checked_stream_controls {
             &declaration,
             &session,
             Err(ModelError::Conflict("earlier table selection failure")),
+            None,
             None,
             consume,
         )
@@ -627,7 +642,6 @@ impl NominalClosure {
             .config()
             .clone()
             .with_create_default_catalog_and_schema(false)
-            .with_target_partitions(state.config().target_partitions().max(2))
             .with_repartition_joins(true)
             .set_bool("datafusion.optimizer.prefer_hash_join", false);
         let session = SessionContext::new_with_state(
@@ -1472,6 +1486,7 @@ impl PreparedEdges {
             union,
             outcomes,
             memberships,
+            content_tokens: tokio::sync::OnceCell::new(),
             _charge: charge,
         })
     }
@@ -1782,6 +1797,11 @@ pub struct PreparedRootBatch {
     pub union: PreparedClosure,
     outcomes: Vec<PreparedRootOutcome>,
     memberships: charged::ChargedSet<(usize, NominalKey)>,
+    content_tokens: tokio::sync::OnceCell<Option<UnionContentTokens>>,
+    _charge: charged::StateCharge,
+}
+struct UnionContentTokens {
+    tables: Vec<BTreeMap<[u8; 16], ContentHash>>,
     _charge: charged::StateCharge,
 }
 impl PreparedRootBatch {
@@ -1794,6 +1814,32 @@ impl PreparedRootBatch {
     ) -> Result<Option<ContentHash>, ModelError> {
         use lctx_model::domain::Key;
         let budget = runtime.budget();
+        if self.union.edges._provider_charge.budget().is_none_or(|owner| !owner.shares_pool(budget)) {
+            return Err(ModelError::Conflict("selected domain foreign preparation budget"));
+        }
+        for (table, input) in inputs.iter().enumerate() {
+            if self.relation(table)?.name() != input.name() { return Err(ModelError::Conflict("selected domain input binding")); }
+        }
+        // The entire root group's fresh membership is already known. Fetch compact content
+        // once per exact bound port, then derive independent root domains without native reads.
+        let tokens = self.content_tokens.get_or_try_init(|| async {
+            let mut charge = charged::StateCharge::new(budget, "selected-union-content-tokens");
+            let mut tables = Vec::new();
+            for (table, keys) in self.union.native_keys.iter().take(inputs.len()).enumerate() {
+                charge.grow(keys.len().saturating_mul(160).saturating_add(4096))?;
+                let provider = self.union.edges.providers[table].clone();
+                let requested = keys.clone();
+                let read_budget = budget.clone();
+                let found = runtime.native_call(async move {
+                    lctx_surrealdb::compiler_provider::content_tokens(&provider, requested.as_slice(), &read_budget).await
+                }).await?;
+                let Some(found) = found else { return Ok::<_, ModelError>(None); };
+                tables.push(found.into_iter().collect());
+            }
+            Ok(Some(UnionContentTokens { tables, _charge: charge }))
+        }).await?;
+        let Some(tokens) = tokens else { return Ok(None); };
+        if tokens.tables.len() != inputs.len() { return Err(ModelError::Conflict("selected domain input cardinality changed")); }
         let mut charge = charged::StateCharge::new(budget, "selected-domain-content-tokens");
         let mut members = Vec::new();
         let mut context = lctx_model::domain::KeySink::new("complete-selected-domain-roles/v1");
@@ -1802,20 +1848,12 @@ impl PreparedRootBatch {
             input.encode_contract(&mut context);
             let count = self.keys(partition, table)?.count();
             charge.grow(count.saturating_mul(352).saturating_add(4096))?;
-            let request_charge = budget.reserve("selected-domain-token-request", count.saturating_mul(160).saturating_add(4096))?;
             let keys = self.keys(partition, table)?.collect::<Vec<_>>();
-            let provider = self.union.edges.providers[table].clone();
-            let read_budget = budget.clone(); let requested = keys.clone();
-            let tokens = runtime.native_call(async move {
-                let _charge = request_charge;
-                lctx_surrealdb::compiler_provider::content_tokens(&provider, &requested, &read_budget).await
-            }).await?;
-            let Some(tokens) = tokens else { return Ok(None); };
-            let tokens = tokens.into_iter().collect::<BTreeMap<_, _>>();
+            let table_tokens = &tokens.tables[table];
             let role = format!("port/{table}/{}/{}", input.name(), input.prefix().map_or("", |prefix| prefix.name()));
             for key in keys {
                 let mut content = lctx_model::domain::KeySink::new("selected-member-presence/v1");
-                tokens.get(&key).copied().encode(&mut content);
+                table_tokens.get(&key).copied().encode(&mut content);
                 members.push((role.clone(), key, content.finish()));
             }
         }
@@ -1842,7 +1880,7 @@ impl PreparedRootBatch {
             }
         }
         let union = PreparedEdges(self.union.edges.clone()).finish_keys(union_keys, budget)?;
-        Ok(Self { union, outcomes, memberships, _charge: charge })
+        Ok(Self { union, outcomes, memberships, content_tokens: tokio::sync::OnceCell::new(), _charge: charge })
     }
     pub fn outcomes(&self) -> &[PreparedRootOutcome] {
         &self.outcomes
@@ -1928,6 +1966,40 @@ pub struct PreparedClosure {
 impl PreparedClosure {
     pub fn session(&self) -> &SessionContext {
         &self.edges.session
+    }
+    /// The input shape stays typed while its selected provider port is rebound. Native
+    /// selected providers and borrowed columnar partitions need no SQL parse per grain;
+    /// detached finite joins retain the checked relational helper.
+    pub(crate) async fn ordered_input(&self, table: usize, input: &ValidationInput) -> Result<datafusion::dataframe::DataFrame, ModelError> {
+        let relation = &self.edges.tables.get(table).ok_or(ModelError::Schema("ordered selected input"))?.relation;
+        if relation.type_id() != input.type_id() || relation.name() != input.name() {
+            return Err(ModelError::Conflict("ordered selected input nominal type"));
+        }
+        let selected = self.select(table)?;
+        let alias = self.selected_aliases.lock().map_err(|_| ModelError::Conflict("ordered selected input aliases"))?.get(&table).cloned();
+        if let Some(alias) = alias.filter(|_| self.session().copied_config().options().sql_parser.default_null_ordering == "nulls_max") {
+            let frame = self.session().table(alias.as_str()).await.map_err(crate::sql::model_error)?;
+            if input.order().is_empty() { return Ok(frame); }
+            return frame.sort(input.order().iter().map(|field| datafusion::prelude::col(*field).sort(true, false)).collect()).map_err(crate::sql::model_error);
+        }
+        let order = input.order().iter().map(|field| identifier(field)).collect::<Vec<_>>().join(",");
+        let sql = format!("SELECT * FROM ({selected}) AS selected_input{}", if order.is_empty() { String::new() } else { format!(" ORDER BY {order}") });
+        crate::sql::query(self.session(), &sql).await.map_err(crate::sql::model_error)
+    }
+    /// Bind already hydrated, ordered rows for an independent semantic check. The caller
+    /// retains their charge until this scope is dropped; the scope owns catalog cleanup.
+    pub(crate) fn bind_prepared_rows(&self, table: usize, batches: Vec<arrow_array::RecordBatch>) -> Result<(), ModelError> {
+        let relation = &self.edges.tables.get(table).ok_or(ModelError::Schema("prepared admission table"))?.relation;
+        if batches.iter().any(|batch| batch.schema().as_ref() != relation.schema().as_ref()) {
+            return Err(ModelError::Schema("prepared admission schema"));
+        }
+        let provider = datafusion::datasource::MemTable::try_new(relation.schema().clone(), vec![batches]).map_err(ModelError::codec)?;
+        let alias = scope_alias("admitted_input");
+        let mut aliases = self.selected_aliases.lock().map_err(|_| ModelError::Conflict("prepared admission aliases"))?;
+        if aliases.contains_key(&table) { return Err(ModelError::Conflict("prepared admission port already bound")); }
+        self.edges.session.register_table(&alias, std::sync::Arc::new(provider)).map_err(ModelError::codec)?;
+        aliases.insert(table, alias);
+        Ok(())
     }
     pub fn select(&self, table: usize) -> Result<String, ModelError> {
         let table_binding = self
@@ -2335,6 +2407,8 @@ mod nominal_closure_controls {
         plan.follow(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
+        assert_eq!(edges.0.session.copied_config().target_partitions(),
+            session.copied_config().target_partitions(), "preparation preserves available parallelism");
         let index_usage = budget.reserved();
         assert!(index_usage > 0);
         let scope = edges
@@ -2695,6 +2769,8 @@ mod nominal_closure_controls {
             plan.follow(binding, "package", BINDINGS).unwrap();
         }
         let edges = plan.prepare(&session, workspace.budget()).await.unwrap();
+        assert_eq!(edges.0.session.copied_config().target_partitions(),
+            session.copied_config().target_partitions(), "preparation preserves its caller's partition target");
         let edge_rows = ROWS * BINDINGS;
         assert_eq!(
             edges

@@ -149,6 +149,87 @@ fn ownership_set(
     }
 }
 
+/// Complete ownership inputs can contain rows absent from every producer-positive closure.
+/// Capture each Full domain once into bounded IPC, retaining independent query cursors for each
+/// grain. These runs are attempt-local derived inputs, never prior semantic acceptance.
+struct FullInputs {
+    session: SessionContext,
+    aliases: Vec<String>,
+    _directory: tempfile::TempDir,
+    _charge: charged::StateCharge,
+}
+impl Drop for FullInputs {
+    fn drop(&mut self) {
+        for alias in &self.aliases { let _ = self.session.deregister_table(alias); }
+    }
+}
+fn full_rows(rows: &OwnershipRows, inputs: &mut std::collections::BTreeSet<usize>) {
+    if let OwnershipRows::Full { input, filters } = rows {
+        inputs.insert(*input);
+        for filter in filters { full_set(&filter.values, inputs); }
+    }
+}
+fn full_set(set: &OwnershipSet, inputs: &mut std::collections::BTreeSet<usize>) {
+    match set {
+        OwnershipSet::Projection { rows, .. } => full_rows(rows, inputs),
+        OwnershipSet::Union(parts) => for part in parts { full_set(part, inputs); },
+    }
+}
+fn full_input_alias(directory: &std::path::Path, input: usize) -> String {
+    // String registration normalizes unquoted identifiers; SQL reads quote the exact name.
+    // Canonical lowercase ASCII keeps both boundaries bound to the same private catalog port.
+    let directory = directory.file_name().expect("temporary run name").to_string_lossy();
+    let identifier = directory.chars().map(|c| {
+        if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' }
+    }).collect::<String>();
+    format!("support_full_{identifier}_{input}")
+}
+async fn prepare_full_inputs(
+    ownership: &SupportOwnership,
+    tables: &mut [ClosureTable],
+    session: &SessionContext,
+    budget: &ResourceBudget,
+    cancellation: &Cancellation,
+) -> Result<FullInputs, ModelError> {
+    use datafusion::arrow::ipc::writer::FileWriter;
+    use datafusion::execution::options::ArrowReadOptions;
+    let mut prepared = FullInputs { session: session.clone(), aliases: Vec::new(), _directory: tempfile::tempdir().map_err(ModelError::codec)?, _charge: charged::StateCharge::new(budget, "support-full-input-runs") };
+    let mut complete = std::collections::BTreeSet::new();
+    full_rows(&ownership.corpus, &mut complete);
+    full_rows(&ownership.distributions, &mut complete);
+    for index in complete {
+        let table = tables.get_mut(index).ok_or(ModelError::Schema("support full input binding"))?;
+        let path = prepared._directory.path().join(format!("input-{index}.arrow"));
+        let mut writer = FileWriter::try_new(std::fs::File::create(&path).map_err(ModelError::codec)?, table.relation.schema())
+            .map_err(ModelError::codec)?;
+        let mut stream = crate::sql::query(session, &format!("SELECT * FROM {}", identifier(&table.alias)))
+            .await.map_err(crate::sql::model_error)?.execute_stream().await.map_err(crate::sql::model_error)?;
+        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
+            cancellation.check()?;
+            let _transfer = budget.reserve("support-full-input-write", batch.get_array_memory_size().saturating_mul(2).saturating_add(4096))?;
+            prepared._charge.grow(256)?;
+            writer.write(&batch).map_err(ModelError::codec)?;
+        }
+        writer.finish().map_err(ModelError::codec)?;
+        drop(writer);
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(&path).map_err(ModelError::codec)?;
+        file.seek(SeekFrom::End(-10)).map_err(ModelError::codec)?;
+        let mut length = [0; 4];
+        file.read_exact(&mut length).map_err(ModelError::codec)?;
+        prepared._charge.grow((u32::from_le_bytes(length) as usize).saturating_mul(2).saturating_add(4096))?;
+        let frame = session.read_arrow(path.to_string_lossy().into_owned(), ArrowReadOptions::default().schema(table.relation.schema().as_ref()))
+            .await.map_err(crate::sql::model_error)?;
+        // The unique directory name prevents simultaneous checks from replacing each other's
+        // immutable ports in the supplied session catalog.
+        let alias = full_input_alias(prepared._directory.path(), index);
+        session.register_table(&alias, frame.into_view()).map_err(ModelError::codec)?;
+        prepared.aliases.push(alias.clone());
+        table.alias = alias;
+    }
+    Ok(prepared)
+}
+
 async fn validate_grain(
     invariant: &Invariant,
     ownership: &SupportOwnership,
@@ -161,6 +242,14 @@ async fn validate_grain(
     let distributions = ownership_rows(&ownership.distributions, closure, tables)?;
     let mut check = (invariant.create)(budget);
     for (index, input) in invariant.inputs.iter().enumerate() {
+        if index != ownership.corpus_input && index != ownership.distributions_input {
+            let mut rows = closure.ordered_input(index, input).await?.execute_stream().await.map_err(crate::sql::model_error)?;
+            while let Some(batch) = rows.try_next().await.map_err(crate::sql::model_error)? {
+                cancellation.check()?;
+                check.visit_input(input, &batch)?;
+            }
+            continue;
+        }
         let select = if index == ownership.corpus_input {
             corpus.clone()
         } else if index == ownership.distributions_input {
@@ -196,16 +285,79 @@ async fn validate_grain(
     check.finish()
 }
 
+async fn validate_group(
+    invariant: &Invariant,
+    ownership: &SupportOwnership,
+    tables: &[ClosureTable],
+    prepared: &crate::consumed_rows::PreparedEdges,
+    root: usize,
+    ids: &[[u8; 16]],
+    grains: &[Grain],
+    budget: &ResourceBudget,
+    cancellation: &Cancellation,
+) -> Result<(), ModelError> {
+    let roots = ids.iter().map(|key| PreparedRoot { table: root, key: *key, kind: PreparedRootKind::Physical }).collect::<Vec<_>>();
+    let batch = prepared.batch_with_cancellation(&roots, budget, cancellation).await?;
+    let mut full = std::collections::BTreeSet::new();
+    full_rows(&ownership.corpus, &mut full);
+    full_rows(&ownership.distributions, &mut full);
+    let mut charge = charged::StateCharge::new(budget, "support-admission-columnar-union");
+    charge.grow(invariant.inputs.len().saturating_mul(size_of::<Vec<arrow_array::RecordBatch>>()).saturating_add(4096))?;
+    let mut union = (0..invariant.inputs.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+    // Complete Full ownership is supplied by its spill run. Hydrate every other bound port
+    // once for the entire root group, preserving each input's own declared total order.
+    for (index, input) in invariant.inputs.iter().enumerate() {
+        if full.contains(&index) { continue; }
+        let mut stream = batch.union.ordered_input(index, input).await?.execute_stream().await.map_err(crate::sql::model_error)?;
+        while let Some(rows) = stream.try_next().await.map_err(crate::sql::model_error)? {
+            cancellation.check()?;
+            charge.grow(rows.get_array_memory_size().saturating_add(128))?;
+            union[index].push(rows);
+        }
+    }
+    let mut start = 0;
+    while start < ids.len() {
+        let end = start + grains[start..].partition_point(|grain| *grain == grains[start]);
+        let partitions = (start..end).collect::<Vec<_>>();
+        let selected = batch.select_partitions(&partitions, budget)?;
+        let closure = selected.union;
+        let mut partition_charge = charged::StateCharge::new(budget, "support-admission-columnar-partition");
+        for (index, rows) in union.iter().enumerate() {
+            if full.contains(&index) { continue; }
+            let mut keys = charged::ChargedSet::default();
+            for partition in start..end {
+                for key in batch.keys(partition, index)? { keys.insert(&mut partition_charge, key)?; }
+            }
+            let mut selected_rows = Vec::new();
+            for rows in rows {
+                partition_charge.grow(rows.get_array_memory_size().saturating_add(rows.num_rows().saturating_mul(32)).saturating_add(4096))?;
+                let mut mask = Vec::with_capacity(rows.num_rows());
+                for row in 0..rows.num_rows() { mask.push(column(rows, "id", row)?.is_some_and(|key| keys.contains(&key))); }
+                let filtered = datafusion::arrow::compute::filter_record_batch(rows, &arrow_array::BooleanArray::from(mask)).map_err(ModelError::codec)?;
+                selected_rows.push(filtered);
+            }
+            closure.bind_prepared_rows(index, selected_rows)?;
+        }
+        validate_grain(invariant, ownership, tables, &closure, budget, cancellation).await?;
+        // The borrowed batch providers are removed before their retained row charge is released.
+        drop(closure);
+        drop(partition_charge);
+        start = end;
+    }
+    Ok(())
+}
+
 pub(crate) async fn validate_support(
     invariant: &Invariant,
     scope: &SupportScope,
-    tables: Vec<ClosureTable>,
+    mut tables: Vec<ClosureTable>,
     model: &ValidatedModel,
     session: &SessionContext,
     budget: &ResourceBudget,
     cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
     let declared = scope.program(invariant.inputs.clone(), model, budget)?;
+    let _full_inputs = prepare_full_inputs(&declared.ownership, &mut tables, session, budget, cancellation).await?;
     let root = declared.root;
     let qualification = typed::<AssertionQualification>(&tables)
         .ok_or(ModelError::Schema("support qualification"))?;
@@ -232,62 +384,21 @@ pub(crate) async fn validate_support(
         .map_err(crate::sql::model_error)?;
     let _root_charge = budget.reserve("support-admission-roots", ROOT_ROWS * 128)?;
     let mut ids = Vec::with_capacity(ROOT_ROWS);
-    let mut grain: Option<Grain> = None;
+    let mut grains = Vec::with_capacity(ROOT_ROWS);
     while let Some(batch) = roots.try_next().await.map_err(crate::sql::model_error)? {
         cancellation.check()?;
         for row in 0..batch.num_rows() {
-            let next = (
-                column(&batch, "scope", row)?,
-                column(&batch, "context", row)?,
-            );
-            if !ids.is_empty() && (grain != Some(next) || ids.len() == ROOT_ROWS) {
-                let roots = ids
-                    .iter()
-                    .map(|key| PreparedRoot {
-                        table: root,
-                        key: *key,
-                        kind: PreparedRootKind::Physical,
-                    })
-                    .collect::<Vec<_>>();
-                let batch = prepared
-                    .batch_with_cancellation(&roots, budget, cancellation)
-                    .await?;
-                validate_grain(
-                    invariant,
-                    &declared.ownership,
-                    &tables,
-                    &batch.union,
-                    budget,
-                    cancellation,
-                )
-                .await?;
-                ids.clear();
-            }
-            grain = Some(next);
             ids.push(column(&batch, "id", row)?.ok_or(ModelError::Schema("support assertion ID"))?);
+            grains.push((column(&batch, "scope", row)?, column(&batch, "context", row)?));
+            if ids.len() == ROOT_ROWS {
+                validate_group(invariant, &declared.ownership, &tables, &prepared, root, &ids, &grains, budget, cancellation).await?;
+                ids.clear();
+                grains.clear();
+            }
         }
     }
     if !ids.is_empty() {
-        let roots = ids
-            .iter()
-            .map(|key| PreparedRoot {
-                table: root,
-                key: *key,
-                kind: PreparedRootKind::Physical,
-            })
-            .collect::<Vec<_>>();
-        let batch = prepared
-            .batch_with_cancellation(&roots, budget, cancellation)
-            .await?;
-        validate_grain(
-            invariant,
-            &declared.ownership,
-            &tables,
-            &batch.union,
-            budget,
-            cancellation,
-        )
-        .await?;
+        validate_group(invariant, &declared.ownership, &tables, &prepared, root, &ids, &grains, budget, cancellation).await?;
     }
     Ok(())
 }
@@ -480,6 +591,72 @@ mod controls {
             )
             .await
         }
+    }
+    #[tokio::test]
+    async fn full_input_aliases_resolve_identically_at_quoted_and_native_table_boundaries() {
+        assert_eq!(full_input_alias(std::path::Path::new("/scratch/.tmpMiXeD-123"), 3), "support_full__tmpmixed_123_3");
+        let session = SessionContext::new();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let row = input::Package { name: "full-input-alias".into() };
+        let batch = input::Package::encode(std::slice::from_ref(&row)).unwrap();
+        session.register_table("source_port", Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap())).unwrap();
+        let mut tables = vec![ClosureTable { relation: Relation::of::<input::Package>(), alias: "source_port".into() }];
+        let ownership = SupportOwnership { corpus_input: 0, corpus: Arc::new(OwnershipRows::Full { input: 0, filters: vec![] }), distributions_input: 0, distributions: Arc::new(OwnershipRows::Selected(0)) };
+        let runs = prepare_full_inputs(&ownership, &mut tables, &session, &budget, &Cancellation::default()).await.unwrap();
+        let alias = tables[0].alias.clone();
+        assert!(alias.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'));
+        session.table_provider(alias.as_str()).await.unwrap();
+        let batches = crate::sql::query(&session, &format!("SELECT * FROM {}", identifier(&alias))).await.unwrap().collect().await.unwrap();
+        let rows = batches.iter().flat_map(|batch| input::Package::decode(batch).unwrap()).collect::<Vec<_>>();
+        assert_eq!(rows, vec![row]);
+        drop(runs);
+        assert!(!session.table_exist(alias.as_str()).unwrap());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn full_input_partial_failure_removes_registered_runs_and_releases_charges() {
+        let session = SessionContext::new();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let relation = Relation::of::<input::Package>();
+        let batch = input::Package::encode(&[input::Package { name: "first-full-port".into() }]).unwrap();
+        session.register_table("source_port", Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap())).unwrap();
+        let mut tables = vec![ClosureTable { relation: relation.clone(), alias: "source_port".into() }, ClosureTable { relation, alias: "missing_second_port".into() }];
+        let ownership = SupportOwnership { corpus_input: 0, corpus: Arc::new(OwnershipRows::Full { input: 0, filters: vec![] }), distributions_input: 1, distributions: Arc::new(OwnershipRows::Full { input: 1, filters: vec![] }) };
+        let schema = session.catalog("datafusion").unwrap().schema("public").unwrap();
+        let baseline = schema.table_names();
+        assert!(prepare_full_inputs(&ownership, &mut tables, &session, &budget, &Cancellation::default()).await.is_err());
+        assert!(tables[0].alias.starts_with("support_full_"), "first Full port was registered before injected second-port failure");
+        assert_eq!(schema.table_names(), baseline);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn support_union_keeps_two_grains_and_complete_ownership_independent() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let mut fixture = Fixture::new();
+        let index = typed::<AssertionQualification>(&fixture.tables).unwrap();
+        let batches = crate::sql::query(&fixture.session, &format!("SELECT * FROM {}", identifier(&fixture.tables[index].alias))).await.unwrap().collect().await.unwrap();
+        let qualification = batches.iter().flat_map(|batch| AssertionQualification::decode(batch).unwrap()).next().unwrap();
+        let second_qualification = AssertionQualification { context: nominal(27), ..qualification.clone() };
+        let second_run = ProviderRun { context: second_qualification.context, input: nominal(28), ..fixture.run.clone() };
+        let second_assertion = SyntaxObservation { qualification: second_qualification.id(), ..fixture.assertion.clone() };
+        let second_support = SyntaxSupport { assertion: second_assertion.id(), run: second_run.id(), ..fixture.support.clone() };
+        fixture.put(&[qualification, second_qualification]);
+        fixture.put(&[fixture.run.clone(), second_run.clone()]);
+        fixture.put(&[fixture.assertion.clone(), second_assertion]);
+        fixture.put(&[fixture.support.clone(), second_support]);
+        fixture.put(&[RunFamily { run: fixture.run.id(), family: FactFamily::Syntax }, RunFamily { run: second_run.id(), family: FactFamily::Syntax }]);
+        let first_membership = CorpusLibrary { corpus: fixture.run.input, library: fixture.artifact.input };
+        fixture.put(&[first_membership.clone(), CorpusLibrary { corpus: second_run.input, library: fixture.artifact.input }]);
+        let checks = Arc::new(AtomicUsize::new(0));
+        let count = checks.clone();
+        let original = fixture.invariant.create.clone();
+        fixture.invariant.create = Arc::new(move |budget| { count.fetch_add(1, Ordering::Relaxed); original(budget) });
+        fixture.validate().await.unwrap();
+        assert_eq!(checks.load(Ordering::Relaxed), 2, "shared occurrence/evidence remains in two independent grain checks");
+        assert_eq!(fixture.budget.reserved(), 0);
+        fixture.put(&[first_membership]);
+        assert!(fixture.validate().await.is_err(), "one grain cannot borrow another grain's complete CorpusLibrary membership");
+        assert_eq!(fixture.budget.reserved(), 0);
     }
     #[tokio::test]
     async fn unsupported_roots_and_wrong_run_family_still_refuse() {

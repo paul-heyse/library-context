@@ -288,3 +288,42 @@ async fn acknowledged_setup_authentication_failure_has_a_failed_phase_terminal()
     assert!(lines[1].contains("status=\"failed\""));
     assert!(!retained.contains(&config.password));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn native_producing_completion_waits_own_rows_without_waiting_unrelated_reader() {
+    use lctx_model::domain::{analysis::sources::SourceSnapshot, resources::ResourceBudget};
+    let path = std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config = RuntimeConfig::read(&path).unwrap();
+    let store = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
+    let relation = Relation::of::<Package>();
+    let mut specification = ContributionSpec {
+        captured_binding: None, producer: "scoped-source".into(), profile: Profile::Catalog,
+        model: ContentHash::of(b"scoped-model"), implementation: ContentHash::of(b"scoped-code"),
+        configuration: None, inputs: vec![], outputs: BTreeSet::from([relation.name().into()]),
+    };
+    let id = store.begin_contribution(specification.clone()).await.unwrap();
+    store.write_batch(&id, &relation, &Package::encode(&[Package { name: "scoped-source-row".into() }]).unwrap()).await.unwrap();
+    let views = store.complete_contribution(id, ProviderOutcome::Complete, std::slice::from_ref(&relation), &BTreeMap::new()).await.unwrap();
+    let frozen = &views[relation.name()];
+    let budget = ResourceBudget::fixed(32 << 20).unwrap();
+    let unrelated = store.scan_rows(frozen, &relation, None, None, &budget).await.unwrap();
+
+    specification.producer = "scoped-dependent".into();
+    specification.inputs.push(SourceSnapshot::of_completed_view(&relation, specification.model, frozen).unwrap());
+    let scope = store.producing_scope(specification.identity().unwrap(), &budget).unwrap();
+    let id = scope.run(store.begin_contribution(specification)).await.unwrap();
+    let mut own = scope.run(store.scan_rows(frozen, &relation, None, None, &budget)).await.unwrap();
+    let mut completion = Box::pin(store.complete_contribution_scoped(&scope, id, ProviderOutcome::Complete, std::slice::from_ref(&relation), &views));
+    assert!(futures::poll!(&mut completion).is_pending(), "own producing stream is not terminal");
+    // Payload hydration starts after local completion closed root admission. The exact
+    // returned stream carries its admitted scope rather than relying on task inheritance.
+    assert!(own.next().await.unwrap().is_some());
+    assert!(own.next().await.unwrap().is_none());
+    let next = completion.await.unwrap();
+    assert_eq!(next[relation.name()].rows, 1, "an unrelated retained reader cannot block local completion");
+    let mut final_close = Box::pin(store.end_writes());
+    assert!(futures::poll!(&mut final_close).is_pending(), "final closure still owns every retained native reader");
+    drop(unrelated);
+    final_close.await.unwrap();
+    store.abandon().await.unwrap();
+}

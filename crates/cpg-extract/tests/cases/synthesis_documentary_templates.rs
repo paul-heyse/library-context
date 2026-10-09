@@ -5,12 +5,12 @@ use lctx_model::domain::{assertion::*, documents::*, *};
 use typed_driver::{files, rows, run};
 inspector!(
     Templates,
-    DocumentNode,
-    DocumentComponentObservation,
-    DocumentAttributeObservation,
-    DocumentAttributeValue,
-    Evidence,
-    PassageObservation
+    lctx_model::domain::documents::DocumentNode,
+    lctx_model::domain::documents::DocumentComponentObservation,
+    lctx_model::domain::documents::DocumentAttributeObservation,
+    lctx_model::domain::documents::DocumentAttributeValue,
+    lctx_model::domain::assertion::Evidence,
+    lctx_model::domain::documents::PassageObservation
 );
 #[tokio::test]
 async fn native_components_keep_original_inner_lead_parent_and_ignore_inline_code_and_fences() {

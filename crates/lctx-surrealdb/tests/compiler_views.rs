@@ -941,12 +941,19 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
                 &expected_fields,
             ),
         ] {
+            let selection = match &predicate {
+                NativePredicate::Keys(_) => "nominal keys",
+                NativePredicate::Field { .. } => "atomic field",
+                _ => unreachable!(),
+            };
             let mut stream = store
                 .scan_batches(&frozen, &relation, None, Some(predicate), &budget, 37)
                 .await
                 .unwrap();
             let mut observed = Vec::new();
-            while let Some(batch) = stream.try_next().await.unwrap() {
+            while let Some(batch) = stream.try_next().await.unwrap_or_else(|error| {
+                panic!("{selection}, newer owner completed={completed}: {error:?}")
+            }) {
                 observed.extend(Release::decode(&batch).unwrap());
             }
             assert_eq!(
@@ -1506,4 +1513,194 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
             .is_err()
     );
     store.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn membership_prefix_selection_uses_scalar_index_and_exact_owners() {
+    use lctx_surrealdb::surrealdb::types::{ToSql, Value, Variables};
+    let path = std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let config = RuntimeConfig::read(&path).unwrap();
+    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let admin = fixture_admin(&store, &config).await;
+    let relation = Relation::of::<Package>();
+    let shared = Package { name: "prefix-shared".into() };
+    let absent = Package { name: "prefix-absent".into() };
+    let foreign = Package { name: "prefix-foreign".into() };
+    let mut views = BTreeMap::new();
+    let mut expected = vec![shared.clone()];
+    for index in 0..16 {
+        let own = Package { name: format!("prefix-owner-{index}") };
+        expected.push(own.clone());
+        let mut specification = spec(&format!("prefix-{index}"), &relation);
+        if let Some(view) = views.get(relation.name()) {
+            specification.inputs.push(lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&relation, specification.model, view).unwrap());
+        }
+        let id = store.begin_contribution(specification).await.unwrap();
+        store.write_batch(&id, &relation, &Package::encode(&[shared.clone(), own]).unwrap()).await.unwrap();
+        views = store.complete_contribution(id, ProviderOutcome::Complete, std::slice::from_ref(&relation), &views).await.unwrap();
+    }
+    let frozen = views[relation.name()].clone();
+    let id = store.begin_contribution(spec("prefix-unrelated", &relation)).await.unwrap();
+    store.write_batch(&id, &relation, &Package::encode(&[shared.clone(), foreign.clone()]).unwrap()).await.unwrap();
+
+    // Qualify the actual 3.3 native plan: a two-column unary prefix on the
+    // three-column index, rather than a table walk or a multi-value union.
+    let mut bindings = Variables::new();
+    bindings.insert("relation", relation.name().to_string());
+    bindings.insert("key", shared.id().hex());
+    let mut response = admin.query("SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WITH INDEX member_keys WHERE relation=$relation AND semantic_key=$key EXPLAIN").bind(bindings).await.unwrap().check().unwrap();
+    let plan: Vec<Value> = response.take(0).unwrap();
+    // SurrealDB 3.3's pipeline planner emits a plan tree, not the retired flat
+    // "Iterate Index" ledger. Admit exactly one scalar-prefix IndexScan leaf;
+    // table scans, native union/dedup/order operators cannot pass this shape.
+    let [Value::Object(project)] = plan.as_slice() else { panic!("single pipeline projection: {plan:?}") };
+    assert_eq!(project.get("operator"), Some(&Value::String("SelectProject".into())), "{plan:?}");
+    let Some(Value::Array(children)) = project.get("children") else { panic!("projection scan: {plan:?}") };
+    let [Value::Object(scan)] = children.as_slice() else { panic!("one native branch: {plan:?}") };
+    assert_eq!(scan.get("operator"), Some(&Value::String("IndexScan".into())), "{plan:?}");
+    assert!(scan.get("children").is_none(), "scalar index leaf: {plan:?}");
+    let Some(Value::Object(attributes)) = scan.get("attributes") else { panic!("index attributes: {plan:?}") };
+    assert_eq!(attributes.get("index"), Some(&Value::String("member_keys".into())), "{plan:?}");
+    let prefix = Value::Array(vec![Value::String(relation.name().to_string()), Value::String(shared.id().hex())].into());
+    assert_eq!(attributes.get("access"), Some(&Value::String(prefix.to_sql())), "scalar relation/key prefix: {plan:?}");
+    assert_eq!(attributes.get("direction"), Some(&Value::String("Forward".into())), "{plan:?}");
+
+    let budget = ResourceBudget::fixed(32 << 20).unwrap();
+    let mut keys = vec![*shared.id().bytes(), *expected[7].id().bytes(), *absent.id().bytes(), *foreign.id().bytes()];
+    keys.sort_unstable();
+    let sparse = store.row_tokens(&frozen, &relation, &keys, &budget).await.unwrap();
+    assert_eq!(sparse.iter().map(|(key, _)| *key).collect::<BTreeSet<_>>(), BTreeSet::from([*shared.id().bytes(), *expected[7].id().bytes()]));
+    let mut selected = store.scan_batches(&frozen, &relation, None, Some(NativePredicate::Keys(keys.clone())), &budget, 13).await.unwrap();
+    let mut observed = Vec::new();
+    while let Some(batch) = selected.try_next().await.unwrap() { observed.extend(Package::decode(&batch).unwrap()); }
+    let mut selected_expected = vec![shared, expected[7].clone()];
+    selected_expected.sort_by_key(Record::id);
+    assert_eq!(observed, selected_expected);
+
+    // A broad consumer prepares actual memberships once. Independent concurrent cursors
+    // keep complete sorted output, and subsequent tokens retain exactly the sparse domain.
+    let mut first = store.scan_batches(&frozen, &relation, None, None, &budget, 3).await.unwrap();
+    let mut second = store.scan_batches(&frozen, &relation, None, None, &budget, 5).await.unwrap();
+    let mut a = Vec::new();
+    let mut b = Vec::new();
+    loop {
+        let (left, right) = tokio::join!(first.try_next(), second.try_next());
+        match (left.unwrap(), right.unwrap()) {
+            (None, None) => break,
+            (left, right) => {
+                if let Some(batch) = left { a.extend(Package::decode(&batch).unwrap()); }
+                if let Some(batch) = right { b.extend(Package::decode(&batch).unwrap()); }
+            }
+        }
+    }
+    expected.sort_by_key(Record::id);
+    assert_eq!(a, expected);
+    assert_eq!(b, expected);
+    let dense_keys = expected.iter().map(|row| *row.id().bytes()).collect::<Vec<_>>();
+    assert_eq!(store.row_tokens(&frozen, &relation, &dense_keys, &budget).await.unwrap().len(), expected.len());
+    assert_eq!(store.row_tokens(&frozen, &relation, &keys, &budget).await.unwrap(), sparse);
+    store.abandon().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn local_membership_preparation_refusal_does_not_poison_later_consumer() {
+    use lctx_model::domain::ModelError;
+    let path = std::path::PathBuf::from(
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
+    );
+    let config = RuntimeConfig::read(&path).unwrap();
+    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let relation = Relation::of::<Package>();
+    let expected = Package { name: "healthy-after-local-preparation-refusal".into() };
+    let contribution = store.begin_contribution(spec("preparation-refusal", &relation)).await.unwrap();
+    store.write_batch(&contribution, &relation, &Package::encode(std::slice::from_ref(&expected)).unwrap()).await.unwrap();
+    let views = store.complete_contribution(contribution, ProviderOutcome::Complete, std::slice::from_ref(&relation), &BTreeMap::new()).await.unwrap();
+    let view = &views[relation.name()];
+
+    // Setup and the cache entry fit, but the next reservation refuses before any
+    // candidate query is launched. This is a local refusal, not a failed native effect.
+    let refused = ResourceBudget::fixed(4096).unwrap();
+    let error = match store.scan_rows(view, &relation, None, None, &refused).await {
+        Err(error) => error,
+        Ok(_) => panic!("the preparation's local budget must refuse"),
+    };
+    assert!(matches!(error.primary(), Some(ModelError::Resource { owner: "native-membership-preparation", .. })), "{error:?}");
+    assert!(error.permits_storage_cleanup());
+    assert_eq!(refused.reserved(), 0, "failed entry and setup reservations are released");
+    store.check().expect("local refusal does not poison native authority");
+
+    // A separate healthy consumer may prepare this same exact view. It does not
+    // silently retry the refused call, and its immutable result remains reusable.
+    let healthy = ResourceBudget::fixed(32 << 20).unwrap();
+    for _ in 0..2 {
+        let mut stream = store.scan_batches(view, &relation, None, None, &healthy, 1).await.unwrap();
+        let mut observed = Vec::new();
+        while let Some(batch) = stream.try_next().await.unwrap() {
+            observed.extend(Package::decode(&batch).unwrap());
+        }
+        assert_eq!(observed, vec![expected.clone()]);
+    }
+    store.abandon().await.unwrap();
+    drop(store);
+    assert_eq!(healthy.reserved(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowned_reads() {
+    use lctx_model::domain::{ModelError, completed::CompletedView, source::Occurrence};
+    use lctx_surrealdb::surrealdb::types::{Bytes, RecordId, Variables};
+    let config = RuntimeConfig::read(&std::path::PathBuf::from(
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
+    )).unwrap();
+    let off = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let cold = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let relation = Relation::of::<Package>();
+    let budget = ResourceBudget::fixed(32 << 20).unwrap();
+    let mut second = None;
+    for store in [&off, &cold] {
+        let mut previous = BTreeMap::new();
+        for name in ["first", "second"] {
+            let id = store.begin_contribution(spec(name, &relation)).await.unwrap();
+            store.write_batch(&id, &relation, &Package::encode(&[Package { name: name.into() }]).unwrap()).await.unwrap();
+            previous = store.complete_contribution(id, ProviderOutcome::Complete,
+                std::slice::from_ref(&relation), &previous).await.unwrap();
+            if name == "second" { second = Some(id); }
+        }
+    }
+    let second = second.unwrap();
+    let expected = off.completed_state().await.unwrap();
+    assert_eq!(cold.completed_state().await.unwrap(), expected);
+    let mut stream = cold.scan_contribution_batches(second, &relation, &budget, 32).await.unwrap();
+    let mut actual = Vec::new();
+    while let Some(batch) = stream.try_next().await.unwrap() {
+        actual.extend(Package::decode(&batch).unwrap());
+    }
+    drop(stream);
+    assert_eq!(actual, vec![Package { name: "second".into() }], "capture excludes prior cumulative output");
+    assert_eq!(cold.completed_state().await.unwrap(), expected, "optional cold capture changes no retained state");
+
+    let descriptor = cold.completed_contribution(second).await.unwrap();
+    let singleton = CompletedView::new(relation.name().into(),
+        BTreeSet::from([descriptor.identity().unwrap()]), descriptor.outputs[relation.name()].rows).unwrap();
+    assert!(matches!(cold.scan_rows(&singleton, &relation, None, None, &budget).await,
+        Err(ModelError::Conflict("unregistered native completed view"))),
+        "the private contribution read must not authorize public dependency views");
+    assert!(matches!(cold.scan_contribution_batches(ContentHash::of(b"unknown-contributor"), &relation, &budget, 32).await,
+        Err(ModelError::Conflict("missing completed contribution"))));
+    assert!(matches!(cold.scan_contribution_batches(second, &Relation::of::<Occurrence>(), &budget, 32).await,
+        Err(ModelError::Conflict("undeclared contribution output"))));
+
+    let admin = fixture_admin(&cold, &config).await;
+    let mut unsupported = descriptor;
+    unsupported.outputs.get_mut(relation.name()).unwrap().rows += 1;
+    let mut bindings = Variables::new();
+    bindings.insert("id", RecordId::new("compiler_contribution", second.hex()));
+    bindings.insert("descriptor", Bytes::from(serde_json::to_vec(&unsupported).unwrap()));
+    admin.query("UPDATE $id SET descriptor=$descriptor RETURN NONE").bind(bindings).await.unwrap().check().unwrap();
+    assert!(matches!(cold.scan_contribution_batches(second, &relation, &budget, 32).await,
+        Err(ModelError::Conflict("completed contribution identity"))),
+        "a changed output count cannot manufacture a contribution read authority");
+    admin.invalidate().await.unwrap();
+    off.abandon().await.unwrap();
+    cold.abandon().await.unwrap();
 }

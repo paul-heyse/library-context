@@ -99,20 +99,30 @@ focused native guard controls passed; current populated direct/restore acceptanc
 Compiler readers bind explicit immutable native completed views, including exact contribution
 membership and frozen semantic boundaries. Pending values cannot enter selections or absence
 answers. Compact projected streams and scoped typed indexes avoid repeated rich reconstruction.
-Native reads preserve explicit nominal-key demand, point-read deterministic memberships under
-verified completed owners, and deduplicate physical IDs before payload hydration. Recognized atomic
+Native reads preserve explicit nominal-key demand and exact immutable membership, and deduplicate
+physical IDs before payload hydration. **Implemented / focused Tested, 2026-10-09 (ADR-0141); coordinated acceptance open:** verified
+single-owner point reads, qualified scalar equality-prefix access and verified exact-view pointers
+replace multi-owner Cartesian enumeration. Repeated broad demands can share charged compact
+selection with independent cursors; sparse demand does not require whole-view startup. Actual
+native plans must preserve bounded external ordering without relocating expansion into Union
+distinct state. Recognized atomic
 field selections use bounded indexed scope windows. Compact native scope constants are prepared
 before index selection; inline value mapping/casts remain outside its predicate. General filters retain compact native selection. Explicit empty demands and unfiltered zero-row views retain authority, exact-view and
 shape validation while avoiding a row query; arbitrary SQL retains normal execution semantics.
 Compiler-private sessions have no published snapshot handle. Cancellation drains owned reads,
 writes and provider workers before the attempt is removed; ambiguity fails that owned attempt.
 
+**Implemented / focused native Tested, 2026-10-09; full cache equivalence open.** Optional product capture reads one
+completed contribution through a dedicated checked singleton scan. The store reconstructs its
+selection from the actual completed descriptor; capture registers no dependency view and changes
+no canonical retained state. Public dependency/publication reads still require registered views.
+
 Published readers pin one content/physical realization under read-only credentials and supervisor
 lifetime ownership. Functions, analyzers, index specs, engine identity and adopted module bytes
 cannot change beneath a pinned handle. Streamed results remain provisional until terminal success.
 A partial diagnostic subgraph reports its boundary and cannot claim global compiler completeness.
 
-> Decision: ADR-0138, ADR-0126
+> Decision: ADR-0141, ADR-0138, ADR-0126
 
 ### §6.3 Schema evolution
 

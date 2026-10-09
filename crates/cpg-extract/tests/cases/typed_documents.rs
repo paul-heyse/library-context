@@ -5,17 +5,18 @@ use lctx_model::domain::{assertion::*, attribution::*, documents::*, source::*, 
 use typed_driver::{files, rows, run};
 inspector!(
     Documents,
-    DocumentNode,
-    DocumentObservation,
-    PassageObservation,
-    CodeBlockObservation,
-    DocumentLinkObservation,
-    DocumentMentionObservation,
-    DocumentComponentObservation,
-    DocumentAttributeValue,
-    DocumentAttributeObservation,
-    ProviderCoverage,
-    SourceArtifact
+    lctx_model::domain::documents::DocumentNode,
+    lctx_model::domain::documents::DocumentObservation,
+    lctx_model::domain::documents::PassageObservation,
+    lctx_model::domain::documents::CodeBlockObservation,
+    lctx_model::domain::documents::DocumentLinkObservation,
+    lctx_model::domain::documents::DocumentMentionObservation,
+    lctx_model::domain::documents::DocumentComponentObservation,
+    lctx_model::domain::documents::DocumentAttributeValue,
+    lctx_model::domain::documents::DocumentAttributeObservation,
+    lctx_model::domain::attribution::ProviderCoverage,
+    lctx_model::domain::source::SourceArtifact,
+    lctx_model::domain::assertion::AssertionQualification
 );
 #[tokio::test]
 async fn native_mdx_keeps_nested_components_all_attribute_arms_and_captured_code() {

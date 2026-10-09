@@ -14,7 +14,8 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(Facts, Signature);
+// This control reconstructs the complete native inventory or compares complete output.
+inspector!(Facts, complete);
 async fn fixture() -> (typed_driver::Tables, BindingData, ResourceBudget) {
     fixture_for("native_callable_variants").await
 }

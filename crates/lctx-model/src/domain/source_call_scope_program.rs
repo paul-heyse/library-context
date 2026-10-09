@@ -683,7 +683,7 @@ fn selector_finish(
     mut b: Builder,
     nodes: Vec<SelectionNode>,
 ) -> Result<SelectionProgram, ModelError> {
-    b.reserve_rules(nodes.capacity() * size_of::<SelectionNode>() + nodes.len() * 128 + 1024)?;
+    b.reserve_retained(nodes.capacity() * size_of::<SelectionNode>() + nodes.len() * 128 + 1024)?;
     Ok(SelectionProgram {
         program: b.finish()?,
         nodes,

@@ -727,6 +727,7 @@ async fn compile_driver(
         let selected = completed_input_declaration(&schedule, declaration);
         let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
         let output = workspace.producer(declaration, profile, access.clone());
+        let access = output.bound_inputs()?;
         let product = output.product_request()?;
         products.bind_selected(&product,
             &selected_product_dependencies(workspace, declaration, &selected, &product)?)?;
@@ -823,6 +824,7 @@ async fn compile_driver(
         let selected = completed_input_declaration(&schedule, declaration);
         let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
         let output = workspace.producer(declaration, profile, access.clone());
+        let access = output.bound_inputs()?;
         let product = output.product_request()?;
         let graph_dependencies =
             selected_product_dependencies(workspace, declaration, &selected, &product)?;
@@ -1137,14 +1139,13 @@ mod publication_tests {
             })
             .collect()
     }
-    fn completed_rows<R: lctx_model::domain::Record>(workspace: &Workspace) -> Vec<R> {
-        workspace
-            .completed::<R>()
-            .unwrap()
-            .batches()
-            .unwrap()
-            .flat_map(|batch| R::decode(&batch.unwrap()).unwrap())
-            .collect()
+    async fn completed_rows<R: lctx_model::domain::Record>(workspace: &Workspace) -> Vec<R> {
+        let mut batches = workspace.completed::<R>().unwrap().batches_async().await.unwrap();
+        let mut rows = Vec::new();
+        while let Some(batch) = batches.next_async().await {
+            rows.extend(R::decode(&batch.unwrap()).unwrap());
+        }
+        rows
     }
     #[tokio::test]
     async fn raw_original_bytes_and_half_open_span_survive_artifact_transport() {
@@ -1274,7 +1275,7 @@ mod publication_tests {
             .verify_export(&destination, &workspace)
             .await
             .unwrap();
-        assert!(completed_rows::<d::source::SourceArtifact>(&workspace).contains(&source));
+        assert!(completed_rows::<d::source::SourceArtifact>(&workspace).await.contains(&source));
         let source_id = EntityId::of(source.id());
         let originals =
             std::fs::read(destination.join(format!("original-{}.bin", source_id.0.hex()))).unwrap();

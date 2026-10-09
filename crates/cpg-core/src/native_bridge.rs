@@ -9,16 +9,30 @@ use futures::{
     future::{BoxFuture, Shared},
 };
 use lctx_model::domain::ModelError;
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{Instrument, instrument::WithSubscriber};
 
 type Request = BoxFuture<'static, Result<(), ModelError>>;
 type BridgeDrain = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
-const WAIT: Duration = Duration::from_millis(20);
+enum BridgeEvent {
+    Cancelled,
+    Request(Option<Request>),
+    Completed(Option<Result<Result<(), ModelError>, tokio::task::JoinError>>),
+}
+async fn next_event(
+    receiver: &mut mpsc::Receiver<Request>,
+    tasks: &mut tokio::task::JoinSet<Result<(), ModelError>>,
+    cancellation: &Cancellation,
+) -> BridgeEvent {
+    tokio::select! {
+        biased;
+        () = cancellation.cancelled() => BridgeEvent::Cancelled,
+        // Reap finished owners and late errors even while input remains continuously ready.
+        result = tasks.join_next(), if !tasks.is_empty() => BridgeEvent::Completed(result),
+        request = receiver.recv() => BridgeEvent::Request(request),
+    }
+}
 
 pub(crate) struct NativeBridge {
     requests: mpsc::Sender<Request>,
@@ -44,14 +58,16 @@ impl NativeBridge {
                     let mut tasks = tokio::task::JoinSet::new();
                     let mut completion=lctx_model::domain::completion::Completion::default();
                     loop {
-                        tokio::select! {
-                            biased;
-                            () = actor_cancel.cancelled() => break,
-                            request = receiver.recv(), if tasks.len() < 8 => match request {
+                        match next_event(&mut receiver, &mut tasks, &actor_cancel).await {
+                            BridgeEvent::Cancelled => break,
+                            // A retained read driver may wait for a consumer that must submit
+                            // writes. Its lifetime cannot occupy a dispatcher admission slot.
+                            // Submitted arguments/streams retain their existing byte charges.
+                            BridgeEvent::Request(request) => match request {
                                 Some(request) => { tasks.spawn(request); }
                                 None => break,
                             },
-                            result = tasks.join_next(), if !tasks.is_empty() => {
+                            BridgeEvent::Completed(result) => {
                                 if let Some(result)=result {completion.step("native bridge task join",result.map_err(|error|ModelError::Cause(Box::new(error))).and_then(|result|result));}
                             },
                         }
@@ -85,8 +101,24 @@ impl NativeBridge {
         &self,
         future: BoxFuture<'static, Result<T, ModelError>>,
     ) -> Result<T, ModelError> {
+        // Only genuinely synchronous provider callbacks use this entry point. Async
+        // compiler consumers await call_async/call_boxed_async instead.
+        futures::executor::block_on(self.call_boxed_async(future))
+    }
+    #[cfg(test)]
+    pub(crate) fn call_async<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, ModelError>> + Send + 'static,
+    ) -> BoxFuture<'_, Result<T, ModelError>> {
+        self.call_boxed_async(future.boxed())
+    }
+    pub(crate) fn call_boxed_async<T: Send + 'static>(
+        &self,
+        future: BoxFuture<'static, Result<T, ModelError>>,
+    ) -> BoxFuture<'_, Result<T, ModelError>> {
+        async move {
         self.cancellation.check()?;
-        let (answer, mut result) = oneshot::channel();
+        let (answer, result) = oneshot::channel();
         // Capture this request's origin before it crosses the actor queue. The actor runtime
         // polls each request under its own dispatcher, independently of the actor thread.
         let request: Request = async move {
@@ -99,15 +131,16 @@ impl NativeBridge {
         .in_current_span()
         .with_current_subscriber()
         .boxed();
-        self.submit(request)?;
-        loop {
-            self.cancellation.check()?;
-            match result.try_recv() {
-                Ok(value) => return value,
-                Err(oneshot::error::TryRecvError::Empty) => std::thread::sleep(WAIT),
-                Err(oneshot::error::TryRecvError::Closed) => return Err(closed()),
-            }
+        self.submit_async(request).await?;
+        tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => {
+                self.cancellation.check()?;
+                Err(closed())
+            },
+            value = result => value.map_err(|_| closed())?,
         }
+        }.boxed()
     }
     pub(crate) fn launch(&self, request: BoxFuture<'static, ()>) -> Result<(), ModelError> {
         self.submit(
@@ -120,17 +153,24 @@ impl NativeBridge {
             .boxed(),
         )
     }
-    fn submit(&self, mut request: Request) -> Result<(), ModelError> {
-        loop {
-            self.cancellation.check()?;
-            match self.requests.try_send(request) {
-                Ok(()) => return Ok(()),
-                Err(mpsc::error::TrySendError::Full(returned)) => {
-                    request = returned;
-                    std::thread::sleep(WAIT);
-                }
-                Err(mpsc::error::TrySendError::Closed(_)) => return Err(closed()),
-            }
+    pub(crate) async fn launch_async(&self, request: BoxFuture<'static, ()>) -> Result<(), ModelError> {
+        self.submit_async(
+            async move { request.await; Ok(()) }
+                .in_current_span().with_current_subscriber().boxed(),
+        ).await
+    }
+    fn submit(&self, request: Request) -> Result<(), ModelError> {
+        futures::executor::block_on(self.submit_async(request))
+    }
+    async fn submit_async(&self, request: Request) -> Result<(), ModelError> {
+        self.cancellation.check()?;
+        tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => {
+                self.cancellation.check()?;
+                Err(closed())
+            },
+            result = self.requests.send(request) => result.map_err(|_| closed()),
         }
     }
     /// No runtime worker waits inline for an actor thread. Caller invokes this before cleanup.
@@ -208,6 +248,68 @@ fn closed() -> ModelError {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use std::time::Duration;
+    #[tokio::test(flavor = "current_thread")]
+    async fn completed_tasks_are_reaped_while_input_remains_ready() {
+        let (sender, mut receiver) = mpsc::channel::<Request>(1);
+        assert!(sender.try_send(futures::future::pending().boxed()).is_ok());
+        let cancellation = Cancellation::default();
+        let mut tasks = tokio::task::JoinSet::new();
+        for _ in 0..32 {
+            let task = tasks.spawn(async { Err(ModelError::Schema("late bridge failure")) });
+            while !task.is_finished() { tokio::task::yield_now().await; }
+            assert!(matches!(next_event(&mut receiver, &mut tasks, &cancellation).await,
+                BridgeEvent::Completed(Some(Ok(Err(ModelError::Schema("late bridge failure")))))));
+            assert_eq!(receiver.len(), 1, "ready input cannot starve terminal ownership");
+            assert!(tasks.is_empty());
+        }
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn retained_read_drivers_do_not_starve_a_write_their_consumers_need() {
+        let bridge = NativeBridge::new(Cancellation::default()).unwrap();
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let mut entered = Vec::new();
+        // More drivers than the old dispatcher lifetime limit, all waiting for a write.
+        for _ in 0..9 {
+            let (ready, receiver) = oneshot::channel();
+            let release = finish.clone();
+            bridge.launch_async(async move {
+                let waiting = release.notified();
+                tokio::pin!(waiting);
+                waiting.as_mut().enable();
+                ready.send(()).unwrap();
+                waiting.await;
+            }.boxed()).await.unwrap();
+            entered.push(receiver);
+        }
+        for ready in entered { ready.await.unwrap(); }
+        assert_eq!(bridge.call_async(async { Ok(17) }).await.unwrap(), 17);
+        finish.notify_waiters();
+        bridge.drain().await.unwrap();
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancellation_wakes_full_queue_admission_without_polling_or_submission() {
+        let cancellation = Cancellation::default();
+        let (requests, mut receiver) = mpsc::channel::<Request>(1);
+        assert!(requests.try_send(futures::future::pending().boxed()).is_ok());
+        let bridge = NativeBridge {
+            requests,
+            cancellation: cancellation.clone(),
+            thread: Mutex::new(BridgeThread { thread: None, joined: None }),
+        };
+        let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let executed = observed.clone();
+        let mut waiting = Box::pin(bridge.call_async(async move {
+            executed.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        }));
+        assert!(futures::poll!(&mut waiting).is_pending());
+        cancellation.cancel();
+        assert!(waiting.await.is_err());
+        assert!(!observed.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(receiver.len(), 1, "unsubmitted work never entered the queue");
+        receiver.close();
+    }
     #[tokio::test(flavor = "current_thread")]
     async fn cancelled_bridge_caller_retains_late_failure_in_completion() {
         let cancellation = Cancellation::default();

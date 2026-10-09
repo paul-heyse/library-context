@@ -494,8 +494,10 @@ is authorized by this document integration.
 
 The [source review](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md)
 retains its static dated assessment. The rows below are the sole current disposition owner;
-all eight findings are **Open**, with Proposed corrections in the native-efficiency companion.
-Operator acceptance of RC01–RC05 does not establish implementation or closure.
+all eight findings remain **Open at enclosing qualification; source corrections Implemented, 2026-10-09**.
+ADR-0141 records the accepted target. Independent implementation review found and rechecked
+corrections for global producing-root admission, owner lookup complexity, bridge task reaping,
+candidate catalog isolation and partial Full-input cleanup. Static acceptance is not runtime closure.
 
 | Source finding | Responsible component / package and decision route | Required closure evidence |
 |---|---|---|
@@ -507,6 +509,23 @@ Operator acceptance of RC01–RC05 does not establish implementation or closure.
 | [Native-efficiency F06](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f06) — global scan wait at local completion | Native/core contribution lifecycle / NE0/NE6/NE9; accepted RC02 | Own relevant read/write descendants gate local completion; unrelated retained immutable readers do not. Late errors/global poisoning and final freeze/seal/abandon drainage remain, with no premature publication |
 | [Native-efficiency F07](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f07) — pressure splits initialization | Viewer preparation/pin lifecycle / NE7/NE9; accepted RC04 | Same exact key stays one live flight across retention replacement; independent cancellation, completion/removal/close races and external borrows retain charges/pins; no deferred rich result ownership after flight terminality |
 | [Native-efficiency F08](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f08) — whole-inventory selected observation | Typed extraction harness / NE8/NE9; accepted RC05 | Explicit selected versus complete observation; selected inspectors avoid unrelated rich scans while independent unexpected-row/orphan/inventory controls remain native and complete |
+
+Additional execution findings below were identified on2026-10-09; they do not rename or rewrite
+source-review F01–F08. This remains their sole disposition owner.
+
+| Execution finding | Responsible component / current disposition | Closure obligation |
+|---|---|---|
+| NE-I01 — failed local preparation retained as immutable result | Native membership preparation / NE2/NE9; focused native recovery control passed2026-10-09 | A pre-native local refusal releases entry/setup charges and does not refuse a later healthy same-view consumer; stale waiters cannot erase replacement entries; global native failure/uncertainty stays sticky |
+| NE-I02 — native export syntax cause flattened | Extraction coverage / NE8/NE9; focused coverage control passed2026-10-09 | Explicit Ruff/Pyrefly coverage assertions retain clean, syntax-error and undecodable distinctions without depending on row ordering |
+| NE-I03 — transfer size controls compute repartitioning | Workspace/native provider statistics / NE1/NE3/NE9; physical-plan, conservative-statistics and transfer7/128MiB controls passed2026-10-09 | Tiny/selected inputs avoid gratuitous parallel sorts, substantial inputs remain eligible for available-CPU parallelism, transfer7 and128MiB stay unchanged; inexact zero cannot eliminate native authority checks |
+| NE-I04 — optional capture mutates canonical view state | Native contribution observation/core products / NE4/NE9; focused native state-identity/refusal control passed2026-10-09; both full matrices timed out before equivalence completed | Exact singleton read leaves completed-state identity unchanged; invalid/foreign/undeclared output still refuses, registered dependency/publication views remain strict, cache-off/cold/hit manifests agree |
+| NE-I05 — analytics fixture omits local tokenizer | Compiler analytics test adapter / NE9; delegation Implemented, runtime pending | The existing fixture tokenizer is available independently of simulated remote-service availability; selected algorithms and deliberate service failures reach their intended controls without Qwen assets |
+| NE-I06 — graph-only tamper is not coherent detached state | Compiler artifact controls / NE9; separate physical and coherent semantic negatives passed2026-10-09 | Graph/state disagreement refuses at exact native backing conflict; a separately completed neutral candidate passes full cold state audit and then refuses exact unsupported-support semantics, without a captured-producer authority claim |
+| NE-I07 — preparation silently increases partition target | NominalClosure preparation / NE3/NE9; undocumented minimum removed, runtime pending | Preserve caller/available-CPU partition target, full257×400 edge/grain correctness and existing8MiB budget; no hidden second sort/merge or compute/transfer recoupling |
+| NE-I08 — aliases amplify immutable preparation | Core reference validation and logical templates / NE1/NE3/NE9; source corrected, runtime pending | One physical branch per exact target view without merging distinct views/roles; templates validate their actual captured ports, including replacement during planning, without unrelated catalog sweeps or relaxed authority |
+| NE-I09 — closed binding hash depends on discovery order | Model binding normalization/admission / NE9; pure permutation/content/missing-member control passed2026-10-09, native confirmation pending | Production and independent stored-row admission share canonical attempt-ID order; permutation preserves exact eligibility/member content, changed content and missing attempts remain distinct, charges release |
+| NE-I10 — effect batch ignores available memory | Embedding realization / NE9; budget-derived microbatches Implemented, runtime pending | Existing4096D/4MiB scenario admits multiple effect batches, nonadjacent texts share one winner, unadmittable single request fails before effects; service ceiling and current compute/CPU targets remain |
+| NE-I11 — construction arena survives executable preparation | Model scope factories/core normalization / NE1/NE3/NE9; retained-metadata reconciliation and factory release Implemented, runtime pending | Finished factories retain sound nested/external metadata charges, release construction scratch, and end before lowering/async execution; unchanged empty8MiB/callable2MiB controls pass |
 
 The companion maps the review's other recommendations, libraries, alternatives and investigation
 triggers without duplicating mutable status. SDK-session qualification and unresolved historical
@@ -696,6 +715,193 @@ paths are deleted, and targeted actual native/MCP/evaluator journeys plus affect
 Report stopped, failed and not_run evidence honestly. Update STATUS from that actual boundary.
 
 ### 9.1 Current execution checkpoint, 2026-10-07
+
+**NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
+operator-accepted complementary target. Exact bindings, membership access, typed replay,
+shared admission, wake-driven handoffs, scoped completion, stable flights and explicit
+observation are being integrated; source work alone does not close the findings above.
+
+**passed:** `just verify --select store:rust --nextest-args "--test native -E
+'test(prepared_streams_share_authenticated_session_and_keep_it_alive_through_drainage)'"`,
+run `20261009T194456.871Z-78a0ae`, one native control passed. It verifies same authenticated
+session across concurrent reads, initiator drop, late failure and drainage. The initial compile
+exposed two unsupported `Value::from(&str)` test conversions, corrected to `Value::String`.
+This does not establish the historical authentication failure's cause or integrated NE2–NE9 acceptance.
+
+**passed:** `cargo check --locked --release -p cpg-extract -p cpg-core -p lctx-surrealdb
+-p lctx-serving --tests --message-format short`, 2026-10-09. A later native descendant-edge
+refinement and new controls still require the final-source runtime build.
+
+**failed / corrected source, rerun pending:** pre-review focused library run, nextest
+`1a537221-aefb-4c2d-aef9-6cc9ad6f3ca9`: 36 controls, 32 passed and four support-admission
+planning failures. A temporary-directory dot entered an unquoted generated alias; all
+non-identifier characters are now sanitized. Bridge/cancellation, serving-flight and prior
+scope/product passes retain that source boundary. New independent-review fixes require their
+new revealing controls, not inherited passes.
+
+**failed:** focused workspace run `20261009T200746.445Z-b2c242`, release build13m33s,
+65controls in40.511s: 53passed,12failed. Seven failures share generated table-name casing:
+DataFusion normalized registration while quoted SQL preserved uppercase. Aliases now use
+lowercase ASCII and a new control checks both actual lookup paths and cleanup. Two inherited
+workspace controls now require the exact typed primary conflict, unchanged completed views and
+Terminal/Confirmed drainage with retained failure, matching the existing sticky native contract.
+Independent source review accepts these expectation corrections. Native controls corrected a
+malformed empty-view descriptor and the legacy EXPLAIN shape: a disposable3.3 probe confirms
+`SelectProject → IndexScan`, `member_keys` and the exact scalar prefix. A selected-read RPC
+cancellation remains unresolved, with added branch context and no weakened finality assertion.
+
+**failed composite; corrected core/extraction/serving boundaries passed:** run
+`20261009T202627.015Z-6acf27`, release build4m02s, Nextest
+`8b3d5067-71c3-4333-b943-01ac5782a039`: 66controls,65passed,1failed,73.606s bodies.
+Shared admission, generated-alias lookup/cleanup, typed product preparation, bridge wakeups,
+stable serving flights, Selected/Complete observation and scoped completion passed. The large
+exact-key/atomic-field native selection still failed with canceled RPC/missing terminal.
+Isolated reproductions `20261009T203224.691Z-49d6ed` and
+`20261009T203450.873Z-ecb186` also failed without concurrent selected tests, in2.222s/1.846s.
+This establishes a real transport/finality failure, not its cause or a reason to cap parallelism.
+
+**Implemented / source-inspected; actual transport rerun pending:** the local SDK3.3.0
+backport retains gRPC query/export/subscription streams from application End through checked
+transport EOF and preserves late status/error frames. Independent review found no material
+source defect in the correction. SDK3.3.2 retains the upstream gap. PSE-arrow's current WS SDK
+still buffers queries; adopting progressive server `query_stream` requires a separate adapter,
+cancellation and backup integration. No PSE files, endpoint or dependency versions changed.
+Locked offline metadata passed with only the SDK source/checksum lock entries replaced by the
+vendored source. Helper-unit invocation `20261009T204248.635Z-5d1c56` was **blocked** because
+Cargo refuses dev-dependency tests for a non-workspace package; no helper pass is claimed.
+Actual patched native controls **passed**, `20261009T204438.092Z-2dfd57`, release build5m46s,
+Nextest `20dda8bb-387a-4713-8203-c612f5cc77a5`:16passed in6.534s. This includes the repeatedly
+failing large exact-key/atomic-field control, actual scalar-index plan, authenticated session,
+local producing scopes, unrelated-reader separation and final global drainage. It supports the
+physical-terminal correction at this boundary, not universal attribution of historical timeouts.
+
+**failed / corrected source, rerun pending:** explicit full-output extraction determinism,
+`20261009T205101.852Z-74e7dd`, Nextest `f65d4ec5-db15-4a5b-b8dd-e28392997742`, failed
+in0.924s during captured-source preflight. Two differently labeled acquisitions contain the
+same immutable input, context and configuration. `captured_sources` now deduplicates only full
+binding equality after sorting; same-input context/configuration disagreements still conflict.
+The unchanged shuffle/relocation/transfer/profile assertions rerun in
+`20261009T205258.138Z-fd8ce2`. Independent bounded source assessment accepts the correction:
+input identity excludes acquisition labels, both acquisition/provenance rows remain, and full
+binding equality cannot merge disagreeing context/configuration. The exact rerun **passed**,
+Nextest `482a7087-d592-44ff-b6f5-158f210df782`,127.744s bodies after53.50s release build;
+complete output agrees across both profiles, input order/relocation, repetition and transfer sizes.
+Guard-free final-source `just ready` **passed**, `20261009T205626.201Z-cab667`, rebuilding the
+native extension in1m11s and verifying the pinned tools/environment. NE9/GK7/GR6 assembled
+release qualification `20261009T205753.562Z-7c4894` **failed / canceled partial**, exit143:
+stopped before filesystem exhaustion at2.9GiB free. Model, analytics and flow passed.
+Extraction **failed composite**, Nextest `a76d7ec6-471e-452d-8f25-c07e8f666676`:69controls,
+68passed/1failed in176.256s bodies; no timeout. The failing coverage control identifies native
+Pyrefly Exports projection discarding its known
+parse-error cause in favor of generic OutsideProviderModel. A bounded correction is prepared
+outside the production tree while qualification continued, then integrated after cancellation.
+Core built in2m43s; Nextest partial219/479 in395.752s retained163passes,7assertion failures,
+17timeouts and32SIGTERM cancellations, with260not_run. The reported39failed includes those
+32cancellations; they are not assertion failures. The two2231-byte final-charge failures retain
+the native store's legitimate compact preparation; controls now drop that final owner before
+unchanged zero assertions. Fresh importer controls preserve exact detached tamper refusal and
+positive admission, avoiding reuse of an already frozen content lane. Other failures include
+DataFusion per-partition sort reservation exhaustion at128MiB, cache-off/cold completed-state
+digest mismatch and two missing-local-tokenizer prerequisites. The17unchanged300s timeouts
+remain failures; their relation to sort/preparation amplification is unproven. Remaining
+CLI/store/serving/MCP/oracle/tooling/leaves were not_run. NE-I01–NE-I04 above own the source
+corrections. The operator restored40GiB after free space fell below1GiB; focused compilation and
+correction controls resumed. Independent source review accepts the dedicated capture boundary.
+The analytics failures were traced to the test ContractEmbedder omitting delegation of its
+existing in-process fixture tokenizer; delegation now preserves tokenizer availability even
+when the separately simulated embedding service is unavailable. No Qwen assets are needed.
+Optional capture now uses a dedicated checked contribution scan
+without persisting singleton view metadata; arbitrary public views still require registration.
+Native Python is stale after these corrections
+and must refresh in a guard-free interval. BC3 candidate qualification stays separate and pending.
+No universal latency attribution or numerical benefit is claimed.
+
+**failed composite / eight focused controls passed, 2026-10-09:**
+`just fixture -- cargo nextest run --locked --release --workspace --lib --test compiler_views
+--test compiler_artifacts --test extraction_contracts --no-fail-fast --no-tests=fail -E …`,
+run `20261009T212411.991Z-b4297a`, Nextest `5042a823-055a-4d8c-b4f3-281786504634`.
+Release build4m24s, bodies299.669s:8passed/2failed. Exact argv and results remain in that run.
+Native failed-preparation recovery, read-only singleton identity/refusals, both hydration-owner
+controls, explicit provider coverage and physical partition/empty-authority planning passed.
+The original transfer7/128MiB graph equality passed292.629s; fresh-importer intact/tampered
+export verification passed299.669s. No budgets/deadlines/parallelism changed.
+The added statistics control incorrectly constructed its native owner outside Tokio; its test
+annotation is corrected, rerun pending. Removing SyntaxSupport assertions while updating only
+the public family hash correctly refuses earlier at completed membership backing/visibility:
+the retained native memberships still point to removed graph rows. Separate coherent detached
+semantic-negative construction is implemented through ordinary typed ingress/completion, actual
+cold state import/audit, restored bindings and shared semantic admission. The exact unsupported-support obligation is
+retained rather than weakening its expected reason. Final both-profile cache matrices, analytics
+wrapper controls, native Python refresh and remaining assembled boundaries are pending.
+
+**failed composite / three corrected controls passed, 2026-10-09:**
+`just fixture -- cargo nextest run --locked --release -p cpg-core -p lctx-surrealdb --lib
+--test compiler_artifacts --test compiler_analysis --no-fail-fast --no-tests=fail -E …`,
+run `20261009T213536.960Z-54edcb`, Nextest `4a44c6d6-625d-45f7-92ab-516a46fc9864`;
+release build3m12s, bodies300.170s:3passed/5timed out, no assertion failures. Statistics passed;
+physical graph/state disagreement passed158.681s; coherent cold native import followed by exact
+unsupported-support semantic refusal passed193.467s. Independent source review accepts the
+separated obligations; no captured-producer/frontier authority is claimed for neutral lineage.
+Both cache matrices and the three analytics controls timed out at unchanged300s. Catalog reached
+its cold attempt's checked semantic admission; Behavioral reached checked admission in its first
+cache-off attempt. Neither completed the required equivalence matrix, and the tokenizer wrapper
+controls remain runtime-unqualified. Timeout causes and measured benefit remain unestablished.
+SDK backport committed as `18ae9076`; guard-free native Python refresh
+`20261009T214454.980Z-f24fba` passed in18s. `just verify --rerun
+20261009T205753.562Z-7c4894` resumed failed/interrupted/unrun assembled release boundaries in
+`20261009T214543.898Z-81f4a8`; preceding successful independent boundaries were not repeated.
+Its `providers:extract` boundary **passed**, Nextest `74c120a2-c1f9-4b0c-bf57-8035033981f2`:
+69passed/85skipped,272.776s bodies after1m14s release build,349.5s total. This reruns the
+earlier failed coverage boundary without reducing its selection or changing runtime limits.
+The compiler boundary and remaining qualification are still running.
+The compiler build completed in1m33s and selected481controls. Its pre-correction binary found
+an8MiB nominal-closure sort reservation failure: preparation silently changed the control's
+requested partition target from1to2, introducing two non-spillable sorter merges and a final
+sort-preserving merge after compute batching was decoupled. The undocumented floor is removed;
+ordinary available-CPU targets remain unchanged. Independent pinned DataFusion55.1 source review
+accepts one-partition join/distribution semantics and the removal. Existing small-memory/full-edge
+assertions remain, with added caller-target preservation assertions. The affected control needs
+a new binary/rerun. The same full boundary is also retaining300s frontier/analytics timeouts;
+their cause is not established by this separate sort correction. Current files must not be
+mistaken for the earlier compiler test binary's source boundary.
+
+The same pre-correction compiler binary exposed a separate exact binding assertion:
+`base_execution::behavioral_read_channels_preserve_native_observation_and_negative_inventory`
+failed287.063s during compilation with `binding set eligibility changed`. Source inspection
+finds producer enumeration order differing from independent attempt-ID order while both hash
+the same closed membership. NE-I09 canonicalizes a charged copy of IDs before assessment;
+all exact content, eligibility, coverage and negative-domain checks remain. Its pure permutation
+control **passed** in `20261009T221009.683Z-ef2bcc`, Nextest
+`41582029-03ac-4f35-80d3-1a175f502011`: `cargo nextest run --locked --release -p lctx-model
+--lib --no-fail-fast --no-tests=fail -E 'test(set_order_controls::)'`,1passed/246skipped,
+0.024s bodies after3m02s build. Changed content, missing membership and final charge release
+also remain asserted. Native confirmation of the original read-channel control is pending.
+Cold-admission review also found duplicate physical reference branches for identical exact
+target views and full-catalog template port sweeps. NE-I08 shares only exact target branches
+and checks actual captured template providers on misses/hits; distinct epochs, provider
+replacement refusal and independent admission remain. Runtime checks are pending. Neither
+correction establishes the dominant timeout cause or a measured latency benefit.
+The final correction tree **passed** `cargo check --locked --release -p cpg-core --tests
+--message-format short`, `20261009T221605.902Z-6996d5`,47.31s. This type-check does not relink
+the core executables still owned by the running qualification boundary. New physical/template
+controls and the original binding control require their own rebuilt runtime checks.
+
+**failed compiler composite, 2026-10-09:** the resumed boundary completed all481controls,
+Nextest `a201a8b0-b3e7-44e9-bcc3-1408a7cc7a5d`,1667.319s bodies:400passed,6assertion failures,
+75timeouts,0skipped. Besides the sort and binding assertions above, four small-budget controls
+failed: embedding effects requested10,650,840bytes under4MiB; empty normalization could not
+reserve593,920bytes for semantic-edge coalescing under8MiB; callable metadata could not admit
+another1,528-byte compact command output under2MiB; wide normalization could not admit a
+1,344-byte projected Arrow buffer under2MiB. This binary predates NE-I07–NE-I11 corrections.
+NE-I10 sizes effect-owned microbatches independently of compute/transfer batches. NE-I11 drops
+factories after compilation and reconciles construction versus actual retained metadata, with
+selector nodes, normalization roots and synthesis parameters explicitly retained/charged.
+The unchanged affected controls need a rebuilt focused rerun. Wide normalization also exposes
+a possible shared-pool sort/input pressure cycle; reserve-before-mutation partial native emission
+is an investigation only if the corrected rerun still fails. No native pressure-flush mechanism
+is implemented or qualified. Qualification proceeded to CLI and remaining independent boundaries;
+its concurrent builds do not replace stable-source focused confirmation of these corrections.
+
 
 **Native-efficiency documentation authoring, 2026-10-09:** NE0–NE9 and cross-plan replacement
 routes are authored, with [independent scoped target acceptance](../design_review/reviews/design_review_native-execution-efficiency-plan_2026-10-09.md).

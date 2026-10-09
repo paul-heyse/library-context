@@ -18,6 +18,7 @@ impl BudgetedCatalogProgram {
 pub(crate) struct Builder {
     pub(crate) program: ScopeProgram,
     charge: charged::StateCharge,
+    retained_bytes: usize,
 }
 impl Builder {
     pub(crate) fn new(
@@ -46,13 +47,26 @@ impl Builder {
                 rules: vec![],
             },
             charge,
+            retained_bytes: 0,
         })
     }
     pub(crate) fn reserve_rules(&mut self, bytes: usize) -> Result<(), ModelError> {
         self.charge.grow(bytes)
     }
+    /// Storage outside ScopeProgram that remains owned by the finished factory wrapper.
+    pub(crate) fn reserve_retained(&mut self, bytes: usize) -> Result<(), ModelError> {
+        self.charge.grow(bytes)?;
+        self.retained_bytes = self.retained_bytes.saturating_add(bytes);
+        Ok(())
+    }
     pub(crate) fn finish(mut self) -> Result<BudgetedCatalogProgram, ModelError> {
-        let bytes = self.program.inputs.capacity() * 512
+        // Replace construction scratch with the metadata that actually survives finish.
+        // Columns, names and predicate literals borrow static storage. Input orders are
+        // immutable exact-sized to_vec/clone allocations; all other owned vectors expose
+        // their capacities here, including each optional join's nested key vector.
+        let bytes = size_of::<BudgetedCatalogProgram>() + self.retained_bytes
+            + self.program.inputs.capacity() * size_of::<ValidationInput>()
+            + self.program.inputs.iter().map(|input| input.order().len() * size_of::<&str>()).sum::<usize>()
             + self.program.ports.capacity() * size_of::<ScopePort>()
             + self.program.rules.capacity() * size_of::<ScopeRule>()
             + self
@@ -98,7 +112,12 @@ impl Builder {
                     }
                 })
                 .sum::<usize>();
-        self.charge.grow(bytes)?;
+        let reserved = self.charge.reserved();
+        if bytes > reserved {
+            self.charge.grow(bytes - reserved)?;
+        } else {
+            self.charge.release(reserved - bytes);
+        }
         Ok(BudgetedCatalogProgram {
             program: self.program,
             parameters: ScopeParameters(vec![]),
@@ -1359,6 +1378,8 @@ pub fn synthesis(
     }
     let mut result = b.finish()?;
     if let Some(parents) = parents {
+        result._charge.grow(3usize.saturating_mul(size_of::<ScopeValue>())
+            .saturating_add(parents.len().saturating_mul(3 * size_of::<[u8; 16]>())))?;
         result.parameters = ScopeParameters(vec![
             ScopeValue::Nominals(
                 parents
@@ -1666,6 +1687,36 @@ mod controls {
             .iter()
             .map(|input| model.relation(input.name()).unwrap().clone())
             .collect()
+    }
+    #[test]
+    fn finished_factory_releases_construction_scratch_but_keeps_nested_metadata() {
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let inputs = vec![ValidationInput::of::<input::Package>(&["id", "name"])];
+        let mut builder = Builder::new(inputs, 1, &[Relation::of::<input::Package>()], &budget).unwrap();
+        builder.reserve_rules(2 << 20).unwrap();
+        // A selector wrapper owns additional metadata outside the scope program.
+        builder.reserve_retained(8192).unwrap();
+        let mut keys = Vec::with_capacity(64);
+        keys.push((col(0, "id"), col(1, "id")));
+        builder.program.rules.push(ScopeRule::OptionalPairs {
+            source: 0, target: 0, rows: vec![0, 0],
+            optional: vec![ScopeOptionalJoin { row: 1, keys }],
+            predicates: vec![ScopePredicate::IsNull(col(1, "id"), true)],
+            source_key: col(0, "id"), target_key: col(0, "id"),
+        });
+        let construction = budget.reserved();
+        assert!(construction > 2 << 20);
+        let program = builder.finish().unwrap();
+        assert!(budget.reserved() < construction);
+        assert!(budget.reserved() >= 8192 + 64 * size_of::<(ScopeColumn, ScopeColumn)>());
+        let ScopeRule::OptionalPairs { optional, predicates, .. } = &program.program().rules[0] else { panic!("optional scope lost") };
+        assert_eq!(optional[0].keys, vec![(col(0, "id"), col(1, "id"))]);
+        assert!(matches!(predicates[0], ScopePredicate::IsNull(_, true)));
+        // Required execution can use the released arena while the finished factory lives.
+        let working = budget.reserve("factory-lifecycle-control", 3 << 20).unwrap();
+        drop(working);
+        drop(program);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn catalog_families_validate_and_release_owned_program_metadata() {

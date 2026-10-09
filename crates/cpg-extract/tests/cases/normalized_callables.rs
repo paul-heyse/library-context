@@ -11,7 +11,22 @@ use lctx_model::domain::{
     *,
 };
 use typed_driver::{files, rows};
-inspector!(Facts, Occurrence);
+inspector!(Facts => {
+    let mut demand=typed_driver::ObservationDemand::selected();
+    macro_rules! select { ($($field:ident:$ty:ty $(=> $family:ident)?,)*) => {$(demand.include::<$ty>();)*}; }
+    lctx_model::normalized_callable_inputs!(select);
+    lctx_model::normalized_entity_inputs!(select);
+    lctx_model::normalized_relation_inputs!(select);
+    demand.include::<lctx_model::domain::source::Occurrence>();
+    demand.include::<lctx_model::domain::attribution::ProviderCoverage>();
+    demand.include::<lctx_model::domain::attribution::ProviderRun>();
+    demand.include::<lctx_model::domain::ruff::RuffContextObservation>();
+    demand.include::<lctx_model::domain::ruff::RuffContextSupport>();
+    demand.include::<lctx_model::domain::attribution::RunFamily>();
+    demand.include::<assertion::ProviderSurface>();
+    demand.include::<attribution::ProviderCoverage>();
+    demand
+});
 async fn fixture() -> (CallableData, CallableOutput) {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(&files("effective_callables"), Facts(tables.clone()))

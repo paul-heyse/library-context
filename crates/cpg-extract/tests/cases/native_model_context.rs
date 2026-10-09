@@ -14,7 +14,8 @@ use lctx_model::domain::{
     symbols::*, syntax::SubjectBoundary, *,
 };
 use std::sync::Arc;
-inspector!(Observed, ProviderSymbol);
+// This control reconstructs the complete native inventory or compares complete output.
+inspector!(Observed, complete);
 const SOURCE: &str = r#"
 version = 7
 [[models]]

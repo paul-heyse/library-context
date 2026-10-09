@@ -25,6 +25,9 @@ pub fn captured_sources(captured:&CapturedInputs)->Result<Vec<CapturedSourceBind
         sources.push(CapturedSourceBinding{input:input.captured().revision().id(),context:context.id(),configuration:context.config_digest});
     }
     sources.sort_by_key(|source|source.input);
+    // Several acquisitions can carry the same immutable input. Only exact source
+    // authority is shared; a changed context/configuration below remains a conflict.
+    sources.dedup();
     if sources.windows(2).any(|pair|pair[0].input==pair[1].input){return Err(ModelError::Conflict("captured source binding"));}
     Ok(sources)
 }

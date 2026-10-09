@@ -10,7 +10,7 @@ use crate::{
         AsyncCandidateSort, AsyncOrderedCandidates, AsyncOrderedRows, AsyncPhysicalSort,
         BlockingTerminal,
     },
-    ordered_rows::{Candidate, PreparedRows},
+    ordered_rows::{Candidate, PreparedCandidates, PreparedRows},
 };
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use d::resources::{Reservation, ResourceBudget};
@@ -32,7 +32,7 @@ use std::{
 use surrealdb::{
     Surreal,
     engine::remote::grpc::Client,
-    types::{Bytes, Object, RecordId, SerdeWrapper, SurrealValue, ToSql, Value, Variables},
+    types::{Bytes, Object, RecordId, RecordIdKey, SerdeWrapper, SurrealValue, ToSql, Value, Variables},
 };
 use tokio::sync::Notify;
 use tracing::{Instrument, instrument::WithSubscriber};
@@ -138,6 +138,8 @@ pub struct NativeCompilerStore {
     sealed: AtomicBool,
     seal_started: AtomicBool,
     preparation: Mutex<Option<CanonicalPreparation>>,
+    membership_preparations: Mutex<BTreeMap<ContentHash, (MembershipPreparation, Arc<Box<dyn Reservation>>) >>,
+    producing_scopes: Mutex<BTreeMap<ContentHash, Arc<ProducingAdmission>>>,
     admission: Arc<OperationAdmission>,
     runtime: tokio::runtime::Handle,
     frontier: Mutex<Frontier>,
@@ -152,6 +154,7 @@ struct PreparedCanonical {
     assertions: PreparedRows,
 }
 type CanonicalPreparation = Shared<BoxFuture<'static, Result<PreparedCanonical, Arc<ModelError>>>>;
+type MembershipPreparation = Shared<BoxFuture<'static, Result<PreparedCandidates, Arc<ModelError>>>>;
 #[derive(Default)]
 struct OperationState {
     closed: bool,
@@ -202,6 +205,131 @@ struct OperationAdmission {
     state: Mutex<OperationState>,
     changed: Notify,
 }
+#[derive(Default)]
+struct ProducingState {
+    closed: bool,
+    active: usize,
+}
+struct ProducingAdmission {
+    state: Mutex<ProducingState>,
+    changed: Notify,
+    _retained: Box<dyn Reservation>,
+}
+#[derive(Clone)]
+struct ProducingBinding {
+    owner: Arc<OperationAdmission>,
+    scope: Arc<ProducingAdmission>,
+}
+#[derive(Clone)]
+struct DescendantBinding {
+    owner: Arc<OperationAdmission>,
+    live: Arc<AtomicBool>,
+}
+tokio::task_local! {
+    static PRODUCING_WORK: ProducingBinding;
+    static DESCENDANT_WORK: DescendantBinding;
+}
+/// Native-owned producing work for exactly one store and contribution. This is an
+/// execution lifetime, not semantic membership or a transferable completion assertion.
+#[derive(Clone)]
+pub struct ProducingScope {
+    store: Arc<NativeCompilerStore>,
+    contribution: ContentHash,
+    scope: Arc<ProducingAdmission>,
+}
+struct ProducingLease(Arc<ProducingAdmission>);
+impl ProducingAdmission {
+    fn admit(self: &Arc<Self>, descendant: bool) -> Result<ProducingLease, ModelError> {
+        let mut state = self.state.lock().map_err(|_| ModelError::Conflict("native producing scope"))?;
+        if state.closed && (!descendant || state.active == 0) {
+            return Err(ModelError::Conflict("native producing scope closed"));
+        }
+        state.active = state.active.checked_add(1).ok_or(ModelError::Schema("native producing count"))?;
+        Ok(ProducingLease(self.clone()))
+    }
+}
+impl Drop for ProducingLease {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.0.state.lock() {
+            state.active -= 1;
+        }
+        self.0.changed.notify_waiters();
+    }
+}
+impl ProducingScope {
+    pub fn belongs_to(&self, store: &Arc<NativeCompilerStore>) -> bool {
+        Arc::ptr_eq(&self.store, store)
+    }
+    fn binding(&self) -> ProducingBinding {
+        ProducingBinding { owner: self.store.admission.clone(), scope: self.scope.clone() }
+    }
+    fn admitted_descendant(&self) -> bool {
+        self.store.has_live_parent() && PRODUCING_WORK.try_with(|binding| Arc::ptr_eq(&binding.owner, &self.store.admission) && Arc::ptr_eq(&binding.scope, &self.scope)).unwrap_or(false)
+    }
+    /// Bind a native launch explicitly. Native descendant drivers capture this binding;
+    /// Tokio task inheritance is never relied on.
+    pub async fn run<T>(&self, future: impl std::future::Future<Output = Result<T, ModelError>>) -> Result<T, ModelError> {
+        let descendant = self.admitted_descendant();
+        let _lease = self.scope.admit(descendant)?;
+        let global = BlockingLease(Some(if descendant {
+            self.store.admit(false, "native producing work", true)?
+        } else {
+            self.store.admit_root(false, "native producing work", true)?
+        }));
+        let owner = global.0.as_ref().expect("admitted producing root");
+        let result = owner.within(PRODUCING_WORK.scope(self.binding(), future)).await;
+        owner.observe_result(result)
+    }
+    pub(crate) fn bind_stream<S: futures::Stream + Unpin>(&self, stream: S) -> Result<ProducingStream<S>, ModelError> {
+        let descendant = self.admitted_descendant();
+        let lease = self.scope.admit(descendant)?;
+        let global = BlockingLease(Some(if descendant {
+            self.store.admit(true, "native producing stream", true)?
+        } else {
+            self.store.admit_root(true, "native producing stream", true)?
+        }));
+        let descendant = global.0.as_ref().expect("admitted producing stream").binding();
+        Ok(ProducingStream { stream, binding: self.binding(), descendant, lease: Some(lease), global: Some(global) })
+    }
+    pub async fn close_and_wait(&self) -> Result<(), ModelError> {
+        self.scope.state.lock().map_err(|_| ModelError::Conflict("native producing scope"))?.closed = true;
+        loop {
+            let changed = self.scope.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.scope.state.lock().map_err(|_| ModelError::Conflict("native producing scope"))?.active == 0 {
+                return self.store.check_failed();
+            }
+            changed.await;
+        }
+    }
+}
+pub(crate) struct ProducingStream<S> {
+    stream: S,
+    binding: ProducingBinding,
+    descendant: DescendantBinding,
+    lease: Option<ProducingLease>,
+    global: Option<BlockingLease>,
+}
+impl<S: futures::Stream + Unpin> futures::Stream for ProducingStream<S> {
+    type Item = S::Item;
+    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        let binding = self.binding.clone();
+        let descendant = self.descendant.clone();
+        let result = DESCENDANT_WORK.sync_scope(descendant, || PRODUCING_WORK.sync_scope(binding, || std::pin::Pin::new(&mut self.stream).poll_next(cx)));
+        if matches!(&result, std::task::Poll::Ready(None)) {
+            self.lease.take();
+            self.global.take();
+        }
+        result
+    }
+}
+async fn producing_future<T>(binding: Option<ProducingBinding>, future: impl std::future::Future<Output = T>) -> T {
+    match binding {
+        Some(binding) => PRODUCING_WORK.scope(binding, future).await,
+        None => future.await,
+    }
+}
 /// Mechanical operation lifetime; grants no administrator or publication API.
 pub struct OperationLease {
     owner: Arc<OperationAdmission>,
@@ -211,6 +339,8 @@ pub struct OperationLease {
     operation: &'static str,
     poison_on_error: bool,
     finalization: bool,
+    _producing: Option<ProducingLease>,
+    live: Arc<AtomicBool>,
 }
 struct ReadSetupResult {
     result: Option<Result<CompilerRows, ModelError>>,
@@ -250,6 +380,12 @@ impl Drop for ReadSetupResult {
     }
 }
 impl OperationLease {
+    fn binding(&self) -> DescendantBinding {
+        DescendantBinding { owner: self.owner.clone(), live: self.live.clone() }
+    }
+    async fn within<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+        DESCENDANT_WORK.scope(self.binding(), future).await
+    }
     fn finish(mut self) {
         self.finished = true;
     }
@@ -305,6 +441,7 @@ impl Drop for BlockingLease {
 }
 impl Drop for OperationLease {
     fn drop(&mut self) {
+        self.live.store(false, Ordering::Release);
         if let Ok(mut state) = self.owner.state.lock() {
             state.active -= 1;
             if self.mutation {
@@ -341,6 +478,30 @@ pub fn compiler_schema() -> String {
 }
 
 impl NativeCompilerStore {
+    pub fn producing_scope(self: &Arc<Self>, contribution: ContentHash, budget: &ResourceBudget) -> Result<ProducingScope, ModelError> {
+        self.check_failed()?;
+        let mut scopes = self.producing_scopes.lock().map_err(|_| ModelError::Conflict("native producing scopes"))?;
+        let scope = match scopes.entry(contribution) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.get().clone(),
+            std::collections::btree_map::Entry::Vacant(entry) => entry.insert(Arc::new(ProducingAdmission {
+                state: Mutex::default(), changed: Notify::new(),
+                _retained: budget.reserve("native-producing-scope", 1024)?,
+            })).clone(),
+        };
+        Ok(ProducingScope { store: self.clone(), contribution, scope })
+    }
+    fn producing_binding(&self) -> Result<Option<ProducingBinding>, ModelError> {
+        let binding = PRODUCING_WORK.try_with(Clone::clone).ok();
+        if binding.as_ref().is_some_and(|binding| !Arc::ptr_eq(&binding.owner, &self.admission)) {
+            return Err(ModelError::Conflict("foreign native producing store"));
+        }
+        Ok(binding)
+    }
+    fn producing_lease(&self) -> Result<Option<ProducingLease>, ModelError> {
+        // Only an explicit run/stream admits a new scope root. Work observed through
+        // its binding is a descendant and may finish after root admission closes.
+        self.producing_binding()?.map(|binding| binding.scope.admit(true)).transpose()
+    }
     pub async fn begin(
         config: &RuntimeConfig,
         frontier: Frontier,
@@ -461,6 +622,8 @@ impl NativeCompilerStore {
             sealed: AtomicBool::new(false),
             seal_started: AtomicBool::new(false),
             preparation: Mutex::default(),
+            membership_preparations: Mutex::default(),
+            producing_scopes: Mutex::default(),
             admission: Arc::new(OperationAdmission::default()),
             runtime: tokio::runtime::Handle::current(),
             frontier: Mutex::new(frontier),
@@ -485,6 +648,8 @@ impl NativeCompilerStore {
             sealed: AtomicBool::new(false),
             seal_started: AtomicBool::new(false),
             preparation: Mutex::default(),
+            membership_preparations: Mutex::default(),
+            producing_scopes: Mutex::default(),
             admission: Arc::new(OperationAdmission::default()),
             runtime: tokio::runtime::Handle::current(),
             frontier: Mutex::new(Frontier::Facts),
@@ -492,7 +657,7 @@ impl NativeCompilerStore {
     }
     pub async fn install_state_schema(self: &Arc<Self>) -> Result<(), ModelError> {
         let lease = self.admit_mutation("install_state_schema", true)?;
-        let result = self.install_state_schema_inner().await;
+        let result = lease.within(self.install_state_schema_inner()).await;
         let result = lease.finish_with(result);
         if result.is_err() {
             self.fail();
@@ -528,7 +693,7 @@ impl NativeCompilerStore {
         id: ContentHash,
     ) -> Result<CompletedContribution, ModelError> {
         let lease = self.admit(false, "completed_contribution", false)?;
-        let result = async {
+        let result = lease.within(async {
             let mut bindings = Variables::new();
             bindings.insert("owner", RecordId::new("compiler_contribution", id.hex()));
             let mut rows = self.track_rows(NativeRows::new(
@@ -564,7 +729,7 @@ impl NativeCompilerStore {
             }
             descriptor.identity()?;
             Ok(descriptor)
-        }
+        })
         .await;
         lease.finish_with(result)
     }
@@ -572,7 +737,7 @@ impl NativeCompilerStore {
     pub async fn freeze_content(self: &Arc<Self>) -> Result<FinalizationInventory, ModelError> {
         let lease = self.admit(false, "freeze_content", true)?;
         let phase = crate::phase::Phase::begin("native_content_freeze");
-        let result = async {
+        let result = lease.within(async {
             self.close_content_lane().await?;
             self.check_failed()?;
             let mut pending = self.track_rows(NativeRows::new(
@@ -595,7 +760,7 @@ impl NativeCompilerStore {
                 contributions: self.contributions_inner().await?,
                 bindings: self.bindings().await?,
             })
-        }
+        })
         .await;
         let result = lease.finish_with(result);
         if result.is_ok() {
@@ -699,6 +864,8 @@ impl NativeCompilerStore {
             operation: "native final seal",
             poison_on_error: true,
             finalization: true,
+            _producing: None,
+            live: Arc::new(AtomicBool::new(true)),
         })
     }
     pub async fn import_entities(&self, rows: &[d::graph::Entity]) -> Result<(), ModelError> {
@@ -725,7 +892,7 @@ impl NativeCompilerStore {
     }
     pub async fn contributions(self: &Arc<Self>) -> Result<Vec<CompletedContribution>, ModelError> {
         let lease = self.admit(false, "contributions", false)?;
-        let result = self.contributions_inner().await;
+        let result = lease.within(self.contributions_inner()).await;
         lease.finish_with(result)
     }
     async fn contributions_inner(
@@ -846,6 +1013,8 @@ impl NativeCompilerStore {
             _transfer: transfer,
         };
         Ok(CompilerRows {
+            descendant: Some(lease.binding()),
+            producing: self.producing_binding()?,
             rows: None,
             selection: None,
             graph: Some(Box::new(graph)),
@@ -914,7 +1083,8 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         let lease = self.admit(false, "prepare_canonical", true)?;
-        lease.finish_with(self.prepared_canonical(budget).await.map(|_| ()))
+        let result = lease.within(self.prepared_canonical(budget)).await.map(|_| ());
+        lease.finish_with(result)
     }
     async fn prepared_canonical(
         self: &Arc<Self>,
@@ -932,12 +1102,13 @@ impl NativeCompilerStore {
                 pending.clone()
             } else {
                 let lease = self.retained_scan()?;
+                let binding = self.producing_binding()?;
                 let store = self.clone();
                 let budget = budget.clone();
                 let task = self.runtime.spawn(
                     async move {
                         let phase = crate::phase::Phase::begin("native_canonical_preparation");
-                        let result = async {
+                        let result = lease.within(producing_future(binding, async {
                             let entities =
                                 store.discover_graph(true, &budget).await?.prepare().await?;
                             let assertions = store
@@ -949,8 +1120,7 @@ impl NativeCompilerStore {
                                 entities,
                                 assertions,
                             })
-                        }
-                        .await;
+                        })).await;
                         let result = lease.finish_with(result);
                         phase.finish_result(&result);
                         result.map_err(Arc::new)
@@ -1038,14 +1208,20 @@ impl NativeCompilerStore {
         operation: &'static str,
         poison_on_error: bool,
     ) -> Result<OperationLease, ModelError> {
-        self.admit_access(scan, false, operation, poison_on_error)
+        self.admit_access(scan, false, operation, poison_on_error, true)
+    }
+    fn admit_root(&self, scan: bool, operation: &'static str, poison_on_error: bool) -> Result<OperationLease, ModelError> {
+        self.admit_access(scan, false, operation, poison_on_error, false)
+    }
+    fn has_live_parent(&self) -> bool {
+        DESCENDANT_WORK.try_with(|parent| Arc::ptr_eq(&parent.owner, &self.admission) && parent.live.load(Ordering::Acquire)).unwrap_or(false)
     }
     fn admit_mutation(
         &self,
         operation: &'static str,
         poison_on_error: bool,
     ) -> Result<OperationLease, ModelError> {
-        self.admit_access(false, true, operation, poison_on_error)
+        self.admit_access(false, true, operation, poison_on_error, true)
     }
     fn admit_access(
         &self,
@@ -1053,14 +1229,17 @@ impl NativeCompilerStore {
         mutation: bool,
         operation: &'static str,
         poison_on_error: bool,
+        allow_descendant: bool,
     ) -> Result<OperationLease, ModelError> {
+        let descendant = allow_descendant && self.has_live_parent();
+        let producing = self.producing_lease()?;
         let mut state = self
             .admission
             .state
             .lock()
             .map_err(|_| ModelError::Conflict("native operation admission"))?;
         if (mutation && state.content_closed)
-            || state.closed
+            || (state.closed && !descendant)
             || state.failed
             || self.failed.load(Ordering::Acquire)
             || self.sealed.load(Ordering::Acquire)
@@ -1085,57 +1264,32 @@ impl NativeCompilerStore {
             operation,
             poison_on_error,
             finalization: false,
+            _producing: producing,
+            live: Arc::new(AtomicBool::new(true)),
         })
     }
-    // An already admitted parent can start its transport even after final closure begins.
-    fn track_rows(self: &Arc<Self>, rows: NativeRows) -> Result<CompilerRows, ModelError> {
-        let mut state = self
-            .admission
-            .state
-            .lock()
-            .map_err(|_| ModelError::Conflict("native operation admission"))?;
-        state.active = state
-            .active
-            .checked_add(1)
-            .ok_or(ModelError::Schema("native operation count"))?;
-        state.scans += 1;
-        let lease = OperationLease {
-            owner: self.admission.clone(),
-            scan: true,
-            mutation: false,
-            finished: false,
-            operation: "native stream",
-            poison_on_error: true,
-            finalization: false,
-        };
-        Ok(CompilerRows {
-            rows: Some(rows),
-            selection: None,
-            graph: None,
-            store: self.clone(),
-            lease: Some(lease),
-            setup: None,
-        })
-    }
+    // Unchecked descendant registration requires a live admitted parent for this store.
+    // Otherwise this is a new root and must pass ordinary global admission.
     fn retained_scan(&self) -> Result<OperationLease, ModelError> {
-        let mut state = self
-            .admission
-            .state
-            .lock()
-            .map_err(|_| ModelError::Conflict("native operation admission"))?;
-        state.active = state
-            .active
-            .checked_add(1)
-            .ok_or(ModelError::Schema("native operation count"))?;
+        if !self.has_live_parent() { return self.admit_root(true, "native stream", true); }
+        let producing = self.producing_lease()?;
+        let mut state = self.admission.state.lock().map_err(|_| ModelError::Conflict("native operation admission"))?;
+        state.active = state.active.checked_add(1).ok_or(ModelError::Schema("native operation count"))?;
         state.scans += 1;
         Ok(OperationLease {
-            owner: self.admission.clone(),
-            scan: true,
-            mutation: false,
-            finished: false,
-            operation: "native stream",
-            poison_on_error: true,
-            finalization: false,
+            owner: self.admission.clone(), scan: true, mutation: false,
+            finished: false, operation: "native stream", poison_on_error: true,
+            finalization: false, _producing: producing,
+            live: Arc::new(AtomicBool::new(true)),
+        })
+    }
+    fn track_rows(self: &Arc<Self>, rows: NativeRows) -> Result<CompilerRows, ModelError> {
+        let lease = self.retained_scan()?;
+        Ok(CompilerRows {
+            descendant: Some(lease.binding()),
+            producing: self.producing_binding()?,
+            rows: Some(rows), selection: None, graph: None,
+            store: self.clone(), lease: Some(lease), setup: None,
         })
     }
     fn blocking_owner(&self) -> Result<BlockingLease, ModelError> {
@@ -1162,9 +1316,10 @@ impl NativeCompilerStore {
         let lease = self.admit(false, operation, false)?;
         let (deliver, receive) = tokio::sync::oneshot::channel();
         let store = self.clone();
+        let binding = self.producing_binding()?;
         self.runtime.spawn(
             async move {
-                let result = lease.observe_result(setup.await);
+                let result = lease.observe_result(lease.within(producing_future(binding, setup)).await);
                 // The buffered result owns the lease until consumption or discard, closing
                 // the race between successful send and receiver cancellation. Its Drop
                 // retains a lost error / drains rows before releasing admission.
@@ -1227,14 +1382,14 @@ impl NativeCompilerStore {
         preparation: Vec<String>,
         budget: &ResourceBudget,
     ) -> Result<CompilerRows, ModelError> {
-        let owners = self.view_owners(view)?;
         let transfer = budget.reserve(
             "compiler-selected-window",
-            owners
+            view.contributions
                 .len()
                 .saturating_mul(64)
                 .saturating_add(crate::loader::NATIVE_WINDOW_ROWS * 2048),
         )?;
+        let owners = self.view_owners(view)?;
         let lease = self.retained_scan()?;
         let selection = SelectedRows {
             keys,
@@ -1253,6 +1408,8 @@ impl NativeCompilerStore {
             _transfer: transfer,
         };
         Ok(CompilerRows {
+            descendant: Some(lease.binding()),
+            producing: self.producing_binding()?,
             rows: None,
             selection: Some(Box::new(selection)),
             graph: None,
@@ -1387,7 +1544,7 @@ impl NativeCompilerStore {
         spec: ContributionSpec,
     ) -> Result<ContentHash, ModelError> {
         let lease = self.admit_mutation("begin_contribution", true)?;
-        let result = self.begin_contribution_inner(spec).await;
+        let result = lease.within(self.begin_contribution_inner(spec)).await;
         let result = lease.finish_with(result);
         if result.is_err() {
             self.fail();
@@ -1458,7 +1615,7 @@ impl NativeCompilerStore {
     ) -> BoxFuture<'a, Result<(), ModelError>> {
         async move {
             let lease = self.admit_mutation("write_batch", true)?;
-            let result = self.write_batch_inner(contribution, relation, batch).await;
+            let result = lease.within(self.write_batch_inner(contribution, relation, batch)).await;
             let result = lease.finish_with(result);
             if result.is_err() {
                 self.fail();
@@ -1861,14 +2018,33 @@ impl NativeCompilerStore {
         outputs: &[Relation],
         previous: &BTreeMap<String, CompletedView>,
     ) -> Result<BTreeMap<String, CompletedView>, ModelError> {
+        // Independent/manual clients retain the conservative drainage contract. Ordinary
+        // producers use the required native-owned producing scope below.
+        self.wait_scans().await?;
         let lease = self.admit_mutation("complete_contribution", true)?;
-        let result = self
-            .complete_contribution_inner(id, outcome, outputs, previous)
-            .await;
+        let result = lease.within(self.complete_contribution_inner(id, outcome, outputs, previous)).await;
         let result = lease.finish_with(result);
         if result.is_err() {
             self.fail();
         }
+        result
+    }
+    pub async fn complete_contribution_scoped(
+        self: &Arc<Self>,
+        scope: &ProducingScope,
+        id: ContentHash,
+        outcome: ProviderOutcome,
+        outputs: &[Relation],
+        previous: &BTreeMap<String, CompletedView>,
+    ) -> Result<BTreeMap<String, CompletedView>, ModelError> {
+        if !scope.belongs_to(self) || scope.contribution != id {
+            return Err(ModelError::Conflict("native producing contribution binding"));
+        }
+        scope.close_and_wait().await?;
+        let lease = self.admit_mutation("complete_contribution", true)?;
+        let result = lease.within(self.complete_contribution_inner(id, outcome, outputs, previous)).await;
+        let result = lease.finish_with(result);
+        if result.is_err() { self.fail(); }
         result
     }
     async fn complete_contribution_inner(
@@ -1878,7 +2054,6 @@ impl NativeCompilerStore {
         outputs: &[Relation],
         previous: &BTreeMap<String, CompletedView>,
     ) -> Result<BTreeMap<String, CompletedView>, ModelError> {
-        self.wait_scans().await?;
         self.check_failed()?;
         for relation in outputs {
             if let Some(prior) = previous.get(relation.name()) {
@@ -2045,14 +2220,34 @@ impl NativeCompilerStore {
         Ok(views)
     }
 
-    /// Exact singleton output view for the current completed contribution. This prevents a
-    /// portable product from capturing prior contributions in the relation's cumulative view.
-    pub async fn contribution_view(self: &Arc<Self>, id: ContentHash, relation: &Relation) -> Result<CompletedView, ModelError> {
-        let lease = self.admit_mutation("contribution view", true)?;
-        let result = self.contribution_view_inner(id, relation).await;
-        let result = lease.finish_with(result);
-        if result.is_err() { self.fail(); }
-        result
+    /// Read the exact declared output of one completed contribution without registering a
+    /// dependency view or adding optional capture metadata to retained compiler state.
+    pub async fn scan_contribution_batches(
+        self: &Arc<Self>,
+        id: ContentHash,
+        relation: &Relation,
+        budget: &ResourceBudget,
+        batch_rows: usize,
+    ) -> Result<datafusion::physical_plan::SendableRecordBatchStream, ModelError> {
+        if batch_rows == 0 {
+            return Err(ModelError::Schema("native Arrow batch rows"));
+        }
+        let schema = relation.schema().clone();
+        let bytes = schema.fields().iter().map(|field| size_of::<String>() + field.name().len()).sum::<usize>()
+            .saturating_add(relation.name().len()).saturating_add(1024);
+        let retained = budget.reserve("compiler-contribution-read-setup", bytes)?;
+        let columns = schema.fields().iter().map(|field| field.name().clone()).collect::<Vec<_>>();
+        let store = self.clone();
+        let selected_relation = relation.clone();
+        let selected_budget = budget.clone();
+        let rows = self.retain_read_setup("scan_contribution_batches", Box::pin(async move {
+            // This store reconstructs the private selection from its actual completed
+            // descriptor, checking physical/logical identity and declared output/count.
+            let view = store.contribution_view_inner(id, &selected_relation).await?;
+            store.scan_bound_rows_inner(&view, &selected_relation, Some(&columns), None, &selected_budget)
+                .await.map(|rows| rows.with_setup(Some(Arc::new(retained))))
+        })).await?;
+        crate::compiler_provider::batches_from_rows(rows, relation.clone(), schema, budget, batch_rows)
     }
     async fn contribution_view_inner(self: &Arc<Self>, id: ContentHash, relation: &Relation) -> Result<CompletedView, ModelError> {
         self.check_failed()?;
@@ -2067,12 +2262,6 @@ impl NativeCompilerStore {
         let output = descriptor.outputs.get(relation.name()).ok_or(ModelError::Conflict("undeclared contribution output"))?;
         self.remember_contributor(logical, id)?;
         let view = CompletedView::new(relation.name().into(), std::collections::BTreeSet::from([logical]), output.rows)?;
-        let mut row = Object::new(); row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
-        row.insert("descriptor", Bytes::from(serde_json::to_vec(&view).map_err(ModelError::codec)?));
-        for (field, value) in view_projection(&view)? { row.insert(field, value); }
-        let mut bindings = Variables::new(); bindings.insert("row", row);
-        self.client.query("UPSERT $row.id CONTENT $row RETURN NONE").bind(bindings).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
-        self.remember_view(&view)?;
         Ok(view)
     }
 
@@ -2176,7 +2365,7 @@ impl NativeCompilerStore {
     /// Independent cold import/audit checks. Compilation carries completed validation instead.
     pub async fn verify_state(self: &Arc<Self>) -> Result<(), ModelError> {
         let lease = self.admit(false, "verify_state", false)?;
-        let result = self.verify_state_inner().await;
+        let result = lease.within(self.verify_state_inner()).await;
         lease.finish_with(result)
     }
     async fn verify_state_inner(self: &Arc<Self>) -> Result<(), ModelError> {
@@ -2450,7 +2639,7 @@ impl NativeCompilerStore {
             .known_contributors
             .lock()
             .map_err(|_| ModelError::Conflict("native contributor owner"))?;
-        view.contributions
+        let mut owners = view.contributions
             .iter()
             .map(|logical| {
                 known
@@ -2458,7 +2647,12 @@ impl NativeCompilerStore {
                     .copied()
                     .ok_or(ModelError::Conflict("missing verified contributor"))
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        owners.sort_unstable();
+        if owners.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(ModelError::Conflict("duplicate physical completed contributor"));
+        }
+        Ok(owners)
     }
 
     fn remember_view(&self, view: &CompletedView) -> Result<(), ModelError> {
@@ -2477,7 +2671,7 @@ impl NativeCompilerStore {
     }
     pub async fn bind(self: &Arc<Self>, binding: CompletedBinding) -> Result<(), ModelError> {
         let lease = self.admit_mutation("bind", true)?;
-        let result = self.bind_inner(binding).await;
+        let result = lease.within(self.bind_inner(binding)).await;
         let result = lease.finish_with(result);
         if result.is_err() {
             self.fail();
@@ -2533,7 +2727,7 @@ impl NativeCompilerStore {
     }
     pub async fn bindings(self: &Arc<Self>) -> Result<Vec<CompletedBinding>, ModelError> {
         let lease = self.admit(false, "bindings", false)?;
-        let result = self.bindings_inner().await;
+        let result = lease.within(self.bindings_inner()).await;
         lease.finish_with(result)
     }
     async fn bindings_inner(self: &Arc<Self>) -> Result<Vec<CompletedBinding>, ModelError> {
@@ -2561,7 +2755,7 @@ impl NativeCompilerStore {
     /// Compact retained dependency inspection. No mutable scheduling authority is exposed.
     pub async fn views(self: &Arc<Self>) -> Result<Vec<CompletedView>, ModelError> {
         let lease = self.admit(false, "views", false)?;
-        let result = self.views_inner().await;
+        let result = lease.within(self.views_inner()).await;
         lease.finish_with(result)
     }
     async fn views_inner(self: &Arc<Self>) -> Result<Vec<CompletedView>, ModelError> {
@@ -2587,7 +2781,7 @@ impl NativeCompilerStore {
     }
     pub async fn completed_state(self: &Arc<Self>) -> Result<CompletedStateIdentity, ModelError> {
         let lease = self.admit(false, "completed_state", false)?;
-        let result = self.completed_state_inner().await;
+        let result = lease.within(self.completed_state_inner()).await;
         lease.finish_with(result)
     }
     pub async fn completed_state_after_closure(
@@ -2599,7 +2793,7 @@ impl NativeCompilerStore {
         if !parent.finalization || parent.finished || !Arc::ptr_eq(&parent.owner, &self.admission) {
             return Err(ModelError::Conflict("native finalization parent"));
         }
-        self.completed_state_inner().await
+        parent.within(self.completed_state_inner()).await
     }
     async fn completed_state_inner(self: &Arc<Self>) -> Result<CompletedStateIdentity, ModelError> {
         self.state_identity_inner(true).await
@@ -2658,7 +2852,7 @@ impl NativeCompilerStore {
         path: &std::path::Path,
     ) -> Result<CompletedStateIdentity, ModelError> {
         let lease = self.admit(false, "export_state", false)?;
-        let result = self.export_state_inner(path).await;
+        let result = lease.within(self.export_state_inner(path)).await;
         lease.finish_with(result)
     }
     async fn export_state_inner(
@@ -2705,7 +2899,7 @@ impl NativeCompilerStore {
         expected: &CompletedStateIdentity,
     ) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_state", true)?;
-        let result = self.import_state_inner(path, expected).await;
+        let result = lease.within(self.import_state_inner(path, expected)).await;
         let result = lease.finish_with(result);
         if result.is_err() {
             self.fail();
@@ -2866,25 +3060,96 @@ impl NativeCompilerStore {
     }
     /// Read only primitive membership/content premises under an exact immutable view.
     /// These tokens do not admit payload semantics or establish a selector's completeness.
-    pub async fn row_tokens(self:&Arc<Self>,view:&CompletedView,relation:&Relation,keys:&[[u8;16]],budget:&ResourceBudget)->Result<Vec<([u8;16],ContentHash)>,ModelError> {
+    pub async fn row_tokens(self:&Arc<Self>, view:&CompletedView, relation:&Relation, keys:&[[u8;16]], budget:&ResourceBudget) -> Result<Vec<([u8;16],ContentHash)>, ModelError> {
+        let lease = self.admit(false, "row_tokens", false)?;
+        let result = lease.within(self.row_tokens_inner(view, relation, keys, budget)).await;
+        lease.finish_with(result)
+    }
+    async fn row_tokens_inner(self:&Arc<Self>, view:&CompletedView, relation:&Relation, keys:&[[u8;16]], budget:&ResourceBudget) -> Result<Vec<([u8;16],ContentHash)>, ModelError> {
+        self.check_failed()?;
         self.registered_view(view).await?;
-        if view.relation!=relation.name() || keys.windows(2).any(|w|w[0]>=w[1]) {return Err(ModelError::Conflict("selected content-token binding"));}
-        let _charge=budget.reserve("native-selected-content-tokens",keys.len().saturating_mul(256).saturating_add(4096))?;
-        let owners=self.view_owners(view)?.into_iter().map(|id|RecordId::new("compiler_contribution",id.hex())).collect::<Vec<_>>();
-        let mut result=BTreeMap::new();
-        for window in keys.chunks(d::resources::TRANSFER_ROWS) {
-            let mut vars=Variables::new();vars.insert("owners",owners.clone());vars.insert("relation",relation.name().to_owned());vars.insert("keys",window.iter().map(hex::encode).collect::<Vec<_>>());
-            let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT semantic_key,content FROM compiler_membership WHERE contribution IN $owners AND relation=$relation AND semantic_key IN $keys ORDER BY semantic_key").bind(vars).stream_items().map_err(ModelError::codec)?,1)?)?;
-            while let Some(row)=rows.next().await? {
-                let Value::Object(row)=row else{return Err(ModelError::Schema("selected content token"))};
-                let (Some(Value::String(key)),Some(Value::String(content)))=(row.get("semantic_key"),row.get("content")) else{return Err(ModelError::Schema("selected content token fields"))};
-                let key:[u8;16]=hex::decode(key).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("content token key width"))?;
-                let content=ContentHash(hex::decode(content).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("content token digest width"))?);
-                if window.binary_search(&key).is_err() {return Err(ModelError::Conflict("foreign selected content token"));}
-                if let Some(old)=result.insert(key,content) && old!=content {return Err(ModelError::Conflict("selected content token conflict"));}
+        if view.relation != relation.name() || keys.windows(2).any(|w| w[0] >= w[1]) { return Err(ModelError::Conflict("selected content-token binding")); }
+        let _owners = budget.reserve("native-selected-membership-owners", view.contributions.len().saturating_mul(size_of::<ContentHash>()))?;
+        let owners = self.view_owners(view)?;
+        let _charge = budget.reserve("native-selected-content-tokens", keys.len().saturating_mul(256).saturating_add(4096))?;
+        if keys.is_empty() { return Ok(Vec::new()); }
+        let mut result = Vec::new();
+        // A demand at least as large as the view may reuse its compact run. Sparse
+        // demand retains scalar access even if a broad run already exists.
+        let prepared = self.membership_preparations.lock().map_err(|_| ModelError::Conflict("native membership preparation"))?.get(&view.identity).filter(|_| u64::try_from(keys.len()).unwrap_or(u64::MAX) >= view.rows).map(|(future, _)| future.clone());
+        if let Some(prepared) = prepared {
+            let prepared = prepared.await.map_err(ModelError::SharedCause)?;
+            let mut cursor = AsyncOrderedCandidates::new_registered(prepared, budget, self.blocking_owner()?, self.blocking_observer()?).await?;
+            let mut position = 0;
+            loop {
+                let rows = cursor.next_batch(crate::loader::NATIVE_WINDOW_ROWS).await?;
+                if rows.is_empty() { break; }
+                for candidate in rows {
+                    while position < keys.len() && keys[position] < candidate.key { position += 1; }
+                    if position == keys.len() {
+                        cursor.drain().await?;
+                        return Ok(result);
+                    }
+                    if keys[position] == candidate.key {
+                        result.push((candidate.key, candidate.content.ok_or(ModelError::Schema("verified membership content"))?));
+                        position += 1;
+                    }
+                }
+            }
+        } else {
+            let _window = budget.reserve("native-selected-membership-window", owners.len().saturating_mul(64).saturating_add(crate::loader::NATIVE_WINDOW_ROWS * 2048))?;
+            for window in keys.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+                let mut lookup = MembershipLookup::new(self.clone(), relation.name().into(), window.to_vec(), owners.clone());
+                for candidate in lookup.collect().await?.into_values() {
+                    result.push((candidate.key, candidate.content.ok_or(ModelError::Schema("verified membership content"))?));
+                }
             }
         }
-        Ok(result.into_iter().collect())
+        Ok(result)
+    }
+    async fn prepare_memberships(self: &Arc<Self>, view: &CompletedView, budget: &ResourceBudget) -> Result<PreparedCandidates, ModelError> {
+        let binding = self.producing_binding()?;
+        let identity = view.identity;
+        let (future, retained) = {
+            let mut preparations = self.membership_preparations.lock().map_err(|_| ModelError::Conflict("native membership preparation"))?;
+            if !preparations.contains_key(&view.identity) {
+                let retained = Arc::new(budget.reserve("native-membership-preparation-entry", view.contributions.len().saturating_mul(64).saturating_add(2048))?);
+                let store = self.clone();
+                let view = view.clone();
+                let budget = budget.clone();
+                let future = producing_future(binding, async move {
+                    let _charge = budget.reserve("native-membership-preparation", view.contributions.len().saturating_mul(64).saturating_add(1024))?;
+                    let owners = store.view_owners(&view)?;
+                    let mut sorted = AsyncCandidateSort::new_registered(&budget, store.blocking_owner()?, store.blocking_observer()?).await?;
+                    for owner in owners {
+                        let mut bindings = Variables::new();
+                        bindings.insert("relation", view.relation.clone());
+                        bindings.insert("owner", RecordId::new("compiler_contribution", owner.hex()));
+                        let stream = store.client.query("SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation").bind(bindings).stream_items().map_err(ModelError::codec)?;
+                        let mut rows = store.track_rows(NativeRows::new(stream, 1)?)?;
+                        while let Some(row) = rows.next_native().await? {
+                            let candidate = decode_membership(row, &view.relation, &[owner], false)?.ok_or(ModelError::Conflict("exact view membership"))?;
+                            sorted.push(candidate).await?;
+                        }
+                    }
+                    sorted.prepare().await
+                }).map(|result: Result<PreparedCandidates, ModelError>| result.map_err(Arc::new)).boxed().shared();
+                preparations.insert(identity, (future, retained));
+            }
+            let (future, retained) = &preparations[&identity];
+            (future.clone(), retained.clone())
+        };
+        let result = future.await.map_err(ModelError::SharedCause);
+        // A local preparation refusal belongs to this attempt, not to the immutable
+        // view. A stale waiter must not evict a newer attempt for the same view.
+        // Native failures remain sticky through the existing operation admission.
+        if result.is_err()
+            && let Ok(mut preparations) = self.membership_preparations.lock()
+            && preparations.get(&identity).is_some_and(|(_, current)| Arc::ptr_eq(current, &retained))
+        {
+            preparations.remove(&identity);
+        }
+        result
     }
     async fn scan_rows_inner(
         self: &Arc<Self>,
@@ -2896,6 +3161,19 @@ impl NativeCompilerStore {
     ) -> Result<CompilerRows, ModelError> {
         self.check_failed()?;
         self.registered_view(view).await?;
+        self.scan_bound_rows_inner(view, relation, columns, predicate, budget).await
+    }
+    // Callers have either checked a registered view or reconstructed one exact singleton
+    // from this store's validated completed descriptor; no public view bypass reaches here.
+    async fn scan_bound_rows_inner(
+        self: &Arc<Self>,
+        view: &CompletedView,
+        relation: &Relation,
+        columns: Option<&[String]>,
+        predicate: Option<NativePredicate>,
+        budget: &ResourceBudget,
+    ) -> Result<CompilerRows, ModelError> {
+        self.view_owners(view)?;
         if view.relation != relation.name() {
             return Err(ModelError::Conflict("native view relation"));
         }
@@ -3034,6 +3312,8 @@ impl NativeCompilerStore {
         // SQL predicates keep their ordinary execution/error semantics.
         if empty {
             return Ok(CompilerRows {
+            descendant: None,
+            producing: self.producing_binding()?,
                 rows: None,
                 selection: None,
                 graph: None,
@@ -3056,13 +3336,8 @@ impl NativeCompilerStore {
                 budget,
             );
         }
-        let mut sorted = AsyncCandidateSort::new_registered(
-            budget,
-            self.blocking_owner()?,
-            self.blocking_observer()?,
-        )
-        .await?;
-        if let Some((field, values)) = atomic_field {
+        let keys = if let Some((field, values)) = atomic_field {
+            let mut sorted = AsyncCandidateSort::new_registered(budget, self.blocking_owner()?, self.blocking_observer()?).await?;
             let table = crate::schema::ScopeTable::for_relation(relation.name())?.name();
             for value in values {
                 let mut bindings = Variables::new();
@@ -3077,19 +3352,13 @@ impl NativeCompilerStore {
                     sorted.push(decode_candidate(row, relation.name())?).await?;
                 }
             }
+            SelectionKeys::Unverified(sorted.finish().await?)
         } else {
-            for owner in self.view_owners(view)? {
-                let mut bindings = Variables::new();
-                bindings.insert("relation", relation.name().to_string());
-                bindings.insert("owner", RecordId::new("compiler_contribution", owner.hex()));
-                let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT relation,semantic_key,node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation").bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
-                while let Some(row) = rows.next_native().await? {
-                    sorted.push(decode_candidate(row, relation.name())?).await?;
-                }
-            }
-        }
+            let prepared = self.prepare_memberships(view, budget).await?;
+            SelectionKeys::Verified(AsyncOrderedCandidates::new_registered(prepared, budget, self.blocking_owner()?, self.blocking_observer()?).await?)
+        };
         self.track_selection(
-            SelectionKeys::Ordered(sorted.finish().await?),
+            keys,
             view,
             relation,
             projections.join(","),
@@ -3148,6 +3417,8 @@ fn prepared_rows(
 
 type ReadSetupCharge = Arc<Box<dyn Reservation>>;
 pub struct CompilerRows {
+    descendant: Option<DescendantBinding>,
+    producing: Option<ProducingBinding>,
     rows: Option<NativeRows>,
     selection: Option<Box<SelectedRows>>,
     graph: Option<Box<GraphRows>>,
@@ -3168,6 +3439,14 @@ impl CompilerRows {
         self
     }
     pub async fn next(&mut self) -> Result<Option<Value>, ModelError> {
+        let descendant = self.descendant.clone();
+        let future = producing_future(self.producing.clone(), self.next_inner());
+        match descendant {
+            Some(binding) => DESCENDANT_WORK.scope(binding, future).await,
+            None => future.await,
+        }
+    }
+    async fn next_inner(&mut self) -> Result<Option<Value>, ModelError> {
         if let Some(graph) = &mut self.graph {
             let result = graph.next().await;
             if result.is_err() {
@@ -3283,8 +3562,8 @@ fn decode_nominal_key(key: &str) -> Result<[u8; 16], ModelError> {
         .try_into()
         .map_err(|_| ModelError::Schema("native nominal key width"))
 }
-/// One bounded nominal-key window. Physical owner × key IDs are generated and read in
-///128-record windows, with exact pointer deduplication before any rich payload query.
+/// One bounded nominal-key window. Unary equality-prefix branches examine actual
+/// memberships; only a single verified owner uses deterministic point IDs.
 struct MembershipLookup {
     store: Arc<NativeCompilerStore>,
     relation: String,
@@ -3292,87 +3571,79 @@ struct MembershipLookup {
     owners: Vec<ContentHash>,
     offset: usize,
     current: Option<CompilerRows>,
-    nodes: BTreeMap<String, RecordId>,
+    nodes: BTreeMap<String, Candidate>,
     setup: Option<ReadSetupCharge>,
 }
 impl MembershipLookup {
-    fn new(
-        store: Arc<NativeCompilerStore>,
-        relation: String,
-        keys: Vec<[u8; 16]>,
-        owners: Vec<ContentHash>,
-    ) -> Self {
-        Self {
-            store,
-            relation,
-            keys,
-            owners,
-            offset: 0,
-            current: None,
-            nodes: BTreeMap::new(),
-            setup: None,
-        }
+    fn new(store: Arc<NativeCompilerStore>, relation: String, keys: Vec<[u8; 16]>, owners: Vec<ContentHash>) -> Self {
+        Self { store, relation, keys, owners, offset: 0, current: None, nodes: BTreeMap::new(), setup: None }
     }
-    async fn collect(&mut self) -> Result<BTreeMap<String, RecordId>, ModelError> {
+    async fn collect(&mut self) -> Result<BTreeMap<String, Candidate>, ModelError> {
         loop {
             if let Some(rows) = &mut self.current {
                 while let Some(row) = rows.next_native().await? {
-                    let object = value_object(&row)
-                        .ok_or(ModelError::Schema("selected membership pointer"))?;
-                    let Some(Value::String(key)) = object.get("semantic_key") else {
-                        return Err(ModelError::Schema("selected nominal key"));
-                    };
-                    if self.keys.binary_search(&decode_nominal_key(key)?).is_err() {
+                    let Some(candidate) = decode_membership(row, &self.relation, &self.owners, self.owners.len() != 1)? else { continue };
+                    if self.keys.binary_search(&candidate.key).is_err() {
                         return Err(ModelError::Conflict("selected membership key"));
                     }
-                    let Some(Value::RecordId(node)) = object.get("node") else {
-                        return Err(ModelError::Schema("selected physical pointer"));
-                    };
-                    if let Some(old) = self.nodes.insert(key.clone(), node.clone())
-                        && old != *node
-                    {
+                    let key = hex::encode(candidate.key);
+                    if let Some(old) = self.nodes.insert(key, candidate.clone()) && old != candidate {
                         return Err(ModelError::Conflict("selected nominal backing collision"));
                     }
                 }
                 self.current.take();
             }
-            let total = self
-                .keys
-                .len()
-                .checked_mul(self.owners.len())
-                .ok_or(ModelError::Schema("native membership demand"))?;
-            if self.offset == total {
+            if self.owners.is_empty() || self.offset == self.keys.len() {
                 return Ok(std::mem::take(&mut self.nodes));
             }
-            let end = self
-                .offset
-                .saturating_add(crate::loader::NATIVE_WINDOW_ROWS)
-                .min(total);
-            let ids = (self.offset..end)
-                .map(|position| {
-                    membership_id(
-                        self.owners[position / self.keys.len()],
-                        &self.relation,
-                        &self.keys[position % self.keys.len()],
-                    )
-                })
-                .collect::<Vec<_>>();
             let mut bindings = Variables::new();
-            bindings.insert("ids", ids);
-            bindings.insert("relation", self.relation.clone());
-            let stream=self.store.client.query("SELECT semantic_key,node FROM $ids WHERE relation=$relation ORDER BY semantic_key").bind(bindings).stream_items().map_err(ModelError::codec)?;
-            self.current = Some(
-                self.store
-                    .track_rows(NativeRows::new(stream, 1)?)?
-                    .with_setup(self.setup.clone()),
-            );
-            self.offset = end;
+            let sql;
+            if self.owners.len() == 1 {
+                let end = self.offset.saturating_add(crate::loader::NATIVE_WINDOW_ROWS).min(self.keys.len());
+                let ids = self.keys[self.offset..end].iter().map(|key| membership_id(self.owners[0], &self.relation, key)).collect::<Vec<_>>();
+                bindings.insert("ids", ids);
+                sql = "SELECT id,contribution,relation,semantic_key,node,content FROM $ids";
+                self.offset = end;
+            } else {
+                bindings.insert("relation", self.relation.clone());
+                bindings.insert("key", hex::encode(self.keys[self.offset]));
+                sql = MEMBERSHIP_KEY_QUERY;
+                self.offset += 1;
+            }
+            let stream = self.store.client.query(sql).bind(bindings).stream_items().map_err(ModelError::codec)?;
+            self.current = Some(self.store.track_rows(NativeRows::new(stream, 1)?)?.with_setup(self.setup.clone()));
         }
     }
 }
+/// Scalar equality keeps member_keys on one prefix; no native union/distinct/order state.
+const MEMBERSHIP_KEY_QUERY: &str = "SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WITH INDEX member_keys WHERE relation=$relation AND semantic_key=$key";
+fn decode_membership(row: Value, relation: &str, owners: &[ContentHash], allow_foreign: bool) -> Result<Option<Candidate>, ModelError> {
+    let object = value_object(&row).ok_or(ModelError::Schema("selected membership pointer"))?;
+    let Some(Value::RecordId(owner)) = object.get("contribution") else { return Err(ModelError::Schema("selected membership owner")); };
+    if owner.table.as_str() != "compiler_contribution" { return Err(ModelError::Conflict("selected membership owner family")); }
+    let RecordIdKey::String(owner_key) = &owner.key else { return Err(ModelError::Schema("selected membership owner key")); };
+    if owner_key.len() != 64 || !owner_key.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
+        return Err(ModelError::Schema("selected membership canonical owner"));
+    }
+    let mut owner_bytes = [0; 32];
+    hex::decode_to_slice(owner_key, &mut owner_bytes).map_err(ModelError::codec)?;
+    let owner = ContentHash(owner_bytes);
+    if owners.binary_search(&owner).is_err() {
+        if allow_foreign { return Ok(None); }
+        return Err(ModelError::Conflict("foreign selected membership owner"));
+    }
+    let mut candidate = decode_candidate(row.clone(), relation)?;
+    if object.get("id") != Some(&Value::RecordId(membership_id(owner, relation, &candidate.key))) {
+        return Err(ModelError::Conflict("compiler membership physical identity"));
+    }
+    let Some(Value::String(content)) = object.get("content") else { return Err(ModelError::Schema("selected membership content")); };
+    candidate.content = Some(ContentHash(hex::decode(content).map_err(ModelError::codec)?.try_into().map_err(|_| ModelError::Schema("content token digest width"))?));
+    Ok(Some(candidate))
+}
 enum SelectionKeys {
     Known(std::vec::IntoIter<[u8; 16]>),
-    Ordered(AsyncOrderedCandidates),
+    Unverified(AsyncOrderedCandidates),
+    Verified(AsyncOrderedCandidates),
 }
 struct SelectedRows {
     keys: SelectionKeys,
@@ -3391,9 +3662,18 @@ struct SelectedRows {
     _transfer: Box<dyn Reservation>,
 }
 impl SelectedRows {
+    fn start_payload(&mut self, nodes: Vec<RecordId>) -> Result<(), ModelError> {
+        let mut bindings = self.bindings.clone();
+        bindings.insert("__compiler_nodes", nodes);
+        let prelude = self.preparation.iter().map(|statement| format!("{statement};")).collect::<String>();
+        let statements = self.preparation.len() + 1;
+        let sql = format!("{prelude}SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key", self.fields, self.predicate);
+        self.payload = Some(self.store.track_rows(prepared_rows(&self.store.client, sql, bindings, statements)?.with_row_bytes(64 << 20))?.with_setup(self.setup.clone()));
+        Ok(())
+    }
     async fn next(&mut self) -> Result<Option<Value>, ModelError> {
         loop {
-            let window_rows = (crate::loader::NATIVE_WINDOW_ROWS / self.owners.len().max(1)).max(1);
+            let window_rows = crate::loader::NATIVE_WINDOW_ROWS;
             if let Some(rows) = &mut self.payload {
                 if let Some(row) = rows.next_native().await? {
                     return Ok(Some(row));
@@ -3405,7 +3685,7 @@ impl SelectedRows {
                 self.lookup.take();
                 for (key, node) in &nodes {
                     if let Some(expected) = self.pointers.get(key)
-                        && expected != node
+                        && expected != &node.node
                     {
                         return Err(ModelError::Conflict("selected candidate backing collision"));
                     }
@@ -3414,33 +3694,14 @@ impl SelectedRows {
                 if nodes.is_empty() {
                     continue;
                 }
-                let mut bindings = self.bindings.clone();
-                bindings.insert("__compiler_nodes", nodes.into_values().collect::<Vec<_>>());
-                let prelude = self
-                    .preparation
-                    .iter()
-                    .map(|statement| format!("{statement};"))
-                    .collect::<String>();
-                let statements = self.preparation.len() + 1;
-                let sql = format!(
-                    "{prelude}SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",
-                    self.fields, self.predicate
-                );
-                self.payload = Some(
-                    self.store
-                        .track_rows(
-                            prepared_rows(&self.store.client, sql, bindings, statements)?
-                                .with_row_bytes(64 << 20),
-                        )?
-                        .with_setup(self.setup.clone()),
-                );
+                self.start_payload(nodes.into_values().map(|candidate| candidate.node).collect())?;
                 continue;
             }
             match &mut self.keys {
                 SelectionKeys::Known(source) => {
                     self.pending_keys.extend(source.by_ref().take(window_rows))
                 }
-                SelectionKeys::Ordered(source) => {
+                SelectionKeys::Unverified(source) | SelectionKeys::Verified(source) => {
                     for candidate in source.next_batch(window_rows).await? {
                         if candidate.relation != self.relation {
                             return Err(ModelError::Conflict("ordered candidate relation"));
@@ -3461,6 +3722,11 @@ impl SelectedRows {
                 &mut self.pending_keys,
                 Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS),
             );
+            if matches!(&self.keys, SelectionKeys::Verified(_)) {
+                let nodes = std::mem::take(&mut self.pointers).into_values().collect::<Vec<_>>();
+                self.start_payload(nodes)?;
+                continue;
+            }
             let mut lookup = MembershipLookup::new(
                 self.store.clone(),
                 self.relation.clone(),
@@ -3561,6 +3827,7 @@ fn decode_candidate(row: Value, relation: &str) -> Result<Candidate, ModelError>
         return Err(ModelError::Conflict("candidate backing family"));
     }
     Ok(Candidate {
+        content: None,
         relation: actual.clone(),
         key: decode_nominal_key(key)?,
         node: node.clone(),
@@ -4112,6 +4379,8 @@ mod completion_tests {
     }
     fn empty_compiler_rows(store: Arc<NativeCompilerStore>) -> CompilerRows {
         CompilerRows {
+            descendant: None,
+            producing: None,
             rows: None,
             selection: None,
             graph: None,
@@ -4119,6 +4388,166 @@ mod completion_tests {
             lease: None,
             setup: None,
         }
+    }
+    #[tokio::test]
+    async fn producing_root_delayed_before_first_native_call_holds_global_drain() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let scope = store.producing_scope(ContentHash::of(b"delayed-producing-root"), &budget).unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, gate) = tokio::sync::oneshot::channel();
+        let owner = store.clone();
+        let work_scope = scope.clone();
+        let caller = tokio::spawn(async move {
+            work_scope.run(async move {
+                started.send(()).unwrap();
+                gate.await.unwrap();
+                // This is a descendant of the already globally admitted root.
+                owner.admit(false, "delayed native descendant", false)?.finish();
+                let child_scope = owner.producing_scope(ContentHash::of(b"delayed-producing-root"), &ResourceBudget::fixed(4096)?)?;
+                let mut child = child_scope.bind_stream(futures::stream::iter([1]))?;
+                assert_eq!(futures::StreamExt::next(&mut child).await, Some(1));
+                assert_eq!(futures::StreamExt::next(&mut child).await, None);
+                Ok(())
+            }).await
+        });
+        ready.await.unwrap();
+        let mut drain = Box::pin(store.drain_report());
+        assert!(futures::poll!(&mut drain).is_pending());
+        assert!(scope.run(async { Ok(()) }).await.is_err(), "closure refuses a new producing root even while the old root is admitted");
+        release.send(()).unwrap();
+        caller.await.unwrap().unwrap();
+        let report = drain.await;
+        assert_eq!(report.local, d::completion::LocalState::Terminal);
+        assert_eq!(report.remote, d::completion::RemoteState::Confirmed);
+        assert!(report.failures.is_empty());
+    }
+    #[tokio::test]
+    async fn cancelled_producing_root_before_native_call_has_no_uncertain_remote_effect() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let scope = store.producing_scope(ContentHash::of(b"cancelled-local-root"), &budget).unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let caller = tokio::spawn(async move {
+            scope.run(async move {
+                started.send(()).unwrap();
+                futures::future::pending::<Result<(), ModelError>>().await
+            }).await
+        });
+        ready.await.unwrap();
+        caller.abort();
+        assert!(caller.await.err().unwrap().is_cancelled());
+        let report = store.drain_report().await;
+        assert_eq!(report.local, d::completion::LocalState::Terminal);
+        assert_eq!(report.remote, d::completion::RemoteState::Confirmed);
+        assert!(report.failures.is_empty());
+    }
+    #[tokio::test]
+    async fn caught_producing_root_error_prevents_scope_completion() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let scope = store.producing_scope(ContentHash::of(b"caught-producing-error"), &budget).unwrap();
+        assert!(scope.run(async { Err::<(), _>(ModelError::Conflict("own producing failure")) }).await.is_err());
+        assert!(scope.close_and_wait().await.is_err());
+        let report = store.drain_report().await;
+        assert!(report.failures.iter().any(|failure| failure.step == "native producing work"));
+        assert_eq!(report.remote, d::completion::RemoteState::Confirmed);
+    }
+    #[tokio::test]
+    async fn lazy_producing_provider_execution_after_global_close_is_refused() {
+        use datafusion::execution::context::SessionContext;
+        use futures::TryStreamExt;
+        let store = local_store();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let scope = store.producing_scope(ContentHash::of(b"lazy-producing-provider"), &budget).unwrap();
+        let relation = Relation::of::<d::input::Package>();
+        let view = CompletedView::new(relation.name().into(), std::collections::BTreeSet::from([ContentHash::of(b"lazy-empty-completed-owner")]), 0).unwrap();
+        let provider = store.table_provider(&view, relation, budget, 16).unwrap();
+        let provider = crate::compiler_provider::bind_producing(&provider, &scope).unwrap();
+        let session = SessionContext::new();
+        let plan = provider.scan(&session.state(), None, &[], None).await.unwrap();
+        store.drain().await.unwrap();
+        let mut stream = plan.execute(0, session.task_ctx()).unwrap();
+        let error = stream.try_next().await.unwrap_err();
+        assert!(format!("{error:?}").contains("native compiler authority closed or failed"));
+        assert_eq!(store.admission.state.lock().unwrap().active, 0);
+        assert_eq!(scope.scope.state.lock().unwrap().active, 0);
+    }
+    #[test]
+    fn membership_owner_lookup_decodes_canonical_hash_and_searches_sorted_physical_owners() {
+        let mut owners = (0..64).map(|index| ContentHash::of(&[index])).collect::<Vec<_>>();
+        owners.sort_unstable();
+        let owner = owners[37];
+        let key = [7; 16];
+        let relation = d::input::Package::NAME;
+        let mut row = Object::new();
+        row.insert("id", membership_id(owner, relation, &key));
+        row.insert("contribution", RecordId::new("compiler_contribution", owner.hex()));
+        row.insert("relation", relation.to_owned());
+        row.insert("semantic_key", hex::encode(key));
+        row.insert("node", RecordId::new("entity", "owner-lookup-node"));
+        row.insert("content", ContentHash::of(b"membership-content").hex());
+        assert_eq!(decode_membership(Value::Object(row.clone()), relation, &owners, false).unwrap().unwrap().key, key);
+        row.insert("contribution", RecordId::new("compiler_contribution", ContentHash::of(b"foreign-owner").hex()));
+        assert!(decode_membership(Value::Object(row.clone()), relation, &owners, true).unwrap().is_none());
+        assert!(decode_membership(Value::Object(row.clone()), relation, &owners, false).is_err());
+        row.insert("contribution", RecordId::new("compiler_contribution", owner.hex().to_uppercase()));
+        assert!(matches!(decode_membership(Value::Object(row), relation, &owners, true), Err(ModelError::Schema("selected membership canonical owner"))));
+    }
+    #[tokio::test]
+    async fn producing_scope_waits_only_for_owned_read_and_final_drain_is_global() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let scope = store.producing_scope(ContentHash::of(b"own-producing-work"), &budget).unwrap();
+        let unrelated = store.retained_scan().unwrap();
+        let own = scope.run(async { store.retained_scan() }).await.unwrap();
+        let mut completion = Box::pin(scope.close_and_wait());
+        assert!(futures::poll!(&mut completion).is_pending());
+        own.finish();
+        completion.await.unwrap();
+        assert!(scope.run(async { Ok(()) }).await.is_err(), "closed scope cannot admit a new root");
+        let mut final_drain = Box::pin(store.drain());
+        assert!(futures::poll!(&mut final_drain).is_pending(), "unrelated native work still belongs to final closure");
+        unrelated.finish();
+        final_drain.await.unwrap();
+    }
+    #[tokio::test]
+    async fn cancelled_producing_setup_retains_scope_until_actual_terminal() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let scope = store.producing_scope(ContentHash::of(b"cancelled-producing-setup"), &budget).unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, gate) = tokio::sync::oneshot::channel();
+        let owner = store.clone();
+        let work_scope = scope.clone();
+        let caller = tokio::spawn(async move {
+            work_scope.run(owner.retain_read_setup("producing gated setup", Box::pin(async move {
+                started.send(()).unwrap();
+                gate.await.unwrap();
+                Err(ModelError::Conflict("late producing setup error"))
+            }))).await
+        });
+        ready.await.unwrap();
+        caller.abort();
+        assert!(caller.await.err().unwrap().is_cancelled());
+        let mut completion = Box::pin(scope.close_and_wait());
+        assert!(futures::poll!(&mut completion).is_pending(), "cancelled waiter is not terminal producing work");
+        release.send(()).unwrap();
+        assert!(completion.await.is_err());
+        let report = store.drain_report().await;
+        assert_eq!(report.local, d::completion::LocalState::Terminal);
+        assert!(report.failures.iter().any(|failure| failure.step == "producing gated setup"));
+    }
+    #[tokio::test]
+    async fn unrelated_late_read_error_still_poison_final_admission() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let scope = store.producing_scope(ContentHash::of(b"independent-producing-work"), &budget).unwrap();
+        let unrelated = store.retained_scan().unwrap();
+        scope.close_and_wait().await.unwrap();
+        assert!(unrelated.finish_with::<()>(Err(ModelError::Conflict("unrelated late read"))).is_err());
+        assert!(store.drain().await.is_err());
+        assert!(store.check_failed().is_err());
     }
     #[tokio::test]
     async fn content_lane_drains_mutators_without_waiting_for_readers() {
@@ -4173,6 +4602,8 @@ mod completion_tests {
                         gate.await.unwrap();
                         drop(retained);
                         Ok(CompilerRows {
+            descendant: None,
+            producing: None,
                             rows: None,
                             selection: None,
                             graph: None,
