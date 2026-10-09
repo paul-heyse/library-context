@@ -2,7 +2,16 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: populated execution correction implemented; targeted acceptance recorded.**
+**Current scope: graph compilation and hashing design review; earlier implementation paused.**
+The [principal review](docs/design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md)
+concludes **Revise scoped relation-operation composition**, at static/source-inspected strength.
+It recommends **Proposed** model-owned scope operations and shared prepared selection, with
+graph/native/relational lowerings and qualified hashing or incremental reuse where their contracts fit.
+The review owns its new unscheduled findings and unapplied rule impacts; no remediation or rule
+change is implemented. Product tests, probes and benchmarks are **not_run** for this review.
+**passed, 2026-10-09:** `just docs-check` — 350 canonical pages, zero link errors.
+
+**Previous implementation checkpoint: populated correction implemented; targeted acceptance recorded.**
 The [populated companion](docs/plans/populated-journey-execution-amplification-plan_2026-10-09.md)
 defines PJ0–PJ3, materially triggered PJ4 and targeted PJ5. The integrated correction is committed locally on main as
 `2a62e817`; no push is requested. The
@@ -71,7 +80,9 @@ upper cases had begun entity normalization. No universal freeze/read wait cycle 
 the specific cause of the time between small CPU regions remains unproven. No failed composite
 is relabelled as a clean pass.
 
-**Next:** the operator-deferred normalization/semantic-validation followup and enclosing
+**Next:** select the review's target and create its implementation plan, resolving operation ownership,
+shared demand and reuse contracts before choosing lowerings or cache libraries. The existing
+operator-deferred normalization/semantic-validation followup and enclosing
 qualification retain their existing owners; scoped maintenance and final preparation passed. The one populated
 `serving:mcp` run passed after a guard-free native refresh; its runtime evidence is distinct from
 build/wait time and does not establish a measured speedup. It precedes mechanical scoped
