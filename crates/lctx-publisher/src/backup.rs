@@ -1143,6 +1143,8 @@ mod tests {
             serde_json::from_slice(&std::fs::read(fixture_path).unwrap()).unwrap();
         let scratch = tempfile::tempdir().unwrap();
         let config = RuntimeConfig {
+            reuse: None,
+            serving_limits: None,
             endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
             username: fixture["admin_user"].as_str().unwrap().into(),
             password: fixture["admin_password"].as_str().unwrap().into(),

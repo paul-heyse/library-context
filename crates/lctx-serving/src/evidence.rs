@@ -11,6 +11,7 @@ use lctx_surrealdb::{
 use surrealdb::types::Variables;
 pub async fn get(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     source: &OriginalReference,
     request: &Request,
     channels: &ChannelState,
@@ -37,13 +38,12 @@ pub async fn get(
         "link",
         "access",
     ]);
-    let data = crate::scope::hydrate_with_owners(
+    let data = preparation.hydrate(
         reader,
         vec![target_id(crate::originals::target(source)?)],
         &crate::source_evidence::inputs(),
         &crate::source_evidence::owner_inputs(),
         &fields,
-        b,
     )
     .await?;
     let data=std::sync::Arc::new(Prepared::new(&data,b));
@@ -230,6 +230,7 @@ async fn body(
 /// sibling subjects are never delivered as if they witnessed this ranked occurrence.
 pub async fn hits(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     hits: &[ranking::RankedHit],
     domains: &[LibraryDomainPacket],
     b: &ResourceBudget,
@@ -261,12 +262,12 @@ pub async fn hits(
         }
     }
     // Outgoing semantic dependencies remain complete; incoming ownership is window/part only.
-    let data = crate::scope::hydrate_with(
+    let data = preparation.hydrate(
         reader,
         roots,
         &inputs,
+        &inputs,
         &["window", "part", "set", "universe"],
-        b,
     )
     .await?;
     let data=Prepared::new(&data,b);

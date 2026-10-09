@@ -903,6 +903,11 @@ class Attachment:
                 "viewer_password": server.password + "_viewer_" + attachment_id,
                 "namespace": namespace,
                 "cache_database": "compiler_cache",
+                "reuse": {
+                    "database": "compiler_products",
+                    "capacity_bytes": 8 * 1024**3,
+                    "lease_directory": str(directory / "scratch" / "product_leases"),
+                },
                 "selection": str(directory / "scratch" / "selected.json"),
             },
         )
@@ -912,6 +917,7 @@ class Attachment:
                     f"DEFINE NAMESPACE {namespace};"
                     f" USE NS {namespace}; DEFINE DATABASE core STRICT;"
                     " DEFINE DATABASE compiler_cache STRICT;"
+                    " DEFINE DATABASE compiler_products STRICT;"
                 )
         except FixtureBlocked:
             attachment.release()

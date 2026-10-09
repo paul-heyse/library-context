@@ -2045,6 +2045,37 @@ impl NativeCompilerStore {
         Ok(views)
     }
 
+    /// Exact singleton output view for the current completed contribution. This prevents a
+    /// portable product from capturing prior contributions in the relation's cumulative view.
+    pub async fn contribution_view(self: &Arc<Self>, id: ContentHash, relation: &Relation) -> Result<CompletedView, ModelError> {
+        let lease = self.admit_mutation("contribution view", true)?;
+        let result = self.contribution_view_inner(id, relation).await;
+        let result = lease.finish_with(result);
+        if result.is_err() { self.fail(); }
+        result
+    }
+    async fn contribution_view_inner(self: &Arc<Self>, id: ContentHash, relation: &Relation) -> Result<CompletedView, ModelError> {
+        self.check_failed()?;
+        let mut bindings = Variables::new(); bindings.insert("id", RecordId::new("compiler_contribution", id.hex()));
+        let mut response = self.client.query("SELECT * FROM $id").bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let rows: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+        let [row] = rows.as_slice() else { return Err(ModelError::Conflict("missing completed contribution")); };
+        validate_state_row("compiler_contribution", row)?;
+        let descriptor: CompletedContribution = decode_descriptor(row)?;
+        if descriptor.spec.identity()? != id { return Err(ModelError::Conflict("completed contribution identity")); }
+        let logical = descriptor.identity()?;
+        let output = descriptor.outputs.get(relation.name()).ok_or(ModelError::Conflict("undeclared contribution output"))?;
+        self.remember_contributor(logical, id)?;
+        let view = CompletedView::new(relation.name().into(), std::collections::BTreeSet::from([logical]), output.rows)?;
+        let mut row = Object::new(); row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
+        row.insert("descriptor", Bytes::from(serde_json::to_vec(&view).map_err(ModelError::codec)?));
+        for (field, value) in view_projection(&view)? { row.insert(field, value); }
+        let mut bindings = Variables::new(); bindings.insert("row", row);
+        self.client.query("UPSERT $row.id CONTENT $row RETURN NONE").bind(bindings).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
+        self.remember_view(&view)?;
+        Ok(view)
+    }
+
     /// Reuse the necessary ordered content pass to probe only one bounded window of newly
     /// produced nominal keys. Prior memberships are selected before transfer; neither prior
     /// payloads nor the entire prior key universe are reconstructed for a union count.
@@ -2833,6 +2864,28 @@ impl NativeCompilerStore {
         )
         .await
     }
+    /// Read only primitive membership/content premises under an exact immutable view.
+    /// These tokens do not admit payload semantics or establish a selector's completeness.
+    pub async fn row_tokens(self:&Arc<Self>,view:&CompletedView,relation:&Relation,keys:&[[u8;16]],budget:&ResourceBudget)->Result<Vec<([u8;16],ContentHash)>,ModelError> {
+        self.registered_view(view).await?;
+        if view.relation!=relation.name() || keys.windows(2).any(|w|w[0]>=w[1]) {return Err(ModelError::Conflict("selected content-token binding"));}
+        let _charge=budget.reserve("native-selected-content-tokens",keys.len().saturating_mul(256).saturating_add(4096))?;
+        let owners=self.view_owners(view)?.into_iter().map(|id|RecordId::new("compiler_contribution",id.hex())).collect::<Vec<_>>();
+        let mut result=BTreeMap::new();
+        for window in keys.chunks(d::resources::TRANSFER_ROWS) {
+            let mut vars=Variables::new();vars.insert("owners",owners.clone());vars.insert("relation",relation.name().to_owned());vars.insert("keys",window.iter().map(hex::encode).collect::<Vec<_>>());
+            let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT semantic_key,content FROM compiler_membership WHERE contribution IN $owners AND relation=$relation AND semantic_key IN $keys ORDER BY semantic_key").bind(vars).stream_items().map_err(ModelError::codec)?,1)?)?;
+            while let Some(row)=rows.next().await? {
+                let Value::Object(row)=row else{return Err(ModelError::Schema("selected content token"))};
+                let (Some(Value::String(key)),Some(Value::String(content)))=(row.get("semantic_key"),row.get("content")) else{return Err(ModelError::Schema("selected content token fields"))};
+                let key:[u8;16]=hex::decode(key).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("content token key width"))?;
+                let content=ContentHash(hex::decode(content).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("content token digest width"))?);
+                if window.binary_search(&key).is_err() {return Err(ModelError::Conflict("foreign selected content token"));}
+                if let Some(old)=result.insert(key,content) && old!=content {return Err(ModelError::Conflict("selected content token conflict"));}
+            }
+        }
+        Ok(result.into_iter().collect())
+    }
     async fn scan_rows_inner(
         self: &Arc<Self>,
         view: &CompletedView,
@@ -3084,7 +3137,7 @@ impl NativeCompilerStore {
 }
 
 fn prepared_rows(
-    client: &Surreal<Client>,
+    client: &Arc<Surreal<Client>>,
     sql: String,
     bindings: Variables,
     statements: usize,

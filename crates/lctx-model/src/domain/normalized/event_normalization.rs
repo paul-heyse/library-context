@@ -250,7 +250,7 @@ pub(super) fn verify_view(
 }
 /// Build only consumer admissions from immutable completed event rows. Event production and
 /// diagnostic replay remain separate: this path neither emits alternatives nor calls evaluate.
-pub(super) fn prepare_view(
+pub fn prepare_view(
     data: &EventDataView<'_>,
     stored: &EventOutputView<'_>,
     budget: &ResourceBudget,
@@ -272,7 +272,17 @@ pub fn admit_event_view(
     key: EventKey,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    prepare_selected(data, stored, Some(&[key]), budget).map(|_| ())
+    prepare_event_view(data, stored, key, budget).map(|_| ())
+}
+/// Rebuild an event's consumer admissions by validating its current complete source domain.
+/// Cached rows do not themselves grant dispatch or completeness authority.
+pub fn prepare_event_view(
+    data: &EventDataView<'_>,
+    stored: &EventOutputView<'_>,
+    key: EventKey,
+    budget: &ResourceBudget,
+) -> Result<VerifiedEvents, ModelError> {
+    prepare_selected(data, stored, Some(&[key]), budget)
 }
 pub(super) fn prepare_consumed_view(
     data: &EventDataView<'_>,

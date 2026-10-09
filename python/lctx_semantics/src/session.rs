@@ -1,5 +1,4 @@
 //! Read-only native operation session. The Python adapter never receives writer credentials.
-use lctx_model::domain::serving::ResourceLimits;
 use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader, config::ViewerConfig};
 use pyo3::prelude::*;
@@ -28,7 +27,6 @@ impl NativeSession {
                 .map_err(crate::model_error)?;
             let runtime = Arc::new(
                 tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
                     .enable_all()
                     .build()
                     .map_err(|_| crate::unavailable())?,
@@ -41,7 +39,7 @@ impl NativeSession {
                 ))
                 .map_err(crate::model_error)?;
             let service = Arc::new(
-                NativeService::new(reader.clone(), ResourceLimits::default())
+                NativeService::new(reader.clone(), config.serving_limits.clone().unwrap_or_default())
                     .map_err(crate::model_error)?,
             );
             Ok(Self {
@@ -73,13 +71,6 @@ impl NativeSession {
                 if state.closing {
                     return Err(crate::unavailable());
                 }
-                if state.active >= 2 {
-                    return Err(crate::public_error(
-                        lctx_model::domain::serving::PublicFailure::new(
-                            lctx_model::domain::serving::FailureKind::ResourceRefused,
-                        ),
-                    ));
-                }
                 let service = state
                     .service
                     .as_ref()
@@ -103,7 +94,7 @@ impl NativeSession {
                     })?
             };
             let remaining =
-                remaining_deadline_ms.unwrap_or(ResourceLimits::default().request_deadline_ms);
+                remaining_deadline_ms.unwrap_or(service.request_deadline_ms());
             self.runtime
                 .block_on(service.execute_encoded_for(&tool, &request_json, vector, unavailable, remaining))
                 .map_err(crate::error)
@@ -127,10 +118,10 @@ impl NativeSession {
                     .wait(state)
                     .map_err(|_| crate::unavailable())?;
             }
-            if state.service.take().is_some() {
+            if let Some(service) = state.service.take() {
                 drop(state);
                 self.runtime
-                    .block_on(async { self.reader.client().invalidate().await })
+                    .block_on(async { service.close().await; self.reader.client().invalidate().await })
                     .map_err(|_| crate::unavailable())?;
             }
             Ok(())

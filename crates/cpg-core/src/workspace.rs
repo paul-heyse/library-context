@@ -138,7 +138,8 @@ pub struct Workspace {
     context: SessionContext,
     options: WorkspaceOptions,
     budget: ResourceBudget,
-    scope_programs: Mutex<lctx_model::domain::scope_program::ScopeInterner>,
+    scope_programs: Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>,
+    product_cache: Mutex<Option<Arc<lctx_surrealdb::NativeProductCache>>>,
     model: Arc<ValidatedModel>,
     native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
     bridge: Arc<crate::native_bridge::NativeBridge>,
@@ -220,9 +221,8 @@ impl Workspace {
             files: Arc::new(WorkspaceFiles { directory }),
             context: SessionContext::new_with_config_rt(config, runtime.clone()),
             options,
-            scope_programs: Mutex::new(lctx_model::domain::scope_program::ScopeInterner::new(
-                &budget,
-            )?),
+            scope_programs: lctx_model::domain::scope_program::ScopeProgramRuntime::new(&model,&budget)?,
+            product_cache: Mutex::default(),
             budget,
             model,
             native,
@@ -280,10 +280,20 @@ impl Workspace {
             owner.cancellation.clone(),
             &budget,
         ));
-        owner.scope_programs = Mutex::new(lctx_model::domain::scope_program::ScopeInterner::new(
-            &budget,
-        )?);
+        owner.scope_programs = lctx_model::domain::scope_program::ScopeProgramRuntime::new(&owner.model,&budget)?;
         owner.budget = budget;
+        Ok(workspace)
+    }
+    /// Repeated attempts can reuse one model/runtime program owner while each completed source,
+    /// native contribution, cancellation token and semantic capability remains attempt-local.
+    pub fn with_program_runtime(
+        model:Arc<ValidatedModel>,options:WorkspaceOptions,budget:ResourceBudget,
+        native:Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
+        programs:Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>,
+    )->Result<Arc<Self>,ModelError> {
+        programs.require_model(&model)?;
+        let mut workspace=Self::with_budget(model,options,budget,native)?;
+        Arc::get_mut(&mut workspace).expect("new workspace has one owner").scope_programs=programs;
         Ok(workspace)
     }
     /// Restore the exact current and frozen bindings after independent native state import.
@@ -1814,7 +1824,7 @@ impl Workspace {
     pub(crate) fn scope_programs(
         &self,
     ) -> &Mutex<lctx_model::domain::scope_program::ScopeInterner> {
-        &self.scope_programs
+        self.scope_programs.programs()
     }
     pub fn options(&self) -> WorkspaceOptions {
         self.options
@@ -2072,6 +2082,7 @@ impl Workspace {
             contribution: Arc::new(Mutex::new(None)),
             registration: Arc::new(tokio::sync::Mutex::new(())),
             failed: AtomicBool::new(false),
+            product_capture: Mutex::default(),
         }
     }
     pub fn producer(
@@ -2756,6 +2767,7 @@ pub struct ProducerOutput {
     contribution: Arc<Mutex<Option<ContentHash>>>,
     registration: Arc<tokio::sync::Mutex<()>>,
     failed: AtomicBool,
+    product_capture: Mutex<Option<lctx_model::domain::compilation_product::ProductRequest>>,
 }
 impl ProducerOutput {
     pub fn inputs(&self) -> &CompletedInputs {
@@ -3046,6 +3058,7 @@ impl ProducerOutput {
             self.workspace.writable()?;
             let spec = self.contribution_spec();
             let registration = self.registration_request();
+            let product_request = self.product_capture.lock().map_err(|_|poisoned())?.take();
             let writers = self.writers.into_inner().map_err(|_| poisoned())?;
             if let Some(name) = self
                 .expected
@@ -3132,6 +3145,9 @@ impl ProducerOutput {
             if descriptor.spec != spec || descriptor.outcome != expected_outcome {
                 return Err(ModelError::Conflict("completed native producer handoff"));
             }
+            if let Some(request) = product_request {
+                self.workspace.retain_product(request,id,outcome).await?;
+            }
             let descriptor_bytes = serde_json::to_vec(&descriptor)
                 .map_err(ModelError::codec)?
                 .len()
@@ -3203,6 +3219,10 @@ impl ProducerOutput {
         })
     }
 }
+
+#[path = "workspace_products.rs"]
+mod products;
+pub(crate) use products::{ProductCandidate,validate_product_rows};
 
 #[derive(Debug)]
 struct WorkspacePool {

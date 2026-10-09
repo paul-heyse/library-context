@@ -20,21 +20,27 @@ pub struct NativeService {
     queries: Arc<Semaphore>,
     cpu: Arc<Semaphore>,
     definition: OnceCell<()>,
+    prepared: Arc<crate::preparation::PreparedCache>,
     retained: crate::ranked_results::RankedResults,
 }
 impl NativeService {
     pub fn new(reader: NativeReader, limits: ResourceLimits) -> Result<Self, ModelError> {
         limits.validate()?;
+        let shared = ResourceBudget::fixed(limits.shared_bytes as usize)?;
+        let queries = Arc::new(Semaphore::new(limits.query_connections as usize));
+        let cpu = Arc::new(Semaphore::new(limits.cpu_jobs as usize));
+        let prepared = crate::preparation::PreparedCache::new(reader.handle().clone(), &shared, &limits, queries.clone(), cpu.clone())?;
         Ok(Self {
-            shared: ResourceBudget::fixed(limits.shared_bytes as usize)?,
-            queries: Arc::new(Semaphore::new(limits.query_connections as usize)),
-            cpu: Arc::new(Semaphore::new(limits.cpu_jobs as usize)),
+            shared, queries, cpu, prepared,
             reader,
             limits,
             definition: OnceCell::new(),
             retained: crate::ranked_results::RankedResults::default(),
         })
     }
+    /// Fence requests, drain initializer owners and release preparation before client invalidation.
+    pub async fn close(&self) { self.prepared.close().await; }
+    pub fn request_deadline_ms(&self) -> u64 { self.limits.request_deadline_ms }
     pub fn handle(&self) -> &SnapshotHandle {
         self.reader.handle()
     }
@@ -97,22 +103,14 @@ impl NativeService {
         unavailable: bool,
         remaining_ms: u64,
     ) -> Result<EncodedJson, WireError> {
+        let _request_lease = self.prepared.admit_request().map_err(failure)?;
         if remaining_ms == 0 {
             return Err(WireError::ResourceRefused("request deadline".into()));
         }
         let request = decode_request(tool, raw, &self.limits)?;
         let deadline = tokio::time::Instant::now() + Duration::from_millis(remaining_ms);
-        let admission = (tokio::time::Instant::now()
-            + Duration::from_millis(self.limits.admission_wait_ms))
-        .min(deadline);
-        let _query = tokio::time::timeout_at(admission, self.queries.acquire())
-            .await
-            .map_err(|_| WireError::ResourceRefused("query admission".into()))?
-            .map_err(|_| WireError::ResourceRefused("query service closed".into()))?;
-        let _cpu = tokio::time::timeout_at(admission, self.cpu.acquire())
-            .await
-            .map_err(|_| WireError::ResourceRefused("CPU admission".into()))?
-            .map_err(|_| WireError::ResourceRefused("CPU service closed".into()))?;
+        let request_admission = crate::preparation::RequestAdmission::new(self.queries.clone(), self.cpu.clone(), deadline, Duration::from_millis(self.limits.admission_wait_ms)).await.map_err(failure)?;
+        let preparation = crate::preparation::Preparation { cache: &self.prepared, admission: &request_admission };
         let budget = ResourceBudget::scoped(&self.shared, self.limits.request_bytes as usize)
             .map_err(failure)?;
         let _request_charge = budget
@@ -234,6 +232,7 @@ impl NativeService {
             crate::pagination::validate(&request, self.handle(), &channels)?;
             let mut response = crate::operations::dispatch(
                 &self.reader,
+                &preparation,
                 &request,
                 &channels,
                 vector.as_ref(),

@@ -18,6 +18,61 @@ fn config() -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 #[tokio::test]
+async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_drainage() {
+    let cfg = config();
+    let credentials = Credentials::Root {
+        username: cfg["admin_user"].as_str().unwrap().into(),
+        password: cfg["admin_password"].as_str().unwrap().into(),
+    };
+    let client = reader::connect(
+        cfg["grpc_endpoint"].as_str().unwrap(),
+        &credentials,
+        cfg["namespace"].as_str().unwrap(),
+        cfg["database"].as_str().unwrap(),
+    ).await.unwrap();
+    // session::id is the server-assigned RPC session UUID, not the authenticated user.
+    let sql = "RETURN { id: session::id(), ns: session::ns(), db: session::db() }";
+    let native = NativeReader::private(client.clone());
+    let expected: Value = native.query_native(sql, Variables::new()).await.unwrap();
+    let Value::Object(session) = &expected else { panic!("session descriptor must be an object") };
+    assert!(matches!(session.get("id"), Some(Value::Uuid(_))));
+    assert_eq!(session.get("ns"), Some(&Value::from(cfg["namespace"].as_str().unwrap())));
+    assert_eq!(session.get("db"), Some(&Value::from(cfg["database"].as_str().unwrap())));
+    // Revealing contrast: cloning Surreal itself recreates a distinct authenticated session.
+    let independent = NativeReader::private(std::sync::Arc::new(client.as_ref().clone()));
+    let other: Value = independent.query_native(sql, Variables::new()).await.unwrap();
+    let Value::Object(other) = other else { panic!("independent session descriptor") };
+    assert_ne!(session.get("id"), other.get("id"));
+    drop(independent);
+
+    let make = || lctx_surrealdb::prepared::PreparedQuery::new(
+        Variables::new(), vec![], vec![sql.into(), sql.into()],
+    ).unwrap();
+    let first = native.stream_prepared(make()).unwrap();
+    let second = native.stream_prepared(make()).unwrap();
+    let mut late = native.stream_prepared(lctx_surrealdb::prepared::PreparedQuery::from_sql(
+        format!("{sql}; THROW 'prepared late failure';"), Variables::new(), 2, vec![0],
+    ).unwrap()).unwrap();
+    let retained = std::sync::Arc::downgrade(&client);
+    drop(native);
+    drop(client);
+    assert!(retained.upgrade().is_some(), "streams retain their original session after reader drop");
+    async fn consume(mut rows: lctx_surrealdb::reader::NativeRows, expected: &Value) {
+        assert_eq!(rows.next().await.unwrap().as_ref(), Some(expected));
+        assert_eq!(rows.next().await.unwrap().as_ref(), Some(expected));
+        assert!(rows.next().await.unwrap().is_none());
+        rows.drain_transport().await.unwrap();
+    }
+    tokio::join!(consume(first, &expected), consume(second, &expected));
+    assert_eq!(late.next().await.unwrap().as_ref(), Some(&expected));
+    let error = late.next().await.unwrap_err();
+    assert!(format!("{error:?}").contains("prepared late failure"));
+    assert!(late.next().await.is_err(), "a late failure remains sticky");
+    late.drain_transport().await.unwrap();
+    drop(late);
+    assert!(retained.upgrade().is_none(), "drained streams release the session handle");
+}
+#[tokio::test]
 async fn native_codec_graph_search_and_immutable_winners() {
     let cfg = config();
     let credentials = Credentials::Root {

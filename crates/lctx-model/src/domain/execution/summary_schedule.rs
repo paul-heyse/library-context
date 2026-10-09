@@ -2,23 +2,35 @@
 use crate::domain::{
     Id, ModelError,
     normalized::entities::EntityRef,
-    projection::{ProjectionName, snapshot::MaterializedGraph},
+    projection::{ProjectionName, snapshot::{MaterializationIdentity, MaterializedGraph}},
     resources::{Reservation, ResourceBudget},
 };
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The retained schedule owns its resource reservation. Graph tokens never cross this boundary.
+/// The retained schedule owns its reservation and an exact materialization binding, never
+/// graph storage or runtime indices. Equivalent rebuilt topology receives its own schedule.
 pub struct SccSchedule {
     components: Vec<Vec<Id<EntityRef>>>,
+    materialization: MaterializationIdentity,
     _reservation: Box<dyn Reservation>,
 }
 impl SccSchedule {
+    pub fn require_graph(&self, graph: &MaterializedGraph) -> Result<(), ModelError> {
+        if !self.materialization.matches(graph.materialization_identity()) {
+            return Err(ModelError::Conflict("SCC schedule materialization binding"));
+        }
+        Ok(())
+    }
     pub fn components(&self) -> &[Vec<Id<EntityRef>>] {
         &self.components
     }
 }
 
+fn reserve(graph: &MaterializedGraph, budget: &ResourceBudget) -> Result<Box<dyn Reservation>, ModelError> {
+    budget.reserve("invocation-scc-schedule", graph.vertex_count().saturating_mul(256)
+        .saturating_add(graph.arc_count().saturating_mul(96)).saturating_add(4096))
+}
 /// This orders known conservative topology; it does not certify dispatch/coverage completeness.
 pub fn invocation_sccs(
     graph: &MaterializedGraph,
@@ -29,14 +41,7 @@ pub fn invocation_sccs(
             "summary schedule requires the invocation projection".into(),
         ));
     }
-    let reservation = budget.reserve(
-        "invocation-scc-schedule",
-        graph
-            .vertex_count()
-            .saturating_mul(256)
-            .saturating_add(graph.arc_count().saturating_mul(96))
-            .saturating_add(4096),
-    )?;
+    let reservation = reserve(graph, budget)?;
     let components = graph.with_native_graph(|view| {
         let components = petgraph::algo::kosaraju_scc(view)
             .into_iter()
@@ -55,6 +60,7 @@ pub fn invocation_sccs(
     })?;
     Ok(SccSchedule {
         components,
+        materialization: graph.materialization_identity().clone(),
         _reservation: reservation,
     })
 }
@@ -172,11 +178,22 @@ mod tests {
             name: ProjectionName::CallableInvocation,
         };
         let projection = describe(&data, key, &budget).unwrap();
+        let before_graph = budget.reserved();
         let graph = MaterializedGraph::build(&projection, &budget).unwrap();
         let before = budget.reserved();
+        let graph_charge = before - before_graph;
         let schedule = invocation_sccs(&graph, &budget).unwrap();
         assert_eq!(schedule.components(), expected);
         assert!(budget.reserved() > before);
+        schedule.require_graph(&graph).unwrap();
+        let rebuilt = MaterializedGraph::build(&projection, &budget).unwrap();
+        assert_eq!(rebuilt.key(), graph.key());
+        assert_eq!(rebuilt.entities().collect::<Vec<_>>(), graph.entities().collect::<Vec<_>>());
+        assert!(schedule.require_graph(&rebuilt).is_err(),
+            "identical nominal topology does not share materialization authority");
+        drop(rebuilt);
+        let graph = std::hint::black_box(Box::new(graph));
+        schedule.require_graph(&graph).unwrap();
         drop(schedule);
         assert_eq!(budget.reserved(), before);
         let tiny = ResourceBudget::fixed(1).unwrap();
@@ -199,6 +216,31 @@ mod tests {
             invocation_sccs(&wrong, &budget),
             Err(ModelError::Invalid(_))
         ));
+        let before_schedule = budget.reserved();
+        let schedule = invocation_sccs(&graph, &budget).unwrap();
+        let schedule_charge = budget.reserved() - before_schedule;
+        let source = SourceArtifact::from_bytes(input.id(), "new.py".into(), b"").unwrap();
+        let module = Module { source: source.id(), qualified_name: "new".into() };
+        let entity = EntityRef::Module { module: module.id() };
+        data.artifacts.insert(source).unwrap();
+        data.modules.insert(module).unwrap();
+        data.refs.insert(entity).unwrap();
+        let changed_projection = describe(&data, key, &budget).unwrap();
+        let changed = MaterializedGraph::build(&changed_projection, &budget).unwrap();
+        assert_eq!(changed.key(), graph.key());
+        assert_eq!(changed.vertex_count(), graph.vertex_count() + 1);
+        assert!(schedule.require_graph(&changed).is_err(),
+            "the same frame cannot substitute changed topology");
+        drop(changed);
+        drop(changed_projection);
+        let before_graph_drop = budget.reserved();
+        drop(graph);
+        assert_eq!(budget.reserved(), before_graph_drop - graph_charge,
+            "a retained schedule must not retain graph storage");
+        assert_eq!(schedule.components(), expected);
+        let before_schedule_drop = budget.reserved();
+        drop(schedule);
+        assert_eq!(budget.reserved(), before_schedule_drop - schedule_charge);
     }
     #[test]
     fn schedule_is_callee_first_with_canonical_ties_and_unchanged_parallel_evidence() {

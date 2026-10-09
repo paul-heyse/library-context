@@ -186,6 +186,10 @@ pub async fn produce(
         } else {
             None
         };
+        let schedule = if access.profile() == Profile::Behavioral {
+            Some(graphs.ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?
+                .schedule(&access, runtime, key)?)
+        } else { None };
         let (invocation, inputs, receipts, projections) = owner::AnalysisInvocation::admitted(
             run.input,
             run.context,
@@ -234,7 +238,7 @@ pub async fn produce(
             Profile::Catalog => &data,
         };
         let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
-            execution::summary_production::produce_prepared(
+            execution::summary_production::produce_prepared_scheduled(
                 frame_data,
                 &invocation,
                 definition,
@@ -243,6 +247,7 @@ pub async fn produce(
                 budget,
                 application,
                 actual,
+                schedule,
             )
         })?;
         drop(selected);

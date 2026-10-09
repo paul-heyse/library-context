@@ -69,6 +69,9 @@ pub async fn compile(
                     .map_err(Into::into);
             }
         };
+        workspace.set_product_cache(
+            lctx_surrealdb::NativeProductCache::connect(&runtime).await?.map(Arc::new),
+        )?;
         Ok((runtime, store, workspace))
     }
     .await;

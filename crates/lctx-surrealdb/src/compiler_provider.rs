@@ -91,6 +91,12 @@ pub const REFERENCE_KEYS: usize = 1024;
 pub fn is_native_table(provider: &Arc<dyn TableProvider>) -> bool {
     provider.downcast_ref::<NativeTable>().is_some()
 }
+/// Compact current tokens for finer product domains; finite providers retain their own route.
+pub async fn content_tokens(provider:&Arc<dyn TableProvider>,keys:&[[u8;16]],budget:&ResourceBudget)->Result<Option<Vec<([u8;16],lctx_model::domain::ContentHash)>>,ModelError> {
+    let Some(source)=provider.downcast_ref::<NativeTable>() else{return Ok(None)};
+    if !source.keys.is_empty() {return Ok(None)} // A filtered provider requires its declared domain.
+    source.store.row_tokens(&source.view,&source.relation,keys,budget).await.map(Some)
+}
 pub fn select_field_table(
     provider: &Arc<dyn TableProvider>,
     field: &str,

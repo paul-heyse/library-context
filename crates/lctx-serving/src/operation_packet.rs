@@ -13,6 +13,7 @@ fn key<R: Record>(id: Id<R>) -> Result<ContentHash, ModelError> {
 }
 pub async fn get(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     member: &catalog::CatalogMember,
     domains: &[LibraryDomainPacket],
     r: &GetOperationRequest,
@@ -112,7 +113,7 @@ pub async fn get(
         }
         fields.push("release");
     }
-    let source = crate::scope::hydrate_with(reader, roots, &inputs, &fields, b).await?;
+    let source = preparation.hydrate(reader, roots, &inputs, &inputs, &fields).await?;
     let source=std::sync::Arc::new(Prepared::new(&source,b));
     let mut core = crate::core::packet(&source, member, domains, limits, b)?;
     crate::defaults::read_originals(reader, &mut core.interpretation, request, b).await?;

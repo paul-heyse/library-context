@@ -781,7 +781,9 @@ pub fn admit_view(
 ) -> Result<(), ModelError> {
     prepare_view(data, stored, budget).map(|_| ())
 }
-pub(super) fn prepare_view(
+/// Validate the complete receiver candidate domain and mint fresh consumer admissions.
+/// This accepts data, never a serialized admission or an old budget-bound owner.
+pub fn prepare_view(
     data: &ReceiverDataView<'_>,
     stored: &ReceiverOutputView<'_>,
     budget: &resources::ResourceBudget,

@@ -341,6 +341,8 @@ async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
     let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
     let config = RuntimeConfig {
+            reuse: None,
+            serving_limits: None,
         endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
         username: fixture["admin_user"].as_str().unwrap().into(),
         password: fixture["admin_password"].as_str().unwrap().into(),

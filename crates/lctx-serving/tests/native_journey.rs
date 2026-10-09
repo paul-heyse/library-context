@@ -211,6 +211,8 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         viewer_password: format!("serving-fixture-{}", std::process::id()),
         namespace: Name::new("gn_serving_journeys").unwrap(),
         cache_database: Name::new("cache").unwrap(),
+        reuse: None,
+        serving_limits: None,
         selection: scratch.path().join("selection.json"),
     };
     let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
@@ -748,6 +750,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
             username: config.viewer_username.clone(),
             password: config.viewer_password.clone(),
             selection,
+            serving_limits: None,
         };
         let mut output = std::fs::OpenOptions::new()
             .write(true)
@@ -798,6 +801,8 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         viewer_password: "owned-scope-viewer".into(),
         namespace: Name::new("gn_remediation_scopes").unwrap(),
         cache_database: Name::new("cache").unwrap(),
+        reuse: None,
+        serving_limits: None,
         selection: scratch.path().join("selection.json"),
     };
     let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)

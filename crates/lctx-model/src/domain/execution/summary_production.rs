@@ -1803,6 +1803,7 @@ pub fn produce(
         budget,
         verified.as_ref(),
         None,
+        None,
     )
 }
 /// Borrow the binding owner's admitted application index across Summary invocations.
@@ -1824,8 +1825,27 @@ pub fn produce_prepared(
         return Err(invalid("Summary actual Local owner values absent"));
     }
     produce_with_application(
-        data, invocation, definition, profile, graph, budget, verified, actual,
+        data, invocation, definition, profile, graph, budget, verified, actual, None,
     )
+}
+/// The SCC value observes complete topology only; invocation/source/projection metadata are
+/// still regenerated from this call's current inputs and admitted application owners.
+#[allow(clippy::too_many_arguments, reason = "Prepared computational schedule and semantic owners have separate contracts.")]
+pub fn produce_prepared_scheduled(
+    data: &SummaryData,
+    invocation: &analysis::summary::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    graph: Option<&MaterializedGraph>,
+    budget: &ResourceBudget,
+    verified: Option<&VerifiedBindings>,
+    actual: Option<&local_semantics::ProducedLocal>,
+    schedule: Option<&super::summary_schedule::SccSchedule>,
+) -> Result<SummaryRecords, ModelError> {
+    if profile == stages::Profile::Behavioral && (actual.is_none() || schedule.is_none()) {
+        return Err(invalid("Summary prepared Local owner or SCC schedule absent"));
+    }
+    produce_with_application(data, invocation, definition, profile, graph, budget, verified, actual, schedule)
 }
 #[allow(
     clippy::too_many_arguments,
@@ -1840,6 +1860,7 @@ fn produce_with_application(
     budget: &ResourceBudget,
     verified: Option<&VerifiedBindings>,
     actual: Option<&local_semantics::ProducedLocal>,
+    schedule: Option<&super::summary_schedule::SccSchedule>,
 ) -> Result<SummaryRecords, ModelError> {
     let limits = summary_proof::limits(need(&data.parameters, definition.parameters)?, definition)?;
     if invocation.definition != definition.id() || invocation.subject.is_some() {
@@ -1875,7 +1896,11 @@ fn produce_with_application(
         super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
     let verified =
         verified.ok_or_else(|| invalid("requested Summary application authority absent"))?;
-    let schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
+    let computed_schedule;
+    let schedule = if let Some(schedule) = schedule { schedule.require_graph(graph)?; schedule } else {
+        computed_schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
+        &computed_schedule
+    };
     let (calls, _calls) = call_infos(data, verified, invocation, &mut out, budget)?;
     let (seeds, _seeds) = data.seeds(invocation, &mut out, budget)?;
     let (guards, _guards) = data.guards(budget, actual)?;

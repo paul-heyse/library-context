@@ -6,6 +6,7 @@ use lctx_model::domain::{
 use lctx_surrealdb::{NativeReader, reader::target_id};
 pub async fn get(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     r: &InspectValuePathsRequest,
     request: &Request,
     _limits: &ResourceLimits,
@@ -21,14 +22,14 @@ pub async fn get(
     fields.extend([
         "owner", "formal", "entry", "path", "access", "key", "transfer", "route",
     ]);
-    let batches = crate::scope::hydrate_with(
+    let batches = preparation.hydrate(
         reader,
         vec![target_id(graph::Target::Entity(graph::EntityId::of(
             r.member,
         )))],
         &inputs,
+        &inputs,
         &fields,
-        b,
     )
     .await?;
     let mut data = selection::classification::ClassificationData::new(b);

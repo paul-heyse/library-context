@@ -1,4 +1,6 @@
 //! Qualified base execution consumes actual completed Local/native/normalized inputs.
+//! Behavioral Base, Completion and SourceCall execute fresh. Checking complete current domains
+//! and all semantic output fields repeats their kernels; cached row replay would add work.
 use crate::producer_operations::{Declaration, declare, declare_ordered, emit};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use futures::future::BoxFuture;

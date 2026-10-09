@@ -142,6 +142,13 @@ pub fn batch_bodies(
     }
     Ok(rows.into_iter().map(NativeValue::Object).collect())
 }
+/// Reconstruct canonical typed ingress batches from portable native fields. Each body carries
+/// its nominal `id`; this is data and confers no completed-owner authority.
+pub fn decode_bodies(relation: &lctx_model::domain::Relation, bodies: Vec<surrealdb::types::Value>, budget: &lctx_model::domain::resources::ResourceBudget) -> Result<arrow_array::RecordBatch, ModelError> {
+    let mut builder = crate::projected_arrow::ProjectedBuilder::new(relation.clone(), relation.schema().clone(), budget)?;
+    for body in bodies { builder.push(body)?; }
+    relation.canonical(&builder.finish()?)
+}
 fn native_arrow_value(
     array: &ArrayRef,
     row: usize,

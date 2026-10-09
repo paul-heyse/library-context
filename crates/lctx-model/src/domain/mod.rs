@@ -18,6 +18,7 @@ pub mod catalog_scope_program;
 pub mod charged;
 pub mod class_metadata;
 pub mod compiler_scope_program;
+pub mod compilation_product;
 pub mod completed;
 pub mod completion;
 pub mod composition;

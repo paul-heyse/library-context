@@ -103,12 +103,26 @@ pub async fn classify(
     selection: &selection::Selection,
     budget: &ResourceBudget,
 ) -> Result<MemberSelection, ModelError> {
+    classify_inner(reader, members, selection, budget, None).await
+}
+pub(crate) async fn classify_prepared(reader: &NativeReader, members: &Members, selection: &selection::Selection, budget: &ResourceBudget, preparation: &crate::preparation::Preparation<'_>) -> Result<MemberSelection, ModelError> {
+    classify_inner(reader, members, selection, budget, Some(preparation)).await
+}
+async fn classify_inner(reader: &NativeReader, members: &Members, selection: &selection::Selection, budget: &ResourceBudget, preparation: Option<&crate::preparation::Preparation<'_>>) -> Result<MemberSelection, ModelError> {
     let mut inputs = selection::classification::ClassificationData::inputs();
     inputs.extend(selection::build::Output::inputs());
     inputs.sort_by_key(ValidationInput::name);
     inputs.dedup_by_key(|i| i.name());
     let mut request = ClassificationRequest::new(members, budget)?;
-    let batches = crate::scope::hydrate(reader, request.take_roots(), &inputs, budget).await?;
+    let cached;
+    let fresh;
+    let batches = if let Some(preparation) = preparation {
+        cached = preparation.hydrate(reader, request.take_roots(), &inputs, &inputs, crate::scope::OWNED_FIELDS).await?;
+        &*cached
+    } else {
+        fresh = crate::scope::hydrate(reader, request.take_roots(), &inputs, budget).await?;
+        &fresh
+    };
     request.release_roots();
     let mut data = selection::classification::ClassificationData::new(budget);
     let mut output = selection::build::Output::new(budget);

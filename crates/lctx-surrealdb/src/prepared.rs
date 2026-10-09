@@ -30,10 +30,13 @@ impl PreparedQuery {
     pub fn result_positions(&self)->&[usize] {&self.results}
     pub fn expected_terminals(&self)->usize {self.terminals}
     pub fn into_request(self)->(String,Variables) {(self.sql,self.bindings)}
-    pub fn stream(self,client:&surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>)->Result<crate::reader::NativeRows,ModelError> {
+    pub fn stream(self,client:&std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>)->Result<crate::reader::NativeRows,ModelError> {
         let Self{sql,bindings,results,terminals}=self;
-        let stream=client.query(sql).bind(bindings).into_owned().stream_items().map_err(crate::reader::sdk_error)?;
-        crate::reader::NativeRows::new(selected_rows(stream,results,terminals),terminals)
+        // SDK Surreal::clone creates an independent session and replays authentication.
+        // The stream owns the request already; retain the existing session rather than
+        // asking Query::into_owned to clone its borrowed client for every read.
+        let stream=client.query(sql).bind(bindings).stream_items().map_err(crate::reader::sdk_error)?;
+        Ok(crate::reader::NativeRows::new(selected_rows(stream,results,terminals),terminals)?.with_client(client.clone()))
     }
     pub fn select_rows(&self,stream:impl Stream<Item=surrealdb::Result<StreamItem>>+Send+'static)->impl Stream<Item=surrealdb::Result<StreamItem>>+Send+'static {
         selected_rows(stream,self.results.clone(),self.terminals)

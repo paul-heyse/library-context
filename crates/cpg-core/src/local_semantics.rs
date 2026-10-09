@@ -237,6 +237,8 @@ pub async fn run(
     } else {
         None
     };
+    // Behavioral Local stays fresh: validating all transfer/theory/field products requires
+    // rerunning the same kernels and composition, so row replay would only add work.
     declare_outputs(&output).await?;
     let mut actual = local_semantics::ProducedLocal::empty(budget);
     let mut frames = charged::ChargedSet::default();

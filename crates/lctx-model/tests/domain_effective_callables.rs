@@ -192,6 +192,113 @@ fn fixture() -> (
     }
     (data, budget, symbol, q)
 }
+
+fn supporting_callable_fixture() -> (CallableData, ResourceBudget, Id<CallableEntity>, Id<CallableEntity>) {
+    use lctx_model::domain::{lexical::*, normalized::links::*};
+    let (mut data, budget, symbol, q) = fixture();
+    let requested = data.callables.iter().next().unwrap().id();
+    let support_symbol = ProviderSymbol { native_key: "g".into(), name: "g".into(), ..symbol };
+    let support = CallableEntity::External { symbol: support_symbol.id() };
+    let entity = EntityRef::Callable { callable: support.id() };
+    data.callables.insert(support.clone()).unwrap();
+    data.refs.insert(entity.clone()).unwrap();
+    data.resolutions.insert(SymbolEntityResolution {
+        symbol: support_symbol.id(), context: q.context, policy: normalized::policy_revision(),
+        status: ResolutionStatus::Resolved, entity: Some(entity.id()), reason: EntityReason::ProviderExternal,
+    }).unwrap();
+    let declaration = data.declarations.iter().next().unwrap().declaration;
+    let mut read = data.occurrences.get(declaration).unwrap().clone();
+    read.syntax_kind = SyntaxKind::ExprName;
+    read.role = OccurrenceRole::Syntax;
+    read.structural_path.push(1);
+    data.occurrences.insert(read.clone()).unwrap();
+    data.decorators.insert(DeclarationDecorator {
+        qualification: q.id(), declaration, decorator: read.id(), ordinal: 0,
+    }).unwrap();
+    let reference = ReferenceObservation {
+        qualification: q.id(), read: read.id(), scope: LexicalScope {
+            owner: declaration, kind: LexicalScopeKind::Function,
+        }.id(), parent: declaration, field: SyntaxField::Decorator, name: "g".into(),
+    };
+    data.references.insert(reference.clone()).unwrap();
+    let binding = BindingEvent { site: read.id(), name: "g".into() };
+    let lexical_target = LexicalTarget::Binding { event: binding.id() };
+    data.lexical_targets.insert(lexical_target.clone()).unwrap();
+    let raw = LexicalResolution { qualification: q.id(), read: read.id(), target: lexical_target.id(), captured: false };
+    data.lexical_resolutions.insert(raw.clone()).unwrap();
+    let target = ReferenceEntityTarget::Binding { event: binding.id(), entity: entity.id() };
+    data.reference_targets.insert(target.clone()).unwrap();
+    let assessment = ReferenceEntityAssessment {
+        reference: reference.id(), status: ResolutionStatus::Resolved, reason: LinkReason::ExplicitIdentity,
+    };
+    data.reference_assessments.insert(assessment.clone()).unwrap();
+    data.reference_candidates.insert(ReferenceEntityCandidate {
+        assessment: assessment.id(), resolution: raw.id(), target: target.id(),
+    }).unwrap();
+    (data, budget, requested, support.id())
+}
+
+#[test]
+fn advertised_callable_owner_selection_keeps_supporting_inputs_without_supporting_claims() {
+    let (data, budget, requested, support) = supporting_callable_fixture();
+    let output = normalize(&data, &budget).unwrap();
+    assert_eq!(output.assessments.len(), 2);
+    assert!(data.reference_targets.iter().any(|target| matches!(target,
+        normalized::links::ReferenceEntityTarget::Binding { entity, .. }
+            if matches!(data.refs.get(*entity), Some(EntityRef::Callable { callable }) if *callable == support))),
+        "the requested decorator's nominal reference retains the supporting callable");
+    assert!(admit_callable_view(&data.view(), &output.view(), requested, &budget).is_err(),
+        "nominally reached supporting owner claims are not the requested owner's family");
+    let before = budget.reserved();
+    for owner in [requested, support] {
+        let selection = CallableOwnerSelection::new(&output, owner, &budget).unwrap();
+        let view = selection.view().unwrap();
+        let expected = normalize_callable_view(&data.view(), owner, &budget).unwrap();
+        assert!(data.callables.get(support).is_some(), "supporting input remains available");
+        view.matches(&expected).unwrap();
+        admit_callable_view(&data.view(), &view, owner, &budget).unwrap();
+        assert!(view.assessments.iter().all(|row| row.callable == owner));
+        assert!(view.evidence.iter().all(|row| view.assessments.get(row.assessment).is_some()));
+        assert!(view.premises.iter().all(|row| view.evidence.iter().any(|link| link.premise == row.id())));
+    }
+    assert_eq!(budget.reserved(), before, "borrowed membership reservations end with the selection");
+}
+
+#[test]
+fn advertised_callable_owner_selection_preserves_extra_and_missing_claim_refusal() {
+    let (data, budget, requested, support) = supporting_callable_fixture();
+    for mutation in 0..5 {
+        let mut output = normalize(&data, &budget).unwrap();
+        let assessment = output.assessments.iter().find(|row| row.callable == requested).unwrap().clone();
+        let support_premise = EffectiveCallablePremise::Resolution {
+            resolution: data.resolutions.iter().find(|row| row.entity.is_some_and(|id|
+                matches!(data.refs.get(id), Some(EntityRef::Callable { callable }) if *callable == support))).unwrap().id(),
+        };
+        match mutation {
+            0 => { let mut extra = assessment.clone(); extra.decorators = ContentHash::of(b"unadvertised-chain"); output.assessments.insert(extra).unwrap(); }
+            1 => { output.premises.insert(support_premise.clone()).unwrap(); output.evidence.insert(EffectiveCallableEvidence {
+                assessment: assessment.id(), premise: support_premise.id(),
+            }).unwrap(); }
+            2 => { let original = output.decorators.iter().find(|row| row.assessment == assessment.id()).unwrap().clone();
+                let mut extra = original; extra.observation = DeclarationDecorator {
+                    qualification: data.qualifications.iter().next().unwrap().id(),
+                    declaration: data.declarations.iter().next().unwrap().declaration,
+                    decorator: data.decorators.iter().next().unwrap().decorator, ordinal: 1,
+                }.id(); output.decorators.insert(extra).unwrap(); }
+            3 => { let removed = output.evidence.iter().find(|row| row.assessment == assessment.id()).unwrap().id();
+                let retained = output.evidence.iter().filter(|row| row.id() != removed).cloned().collect::<Vec<_>>();
+                output.evidence = Rows::new(&budget); for row in retained { output.evidence.insert(row).unwrap(); } }
+            _ => { let removed = output.evidence.iter().find(|row| row.assessment == assessment.id()).unwrap().premise;
+                let retained = output.premises.iter().filter(|row| row.id() != removed).cloned().collect::<Vec<_>>();
+                output.premises = Rows::new(&budget); for row in retained { output.premises.insert(row).unwrap(); } }
+        }
+        match CallableOwnerSelection::new(&output, requested, &budget) {
+            Ok(selection) => assert!(admit_callable_view(&data.view(), &selection.view().unwrap(), requested, &budget).is_err(),
+                "same-owner mutation {mutation} must remain visible to independent admission"),
+            Err(_) => assert_eq!(mutation, 4, "only absent advertised premises refuse selection itself"),
+        };
+    }
+}
 #[test]
 fn inspectable_unknown_forms_never_authorize_effective_body_invocation() {
     for form in [

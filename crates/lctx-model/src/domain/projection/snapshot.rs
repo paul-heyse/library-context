@@ -29,12 +29,22 @@ struct Wire<G> {
 }
 /// Immutable graph and runtime indexes. Public operations return domain IDs, never petgraph indices.
 pub struct MaterializedGraph {
+    materialization: MaterializationIdentity,
     key: ProjectionKey,
     graph: ProgramGraph,
     index: BTreeMap<Id<EntityRef>, NodeIndex<u32>>,
     outgoing: Vec<Vec<ArcId>>,
     incoming: Vec<Vec<ArcId>>,
     _reservation: Box<dyn Reservation>,
+}
+/// Exact immutable runtime owner binding. This token carries neither graph storage nor a
+/// portable topology identity, and retaining it prevents allocation-address reuse.
+#[derive(Clone)]
+pub(crate) struct MaterializationIdentity(std::sync::Arc<()>);
+impl MaterializationIdentity {
+    pub(crate) fn matches(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 pub fn check_capacity(vertices: usize, arcs: usize) -> Result<(), ModelError> {
     // petgraph 0.8.3's deserializer refuses equality with its index sentinel as well.
@@ -53,6 +63,9 @@ fn allocation(vertices: usize, arcs: usize) -> Result<usize, ModelError> {
         .ok_or_else(|| invalid("projection allocation overflow"))
 }
 impl MaterializedGraph {
+    pub(crate) fn materialization_identity(&self) -> &MaterializationIdentity {
+        &self.materialization
+    }
     /// Borrow the stored graph under a fresh invariant brand. Convert algorithm outputs to
     /// canonical entities/arc IDs inside this callback; local tokens cannot escape or mix.
     ///
@@ -167,6 +180,7 @@ impl MaterializedGraph {
         }
         // Edges were serialized/inserted in canonical ArcId order, so both lists are already sorted.
         Ok(Self {
+            materialization: MaterializationIdentity(std::sync::Arc::new(())),
             key,
             graph,
             index,

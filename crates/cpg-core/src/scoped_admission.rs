@@ -184,11 +184,11 @@ async fn validate_grain(
         );
         let mut rows = crate::sql::query(closure.session(), &sql)
             .await
-            .map_err(ModelError::codec)?
+            .map_err(crate::sql::model_error)?
             .execute_stream()
             .await
-            .map_err(ModelError::codec)?;
-        while let Some(batch) = rows.try_next().await.map_err(ModelError::codec)? {
+            .map_err(crate::sql::model_error)?;
+        while let Some(batch) = rows.try_next().await.map_err(crate::sql::model_error)? {
             cancellation.check()?;
             check.visit_input(input, &batch)?;
         }
@@ -226,14 +226,14 @@ pub(crate) async fn validate_support(
     );
     let mut roots = crate::sql::query(session, &sql)
         .await
-        .map_err(ModelError::codec)?
+        .map_err(crate::sql::model_error)?
         .execute_stream()
         .await
-        .map_err(ModelError::codec)?;
+        .map_err(crate::sql::model_error)?;
     let _root_charge = budget.reserve("support-admission-roots", ROOT_ROWS * 128)?;
     let mut ids = Vec::with_capacity(ROOT_ROWS);
     let mut grain: Option<Grain> = None;
-    while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+    while let Some(batch) = roots.try_next().await.map_err(crate::sql::model_error)? {
         cancellation.check()?;
         for row in 0..batch.num_rows() {
             let next = (

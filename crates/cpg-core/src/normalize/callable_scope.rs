@@ -23,6 +23,7 @@ pub(super) struct CallableScopes {
     tables: Vec<ClosureTable>,
     edges: PreparedEdges,
     signature_root: Option<usize>,
+    program: ContentHash,
     _charge: charged::StateCharge,
 }
 
@@ -75,8 +76,10 @@ impl CallableScopes {
                 .ok_or(ModelError::Schema("signature demand binding"))?;
             tables.push(tables[source].clone());
         }
+        let compiled = crate::scope_compilation::compile(program.program(), model, budget, None)?;
+        let identity = compiled.identity();
         let plan = crate::scope_compilation::lower_compiled(
-            crate::scope_compilation::compile(program.program(), model, budget, None)?,
+            compiled,
             &tables,
             &scope_program::ScopeParameters(vec![]),
             budget,
@@ -96,6 +99,7 @@ impl CallableScopes {
             tables,
             edges,
             signature_root,
+            program: identity,
             _charge: charge,
         })
     }
@@ -147,11 +151,11 @@ pub(super) async fn validate_callables(
     ] {
         let mut rows = crate::sql::query(session, &query)
             .await
-            .map_err(ModelError::codec)?
+            .map_err(crate::sql::model_error)?
             .execute_stream()
             .await
-            .map_err(ModelError::codec)?;
-        while let Some(batch) = rows.try_next().await.map_err(ModelError::codec)? {
+            .map_err(crate::sql::model_error)?;
+        while let Some(batch) = rows.try_next().await.map_err(crate::sql::model_error)? {
             cancellation.check()?;
             if batch.num_rows() != 0 {
                 return Err(ModelError::Invalid(
@@ -172,11 +176,11 @@ pub(super) async fn validate_callables(
     .await?;
     let mut roots = crate::sql::query(session, &format!("SELECT id FROM {callable} ORDER BY id"))
         .await
-        .map_err(ModelError::codec)?
+        .map_err(crate::sql::model_error)?
         .execute_stream()
         .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+        .map_err(crate::sql::model_error)?;
+    while let Some(batch) = roots.try_next().await.map_err(crate::sql::model_error)? {
         let ids = batch
             .column(0)
             .as_any()
@@ -205,12 +209,12 @@ pub(super) async fn validate_callables(
             for (partition, index) in (start..end).enumerate() {
                 let inputs =
                     DataSelection::new(&selected, partition, &prepared.inputs, &data, budget)?;
-                let outputs =
-                    OutputSelection::new(&selected, partition, &prepared.inputs, &stored, budget)?;
+                let owner = nominal(ids.value(index))?;
+                let outputs = callable_normalization::CallableOwnerSelection::new(&stored, owner, budget)?;
                 callable_normalization::admit_callable_view(
                     &inputs.view()?,
                     &outputs.view()?,
-                    nominal(ids.value(index))?,
+                    owner,
                     budget,
                 )?;
             }
@@ -253,6 +257,7 @@ impl CallableScopes {
         .await?;
         Ok(rows)
     }
+    pub(super) fn program(&self) -> ContentHash { self.program }
     pub(super) fn inputs(&self) -> &[ValidationInput] {
         &self.inputs
     }
@@ -270,14 +275,6 @@ impl CallableScopes {
     }
 }
 
-macro_rules! selected_output {($($field:ident:$ty:ty,)*)=>{
-    struct OutputSelection<'a>{rows:&'a normalized::callable_normalization::CallableOutput,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
-    impl<'a> OutputSelection<'a>{
-        fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a normalized::callable_normalization::CallableOutput,budget:&resources::ResourceBudget)->Result<Self,ModelError>{Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})}
-        fn view(&self)->Result<normalized::callable_normalization::CallableOutputView<'_>,ModelError>{Ok(normalized::callable_normalization::CallableOutputView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
-    }
-};}
-lctx_model::normalized_callable_outputs!(selected_output);
 impl CallableScopes {
     async fn load_admission(
         &self,

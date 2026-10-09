@@ -24,6 +24,7 @@ pub(crate) struct AspectScopes {
     _program: std::sync::Arc<lctx_model::domain::scope_program::CompiledScopeProgram>,
 }
 impl AspectScopes {
+    pub(crate) fn program_identity(&self) -> ContentHash { self._program.identity() }
     pub async fn prepare(
         inputs: Vec<ValidationInput>,
         tables: Vec<ClosureTable>,

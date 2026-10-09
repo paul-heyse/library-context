@@ -244,12 +244,12 @@ pub(crate) fn stream_batches<'a>(
         );
         let mut selected = crate::sql::query(session, &sql)
             .await
-            .map_err(ModelError::codec)?;
+            .map_err(crate::sql::model_error)?;
         if let Some(predicate) = predicate {
-            selected = selected.filter(predicate).map_err(ModelError::codec)?;
+            selected = selected.filter(predicate).map_err(crate::sql::model_error)?;
         }
-        let mut batches = selected.execute_stream().await.map_err(ModelError::codec)?;
-        while let Some(batch) = batches.try_next().await.map_err(ModelError::codec)? {
+        let mut batches = selected.execute_stream().await.map_err(crate::sql::model_error)?;
+        while let Some(batch) = batches.try_next().await.map_err(crate::sql::model_error)? {
             consume(&batch)?;
             tokio::task::yield_now().await;
         }
@@ -714,9 +714,9 @@ impl NominalClosure {
             // a compact bulk adjacency universe. Native declared references use the frontier.
             let frame = crate::sql::query(&session, &Self::pair_sql(*source, *target, sql))
                 .await
-                .map_err(ModelError::codec)?;
-            let mut stream = frame.execute_stream().await.map_err(ModelError::codec)?;
-            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                .map_err(crate::sql::model_error)?;
+            let mut stream = frame.execute_stream().await.map_err(crate::sql::model_error)?;
+            while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
                 let _transfer = budget.reserve(
                     "semantic-edge-transfer",
                     logical_batch_bytes(&batch)?
@@ -743,21 +743,21 @@ impl NominalClosure {
                 ArrowReadOptions::default().schema(schema.as_ref()),
             )
             .await
-            .map_err(ModelError::codec)?
+            .map_err(crate::sql::model_error)?
             .sort(vec![
                 col("source_kind").sort(true, false),
                 col("source_id").sort(true, false),
                 col("target_kind").sort(true, false),
                 col("target_id").sort(true, false),
             ])
-            .map_err(ModelError::codec)?;
-        let mut stream = frame.execute_stream().await.map_err(ModelError::codec)?;
+            .map_err(crate::sql::model_error)?;
+        let mut stream = frame.execute_stream().await.map_err(crate::sql::model_error)?;
         let mut batches = charged::ChargedVec::default();
         let mut index_charge = charged::StateCharge::new(budget, "semantic-edge-batch-index");
         let mut writer =
             FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema)
                 .map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
             let _transfer = budget.reserve(
                 "semantic-edge-transfer",
                 logical_batch_bytes(&batch)?
@@ -1171,10 +1171,10 @@ impl PreparedEdges {
         let plan = selected
             .scan(&state, Some(&projection), &[], None)
             .await
-            .map_err(ModelError::codec)?;
+            .map_err(crate::sql::model_error)?;
         let mut stream = plan
             .execute(0, self.0.session.task_ctx())
-            .map_err(ModelError::codec)?;
+            .map_err(crate::sql::model_error)?;
         // The existing frontier charge covers this additional compact key vector, and follows
         // any reverse selected provider that borrows it. No rich owner rows are retained.
         let mut present = if presence {
@@ -1182,7 +1182,7 @@ impl PreparedEdges {
         } else {
             Vec::new()
         };
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
             check_cancellation(cancellation)?;
             let ids = batch
                 .column_by_name("id")
@@ -1264,11 +1264,11 @@ impl PreparedEdges {
         let plan = selected
             .scan(&state, Some(&projection), &[], None)
             .await
-            .map_err(ModelError::codec)?;
+            .map_err(crate::sql::model_error)?;
         let mut stream = plan
             .execute(0, self.0.session.task_ctx())
-            .map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+            .map_err(crate::sql::model_error)?;
+        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
             check_cancellation(cancellation)?;
             let ids = batch
                 .column_by_name("id")
@@ -1374,11 +1374,11 @@ impl PreparedEdges {
             );
             let mut stream = crate::sql::query(&self.0.session, &sql)
                 .await
-                .map_err(ModelError::codec)?
+                .map_err(crate::sql::model_error)?
                 .execute_stream()
                 .await
-                .map_err(ModelError::codec)?;
-            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                .map_err(crate::sql::model_error)?;
+            while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
                 check_cancellation(cancellation)?;
                 let _transfer = budget.reserve(
                     "semantic-root-presence-transfer",
@@ -1518,15 +1518,15 @@ impl PreparedEdges {
         );
         let mut roots = crate::sql::query(&self.0.session, &sql)
             .await
-            .map_err(ModelError::codec)?
+            .map_err(crate::sql::model_error)?
             .execute_stream()
             .await
-            .map_err(ModelError::codec)?;
+            .map_err(crate::sql::model_error)?;
         let mut visited = charged::ChargedSet::default();
         let mut pending = charged::ChargedVec::default();
         let mut traversal_charge =
             charged::StateCharge::new(budget, "semantic-grain-traversal-keys");
-        while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+        while let Some(batch) = roots.try_next().await.map_err(crate::sql::model_error)? {
             let _transfer = budget.reserve(
                 "semantic-grain-root-transfer",
                 batch.get_array_memory_size(),
@@ -1785,6 +1785,65 @@ pub struct PreparedRootBatch {
     _charge: charged::StateCharge,
 }
 impl PreparedRootBatch {
+    /// Derive a complete selected domain from freshly discovered membership and current
+    /// native row content before rich hydration. Dangling members and absent roots are
+    /// explicit; a later matching insertion changes discovery even if old rows are unchanged.
+    pub(crate) async fn content_domain(
+        &self, partition: usize, root: PreparedRoot, inputs: &[ValidationInput],
+        program: ContentHash, runtime: &crate::workspace::Workspace,
+    ) -> Result<Option<ContentHash>, ModelError> {
+        use lctx_model::domain::Key;
+        let budget = runtime.budget();
+        let mut charge = charged::StateCharge::new(budget, "selected-domain-content-tokens");
+        let mut members = Vec::new();
+        let mut context = lctx_model::domain::KeySink::new("complete-selected-domain-roles/v1");
+        for (table, input) in inputs.iter().enumerate() {
+            if self.relation(table)?.name() != input.name() { return Err(ModelError::Conflict("selected domain input binding")); }
+            input.encode_contract(&mut context);
+            let count = self.keys(partition, table)?.count();
+            charge.grow(count.saturating_mul(352).saturating_add(4096))?;
+            let request_charge = budget.reserve("selected-domain-token-request", count.saturating_mul(160).saturating_add(4096))?;
+            let keys = self.keys(partition, table)?.collect::<Vec<_>>();
+            let provider = self.union.edges.providers[table].clone();
+            let read_budget = budget.clone(); let requested = keys.clone();
+            let tokens = runtime.native_call(async move {
+                let _charge = request_charge;
+                lctx_surrealdb::compiler_provider::content_tokens(&provider, &requested, &read_budget).await
+            }).await?;
+            let Some(tokens) = tokens else { return Ok(None); };
+            let tokens = tokens.into_iter().collect::<BTreeMap<_, _>>();
+            let role = format!("port/{table}/{}/{}", input.name(), input.prefix().map_or("", |prefix| prefix.name()));
+            for key in keys {
+                let mut content = lctx_model::domain::KeySink::new("selected-member-presence/v1");
+                tokens.get(&key).copied().encode(&mut content);
+                members.push((role.clone(), key, content.finish()));
+            }
+        }
+        let outcome = match self.outcomes.get(partition).ok_or(ModelError::Conflict("selected domain partition"))? {
+            PreparedRootOutcome::Present => 0, PreparedRootOutcome::Absent => 1, PreparedRootOutcome::Virtual => 2,
+        };
+        let roots = [(self.relation(root.table)?.name().to_owned(), root.key, outcome)];
+        Ok(Some(lctx_model::domain::compilation_product::domain_identity(program, context.finish(), &roots, &members)))
+    }
+    /// Retain only cache misses for rich hydration, preserving exact logical memberships.
+    /// This remaps dense partitions mechanically; it performs no second discovery traversal.
+    pub(crate) fn select_partitions(&self, partitions: &[usize], budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut charge = charged::StateCharge::new(budget, "selected-miss-partitions");
+        charge.grow(partitions.len().saturating_mul(size_of::<PreparedRootOutcome>()))?;
+        let mut outcomes = Vec::with_capacity(partitions.len());
+        let mut memberships = charged::ChargedSet::default();
+        let mut union_keys = charged::ChargedSet::default();
+        let mut union_charge = charged::StateCharge::new(budget, "selected-miss-union-keys");
+        for (next, partition) in partitions.iter().copied().enumerate() {
+            outcomes.push(*self.outcomes.get(partition).ok_or(ModelError::Conflict("selected miss partition absent"))?);
+            for (table, key) in self.memberships(partition)? {
+                memberships.insert(&mut charge, (next, (table as i64, key)))?;
+                union_keys.insert(&mut union_charge, (table as i64, key))?;
+            }
+        }
+        let union = PreparedEdges(self.union.edges.clone()).finish_keys(union_keys, budget)?;
+        Ok(Self { union, outcomes, memberships, _charge: charge })
+    }
     pub fn outcomes(&self) -> &[PreparedRootOutcome] {
         &self.outcomes
     }
@@ -1991,6 +2050,62 @@ mod nominal_closure_controls {
         ];
         (session, tables, releases, selected)
     }
+    async fn native_domain(
+        config: &lctx_surrealdb::RuntimeConfig, packages: &[Package], releases: &[Release], root: Id<Package>,
+    ) -> ContentHash {
+        use crate::workspace::{Workspace, WorkspaceOptions};
+        use lctx_model::domain::{admission::Frontier, stages::Profile};
+        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(config, Frontier::Facts).await.unwrap();
+        let workspace = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
+            WorkspaceOptions { memory_bytes: 64 << 20, ..Default::default() }, native).unwrap();
+        let output = workspace.output("domain-fixture", Profile::Catalog, ContentHash::of(b"domain-fixture/v1"),
+            workspace.inputs("domain-fixture", Profile::Catalog, []).unwrap(), [Package::NAME, Release::NAME]);
+        output.declare_async::<Package>().await.unwrap();
+        output.declare_async::<Release>().await.unwrap();
+        for package in packages { output.push(package.clone()).await.unwrap(); }
+        for release in releases { output.push(release.clone()).await.unwrap(); }
+        output.finish(lctx_model::domain::stages::ProviderOutcome::Complete).await.unwrap();
+        let inputs = vec![ValidationInput::of::<Release>(&["id"]), ValidationInput::of::<Package>(&["id"])];
+        let access = workspace.inputs("domain-consumer", Profile::Catalog, [Release::NAME, Package::NAME]).unwrap();
+        let session = access.session(&workspace).await.unwrap();
+        let tables = vec![
+            ClosureTable { relation: Relation::of::<Release>(), alias: access.table_for(&inputs[0]).unwrap() },
+            ClosureTable { relation: Relation::of::<Package>(), alias: access.table_for(&inputs[1]).unwrap() },
+        ];
+        let mut plan = NominalClosure::new(tables).unwrap();
+        plan.own_existing(0, "package", 1).unwrap();
+        let edges = plan.prepare(&session, workspace.budget()).await.unwrap();
+        let root = PreparedRoot { table: 1, key: *root.bytes(), kind: PreparedRootKind::Physical };
+        let batch = edges.batch(&[root], workspace.budget()).await.unwrap();
+        let domain = batch.content_domain(0, root, &inputs, ContentHash::of(b"complete-package-release-selection/v1"), &workspace)
+            .await.unwrap().expect("native exact source supports content tokens");
+        drop(batch); drop(edges); drop(session);
+        workspace.native().abandon().await.unwrap();
+        domain
+    }
+    #[tokio::test]
+    async fn selected_native_domain_reuses_unrelated_changes_but_observes_insert_delete_and_absence() {
+        let config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"))).unwrap();
+        let selected = Package { name: "selected-domain".into() };
+        let unrelated = Package { name: "unrelated-domain".into() };
+        let selected_release = Release { package: selected.id(), version: "1".into() };
+        let unrelated_release = Release { package: unrelated.id(), version: "1".into() };
+        let packages = [selected.clone(), unrelated.clone()];
+        let base = native_domain(&config, &packages, &[selected_release.clone(), unrelated_release], selected.id()).await;
+        let unrelated_changed = Release { package: unrelated.id(), version: "2".into() };
+        assert_eq!(base, native_domain(&config, &packages, &[unrelated_changed.clone(), selected_release.clone()], selected.id()).await,
+            "whole view/provenance and unrelated selected domains must not invalidate this root");
+        let inserted = Release { package: selected.id(), version: "2".into() };
+        assert_ne!(base, native_domain(&config, &packages, &[selected_release.clone(), inserted, unrelated_changed.clone()], selected.id()).await,
+            "fresh reverse membership must include newly matching rows");
+        assert_ne!(base, native_domain(&config, &packages, &[unrelated_changed.clone()], selected.id()).await,
+            "deletion of a selected premise must invalidate the complete domain");
+        let absent = native_domain(&config, &[unrelated.clone()], &[unrelated_changed.clone()], selected.id()).await;
+        let present_empty = native_domain(&config, &packages, &[unrelated_changed], selected.id()).await;
+        assert_ne!(absent, present_empty, "an absent root and a present empty domain differ");
+    }
+
     #[tokio::test]
     async fn batched_roots_keep_overlap_duplicate_partitions_and_absence_explicit() {
         let (session, tables, releases, package) = fixture();
@@ -2062,6 +2177,18 @@ mod nominal_closure_controls {
         assert_eq!(decode::<Release>(&batch.union, 0).await.len(), 2);
         assert_eq!(decode::<Package>(&batch.union, 1).await.len(), 1);
         assert!(budget.reserved() > prepared_charge);
+        let misses = batch.select_partitions(&[1, 3, 1, 4], &budget).unwrap();
+        assert_eq!(misses.outcomes(), &[
+            PreparedRootOutcome::Present, PreparedRootOutcome::Absent,
+            PreparedRootOutcome::Present, PreparedRootOutcome::Virtual,
+        ]);
+        assert_eq!(misses.memberships(0).unwrap().collect::<Vec<_>>(), batch.memberships(1).unwrap().collect::<Vec<_>>());
+        assert!(misses.memberships(1).unwrap().next().is_none());
+        assert_eq!(misses.memberships(2).unwrap().collect::<Vec<_>>(), misses.memberships(0).unwrap().collect::<Vec<_>>());
+        assert_eq!(decode::<Release>(&misses.union, 0).await.len(), 1);
+        assert_eq!(decode::<Package>(&misses.union, 1).await.len(), 1);
+        assert!(batch.select_partitions(&[6], &budget).is_err());
+        drop(misses);
         drop(batch);
         assert_eq!(
             budget.reserved(),

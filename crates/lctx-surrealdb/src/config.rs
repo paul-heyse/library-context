@@ -2,13 +2,17 @@
 use crate::Credentials;
 use lctx_model::domain::{
     ModelError,
-    serving::{Name, SnapshotHandle},
+    serving::{Name, SnapshotHandle, ResourceLimits},
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reuse: Option<ReuseConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serving_limits: Option<ResourceLimits>,
     pub endpoint: String,
     pub username: String,
     pub password: String,
@@ -17,6 +21,22 @@ pub struct RuntimeConfig {
     pub namespace: Name,
     pub cache_database: Name,
     pub selection: PathBuf,
+}
+/// Explicit disposable derived-product store, distinct from embedding and snapshot databases.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReuseConfig {
+    pub database: Name,
+    pub capacity_bytes: u64,
+    pub lease_directory: PathBuf,
+}
+impl ReuseConfig {
+    pub fn validate(&self, runtime: &RuntimeConfig) -> Result<(), ModelError> {
+        if self.database == runtime.cache_database || self.capacity_bytes == 0 || self.capacity_bytes > i64::MAX as u64 || !self.lease_directory.is_absolute() {
+            return Err(ModelError::Invalid("reuse requires a separate database, positive capacity and absolute coordination directory".into()));
+        }
+        Ok(())
+    }
 }
 impl RuntimeConfig {
     pub fn read(path: &Path) -> Result<Self, ModelError> {
@@ -39,6 +59,8 @@ impl RuntimeConfig {
                 "native database credentials required".into(),
             ));
         }
+        if let Some(reuse) = &cfg.reuse { reuse.validate(&cfg)?; }
+        if let Some(limits) = &cfg.serving_limits { limits.validate()?; }
         Ok(cfg)
     }
     pub fn root_credentials(&self) -> Credentials {
@@ -150,6 +172,7 @@ impl RuntimeConfig {
             .parent()
             .ok_or(ModelError::Schema("snapshot selection parent"))?;
         let viewer = ViewerConfig {
+            serving_limits: self.serving_limits.clone(),
             endpoint: self.endpoint.clone(),
             username: self.viewer_username.clone(),
             password: self.viewer_password.clone(),
@@ -197,6 +220,8 @@ impl RuntimeConfig {
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ViewerConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serving_limits: Option<ResourceLimits>,
     pub endpoint: String,
     pub username: String,
     pub password: String,
@@ -204,8 +229,9 @@ pub struct ViewerConfig {
 }
 impl ViewerConfig {
     pub fn read(path: &Path) -> Result<Self, ModelError> {
-        serde_json::from_slice(&std::fs::read(path).map_err(ModelError::codec)?)
-            .map_err(ModelError::codec)
+        let cfg: Self = serde_json::from_slice(&std::fs::read(path).map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+        if let Some(limits) = &cfg.serving_limits { limits.validate()?; }
+        Ok(cfg)
     }
     /// New launches read the one atomic handle. Existing sessions retain their immutable pin.
     pub fn selected(&self) -> Result<SnapshotHandle, ModelError> {
@@ -232,6 +258,8 @@ mod selection_controls {
     use lctx_model::domain::{ContentHash, Infrastructure, serving::DatabaseIdentity};
     fn config(root: &Path) -> RuntimeConfig {
         RuntimeConfig {
+            reuse: None,
+            serving_limits: None,
             endpoint: "grpc://127.0.0.1:9999".into(),
             username: "installer".into(),
             password: "private".into(),

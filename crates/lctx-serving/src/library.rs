@@ -11,13 +11,26 @@ pub async fn resolve(
     name: Option<&Name>,
     budget: &ResourceBudget,
 ) -> Result<Vec<LibraryDomainPacket>, ModelError> {
+    resolve_inner(reader, name, budget, None).await
+}
+pub(crate) async fn resolve_prepared(reader: &NativeReader, name: Option<&Name>, budget: &ResourceBudget, preparation: &crate::preparation::Preparation<'_>) -> Result<Vec<LibraryDomainPacket>, ModelError> {
+    resolve_inner(reader, name, budget, Some(preparation)).await
+}
+async fn resolve_inner(reader: &NativeReader, name: Option<&Name>, budget: &ResourceBudget, preparation: Option<&crate::preparation::Preparation<'_>>) -> Result<Vec<LibraryDomainPacket>, ModelError> {
     let mut vars = Variables::new();
     vars.insert("name", name.map(|n| n.as_str().to_owned()));
     let roots: Vec<RecordId> = reader
         .query("RETURN fn::lctx_library_roots($name);", vars)
         .await?;
-    let batches =
-        crate::scope::hydrate(reader, roots, &LibraryAdmissionData::inputs(), budget).await?;
+    let cached;
+    let fresh;
+    let batches = if let Some(preparation) = preparation {
+        cached = preparation.hydrate(reader, roots, &LibraryAdmissionData::inputs(), &LibraryAdmissionData::inputs(), crate::scope::OWNED_FIELDS).await?;
+        &*cached
+    } else {
+        fresh = crate::scope::hydrate(reader, roots, &LibraryAdmissionData::inputs(), budget).await?;
+        &fresh
+    };
     let mut data = LibraryAdmissionData::new(budget);
     for (name, batch) in &batches.batches {
         data.visit(name, batch)?;

@@ -28,6 +28,8 @@ async fn missing_native_storage_is_refused_without_creating_it_or_acquiring() {
     let root = tempfile::tempdir().unwrap();
     for missing_namespace in [true, false] {
         let config = RuntimeConfig {
+            reuse: None,
+            serving_limits: None,
             endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
             username: fixture["admin_user"].as_str().unwrap().into(),
             password: fixture["admin_password"].as_str().unwrap().into(),

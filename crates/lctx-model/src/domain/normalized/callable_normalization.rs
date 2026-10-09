@@ -4,7 +4,7 @@ use crate::domain::{
     assertion::AssertionQualification,
     attribution::*,
     calls::*,
-    charged::{ChargedMap, ChargedSet, StateCharge},
+    charged::{ChargedMap, ChargedSet, ChargedVec, StateCharge},
     lexical::*,
     resources::ResourceBudget,
     source::*,
@@ -48,6 +48,59 @@ macro_rules! outputs {
     }
 }
 crate::normalized_callable_outputs!(outputs);
+/// Advertised owner membership is distinct from nominal input reachability. Supporting
+/// callables remain source premises but do not contribute claims to this owner's admission.
+/// This selection uses stored ownership links, never the recomputed expected row IDs.
+pub struct CallableOwnerSelection<'a> {
+    rows: &'a CallableOutput,
+    assessments: ChargedVec<Id<EffectiveCallableAssessment>>,
+    decorators: ChargedVec<Id<EffectiveDecoratorMember>>,
+    premises: ChargedVec<Id<EffectiveCallablePremise>>,
+    evidence: ChargedVec<Id<EffectiveCallableEvidence>>,
+    _charge: StateCharge,
+}
+impl<'a> CallableOwnerSelection<'a> {
+    pub fn new(rows: &'a CallableOutput, selected: Id<CallableEntity>, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut charge = StateCharge::new(budget, "callable-advertised-owner-membership");
+        charge.grow(size_of::<Self>())?;
+        let mut assessments = ChargedVec::default();
+        for row in rows.assessments.iter().filter(|row| row.callable == selected) {
+            assessments.push(&mut charge, row.id())?;
+        }
+        let mut decorators = ChargedVec::default();
+        for row in rows.decorators.iter().filter(|row| assessments.binary_search(&row.assessment).is_ok()) {
+            decorators.push(&mut charge, row.id())?;
+        }
+        let mut evidence = ChargedVec::default();
+        let mut scratch = StateCharge::new(budget, "callable-advertised-premise-index");
+        let mut referenced = ChargedSet::default();
+        for row in rows.evidence.iter().filter(|row| assessments.binary_search(&row.assessment).is_ok()) {
+            if rows.premises.get(row.premise).is_none() {
+                return Err(invalid("advertised callable evidence premise is absent"));
+            }
+            evidence.push(&mut charge, row.id())?;
+            referenced.insert(&mut scratch, row.premise)?;
+        }
+        let mut premises = ChargedVec::default();
+        for row in rows.premises.iter().filter(|row| referenced.contains(&row.id())) {
+            premises.push(&mut charge, row.id())?;
+        }
+        Ok(Self { rows, assessments, decorators, premises, evidence, _charge: charge })
+    }
+    /// Borrow exactly the necessary owner family; signature/slot outputs belong to their own
+    /// kernels and are not part of this assessment/evidence admission.
+    pub fn view(&self) -> Result<CallableOutputView<'_>, ModelError> {
+        macro_rules! empty {($($field:ident:$ty:ty,)*) => {
+            CallableOutputView { $($field: RowsView::selected(&self.rows.$field, &[])?,)* }
+        };}
+        let mut view = crate::normalized_callable_outputs!(empty);
+        view.assessments = RowsView::selected(&self.rows.assessments, &self.assessments)?;
+        view.decorators = RowsView::selected(&self.rows.decorators, &self.decorators)?;
+        view.premises = RowsView::selected(&self.rows.premises, &self.premises)?;
+        view.evidence = RowsView::selected(&self.rows.evidence, &self.evidence)?;
+        Ok(view)
+    }
+}
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }

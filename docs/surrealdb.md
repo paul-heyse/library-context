@@ -82,6 +82,46 @@ running sessions retain their pin. Never pass runtime configuration to MCP, log 
 mutable SDK database-selection context between readers. The current SDK runtime accepts reviewed
 3.3 engines; another server family requires checking its protocol and physical contracts first.
 
+## Optional compilation products and serving preparation
+
+**Implemented / acceptance in progress, 2026-10-09 (ADR-0140).** Runtime configuration may add
+`reuse` with a distinct `database`, positive `capacity_bytes` and an absolute `lease_directory`.
+For example, a disposable fixture can use:
+
+```json
+"reuse": {
+  "database": "compiler_products",
+  "capacity_bytes": 8589934592,
+  "lease_directory": "/absolute/fixture/compiler-product-leases"
+}
+```
+
+Omission disables persisted product reuse. Explicit `lctx store init` installs this disposable
+schema; ordinary compilation only connects to an already compatible store. Every process sharing
+the database must use the same canonical coordination directory on the managed local host.
+Products are derived data, with no completed-input authority: canonical validation and current
+semantic predicates precede replay into fresh native contributions. Incompatible private formats
+are rebuilt by explicit installation, including obsolete private schema definitions; no old-format
+reader exists. An immutable native coordination-owner receipt survives reset and interrupted
+installation; explicit reset point-fences the old generation before removing tables. Its complete
+DDL/header/quota reset is one native transaction guarded by a persistent administrative generation.
+Compatible explicit installation and retirement rotate this token too. A durable `admin.pending`
+marker blocks cache admission after failed or uncertain administration. Recover by explicit
+fenced installation, which clears it only after confirmed native commit; readonly connection
+does not reconcile uncertain effects. Unknown write outcomes remain
+unacknowledged until exact reconciliation. Leases, quota reservations and generation fences protect
+concurrent publication, eviction and retirement. `NativeProductCache::retire` drains these owners
+before deleting derived state; it does not retire a published snapshot or the embedding cache.
+No operator installation or activation was performed by this implementation.
+
+Native serving now retains optional preparation within one immutable viewer pin. Runtime and
+viewer configurations may supply `serving_limits` using the existing `ResourceLimits` fields;
+omission retains the current defaults. Moka coalesces matching preparation without combining
+request cancellation, deadlines or permissions. Optional retention yields to required work, while
+external borrowers keep their own charge and pin until release. Closing a service drains these
+owners before invalidating its reader. These are structural reuse contracts, not measured speed
+claims.
+
 ## Compile, publish and select
 
 ```sh

@@ -1280,6 +1280,15 @@ pub fn admit_event_view(
     selected: Id<NormalizedCallEvent>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    prepare_event_view(data, stored, selected, budget).map(|_| ())
+}
+/// Validate one complete event binding domain and return a new application owner.
+pub fn prepare_event_view(
+    data: &BindingDataView<'_>,
+    stored: &BindingOutputView<'_>,
+    selected: Id<NormalizedCallEvent>,
+    budget: &ResourceBudget,
+) -> Result<VerifiedBindings, ModelError> {
     need(&data.event_events, selected)?;
     if data
         .event_alternatives
@@ -1294,7 +1303,7 @@ pub fn admit_event_view(
             "binding admission grain contains another event root",
         ));
     }
-    prepare_view(data, stored, budget).map(|_| ())
+    prepare_view(data, stored, budget)
 }
 pub fn prepare(
     data: &BindingData,

@@ -403,6 +403,9 @@ pub(crate) fn sdk_error(error: surrealdb::Error) -> ModelError {
 
 pub struct NativeRows {
     stream: futures::stream::BoxStream<'static, surrealdb::Result<surrealdb::method::StreamItem>>,
+    // Declaration order matters: dropping the stream signals cancellation before the final
+    // session handle can be released. Explicit drainage retains both through completion.
+    client: Option<Arc<Surreal<Client>>>,
     statements: usize,
     ended: usize,
     exhausted: bool,
@@ -423,6 +426,7 @@ impl NativeRows {
         }
         Ok(Self {
             stream: stream.boxed(),
+            client: None,
             statements,
             ended: 0,
             exhausted: false,
@@ -431,6 +435,10 @@ impl NativeRows {
             drain_row_order_error: false,
             row_bytes: 1024 * 1024,
         })
+    }
+    pub(crate) fn with_client(mut self, client: Arc<Surreal<Client>>) -> Self {
+        self.client = Some(client);
+        self
     }
     pub(crate) fn with_row_bytes(mut self, row_bytes: usize) -> Self {
         self.row_bytes = row_bytes;

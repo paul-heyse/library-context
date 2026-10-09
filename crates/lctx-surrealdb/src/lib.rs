@@ -1,12 +1,14 @@
 //! Native operations over immutable graph snapshots on a managed remote SurrealDB server.
 mod adapter;
 pub mod cache;
+pub mod product_cache;
+pub use product_cache::{NativeProductCache, LeasedProduct};
 pub mod codec;
 pub use cache::NativeEmbeddingCache;
 pub mod config;
 pub mod prepared;
 pub mod reader;
-pub use config::RuntimeConfig;
+pub use config::{RuntimeConfig, ReuseConfig};
 pub mod acknowledged_candidates;
 pub mod batches;
 pub mod loader;

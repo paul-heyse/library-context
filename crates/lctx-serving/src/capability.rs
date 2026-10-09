@@ -6,22 +6,24 @@ use crate::{
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
-use lctx_surrealdb::{NativeReader, batches::CanonicalBatches, reader::target_id};
+use lctx_surrealdb::{NativeReader, reader::target_id};
 pub async fn get(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     id: Id<synthesis::briefs::Brief>,
     budget: &ResourceBudget,
 ) -> Result<CapabilityPacket, ModelError> {
-    let data = hydrate(reader, &[id], budget).await?;
+    let data = hydrate(reader, preparation, &[id], budget).await?;
     let data=CanonicalPrepared::new(&data,budget);
     Prepared::new(&data, budget)?.packet(id, budget)
 }
 /// Hydrate one finite union of nominated briefs, with the same canonical owned closure as get.
 pub async fn hydrate(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     ids: &[Id<synthesis::briefs::Brief>],
-    budget: &ResourceBudget,
-) -> Result<CanonicalBatches, ModelError> {
+    _budget: &ResourceBudget,
+) -> Result<crate::preparation::PreparedBatches, ModelError> {
     let inputs = CapabilityPacket::binding()
         .lowered()
         .sources
@@ -35,7 +37,7 @@ pub async fn hydrate(
         .copied()
         .map(|id| graph::target_for_row(derivation::RowRef::of(id)).map(target_id))
         .collect::<Result<Vec<_>, _>>()?;
-    crate::scope::hydrate_with(reader, roots, &inputs, &fields, budget).await
+    preparation.hydrate(reader, roots, &inputs, &inputs, &fields).await
 }
 type Index<R> = PacketRows<R>;
 fn index<R: Record>(data: &CanonicalPrepared<'_>) -> Result<Index<R>, ModelError> {
@@ -307,8 +309,16 @@ mod controls {
         };
         let native = NativeReader::new(client.clone(), handle);
         let budget = ResourceBudget::fixed(32 * 1024 * 1024).unwrap();
+        let limits=ResourceLimits::default();
+        let queries=std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+        let cpu=std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+        let cache=crate::preparation::PreparedCache::new(native.handle().clone(), &budget, &limits, queries.clone(),cpu.clone()).unwrap();
+        let admission=crate::preparation::RequestAdmission::new(queries,cpu,tokio::time::Instant::now()+std::time::Duration::from_secs(30),std::time::Duration::from_secs(1)).await.unwrap();
+        let preparation=crate::preparation::Preparation{cache:&cache,admission:&admission};
+        {
         let data = hydrate(
             &native,
+            &preparation,
             &briefs
                 .iter()
                 .map(|(brief, _)| brief.id())
@@ -317,6 +327,9 @@ mod controls {
         )
         .await
         .unwrap();
+        let repeated = hydrate(&native, &preparation, &briefs.iter().map(|(brief,_)|brief.id()).collect::<Vec<_>>(), &budget).await.unwrap();
+        assert!(data.shares_value(&repeated), "same pinned semantic closure must skip native hydration");
+        drop(repeated);
         let data=CanonicalPrepared::new(&data,&budget);
         let prepared = Prepared::new(&data, &budget).unwrap();
         for (brief, text) in &briefs {
@@ -333,6 +346,9 @@ mod controls {
         changed.documents=PacketRows::new(documents,&budget).unwrap();
         assert!(changed.packet(briefs[0].0.id(), &budget).is_err());
         assert!(changed.packet(briefs[1].0.id(), &budget).is_ok());
+        }
+        cache.close().await;
+        assert_eq!(budget.reserved(),0,"closed viewer releases preparation after all borrowers");
         client
             .query(format!("REMOVE DATABASE {db}"))
             .await

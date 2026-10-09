@@ -74,10 +74,15 @@ reuse identical values, reject same-key different payloads and freeze immutable 
 semantic boundaries. Native indexed selection and declared-field Arrow streams supply domain
 kernels; scoped preparation and spillable DataFusion remain available where their operation fits.
 Original bytes have one bounded original-chunk owner. Retained contribution dependencies and
-current/frozen bindings serve inspection and complete transport. **Accepted target, 2026-10-09:**
-selective pure-product reuse and dependency invalidation follow the graph/reuse companions;
-fresh attempt ownership, provenance and independent admission remain required. Persistent
-reuse is not yet implemented.
+current/frozen bindings serve inspection and complete transport. **Implemented / acceptance in
+progress, 2026-10-09:** selective pure products use an explicitly configured disposable native
+cache. Complete exact or freshly selected domains determine compatible entries. Typed canonical
+data and current semantic predicates precede fresh contribution ownership; portable products
+carry no private owner hints. Complete nominal topology identities separate pure value from
+fresh provenance; current SCC schedules execute once per prepared graph.
+Behavioral Local/Base/Body/SourceCall remain fresh where full semantic validation would repeat
+the production kernels and add cache overhead. The graph/reuse
+companions own qualification; no general incremental query engine or measured benefit is claimed.
 
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require
@@ -89,7 +94,7 @@ Native graph access is used during compilation; publication seals the same admit
 `lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
 records targeted functional controls; broad assembled qualification is not_run by user direction.
 
-> Decision: ADR-0139, ADR-0138, ADR-0085, ADR-0117, ADR-0105, ADR-0108
+> Decision: ADR-0140, ADR-0139, ADR-0138, ADR-0085, ADR-0117, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -725,16 +730,30 @@ The [graph compiler plan](../../plans/graph-compilation-kernels-and-hashing-plan
 owns scope-program and shared-root migration. Portable programs use canonical tagged encoding
 and BLAKE3 identity; XXH3 buckets require exact equality. Shared physical demand retains separate
 owner partitions and complete admission domains. Existing specialized kernels remain ordinary
-functions with typed selected inputs. Normalization/admission share borrowed typed union views;
+functions with typed selected inputs. Normalization/admission share borrowed typed union views. Entity normalization has explicit typed
+computational output demand, separate from nominal lookup dependencies: a supporting symbol does
+not receive a resolution unless its complete root premises were selected. Public demand preserves
+all origin-matched alternatives. This prevents root-dependent rows under the same canonical key.
+Callable admission likewise distinguishes advertised output ownership from nominal input
+reachability. Model-owned selection retains every assessment for the requested callable and
+its advertised decorators, evidence and referenced premises. Supporting callables remain input
+premises; their claims belong to their own admission. Selection never uses recomputed expected
+row IDs, so same-owner extra/missing claims and global orphan checks remain strict.
+
 C1/C2/S0/Local use charged selected copies, and SourceCall/Enriched/Model/E0 share native columns
 before private typed decoding. Complete Structural/Analytic/Summary frames retain their required
 universes. SourceCall set composition currently has a relational lowering; common scope predicates
 also have a finite graph lowering. The [assembled review](../../design_review/reviews/design_review_assembled-graph-scope-compilation_2026-10-09.md)
 accepts this inspected source boundary. The [coordinator](../../plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
-owns focused receipts and remaining qualification. This does not imply whole-graph hydration,
-persistent product reuse or measured benefit.
+owns focused receipts and remaining qualification. **Implemented / acceptance in progress,
+2026-10-09:** the reuse companion adds complete selected membership/content products and full
+nominal topology identities. SCC schedules execute afresh once per prepared graph because full
+cached-schedule validation repeats traversal and condensation ordering. A private nonserialized
+materialization identity binds the retained schedule to its exact graph without repeated hashing. An explicit
+model/runtime owner shares interned programs across attempts. This does not imply whole-graph
+hydration, general value-cutoff scheduling or measured benefit.
 
-> Decision: ADR-0139, ADR-0138
+> Decision: ADR-0140, ADR-0139, ADR-0138
 
 **Compiler projection realization (Implemented / user-accepted, 2026-10-05).**
 Typed endpoint roles and named projection policies supply structure. Independent vertex inventories

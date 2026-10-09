@@ -35,6 +35,19 @@ pub async fn validate_receivers(
     cancellation: &Cancellation,
     model: &ValidatedModel,
 ) -> Result<(), ModelError> {
+    prepare_receivers(invariant, tables, session, budget, cancellation, model, false).await.map(|_| ())
+}
+pub(super) async fn prepare_receivers(
+    invariant: &Invariant,
+    tables: Vec<ClosureTable>,
+    session: &datafusion::prelude::SessionContext,
+    budget: &resources::ResourceBudget,
+    cancellation: &Cancellation,
+    model: &ValidatedModel,
+    collect: bool,
+) -> Result<Option<receiver::VerifiedReceivers>, ModelError> {
+    let mut owner = if collect { Some(receiver::prepare_view(&receiver::ReceiverData::new(budget).view(),
+        &receiver::ReceiverOutput::new(budget).view(), budget)?) } else { None };
     let scopes = ReceiverScopes::from_tables(
         invariant.inputs.clone(),
         tables.clone(),
@@ -51,11 +64,11 @@ pub async fn validate_receivers(
             let mut stream =
                 crate::sql::query(session, &format!("SELECT id FROM {table} ORDER BY id"))
                     .await
-                    .map_err(ModelError::codec)?
+                    .map_err(crate::sql::model_error)?
                     .execute_stream()
                     .await
-                    .map_err(ModelError::codec)?;
-            while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                    .map_err(crate::sql::model_error)?;
+            while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
                 let ids = batch
                     .column(0)
                     .as_any()
@@ -97,7 +110,8 @@ pub async fn validate_receivers(
                             &stored,
                             budget,
                         )?;
-                        receiver::admit_view(&inputs.view()?, &outputs.view()?, budget)?;
+                        let prepared = receiver::prepare_view(&inputs.view()?, &outputs.view()?, budget)?;
+                        if let Some(owner) = &mut owner { owner.append(prepared)?; }
                     }
                 }
             }
@@ -105,7 +119,7 @@ pub async fn validate_receivers(
     }
     roots!(calls::CallTarget);
     roots!(receiver::ReceiverAssessment);
-    Ok(())
+    Ok(owner)
 }
 
 pub async fn validate_events(
@@ -116,6 +130,19 @@ pub async fn validate_events(
     cancellation: &Cancellation,
     model: &ValidatedModel,
 ) -> Result<(), ModelError> {
+    prepare_events(invariant, tables, session, budget, cancellation, model, false).await.map(|_| ())
+}
+pub(super) async fn prepare_events(
+    invariant: &Invariant,
+    tables: Vec<ClosureTable>,
+    session: &datafusion::prelude::SessionContext,
+    budget: &resources::ResourceBudget,
+    cancellation: &Cancellation,
+    model: &ValidatedModel,
+    collect: bool,
+) -> Result<Option<event_normalization::VerifiedEvents>, ModelError> {
+    let mut owner = if collect { Some(event_normalization::prepare_view(&event_normalization::EventData::new(budget).view(),
+        &event_normalization::EventOutput::new(budget).view(), budget)?) } else { None };
     let scopes = CallScopes::from_tables(
         invariant.inputs.clone(),
         tables.clone(),
@@ -133,8 +160,8 @@ pub async fn validate_events(
         let table = input_table::<$ty>(invariant, &tables)?;
         let sql = if $stored { format!("SELECT r.id,r.site,r.origin,r.context FROM {table} r ORDER BY r.id") }
             else { format!("SELECT r.id,r.site,r.origin,q.context FROM {table} r JOIN {qualifications} q ON q.id=r.qualification ORDER BY r.id") };
-        let mut stream = crate::sql::query(session, &sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        let mut stream = crate::sql::query(session, &sql).await.map_err(crate::sql::model_error)?.execute_stream().await.map_err(crate::sql::model_error)?;
+        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
             let binary = |column: usize| batch.column(column).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema(<$ty>::NAME));
             let ids = binary(0)?; let sites = binary(1)?; let origins = binary(2)?; let contexts = binary(3)?;
             let _window_charge=budget.reserve("event-admission-window",ids.len()*256+4096)?;
@@ -151,7 +178,8 @@ pub async fn validate_events(
                 for (partition,(_,key)) in window.iter().enumerate(){
                     let inputs=super::call_scope::EventSelection::new(&selected,partition,scopes.inputs(),&data,budget)?;
                     let outputs=super::call_scope::EventOutputSelection::new(&selected,partition,scopes.inputs(),&stored,budget)?;
-                    event_normalization::admit_event_view(&inputs.view()?,&outputs.view()?,*key,budget)?;
+                    let prepared = event_normalization::prepare_event_view(&inputs.view()?,&outputs.view()?,*key,budget)?;
+                    if let Some(owner) = &mut owner { owner.append(prepared)?; }
                 }
             }
         }
@@ -163,11 +191,11 @@ pub async fn validate_events(
     if let Ok(table) = input_table::<flow::FlowValuePathObservation>(invariant, &tables) {
         let mut stream = crate::sql::query(session, &format!("SELECT * FROM {table} ORDER BY id"))
             .await
-            .map_err(ModelError::codec)?
+            .map_err(crate::sql::model_error)?
             .execute_stream()
             .await
-            .map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+            .map_err(crate::sql::model_error)?;
+        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
             let ids = batch
                 .column_by_name("id")
                 .and_then(|c| {
@@ -221,7 +249,7 @@ pub async fn validate_events(
             }
         }
     }
-    Ok(())
+    Ok(owner)
 }
 
 pub async fn validate_bindings(
@@ -232,6 +260,19 @@ pub async fn validate_bindings(
     cancellation: &Cancellation,
     model: &ValidatedModel,
 ) -> Result<(), ModelError> {
+    prepare_bindings(invariant, tables, session, budget, cancellation, model, false).await.map(|_| ())
+}
+pub(super) async fn prepare_bindings(
+    invariant: &Invariant,
+    tables: Vec<ClosureTable>,
+    session: &datafusion::prelude::SessionContext,
+    budget: &resources::ResourceBudget,
+    cancellation: &Cancellation,
+    model: &ValidatedModel,
+    collect: bool,
+) -> Result<Option<binding_normalization::VerifiedBindings>, ModelError> {
+    let mut owner = if collect { Some(binding_normalization::prepare_view(&binding_normalization::BindingData::new(budget).view(),
+        &binding_normalization::BindingOutput::new(budget).view(), budget)?) } else { None };
     let scopes = CallScopes::from_tables(
         invariant.inputs.clone(),
         tables.clone(),
@@ -245,11 +286,11 @@ pub async fn validate_bindings(
     let table = input_table::<normalized::events::NormalizedCallEvent>(invariant, &tables)?;
     let mut stream = crate::sql::query(session, &format!("SELECT * FROM {table} ORDER BY id"))
         .await
-        .map_err(ModelError::codec)?
+        .map_err(crate::sql::model_error)?
         .execute_stream()
         .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        .map_err(crate::sql::model_error)?;
+    while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
         let ids = batch
             .column_by_name("id")
             .and_then(|c| {
@@ -293,14 +334,15 @@ pub async fn validate_bindings(
                     &stored,
                     budget,
                 )?;
-                binding_normalization::admit_event_view(
+                let prepared = binding_normalization::prepare_event_view(
                     &inputs.view()?,
                     &outputs.view()?,
                     super::callable_scope::nominal(ids.value(i))?,
                     budget,
                 )?;
+                if let Some(owner) = &mut owner { owner.append(prepared)?; }
             }
         }
     }
-    Ok(())
+    Ok(owner)
 }

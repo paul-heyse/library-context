@@ -227,9 +227,9 @@ pub fn normalize_view(
 ) -> Result<EntityOutput, ModelError> {
     let mut output = EntityOutput::new(budget);
     source_entities(input, &mut output, budget)?;
-    symbol_entities(input, &mut output, budget)?;
-    syntax_fields(input, &mut output, budget)?;
-    public_entities(input, &mut output, budget)?;
+    symbol_entities(input, &mut output, SymbolDemand::All, true, budget)?;
+    syntax_fields(input, &mut output, None, budget)?;
+    public_entities(input, &mut output, ExposureDemand::All, budget)?;
     Ok(output)
 }
 
@@ -243,27 +243,68 @@ pub enum EntityKernel {
     Enumeration,
 }
 
-pub fn normalize_scope(
-    input: EntityInputs<'_>,
-    kernel: EntityKernel,
-    budget: &ResourceBudget,
-) -> Result<EntityOutput, ModelError> {
-    normalize_scope_view(&input.view(), kernel, budget)
+/// Explicit computational roots are separate from the nominal dependency lookup domain.
+#[derive(Clone, Copy)]
+pub enum EntityDemand {
+    Symbol(Id<ProviderSymbol>),
+    SyntaxField(Id<syntax::ClassFieldSyntaxObservation>),
+    Public(Id<PublicNameObservation>),
+    Enumeration(Id<ExportEnumerationObservation>),
 }
-pub fn normalize_scope_view(
+
+#[derive(Clone, Copy)]
+enum SymbolDemand<'a> {
+    All,
+    One(Id<ProviderSymbol>),
+    Public { context: Id<attribution::AnalysisContext>, module: Id<ProviderModule>, name: &'a str },
+    None,
+}
+impl SymbolDemand<'_> {
+    fn includes(self, symbol: &ProviderSymbol) -> bool {
+        match self {
+            Self::All => true,
+            Self::One(id) => symbol.id() == id,
+            Self::Public { context, module, name } => symbol.context == context && symbol.module == module && symbol.name == name,
+            Self::None => false,
+        }
+    }
+}
+#[derive(Clone, Copy)]
+enum ExposureDemand {
+    All,
+    Public(Id<PublicNameObservation>),
+    Enumeration(Id<ExportEnumerationObservation>),
+}
+
+pub fn normalize_demand_view(
     input: &EntityDataView<'_>,
-    kernel: EntityKernel,
+    demand: &EntityDemand,
     budget: &ResourceBudget,
 ) -> Result<EntityOutput, ModelError> {
     let mut output = EntityOutput::new(budget);
-    match kernel {
-        EntityKernel::Symbol => symbol_entities(input, &mut output, budget)?,
-        EntityKernel::SyntaxField => syntax_fields(input, &mut output, budget)?,
-        EntityKernel::Enumeration => public_entities(input, &mut output, budget)?,
-        EntityKernel::Public => {
-            // The public scope carries origin-matched symbols, including ambiguous alternatives.
-            symbol_entities(input, &mut output, budget)?;
-            public_entities(input, &mut output, budget)?;
+    match *demand {
+        EntityDemand::Symbol(id) => {
+            input.symbols.get(id).ok_or_else(|| missing("requested symbol"))?;
+            symbol_entities(input, &mut output, SymbolDemand::One(id), true, budget)?;
+        }
+        EntityDemand::SyntaxField(id) => {
+            input.syntax_fields.get(id).ok_or_else(|| missing("requested syntax field"))?;
+            syntax_fields(input, &mut output, Some(id), budget)?;
+        }
+        EntityDemand::Public(id) => {
+            let public = input.public_names.get(id).ok_or_else(|| missing("requested public name"))?;
+            let origin = input.export_origins.get(public.origin).ok_or_else(|| missing("public export origin"))?;
+            let symbols = match origin {
+                ExportOrigin::Traced { module, name, .. } => SymbolDemand::Public { context: context(input, public.qualification)?, module: *module, name },
+                ExportOrigin::Untraced => SymbolDemand::None,
+            };
+            // Only correspondence is needed here; signatures and fields belong to Symbol roots.
+            symbol_entities(input, &mut output, symbols, false, budget)?;
+            public_entities(input, &mut output, ExposureDemand::Public(id), budget)?;
+        }
+        EntityDemand::Enumeration(id) => {
+            input.export_enumerations.get(id).ok_or_else(|| missing("requested export enumeration"))?;
+            public_entities(input, &mut output, ExposureDemand::Enumeration(id), budget)?;
         }
     }
     Ok(output)
@@ -341,6 +382,8 @@ fn source_entities(
 fn symbol_entities(
     input: &EntityDataView<'_>,
     output: &mut EntityOutput,
+    demand: SymbolDemand<'_>,
+    children: bool,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "symbol-correspondence-index");
@@ -366,7 +409,7 @@ fn symbol_entities(
     for row in input.class_traits.iter() {
         class_traits.update(&mut charge, row.symbol, |rows| rows.push(row))?;
     }
-    for symbol in input.symbols.iter() {
+    for symbol in input.symbols.iter().filter(|symbol| demand.includes(symbol)) {
         let mut candidates: ChargedMap<Id<EntityRef>, Vec<SymbolEntityPremise>> =
             Default::default();
         let mut established: ChargedSet<Id<EntityRef>> = Default::default();
@@ -571,8 +614,10 @@ fn symbol_entities(
             }
         }
     }
-    normalize_parameters(input, &resolved, output, budget)?;
-    for field in input.fields.iter() {
+    if !children { return Ok(()); }
+    let symbol = match demand { SymbolDemand::One(id) => Some(id), _ => None };
+    normalize_parameters(input, &resolved, output, symbol, budget)?;
+    for field in input.fields.iter().filter(|field| symbol.is_none_or(|id| field.class == id)) {
         let resolution = output
             .resolutions
             .get(
@@ -603,6 +648,7 @@ fn symbol_entities(
 fn syntax_fields(
     input: &EntityDataView<'_>,
     output: &mut EntityOutput,
+    requested: Option<Id<syntax::ClassFieldSyntaxObservation>>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "syntax-field-index");
@@ -611,7 +657,7 @@ fn syntax_fields(
     for binding in input.bindings.iter() {
         bindings.update(&mut charge, binding.site, |rows| rows.push(binding))?;
     }
-    for declaration in input.syntax_fields.iter() {
+    for declaration in input.syntax_fields.iter().filter(|row| requested.is_none_or(|id| row.id() == id)) {
         let occurrence = input
             .occurrences
             .get(declaration.class)
@@ -640,6 +686,7 @@ fn syntax_fields(
 fn public_entities(
     input: &EntityDataView<'_>,
     output: &mut EntityOutput,
+    demand: ExposureDemand,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "public-resolution-index");
@@ -647,13 +694,14 @@ fn public_entities(
     for row in output.resolutions.iter() {
         resolved.insert(&mut charge, row.symbol, row.id())?;
     }
-    normalize_exposures(input, &resolved, output, budget)
+    normalize_exposures(input, &resolved, output, demand, budget)
 }
 
 fn normalize_parameters(
     input: &EntityDataView<'_>,
     resolved: &ChargedMap<Id<ProviderSymbol>, Id<SymbolEntityResolution>>,
     output: &mut EntityOutput,
+    requested: Option<Id<ProviderSymbol>>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut charge = StateCharge::new(budget, "parameter-correspondence-index");
@@ -667,6 +715,7 @@ fn normalize_parameters(
             .signatures
             .get(parameter.signature)
             .ok_or_else(|| missing("parameter signature"))?;
+        if requested.is_some_and(|id| signature.symbol != id) { continue; }
         let resolution = output
             .resolutions
             .get(
@@ -719,12 +768,60 @@ fn normalize_parameters(
     Ok(())
 }
 
+fn normalize_enumerations(
+    input: &EntityDataView<'_>,
+    output: &mut EntityOutput,
+    demand: ExposureDemand,
+) -> Result<(), ModelError> {
+    for enumeration in input.export_enumerations.iter() {
+        if let ExposureDemand::Enumeration(id) = demand && enumeration.id() != id { continue; }
+        if let ExposureDemand::Public(id) = demand {
+            let public = input.public_names.get(id).ok_or_else(|| missing("requested public name"))?;
+            if enumeration.access != public.access { continue; }
+            let public_q = input.qualifications.get(public.qualification).ok_or_else(|| missing("public path qualification"))?;
+            let q = input.qualifications.get(enumeration.qualification).ok_or_else(|| missing("export enumeration qualification"))?;
+            if q.context != public_q.context || q.scope != public_q.scope { continue; }
+        }
+        let q = input
+            .qualifications
+            .get(enumeration.qualification)
+            .ok_or_else(|| missing("export enumeration qualification"))?;
+        let supported = input.export_enumeration_supports.iter().any(|s| {
+            s.assertion == enumeration.id()
+                && input
+                    .runs
+                    .get(s.run)
+                    .is_some_and(|r| r.context == q.context)
+                && s.fidelity == crate::domain::attribution::Fidelity::NativeStructural
+                && s.origin == crate::domain::attribution::Origin::AnalyzerAssertion
+                && s.mode == crate::domain::attribution::ExtractionMode::NativeTraversal
+        });
+        let closed = enumeration.status == ExportEnumerationStatus::Complete
+            && exact_public_qualification(q)
+            && supported;
+        output
+            .public_enumerations
+            .insert(PublicEnumerationAssessment {
+                observation: enumeration.id(),
+                access: enumeration.access,
+                context: q.context,
+                closed,
+            })?;
+    }
+    Ok(())
+}
+
 fn normalize_exposures(
     input: &EntityDataView<'_>,
     resolved: &ChargedMap<Id<ProviderSymbol>, Id<SymbolEntityResolution>>,
     output: &mut EntityOutput,
+    demand: ExposureDemand,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    if matches!(demand, ExposureDemand::Enumeration(_)) {
+        normalize_enumerations(input, output, demand)?;
+        return Ok(());
+    }
     let mut index_charge = StateCharge::new(budget, "public-origin-index");
     type OriginKey = (
         Id<crate::domain::attribution::AnalysisContext>,
@@ -779,34 +876,12 @@ fn normalize_exposures(
             rows.push(candidate.entity)
         })?;
     }
-    for enumeration in input.export_enumerations.iter() {
-        let q = input
-            .qualifications
-            .get(enumeration.qualification)
-            .ok_or_else(|| missing("export enumeration qualification"))?;
-        let supported = input.export_enumeration_supports.iter().any(|s| {
-            s.assertion == enumeration.id()
-                && input
-                    .runs
-                    .get(s.run)
-                    .is_some_and(|r| r.context == q.context)
-                && s.fidelity == crate::domain::attribution::Fidelity::NativeStructural
-                && s.origin == crate::domain::attribution::Origin::AnalyzerAssertion
-                && s.mode == crate::domain::attribution::ExtractionMode::NativeTraversal
-        });
-        let closed = enumeration.status == ExportEnumerationStatus::Complete
-            && exact_public_qualification(q)
-            && supported;
-        output
-            .public_enumerations
-            .insert(PublicEnumerationAssessment {
-                observation: enumeration.id(),
-                access: enumeration.access,
-                context: q.context,
-                closed,
-            })?;
-    }
-    for public in input.public_names.iter() {
+    normalize_enumerations(input, output, demand)?;
+    for public in input.public_names.iter().filter(|row| match demand {
+        ExposureDemand::All => true,
+        ExposureDemand::Public(id) => row.id() == id,
+        ExposureDemand::Enumeration(_) => false,
+    }) {
         let context = context(input, public.qualification)?;
         let q = input
             .qualifications

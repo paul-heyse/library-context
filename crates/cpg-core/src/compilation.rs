@@ -18,6 +18,9 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+mod reuse;
+#[cfg(test)]
+mod cache_controls;
 /// Closed executable upper routes. Metadata and runner dispatch use the same finite type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UpperStage {
@@ -44,6 +47,26 @@ pub(crate) enum UpperStage {
     CatalogFrontier,
 }
 impl UpperStage {
+    fn reuse(self, effect: Effect, profile: Profile) -> reuse::Eligibility {
+        use reuse::Eligibility::*;
+        if effect != Effect::Pure {
+            return Fresh("external effects retain their existing owner");
+        }
+        match self {
+            Self::Text | Self::CatalogCore | Self::CatalogEvidence | Self::Selection
+            | Self::Enriched | Self::Models | Self::Summary | Self::Structural
+            | Self::Analytic | Self::Synthesis | Self::Retrieval => Rows,
+            Self::Local | Self::Base | Self::Completion | Self::SourceCalls if profile == Profile::Catalog => Rows,
+            Self::Local => Fresh("Local semantic equivalence requires its complete current transfer/theory/field kernels; replay would add work"),
+            Self::Base | Self::Completion | Self::SourceCalls =>
+                Fresh("complete current private-owner validation repeats the production kernel; replay would add work"),
+            Self::Configuration | Self::Native | Self::EmbeddingConfiguration =>
+                Fresh("current configuration and admission metadata must refresh"),
+            Self::AnalysisFrontier | Self::CatalogFrontier =>
+                Fresh("frontier admission observes current completed ownership"),
+            Self::Embedding => Fresh("embedding value reuse has its own inference cache"),
+        }
+    }
     const ALL: [Self; 21] = [
         Self::Configuration,
         Self::Native,
@@ -476,6 +499,66 @@ fn completed_input_declaration(schedule: &Schedule, declaration: &Stage) -> Stag
     }
     selected
 }
+
+/// The request retains the consumer's declared selector for cache identity. Graph edges
+/// instead name the exact predecessor selected for this attempt, after checking that its
+/// immutable source is the same one retained by the producer's StageInputs.
+fn selected_product_dependencies(
+    workspace: &Workspace,
+    declaration: &Stage,
+    selected: &Stage,
+    request: &compilation_product::ProductRequest,
+) -> Result<Vec<compilation_product::DependencyToken>, ModelError> {
+    if declaration.inputs.len() != selected.inputs.len()
+        || request.dependencies.len() != declaration.inputs.len()
+    {
+        return Err(ModelError::Conflict("compiler product selected input inventory"));
+    }
+    request.dependencies.iter().map(|token| {
+        if token.kind != compilation_product::DependencyKind::ExactView {
+            return Err(ModelError::Conflict("compiler product selected input kind"));
+        }
+        let (declared, input) = declaration.inputs.iter().zip(&selected.inputs)
+            .find(|(declared, _)| declared.name() == token.relation
+                && declared.prefix().map(|prefix| prefix.name()) == token.prefix.as_deref())
+            .ok_or(ModelError::Conflict("compiler product selected input declaration"))?;
+        if declared.name() != input.name()
+            || declared.prefix().is_some_and(|prefix| Some(prefix) != input.prefix())
+        {
+            return Err(ModelError::Conflict("compiler product selected input epoch"));
+        }
+        let relation = workspace.model().relation(input.name())
+            .ok_or(ModelError::Schema("product input relation"))?;
+        let mut validation = ValidationInput::of_relation(relation, &[]);
+        if let Some(prefix) = input.prefix() { validation = validation.at_epoch(prefix); }
+        if workspace.input_relation(&validation)?.snapshot().identity() != token.identity {
+            return Err(ModelError::Conflict("compiler product selected input identity"));
+        }
+        let mut resolved = token.clone();
+        resolved.prefix = input.prefix().map(|prefix| prefix.name().to_owned());
+        Ok(resolved)
+    }).collect()
+}
+
+fn completed_product_tokens(
+    workspace: &Workspace,
+    declaration: &Stage,
+    schedule: &Schedule,
+) -> Result<Vec<compilation_product::DependencyToken>, ModelError> {
+    declaration.outputs.iter().map(|output| {
+        let prefix = output.prefix().or_else(|| is_epoch_shared(output.name()).then(|| schedule.epoch_for(declaration.name)).flatten());
+        let declared = workspace.model().relation(output.name()).ok_or(ModelError::Schema("product output relation"))?;
+        let mut input = ValidationInput::of_relation(declared, &[]);
+        if let Some(prefix) = prefix { input = input.at_epoch(prefix); }
+        let relation = workspace.input_relation(&input)?;
+        Ok(compilation_product::DependencyToken {
+            kind: compilation_product::DependencyKind::Provenance,
+            role: output.name().into(), relation: output.name().into(),
+            prefix: prefix.map(|prefix| prefix.name().to_owned()),
+            identity: relation.snapshot().identity(),
+        })
+    }).collect()
+}
 /// Freeze only completed shared descriptors, once all statically named producers for a
 /// boundary finish. Persist each exact binding before making its in-memory selector visible.
 async fn freeze_completed_inputs(
@@ -633,6 +716,7 @@ async fn compile_driver(
     let mut binding_application = None;
     let mut receiver_authority = None;
     let mut event_authority = None;
+    let mut products = reuse::DependencyGraph::new(workspace.budget())?;
     for declaration in schedule.stages() {
         let Some(normalization) = Normalization::ALL
             .into_iter()
@@ -643,6 +727,9 @@ async fn compile_driver(
         let selected = completed_input_declaration(&schedule, declaration);
         let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
         let output = workspace.producer(declaration, profile, access.clone());
+        let product = output.product_request()?;
+        products.bind_selected(&product,
+            &selected_product_dependencies(workspace, declaration, &selected, &product)?)?;
         let phase = Phase::begin(declaration.name);
         let result = async {
             match normalization {
@@ -687,6 +774,7 @@ async fn compile_driver(
             }
             completed.insert(declaration.name);
             freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
+            products.complete(declaration.name, completed_product_tokens(workspace, declaration, &schedule)?)?;
             Ok::<(), ModelError>(())
         }
         .await;
@@ -735,11 +823,31 @@ async fn compile_driver(
         let selected = completed_input_declaration(&schedule, declaration);
         let access = workspace.stage_inputs_selected(declaration, &selected, profile)?;
         let output = workspace.producer(declaration, profile, access.clone());
+        let product = output.product_request()?;
+        let graph_dependencies =
+            selected_product_dependencies(workspace, declaration, &selected, &product)?;
+        products.bind_selected(&product, &graph_dependencies)?;
         let binding = UpperStage::resolve(declaration.name)?;
         let prepared =
             prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
         let phase = Phase::begin(declaration.name);
         let result = async {
+            let eligibility = binding.reuse(declaration.effect, profile);
+            let hit = if eligibility.reason().is_none() { output.reuse_product().await? } else { None };
+            products.trace(declaration.name, hit.is_some(), eligibility.reason());
+            tracing::debug!(operation = declaration.name,
+                dependent_products = products.affected(&graph_dependencies).len(),
+                "compiler product dependency binding");
+            if let Some(outcome) = hit {
+                output.finish(outcome).await?;
+                // These owners have the same terminal lifetime on a hit as on fresh execution.
+                match binding {
+                    UpperStage::Enriched => source_calls = None,
+                    UpperStage::Models => evaluations = None,
+                    UpperStage::Summary => local = None,
+                    _ => {}
+                }
+            } else {
             if !binding.graphs(profile).is_empty()
                 && (binding != UpperStage::Analytic
                     || analytics::build::requested(prepared.settings()))
@@ -948,8 +1056,10 @@ async fn compile_driver(
                     .await?
                 }
             }
+            }
             completed.insert(declaration.name);
             freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
+            products.complete(declaration.name, completed_product_tokens(workspace, declaration, &schedule)?)?;
             Ok::<(), ModelError>(())
         }
         .await;

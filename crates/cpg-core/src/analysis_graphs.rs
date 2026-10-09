@@ -19,6 +19,7 @@ use std::{collections::BTreeSet, sync::Arc};
 struct PreparedProjection {
     assessment: ProjectionSourceAssessment,
     graph: MaterializedGraph,
+    schedule: Option<execution::summary_schedule::SccSchedule>,
 }
 
 /// Collection-owned hydrated graphs. Dropping the owner releases every graph reservation.
@@ -43,6 +44,7 @@ pub struct PreparedGraphs {
 fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
+
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
@@ -156,10 +158,17 @@ impl PreparedGraphs {
             }
             let graph =
                 crate::stage_runtime::borrowed_cpu("projection-hydration", || assembly.finish())?;
+            let schedule = if access.profile() == stages::Profile::Behavioral
+                && key.name == ProjectionName::CallableInvocation {
+                // Checking persisted components repeats both graph traversals and the
+                // condensation kernel. Retain one fresh schedule for this materialization.
+                Some(execution::summary_schedule::invocation_sccs(&graph, budget)?)
+            } else { None };
             charge.grow(size_of::<PreparedProjection>())?;
             graphs.push(PreparedProjection {
                 assessment: assessment.clone(),
                 graph,
+                schedule,
             });
         }
         graphs.sort_by_key(|p| p.graph.key());
@@ -213,6 +222,13 @@ impl PreparedGraphs {
             .ok()
             .map(|index| &self.graphs[index].assessment)
             .ok_or_else(|| invalid("projection was not prepared for this collection"))
+    }
+    pub(crate) fn schedule<'a>(&'a self, access: &CompletedInputs, runtime: &Workspace,
+        key: ProjectionKey) -> Result<&'a execution::summary_schedule::SccSchedule, ModelError> {
+        self.admit(access, runtime)?;
+        let projection = self.graphs.binary_search_by_key(&key, |projection| projection.graph.key())
+            .ok().map(|index| &self.graphs[index]).ok_or(ModelError::Conflict("selected SCC projection absent"))?;
+        projection.schedule.as_ref().ok_or(ModelError::Conflict("selected SCC schedule absent"))
     }
 }
 

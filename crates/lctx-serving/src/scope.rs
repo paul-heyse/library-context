@@ -45,7 +45,13 @@ pub async fn hydrate_with_owners(
 ) -> Result<CanonicalBatches, ModelError> {
     let program = ServingScopeProgram::new(inputs, incoming_inputs, owned_fields, budget)?;
     let prepared = lctx_surrealdb::scope::PreparedServingScope::new(program, budget)?;
-    // Preparation is request-owned, reused for every frontier. Only root values change.
+    hydrate_prepared_layout(reader, roots, &prepared, budget, None).await
+}
+
+pub(crate) async fn hydrate_prepared_layout(
+    reader: &NativeReader, roots: Vec<RecordId>, prepared: &lctx_surrealdb::scope::PreparedServingScope, budget: &ResourceBudget, cancelled: Option<&(dyn Fn()->bool + Sync)>,
+) -> Result<CanonicalBatches, ModelError> {
+    // The caller owns either request preparation or a viewer lease; roots remain values.
     let mut charge = budget.reserve("native-request-closure", roots.len().saturating_mul(384))?;
     let mut seen = BTreeSet::new();
     let mut frontier: Vec<_> = roots
@@ -53,6 +59,7 @@ pub async fn hydrate_with_owners(
         .filter(|id| seen.insert(id.clone()))
         .collect();
     while !frontier.is_empty() {
+        if cancelled.is_some_and(|cancelled|cancelled()) {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
         let next: Vec<RecordId> = reader
             .query_prepared(prepared.frontier_query(frontier)?)
             .await?;
@@ -66,6 +73,7 @@ pub async fn hydrate_with_owners(
         charge.try_resize(seen.len().saturating_mul(384))?;
         tokio::task::yield_now().await;
     }
+    if cancelled.is_some_and(|cancelled|cancelled()) {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
     prepared
         .hydrate(reader, seen.into_iter().collect(), budget)
         .await

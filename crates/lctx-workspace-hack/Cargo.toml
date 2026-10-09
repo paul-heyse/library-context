@@ -40,9 +40,11 @@ char_str = { version = "0.0.4", features = ["get-size", "serde"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "wasmbind"] }
 compact_str = { version = "0.10.0", features = ["serde"] }
 console = { version = "0.16.6", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
+crossbeam-epoch = { version = "0.9.21" }
 dashmap = { version = "6.2.1", default-features = false, features = ["rayon", "serde"] }
 digest = { version = "0.10.7", features = ["mac", "std"] }
 either = { version = "1.18.0", features = ["use_std"] }
+event-listener = { version = "5.4.2" }
 fastrand = { version = "2.5.0" }
 flatbuffers = { version = "25.12.19", features = ["serde"] }
 foldhash = { version = "0.2.0" }

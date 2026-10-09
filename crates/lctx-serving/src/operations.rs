@@ -51,16 +51,18 @@ fn extent(selected: &selection::evaluate::Selected) -> SelectionExtent {
 }
 async fn chosen(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     library: &Name,
     selector: Option<&OperationSelector>,
     selection: &selection::Selection,
     b: &ResourceBudget,
 ) -> Result<crate::selection::MemberSelection, ModelError> {
     let members = crate::selection::members(reader, Some(library), selector, b).await?;
-    crate::selection::classify(reader, &members, selection, b).await
+    crate::selection::classify_prepared(reader, &members, selection, b, preparation).await
 }
 pub async fn dispatch(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
@@ -73,19 +75,19 @@ pub async fn dispatch(
         Request::GetCapability(r) => Ok(Response::GetCapability(GetCapabilityResponse {
             delivery: Optional::default(),
             snapshot,
-            capability: crate::capability::get(reader, r.capability, b).await?,
+            capability: crate::capability::get(reader, preparation, r.capability, b).await?,
         })),
         Request::GetEvidence(r) => Ok(Response::GetEvidence(GetEvidenceResponse {
             delivery: Optional::default(),
             snapshot,
-            evidence: crate::evidence::get(reader, &r.source, request, channels, limits, b).await?,
+            evidence: crate::evidence::get(reader, preparation, &r.source, request, channels, limits, b).await?,
         })),
-        Request::InspectValuePaths(r) => crate::inspection::get(reader, r, request, limits, b)
+        Request::InspectValuePaths(r) => crate::inspection::get(reader, preparation, r, request, limits, b)
             .await
             .map(Response::InspectValuePaths),
         Request::FindOperations(r) => {
-            let domains = crate::library::resolve(reader, Some(&r.library), b).await?;
-            let data = chosen(reader, &r.library, None, &r.selection.0, b).await?;
+            let domains = crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
+            let data = chosen(reader, preparation, &r.library, None, &r.selection.0, b).await?;
             let group = |outcome, group| {
                 let values = data
                     .selected
@@ -120,10 +122,10 @@ pub async fn dispatch(
             }))
         }
         Request::CompareOperations(r) => {
-            let domains = crate::library::resolve(reader, Some(&r.library), b).await?;
+            let domains = crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
             let mut operations = Vec::new();
             for selector in &r.operations {
-                let d = chosen(reader, &r.library, Some(selector), &r.selection.0, b).await?;
+                let d = chosen(reader, preparation, &r.library, Some(selector), &r.selection.0, b).await?;
                 let candidates = d
                     .selected
                     .eligible()
@@ -147,7 +149,7 @@ pub async fn dispatch(
             }))
         }
         Request::GetOperation(r) => {
-            let domains = crate::library::resolve(reader, Some(&r.library), b).await?;
+            let domains = crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
             let members =
                 crate::selection::members(reader, Some(&r.library), Some(&r.operation), b).await?;
             let operation = match members.as_slice() {
@@ -158,16 +160,18 @@ pub async fn dispatch(
                 },
                 [member] => OperationResolution::Unique {
                     packet: crate::operation_packet::get(
-                        reader, member, &domains, r, request, limits, b,
+                        reader,
+                        preparation, member, &domains, r, request, limits, b,
                     )
                     .await?,
                 },
                 _ => {
-                    let d = crate::selection::classify(
+                    let d = crate::selection::classify_prepared(
                         reader,
                         &members,
                         &selection::Selection::default(),
                         b,
+                        preparation,
                     )
                     .await?;
                     OperationResolution::Ambiguous {
@@ -186,21 +190,21 @@ pub async fn dispatch(
                 operation,
             }))
         }
-        Request::BrowseLibrary(r) => browse(reader, r, request, b)
+        Request::BrowseLibrary(r) => browse(reader, preparation, r, request, b)
             .await
             .map(Response::BrowseLibrary),
         Request::SearchOperations(r) => {
-            search_operations(reader, r, request, channels, vector, retained, b)
+            search_operations(reader, preparation, r, request, channels, vector, retained, b)
                 .await
                 .map(Response::SearchOperations)
         }
         Request::SearchEvidence(r) => {
-            search_evidence(reader, r, request, channels, vector, retained, b)
+            search_evidence(reader, preparation, r, request, channels, vector, retained, b)
                 .await
                 .map(Response::SearchEvidence)
         }
         Request::SearchCapabilities(r) => {
-            search_capabilities(reader, r, request, channels, vector, retained, b)
+            search_capabilities(reader, preparation, r, request, channels, vector, retained, b)
                 .await
                 .map(Response::SearchCapabilities)
         }
@@ -315,6 +319,7 @@ fn fusion(
 }
 async fn search_operations(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     r: &SearchOperationsRequest,
     request: &Request,
     channels: &ChannelState,
@@ -322,9 +327,9 @@ async fn search_operations(
     retained: &crate::ranked_results::RankedResults,
     b: &ResourceBudget,
 ) -> Result<SearchOperationsResponse, ModelError> {
-    let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
+    let domains = crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
     let members = crate::selection::members(reader, r.library.0.as_ref(), None, b).await?;
-    let selected = crate::selection::classify(reader, &members, &r.selection.0, b).await?;
+    let selected = crate::selection::classify_prepared(reader, &members, &r.selection.0, b, preparation).await?;
     let pairs = selected
         .selected
         .eligible()
@@ -405,6 +410,7 @@ async fn search_operations(
 }
 async fn search_evidence(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     r: &SearchEvidenceRequest,
     request: &Request,
     channels: &ChannelState,
@@ -412,7 +418,7 @@ async fn search_evidence(
     retained: &crate::ranked_results::RankedResults,
     b: &ResourceBudget,
 ) -> Result<SearchEvidenceResponse, ModelError> {
-    let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
+    let domains = crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
     let families = if r.families.is_empty() {
         [
             retrieval::Family::ApiOptions,
@@ -436,7 +442,7 @@ async fn search_evidence(
     )
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
-    let packets = crate::evidence::hits(reader, &ranked, &domains, b).await?;
+    let packets = crate::evidence::hits(reader, preparation, &ranked, &domains, b).await?;
     if packets.len() != ranked.len() {
         return Err(ModelError::Schema("retained evidence packet count"));
     }
@@ -468,6 +474,7 @@ async fn search_evidence(
 }
 async fn search_capabilities(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     r: &SearchCapabilitiesRequest,
     request: &Request,
     channels: &ChannelState,
@@ -475,7 +482,7 @@ async fn search_capabilities(
     retained: &crate::ranked_results::RankedResults,
     b: &ResourceBudget,
 ) -> Result<SearchCapabilitiesResponse, ModelError> {
-    let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
+    let domains = crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
     let scores = scores(
         reader,
         r.query.as_str(),
@@ -549,7 +556,7 @@ async fn search_capabilities(
         .collect::<Vec<_>>();
     let mut values = Vec::new();
     for cohort in brief_ids.chunks(64) {
-        let data = crate::capability::hydrate(reader, cohort, b).await?;
+        let data = crate::capability::hydrate(reader, preparation, cohort, b).await?;
         let data=crate::records::Prepared::new(&data,b);
         let prepared = crate::capability::Prepared::new(&data, b)?;
         for brief in cohort {
@@ -590,11 +597,12 @@ async fn search_capabilities(
 }
 async fn browse(
     reader: &NativeReader,
+    preparation: &crate::preparation::Preparation<'_>,
     r: &BrowseLibraryRequest,
     request: &Request,
     b: &ResourceBudget,
 ) -> Result<BrowseLibraryResponse, ModelError> {
-    let domains = crate::library::resolve(reader, Some(&r.library), b).await?;
+    let domains = crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
     if let BrowseScope::Module { module } = r.scope {
         let modules = reader
             .records::<source::Module>(RecordSelection::Keys(vec![*module.bytes()]))
@@ -616,7 +624,7 @@ async fn browse(
             return Err(ModelError::Serving(FailureKind::Incompatible));
         }
     }
-    let d = chosen(reader, &r.library, None, &r.selection.0, b).await?;
+    let d = chosen(reader, preparation, &r.library, None, &r.selection.0, b).await?;
     let data = d.prepared.data();
     if let BrowseScope::Class { member } = r.scope {
         let admitted = data

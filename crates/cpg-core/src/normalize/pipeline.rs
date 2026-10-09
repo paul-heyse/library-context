@@ -20,6 +20,13 @@ pub(crate) enum Normalization {
     Coverage,
 }
 impl Normalization {
+    /// Row-only products may substitute under the exact completed-input contract. The
+    /// receiver/event/binding routes additionally return owner-private application state;
+    /// coverage reads current attempt availability and completed output receipts.
+    pub(crate) fn reusable_rows(self) -> bool {
+        matches!(self, Self::Entities | Self::Relations | Self::Callables
+            | Self::CallableAspects | Self::Projections)
+    }
     pub(crate) const ALL: [Self; 9] = [
         Self::Entities,
         Self::Relations,
@@ -53,6 +60,11 @@ impl Normalization {
         runtime: &Workspace,
         model: &Arc<ValidatedModel>,
     ) -> Result<(), ModelError> {
+        if self.reusable_rows()
+            && let Some(outcome) = output.reuse_product().await?
+        {
+            return output.finish(outcome).await;
+        }
         match self {
             Self::Entities => super::entities(access, output, runtime, model).await,
             Self::Relations => super::relations(access, output, runtime, model).await,

@@ -177,11 +177,15 @@ pub async fn tool(
     tool: &str,
     raw: &str,
 ) -> anyhow::Result<String> {
-    let limits = ResourceLimits::default();
+    let limits = config.serving_limits.clone().unwrap_or_default();
     lctx_model::domain::serving::decode_request(tool, raw, &limits)?;
     let reader = pin(config, path).await?;
-    let service = lctx_serving::NativeService::new(reader, limits)?;
-    Ok(service.execute(tool, raw).await?)
+    let service = lctx_serving::NativeService::new(reader.clone(), limits)?;
+    let result = service.execute(tool, raw).await;
+    service.close().await;
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.step("tool reader close",reader.client().invalidate().await.map_err(lctx_model::domain::ModelError::codec));
+    Ok(lctx_model::domain::completion::complete(result.map_err(|error|lctx_model::domain::ModelError::Cause(Box::new(error))),completion)?)
 }
 
 /// Explicitly initialize only the namespace/control database named by the runtime configuration.
@@ -196,6 +200,7 @@ pub async fn install(config: &RuntimeConfig) -> anyhow::Result<()> {
         client.query(format!("DEFINE DATABASE IF NOT EXISTS `{}` STRICT",config.cache_database.as_str())).await?.check()?;
         client.use_db(config.cache_database.as_str()).await?;
         lctx_surrealdb::NativeEmbeddingCache::install(client).await?;
+        lctx_surrealdb::NativeProductCache::install(config).await?;
         Ok(())
     })
     .await
