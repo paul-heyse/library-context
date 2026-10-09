@@ -8,6 +8,11 @@ Both reviews concluded **Revise**: keep the main direction and correct the mecha
 
 Both sets of findings are integrated below (§8).
 
+**Follow-up route, 2026-10-09:** the [Codex-focused plan](agent-effectiveness-followup-plan_2026-10-09.md)
+owns new F01–F05 and transferred AE-24. Its operator-confirmed RC01 scope replaces this plan's
+historical equal-runtime/repository-only choices for that work. This plan retains its dated
+implementation receipts and all other dispositions; scheduling a follow-up does not close them.
+
 **Execution order:**
 - P1, D5 and D7 proceed directly.
 - D6/P7 use the selective-suppression contract.
@@ -682,7 +687,7 @@ The [implementation review](../design_review/reviews/design_review_agent-workspa
 | Implementation review F01–F11 | — | **fixed** | §8 | That review |
 | AE-22 Hakari stale at HEAD | S3 | **fixed** (`71f3a4ae`) | — | Found by `just fresh` |
 | AE-23 103 committed Rust files are unformatted (mostly product work) | S3 | routed | The product owner's whole-tree `turn-end` on resumption | `just fresh rust-fmt` |
-| AE-24 `just fresh` does not cover documentation publication, and the Hakari check can rewrite a stale `Cargo.lock` | S3 | open, minor | This plan | Drill D3-after; revisit if docs drift goes unnoticed |
+| AE-24 `just fresh` does not cover documentation publication, and the Hakari check can rewrite a stale `Cargo.lock` | S3 | transferred | [Follow-up plan §8](agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner) | Original evidence: Drill D3-after; current disposition/closure remains at the linked owner |
 | AE-25 The tooling family collects `test_programmatic_native*.py`, which need serving config | S2 | routed (AE-12) | Testing architecture owner | A's P2 run |
 
 ## 10. User- and machine-level notes (not packets)

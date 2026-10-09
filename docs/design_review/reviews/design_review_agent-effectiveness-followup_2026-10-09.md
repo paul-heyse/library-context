@@ -25,9 +25,11 @@ structured receipt access, and short examples of the existing command compositio
 retrospective supports these opportunities without proving a productivity gain or a wrapper cause
 for every failed invocation.
 
-This review authorizes no implementation or configuration change. New F01–F05 findings and
-opportunities are **Deferred here** until selected for subsequent planning. The existing workspace
-and testing plans retain their original finding IDs and disposition ownership.
+This review authorizes no implementation or configuration change. Its dated assessment is retained;
+F01–F05 and selected opportunities now have their sole scheduled disposition in the
+[follow-up plan §8](../../plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner).
+That plan also receives AE-24; the existing workspace and testing plans retain their other
+finding IDs, ownership and historical receipts.
 
 ## 1. Scope, functional target and evidence boundary
 
@@ -136,7 +138,8 @@ removal checks live managed effects. These boundaries matter in the current mixe
 survive any simplification.
 
 The [workspace plan](../../plans/agent-workspace-effectiveness-plan_2026-10-07.md#9-finding-dispositions)
-owns previous findings. Its AE-24 remains open: freshness does not cover documentation publication,
+routes previous findings; AE-24's current disposition has transferred to the follow-up plan §8.
+The source defect is that freshness does not cover documentation publication,
 and Hakari can rewrite a stale lockfile. `freshness.py:101–115` detects a changed `Cargo.lock` only
 after calling Cargo, without preventing the write; it can still report `clean` with that detail.
 The read-only contract therefore remains unfulfilled. Correct the invocation or isolate its mutable
@@ -447,9 +450,9 @@ the repository ADR/owner route if the subsequently selected design changes a rea
 
 | Current obligation | Disposition owner / trigger |
 |---|---|
-| New F01–F05 | Deferred here; transfer original IDs to the selected implementation plan when authorized. Exposing the failure case reopens earlier. |
-| Native/query/semantic/receipt/help opportunities | Proposed, unscheduled here; a selected consumer/task and relevant revealing integration case reopen them. |
-| AE-24 freshness/documentation gap | Existing workspace plan §9; retain its ID, correct read-only behavior and define wanted publication observation. |
+| New F01–F05 | Transferred to [follow-up plan §8](../../plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner); original IDs and assessment retained. |
+| Native/query/semantic/receipt/help opportunities | Choices, accepted rule impacts and sole disposition at follow-up plan §4/§8; no implementation closure from scheduling. |
+| AE-24 freshness/documentation gap | Transferred through the existing workspace plan to follow-up plan §8; original ID retained. |
 | AE-12/AE-25 test coverage | Existing testing architecture owner via workspace plan; no duplicate coverage acceptance here. |
 | Product native authentication/stream/timeouts/cache equivalence | STATUS and its native-execution/persisted graph coordinators; this review supplies no closure or renewed execution authority. |
 

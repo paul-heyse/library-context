@@ -2,7 +2,7 @@
 
 **Question:** which changes to this workstation, repository commands, agent configuration and native/library tooling would make Codex more effective here, including useful abilities and concrete execution friction?
 
-**Consumer:** the [principal design review](../../reviews/design_review_agent-effectiveness-followup_2026-10-09.md). It owns the combined judgment and unscheduled findings; this folder supports it. The October 7 [workspace plan](../../../plans/agent-workspace-effectiveness-plan_2026-10-07.md) continues to own its previously scheduled work and receipts. No finding is closed or rescheduled by collecting this evidence.
+**Consumers:** the [principal design review](../../reviews/design_review_agent-effectiveness-followup_2026-10-09.md) owns the dated judgment; the [follow-up plan §8](../../../plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner) now owns scheduled F01–F05, selected recommendations and transferred AE-24. The October 7 [workspace plan](../../../plans/agent-workspace-effectiveness-plan_2026-10-07.md) retains its other work and historical receipts. Collecting this evidence establishes no closure.
 
 **Scope:** personal Linux workstation and library-context, Codex primary, limited Claude Code. The five criteria are simpler command construction, fewer environment complications, parameterized related operations, readable outcomes/recovery, and freedom to use native tools and explicit overrides. User/system-specific customization is a viable recommendation. Portability, an additional registry, mandatory discovery ritual and another gate are not goals.
 

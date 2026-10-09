@@ -12,16 +12,20 @@ NE0–NE9; source-review F01–F08 now have their sole scheduled disposition in 
 Operator RC01–RC05 acceptance is recorded individually; production decisions/corrections remain Proposed.
 The [independent target review](docs/design_review/reviews/design_review_native-execution-efficiency-plan_2026-10-09.md)
 accepts the Proposed / Interface-checked target, without new blocking findings or implementation closure.
-GK0–GK6 and GR0–GR5 are implemented in the current uncommitted tree on `d2341cc4`;
+GK0–GK6 and GR0–GR5 are committed in `2a9a3771`;
 prior GK0–GK5 foundations are committed as `da7c4747`. GK7/GR6 acceptance remains open.
-Preserve the operator's untracked hashing references. No push or operator activation requested.
+Preserve the operator's hashing references. No push or operator activation requested.
 
-**Agent-effectiveness follow-up completed, 2026-10-09:** the [independent review](docs/design_review/reviews/design_review_agent-effectiveness-followup_2026-10-09.md)
-judges **Revise** at source-inspected strength. It owns unscheduled F01–F05 and Proposed native
-diagnostic/help opportunities; earlier findings retain their [workspace-plan owner](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md#9-finding-dispositions).
-The [evidence](docs/design_review/evidence/2026-10-09_agent-effectiveness-followup/README.md) includes
-October6–9 Codex failures/corrections. Remediation, configuration changes and product controls **not_run**.
-Publication **passed:** `just docs-check`, 362 canonical pages, zero link errors (2026-10-09).
+**Agent-effectiveness plan authored, 2026-10-09:** the [follow-up plan §8](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
+owns scheduled F01–F05, selected capabilities/help and transferred AE-24; earlier receipts and
+other obligations retain their [workspace-plan owner](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md#9-finding-dispositions).
+The [independent target review](docs/design_review/reviews/design_review_agent-effectiveness-plan_2026-10-09.md)
+accepts the corrected **Proposed / scoped** target. RC01–RC04 are individually operator-confirmed;
+AF0 decisions and AF1 lifecycle corrections are next, with AF5/AF8 independently ready.
+The [source review](docs/design_review/reviews/design_review_agent-effectiveness-followup_2026-10-09.md)
+still judges implemented behavior **Revise**. Remediation, configuration and product controls **not_run**;
+this task authors the plan only. Publication **passed**, 2026-10-09: `just docs-check`,
+364 canonical pages, zero link errors; `git diff --check` passed. Product qualification is separate.
 
 **Implemented / focused Tested or source-inspected, 2026-10-09:** ADR-0140 integrates selective
 portable products with model-owned scope programs. Requests carry exact role/order/prefix,
