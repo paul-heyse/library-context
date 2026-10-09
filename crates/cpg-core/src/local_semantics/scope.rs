@@ -3,6 +3,7 @@ use crate::{
     consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
     workspace::CompletedInputs,
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{local_semantics::LocalData, *};
 use std::{any::TypeId, sync::Arc};
 pub(super) struct LocalScopes {
@@ -12,6 +13,41 @@ pub(super) struct LocalScopes {
     tables: Vec<ClosureTable>,
     _charge: charged::StateCharge,
 }
+type ScopedLoader = for<'a> fn(
+    &'a LocalScopes,
+    &'a CompletedInputs,
+    &'a PreparedClosure,
+    &'a mut LocalData,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn read_scoped<'a, R: Record>(
+    descriptor: &'a LocalScopes,
+    access: &'a CompletedInputs,
+    grain: &'a PreparedClosure,
+    data: &'a mut LocalData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        // This consumer reads every matching prefix in its original declaration order.
+        for (table, input) in descriptor
+            .inputs
+            .iter()
+            .enumerate()
+            .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
+        {
+            let permit = access.read_at::<R>(input.prefix())?;
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                input,
+                access,
+                grain.session(),
+                &grain.select(table)?,
+                |_, batch| data.visit(input.name(), batch).map(|_| ()),
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+
 impl LocalScopes {
     pub(super) async fn prepare(
         access: &CompletedInputs,
@@ -383,21 +419,25 @@ impl LocalScopes {
         roots.push((index(TypeId::of::<flow::FlowUseObservation>())?,format!("use_ IN (SELECT id FROM {uses} WHERE occurrence IN ({coordinate})) AND qualification IN ({qualified})")));
         self.edges.grain_roots(&roots, budget).await
     }
-    pub(super) async fn load(
-        &self,
-        access: &CompletedInputs,
-        grain: &PreparedClosure,
-        budget: &resources::ResourceBudget,
-    ) -> Result<LocalData, ModelError> {
-        let mut data = LocalData::new(budget);
-        macro_rules! read{($($field:ident:$ty:ty,)*)=>{$({for(table,input)in self.inputs.iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<$ty>()){
-   let permit=access.read_at::<$ty>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&grain.select(table)?,|_,batch|data.visit(input.name(),batch).map(|_|())).await?;
-  }})*};}
-        lctx_model::entry_value_inputs!(read);
-        lctx_model::local_semantic_inputs!(read);
-        lctx_model::local_theory_inputs!(read);
-        lctx_model::local_field_inputs!(read);
-        Ok(data)
+    pub(super) fn load<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        grain: &'a PreparedClosure,
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<LocalData, ModelError>> {
+        let mut loaders: Vec<ScopedLoader> = Vec::new();
+        macro_rules! adapters {($($field:ident:$ty:ty,)*) => {$(loaders.push(read_scoped::<$ty>);)*};}
+        lctx_model::entry_value_inputs!(adapters);
+        lctx_model::local_semantic_inputs!(adapters);
+        lctx_model::local_theory_inputs!(adapters);
+        lctx_model::local_field_inputs!(adapters);
+        Box::pin(async move {
+            let mut data = LocalData::new(budget);
+            for load in loaders {
+                load(self, access, grain, &mut data).await?;
+            }
+            Ok(data)
+        })
     }
 }
 #[cfg(test)]

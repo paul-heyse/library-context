@@ -4029,7 +4029,7 @@ pub fn admit_assertion(assertion: &Assertion, lookup: &impl GraphLookup) -> Resu
     Ok(())
 }
 
-pub const ARTIFACT_FORMAT_VERSION: u32 = 2;
+pub const ARTIFACT_FORMAT_VERSION: u32 = 3;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum GraphFamily {
@@ -4098,6 +4098,8 @@ impl FamilyHasher {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProducerImplementation {
+    #[serde(deserialize_with="super::producer_contract::required_optional")]
+    pub contract: Option<ContentHash>,
     pub producer: String,
     pub implementation: ContentHash,
     pub configuration: ContentHash,
@@ -4145,6 +4147,7 @@ pub struct EmbeddingConsumption {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    pub admission_contract:ContentHash,
     pub completed_state: super::completed::CompletedStateIdentity,
     pub format_version: u32,
     pub frontier: super::admission::Frontier,
@@ -4161,8 +4164,19 @@ pub struct Manifest {
     pub embeddings: Vec<EmbeddingConsumption>,
 }
 impl Manifest {
+    /// Check format authority before reconstructing the descriptor inventory.
+    pub fn decode(bytes:&[u8])->Result<Self,ModelError> {
+        #[derive(Deserialize)]
+        struct StateHeader {format_version:u32}
+        #[derive(Deserialize)]
+        struct Header {format_version:u32,completed_state:StateHeader}
+        let header:Header=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        if header.format_version!=ARTIFACT_FORMAT_VERSION || header.completed_state.format_version!=super::completed::STATE_FORMAT_VERSION {return Err(invalid("unsupported artifact/completed-state format"));}
+        let manifest:Self=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        manifest.validate()?;Ok(manifest)
+    }
     pub fn content(&self) -> ContentHash {
-        let mut sink = KeySink::new("graph-artifact/v2");
+        let mut sink = KeySink::new("graph-artifact/v3");
         sink.part(b"u32", &self.format_version.to_le_bytes());
         self.completed_state.content.encode(&mut sink);
         sink.part(b"completed-state-format_version",&self.completed_state.format_version.to_le_bytes());
@@ -4173,9 +4187,11 @@ impl Manifest {
         sink.part(b"profile", self.profile.name().as_bytes());
         self.captures.encode(&mut sink);
         self.semantic_contract.encode(&mut sink);
+        self.admission_contract.encode(&mut sink);
         self.settings.encode(&mut sink);
         sink.part(b"producers", &(self.producers.len() as u64).to_le_bytes());
         for p in &self.producers {
+            p.contract.encode(&mut sink);
             p.producer.encode(&mut sink);
             p.implementation.encode(&mut sink);
             p.configuration.encode(&mut sink);

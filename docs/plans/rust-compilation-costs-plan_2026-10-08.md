@@ -565,18 +565,11 @@ consider it only if phase/loader containment leaves material output composition 
 compare cross-flush ordering, thresholds, deduplication, poisoning, backpressure, row-byte admission
 and cancellation semantics. Arrow structural validation must not replace nominal `Batch<R>` checks.
 
-**Next consequential work:** select structural loader and publication boundaries within BC1,
-using the review's legitimate countercases and preserving separate loader/phase/output/ownership
-closure evidence. Compare parent, children and drop paths across codegen units under actual pinned
-compiler settings, then qualify affected native/runtime contracts. Exact actual-rustc hot-function
-and transformed-PHI attribution remains an investigation if it could alter the remedy or establish
-a compiler defect. Raw instruction counts cannot establish elapsed-cost priority. Whole-build and
-runtime performance remain unmeasured; BC3/BC5 and current PC acceptance remain open.
+**Remaining consequential work:** complete CU6’s native/runtime release qualification and retain the normal/harness child/drop assessment with exact source, settings and incremental-workload limits. Compiler samples do not establish transformed PHI shape or a compiler defect; exact pipeline investigation remains conditional on a material residual that could change the remedy. Whole-workspace and runtime performance remain unmeasured. BC3 installation, BC5 acceptance and current PC acceptance retain their separate owners.
 
 **Coroutine plan authoring, 2026-10-08:** the [companion target](rust-coroutine-compilation-amplification-plan_2026-10-08.md)
 now develops those boundaries and CU0–CU6. The operator selected structural first plus mandatory
-assessment/correction of confirmed named workspace recurrence. Its target remains Proposed;
-F01's scheduled closure is unchanged until implementation and actual evidence. The companion's
+assessment/correction of confirmed named workspace recurrence. Its accepted target is now implemented within CU0–CU5; F01 remains open until the coordinator’s operational obligations are met. The companion's
 §5 carries all five source-review investigations and conditional output/cardinality questions.
 
 The [independent companion target review](../design_review/reviews/design_review_rust-coroutine-compilation-amplification-plan_2026-10-08.md)
@@ -587,22 +580,12 @@ that resolved authoring disposition separately from the still-open source implem
 The review's document hashes identify the inspected target snapshot before publication/checkpoint
 links were added; those later additions do not change the reviewed target or package contracts.
 
-**Companion authoring complete, 2026-10-08:** `just docs-check` **passed** (346 canonical pages,
-zero link errors), scoped diff checks and four grouped-selector static resolutions passed.
-Static native readiness names a missing user systemd bus; no fixture/build ran. The companion
-§7 owns authoring receipts and preservation limits. Source CU work, BC3/BC5 and PC6 acceptance
-remain open; the existing actual native run was left untouched and still reports compilation.
+**Coroutine execution checkpoint, 2026-10-08:** the companion’s CU0–CU4 migrations are integrated and independently source-reviewed, including source-confirmed C0, documentary, semantic execution/normalization child loaders, local analysis and native inventory recurrence. The 24-file reviewed composite is `05664db988cac05cc6da26565a21864d4a77fc829ae07457429ca58d01938769`; no material findings. §9 remains the sole disposition owner. CU5 retains current checked/buffered `push`, with a material attributed output-cost plus preserved-contract trigger for reconsideration. The companion §7 owns detailed consumer exclusions, source identities and execution receipts.
 
-**Review execution scope:** no source correction, new build, compiler pass replay, sampling,
-test run, environment synchronization, process stop or cache cleanup. The coordinator inspected
-retained pre-optimization IR read-only; the review consumes earlier retained reproducer/sampling
-receipts. The actual native run `20261008T202337.170Z-114602` remains running, observed read-only
-at21:47UTC. Its result is pending. Documentation publication checks are recorded below separately
-from product qualification.
+**passed (2026-10-08):** final core/model all-test compile check and 13 actual focused candidate controls (run `20261008T225434.109Z-fe57d0`). The final actual-settings compiler capture `20261008T225117.998Z-e84d9b` completed normal/harness and seven integration targets, exit0 in2m51s, without changing available parallelism or profiles. Parent/child/drop assessment is complete with29 explicit match rules per product and no attributed relocated runaway; native release qualification remains open. These are bounded diagnostic/runtime receipts, not BC3 installation, F01 closure or whole-workspace speed measurements.
 
-**passed (review documents, 2026-10-08):** `just docs-check` (344 canonical pages, zero offline
-link errors) and scoped `git diff --check`. The published principal review matches the independent
-scratch SHA-256 `85423d9d0affcf557196ac58da7fa7508932530b701d92bef001e3708c053f22` exactly.
-Read-only hash comparison preserves all284 pre-existing non-owned dirty/untracked paths; no new
-non-owned Git path appeared. Product checks, source remediation and new compilation/profiling
-are **not_run** for this document/review scope.
+The prior native run `20261008T202337.170Z-114602` was cancelled with operator authorization; it produced no test verdict. First CU capture `20261008T224204.565Z-5a9f8e` completed normal codegen, then filesystem exhaustion interrupted remaining products. Raw closed evidence is retained; the operator freed storage before the replacement. Its run-local assessment distinguishes source versions, partial harness, filtered timelines and overlapping pass durations. Current native/PC acceptance consumes only matching final-source/profile receipts.
+
+**Integrated-source follow-up, 2026-10-08:** companion §7 records the64GiB/automatic-partition ordinary defaults, selected-read allocation/order and definite-conflict repairs,757 model plus17 compiler/12 store/3 codec-cancellation passing controls, and the confirmed native SDK-value conversion correction (both actual serving controls reran passed). Capture `20261009T003236.093Z-dfb25d` passed all nine products, exact readers and14 closed perf reports; normal/harness95.578s/161.839s are instrumented diagnostics with changed source/CGU workloads. Four required Behavioral stage controls still timed out at300s; the assembled release run completed with failures. CU6/BC3/BC5 and F01 remain open. No matching-source assembled acceptance, whole-build speed claim or default installation follows from the focused repairs.
+
+**Prior review/authoring receipts (2026-10-08):** document checks passed344/346 pages respectively, no link errors; independent target review accepts the revised Proposed target including explicit model application/publication. Those historical checks are not newly executed product acceptance. BC3 default installation, BC5 release qualification and PC6 remain open; release remains the active verification default.

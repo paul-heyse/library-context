@@ -9,12 +9,13 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows(){
     let config=RuntimeConfig::read(&path).unwrap();
     let store=NativeCompilerStore::begin(&config,Frontier::Facts).await.unwrap();
     let relation=Relation::of::<Package>();
-    let specification=ContributionSpec{producer:"lifecycle".into(),profile:Profile::Catalog,model:ContentHash::of(b"lifecycle-model"),implementation:ContentHash::of(b"lifecycle-code"),configuration:None,inputs:vec![],outputs:BTreeSet::from([relation.name().into()])};
+    let specification=ContributionSpec{captured_binding: None, producer:"lifecycle".into(),profile:Profile::Catalog,model:ContentHash::of(b"lifecycle-model"),implementation:ContentHash::of(b"lifecycle-code"),configuration:None,inputs:vec![],outputs:BTreeSet::from([relation.name().into()])};
     let id=store.begin_contribution(specification.clone()).await.unwrap();
     store.write_batch(&id,&relation,&Package::encode(&[Package{name:"retained".into()}]).unwrap()).await.unwrap();
     let views=store.complete_contribution(id,ProviderOutcome::Complete,std::slice::from_ref(&relation),&BTreeMap::new()).await.unwrap();
     let cold=NativeCompilerStore::from_existing(store.shared_client(),store.namespace().clone(),store.database().clone());
-    let mut registration=Box::pin(cold.scan_rows(&views[relation.name()],&relation,None,None));
+    let budget=lctx_model::domain::resources::ResourceBudget::fixed(32<<20).unwrap();
+    let mut registration=Box::pin(cold.scan_rows(&views[relation.name()],&relation,None,None,&budget));
     assert!(futures::poll!(&mut registration).is_pending(),"cold registration reaches its SDK metadata await");
     let final_owner=cold.clone();let finalization=tokio::spawn(async move{final_owner.end_writes().await});
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;

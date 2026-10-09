@@ -23,7 +23,12 @@ pub struct NativeEmbeddingCache {
 }
 impl NativeEmbeddingCache {
     pub async fn install(client: Arc<Surreal<Client>>) -> Result<Self, ModelError> {
-        client.query("DEFINE TABLE IF NOT EXISTS embedding_cache TYPE NORMAL SCHEMAFULL; DEFINE FIELD IF NOT EXISTS spec ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS input ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS definition ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS tokens ON embedding_cache TYPE int ASSERT $value >= 0; DEFINE FIELD IF NOT EXISTS bytes ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS digest ON embedding_cache TYPE string; DEFINE INDEX IF NOT EXISTS winner ON embedding_cache FIELDS spec,input UNIQUE;").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        install_with_conflict_retry(|| async {
+            let mut response = client.query("DEFINE TABLE IF NOT EXISTS embedding_cache TYPE NORMAL SCHEMAFULL; DEFINE FIELD IF NOT EXISTS spec ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS input ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS definition ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS tokens ON embedding_cache TYPE int ASSERT $value >= 0; DEFINE FIELD IF NOT EXISTS bytes ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS digest ON embedding_cache TYPE string; DEFINE INDEX IF NOT EXISTS winner ON embedding_cache FIELDS spec,input UNIQUE;").await?;
+            // A batch may contain several failures. A conflict does not authorize replay
+            // when another statement failed for an unclassified or permanent reason.
+            Ok(response.take_errors().into_values().collect())
+        }).await?;
         Ok(Self { client })
     }
     async fn read(
@@ -262,6 +267,31 @@ impl EmbeddingCache for NativeEmbeddingCache {
 // constructed at a time. The caller-supplied proposals and final trait result remain caller-sized.
 const BATCH_ROWS: usize = 128;
 const CONFLICT_ATTEMPTS: usize = 8;
+// Every install statement is IF NOT EXISTS, so a definite conflict permits reissuing
+// the whole inventory even when an earlier statement committed. Unknown acknowledgements
+// and permanent failures do not permit replay. Cancellation remains with the caller.
+async fn install_with_conflict_retry<F, Fut>(mut install: F) -> Result<(), ModelError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<surrealdb::Error>, surrealdb::Error>>,
+{
+    for _ in 0..CONFLICT_ATTEMPTS {
+        let errors = match install().await {
+            Ok(errors) => errors,
+            Err(error) => vec![error],
+        };
+        if errors.is_empty() {
+            return Ok(());
+        }
+        if let Some(error) = errors.into_iter().find(|error| !retryable_conflict(error)) {
+            return Err(ModelError::codec(error));
+        }
+    }
+    Err(ModelError::infrastructure(
+        Infrastructure::Contention,
+        "embedding cache installation conflict retry limit exhausted",
+    ))
+}
 struct Attempt<'a> {
     winners: BTreeMap<ContentHash, CacheValue>,
     missing: Vec<&'a CacheValue>,
@@ -377,6 +407,82 @@ mod tests {
             "uninitialized".into(),
             ConnectionError::Uninitialised
         )));
+    }
+    #[tokio::test]
+    async fn installation_retries_only_definite_conflicts_then_succeeds() {
+        let mut attempts = 0;
+        install_with_conflict_retry(|| {
+            attempts += 1;
+            std::future::ready(Ok(match attempts {
+                1 => vec![surrealdb::Error::query(
+                    "typed conflict".into(),
+                    QueryError::TransactionConflict,
+                )],
+                2 => vec![surrealdb::Error::query(ROCKSDB_BUSY_CONFLICT.into(), None)],
+                _ => vec![],
+            }))
+        })
+        .await
+        .unwrap();
+        assert_eq!(attempts, 3, "success terminates installation replay");
+    }
+    #[tokio::test]
+    async fn installation_does_not_retry_permanent_unknown_or_uncertain_failures() {
+        for error in [
+            surrealdb::Error::validation("bad definition".into(), None),
+            surrealdb::Error::query("unclassified transaction conflict".into(), None),
+            surrealdb::Error::internal(ROCKSDB_BUSY_CONFLICT.into()),
+            surrealdb::Error::connection("uncertain install acknowledgement".into(), None),
+        ] {
+            let expected = error.to_string();
+            let mut failure = Some(error);
+            let mut attempts = 0;
+            let result = install_with_conflict_retry(|| {
+                attempts += 1;
+                std::future::ready(Err(failure
+                    .take()
+                    .expect("nonretryable install is issued once")))
+            })
+            .await;
+            assert!(matches!(result, Err(ModelError::Codec(detail)) if detail == expected));
+            assert_eq!(attempts, 1);
+        }
+        let permanent = surrealdb::Error::validation("permanent later statement".into(), None);
+        let expected = permanent.to_string();
+        let mut failure = Some(permanent);
+        let mut attempts = 0;
+        let result = install_with_conflict_retry(|| {
+            attempts += 1;
+            std::future::ready(Ok(vec![
+                surrealdb::Error::query("typed conflict".into(), QueryError::TransactionConflict),
+                failure
+                    .take()
+                    .expect("a permanent batch failure refuses replay"),
+            ]))
+        })
+        .await;
+        assert!(matches!(result, Err(ModelError::Codec(detail)) if detail == expected));
+        assert_eq!(
+            attempts, 1,
+            "a conflict cannot conceal a permanent batch failure"
+        );
+    }
+    #[tokio::test]
+    async fn installation_reports_contention_after_the_finite_conflict_limit() {
+        let mut attempts = 0;
+        let result = install_with_conflict_retry(|| {
+            attempts += 1;
+            std::future::ready(Ok(vec![surrealdb::Error::query(
+                "typed conflict".into(),
+                QueryError::TransactionConflict,
+            )]))
+        })
+        .await;
+        assert_eq!(attempts, CONFLICT_ATTEMPTS);
+        assert!(matches!(result, Err(ModelError::Infrastructure {
+            class: Infrastructure::Contention,
+            detail,
+        }) if detail == "embedding cache installation conflict retry limit exhausted"));
     }
     #[tokio::test]
     async fn lost_acknowledgement_reconciles_actual_committed_winner_without_replay() {

@@ -1055,7 +1055,8 @@ pub fn stage(
     let mut key = KeySink::new("model-definition");
     definition.id().encode(&mut key);
     Ok(Stage {
-        name: "apply_models",
+        captured_binding: None,
+name: "apply_models",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

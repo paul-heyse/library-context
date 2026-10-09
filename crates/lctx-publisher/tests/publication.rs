@@ -209,6 +209,7 @@ async fn restored_derived_excess_is_refused(
             row.insert("out", target.clone());
             row.insert("family", 3i64);
             row.insert("unit", vec![1i64; 16]);
+            row.insert("unit_node", target.clone());
             row.insert("window", vec![2i64; 16]);
             row.insert("part", vec![5i64; 16]);
             row.insert("binding", Value::Null);

@@ -480,21 +480,35 @@ fn catalog_evidence_native_and_local_qualification_views_survive_reuse() {
         )
         .unwrap();
     assert_eq!(retrieval.facts.literals.len(), 1);
-    for inputs in [
-        catalog::evidence::build::EvidenceData::consumed_inputs(Profile::Behavioral),
-        selection::build::Data::consumed_inputs(Profile::Behavioral),
-        retrieval::build::Data::mandatory_consumed_inputs(Profile::Behavioral),
+    for (inputs, expected_views) in [
+        (
+            catalog::evidence::build::EvidenceData::consumed_inputs(Profile::Behavioral),
+            &[View::Facts, View::Local][..],
+        ),
+        (
+            // C2 consumes admitted C1 FieldLocationLink rows; it does not read Local
+            // qualifications itself, even though the shared decoder separates them.
+            selection::build::Data::consumed_inputs(Profile::Behavioral),
+            &[View::Facts][..],
+        ),
+        (
+            retrieval::build::Data::consumed_inputs(Profile::Behavioral),
+            &[View::Facts, View::Local][..],
+        ),
     ] {
         let views = inputs
             .into_iter()
             .filter(|i| i.name() == assertion::AssertionQualification::NAME)
             .map(|i| i.prefix())
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(
-            views,
-            [Some(View::Facts), Some(View::Local)].into_iter().collect()
-        );
+        assert_eq!(views, expected_views.iter().copied().map(Some).collect());
     }
+    let mandatory_views = retrieval::build::Data::mandatory_consumed_inputs(Profile::Behavioral)
+        .into_iter()
+        .filter(|input| input.name() == assertion::AssertionQualification::NAME)
+        .map(|input| input.prefix())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(mandatory_views, [Some(View::Facts)].into_iter().collect());
     assert!(
         evidence
             .visit_input(

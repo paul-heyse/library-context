@@ -1132,7 +1132,8 @@ pub fn stage(
         order,
     )?;
     Ok(Stage {
-        name: "catalog_selection",
+        captured_binding: None,
+name: "catalog_selection",
         inputs,
         outputs,
         contributes: vec![],

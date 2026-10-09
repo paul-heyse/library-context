@@ -275,6 +275,7 @@ pub fn stage(
         order,
     )?;
     Ok(Stage {
+        captured_binding: None,
         name: "synthesis",
         inputs,
         outputs,
@@ -303,12 +304,46 @@ mod tests {
                     crate::domain::ContentHash::of(b"fixture publication order"),
                     &[
                         (0, crate::domain::stages::PublicationBoundary::Facts),
-                        (1, crate::domain::stages::PublicationBoundary::Local),
-                        (2, crate::domain::stages::PublicationBoundary::Model),
-                        (3, crate::domain::stages::PublicationBoundary::Summary),
-                        (4, crate::domain::stages::PublicationBoundary::Structural),
-                        (5, crate::domain::stages::PublicationBoundary::Analytic),
-                        (6, crate::domain::stages::PublicationBoundary::Synthesis),
+                        (1, crate::domain::stages::PublicationBoundary::Dispatch),
+                        (2, crate::domain::stages::PublicationBoundary::BaseSemantic),
+                        (
+                            3,
+                            crate::domain::stages::PublicationBoundary::ExecutionModel,
+                        ),
+                        (
+                            4,
+                            crate::domain::stages::PublicationBoundary::CatalogSynthesis,
+                        ),
+                        (5, crate::domain::stages::PublicationBoundary::CatalogCore),
+                        (
+                            6,
+                            crate::domain::stages::PublicationBoundary::CatalogEvidence,
+                        ),
+                        (7, crate::domain::stages::PublicationBoundary::Local),
+                        (
+                            8,
+                            crate::domain::stages::PublicationBoundary::BaseEvaluation,
+                        ),
+                        (
+                            9,
+                            crate::domain::stages::PublicationBoundary::BaseCompletion,
+                        ),
+                        (10, crate::domain::stages::PublicationBoundary::SourceCall),
+                        (
+                            11,
+                            crate::domain::stages::PublicationBoundary::EnrichedExecution,
+                        ),
+                        (12, crate::domain::stages::PublicationBoundary::Model),
+                        (13, crate::domain::stages::PublicationBoundary::Summary),
+                        (14, crate::domain::stages::PublicationBoundary::Structural),
+                        (
+                            15,
+                            crate::domain::stages::PublicationBoundary::AnalyticEmbedding,
+                        ),
+                        (16, crate::domain::stages::PublicationBoundary::Analytic),
+                        (17, crate::domain::stages::PublicationBoundary::Selection),
+                        (18, crate::domain::stages::PublicationBoundary::Synthesis),
+                        (19, crate::domain::stages::PublicationBoundary::Retrieval),
                     ],
                 )
                 .unwrap(),

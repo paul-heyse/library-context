@@ -179,6 +179,7 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
         declared_losses: vec!["fixture declared loss".into()],
     };
     let manifest = Manifest {
+        admission_contract: ContentHash::of(b"fixture admission contract"),
         format_version: graph::ARTIFACT_FORMAT_VERSION,
         completed_state: lctx_model::domain::completed::CompletedStateIdentity {
             format_version: lctx_model::domain::completed::STATE_FORMAT_VERSION,

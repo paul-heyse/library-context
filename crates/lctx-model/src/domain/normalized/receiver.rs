@@ -882,7 +882,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         inputs.retain(|r| r.name() != flow::FlowTestLeafObservation::NAME);
     }
     stages::Stage {
-        name: "normalize_receivers",
+        captured_binding: None,
+name: "normalize_receivers",
         inputs: super::facts_stage_inputs(inputs),
         outputs: relations()
             .iter()

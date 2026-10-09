@@ -3,6 +3,7 @@ use cpg_core::artifact::VerifiedExport;
 use futures::TryStreamExt;
 use lctx_model::domain::{
     KeySink, ModelError,
+    completion::{complete,Completion,RemoteState,StorageState},
     serving::{DatabaseIdentity, Name, SnapshotHandle},
 };
 use lctx_surrealdb::surrealdb::types::{Bytes, Object, RecordId, ToSql, Value, Variables};
@@ -20,8 +21,16 @@ pub async fn publish(
         native.end_writes().await?;
         seal(&attempt,export.manifest(),config,native_definitions).await
     }.await;
-    if result.is_err() {native.fail();let drained=native.drain().await;abandon(&attempt).await?;drained?;}
-    result
+    let mut completion=Completion::default();
+    if let Err(error)=&result {
+        native.fail();
+        completion=native.drain_report().await;
+        if !error.has_committed_effect() {
+            if error.permits_storage_cleanup() {completion.step("publication abandon",native.abandon().await);}
+            else {completion.remote=RemoteState::Unknown;completion.storage.push(StorageState::Orphan(native.database().as_str().into()));}
+        }
+    }
+    complete(result,completion)
 }
 /// Ordinary compilation retains its admitted native authority; no portable self-import.
 pub async fn seal_completed(
@@ -32,7 +41,7 @@ pub async fn seal_completed(
     let attempt=PrivatePublication {loader:Loader::new(native.shared_client()),database:native.database().clone()};
     let result=async {
         let loader=&attempt.loader;
-        loader.client().query(native_definitions).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        loader.client().query(native_definitions).await.map_err(lctx_surrealdb::loader::write_failure)?.check().map_err(ModelError::codec)?;
         let mut entities=Vec::new();
         let mut assertions=Vec::new();
         let mut rows=artifact.entities().await?;
@@ -47,8 +56,16 @@ pub async fn seal_completed(
         native.end_writes().await?;
         seal(&attempt,artifact.manifest(),config,native_definitions).await
     }.await;
-    if result.is_err() {native.fail();let drained=native.drain().await;abandon(&attempt).await?;drained?;}
-    result
+    let mut completion=Completion::default();
+    if let Err(error)=&result {
+        native.fail();
+        completion=native.drain_report().await;
+        if !error.has_committed_effect() {
+            if error.permits_storage_cleanup() {completion.step("publication abandon",native.abandon().await);}
+            else {completion.remote=RemoteState::Unknown;completion.storage.push(StorageState::Orphan(native.database().as_str().into()));}
+        }
+    }
+    complete(result,completion)
 }
 
 pub(crate) struct PrivatePublication {
@@ -68,31 +85,41 @@ pub(crate) async fn begin(config: &RuntimeConfig) -> Result<PrivatePublication, 
     identity.part(b"process", &std::process::id().to_le_bytes());
     let database = format!("snapshot_{}", identity.finish().hex());
     let client = reader::authenticated(&config.endpoint, &config.root_credentials(), None).await?;
-    let version = client.version().await.map_err(ModelError::codec)?.to_string();
+    let attempt=PrivatePublication {loader:Loader::new(client),database:Name::new(database).map_err(ModelError::codec)?};
+    let mut creation_attempted=false;
+    let setup=async {
+    let version = attempt.loader.client().version().await.map_err(ModelError::codec)?.to_string();
     if !version.starts_with("3.3.") {
         return Err(ModelError::Invalid("native realization requires reviewed SurrealDB 3.3 engine".into()));
     }
-    client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`",config.namespace.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-    client.use_ns(config.namespace.as_str()).await.map_err(ModelError::codec)?;
-    client.query(format!("DEFINE DATABASE `{database}` STRICT")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-    if let Err(error)=client.use_db(database.as_str()).await {
-        let cleaned=client.query(format!("REMOVE DATABASE IF EXISTS `{database}`")).await.and_then(|response|response.check());
-        if cleaned.is_err(){return Err(ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,format!("setup left owned unselected database {database}")));}
-        return Err(ModelError::codec(error));
+    attempt.loader.client().query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`",config.namespace.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    attempt.loader.client().use_ns(config.namespace.as_str()).await.map_err(ModelError::codec)?;
+        creation_attempted=true;
+        attempt.loader.client().query(format!("DEFINE DATABASE `{}` STRICT",attempt.database.as_str())).await.map_err(lctx_surrealdb::loader::write_failure)?.check().map_err(ModelError::codec)?;
+        attempt.loader.client().use_db(attempt.database.as_str()).await.map_err(ModelError::codec)?;
+        Ok(())
+    }.await;
+    if setup.is_err() {
+        let mut completion=Completion::default();
+        if creation_attempted && setup.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()) {
+            completion.remote=RemoteState::Unknown;completion.storage.push(StorageState::Orphan(attempt.database.as_str().into()));
+            completion.step("publication setup session invalidation",attempt.loader.client().invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));
+        } else if creation_attempted {completion.step("publication setup abandon",abandon(&attempt).await);}
+        else {completion.step("publication setup session invalidation",attempt.loader.client().invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));}
+        complete(setup,completion)?;
     }
-    Ok(PrivatePublication {
-        loader: Loader::new(client),
-        database: Name::new(database).map_err(ModelError::codec)?,
-    })
+    Ok(attempt)
 }
 pub(crate) async fn abandon(attempt: &PrivatePublication)->Result<(),ModelError> {
     let result=async {attempt
         .loader
         .client()
         .query(format!("REMOVE DATABASE IF EXISTS `{}`", attempt.database.as_str()))
-        .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok::<(),ModelError>(())}.await;
-    result.map_err(|_|ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,
-        format!("cleanup left owned unselected database {}",attempt.database.as_str())))
+        .await.map_err(lctx_surrealdb::loader::write_failure)?.check().map_err(|error|ModelError::Cause(Box::new(error)))?;Ok::<(),ModelError>(())}.await;
+    let mut completion=Completion::default();
+    completion.cleanup(attempt.database.as_str(),result);
+    completion.step("publication abandon session invalidation",attempt.loader.client().invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));
+    complete(Ok(()),completion)
 }
 pub(crate) async fn seal(
     attempt: &PrivatePublication,
@@ -121,7 +148,7 @@ pub(crate) async fn seal(
             username.as_str()
         ))
         .await
-        .map_err(|_| ModelError::Invalid("native viewer definition failed".into()))?
+        .map_err(lctx_surrealdb::loader::write_failure)?
         .check()
         .map_err(|_| ModelError::Invalid("native viewer definition failed".into()))?;
     let mut marker = Object::new();
@@ -140,24 +167,24 @@ pub(crate) async fn seal(
         .query("INSERT INTO publication $marker RETURN NONE")
         .bind(bindings)
         .await
-        .map_err(ModelError::codec)?
+        .map_err(lctx_surrealdb::loader::write_failure)?
         .check()
         .map_err(ModelError::codec)?;
-    client.invalidate().await.map_err(ModelError::codec)?;
-    NativeReader::connect(
-        &config.endpoint,
-        &config.viewer_credentials(),
-        handle.clone(),
-    )
-    .await?;
-    Ok(handle)
+    // The marker is committed. Session/readback failure cannot authorize deleting it.
+    let mut completion=Completion::default();
+    completion.committed("sealed unselected database",serde_json::to_string(&handle).map_err(ModelError::codec)?);
+    completion.step("publication session invalidation",client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));
+    let readback=NativeReader::connect(
+        &config.endpoint,&config.viewer_credentials(),handle.clone(),
+    ).await.map(|_|handle);
+    complete(readback,completion)
 }
 async fn load(
     export: &VerifiedExport,
     loader: &Loader,
     native_definitions: &str,
 ) -> Result<(), ModelError> {
-    loader.client().query(native_definitions).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    loader.client().query(native_definitions).await.map_err(lctx_surrealdb::loader::write_failure)?.check().map_err(ModelError::codec)?;
     let mut entities = Vec::new();
     let mut bytes = 0;
     for row in export.entities()? {
@@ -213,17 +240,14 @@ async fn load(
             )
             .await?;
     }
-    crate::materialize_search(loader)
-        .await
-        .map_err(|error| ModelError::Invalid(format!("native search materialization: {error}")))?;
-    loader.reconcile(export.manifest()).await.map_err(|error| {
-        ModelError::Invalid(format!("canonical publication reconciliation: {error}"))
-    })
+    crate::materialize_search(loader).await?;
+    loader.reconcile(export.manifest()).await
 }
 mod search;
 pub use search::{materialize_search, reconcile_search};
 
 pub mod backup;
+mod backup_import;
 
 mod definitions;
 pub(crate) use definitions::verify_realization;

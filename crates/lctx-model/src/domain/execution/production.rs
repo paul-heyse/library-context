@@ -870,7 +870,8 @@ pub fn stage(
     let mut key = KeySink::new("base-evaluation-definition");
     definition.id().encode(&mut key);
     Ok(Stage {
-        name: "evaluate_base",
+        captured_binding: None,
+name: "evaluate_base",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

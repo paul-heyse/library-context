@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-08 · **Tier / purpose:** change / conformance · **Decision:** Revise (scoped; structure and environment guard accepted)
 
-**Subject:** the integrated development harness, range `ec278be4..95297fe5` on `main` (HEAD `95297fe5`), harness files only. Baseline update: `d9375ba4` removed verify's `NEXTEST_TEST_THREADS` halving. Per the operator, the harness must never lower test parallelism, and any cap or throttle is a defect. A search of `scripts/*.py`, `justfile` and `.config/nextest.toml` on 2026-10-08 found no remaining cap.
+**Subject:** the integrated development harness, range `ec278be4..95297fe5` on `main` (HEAD `95297fe5`), harness files only. Baseline update: `d9375ba4` restored normal test-runner scheduling. Per the operator, the harness must never lower test parallelism, and any cap or throttle is a defect. A search of `scripts/*.py`, `justfile` and `.config/nextest.toml` on 2026-10-08 found no remaining cap.
 
 **Disposition owner:** the [workspace plan](../../plans/agent-workspace-effectiveness-plan_2026-10-07.md) §9. This review creates no other ledger.
 

@@ -208,7 +208,8 @@ pub fn stage(
     let mut key = KeySink::new("analytic-source-text-v2");
     definition.id().encode(&mut key);
     Ok(Stage {
-        name: "analytic_text",
+        captured_binding: None,
+name: "analytic_text",
         inputs,
         outputs,
         contributes: vec![],

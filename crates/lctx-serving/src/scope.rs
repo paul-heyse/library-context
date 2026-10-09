@@ -94,12 +94,14 @@ pub async fn hydrate_with_owners(
         // Capture companions use finite keys computed once, not nested frontier queries
         // evaluated inside each assertion's scope predicate. Corpus membership still resolves
         // distribution inputs even when corpus rows themselves are outside the selected types.
-        let next:Vec<RecordId>=reader.query("RETURN {\
-            LET $capture_inputs = SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','catalog_members','retrieval_units'];\
-            LET $source_inputs = SELECT VALUE scope_input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','retrieval_units'];\
-            LET $corpus_keys = $source_inputs.map(|$v|'corpus_libraries|corpus|'+$v);\
-            LET $capture_corpora = SELECT id, <string>body.library AS library FROM assertion WHERE semantic_type='corpus_libraries' AND scope_keys CONTAINSANY $corpus_keys;\
-            LET $distribution_keys = array::concat($capture_inputs,$capture_corpora.map(|$c|$c.library)).map(|$v|'input_distributions|input|'+$v);\
+        let corpus_keys=lctx_surrealdb::prepared::scope_constants("'corpus_libraries'","corpus","$source_inputs");
+        let distribution_keys=lctx_surrealdb::prepared::scope_constants("'input_distributions'","input","array::concat($capture_inputs,$capture_corpora.map(|$c|$c.library))");
+        let next:Vec<RecordId>=reader.query(format!("RETURN {{\
+            LET $capture_inputs = SELECT VALUE body.input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','catalog_members','retrieval_units'];\
+            LET $source_inputs = SELECT VALUE body.input FROM entity WHERE id IN $frontier AND semantic_type IN ['source_artifacts','retrieval_units'];\
+            LET $corpus_keys = {corpus_keys};\
+            LET $capture_corpora = SELECT id, body.library AS library FROM assertion WHERE semantic_type='corpus_libraries' AND scope_keys CONTAINSANY $corpus_keys;\
+            LET $distribution_keys = {distribution_keys};\
             LET $corpus_ids = IF 'corpus_libraries' IN $types THEN $capture_corpora.map(|$c|$c.id) ELSE [] END;\
             RETURN array::distinct(array::concat(\
             (SELECT VALUE out FROM $frontier->reference WHERE out.semantic_type IN $types),\
@@ -114,7 +116,7 @@ pub async fn hydrate_with_owners(
                 (field='place' AND in.semantic_type='place_entity_links') OR\
                 (field='resolution' AND in.semantic_type='normalized_call_resolution_evidence'))),\
             (SELECT VALUE id FROM assertion WHERE semantic_type='input_distributions' AND semantic_type IN $types AND scope_keys CONTAINSANY $distribution_keys),\
-            $corpus_ids)); };",vars).await?;
+            $corpus_ids)); }};"),vars).await?;
         frontier = next
             .into_iter()
             .filter(|id| seen.insert(id.clone()))

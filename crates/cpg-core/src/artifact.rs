@@ -462,11 +462,7 @@ async fn verify_transport(
     expected: Option<&Manifest>,
 ) -> Result<VerifiedExport, ModelError> {
     let path = std::fs::canonicalize(path).map_err(ModelError::codec)?;
-    let manifest: Manifest = serde_json::from_slice(
-        &std::fs::read(path.join("manifest.json")).map_err(ModelError::codec)?,
-    )
-    .map_err(ModelError::codec)?;
-    manifest.validate()?;
+    let manifest = Manifest::decode(&std::fs::read(path.join("manifest.json")).map_err(ModelError::codec)?)?;
     if manifest.semantic_contract != semantic_contract(workspace.model()) {
         return Err(ModelError::Conflict("artifact semantic contract"));
     }
@@ -791,7 +787,7 @@ async fn readmit_detached(
 pub async fn verify_restored(runtime: &Arc<Workspace>, manifest: &Manifest) -> Result<(), ModelError> {
     let mut charge=StateCharge::new(runtime.budget(),"restored-producer-inventory");
     if crate::artifact_manifest::producer_inventory(runtime,&mut charge).await?!=manifest.producers{return Err(ModelError::Conflict("restored contribution producer inventory"));}
-    runtime.facts_availability_async(manifest.profile).await?;
+    if runtime.admitted_facts_async(manifest.profile).await?.contract!=manifest.admission_contract {return Err(ModelError::Conflict("restored facts admission contract"));}
     runtime.admit_semantics(manifest.profile).await?;
     runtime.admit_frontier(manifest.frontier, manifest.profile).await?;
     crate::artifact_manifest::verify_outcomes(runtime, manifest).await

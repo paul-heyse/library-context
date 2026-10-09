@@ -7,6 +7,7 @@ use crate::{
     workspace::CompletedInputs,
 };
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     analysis::{base_evaluation as publication, native::*},
     calls::*,
@@ -134,6 +135,58 @@ pub(super) struct BaseScopes {
     field_global: usize,
     _charge: charged::StateCharge,
 }
+type DataReader = for<'a> fn(
+    &'a CompletedInputs,
+    &'a ValidationInput,
+    &'a PreparedClosure,
+    &'a str,
+    &'a mut BaseData,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+type RecordMatcher = fn(&ValidationInput) -> bool;
+fn matches_record<R: Record>(input: &ValidationInput) -> bool {
+    input.type_id() == TypeId::of::<R>()
+}
+fn read_data<'a, R: Record>(
+    access: &'a CompletedInputs,
+    input: &'a ValidationInput,
+    scope: &'a PreparedClosure,
+    sql: &'a str,
+    data: &'a mut BaseData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let permit = access.read_at::<R>(input.prefix())?;
+        stream_query_at(&permit, input, access, scope.session(), sql, |_, batch| {
+            data.visit(input, batch)
+        })
+        .await
+    })
+}
+
+fn read_opaque_literals<'a>(
+    access: &'a CompletedInputs,
+    input: &'a ValidationInput,
+    scope: &'a PreparedClosure,
+    sql: &'a str,
+    data: &'a mut BaseData,
+    budget: &'a resources::ResourceBudget,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let permit = access.read_at::<value::Literal>(input.prefix())?;
+        let rich =
+            format!("SELECT selected.* FROM ({sql}) selected WHERE selected.kind NOT IN (3,4)");
+        stream_query_at(
+            &permit,
+            input,
+            access,
+            scope.session(),
+            &rich,
+            |_, batch| data.visit(input, batch),
+        )
+        .await?;
+        project_literals(scope.session(), sql, data, budget).await
+    })
+}
+
 impl BaseScopes {
     pub(super) async fn prepare(
         access: &CompletedInputs,
@@ -740,39 +793,47 @@ impl BaseScopes {
             )
             .await
     }
-    pub(super) async fn data(
-        &self,
-        access: &CompletedInputs,
-        scope: &PreparedClosure,
-        budget: &resources::ResourceBudget,
+    pub(super) fn data<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        scope: &'a PreparedClosure,
+        budget: &'a resources::ResourceBudget,
         opaque_literals: bool,
-    ) -> Result<BaseData, ModelError> {
-        let mut data = BaseData::new(budget);
-        for (table, input) in self.inputs.iter().enumerate() {
-            let sql = scope.select(table)?;
-            let mut loaded = false;
-            if opaque_literals && input.type_id() == TypeId::of::<value::Literal>() {
-                let permit = access.read_at::<value::Literal>(input.prefix())?;
-                let rich = format!(
-                    "SELECT selected.* FROM ({sql}) selected WHERE selected.kind NOT IN (3,4)"
-                );
-                stream_query_at(&permit, input, scope.session(), &rich, |_, batch| {
-                    data.visit(input, batch)
-                })
-                .await?;
-                project_literals(scope.session(), &sql, &mut data, budget).await?;
-                continue;
+    ) -> BoxFuture<'a, Result<BaseData, ModelError>> {
+        Box::pin(async move {
+            let mut data = BaseData::new(budget);
+            macro_rules! evaluation {($($field:ident:$ty:ty,)*) => { const EVALUATION: &[(RecordMatcher, DataReader)] = &[$((matches_record::<$ty>, read_data::<$ty>),)*]; };}
+            lctx_model::execution_evaluation_inputs!(evaluation);
+            macro_rules! entry {($($field:ident:$ty:ty,)*) => { const ENTRY: &[(RecordMatcher, DataReader)] = &[$((matches_record::<$ty>, read_data::<$ty>),)*]; };}
+            lctx_model::entry_value_inputs!(entry);
+            const RECORDS: &[(RecordMatcher, DataReader)] = &[
+                (
+                    matches_record::<EntryValueWitness>,
+                    read_data::<EntryValueWitness>,
+                ),
+                (
+                    matches_record::<EntryAccessSource>,
+                    read_data::<EntryAccessSource>,
+                ),
+            ];
+            for (table, input) in self.inputs.iter().enumerate() {
+                let sql = scope.select(table)?;
+                if opaque_literals && input.type_id() == TypeId::of::<value::Literal>() {
+                    read_opaque_literals(access, input, scope, &sql, &mut data, budget).await?;
+                    continue;
+                }
+                // The first matching decoder wins, as in the prior loaded guard. Overlap
+                // remains in the inventory; declaration order stays with self.inputs.
+                let (_, read) = EVALUATION
+                    .iter()
+                    .chain(ENTRY)
+                    .chain(RECORDS)
+                    .find(|(matches, _)| matches(input))
+                    .ok_or(ModelError::Schema("Base typed scope loader"))?;
+                read(access, input, scope, &sql, &mut data).await?;
             }
-            macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(if !loaded && input.type_id()==TypeId::of::<$ty>() {let permit=access.read_at::<$ty>(input.prefix())?;stream_query_at(&permit,input,scope.session(),&sql,|_,batch|data.visit(input,batch)).await?;loaded=true;})*};}
-            lctx_model::execution_evaluation_inputs!(read);
-            lctx_model::entry_value_inputs!(read);
-            macro_rules! records {($($ty:ty),*)=>{$(if !loaded && input.type_id()==TypeId::of::<$ty>() {let permit=access.read_at::<$ty>(input.prefix())?;stream_query_at(&permit,input,scope.session(),&sql,|_,batch|data.visit(input,batch)).await?;loaded=true;})*};}
-            records!(EntryValueWitness, EntryAccessSource);
-            if !loaded {
-                return Err(ModelError::Schema("Base typed scope loader"));
-            }
-        }
-        Ok(data)
+            Ok(data)
+        })
     }
 }
 async fn project_literals(
@@ -1060,19 +1121,37 @@ impl BaseScopes {
         Ok((reads, evaluation))
     }
 }
-pub(super) async fn write_reads(
-    output: &crate::workspace::ProducerOutput,
-    records: &ReadRecords,
-) -> Result<(), ModelError> {
-    macro_rules! write {($($field:ident),*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
-    write!(
+pub(super) fn write_reads<'a>(
+    output: &'a crate::workspace::ProducerOutput,
+    records: &'a ReadRecords,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    type Emission = for<'a> fn(
+        &'a crate::workspace::ProducerOutput,
+        &'a ReadRecords,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+    macro_rules! reads {($($field:ident),*) => {
+        $(fn $field<'a>(output: &'a crate::workspace::ProducerOutput, records: &'a ReadRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit(&records.$field, output) })*
+        const READS: &[Emission] = &[$($field,)*];
+    };}
+    reads!(
         reads,
         dependencies,
-        attributes, formals, dynamic, dynamic_premises
+        attributes,
+        formals,
+        dynamic,
+        dynamic_premises
     );
-    macro_rules! fields {($($field:ident),*)=>{$(for row in records.fields.$field.iter(){output.push(row.clone()).await?;})*};}
+    macro_rules! fields {($($field:ident),*) => {
+        $(fn $field<'a>(output: &'a crate::workspace::ProducerOutput, records: &'a ReadRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit(&records.fields.$field, output) })*
+        const FIELDS: &[Emission] = &[$($field,)*];
+    };}
     fields!(locations, assessments, globals, global_assessments);
-    Ok(())
+    Box::pin(async move {
+        for emit in READS.iter().chain(FIELDS) {
+            emit(output, records).await?;
+        }
+        Ok(())
+    })
 }
 impl BaseScopes {
     #[allow(

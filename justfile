@@ -200,7 +200,7 @@ deps:
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
-# Regenerate the executable's dependency feature union (ADR-0136; part of `turn-end`).
+# Regenerate the executable's dependency feature union (ADR-0137; part of `turn-end`).
 build-features:
     cargo hakari generate
     cargo hakari manage-deps -y

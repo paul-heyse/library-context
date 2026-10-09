@@ -260,19 +260,40 @@ impl NativeService {
     }
 }
 fn failure(error: ModelError) -> WireError {
-    let kind = match error {
-        ModelError::Serving(kind) => kind,
-        ModelError::Resource { .. } | ModelError::Limit { .. } => FailureKind::ResourceRefused,
-        ModelError::Infrastructure {
+    let kind = match error.primary() {
+        Some(ModelError::Serving(kind)) => *kind,
+        Some(ModelError::Resource { .. } | ModelError::Limit { .. }) => FailureKind::ResourceRefused,
+        Some(ModelError::Infrastructure {
             class: Infrastructure::Contract,
             ..
-        } => FailureKind::Incompatible,
-        ModelError::Schema(_)
+        }) => FailureKind::Incompatible,
+        Some(ModelError::Schema(_)
         | ModelError::Identity(_)
         | ModelError::Conflict(_)
         | ModelError::Invalid(_)
-        | ModelError::Frontier(_) => FailureKind::Corrupt,
+        | ModelError::Frontier(_)) => FailureKind::Corrupt,
         _ => FailureKind::Unavailable,
     };
     WireError::Failure(PublicFailure::new(kind))
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    use lctx_model::domain::completion::{complete,Completion};
+    #[test]
+    fn completion_failure_preserves_primary_public_category() {
+        for (primary,expected) in [
+            (ModelError::Limit{owner:"test",limit:"rows",observed:2,bound:1},FailureKind::ResourceRefused),
+            (ModelError::infrastructure(Infrastructure::Contract,"private contract detail"),FailureKind::Incompatible),
+            (ModelError::Schema("private corrupt detail"),FailureKind::Corrupt),
+        ] {
+            let mut completion=Completion::default();completion.cleanup("secret database",Err(ModelError::Codec("secret cleanup detail".into())));
+            let error=complete::<()>(Err(primary),completion).unwrap_err();
+            let WireError::Failure(public)=failure(error) else{panic!()};assert_eq!(public.kind,expected);
+        }
+        let mut completion=Completion::default();completion.step("cleanup",Err(ModelError::Schema("secret detail")));
+        let error=complete(Ok(()),completion).unwrap_err();
+        let WireError::Failure(public)=failure(error) else{panic!()};assert_eq!(public.kind,FailureKind::Unavailable);
+    }
 }

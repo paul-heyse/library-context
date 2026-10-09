@@ -151,7 +151,8 @@ fn stages_refuse_self_cycles_missing_writers_and_unknown_relations() {
         Schedule::build(
             &model,
             vec![Stage {
-                name: "cycle",
+                captured_binding: None,
+name: "cycle",
                 inputs: vec![r],
                 outputs: vec![r],
                 contributes: vec![],
@@ -168,7 +169,8 @@ fn stages_refuse_self_cycles_missing_writers_and_unknown_relations() {
     );
     assert!(Schedule::build(&model, vec![], &[r], Profile::Catalog).is_err());
     let good = Stage {
-        name: "packages",
+        captured_binding: None,
+name: "packages",
         inputs: vec![],
         outputs: vec![r],
         contributes: vec![],
@@ -460,7 +462,7 @@ fn provider_invocation_and_coverage_require_the_exact_requested_contract() {
     let expected = CoverageExpectation {
         input: artifact.input,
         scope: scope.id(),
-        provider: provider.id(),
+        provider: Some(provider.id()),
         context: context.id(),
         family: FactFamily::Syntax,
         run: Some(run.id()),
@@ -516,6 +518,7 @@ fn provider_invocation_and_coverage_require_the_exact_requested_contract() {
     assert!(check(&outcome).is_ok());
     let mut unrequested = expected.clone();
     unrequested.run = None;
+    unrequested.provider = None;
     outcome.status = CoverageStatus::NotRequested;
     outcome.provider = None;
     outcome.run = None;

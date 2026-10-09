@@ -28,7 +28,7 @@ impl Loader {
         self.install_declarations(&crate::schema::canonical_schema(),"canonical schema").await?;
         // Executable function definitions may contain semicolons and remain one checked query.
         self.client.query(native_definitions).await
-            .map_err(|error|ModelError::codec(format!("native function definitions: {error}")))?
+            .map_err(write_failure)?
             .check().map_err(|error|ModelError::codec(format!("native function definitions: {error}")))?;
         Ok(())
     }
@@ -38,7 +38,7 @@ impl Loader {
         let statements=schema.split(';').filter(|statement|!statement.trim().is_empty()).collect::<Vec<_>>();
         for (window,chunk) in statements.chunks(32).enumerate(){
             let context=|error|ModelError::codec(format!("{phase} declaration window {} (statements {}-{}): {error}",window+1,window*32+1,window*32+chunk.len()));
-            self.client.query(chunk.join(";")+";").await.map_err(&context)?
+            self.client.query(chunk.join(";")+";").await.map_err(write_failure)?
                 .check().map_err(context)?;
         }
         Ok(())
@@ -63,7 +63,7 @@ impl Loader {
             .query(sql)
             .bind(bindings)
             .await
-            .map_err(|error|ModelError::codec(format!("native bulk {table} insert: {error}")))?
+            .map_err(write_failure)?
             .check()
             .map_err(|error|ModelError::codec(format!("native bulk {table} insert: {error}")))?;
         }
@@ -247,7 +247,7 @@ fn graph_value(table:&str,id:ContentHash,content:ContentHash,kind:i64,subtype:Op
     object.insert("semantic_type",view.semantic_type.clone());object.insert("semantic_key",view.semantic_key);
     object.insert("kind",kind);object.insert("subtype",subtype.map(Value::from_t).unwrap_or(Value::Null));
     object.insert("content",content.hex());object.insert("canonical",Bytes::from(canonical));
-    crate::reconciliation::add_scope_fields(&mut object,&view.body,&view.semantic_type)?;
+    crate::reconciliation::add_scope_fields(&mut object,&view.body,&view.semantic_type,crate::schema::ScopeTable::from_name(table)?)?;
     object.insert("body",view.body);Ok(Value::Object(object))
 }
 fn entity_values(rows:&[Entity],canonical:Vec<Vec<u8>>)->Result<Vec<Value>,ModelError>{
@@ -410,4 +410,16 @@ mod tests{
         let mut windows=NativeWindows::new(vec![Value::Bytes(Bytes::from(vec![1;1025]))]);windows.limits.max_row=1024;
         assert!(matches!(windows.next().unwrap(),Err(ModelError::Limit{..})));
     }
+}
+
+/// A failed write transport does not establish a rejected statement or a committed effect.
+/// Checked response errors use their existing known-failure path instead.
+pub fn write_failure(error:surrealdb::Error)->ModelError {
+    if error.is_thrown() || error.is_query() || error.is_validation() || error.is_not_allowed()
+        || error.is_not_found() || error.is_already_exists() || error.is_configuration() {
+        return ModelError::Cause(Box::new(error));
+    }
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    completion.remote=lctx_model::domain::completion::RemoteState::Unknown;
+    lctx_model::domain::completion::complete::<()>(Err(ModelError::Cause(Box::new(error))),completion).unwrap_err()
 }

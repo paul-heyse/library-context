@@ -124,7 +124,8 @@ pub fn stage(configuration: Option<&Configuration>) -> Stage {
     let mut key = KeySink::new("embedding-configuration-v1");
     configuration.map(|c| c.service.id()).encode(&mut key);
     Stage {
-        name: "embedding_configuration",
+        captured_binding: None,
+name: "embedding_configuration",
         inputs: vec![],
         outputs: super::configuration_relations()
             .iter()

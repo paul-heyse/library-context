@@ -1,7 +1,8 @@
 //! Trusted local logical transport. Imported metadata never becomes a serving realization.
 use crate::{PrivatePublication, abandon, begin, seal};
 use lctx_model::domain::{
-    Infrastructure, ModelError,
+    ModelError,
+    completion::{complete,Completion,RemoteState,StorageState},
     graph::{Assertion, Entity, Manifest, Target, semantic_contract},
     serving::SnapshotHandle,
 };
@@ -9,15 +10,15 @@ use lctx_surrealdb::surrealdb::{
     Surreal,
     engine::remote::http::{Client, Http},
     opt::auth::Root,
-    types::{Bytes, RecordId, SurrealValue, ToSql, Variables},
+    types::{Bytes, RecordId, SurrealValue, Variables},
 };
 use lctx_surrealdb::{NativeReader, RuntimeConfig};
 use std::{
-    io::{Read, Seek, Write},
+    io::{Seek, Write},
     path::Path,
 };
 
-async fn http(config: &RuntimeConfig, database: &str) -> Result<Surreal<Client>, ModelError> {
+pub(crate) async fn http(config: &RuntimeConfig, database: &str) -> Result<Surreal<Client>, ModelError> {
     // The managed server exposes HTTP and gRPC on the same configured authority.
     let authority = config
         .endpoint
@@ -26,6 +27,7 @@ async fn http(config: &RuntimeConfig, database: &str) -> Result<Surreal<Client>,
     let client = Surreal::new::<Http>(authority)
         .await
         .map_err(ModelError::codec)?;
+    let setup=async {
     client
         .signin(Root {
             username: config.username.clone(),
@@ -38,6 +40,12 @@ async fn http(config: &RuntimeConfig, database: &str) -> Result<Surreal<Client>,
         .use_db(database)
         .await
         .map_err(ModelError::codec)?;
+        Ok::<(),ModelError>(())
+    }.await;
+    if let Err(error)=setup {
+        let mut completion=Completion::default();completion.step("restore HTTP setup session invalidation",client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));
+        return complete(Err(error),completion);
+    }
     Ok(client)
 }
 
@@ -72,7 +80,6 @@ pub async fn backup(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let staged = tempfile::NamedTempFile::new_in(parent).map_err(ModelError::codec)?;
     let client = lctx_surrealdb::reader::connect(
         &config.endpoint,
         &config.root_credentials(),
@@ -80,6 +87,10 @@ pub async fn backup(
         handle.database.database.as_str(),
     )
     .await?;
+    let staged=match tempfile::NamedTempFile::new_in(parent) {
+        Ok(staged)=>staged,
+        Err(error)=>{let mut completion=Completion::default();completion.step("backup setup session invalidation",client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));return complete(Err(ModelError::Cause(Box::new(error))),completion);}
+    };
     // Transport only canonical families, originals and their native role arcs. Derived search
     // is rebuilt on restore; its optional array fields have a 3.3 export/import DDL mismatch.
     let tables = [
@@ -119,7 +130,7 @@ pub async fn backup(
         .tables(tables)
         .await
         .map_err(ModelError::codec);
-    let drained = client.invalidate().await.map_err(ModelError::codec);
+    let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
     drop(client);
     complete_backup(staged, output, result, drained, |parent| {
         std::fs::File::open(parent)?.sync_all()
@@ -133,29 +144,33 @@ fn complete_backup(
     drained: Result<(), ModelError>,
     sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
 ) -> Result<(), ModelError> {
-    // Cleanup errors must not replace a failed export. Until persist_noclobber succeeds,
-    // the NamedTempFile owns and removes every provisional dump on any failure.
-    result?;
-    drained?;
-    staged.as_file().sync_all().map_err(ModelError::codec)?;
-    staged
-        .persist_noclobber(output)
-        .map_err(|error| ModelError::codec(error.error))?;
-    let parent = output
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    // Destination publication has committed. Never remove it or claim rollback when
-    // the directory cannot be opened/synchronized: the verified dump may already exist.
-    sync_parent(parent).map_err(|error| {
-        ModelError::infrastructure(
-            Infrastructure::Unconfirmed,
-            format!(
-                "backup destination {} was published but its durability is uncertain: parent directory synchronization failed: {error}",
-                output.display()
-            ),
-        )
-    })
+    let mut completion=Completion::default();
+    completion.step("backup export session invalidation",drained);
+    let result=complete(result,completion);
+    if result.is_err() {
+        let mut completion=Completion::default();
+        let identity=staged.path().display().to_string();
+        completion.cleanup(identity,staged.close().map_err(|error|ModelError::Cause(Box::new(error))));
+        return complete(result,completion);
+    }
+    if let Err(error)=staged.as_file().sync_all() {
+        let mut completion=Completion::default();
+        let identity=staged.path().display().to_string();
+        completion.cleanup(identity,staged.close().map_err(|error|ModelError::Cause(Box::new(error))));
+        return complete(Err(ModelError::Cause(Box::new(error))),completion);
+    }
+    if let Err(error)=staged.persist_noclobber(output) {
+        let mut completion=Completion::default();
+        let identity=error.file.path().display().to_string();
+        completion.cleanup(identity,error.file.close().map_err(|error|ModelError::Cause(Box::new(error))));
+        return complete(Err(ModelError::Cause(Box::new(error.error))),completion);
+    }
+    let parent=output.parent().filter(|p|!p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut completion=Completion::default();
+    completion.committed("published backup",output.display().to_string());
+    let result=sync_parent(parent).map_err(|error|ModelError::Cause(Box::new(error)));
+    if result.is_err() {completion.remote=RemoteState::Unknown;}
+    complete(result,completion)
 }
 
 /// Import a trusted current-format local dump privately, then copy canonical graph, exact completed state and
@@ -166,39 +181,26 @@ pub async fn restore(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let staging = begin(config).await?;
-    let imported = import(config, input, &staging).await.map_err(|error| restore_phase("staging admission",error));
-    let result = match imported {
-        Err(error) => Err(error),
-        Ok(manifest) => {
-            let fresh = match begin(config).await {
-                Ok(fresh) => fresh,
-                Err(error) => {
-                    return cleanup_result(Err(error),abandon(&staging).await);
-                }
-            };
-            match copy(config, &staging, &fresh, &manifest, native_definitions).await.map_err(|error| restore_phase("canonical copy",error)) {
-                Err(error) => {
-                    cleanup_result(Err(error), abandon(&fresh).await)
-                }
-                Ok(()) => match seal(&fresh, &manifest, config, native_definitions).await {
-                    Ok(handle) => Ok(handle),
-                    Err(error) => {
-                        let error=restore_phase("final sealing",error);
-                        cleanup_result(Err(error), abandon(&fresh).await)
-                    }
-                },
-            }
+    let result=async {
+        let manifest=import(config,input,&staging).await.map_err(|error|restore_phase("staging admission",error))?;
+        let fresh=begin(config).await?;
+        let result=async {
+            copy(config,&staging,&fresh,&manifest,native_definitions).await.map_err(|error|restore_phase("canonical copy",error))?;
+            seal(&fresh,&manifest,config,native_definitions).await.map_err(|error|restore_phase("final sealing",error))
+        }.await;
+        let mut completion=Completion::default();
+        if let Err(error)=&result && !error.has_committed_effect() {
+            if error.permits_storage_cleanup() {completion.step("fresh realization abandon",abandon(&fresh).await);}
+            else {completion.storage.push(StorageState::Orphan(fresh.database.as_str().into()));}
         }
-    };
-    cleanup_result(result, abandon(&staging).await)
-}
-
-fn cleanup_result<T>(result:Result<T,ModelError>,cleanup:Result<(),ModelError>)->Result<T,ModelError>{
-    match (result,cleanup){
-        (result,Ok(()))=>result,
-        (Ok(_),Err(cleanup))=>Err(cleanup),
-        (Err(primary),Err(cleanup))=>Err(ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,format!("restore failed: {primary}; {cleanup}"))),
-    }
+        complete(result,completion)
+    }.await;
+    let mut completion=Completion::default();
+    if let Ok(handle)=&result {completion.committed("sealed unselected database",serde_json::to_string(handle).map_err(ModelError::codec)?);}
+    if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup) {
+        completion.step("restore staging abandon",abandon(&staging).await);
+    } else {completion.storage.push(StorageState::Orphan(staging.database.as_str().into()));}
+    complete(result,completion)
 }
 
 fn restore_phase(phase:&'static str,error:ModelError)->ModelError {
@@ -218,10 +220,11 @@ async fn import(
 ) -> Result<Manifest, ModelError> {
     let client = http(config, staging.database.as_str()).await?;
     let imported = import_units(&client, input).await;
-    let drained = client.invalidate().await.map_err(ModelError::codec);
+    let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
     drop(client);
-    imported?;
-    drained?;
+    let mut completion=Completion::default();
+    completion.step("restore import session invalidation",drained);
+    complete(imported,completion)?;
     let reader = NativeReader::private(staging.loader.shared_client());
     let bytes: Vec<Bytes> = reader
         .query(
@@ -229,13 +232,12 @@ async fn import(
             Variables::new(),
         )
         .await?;
-    let manifest: Manifest = serde_json::from_slice(
+    let manifest = Manifest::decode(
         bytes
             .first()
             .filter(|_| bytes.len() == 1)
             .ok_or(ModelError::Schema("logical dump publication manifest"))?,
-    )
-    .map_err(ModelError::codec)?;
+    )?;
     manifest.validate()?;
     if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
         return Err(ModelError::Conflict("restore semantic contract"));
@@ -246,138 +248,8 @@ async fn import(
     Ok(manifest)
 }
 
-const IMPORT_PREFIX: &str = "OPTION IMPORT;\n";
-
-/// The pinned parser owns lexical boundaries, including semicolons inside literals and blocks.
-/// Only the unfinished statement and (when present) one complete transaction are retained.
-struct ImportUnits<R> {
-    input: R,
-    parser: surrealdb_syn::parser::StatementStream,
-    buffer: bytes::BytesMut,
-    eof: bool,
-    initial_import: bool,
-    transaction: Vec<surrealdb_sql::TopLevelExpr>,
-    transaction_bytes: usize,
-    max_bytes: usize,
-}
-
-impl<R: Read> ImportUnits<R> {
-    fn new(input: R, max_bytes: usize) -> Self {
-        Self {
-            input,
-            parser: surrealdb_syn::parser::StatementStream::new(),
-            buffer: bytes::BytesMut::new(),
-            eof: false,
-            initial_import: false,
-            transaction: Vec::new(),
-            transaction_bytes: 0,
-            max_bytes,
-        }
-    }
-
-    fn limit(&self, limit: &'static str, observed: usize) -> ModelError {
-        ModelError::Limit { owner: "restore-import", limit, observed, bound: self.max_bytes }
-    }
-
-    fn statement(&mut self) -> Result<Option<(surrealdb_sql::TopLevelExpr, usize)>, ModelError> {
-        loop {
-            let before = self.buffer.len();
-            let statement = if self.eof {
-                self.parser.parse_complete(&mut self.buffer)
-            } else {
-                self.parser.parse_partial(&mut self.buffer)
-            }.map_err(|error| ModelError::codec(format!("restore dump parse: {error}")))?;
-            if let Some(statement) = statement {
-                return Ok(Some((statement, before - self.buffer.len())));
-            }
-            if self.eof { return Ok(None); }
-            let remaining = self.max_bytes.saturating_sub(self.buffer.len());
-            if remaining == 0 { return Err(self.limit("statement bytes", self.buffer.len() + 1)); }
-            // StatementStream reparses incomplete input. Grow geometrically up to the shared
-            // transfer window instead of reparsing a large statement after every tiny read.
-            let amount = self.buffer.len().max(65536)
-                .min(lctx_model::domain::resources::TRANSFER_BYTES).min(remaining);
-            let mut window = [0u8; 65536];
-            let mut added = 0;
-            while added < amount {
-                let count = self.input.read(&mut window[..(amount - added).min(65536)])
-                    .map_err(ModelError::codec)?;
-                if count == 0 { self.eof = true; break; }
-                self.buffer.extend_from_slice(&window[..count]);
-                added += count;
-            }
-        }
-    }
-
-    fn next_request(&mut self) -> Result<Option<String>, ModelError> {
-        use surrealdb_sql::{Ast, TopLevelExpr};
-        loop {
-            let Some((statement, bytes)) = self.statement()? else {
-                if !self.initial_import { return Err(ModelError::Schema("dump initial OPTION IMPORT")); }
-                if !self.transaction.is_empty() { return Err(ModelError::Schema("dump incomplete transaction")); }
-                return Ok(None);
-            };
-            if !self.initial_import {
-                if !matches!(&statement, TopLevelExpr::Option(option)
-                    if option.name.as_str() == "IMPORT" && option.what) {
-                    return Err(ModelError::Schema("dump initial OPTION IMPORT"));
-                }
-                self.initial_import = true;
-                continue;
-            }
-            // Request-local modes cannot be silently lost or changed across requests.
-            if matches!(&statement, TopLevelExpr::Option(_)) {
-                return Err(ModelError::Schema("dump duplicate or noninitial import option"));
-            }
-            match &statement {
-                TopLevelExpr::Begin if !self.transaction.is_empty() =>
-                    return Err(ModelError::Schema("dump nested transaction")),
-                TopLevelExpr::Commit | TopLevelExpr::Cancel if self.transaction.is_empty() =>
-                    return Err(ModelError::Schema("dump transaction end without BEGIN")),
-                _ => {}
-            }
-            if !self.transaction.is_empty() || matches!(&statement, TopLevelExpr::Begin) {
-                self.transaction_bytes = self.transaction_bytes.saturating_add(bytes);
-                if self.transaction_bytes > self.max_bytes {
-                    return Err(self.limit("transaction bytes", self.transaction_bytes));
-                }
-                if self.transaction.len() >= lctx_model::domain::resources::TRANSFER_ROWS {
-                    return Err(ModelError::Limit { owner: "restore-import", limit: "transaction statements",
-                        observed: self.transaction.len() + 1, bound: lctx_model::domain::resources::TRANSFER_ROWS });
-                }
-                let terminal = matches!(&statement, TopLevelExpr::Commit | TopLevelExpr::Cancel);
-                self.transaction.push(statement);
-                if !terminal { continue; }
-            } else {
-                self.transaction.push(statement);
-            }
-            let mut units = Ast { expressions: std::mem::take(&mut self.transaction) }.into_execution_units();
-            self.transaction_bytes = 0;
-            if units.len() != 1 { return Err(ModelError::Schema("dump ordered execution unit")); }
-            let unit = units.pop().ok_or(ModelError::Schema("dump empty execution unit"))?;
-            let request = format!("{IMPORT_PREFIX}{}\n", unit.to_sql());
-            if request.len() > self.max_bytes { return Err(self.limit("request bytes", request.len())); }
-            return Ok(Some(request));
-        }
-    }
-}
-
 async fn import_units(client: &Surreal<Client>, input: &Path) -> Result<(), ModelError> {
-    let mut units = ImportUnits::new(std::fs::File::open(input).map_err(ModelError::codec)?,
-        lctx_model::domain::resources::MAX_ROW_BYTES);
-    let mut request = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
-    while let Some(sql) = units.next_request()? {
-        request.as_file_mut().set_len(0).map_err(ModelError::codec)?;
-        request.rewind().map_err(ModelError::codec)?;
-        request.write_all(sql.as_bytes()).map_err(ModelError::codec)?;
-        request.flush().map_err(ModelError::codec)?;
-        drop(sql);
-        // The HTTP SDK consumes terminal completion and every statement error before the next
-        // unit starts. Do not use /sql, which has different import execution semantics.
-        client.import(request.path()).await
-            .map_err(|error| ModelError::codec(format!("restore HTTP dump import: {error}")))?;
-    }
-    Ok(())
+    crate::backup_import::import(client, input).await
 }
 
 async fn copy(
@@ -389,15 +261,17 @@ async fn copy(
 ) -> Result<(), ModelError> {
     fresh.loader.install(native_definitions).await?;
     let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(fresh.loader.shared_client(),config.namespace.clone(),fresh.database.clone());
-    native.install_state_schema().await?;
-    let runtime = cpg_core::workspace::Workspace::new(
-        std::sync::Arc::new(lctx_model::domain::model()?),
-        cpg_core::workspace::WorkspaceOptions::default(),
-        native.clone(),
-    )?;
+    let setup=async {
+        native.install_state_schema().await?;
+        cpg_core::workspace::Workspace::new(
+            std::sync::Arc::new(lctx_model::domain::model()?),
+            cpg_core::workspace::WorkspaceOptions::default(),native.clone(),
+        )
+    }.await;
+    let runtime=match setup {Ok(runtime)=>runtime,Err(error)=>{native.fail();return complete(Err(error),native.drain_report().await);}};
+    let source_state=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(staging.loader.shared_client(),config.namespace.clone(),staging.database.clone());
     let result=async {
     let state=tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
-    let source_state=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(staging.loader.shared_client(),config.namespace.clone(),staging.database.clone());
     if source_state.export_state(state.path()).await.map_err(|error|restore_phase("completed-state export",error))? != manifest.completed_state {return Err(ModelError::Conflict("restore source state"));}
 
     // Two passes: materialize every endpoint before constructing native role/reference arcs.
@@ -486,9 +360,10 @@ async fn copy(
     crate::materialize_search(&fresh.loader).await.map_err(|error|restore_phase("search reconstruction",error))?;
     fresh.loader.reconcile(manifest).await.map_err(|error|restore_phase("final graph reconciliation",error))
     }.await;
-    let drained=runtime.drain().await;
-    if result.is_err() || drained.is_err(){native.fail();}else{native.end_writes().await?;}
-    cleanup_result(result,drained)
+    let mut completion=runtime.drain_report().await;
+    completion.step("restore source native drain",complete(Ok(()),source_state.drain_report().await));
+    if result.is_err() || !completion.failures.is_empty(){native.fail();}else{completion.step("restore native end writes",native.end_writes().await);}
+    complete(result,completion)
 }
 
 async fn page<T: serde::de::DeserializeOwned>(
@@ -575,7 +450,7 @@ pub async fn retire(
         .map_err(ModelError::codec)?
         .check()
         .map_err(ModelError::codec)?;
-    client.invalidate().await.map_err(ModelError::codec)?;
+    client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)))?;
     Ok(())
 }
 
@@ -588,70 +463,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn restore_import_units_preserve_language_and_transaction_boundaries() {
-        // Chunked input and a literal crossing the parser's first read window exercise partial
-        // parsing. The library must own semicolons inside strings and function bodies.
-        struct Chunks<'a>(&'a [u8]);
-        impl Read for Chunks<'_> {
-            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-                let count = out.len().min(7).min(self.0.len());
-                out[..count].copy_from_slice(&self.0[..count]);
-                self.0 = &self.0[count..];
-                Ok(count)
-            }
-        }
-        let dump = format!("-- canonical dump\nOPTION IMPORT;\n\
-            DEFINE TABLE example SCHEMALESS;\n\
-            DEFINE FUNCTION fn::sentinel() {{ LET $x = '{}é;still literal'; RETURN $x; }};\n\
-            BEGIN TRANSACTION;\n\
-            INSERT INTO example [{{ id: example:a, text: 'value;with;semicolons' }}];\n\
-            COMMIT TRANSACTION;\n\
-            BEGIN; INSERT INTO example [{{ id: example:b }}]; CANCEL;\n\
-            DEFINE TABLE final SCHEMALESS; -- terminal comment", "x".repeat(65536));
-        let mut units = ImportUnits::new(Chunks(dump.as_bytes()), 128 * 1024);
-        let mut requests = Vec::new();
-        while let Some(request) = units.next_request().unwrap() { requests.push(request); }
-        assert_eq!(requests.len(), 5);
-        assert!(requests.iter().all(|sql| sql.starts_with(IMPORT_PREFIX)));
-        assert!(requests[0].contains("DEFINE TABLE example"));
-        assert!(requests[1].contains("é;still literal"));
-        assert!(requests[1].contains("RETURN $x"));
-        assert!(requests[2].contains("BEGIN;") && requests[2].contains("COMMIT;"));
-        assert!(requests[2].contains("value;with;semicolons"));
-        assert!(requests[3].contains("BEGIN;") && requests[3].contains("CANCEL;"));
-        assert!(requests[4].contains("DEFINE TABLE final"));
-    }
-
-    #[test]
-    fn restore_import_units_refuse_bad_tails_modes_and_oversized_transactions() {
-        for dump in [
-            "", "DEFINE TABLE example SCHEMALESS;", "OPTION IMPORT = FALSE;",
-            "OPTION IMPORT; OPTION IMPORT;", "OPTION IMPORT; OPTION IMPORT = FALSE;",
-            "OPTION IMPORT; BEGIN; INSERT INTO example [{id: example:a}];",
-            "OPTION IMPORT; BEGIN; BEGIN; COMMIT;",
-            "OPTION IMPORT; COMMIT;", "OPTION IMPORT; CANCEL;",
-            "OPTION IMPORT; INSERT INTO example [{id: example:a, text: 'truncated",
-            "OPTION IMPORT; DEFINE TABLE ok SCHEMALESS; INSERT INTO example [{ broken: }];",
-        ] {
-            let mut units = ImportUnits::new(dump.as_bytes(), 4096);
-            let result = (|| { while units.next_request()?.is_some() {} Ok::<_, ModelError>(()) })();
-            assert!(result.is_err(), "accepted bad dump: {dump}");
-        }
-        let dump = format!("OPTION IMPORT; BEGIN; {} COMMIT;", "RETURN 'padding';".repeat(40));
-        let mut units = ImportUnits::new(dump.as_bytes(), 256);
-        assert!(matches!(units.next_request(), Err(ModelError::Limit { .. })));
-        let dump = format!("OPTION IMPORT; RETURN '{}';", "x".repeat(300));
-        let mut units = ImportUnits::new(dump.as_bytes(), 256);
-        assert!(matches!(units.next_request(), Err(ModelError::Limit { .. })));
-        let primary = ModelError::Codec("terminal import failure".into());
-        let failure: Result<(), _> = cleanup_result(Err(primary), Ok(()));
-        assert!(matches!(failure, Err(ModelError::Codec(detail)) if detail == "terminal import failure"));
-        let failure: Result<(), _> = cleanup_result(
-            Err(ModelError::Codec("terminal import failure".into())),
-            Err(ModelError::Codec("cleanup failure".into())),
-        );
-        assert!(matches!(failure, Err(ModelError::Infrastructure { detail, .. })
-            if detail.contains("terminal import failure") && detail.contains("cleanup failure")));
+    fn restore_primary_and_cleanup_errors_are_structured() {
+        let mut completion=Completion::default();
+        completion.cleanup("staging",Err(ModelError::Codec("cleanup failure".into())));
+        let error=complete::<()>(Err(ModelError::Schema("terminal import failure")),completion).unwrap_err();
+        assert!(matches!(error.primary(),Some(ModelError::Schema("terminal import failure"))));
+        let ModelError::Completion(outcome)=error else{panic!()};
+        assert!(matches!(&outcome.completion.failures[0].error,ModelError::Codec(detail) if detail=="cleanup failure"));
     }
 
     #[tokio::test]
@@ -767,7 +585,7 @@ mod tests {
         .unwrap()
         .map_err(ModelError::codec);
         assert!(result.is_err(), "actual SDK destination write must fail");
-        let drained = client.invalidate().await.map_err(ModelError::codec);
+        let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
         drop(client);
         assert!(
             complete_backup(staged, &output, result, drained, |_| panic!(
@@ -806,7 +624,7 @@ mod tests {
         .await
         .unwrap()
         .map_err(ModelError::codec);
-        let drained = client.invalidate().await.map_err(ModelError::codec);
+        let drained = client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error)));
         drop(client);
         complete_backup(staged, &output, result, drained, |parent| {
             std::fs::File::open(parent)?.sync_all()
@@ -836,7 +654,7 @@ mod tests {
             |_| panic!("failed export must not publish or sync directory"),
         )
         .unwrap_err();
-        assert!(matches!(error, ModelError::Codec(message) if message == "late export failure"));
+        assert!(matches!(error.primary(), Some(ModelError::Codec(message)) if message == "late export failure"));
         assert!(!output.exists());
         assert!(!provisional.exists());
     }
@@ -904,10 +722,11 @@ mod tests {
             Err(std::io::Error::other("injected directory sync failure"))
         })
         .unwrap_err();
-        assert!(matches!(error, ModelError::Infrastructure {
-            class: Infrastructure::Unconfirmed,
-            detail,
-        } if detail.contains("was published") && detail.contains("durability is uncertain")));
+        assert!(error.has_committed_effect());
+        assert!(matches!(error.primary(),Some(ModelError::Cause(_))));
+        let ModelError::Completion(outcome)=error else {panic!()};
+        assert_eq!(outcome.completion.remote,RemoteState::Unknown);
+        assert_eq!(outcome.completion.committed[0].identity,output.display().to_string());
         assert_eq!(
             std::fs::read(&output).unwrap(),
             b"-- partial streamed dump\n"

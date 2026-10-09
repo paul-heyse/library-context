@@ -1,6 +1,6 @@
 //! Compact canonical topology admission and one derived snapshot body at a time.
 use crate::{
-    consumed_rows::{ClosureTable, identifier},
+    consumed_rows::{ClosureTable, identifier, stream_batches},
     workspace::Cancellation,
 };
 use futures::TryStreamExt;
@@ -45,23 +45,22 @@ fn predicate(key: ProjectionKey) -> String {
     )
 }
 async fn read<R: Record>(
+    invariant: &Invariant,
     session: &datafusion::prelude::SessionContext,
     sql: &str,
     rows: &mut Rows<R>,
     cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let mut stream = crate::sql::query(session, sql)
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+    let input = invariant.inputs.iter()
+        .find(|input| input.type_id() == TypeId::of::<R>() && input.name() == R::NAME)
+        .ok_or(ModelError::Schema(R::NAME))?;
+    let mut visit = |batch: &arrow_array::RecordBatch| {
         cancellation.check()?;
-        rows.decode(&batch)?;
-    }
-    Ok(())
+        rows.decode(batch)
+    };
+    stream_batches(input, session, sql, None, &mut visit).await
 }
+
 async fn selected(
     invariant: &Invariant,
     tables: &[ClosureTable],
@@ -75,17 +74,18 @@ async fn selected(
     let gaps = table::<ProjectionGap>(invariant, tables)?;
     let where_key = predicate(key);
     read(
+        invariant,
         session,
         &format!("SELECT a.* FROM {assessments} a WHERE {where_key} ORDER BY a.id"),
         &mut stored.assessments,
         cancellation,
     )
     .await?;
-    read(session,&format!("SELECT g.* FROM {gaps} g JOIN {assessments} a ON a.id=g.assessment WHERE {where_key} ORDER BY g.id"),&mut stored.gaps,cancellation).await?;
+    read(invariant,session,&format!("SELECT g.* FROM {gaps} g JOIN {assessments} a ON a.id=g.assessment WHERE {where_key} ORDER BY g.id"),&mut stored.gaps,cancellation).await?;
     let subjects = table::<ProjectionGapSubject>(invariant, tables)?;
-    read(session,&format!("SELECT s.* FROM {subjects} s JOIN {gaps} g ON g.subject=s.id JOIN {assessments} a ON a.id=g.assessment WHERE {where_key} ORDER BY s.id"),&mut stored.subjects,cancellation).await?;
+    read(invariant,session,&format!("SELECT s.* FROM {subjects} s JOIN {gaps} g ON g.subject=s.id JOIN {assessments} a ON a.id=g.assessment WHERE {where_key} ORDER BY s.id"),&mut stored.subjects,cancellation).await?;
     let coverage = table::<ProjectionSourceCoverage>(invariant, tables)?;
-    read(session,&format!("SELECT c.* FROM {coverage} c JOIN {assessments} a ON a.id=c.assessment WHERE {where_key} ORDER BY c.id"),&mut stored.coverage,cancellation).await?;
+    read(invariant,session,&format!("SELECT c.* FROM {coverage} c JOIN {assessments} a ON a.id=c.assessment WHERE {where_key} ORDER BY c.id"),&mut stored.coverage,cancellation).await?;
     Ok(stored)
 }
 pub async fn validate_projections(
@@ -120,16 +120,11 @@ pub async fn validate_projections(
             "SELECT {columns} FROM {} ORDER BY id",
             identifier(&tables[index].alias)
         );
-        let mut stream = crate::sql::query(session, &sql)
-            .await
-            .map_err(ModelError::codec)?
-            .execute_stream()
-            .await
-            .map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        let mut visit = |batch: &arrow_array::RecordBatch| {
             cancellation.check()?;
-            data.visit(input.name(), &batch)?;
-        }
+            data.visit(input.name(), batch).map(|_| ())
+        };
+        stream_batches(input, session, &sql, None, &mut visit).await?;
     }
     let prepared = data.prepare(budget)?;
     let assessments = table::<ProjectionSourceAssessment>(invariant, &tables)?;
@@ -221,7 +216,7 @@ pub async fn validate_projections(
                     "SELECT h.* FROM {headers} h JOIN {assessments} a ON a.id=h.assessment WHERE {} ORDER BY h.id",
                     predicate(key)
                 );
-                read(session, &sql, &mut selected_headers, cancellation).await?;
+                read(invariant,session, &sql, &mut selected_headers, cancellation).await?;
                 if selected_headers.len() != 1 {
                     return Err(ModelError::Invalid(
                         "projection snapshot domain differs".into(),

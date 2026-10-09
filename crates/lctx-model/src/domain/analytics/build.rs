@@ -895,7 +895,8 @@ pub fn stage(
         definition(settings, method)?.1.id().encode(&mut key);
     }
     Ok(Stage {
-        name: "analyze_analytic",
+        captured_binding: None,
+name: "analyze_analytic",
         inputs,
         outputs,
         contributes: vec![],

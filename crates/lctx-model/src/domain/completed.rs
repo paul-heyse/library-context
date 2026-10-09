@@ -11,6 +11,8 @@ pub struct TypedRowKey { pub relation: String, pub key: [u8; 16] }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContributionSpec {
+    #[serde(deserialize_with="super::producer_contract::required_optional")]
+    pub captured_binding: Option<super::producer_contract::CapturedProducerBinding>,
     pub producer: String,
     pub profile: Profile,
     pub model: ContentHash,
@@ -24,7 +26,9 @@ impl ContributionSpec {
         if self.producer.is_empty() { return Err(ModelError::Invalid("empty contribution producer".into())); }
         let mut input_ids = self.inputs.iter().map(SourceSnapshot::identity).collect::<Vec<_>>();
         input_ids.sort(); input_ids.dedup();
-        let mut sink = KeySink::new("compiler-contribution-spec/v1");
+        let mut sink = KeySink::new("compiler-contribution-spec/v2");
+        self.captured_binding.as_ref().map(|binding|binding.identity()).transpose()?.encode(&mut sink);
+        if self.captured_binding.as_ref().is_some_and(|binding|self.configuration!=Some(binding.producer_settings)) {return Err(ModelError::Conflict("captured producer settings"));}
         self.producer.encode(&mut sink); self.profile.name().to_string().encode(&mut sink);
         self.model.encode(&mut sink); self.implementation.encode(&mut sink);
         self.configuration.encode(&mut sink); input_ids.encode(&mut sink);
@@ -94,7 +98,19 @@ pub struct DependencySelection {
     pub keys: Option<BTreeSet<TypedRowKey>>,
 }
 
-pub const STATE_FORMAT_VERSION: u32 = 1;
+pub const STATE_FORMAT_VERSION: u32 = 2;
+/// The first transport record is format authority, never a descriptor or state row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompletedStateHeader {pub format_version:u32}
+impl CompletedStateHeader {
+    pub fn current()->Self {Self{format_version:STATE_FORMAT_VERSION}}
+    pub fn decode(bytes:&[u8])->Result<Self,ModelError> {
+        let header:Self=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        if header.format_version!=STATE_FORMAT_VERSION {return Err(ModelError::Invalid("unsupported completed-state transport format".into()));}
+        Ok(header)
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CompletedStateIdentity {

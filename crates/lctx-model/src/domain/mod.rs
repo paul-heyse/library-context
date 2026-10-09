@@ -17,6 +17,7 @@ pub mod charged;
 pub mod class_metadata;
 pub mod composition;
 pub mod completed;
+pub mod completion;
 pub mod conditions;
 pub mod declarations;
 pub mod deployment;
@@ -44,6 +45,7 @@ pub mod occurrence_owner;
 pub(crate) mod ownership;
 pub mod place_composition;
 pub mod projection;
+pub mod producer_contract;
 pub mod protocols;
 pub(crate) mod record;
 pub mod resources;
@@ -75,6 +77,13 @@ pub use record::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {
+    #[error(transparent)]
+    Completion(#[from] Box<completion::OperationFailure>),
+    #[error(transparent)]
+    SharedCause(std::sync::Arc<ModelError>),
+    /// Preserve an existing orchestration error without flattening its typed cause chain.
+    #[error(transparent)]
+    Cause(Box<dyn std::error::Error + Send + Sync>),
     /// A recognized consumer cause. Its public meaning never contains internal error text.
     #[error("{0}")]
     Serving(serving::FailureKind),

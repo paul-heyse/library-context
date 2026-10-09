@@ -44,22 +44,19 @@ fn invalid(message: &str) -> ModelError {
     ModelError::Invalid(message.into())
 }
 async fn load<R: Record>(
+    access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
     rows: &mut Rows<R>,
     predicate: datafusion::logical_expr::Expr,
 ) -> Result<(), ModelError> {
-    let mut stream = crate::sql::query(session, &format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?
-        .filter(predicate)
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        rows.decode(&batch)?;
-    }
-    Ok(())
+    let declaration = ValidationInput::of::<R>(&[]);
+    let permit = access.read_at::<R>(declaration.prefix())?;
+    let table = access.table_for(&declaration)?;
+    let selected = format!("SELECT * FROM {}", crate::consumed_rows::identifier(&table));
+    crate::consumed_rows::stream_query_filter_at(
+        &permit, &declaration, access, session, &selected, Some(predicate),
+        |_, batch| rows.decode(batch),
+    ).await
 }
 
 fn id_literal<R>(id: Id<R>) -> datafusion::logical_expr::Expr {
@@ -97,7 +94,7 @@ impl PreparedGraphs {
         let predicate =
             col("projection").in_list(names.iter().map(|name| lit(*name as i16)).collect(), false);
         let mut assessments = Rows::<ProjectionSourceAssessment>::new(budget);
-        load(&session, &mut assessments, predicate).await?;
+        load(access, &session, &mut assessments, predicate).await?;
         let mut charge = StateCharge::new(budget, "prepared-analysis-graphs");
         charge.grow(size_of::<Self>())?;
         let mut graphs: Vec<PreparedProjection> = Vec::new();
@@ -118,6 +115,7 @@ impl PreparedGraphs {
             // entire collection and can crowd out the next graph's legitimate allocation.
             let mut headers = Rows::<ProjectionSnapshot>::new(budget);
             load(
+                access,
                 &session,
                 &mut headers,
                 col("assessment").eq(id_literal(assessment.id())),
@@ -268,13 +266,13 @@ mod scoped_loading_controls {
             .unwrap();
         let budget = resources::ResourceBudget::fixed(16 << 10).unwrap();
         let mut decoded = Rows::new(&budget);
-        load(
-            &session,
-            &mut decoded,
-            col("snapshot").eq(id_literal(selected.id())),
-        )
-        .await
-        .unwrap();
+        let declaration = ValidationInput::of::<ProjectionSnapshotChunk>(&[]);
+        let selected_sql = format!("SELECT * FROM {}", crate::consumed_rows::identifier(ProjectionSnapshotChunk::NAME));
+        let mut visit = |batch: &arrow_array::RecordBatch| decoded.decode(batch);
+        crate::consumed_rows::stream_batches(
+            &declaration, &session, &selected_sql,
+            Some(col("snapshot").eq(id_literal(selected.id()))), &mut visit,
+        ).await.unwrap();
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded.get(row.id()), Some(&row));
     }

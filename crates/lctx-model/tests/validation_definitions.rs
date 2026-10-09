@@ -76,6 +76,7 @@ fn budget() -> ResourceBudget {
 }
 fn stage(inputs: Vec<RelationUse>) -> Stage {
     Stage {
+        captured_binding: None,
         name: "read_validation",
         inputs,
         outputs: vec![],
@@ -306,13 +307,15 @@ fn revision_identity_input_order_and_kind_are_explicit_and_conflicts_refuse() {
 fn canonical_model_and_shared_source_call_requirements_execute_one_actual_replay() {
     let model = model()
         .expect("every production relation reference resolves to a complete canonical definition");
-    for references in [
+    assert_eq!(
         SourceCallHeader::invariant_refs(),
+        vec!["source_call_replay", "execution_header_fidelity"]
+    );
+    assert_eq!(
         SourceInvocation::invariant_refs(),
-        SourceCallRun::invariant_refs(),
-    ] {
-        assert_eq!(references, vec!["source_call_replay"]);
-    }
+        vec!["source_call_replay", "execution_invocation_fidelity"]
+    );
+    assert_eq!(SourceCallRun::invariant_refs(), vec!["source_call_replay"]);
     let requirements = stage(vec![
         RelationUse::completed::<SourceCallHeader>(),
         RelationUse::completed::<SourceInvocation>(),
@@ -320,10 +323,26 @@ fn canonical_model_and_shared_source_call_requirements_execute_one_actual_replay
     ])
     .read_invariants(&model)
     .unwrap();
-    assert_eq!(requirements.len(), 1);
-    assert_eq!(requirements[0].name, "source_call_replay");
+    assert_eq!(
+        requirements
+            .iter()
+            .map(|requirement| requirement.name)
+            .collect::<std::collections::BTreeSet<_>>(),
+        [
+            "source_call_replay",
+            "execution_header_fidelity",
+            "execution_invocation_fidelity"
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(requirements.len(), 3);
+    let replay = requirements
+        .iter()
+        .find(|requirement| requirement.name == "source_call_replay")
+        .unwrap();
     let count = Arc::new(AtomicUsize::new(0));
-    let mut definition = requirements[0].clone();
+    let mut definition = (*replay).clone();
     let original = definition.create.clone();
     let executions = count.clone();
     definition.create = Arc::new(move |budget| {
@@ -476,12 +495,20 @@ fn lower_scope_derivation_is_required_and_exactly_scoped_and_cycles_refuse() {
 
 #[test]
 fn source_snapshot_wire_is_auditable_metadata_and_rejects_unknown_fields() {
-    let wire = serde_json::json!({ "relation": Premise::NAME, "producer": "control", "model": ContentHash::of(b"model"), "implementation": ContentHash::of(b"implementation"), "content": ContentHash::of(b"content"), "rows": 0 });
+    let wire = serde_json::json!({ "relation": Premise::NAME, "producer": "control", "model": ContentHash::of(b"model"), "implementation": ContentHash::of(b"implementation"), "view": ContentHash::of(b"completed view"), "rows": 0 });
     let snapshot: analysis::sources::SourceSnapshot = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(snapshot.relation(), Premise::NAME);
     assert_eq!(snapshot.rows(), 0);
     assert_eq!(snapshot.producer(), "control");
     assert_eq!(serde_json::to_value(&snapshot).unwrap(), wire);
+    assert_eq!(snapshot.view(), ContentHash::of(b"completed view"));
+    let mut old_content = wire.clone();
+    let old_view = old_content.as_object_mut().unwrap().remove("view").unwrap();
+    old_content
+        .as_object_mut()
+        .unwrap()
+        .insert("content".into(), old_view);
+    assert!(serde_json::from_value::<analysis::sources::SourceSnapshot>(old_content).is_err());
     let mut malformed = wire;
     malformed
         .as_object_mut()

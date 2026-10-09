@@ -1595,7 +1595,8 @@ pub fn stage(
     let mut key = KeySink::new("source-call-definition");
     definition.id().encode(&mut key);
     Ok(Stage {
-        name: "prepare_source_calls",
+        captured_binding: None,
+name: "prepare_source_calls",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

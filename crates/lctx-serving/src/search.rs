@@ -15,6 +15,21 @@ fn binding(value: impl Serialize) -> Result<Value, ModelError> {
     lctx_surrealdb::loader::json_value(serde_json::to_value(value).map_err(ModelError::codec)?)
 }
 
+/// The eligibility policy is applied before each channel's candidate cap.
+#[derive(Clone, Copy)]
+pub enum UnitScope {
+    All,
+    BriefOrigins,
+}
+impl UnitScope {
+    fn bind(self, vars: &mut Variables) {
+        vars.insert("brief_origins", matches!(self, Self::BriefOrigins));
+    }
+}
+// unit_node is the writer-derived real graph pointer, independently reconciled with the unit.
+// The outgoing reference index reaches the unit's origin without collecting all origins/units.
+const UNIT_ELIGIBILITY: &str = "($brief_origins=false OR array::len((SELECT VALUE id FROM reference WITH INDEX outgoing WHERE in=$parent.unit_node AND field='origin' AND out.semantic_type='retrieval_origins' AND out.body.kind=6 LIMIT 1))>0)";
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NativeHit {
@@ -46,7 +61,7 @@ pub async fn lexical(
     inputs: &[[u8; 16]],
     pairs: Option<&[([u8; 16], [u8; 16])]>,
     member_mode: bool,
-    units: Option<&[Id<Unit>]>,
+    units: UnitScope,
     cap: usize,
     policy: &RankingPolicy,
 ) -> Result<Vec<CandidateScore>, ModelError> {
@@ -60,7 +75,7 @@ pub async fn lexical(
     vars.insert("pairs", binding(pairs)?);
     vars.insert("cap", i64::try_from(cap).map_err(ModelError::codec)?);
     vars.insert("member_mode", member_mode);
-    vars.insert("units", binding(units)?);
+    units.bind(&mut vars);
     let table = family_table(family);
     let target = if member_mode { "out" } else { "unit" };
     let mut rows = Vec::new();
@@ -70,9 +85,9 @@ pub async fn lexical(
         let sql = format!(
             r#"RETURN {{
  LET $input_keys=$inputs.map(|$v|<string>$v);
- LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND array::len((SELECT VALUE id FROM $parent.id->lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier};
+ LET $documents=SELECT id,search::score(1) AS score FROM {table} WHERE text @1,OR@ $query AND array::len((SELECT VALUE id FROM $parent.id->lex_occurs WHERE eligible=true AND family=$family AND {UNIT_ELIGIBILITY} AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier};
  LET $scores=object::from_entries($documents.map(|$v|[<string>$v.id,$v.score]));
- LET $occurrences=SELECT *, $scores[<string>in] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND family=$family AND ($units=NULL OR unit IN $units) AND ($scores[<string>in]!=NONE OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $occurrences=SELECT *, $scores[<string>in] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND family=$family AND {UNIT_ELIGIBILITY} AND ($scores[<string>in]!=NONE OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
  LET $ranked=SELECT {target} AS target,context,{{a:!(exact_name=$query OR exact_path=$query OR exact_option=$query),b:-score,c:occurrence_key,hit:{{score:score,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}}}} AS rank FROM $occurrences;
  LET $grouped=SELECT target,context,rank FROM $ranked GROUP BY target,context;
  LET $winners=SELECT target,context,array::first(array::sort(rank)) AS winner FROM $grouped;
@@ -162,7 +177,7 @@ pub async fn vector(
     inputs: &[[u8; 16]],
     pairs: Option<&[([u8; 16], [u8; 16])]>,
     member_mode: bool,
-    units: Option<&[Id<Unit>]>,
+    units: UnitScope,
     cap: usize,
     policy: &RankingPolicy,
 ) -> Result<Vec<CandidateScore>, ModelError> {
@@ -179,14 +194,14 @@ pub async fn vector(
     vars.insert("family", family as i16);
     let input_keys = inputs
         .iter()
-        .map(|v| binding(v).map(|v| lctx_surrealdb::reconciliation::scope_string(&v)))
+        .map(|v| binding(v).map(|v| lctx_surrealdb::prepared::scope_string(&v)))
         .collect::<Result<Vec<_>, _>>()?;
     vars.insert("input_keys", binding(input_keys)?);
     vars.insert("inputs", binding(inputs)?);
     vars.insert("pairs", binding(pairs)?);
     vars.insert("cap", i64::try_from(cap).map_err(ModelError::codec)?);
     vars.insert("member_mode", member_mode);
-    vars.insert("units", binding(units)?);
+    units.bind(&mut vars);
     let target = if member_mode { "out" } else { "unit" };
     let mut rows = Vec::new();
     // Ordered rank-object keys select one real primary witness per target/context.
@@ -197,7 +212,7 @@ pub async fn vector(
             r#"RETURN {{
  LET $vectors={selection};
  LET $scores=object::from_entries($vectors.map(|$v|[<string>$v.id,$v.score]));
- LET $occurrences=SELECT *, $scores[<string>in] AS score FROM vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $occurrences=SELECT *, $scores[<string>in] AS score FROM vec_occurs WHERE eligible=true AND {UNIT_ELIGIBILITY} AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
  LET $ranked=SELECT {target} AS target,context,{{a:-score,b:occurrence_key,hit:{{score:score,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}}}} AS rank FROM $occurrences;
  LET $grouped=SELECT target,context,rank FROM $ranked GROUP BY target,context;
  LET $winners=SELECT target,context,array::first(array::sort(rank)) AS winner FROM $grouped;
@@ -282,7 +297,7 @@ pub async fn rescore_union(
         let mut vars = Variables::new();
         let window_keys = chunk
             .iter()
-            .map(|o| binding(o.window).map(|v| lctx_surrealdb::reconciliation::scope_string(&v)))
+            .map(|o| binding(o.window).map(|v| lctx_surrealdb::prepared::scope_string(&v)))
             .collect::<Result<BTreeSet<_>, _>>()?;
         vars.insert("window_keys", binding(window_keys)?);
         vars.insert(
@@ -428,6 +443,6 @@ pub fn vector_selection_sql(tier: usize) -> Result<String, ModelError> {
         return Err(ModelError::Invalid("unsupported candidate tier".into()));
     }
     Ok(format!(
-        r"SELECT id,1.0-vector::distance::knn() AS score FROM vector WHERE encoder_hash=$encoder_hash AND policy_key=$policy_key AND family=$family AND library_input IN $input_keys AND array::len((SELECT VALUE id FROM $parent.id->vec_occurs WHERE eligible=true AND ($units=NULL OR unit IN $units) AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 AND embedding <|{tier},{tier}|> $vector"
+        r"SELECT id,1.0-vector::distance::knn() AS score FROM vector WHERE encoder_hash=$encoder_hash AND policy_key=$policy_key AND family=$family AND library_input IN $input_keys AND array::len((SELECT VALUE id FROM $parent.id->vec_occurs WHERE eligible=true AND {UNIT_ELIGIBILITY} AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 AND embedding <|{tier},{tier}|> $vector"
     ))
 }

@@ -23,8 +23,8 @@ fn stream<R:Send+'static>(rows:CompilerRows,workspace:Arc<Workspace>,decode:fn(&
         let record=decode(&row)?;Ok(Some((record,(rows,workspace,Some(charge)))))
     }))
 }
-pub async fn entities(workspace:Arc<Workspace>)->Result<BoxStream<'static,Result<Entity,ModelError>>,ModelError>{Ok(stream(workspace.native().scan_canonical(true).await?,workspace,entity))}
-pub async fn assertions(workspace:Arc<Workspace>)->Result<BoxStream<'static,Result<Assertion,ModelError>>,ModelError>{Ok(stream(workspace.native().scan_canonical(false).await?,workspace,assertion))}
+pub async fn entities(workspace:Arc<Workspace>)->Result<BoxStream<'static,Result<Entity,ModelError>>,ModelError>{Ok(stream(workspace.native().scan_canonical(true,workspace.budget()).await?,workspace,entity))}
+pub async fn assertions(workspace:Arc<Workspace>)->Result<BoxStream<'static,Result<Assertion,ModelError>>,ModelError>{Ok(stream(workspace.native().scan_canonical(false,workspace.budget()).await?,workspace,assertion))}
 macro_rules! kinds {($unused:ident;$($variant:ident:$kind:ident=>$ty:ty,)*)=>{
     fn native_kind(value:i64)->Result<EntityKind,ModelError>{[$(EntityKind::$kind,)*].into_iter().find(|kind|i64::from(*kind as u16)==value).ok_or(ModelError::Schema("native graph entity kind"))}
 };}
@@ -35,7 +35,7 @@ impl Lookup{
     pub(crate) async fn load(workspace:&Arc<Workspace>)->Result<Self,ModelError>{
         let mut lookup=Self{entities:BTreeMap::new(),assertions:BTreeSet::new(),_charge:StateCharge::new(workspace.budget(),"native-final-graph-keys")};
         for entities in [true,false]{
-            let mut rows=workspace.native().scan_graph_headers(entities).await?;
+            let mut rows=workspace.native().scan_graph_headers(entities,workspace.budget()).await?;
             while let Some(row)=rows.next().await?{
                 workspace.cancellation().check()?;let row=object(row)?;
                 let Some(Value::RecordId(id))=row.get("id") else{return Err(ModelError::Schema("native graph header ID"));};

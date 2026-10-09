@@ -8,6 +8,7 @@ Telemetry is independent of the product command's exit status. Reports never mod
 from __future__ import annotations
 
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -399,6 +400,192 @@ def delegate_wrapper(env: dict[str, str]) -> str:
     return shutil.which(wrapper) or wrapper
 
 
+class CommandSubreaper:
+    """Keep orphaned descendants under this command's owner, not PID 1."""
+
+    def __init__(self):
+        self.owner = capture().process_identity(os.getpid())
+        self.existing_children = set()
+        for path in Path("/proc").iterdir():
+            if not path.name.isdigit():
+                continue
+            try:
+                fields = (path / "stat").read_text().rsplit(")", 1)[1].split()
+                if int(fields[1]) == os.getpid():
+                    self.existing_children.add(int(path.name))
+            except OSError, ValueError, IndexError:
+                continue
+        self.libc = ctypes.CDLL(None, use_errno=True)
+        previous = ctypes.c_int()
+        if self.libc.prctl(37, ctypes.byref(previous), 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "PR_GET_CHILD_SUBREAPER")
+        self.previous = previous.value
+        if self.libc.prctl(36, 1, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "PR_SET_CHILD_SUBREAPER")
+
+    def close(self) -> None:
+        if self.libc.prctl(36, self.previous, 0, 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "restore PR_SET_CHILD_SUBREAPER")
+
+
+class OwnedCommandTree:
+    """Retain verified descendants while ancestry exists, including new sessions."""
+
+    def __init__(self, pid: int, subreaper=None, directory: Path | None = None):
+        self.root_pid = pid
+        self.subreaper = subreaper
+        self.directory = directory
+        self.observer_groups: set[int] = set()
+        self.shared_groups: set[int] = set()
+        self.adopted: set[int] = set()
+        try:
+            identity = capture().process_identity(pid)
+            self.processes = {pid: {**identity, "pgid": os.getpgid(pid)}}
+        except OSError:
+            self.processes = {}
+        self.signalled: set[tuple[int, int]] = set()
+        self.actions: list[dict[str, Any]] = []
+
+    def observe(self) -> None:
+        snapshots = {}
+        for path in Path("/proc").iterdir():
+            if not path.name.isdigit():
+                continue
+            try:
+                fields = (path / "stat").read_text().rsplit(")", 1)[1].split()
+                if fields[0] not in ("Z", "X"):
+                    snapshots[int(path.name)] = fields
+            except OSError, ValueError, IndexError:
+                continue
+        anchors = {
+            pid
+            for pid, identity in self.processes.items()
+            if capture().identity_matches(pid, identity)
+        }
+        if self.subreaper is not None:
+            anchors.add(os.getpid())
+        while True:
+            added = set()
+            for pid, fields in snapshots.items():
+                if pid in anchors or int(fields[1]) not in anchors:
+                    continue
+                if self.subreaper is not None and pid in self.subreaper.existing_children:
+                    continue
+                try:
+                    identity = capture().process_identity(pid)
+                    if identity["uid"] != os.getuid() or identity["start_time"] != fields[19]:
+                        continue
+                    parent = int(fields[1])
+                    parent_identity = (
+                        self.subreaper.owner if parent == os.getpid() and self.subreaper
+                        else self.processes[parent]
+                    )
+                    if not capture().identity_matches(parent, parent_identity):
+                        continue
+                    pgid = os.getpgid(pid)
+                    argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+                    executable = Path(argv[0].decode()).name
+                    # A daemon started by an owned client becomes shared infrastructure;
+                    # never adopt that separate sccache session or its children.
+                    if executable == "sccache" and pgid == pid:
+                        self.shared_groups.add(pgid)
+                        continue
+                    if pgid in self.shared_groups:
+                        continue
+                    if not capture().identity_matches(pid, identity):
+                        continue
+                    self.processes[pid] = {**identity, "pgid": pgid}
+                    if parent == os.getpid() and pid != self.root_pid:
+                        self.adopted.add(pid)
+                    if (
+                        len(argv) > 3
+                        and Path(argv[1].decode()).resolve() == Path(capture().__file__).resolve()
+                        and argv[2] == b"_sample"
+                        and self.directory is not None
+                        and Path(argv[3].decode()).resolve().is_relative_to(self.directory)
+                    ):
+                        self.observer_groups.add(pgid)
+                    added.add(pid)
+                except OSError, ValueError, IndexError:
+                    continue
+            if not added:
+                break
+            anchors.update(added)
+        self.observe_collectors()
+        for pid in self.adopted:
+            identity = self.processes[pid]
+            if not capture().identity_matches(pid, identity):
+                try:
+                    fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+                    if fields[19] == identity["start_time"] and fields[0] == "Z":
+                        with suppress(ChildProcessError):
+                            os.waitpid(pid, os.WNOHANG)
+                except OSError, IndexError:
+                    pass
+
+    def observe_collectors(self) -> None:
+        if self.directory is None:
+            return
+        for name in ("sampler.json", "collector.json"):
+            for path in self.directory.glob(f"units/*/{name}"):
+                metadata = read_json(path)
+                if not isinstance(metadata, dict):
+                    continue
+                for key in ("identity", "recorder_identity"):
+                    identity = metadata.get(key)
+                    if (
+                        isinstance(identity, dict)
+                        and {"pid", "uid", "start_time"}.issubset(identity)
+                        and isinstance(identity["pid"], int)
+                        and identity["uid"] == os.getuid()
+                        and capture().identity_matches(identity["pid"], identity)
+                    ):
+                        with suppress(ProcessLookupError):
+                            self.observer_groups.add(os.getpgid(identity["pid"]))
+
+    def escaped(self) -> dict[int, dict[str, Any]]:
+        # Samplers observe target/owner death and finalize under their own 10s + 5s
+        # policy. Compiler cancellation must neither signal perf nor shorten that grace.
+        groups = {}
+        for pid, identity in self.processes.items():
+            if identity["uid"] != os.getuid() or not capture().identity_matches(pid, identity):
+                continue
+            try:
+                pgid = os.getpgid(pid)
+                if (
+                    pgid != os.getpgrp()
+                    and pgid not in self.observer_groups
+                    and capture().identity_matches(pid, identity)
+                ):
+                    groups[pgid] = {**identity, "pgid": pgid}
+            except ProcessLookupError:
+                continue
+        return groups
+
+    def signal_escaped(self, signum: int) -> None:
+        for pgid, identity in self.escaped().items():
+            if (pgid, signum) in self.signalled:
+                continue
+            if not capture().identity_matches(identity["pid"], identity):
+                continue
+            try:
+                if os.getpgid(identity["pid"]) != pgid:
+                    continue
+                os.killpg(pgid, signum)
+            except ProcessLookupError:
+                continue
+            self.signalled.add((pgid, signum))
+            self.actions.append({**identity, "signal": signum})
+
+    def observers_pending(self) -> bool:
+        for pid, identity in self.processes.items():
+            if capture().identity_matches(pid, identity):
+                with suppress(ProcessLookupError):
+                    if os.getpgid(pid) in self.observer_groups:
+                        return True
+        return False
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     command = list(args.command)
     if command[:1] == ["--"]:
@@ -465,17 +652,21 @@ def cmd_internal(args: argparse.Namespace) -> int:
     write_json_atomic(directory / "record.json", meta)
     runs.set_progress(current_command=" ".join(command), waiting_reason=None)
     child: subprocess.Popen[bytes] | None = None
+    descendants: OwnedCommandTree | None = None
     received: list[int] = []
+    stopping_at: list[float] = []
     owned_record = runs.load_record(run_dir) or {}
     group_identity = (
         ProcessIdentity.from_json(owned_record["child"]) if owned_record.get("child") else None
     )
     group_id = (owned_record.get("child") or {}).get("pgid")
+    subreaper = CommandSubreaper()
 
     def stopped(signum, _frame):
         if received:
             return
         received.append(signum)
+        stopping_at.append(time.monotonic())
         # Parent-death signals reach only this leader. Forward once to its verified owned group,
         # including compiler wrappers, then remain alive long enough to retain terminal receipts.
         if (
@@ -497,18 +688,25 @@ def cmd_internal(args: argparse.Namespace) -> int:
     if received:
         for signum, handler in old.items():
             signal.signal(signum, handler)
+        subreaper.close()
         return 128 + received[0]
     try:
         child = subprocess.Popen(effective, env=env, stdout=subprocess.PIPE)
     except BaseException:
         for signum, handler in old.items():
             signal.signal(signum, handler)
+        subreaper.close()
         raise
     if received:
         with suppress(ProcessLookupError):
             child.send_signal(received[0])
     sessions: list[str] = []
     stream_errors: list[str] = []
+    descendants = OwnedCommandTree(child.pid, subreaper, directory.resolve())
+    try:
+        descendants.observe()
+    except (OSError, ValueError) as error:
+        stream_errors.append(f"initial descendant observation: {error}")
     try:
         meta["command_identity"] = ProcessIdentity.of(child.pid).to_json()
         write_json_atomic(directory / "record.json", meta)
@@ -552,59 +750,90 @@ def cmd_internal(args: argparse.Namespace) -> int:
             with suppress(OSError):
                 raw.close()
 
-    stdout_thread = threading.Thread(target=forward_stdout, daemon=True)
-    stdout_thread.start()
     try:
-        code = child.wait()
+        stdout_thread = threading.Thread(target=forward_stdout, daemon=True)
+        stdout_thread.start()
+        retained_descendants = 0
+        while True:
+            if descendants is not None:
+                try:
+                    descendants.observe()
+                except (OSError, ValueError) as error:
+                    message = f"descendant observation: {error}"
+                    if message not in stream_errors:
+                        stream_errors.append(message)
+                if len(descendants.processes) != retained_descendants:
+                    retained_descendants = len(descendants.processes)
+                    try:
+                        write_json_atomic(directory / "owned-descendants.json", list(descendants.processes.values()))
+                    except OSError as error:
+                        stream_errors.append(f"descendant identity receipt: {error}")
+                if received:
+                    descendants.signal_escaped(received[0])
+                    if time.monotonic() - stopping_at[0] >= 5:
+                        descendants.signal_escaped(signal.SIGKILL)
+            code = child.poll()
+            if code is not None and not stdout_thread.is_alive() and (
+                not received or descendants is None or not descendants.escaped()
+            ):
+                break
+            time.sleep(0.1)
         stdout_thread.join()
+        try:
+            meta["cargo_sessions"] = (
+                retain_cargo_sessions(directory, sessions, env, effective)
+                if direct
+                else {
+                    "outcome": "not_run",
+                    "reason": "wrapped command; no Cargo arguments reinterpreted",
+                }
+            )
+            units = unit_records(directory)
+        except (OSError, ValueError) as error:
+            stream_errors.append(f"capture finalization: {error}")
+            units = []
+        meta["stdout_errors"] = stream_errors
+        if descendants is not None:
+            meta["owned_descendants"] = list(descendants.processes.values())
+            meta["descendant_signals"] = descendants.actions
+        collector_errors = [
+            unit.get("collector")
+            for _, unit in units
+            if unit.get("collector", {}).get("status") in ("failed", "blocked", "cancelled")
+        ]
+        telemetry = {
+            "outcome": "failed"
+            if collector_errors or stream_errors
+            else "not_run"
+            if descendants is not None and descendants.observers_pending()
+            else "passed"
+            if units
+            else "not_run",
+            "units": len(units),
+            "collector_errors": collector_errors,
+            "observers_pending": descendants is not None and descendants.observers_pending(),
+        }
+        meta.update(
+            ended=runs.now(),
+            product={
+                "outcome": "passed" if code == 0 and not received else "failed",
+                "exit_code": code,
+                "signals": received,
+            },
+            telemetry=telemetry,
+        )
+        try:
+            write_json_atomic(directory / "record.json", meta)
+        except OSError as error:
+            print(
+                f"compile-profile: telemetry final receipt failed: {error}; product exit {code}",
+                file=sys.stderr,
+            )
+        return code if code >= 0 else 128 - code
     finally:
         for signum, handler in old.items():
             signal.signal(signum, handler)
-    try:
-        meta["cargo_sessions"] = (
-            retain_cargo_sessions(directory, sessions, env, effective)
-            if direct
-            else {
-                "outcome": "not_run",
-                "reason": "wrapped command; no Cargo arguments reinterpreted",
-            }
-        )
-        units = unit_records(directory)
-    except (OSError, ValueError) as error:
-        stream_errors.append(f"capture finalization: {error}")
-        units = []
-    meta["stdout_errors"] = stream_errors
-    collector_errors = [
-        unit.get("collector")
-        for _, unit in units
-        if unit.get("collector", {}).get("status") in ("failed", "blocked", "cancelled")
-    ]
-    telemetry = {
-        "outcome": "failed"
-        if collector_errors or stream_errors
-        else "passed"
-        if units
-        else "not_run",
-        "units": len(units),
-        "collector_errors": collector_errors,
-    }
-    meta.update(
-        ended=runs.now(),
-        product={
-            "outcome": "passed" if code == 0 and not received else "failed",
-            "exit_code": code,
-            "signals": received,
-        },
-        telemetry=telemetry,
-    )
-    try:
-        write_json_atomic(directory / "record.json", meta)
-    except OSError as error:
-        print(
-            f"compile-profile: telemetry final receipt failed: {error}; product exit {code}",
-            file=sys.stderr,
-        )
-    return code if code >= 0 else 128 - code
+        subreaper.close()
 
 
 def profile_dir(ref: str) -> Path:

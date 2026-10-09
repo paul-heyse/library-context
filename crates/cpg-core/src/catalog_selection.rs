@@ -1,8 +1,9 @@
 //! C2 declaration domains consume completed C0/C1 receipts independently of optional behavior.
 use crate::consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier};
+use crate::producer_operations::{self, Declaration};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use datafusion::execution::context::SessionContext;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, future::BoxFuture};
 use lctx_model::domain::stages::ProviderOutcome;
 use lctx_model::domain::{
     analysis::{self, selection::*},
@@ -27,27 +28,143 @@ macro_rules! decoder_inputs {
         lctx_model::expected_domain_inputs!($apply);
     };
 }
-async fn load<R: Record>(
-    access: &CompletedInputs,
-    session: &SessionContext,
-    consumed: &mut crate::consumed_rows::ConsumedInputs,
-    admission: &mut analysis::expected::CoverageAdmission<'_>,
-    mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    while let Some((input, permit)) = consumed.next::<R>(access)? {
-        if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
-            .await?
-        {
-            continue;
+type InventoryLoader = for<'a, 'sources> fn(
+    &'a CompletedInputs,
+    &'a SessionContext,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut analysis::expected::CoverageAdmission<'sources>,
+    &'a mut selection::frames::Frames,
+    &'a mut Rows<analysis::AnalysisDefinition>,
+    &'a mut Rows<analysis::MethodParameters>,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+    frames: &'a mut selection::frames::Frames,
+    definitions: &'a mut Rows<analysis::AnalysisDefinition>,
+    parameters: &'a mut Rows<analysis::MethodParameters>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+                .await?
+            {
+                continue;
+            }
+            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+                admission.visit_if_expected(permit, batch)?;
+                frames.visit(input.name(), batch)?;
+                if input.name() == analysis::AnalysisDefinition::NAME {
+                    definitions.decode(batch)?;
+                }
+                if input.name() == analysis::MethodParameters::NAME {
+                    parameters.decode(batch)?;
+                }
+                Ok(())
+            })
+            .await?;
         }
-        crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
-            admission.visit_if_expected(permit, batch)?;
-            visit(&input, batch)
-        })
-        .await?;
-    }
-    Ok(())
+        Ok(())
+    })
 }
+fn load_inventory<'a, 'sources>(
+    access: &'a CompletedInputs,
+    session: &'a SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+    frames: &'a mut selection::frames::Frames,
+    definitions: &'a mut Rows<analysis::AnalysisDefinition>,
+    parameters: &'a mut Rows<analysis::MethodParameters>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let mut loaders: Vec<InventoryLoader> = Vec::new();
+        macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(loaders.push(load::<$ty>);)*};}
+        decoder_inputs!(inventory);
+        for loader in loaders {
+            loader(
+                access,
+                session,
+                consumed,
+                admission,
+                frames,
+                definitions,
+                parameters,
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+type ScopedLoader = for<'a> fn(
+    &'a SelectionScopes,
+    &'a CompletedInputs,
+    &'a crate::consumed_rows::PreparedClosure,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load_scoped<'a, R: Record>(
+    scopes: &'a SelectionScopes,
+    access: &'a CompletedInputs,
+    scope: &'a crate::consumed_rows::PreparedClosure,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    data: &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            let table = scopes
+                .inputs
+                .iter()
+                .position(|candidate| {
+                    candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
+                })
+                .ok_or(ModelError::Conflict("C2 scoped declaration"))?;
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                &input,
+                access,
+                scope.session(),
+                &scope.select(table)?,
+                |_, batch| {
+                    data.visit_input(&input, batch)?;
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelError>> {
+    Box::pin(async move {
+        let mut declarations: Vec<Declaration> = Vec::new();
+        macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(declarations.push(producer_operations::declare::<$ty>);)*};}
+        lctx_model::catalog_selection_outputs!(declare);
+        macro_rules! common {($($record:ident,)*) => {$(declarations.push(producer_operations::declare::<analysis::selection::$record>);)*};}
+        lctx_model::analysis_publication!(common);
+        declarations.push(producer_operations::declare::<selection::SelectionInvocation>);
+        producer_operations::declare_ordered(output, &declarations).await
+    })
+}
+fn publish_selection<'a>(
+    rows: &'a build::Output,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        type Emit = for<'a> fn(
+            &'a build::Output,
+            &'a ProducerOutput,
+        ) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        lctx_model::catalog_selection_outputs!(entries);
+        for emit in EMITTERS {
+            emit(rows, output).await?;
+        }
+        Ok(())
+    })
+}
+
 struct SelectionScopes {
     inputs: Vec<ValidationInput>,
     edges: PreparedEdges,
@@ -357,11 +474,12 @@ impl SelectionScopes {
     ) -> Result<Data, ModelError> {
         let mut data = Data::new(budget);
         let mut consumed = crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget)?;
-        macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
-            let table=self.inputs.iter().position(|candidate|candidate.type_id()==input.type_id() && candidate.prefix()==input.prefix()).ok_or(ModelError::Conflict("C2 scoped declaration"))?;
-            crate::consumed_rows::stream_query_at(&permit,&input,scope.session(),&scope.select(table)?,|_,batch|{data.visit_input(&input,batch)?;Ok(())}).await?;
-        })*};}
+        let mut loaders: Vec<ScopedLoader> = Vec::new();
+        macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(loaders.push(load_scoped::<$ty>);)*};}
         decoder_inputs!(scoped);
+        for loader in loaders {
+            loader(self, access, scope, &mut consumed, &mut data).await?;
+        }
         consumed.finish(access.name())?;
         Ok(data)
     }
@@ -372,6 +490,53 @@ fn nominal<T>(bytes: &[u8]) -> Result<Id<T>, ModelError> {
         serde::de::value::Error,
     >::new(bytes.iter().copied()))
     .map_err(ModelError::codec)
+}
+fn publish_coverage<'a, 'sources>(
+    invocation: &'a Invocation,
+    definition: &'a analysis::AnalysisDefinition,
+    admission: &'a analysis::expected::CoverageAdmission<'sources>,
+    budget: &'a resources::ResourceBudget,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let admitted = coverage::admit(
+            invocation,
+            definition,
+            analysis::AnalysisCapability::CatalogSelection,
+            admission,
+            budget,
+        )?;
+        for scope in admitted.scopes() {
+            let (requirement, members) = scope.expectation().records()?;
+            output.push(requirement).await?;
+            for member in members {
+                output.push(member).await?;
+            }
+            for observed in scope.observations() {
+                output.push(observed.source().clone()).await?;
+            }
+            let (coverage, members) = coverage::assess(
+                scope.expectation(),
+                scope.observations(),
+                analysis::AnalysisStatus::Completed,
+                None,
+                budget,
+            )?;
+            output.push(coverage).await?;
+            for member in members {
+                output.push(member).await?;
+            }
+        }
+        output
+            .push(AnalysisOutcome {
+                invocation: invocation.id(),
+                status: analysis::AnalysisStatus::Completed,
+                reason: None,
+            })
+            .await?;
+        output.push(invocation.clone()).await?;
+        Ok(())
+    })
 }
 pub async fn produce(
     access: CompletedInputs,
@@ -401,13 +566,16 @@ pub async fn produce(
         },
         runtime.budget(),
     )?;
-    macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,batch|{
-        frames.visit(input.name(),batch)?;
-        if input.name()==analysis::AnalysisDefinition::NAME {definitions.decode(batch)?;}
-        if input.name()==analysis::MethodParameters::NAME {parameters.decode(batch)?;}
-        Ok(())
-    }).await?;)*};}
-    decoder_inputs!(inventory);
+    load_inventory(
+        &access,
+        &session,
+        &mut consumed,
+        &mut admission,
+        &mut frames,
+        &mut definitions,
+        &mut parameters,
+    )
+    .await?;
     consumed.finish(access.name())?;
     let (expected_parameters, definition) = build::definition();
     if definitions.get(definition.id()) != Some(&definition)
@@ -417,12 +585,7 @@ pub async fn produce(
             "C2 requires its completed authored definition".into(),
         ));
     }
-    macro_rules! declare_outputs {($($f:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    lctx_model::catalog_selection_outputs!(declare_outputs);
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::selection::$record>().await?;)*};}
-    lctx_model::analysis_publication!(common_publication);
-    declare!(selection::SelectionInvocation);
+    declare_outputs(&output).await?;
     let mut invocations = Rows::new(runtime.budget());
     let expected_parents = frames.parents(runtime.budget())?;
     for parent in expected_parents.iter() {
@@ -451,42 +614,14 @@ pub async fn produce(
         for receipt in receipts {
             output.push(receipt).await?;
         }
-        let admitted = coverage::admit(
+        publish_coverage(
             &invocation,
             &definition,
-            analysis::AnalysisCapability::CatalogSelection,
             &admission,
             runtime.budget(),
-        )?;
-        for scope in admitted.scopes() {
-            let (requirement, members) = scope.expectation().records()?;
-            output.push(requirement).await?;
-            for member in members {
-                output.push(member).await?;
-            }
-            for observed in scope.observations() {
-                output.push(observed.source().clone()).await?;
-            }
-            let (coverage, members) = coverage::assess(
-                scope.expectation(),
-                scope.observations(),
-                analysis::AnalysisStatus::Completed,
-                None,
-                runtime.budget(),
-            )?;
-            output.push(coverage).await?;
-            for member in members {
-                output.push(member).await?;
-            }
-        }
-        output
-            .push(AnalysisOutcome {
-                invocation: invocation.id(),
-                status: analysis::AnalysisStatus::Completed,
-                reason: None,
-            })
-            .await?;
-        output.push(invocation.clone()).await?;
+            &output,
+        )
+        .await?;
         invocations.insert(invocation)?;
     }
     drop(expected_parents);
@@ -554,11 +689,8 @@ pub async fn produce(
                 &data.source.catalog.members,
                 runtime.budget(),
             )?;
-            macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(for row in rows.$f.iter(){output.push(row.clone()).await?;})*};}
-            lctx_model::catalog_selection_outputs!(write);
-            for row in links.iter() {
-                output.push(row.clone()).await?;
-            }
+            publish_selection(&rows, &output).await?;
+            producer_operations::emit(&links, &output).await?;
             drop(links);
             drop(rows);
             drop(data);
@@ -605,9 +737,7 @@ pub async fn produce(
                 let data = scopes.load(&access, &scope, runtime.budget()).await?;
                 drop(scope);
                 let rows = build::witnesses(&data, runtime.budget())?;
-                for row in rows.witnesses.iter() {
-                    output.push(row.clone()).await?;
-                }
+                producer_operations::emit(&rows.witnesses, &output).await?;
                 drop(rows);
                 drop(data);
             }

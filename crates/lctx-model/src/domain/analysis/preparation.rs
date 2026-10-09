@@ -123,7 +123,8 @@ impl Configuration {
             row.id().encode(&mut key);
         }
         Stage {
-            name: "analysis_configuration",
+            captured_binding: None,
+name: "analysis_configuration",
             inputs: vec![],
             outputs: configuration_relations()
                 .iter()
@@ -172,7 +173,8 @@ pub fn native_stage(
         order,
     )?;
     Ok(Stage {
-        name: "analysis_native_inventory",
+        captured_binding: None,
+name: "analysis_native_inventory",
         inputs,
         outputs,
         contributes: vec![],

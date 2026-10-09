@@ -11,7 +11,7 @@ use lctx_model::domain::{
 use lctx_surrealdb::{
     Credentials, Loader, NativeEmbeddingCache, NativeReader, RecordSelection, reader,
 };
-use surrealdb::types::{Bytes,Value,Variables};
+use surrealdb::types::{Bytes, Value, Variables};
 fn config() -> serde_json::Value {
     let path = std::env::var("LCTX_SURREAL_TEST_CONFIG")
         .expect("owned disposable SurrealDB configuration is required");
@@ -73,6 +73,48 @@ async fn native_codec_graph_search_and_immutable_winners() {
         },
     };
     let reader = NativeReader::new(client.clone(), handle);
+    // This graph-capable proof owner is outside mandatory Catalog publication.
+    // Nominal endpoints are codec inputs; this control asserts no semantic admission.
+    let premise = analysis::analytic::AnalysisDerivationPremise {
+        derivation: serde_json::from_value(serde_json::json!(vec![31u8; 16])).unwrap(),
+        source: serde_json::from_value(serde_json::json!(vec![37u8; 16])).unwrap(),
+    };
+    assert!(
+        !catalog_frontier_relations()
+            .iter()
+            .any(|relation| relation.name() == analysis::analytic::AnalysisDerivationPremise::NAME)
+    );
+    let assertion = graph::Assertion::from_record(premise.clone()).unwrap();
+    assert_eq!(
+        lctx_surrealdb::codec::assertion_record::<analysis::analytic::AnalysisDerivationPremise>(
+            &assertion
+        )
+        .unwrap(),
+        premise
+    );
+    let native_view =
+        lctx_surrealdb::codec::assertion_views(std::slice::from_ref(&assertion)).unwrap();
+    assert_eq!(
+        native_view[0].semantic_type,
+        analysis::analytic::AnalysisDerivationPremise::NAME
+    );
+    assert_eq!(
+        native_view[0].semantic_key,
+        hex::encode(premise.id().bytes())
+    );
+    loader
+        .assertions(std::slice::from_ref(&assertion))
+        .await
+        .unwrap();
+    assert_eq!(
+        reader
+            .records::<analysis::analytic::AnalysisDerivationPremise>(RecordSelection::Keys(vec![
+                *premise.id().bytes()
+            ]))
+            .await
+            .unwrap(),
+        vec![premise]
+    );
     assert_eq!(
         reader
             .records::<Release>(RecordSelection::Keys(vec![*release.id().bytes()]))
@@ -250,19 +292,27 @@ async fn native_binary_backed_text_matches_closed_schema() {
     // serde models and cannot decode Value's separately tagged serde representation.
     let mut response = native
         .client()
-        .query("SELECT VALUE body FROM entity WHERE semantic_type='literal_values' ORDER BY subtype")
+        .query(
+            "SELECT VALUE body FROM entity WHERE semantic_type='literal_values' ORDER BY subtype",
+        )
         .await
         .unwrap()
         .check()
         .unwrap();
     let literal_bodies: Vec<Value> = response.take(0).unwrap();
     assert_eq!(literal_bodies.len(), 2);
-    let textual=literal_bodies[0].as_object().unwrap();
-    let opaque_body=literal_bodies[1].as_object().unwrap();
-    assert_eq!(textual.get("string_value"),Some(&Value::from_t("exact 雪\n\0text")));
-    assert_eq!(textual.get("bytes_value"),Some(&Value::Null));
-    assert_eq!(opaque_body.get("string_value"),Some(&Value::Null));
-    assert_eq!(opaque_body.get("bytes_value"),Some(&Value::Bytes(Bytes::from(vec![0xff,0,0x80]))));
+    let textual = literal_bodies[0].as_object().unwrap();
+    let opaque_body = literal_bodies[1].as_object().unwrap();
+    assert_eq!(
+        textual.get("string_value"),
+        Some(&Value::from_t("exact 雪\n\0text"))
+    );
+    assert_eq!(textual.get("bytes_value"), Some(&Value::Null));
+    assert_eq!(opaque_body.get("string_value"), Some(&Value::Null));
+    assert_eq!(
+        opaque_body.get("bytes_value"),
+        Some(&Value::Bytes(Bytes::from(vec![0xff, 0, 0x80])))
+    );
     assert_eq!(
         native
             .records::<CorpusText>(RecordSelection::Keys(vec![*corpus.id().bytes()]))

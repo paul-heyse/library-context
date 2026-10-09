@@ -429,7 +429,7 @@ fn resource_refusals_and_exact_scalar_boundaries() {
     decode("inspect_value_paths", original).unwrap();
 }
 fn operation_response(parameters: usize) -> Value {
-    let id = json!(snapshot_for(1));
+    let id = json!(vec![1u8; 16]);
     let absent =
         json!({"availability":{"status":"not_requested"},"items":[],"omitted":0,"truncated":false});
     let parameter = json!({"parameter":id,"slot":null,"formals":[],"ordinal":0,"name":"x".repeat(500),"kind":1,"required":true,"types":[],"type_evidence":[],"default":{"kind":"absent"}});
@@ -526,17 +526,92 @@ fn signature_is_mandatory_and_optional_sections_have_explicit_status() {
 }
 #[test]
 fn packet_mapping_and_snapshot_schema_have_current_nominal_owners() {
-    let declared = domain::catalog_frontier_relations();
-    for mapping in mappings::packet_inventory() {
-        assert_eq!(mapping.minimum_frontier, admission::Frontier::Catalog);
-        for source in mapping.sources {
+    use std::collections::BTreeSet;
+    fn direct_closure(
+        kind: mappings::PacketKind,
+        visited: &mut BTreeSet<&'static str>,
+        sources: &mut BTreeSet<&'static str>,
+    ) -> bool {
+        let binding = kind.binding();
+        if !visited.insert(binding.mapping.name) {
+            return false;
+        }
+        sources.extend(binding.mapping.sources.iter().map(Relation::name));
+        let mut canonical_proof = binding
+            .prepared
+            .contains(&mappings::PreparedDependency::CanonicalProof);
+        for child in binding.children {
+            canonical_proof |= direct_closure(*child, visited, sources);
+        }
+        canonical_proof
+    }
+    let declared = domain::catalog_frontier_relations()
+        .iter()
+        .map(Relation::name)
+        .collect::<BTreeSet<_>>();
+    let mut graph_sources = BTreeSet::new();
+    macro_rules! graph_sources {
+        ($($variant:ident:$ty:ty,)*) => {
+            $(graph_sources.insert(<$ty as Record>::NAME);)*
+        };
+    }
+    lctx_model::graph_entity_records!(graph_sources);
+    lctx_model::graph_assertion_records!(graph_sources);
+    let analytic_premise = analysis::analytic::AnalysisDerivationPremise::NAME;
+    assert!(graph_sources.contains(analytic_premise));
+    assert!(!declared.contains(analytic_premise));
+    let mut proof_bindings = 0;
+    let mut ordinary_bindings = 0;
+    for kind in mappings::PacketKind::ALL {
+        let binding = kind.binding();
+        assert_eq!(
+            binding.mapping.minimum_frontier,
+            admission::Frontier::Catalog
+        );
+        assert!(
+            binding
+                .mapping
+                .required_capabilities
+                .contains(&mappings::Capability::Catalog)
+        );
+        for source in &binding.mapping.sources {
             assert!(
-                declared.iter().any(|r| r.name() == source.name()),
-                "{}",
+                declared.contains(source.name()),
+                "{}: {}",
+                binding.mapping.name,
                 source.name()
             );
         }
+        let mut expected = BTreeSet::new();
+        let canonical_proof = direct_closure(kind, &mut BTreeSet::new(), &mut expected);
+        if canonical_proof {
+            proof_bindings += 1;
+            expected.extend(graph_sources.iter().copied());
+        } else {
+            ordinary_bindings += 1;
+            assert!(expected.is_subset(&declared));
+        }
+        let lowered = binding.lowered();
+        assert_eq!(lowered.minimum_frontier, admission::Frontier::Catalog);
+        assert_eq!(
+            lowered.required_capabilities,
+            binding.mapping.required_capabilities
+        );
+        let actual = lowered
+            .sources
+            .iter()
+            .map(Relation::name)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected, "{}", binding.mapping.name);
+        assert_eq!(
+            binding.permits_relation(analytic_premise),
+            canonical_proof,
+            "{}",
+            binding.mapping.name
+        );
     }
+    assert!(proof_bindings > 0);
+    assert!(ordinary_bindings > 0);
     let snapshot = schema_for::<SnapshotHandle>(true);
     assert_eq!(snapshot["additionalProperties"], false);
     assert_eq!(
@@ -724,7 +799,8 @@ fn bounded_final_response_and_distinct_mcp_envelope_keep_exact_byte_contracts() 
             "availability": {"status": "available"},
             "unreviewed": true,
             "documentation_only": true,
-        })).unwrap(),
+        }))
+        .unwrap(),
     });
     let raw = response.to_json().unwrap();
     let envelope = tool_result("get_capability", &raw, false).unwrap();
@@ -732,22 +808,34 @@ fn bounded_final_response_and_distinct_mcp_envelope_keep_exact_byte_contracts() 
     for limit in [raw.len(), raw.len() + 1] {
         let encoded = response.encode_json(&budget, limit).unwrap();
         assert_eq!(encoded.as_str(), raw);
-        assert_eq!(serde_json::from_str::<Value>(encoded.as_str()).unwrap(), serde_json::from_str::<Value>(&raw).unwrap());
+        assert_eq!(
+            serde_json::from_str::<Value>(encoded.as_str()).unwrap(),
+            serde_json::from_str::<Value>(&raw).unwrap()
+        );
         drop(encoded);
         assert_eq!(budget.reserved(), 0);
     }
-    assert!(matches!(response.encode_json(&budget, raw.len() - 1), Err(WireError::ResourceRefused(_))));
+    assert!(matches!(
+        response.encode_json(&budget, raw.len() - 1),
+        Err(WireError::ResourceRefused(_))
+    ));
     for limit in [envelope.len(), envelope.len() + 1] {
         let encoded = response.encode_mcp_result(&budget, limit).unwrap();
         assert_eq!(encoded.as_str(), envelope);
         assert_eq!(encoded.as_str().len(), response.mcp_result_len().unwrap());
         let value: Value = serde_json::from_str(encoded.as_str()).unwrap();
-        assert_eq!(value["structuredContent"], serde_json::from_str::<Value>(&raw).unwrap());
+        assert_eq!(
+            value["structuredContent"],
+            serde_json::from_str::<Value>(&raw).unwrap()
+        );
         assert_eq!(value["isError"], false);
         drop(encoded);
         assert_eq!(budget.reserved(), 0);
     }
-    assert!(matches!(response.encode_mcp_result(&budget, envelope.len() - 1), Err(WireError::ResourceRefused(_))));
+    assert!(matches!(
+        response.encode_mcp_result(&budget, envelope.len() - 1),
+        Err(WireError::ResourceRefused(_))
+    ));
     assert_eq!(budget.reserved(), 0);
 }
 
@@ -1042,7 +1130,10 @@ fn packet_proofs_address_selected_graph_owners_and_refuse_old_wire_rows() {
     let exposure =
         serde_json::from_value::<Id<catalog::CatalogExposure>>(json!(vec![23; 16])).unwrap();
     let entity = ProofReference::from_canonical(derivation::RowRef::of(member)).unwrap();
-    let assertion = ProofReference::from_canonical(derivation::RowRef::of(exposure)).unwrap();
+    let exposure_proof = ProofReference::from_canonical(derivation::RowRef::of(exposure)).unwrap();
+    let support =
+        serde_json::from_value::<Id<symbols::ClassTraitSupport>>(json!(vec![29; 16])).unwrap();
+    let assertion = ProofReference::from_canonical(derivation::RowRef::of(support)).unwrap();
     assert_eq!(
         entity,
         ProofReference::Entity {
@@ -1050,10 +1141,20 @@ fn packet_proofs_address_selected_graph_owners_and_refuse_old_wire_rows() {
         }
     );
     assert_eq!(
+        exposure_proof,
+        ProofReference::Entity {
+            entity: graph::EntityId::of(exposure).0.0
+        }
+    );
+    assert_eq!(
         assertion,
         ProofReference::Assertion {
-            assertion: graph::AssertionId::of(exposure).0.0
+            assertion: graph::AssertionId::of(support).0.0
         }
+    );
+    assert_eq!(
+        assertion.target(),
+        graph::Target::Assertion(graph::AssertionId::of(support))
     );
     assert_eq!(
         entity.target(),

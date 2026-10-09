@@ -57,34 +57,36 @@ async fn require_version(client: &Surreal<Client>) -> anyhow::Result<String> {
     Ok(version)
 }
 
+pub(crate) fn operation_error(error:anyhow::Error)->lctx_model::domain::ModelError {
+    match error.downcast::<lctx_model::domain::ModelError>() {Ok(error)=>error,Err(error)=>lctx_model::domain::ModelError::Cause(error.into_boxed_dyn_error())}
+}
+
 pub async fn publish(
     path: &Path,
     config: &RuntimeConfig,
     memory_bytes: usize,
 ) -> anyhow::Result<SnapshotHandle> {
-    let manifest:lctx_model::domain::graph::Manifest=serde_json::from_slice(&std::fs::read(path.join("manifest.json"))?)?;
+    let manifest=lctx_model::domain::graph::Manifest::decode(&std::fs::read(path.join("manifest.json"))?)?;
     let model=Arc::new(lctx_model::domain::model()?);
     let native=lctx_surrealdb::compiler::NativeCompilerStore::begin(config,manifest.frontier).await?;
     let workspace = match cpg_core::workspace::Workspace::new(
         model,
         cpg_core::workspace::WorkspaceOptions {memory_bytes,..Default::default()},native.clone(),
-    ) {Ok(workspace)=>workspace,Err(error)=>{native.fail();native.abandon().await?;return Err(error.into());}};
+    ) {Ok(workspace)=>workspace,Err(error)=>{native.fail();let mut completion=lctx_model::domain::completion::Completion::default();completion.step("import setup abandon",native.abandon().await);return lctx_model::domain::completion::complete::<SnapshotHandle>(Err(error),completion).map_err(Into::into);}};
     let result=async {
-        let export = cpg_core::artifact::verify_export(path, &workspace).await?;
-        Ok(lctx_publisher::publish(&export, config, &lctx_serving::native_definitions()).await?)
+        let export=cpg_core::artifact::verify_export(path,&workspace).await?;
+        lctx_publisher::publish(&export,config,&lctx_serving::native_definitions()).await
     }.await;
-    let drained=workspace.drain().await;
-    if result.is_err() || drained.is_err() {
+    let mut completion=workspace.drain_report().await;
+    if let Ok(handle)=&result {completion.committed("sealed unselected database",serde_json::to_string(handle)?);}
+    if result.is_err() || !completion.failures.is_empty() {
         native.fail();
-        if native.abandon().await.is_err() {
-            return Err(lctx_model::domain::ModelError::infrastructure(
-                lctx_model::domain::Infrastructure::Unconfirmed,
-                format!("failed import left owned unselected database {}",native.database().as_str()),
-            ).into());
+        if !result.as_ref().err().is_some_and(lctx_model::domain::ModelError::has_committed_effect) && result.is_err() {
+            if result.as_ref().err().is_none_or(lctx_model::domain::ModelError::permits_storage_cleanup) {completion.step("import abandon",native.abandon().await);}
+            else {completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(native.database().as_str().into()));}
         }
     }
-    drained?;
-    result
+    lctx_model::domain::completion::complete(result,completion).map_err(Into::into)
 }
 
 fn handle(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<SnapshotHandle> {

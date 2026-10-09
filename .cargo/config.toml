@@ -1,7 +1,7 @@
 [build]
 rustc-wrapper = "sccache"
 # Intermediates are shared by this repository's checkouts; final artifacts stay in target/.
-# Never cargo clean this shared directory as part of ordinary development (ADR-0136).
+# Never cargo clean this shared directory as part of ordinary development (ADR-0137).
 build-dir = "{cargo-cache-home}/build/library-context"
 
 [unstable]

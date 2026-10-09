@@ -1,7 +1,8 @@
 use lctx_model::domain::{input::Package, stages::*, value::Literal, *};
 fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>) -> Stage {
     Stage {
-        name,
+        captured_binding: None,
+name,
         inputs,
         outputs,
         contributes: vec![],

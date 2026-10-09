@@ -24,7 +24,7 @@ pub(crate) async fn stream_artifact_admission(
         analysis::expected::CoverageAdmission::artifact_property_columns(),
         identifier(&table)
     );
-    stream_query_at(&permit, input, session, &selected, |permit, batch| {
+    stream_query_at(&permit, input, access, session, &selected, |permit, batch| {
         admission.visit_artifact_properties(permit, batch)
     })
     .await?;
@@ -89,78 +89,183 @@ impl ConsumedInputs {
         Ok(())
     }
 }
-pub async fn stream_at<R: Record>(
-    input: &CompletedInput<R>,
-    declaration: &ValidationInput,
-    inputs: &CompletedInputs,
-    session: &SessionContext,
-    consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    stream_where_at(input, declaration, inputs, session, None, consume).await
+pub fn stream_at<'a,R: Record>(
+    input: &'a CompletedInput<R>,
+    declaration: &'a ValidationInput,
+    inputs: &'a CompletedInputs,
+    session: &'a SessionContext,
+    consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
+) -> futures::future::BoxFuture<'a,Result<(), ModelError>> {
+    stream_where_at(input, declaration, inputs, session, None, consume)
 }
 /// Read the exact immutable input through an owner-selected predicate before rich decoding.
 /// The predicate is compiler SQL, never a provider string or a source of semantic authority.
-pub async fn stream_where_at<R: Record>(
+pub fn stream_where_at<'a,R: Record>(
+    input: &'a CompletedInput<R>,
+    declaration: &'a ValidationInput,
+    inputs: &'a CompletedInputs,
+    session: &'a SessionContext,
+    predicate: Option<&str>,
+    consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
+) -> futures::future::BoxFuture<'a,Result<(), ModelError>> {
+    let selected = inputs.table_at::<R>(declaration.prefix()).map(|table| format!(
+        "SELECT * FROM {}{}", identifier(&table),
+        predicate.map(|predicate| format!(" WHERE ({predicate})")).unwrap_or_default()
+    ));
+    // Table selection errors precede permit errors on this route. Checking immutable
+    // captured identities does not plan or start a stream; errors are delivered on polling.
+    let checked = if selected.is_ok() {
+        check_stream_input(input, declaration, inputs)
+    } else {
+        Ok(())
+    };
+    let mut consume = consume;
+    let visit: BatchConsumer<'a> = Box::new(move |batch| consume(input, batch));
+    stream_checked_owned(checked, declaration, session, selected, None, visit)
+}
+/// Stream an owner-declared SELECT after checking the exact nominal record and captured view.
+/// Joins and closure predicates are supplied by the owning semantic kernel.
+pub fn stream_query_at<'a,R: Record>(
+    input: &'a CompletedInput<R>,
+    declaration: &'a ValidationInput,
+    inputs: &'a CompletedInputs,
+    session: &'a SessionContext,
+    selected: &str,
+    consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
+) -> futures::future::BoxFuture<'a,Result<(), ModelError>> {
+    stream_query_filter_at(input,declaration,inputs,session,selected,None,consume)
+}
+/// Preserve an owner-authored DataFusion predicate at the checked completed-input boundary.
+/// The predicate remains an Expr; it is never converted into SQL text.
+pub(crate) fn stream_query_filter_at<'a,R: Record>(
+    input: &'a CompletedInput<R>,
+    declaration: &'a ValidationInput,
+    inputs: &'a CompletedInputs,
+    session: &'a SessionContext,
+    selected: &str,
+    predicate: Option<datafusion::logical_expr::Expr>,
+    mut consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
+) -> futures::future::BoxFuture<'a,Result<(), ModelError>> {
+    let checked = check_stream_input(input, declaration, inputs);
+    let visit: BatchConsumer<'a> = Box::new(move |batch| consume(input, batch));
+    stream_checked_owned(checked, declaration, session, Ok(selected.to_owned()), predicate, visit)
+}
+
+fn check_stream_input<R: Record>(
     input: &CompletedInput<R>,
     declaration: &ValidationInput,
     inputs: &CompletedInputs,
-    session: &SessionContext,
-    predicate: Option<&str>,
-    consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
-    let table = inputs.table_at::<R>(declaration.prefix())?;
-    let selected = format!(
-        "SELECT * FROM {}{}",
-        identifier(&table),
-        predicate
-            .map(|predicate| format!(" WHERE ({predicate})"))
-            .unwrap_or_default()
-    );
-    stream_query_at(input, declaration, session, &selected, consume).await
-}
-/// Stream an owner-declared SELECT with the record's exact schema and ordering contract.
-/// Joins and closure predicates are supplied by the owning semantic kernel.
-pub async fn stream_query_at<R: Record>(
-    input: &CompletedInput<R>,
-    declaration: &ValidationInput,
-    session: &SessionContext,
-    selected: &str,
-    mut consume: impl FnMut(&CompletedInput<R>, &arrow_array::RecordBatch) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    if declaration.type_id() != TypeId::of::<R>() {
-        return Err(ModelError::Invalid(
-            "scoped stream record declaration mismatch".into(),
-        ));
+    if declaration.type_id() != TypeId::of::<R>() || declaration.name() != R::NAME {
+        return Err(ModelError::Invalid("scoped stream record declaration mismatch".into()));
     }
-    let order = declaration
-        .order()
-        .iter()
-        .map(|column| identifier(column))
-        .collect::<Vec<_>>()
-        .join(",");
-    let sql = format!(
-        "SELECT * FROM ({selected}) AS scoped_input{}",
-        if order.is_empty() {
-            String::new()
-        } else {
-            format!(" ORDER BY {order}")
-        }
-    );
-    let mut batches = crate::sql::query(session, &sql)
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = batches.try_next().await.map_err(ModelError::codec)? {
-        consume(input, &batch)?;
+    if input.source() != inputs.read_at::<R>(declaration.prefix())?.source() {
+        return Err(ModelError::Conflict("scoped stream completed input mismatch"));
+    }
+    Ok(())
+}
+
+type BatchConsumer<'a> = Box<
+    dyn FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
+>;
+
+/// Own callback erasure and selected SQL before creating the asynchronous state machine.
+/// Record-specific validation/decoding remain at the typed caller boundary.
+fn stream_checked_owned<'a>(
+    checked: Result<(), ModelError>,
+    declaration: &'a ValidationInput,
+    session: &'a SessionContext,
+    selected: Result<String, ModelError>,
+    predicate: Option<datafusion::logical_expr::Expr>,
+    mut consume: BatchConsumer<'a>,
+) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let selected = selected?;
+        checked?;
+        stream_batches(declaration, session, &selected, predicate, consume.as_mut()).await
+    })
+}
+
+/// Record-independent physical planning and iteration. Dispatch occurs once per batch.
+/// Detached validation callers establish their invariant/table/type binding before entering.
+/// This physical loop grants no completed-input authority of its own.
+pub(crate) fn stream_batches<'a>(
+    declaration:&'a ValidationInput,
+    session:&'a SessionContext,
+    selected:&'a str,
+    predicate:Option<datafusion::logical_expr::Expr>,
+    consume:&'a mut (dyn FnMut(&arrow_array::RecordBatch)->Result<(),ModelError> + Send),
+)->futures::future::BoxFuture<'a,Result<(),ModelError>>{
+    Box::pin(async move{
+    let order=declaration.order().iter().map(|column|identifier(column)).collect::<Vec<_>>().join(",");
+    let sql=format!("SELECT * FROM ({selected}) AS scoped_input{}",if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
+    let mut selected=crate::sql::query(session,&sql).await.map_err(ModelError::codec)?;
+    if let Some(predicate)=predicate {
+        selected=selected.filter(predicate).map_err(ModelError::codec)?;
+    }
+    let mut batches=selected.execute_stream().await.map_err(ModelError::codec)?;
+    while let Some(batch)=batches.try_next().await.map_err(ModelError::codec)?{
+        consume(&batch)?;
         tokio::task::yield_now().await;
     }
     Ok(())
+    })
 }
 pub(crate) fn identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
+#[cfg(test)]
+mod checked_stream_controls {
+    use super::*;
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+
+    #[tokio::test]
+    async fn stream_adapter_refuses_before_planning_or_visiting_and_releases_callback() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let charge = budget.reserve("stream-callback-control", 4096).unwrap();
+        let visited = Arc::new(AtomicBool::new(false));
+        let observed = visited.clone();
+        let consume: BatchConsumer<'_> = Box::new(move |_| {
+            let _retained = &charge;
+            observed.store(true, Ordering::Relaxed);
+            Ok(())
+        });
+        let declaration = ValidationInput::of::<input::Package>(&["id"]);
+        let session = SessionContext::new();
+        let future = stream_checked_owned(
+            Err(ModelError::Conflict("stream admission refusal")),
+            &declaration,
+            &session,
+            Ok("not valid SQL".to_owned()),
+            None,
+            consume,
+        );
+        assert_eq!(budget.reserved(), 4096);
+        assert!(!visited.load(Ordering::Relaxed));
+        assert!(matches!(future.await, Err(ModelError::Conflict("stream admission refusal"))));
+        assert!(!visited.load(Ordering::Relaxed));
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn stream_table_selection_error_precedes_admission_error() {
+        let declaration = ValidationInput::of::<input::Package>(&["id"]);
+        let session = SessionContext::new();
+        let mut visited = false;
+        let consume: BatchConsumer<'_> = Box::new(|_| { visited = true; Ok(()) });
+        let result = stream_checked_owned(
+            Err(ModelError::Conflict("later permit failure")),
+            &declaration,
+            &session,
+            Err(ModelError::Conflict("earlier table selection failure")),
+            None,
+            consume,
+        ).await;
+        assert!(matches!(result, Err(ModelError::Conflict("earlier table selection failure"))));
+        assert!(!visited);
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn assert_decoder_reachability(
     declarations: Vec<ValidationInput>,

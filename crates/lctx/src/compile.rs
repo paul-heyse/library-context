@@ -53,8 +53,10 @@ pub async fn compile(
             ..Default::default()
         },
         store.clone(),
-    ) {Ok(workspace)=>workspace,Err(error)=>{store.fail();store.abandon().await?;return Err(error.into());}};
-    let result=async {
+    ) {Ok(workspace)=>workspace,Err(error)=>{store.fail();let mut completion=lctx_model::domain::completion::Completion::default();completion.step("compile setup abandon",store.abandon().await);return lctx_model::domain::completion::complete::<()>(Err(error),completion).map_err(Into::into);}};
+    let artifact_target=matches!(&target,Target::Artifact(..));
+    let mut committed=None;
+    let result: anyhow::Result<String>=async {
     let budget = workspace.budget();
     let library = libraries.join(name);
     let upper = options.prepare(frontier.name(), &library)?;
@@ -100,39 +102,30 @@ pub async fn compile(
     .await?;
     let artifact =
         cpg_core::artifact::admit(&workspace, &captured, frontier, profile, configuration).await?;
-    match target {
-        Target::Artifact(destination, _) => {
+    let output=match target {
+        Target::Artifact(destination,_)=>{
             artifact.export(destination).await?;
-            workspace.drain().await?;
-            store.abandon().await?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({
-                    "artifact":destination, "frontier":frontier.name(), "profile":profile.name(),
-                    "content":artifact.manifest().content().hex(), "published":false,
-                }))?
-            );
+            serde_json::to_string_pretty(&serde_json::json!({"artifact":destination,"frontier":frontier.name(),"profile":profile.name(),"content":artifact.manifest().content().hex(),"published":false}))?
         }
-        Target::Native(_) => {
-            let handle = lctx_publisher::seal_completed(
-                &artifact, &runtime, &lctx_serving::native_definitions(),
-            ).await?;
-            println!("{}", serde_json::to_string_pretty(&handle)?);
+        Target::Native(_)=>{
+            let handle=lctx_publisher::seal_completed(&artifact,&runtime,&lctx_serving::native_definitions()).await?;
+            committed=Some(format!("{handle:?}"));
+            serde_json::to_string_pretty(&handle)?
         }
-    }
-    workspace.drain().await?;
-    Ok(())
+    };
+    Ok(output)
     }.await;
-    if let Err(error)=&result {
-        let drained=workspace.drain().await;
+    let result=result.map_err(crate::newnative::operation_error);
+    let mut completion=workspace.drain_report().await;
+    if let Some(identity)=committed {completion.committed("sealed unselected database",identity);}
+    if artifact_target || result.is_err() || !completion.failures.is_empty() {
         store.fail();
-        if let Err(cleanup)=store.abandon().await {
-            return Err(lctx_model::domain::ModelError::infrastructure(
-                lctx_model::domain::Infrastructure::Unconfirmed,
-                format!("failed compile ({error}); cleanup ({cleanup}) left owned unselected database {}",store.database().as_str()),
-            ).into());
+        if completion.committed.is_empty() && !result.as_ref().err().is_some_and(lctx_model::domain::ModelError::has_committed_effect) {
+            if result.as_ref().err().is_none_or(lctx_model::domain::ModelError::permits_storage_cleanup) {completion.step("compile abandon",store.abandon().await);}
+            else {completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(store.database().as_str().into()));}
         }
-        drained?;
     }
-    result
+    let output=lctx_model::domain::completion::complete(result,completion)?;
+    println!("{output}");
+    Ok(())
 }

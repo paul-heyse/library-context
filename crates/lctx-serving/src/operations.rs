@@ -56,7 +56,7 @@ async fn chosen(
     selection: &selection::Selection,
     b: &ResourceBudget,
 ) -> Result<crate::selection::MemberSelection, ModelError> {
-    let members = crate::selection::members(reader, Some(library), selector).await?;
+    let members = crate::selection::members(reader, Some(library), selector, b).await?;
     crate::selection::classify(reader, &members, selection, b).await
 }
 pub async fn dispatch(
@@ -149,7 +149,7 @@ pub async fn dispatch(
         Request::GetOperation(r) => {
             let domains = crate::library::resolve(reader, Some(&r.library), b).await?;
             let members =
-                crate::selection::members(reader, Some(&r.library), Some(&r.operation)).await?;
+                crate::selection::members(reader, Some(&r.library), Some(&r.operation), b).await?;
             let operation = match members.as_slice() {
                 [] => OperationResolution::Missing {
                     coverage: Availability::Partial {
@@ -217,7 +217,7 @@ async fn scores(
     domains: &[LibraryDomainPacket],
     pairs: Option<&[([u8; 16], [u8; 16])]>,
     member_mode: bool,
-    units: Option<&[Id<retrieval::Unit>]>,
+    units: crate::search::UnitScope,
     vector: Option<&QueryVector>,
 ) -> Result<Vec<ranking::CandidateScore>, ModelError> {
     let mut scores = Vec::new();
@@ -323,7 +323,7 @@ async fn search_operations(
     b: &ResourceBudget,
 ) -> Result<SearchOperationsResponse, ModelError> {
     let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
-    let members = crate::selection::members(reader, r.library.0.as_ref(), None).await?;
+    let members = crate::selection::members(reader, r.library.0.as_ref(), None, b).await?;
     let selected = crate::selection::classify(reader, &members, &r.selection.0, b).await?;
     let pairs = selected
         .selected
@@ -342,7 +342,7 @@ async fn search_operations(
         &domains,
         Some(&pairs),
         true,
-        None,
+        crate::search::UnitScope::All,
         vector,
     )
     .await?;
@@ -431,7 +431,7 @@ async fn search_evidence(
         &domains,
         None,
         false,
-        None,
+        crate::search::UnitScope::All,
         vector,
     )
     .await?;
@@ -476,19 +476,6 @@ async fn search_capabilities(
     b: &ResourceBudget,
 ) -> Result<SearchCapabilitiesResponse, ModelError> {
     let domains = crate::library::resolve(reader, r.library.0.as_ref(), b).await?;
-    let mut vars = surrealdb::types::Variables::new();
-    vars.insert("inputs", surrealdb::types::SerdeWrapper(inputs(&domains)));
-    let keys:Vec<String>=reader.query("RETURN { LET $origins=SELECT VALUE id FROM entity WHERE semantic_type='retrieval_origins' AND body.kind=6; RETURN SELECT VALUE semantic_key FROM entity WHERE semantic_type='retrieval_units' AND scope_keys CONTAINSANY $inputs.map(|$v|'retrieval_units|input|'+<string>$v) AND id IN (SELECT VALUE in FROM reference WHERE field='origin' AND out IN $origins); };",vars).await?;
-    let units = keys
-        .iter()
-        .map(|key| {
-            let bytes = hex::decode(key).map_err(ModelError::codec)?;
-            serde_json::from_value::<Id<retrieval::Unit>>(
-                serde_json::to_value(bytes).map_err(ModelError::codec)?,
-            )
-            .map_err(ModelError::codec)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     let scores = scores(
         reader,
         r.query.as_str(),
@@ -496,7 +483,7 @@ async fn search_capabilities(
         &domains,
         None,
         false,
-        Some(&units),
+        crate::search::UnitScope::BriefOrigins,
         vector,
     )
     .await?;

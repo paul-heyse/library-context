@@ -1,6 +1,5 @@
 //! Last immutable frontier assessment over actual captured native frames and owner results.
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::frontier::{self, FrontierData, Target},
     stages::*,
@@ -10,18 +9,13 @@ use std::sync::Arc;
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
+    declaration: &ValidationInput,
     data: &mut FrontierData,
 ) -> Result<(), ModelError> {
-    let _permit = access.read::<R>()?;
-
-    let query = crate::sql::query(session, &format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        data.visit(R::NAME, &batch)?;
-    }
-    Ok(())
+    let permit = access.read_at::<R>(declaration.prefix())?;
+    crate::consumed_rows::stream_at(&permit, declaration, access, session, |_, batch| {
+        data.visit(R::NAME, batch)
+    }).await
 }
 pub async fn produce(
     access: CompletedInputs,
@@ -38,7 +32,7 @@ pub async fn produce(
     let inputs = FrontierData::inputs(target);
     let mut data = FrontierData::new(access.profile(), budget);
     let session = access.session(runtime).await?;
-    macro_rules! read{($($ty:ty),* $(,)?)=>{$(if inputs.iter().any(|i|i.name()==<$ty>::NAME){load::<$ty>(&access,&session,&mut data).await?;})*};}
+    macro_rules! read{($($ty:ty),* $(,)?)=>{$(if let Some(input)=inputs.iter().find(|i|i.type_id()==std::any::TypeId::of::<$ty>()){load::<$ty>(&access,&session,input,&mut data).await?;})*};}
     lctx_model::final_frontier_inputs!(read);
     let records = frontier::derive(&data, target, budget)?;
     match target {

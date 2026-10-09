@@ -1,9 +1,11 @@
 //! E0 selects actual C1 roots and canonical brief documents before decoding their rich premises.
+use crate::producer_operations;
 use crate::{
     consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use datafusion::prelude::SessionContext;
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     catalog::evidence as c1,
     retrieval::build::{self, Data, Output},
@@ -40,6 +42,117 @@ pub struct Preparation {
     root: usize,
     brief: usize,
 }
+type MetadataLoader = for<'a, 'sources> fn(
+    &'a CompletedInputs,
+    &'a SessionContext,
+    &'a [ValidationInput],
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut analysis::expected::CoverageAdmission<'sources>,
+    &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load_metadata<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a SessionContext,
+    frames: &'a [ValidationInput],
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+    metadata: &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+                .await?
+            {
+                continue;
+            }
+            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+                admission.visit_if_expected(permit, batch)?;
+                if frames.iter().any(|frame| {
+                    frame.type_id() == input.type_id() && frame.prefix() == input.prefix()
+                }) {
+                    metadata.visit_input(&input, batch)?;
+                }
+                Ok(())
+            })
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn read_metadata<'a, 'sources>(
+    access: &'a CompletedInputs,
+    session: &'a SessionContext,
+    frames: &'a [ValidationInput],
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+    metadata: &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let mut loaders: Vec<MetadataLoader> = Vec::new();
+        macro_rules! read {($($field:ident:$ty:ty,)*) => {$(loaders.push(load_metadata::<$ty>);)*};}
+        decoder_inputs!(read);
+        for loader in loaders {
+            loader(access, session, frames, consumed, admission, metadata).await?;
+        }
+        Ok(())
+    })
+}
+struct RenderSelection<'a> {
+    allowed: &'a [TypeId],
+    artifacts: &'a str,
+    brief: bool,
+}
+type ScopedLoader = for<'a> fn(
+    &'a Preparation,
+    &'a CompletedInputs,
+    &'a PreparedClosure,
+    &'a RenderSelection<'a>,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load_scoped<'a, R: Record>(
+    preparation: &'a Preparation,
+    access: &'a CompletedInputs,
+    scope: &'a PreparedClosure,
+    selection: &'a RenderSelection<'a>,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    data: &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            let index = preparation
+                .inputs
+                .iter()
+                .position(|candidate| {
+                    candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
+                })
+                .ok_or(ModelError::Conflict("E0 scoped input"))?;
+            let Some(sql) =
+                preparation.select(scope, index, selection.allowed, selection.artifacts)?
+            else {
+                continue;
+            };
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                &input,
+                access,
+                scope.session(),
+                &sql,
+                |_, batch| {
+                    if selection.brief && input.type_id() == TypeId::of::<catalog::CatalogMember>()
+                    {
+                        data.completion_visit(&input, batch)?;
+                    } else {
+                        data.visit_input(&input, batch)?;
+                    }
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
 impl Preparation {
     pub async fn prepare(
         access: &CompletedInputs,
@@ -56,20 +169,15 @@ impl Preparation {
         ));
         let mut consumed =
             crate::consumed_rows::ConsumedInputs::new(declarations, runtime.budget())?;
-        macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
-            if input.type_id()==std::any::TypeId::of::<source::SourceArtifact>(){
-                let actual=access.read_at::<source::SourceArtifact>(input.prefix())?;
-                let alias=access.table_for(&input)?;
-                let selected=format!("SELECT {} FROM {}",analysis::expected::CoverageAdmission::artifact_property_columns(),crate::consumed_rows::identifier(&alias));
-                crate::consumed_rows::stream_query_at(&actual,&input,&session,&selected,|permit,batch|admission.visit_artifact_properties(permit,batch)).await?;
-                continue;
-            }
-            crate::consumed_rows::stream_at(&permit,&input,access,&session,|permit,batch|{
-                admission.visit_if_expected(permit,batch)?;
-                if frames.iter().any(|frame|frame.type_id()==input.type_id() && frame.prefix()==input.prefix()){metadata.visit_input(&input,batch)?;}Ok(())
-            }).await?;
-        })*};}
-        decoder_inputs!(read);
+        read_metadata(
+            access,
+            &session,
+            &frames,
+            &mut consumed,
+            admission,
+            &mut metadata,
+        )
+        .await?;
         consumed.finish("retrieval-metadata")?;
         metadata.selected()?;
         c1::frames::verify(
@@ -308,10 +416,17 @@ impl Preparation {
             identifier(&self.tables[index].alias),
             id.hex()
         );
-        crate::consumed_rows::stream_query_at(&permit, input, &self.session, &sql, |_, batch| {
-            rows.decode(batch)?;
-            Ok(())
-        })
+        crate::consumed_rows::stream_query_at(
+            &permit,
+            input,
+            access,
+            &self.session,
+            &sql,
+            |_, batch| {
+                rows.decode(batch)?;
+                Ok(())
+            },
+        )
         .await?;
         Ok(build::need(&rows, id)?.clone())
     }
@@ -431,12 +546,17 @@ impl Preparation {
         let artifacts = self.artifacts(root, brief)?;
         let mut data = Data::new(budget);
         let mut consumed = crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget)?;
-        macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
-            let index=self.inputs.iter().position(|candidate|candidate.type_id()==input.type_id() && candidate.prefix()==input.prefix()).ok_or(ModelError::Conflict("E0 scoped input"))?;
-            let Some(sql)=self.select(scope,index,&allowed,&artifacts)? else{continue;};
-            crate::consumed_rows::stream_query_at(&permit,&input,scope.session(),&sql,|_,batch|{if brief.is_some() && input.type_id()==TypeId::of::<catalog::CatalogMember>(){data.completion_visit(&input,batch)?;}else{data.visit_input(&input,batch)?;}Ok(())}).await?;
-        })*};}
+        let mut loaders: Vec<ScopedLoader> = Vec::new();
+        macro_rules! read {($($field:ident:$ty:ty,)*) => {$(loaders.push(load_scoped::<$ty>);)*};}
         decoder_inputs!(read);
+        let selection = RenderSelection {
+            allowed: &allowed,
+            artifacts: &artifacts,
+            brief: brief.is_some(),
+        };
+        for loader in loaders {
+            loader(self, access, scope, &selection, &mut consumed, &mut data).await?;
+        }
         consumed.finish("retrieval-document-grain")?;
         data.facts
             .definitions
@@ -454,11 +574,16 @@ impl Preparation {
         budget: &resources::ResourceBudget,
     ) -> Result<(), ModelError> {
         let input = ValidationInput::of::<artifact::ArtifactChunk>(&["id"]);
-        let table=identifier(&access.table_for(&input)?);
-        let mut charge=charged::StateCharge::new(budget,"retrieval-original-demand-union");
-        let mut keys=charged::ChargedSet::default();
-        for (artifact,start,end) in ranges.iter(){crate::original_demands::union_range(&mut keys,&mut charge,*artifact,*start,*end)?;}
-        crate::original_demands::stream_selected(&self.session,&table,&keys,budget,|batch|data.facts.chunks.decode(batch)).await?;
+        let table = identifier(&access.table_for(&input)?);
+        let mut charge = charged::StateCharge::new(budget, "retrieval-original-demand-union");
+        let mut keys = charged::ChargedSet::default();
+        for (artifact, start, end) in ranges.iter() {
+            crate::original_demands::union_range(&mut keys, &mut charge, *artifact, *start, *end)?;
+        }
+        crate::original_demands::stream_selected(&self.session, &table, &keys, budget, |batch| {
+            data.facts.chunks.decode(batch)
+        })
+        .await?;
         Ok(())
     }
     pub async fn render_root(
@@ -537,13 +662,20 @@ impl Preparation {
     }
 }
 /// Append one rendered grain to the stage's already declared publications.
-pub async fn publish_mandatory(
-    output: &mut ProducerOutput,
-    rows: &Output,
-) -> Result<(), ModelError> {
-    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
-    lctx_model::retrieval_outputs!(write);
-    Ok(())
+pub fn publish_mandatory<'a>(
+    output: &'a mut ProducerOutput,
+    rows: &'a Output,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        type Emit =
+            for<'a> fn(&'a Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        lctx_model::retrieval_outputs!(entries);
+        for emit in EMITTERS {
+            emit(rows, output).await?;
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

@@ -169,27 +169,20 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
 async fn availability_reuses_exact_admission_and_refuses_changed_invalid_membership() {
     use input::{InputRevision,ArtifactUse,SourceRole};
     use source::{SourceArtifact,CoverageScope};
-    let workspace=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:8<<20,..Default::default()},native_fixture::store()).unwrap();
     let profile=Profile::Catalog;
-    let inputs=workspace.inputs("availability-empty",profile,[]).unwrap();
-    let output=workspace.output("availability-empty",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME,Provider::NAME,ProviderRun::NAME,RunFamily::NAME,AnalysisContext::NAME]);
-    output.declare_async::<InputRevision>().await.unwrap();
-    output.declare_async::<SourceArtifact>().await.unwrap();
-    output.declare_async::<ArtifactUse>().await.unwrap();
-    output.declare_async::<CoverageScope>().await.unwrap();
-    output.declare_async::<ProviderCoverage>().await.unwrap();
-    output.declare_async::<Provider>().await.unwrap();
-    output.declare_async::<ProviderRun>().await.unwrap();
-    output.declare_async::<RunFamily>().await.unwrap();
-    output.declare_async::<AnalysisContext>().await.unwrap();
-    output.finish(stages::ProviderOutcome::Complete).await.unwrap();
+    let resources=ResourceBudget::fixed(16<<20).unwrap();
+    let captures=Arc::new(CapturedInputs::new(vec![],cpg_extract::native_context::NativeContextConfig::committed(profile,&resources).unwrap()));
+    let workspace=compile(captures,resources.clone(),profile).await;
     let admitted=workspace.facts_availability_async(profile).await.unwrap();
     assert_eq!(admitted.empty_universe(FactFamily::Flow),Some(Availability::NotRequested));
     let synchronous=workspace.facts_availability(profile).unwrap();
     assert!(Arc::ptr_eq(&admitted,&synchronous),"sync and async consumers borrow the same exact admitted authority");
     let repeated=workspace.facts_availability_async(profile).await.unwrap();
     assert!(Arc::ptr_eq(&admitted,&repeated));
-    let behavioral=workspace.facts_availability_async(Profile::Behavioral).await.unwrap();
+    assert!(workspace.facts_availability_async(Profile::Behavioral).await.is_err(),"captured producer profile cannot be relabelled by a cache lookup");
+    let captures=Arc::new(CapturedInputs::new(vec![],cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral,&resources).unwrap()));
+    let other=compile(captures,resources.clone(),Profile::Behavioral).await;
+    let behavioral=other.facts_availability_async(Profile::Behavioral).await.unwrap();
     assert_eq!(behavioral.empty_universe(FactFamily::Flow),Some(Availability::NoScope));
     assert!(!Arc::ptr_eq(&admitted,&behavioral),"another profile must be independently admitted");
     let before=workspace.facts_availability_async(profile).await.unwrap();
@@ -221,9 +214,10 @@ async fn availability_reuses_exact_admission_and_refuses_changed_invalid_members
     output.finish(stages::ProviderOutcome::Complete).await.unwrap();
     for _ in 0..2 {
         let error=invalid.facts_availability_async(profile).await.unwrap_err();
-        assert!(error.to_string().contains("artifact use names an absent artifact"),"invalid membership must be independently refused: {error}");
+        assert!(error.to_string().contains("missing completed declared producer"),"an undeclared contribution cannot supply captured facts authority: {error}");
     }
     invalid.drain().await.unwrap();
+    other.drain().await.unwrap();
     workspace.drain().await.unwrap();
 }
 

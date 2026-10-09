@@ -1,6 +1,7 @@
 //! Attachment of provider events to occurrences (ADR-0089). Only an exact span match attaches;
 //! every other outcome goes back to the provider with its candidates, to be disclosed as a subject
 //! boundary rather than guessed.
+use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
 use crate::bundle::ProviderSink;
 use crate::bundle::{Declared, ProviderStage, StageContext};
 use lctx_model::domain::{
@@ -54,19 +55,23 @@ pub const ASSEMBLE: &str = "assemble";
 /// The `assemble` stage: the single writer of the vocabulary providers contribute (ADR-0089). Its
 /// output writers merge every contribution and emit each identity once.
 pub struct Assemble;
-impl Declared for Assemble {
-    fn declaration(&self, _: Profile) -> Stage {
-        Stage {
+pub fn contract() -> ProducerContract {
+        ProducerContract {
             name: ASSEMBLE,
             inputs: vec![],
             outputs: vocabulary(),
             contributes: vec![],
-            coverage: vec![],
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Pure,
-            code: ContentHash::of(include_str!("assembly.rs").as_bytes()),
-            configuration: ContentHash::of(b"assemble"),
+            semantic_revision: 1,
+            configuration: ConfigurationBinding::Fixed(ContentHash::of(b"assemble")),
+            suppliers: vec![],
+            not_requested: vec![],
         }
+}
+impl Declared for Assemble {
+    fn declaration(&self, _: Profile) -> Stage {
+        contract().bind(ContentHash::of(include_str!("assembly.rs").as_bytes()), ContentHash::of(b"assemble"), [])
     }
 }
 impl<S: ProviderSink + 'static> ProviderStage<S> for Assemble {

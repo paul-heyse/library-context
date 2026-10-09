@@ -23,7 +23,7 @@ async fn scan<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
-    mut consume: impl FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError>,
+    mut consume: impl FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError> + Send,
 ) -> Result<(), ModelError> {
     if crate::consumed_rows::stream_artifact_admission(
         access,
@@ -35,21 +35,14 @@ async fn scan<R: Record>(
     {
         return Ok(());
     }
-    let permit = access.read::<R>()?;
-    let table = access.table_for(&ValidationInput::of::<R>(&["id"]))?;
-    let mut stream = crate::sql::query(session, &format!("SELECT * FROM \"{table}\""))
-        .await
-        .map_err(ModelError::codec)?
-        .execute_stream()
-        .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        admission.visit_if_expected(&permit, &batch)?;
-        consume(&batch)?;
-        tokio::task::yield_now().await;
-    }
-    Ok(())
+    let declaration = ValidationInput::of::<R>(&["id"]);
+    let permit = access.read_at::<R>(declaration.prefix())?;
+    crate::consumed_rows::stream_at(&permit, &declaration, access, session, |permit, batch| {
+        admission.visit_if_expected(permit, batch)?;
+        consume(batch)
+    }).await
 }
+
 fn key_literal(bytes: &[u8]) -> String {
     format!(
         "X'{}'",

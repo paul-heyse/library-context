@@ -885,7 +885,8 @@ pub fn stage(
         order,
     )?;
     Ok(stages::Stage {
-        name: "catalog_core",
+        captured_binding: None,
+name: "catalog_core",
         inputs,
         outputs,
         contributes: vec![],

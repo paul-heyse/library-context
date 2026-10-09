@@ -2177,7 +2177,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         });
     }
     stages::Stage {
-        name: "normalize_bindings",
+        captured_binding: None,
+name: "normalize_bindings",
         inputs: super::facts_stage_inputs(inputs),
         outputs: super::bindings::relations()
             .iter()

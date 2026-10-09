@@ -996,7 +996,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         inputs.retain(|r| r.name() != flow::FlowTestLeafObservation::NAME);
     }
     stages::Stage {
-        name: "normalize_relations",
+        captured_binding: None,
+name: "normalize_relations",
         inputs: super::facts_stage_inputs(inputs),
         outputs: super::links::relations()
             .iter()

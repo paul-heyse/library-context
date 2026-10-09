@@ -932,7 +932,8 @@ pub fn stage(
     let mut key = KeySink::new("base-completion-definition");
     definition.id().encode(&mut key);
     Ok(Stage {
-        name: "complete_base",
+        captured_binding: None,
+name: "complete_base",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

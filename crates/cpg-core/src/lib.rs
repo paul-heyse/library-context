@@ -16,6 +16,7 @@ pub mod embedding_realization;
 pub mod embedding_service;
 pub mod facts;
 pub mod final_coverage;
+mod producer_operations;
 pub mod retrieval_preparation;
 pub mod retrieval_tokenizer;
 mod scoped_admission;
@@ -65,11 +66,11 @@ pub mod semantic_summaries;
 /// Private native attempt workspace and immutable completed memberships.
 pub mod workspace;
 
+mod documentary_spool;
 mod native_bridge;
 mod native_calls;
-mod documentary_spool;
-mod original_demands;
 mod native_canonical;
+mod original_demands;
 
 pub mod artifact;
 

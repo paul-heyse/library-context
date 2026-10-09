@@ -122,24 +122,46 @@ pub const SCOPE_FIELDS: &[&str] = &[
     "set",
     "universe",
 ];
-/// One atomic scope index covers every declared scalar nominal reference, including compiler
-/// ownership fields. The model owns this inventory; existing scalar scope predicates remain.
-pub fn atomic_scope_fields()->&'static std::collections::BTreeSet<&'static str> {
-    static FIELDS:std::sync::OnceLock<std::collections::BTreeSet<&'static str>>=std::sync::OnceLock::new();
-    FIELDS.get_or_init(||{
-        let mut fields=SCOPE_FIELDS.iter().copied().collect();
-        fn collect<R:Record>(fields:&mut std::collections::BTreeSet<&'static str>){
-            fields.extend(R::fields().into_iter().filter(|field|field.target().is_some() && !field.list()).map(|field|field.name()));
+/// The physical owner selects its own declared field inventory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScopeTable { Entity, Assertion, CompilerRecord }
+impl ScopeTable {
+    pub fn name(self)->&'static str {match self {Self::Entity=>"entity",Self::Assertion=>"assertion",Self::CompilerRecord=>"compiler_record"}}
+    pub fn from_name(name:&str)->Result<Self,lctx_model::domain::ModelError> {match name {"entity"=>Ok(Self::Entity),"assertion"=>Ok(Self::Assertion),"compiler_record"=>Ok(Self::CompilerRecord),_=>Err(lctx_model::domain::ModelError::Schema("native scope table"))}}
+    pub fn for_relation(name:&str)->Result<Self,lctx_model::domain::ModelError> {
+        for table in [Self::Entity,Self::Assertion,Self::CompilerRecord] {if table.relations().iter().any(|relation|relation.name()==name){return Ok(table);}}
+        if name=="__graph_assertion" {return Ok(Self::Assertion);}
+        Err(lctx_model::domain::ModelError::Schema("native scope relation"))
+    }
+    pub fn relations(self)->&'static [Relation] {
+        static ENTITIES:std::sync::OnceLock<Vec<Relation>>=std::sync::OnceLock::new();
+        static ASSERTIONS:std::sync::OnceLock<Vec<Relation>>=std::sync::OnceLock::new();
+        match self {
+            Self::Entity=>ENTITIES.get_or_init(||{let mut relations=Vec::new();macro_rules! collect {($($variant:ident:$ty:ty,)*)=>{$(relations.push(Relation::of::<$ty>());)*};} lctx_model::graph_entity_records!(collect);relations}),
+            Self::Assertion=>ASSERTIONS.get_or_init(||{let mut relations=Vec::new();macro_rules! collect {($($variant:ident:$ty:ty,)*)=>{$(relations.push(Relation::of::<$ty>());)*};} lctx_model::graph_assertion_records!(collect);relations}),
+            Self::CompilerRecord=>compiler_relations(),
         }
-        macro_rules! collect_registry {($($variant:ident:$ty:ty,)*)=>{$(collect::<$ty>(&mut fields);)*};}
-        lctx_model::graph_entity_records!(collect_registry);
-        lctx_model::graph_assertion_records!(collect_registry);
-        for relation in compiler_relations() {
-            fields.extend(relation.fields().iter().filter(|field|field.target().is_some() && !field.list()).map(|field|field.name()));
-        }
-        fields
-    })
+    }
+    /// Explicit historical scope semantics apply only to actual non-list physical columns.
+    /// Artifact chunks replace body bytes with a physical original pointer, which is not a
+    /// nominal reference and must never enter this inventory.
+    fn layout(self)->&'static std::collections::BTreeMap<&'static str,BTreeSet<&'static str>> {
+        type Layout=std::collections::BTreeMap<&'static str,BTreeSet<&'static str>>;
+        static ENTITY:std::sync::OnceLock<Layout>=std::sync::OnceLock::new();
+        static ASSERTION:std::sync::OnceLock<Layout>=std::sync::OnceLock::new();
+        static COMPILER:std::sync::OnceLock<Layout>=std::sync::OnceLock::new();
+        let owner=match self {Self::Entity=>&ENTITY,Self::Assertion=>&ASSERTION,Self::CompilerRecord=>&COMPILER};
+        owner.get_or_init(||self.relations().iter().map(|relation|{
+            let fields=relation.fields().iter().filter(|field|!field.list() && (field.target().is_some() || SCOPE_FIELDS.contains(&field.name()))).map(Field::name).collect();
+            (relation.name(),fields)
+        }).collect())
+    }
+    pub fn relation_fields(self,relation:&str)->BTreeSet<&'static str> {self.layout().get(relation).cloned().unwrap_or_default()}
+    pub fn fields(self)->BTreeSet<&'static str> {self.layout().values().flatten().copied().collect()}
+    pub fn contains(self,relation:&str,field:&str)->bool {self.layout().get(relation).is_some_and(|fields|fields.contains(field))}
+
 }
+pub fn atomic_scope_field(relation:&str,field:&str)->bool {ScopeTable::for_relation(relation).is_ok_and(|table|table.contains(relation,field))}
 /// All model-required families without a graph lowering share one closed native backing.
 /// Derive this inventory from the same declarations that own compiler model membership.
 pub(crate) fn compiler_relations()->&'static [Relation] {
@@ -165,12 +187,15 @@ pub fn compiler_record_schema() -> String {
     sql
 }
 fn scope_schema(table:&str)->String {
+    let layout=ScopeTable::from_name(table).expect("generated canonical scope table");
     let mut sql=String::new();
-        for field in atomic_scope_fields() {
-            sql.push_str(&format!("DEFINE FIELD `scope_{field}` ON {table} TYPE option<string> VALUE IF body.`{field}` IS NONE THEN NONE ELSE <string>body.`{field}` END;"));
-        }
-        let active=atomic_scope_fields().iter().map(|field|format!("IF body.`{field}` IS NONE OR body.`{field}` IS NULL THEN NONE ELSE semantic_type+'|{field}|'+<string>body.`{field}` END")).collect::<Vec<_>>().join(",");
-        sql.push_str(&format!("DEFINE FIELD scope_keys ON {table} TYPE array<string> VALUE [{active}].filter(|$value| $value IS NOT NONE); DEFINE INDEX by_scope ON {table} FIELDS scope_keys.*,semantic_key;"));
+    if layout!=ScopeTable::CompilerRecord {
+        sql.push_str(&format!("DEFINE FIELD scope_context ON {table} TYPE option<string> VALUE IF body.context IS NONE THEN NONE ELSE <string>body.context END;"));
+    }
+    let active=layout.fields().iter().map(|field|{
+        let relations=layout.relations().iter().filter(|relation|layout.contains(relation.name(),field)).map(|relation|format!("'{}'",relation.name())).collect::<Vec<_>>().join(",");
+        format!("IF semantic_type NOT IN [{relations}] OR body.`{field}` IS NONE OR body.`{field}` IS NULL THEN NONE ELSE semantic_type+'|{field}|'+<string>body.`{field}` END")}).collect::<Vec<_>>().join(",");
+    sql.push_str(&format!("DEFINE FIELD scope_keys ON {table} TYPE array<string> VALUE [{active}].filter(|$value| $value IS NOT NONE); DEFINE INDEX by_scope ON {table} FIELDS scope_keys.*,semantic_key;"));
     sql
 }
 pub fn canonical_schema() -> String {
@@ -196,6 +221,7 @@ pub fn canonical_schema() -> String {
 }
 pub fn realization_identity(native_definitions: &str) -> ContentHash {
     let mut bytes = canonical_schema().into_bytes();
+    bytes.extend_from_slice(compiler_record_schema().as_bytes());
     bytes.extend_from_slice(native_definitions.as_bytes());
     ContentHash::of(&bytes)
 }
@@ -203,6 +229,51 @@ pub fn realization_identity(native_definitions: &str) -> ContentHash {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use surrealdb::types::ToSql;
+    #[test]
+    fn scope_inventory_is_table_specific_and_keeps_physical_semantics() {
+        use lctx_model::domain::{artifact::ArtifactChunk,analytics::QualityStep,input::Release,source::CoverageScope,embedding::analytic::AnalysisEmbeddingUse};
+        assert_eq!(ScopeTable::for_relation(QualityStep::NAME).unwrap(),ScopeTable::CompilerRecord);
+        assert!(ScopeTable::CompilerRecord.contains(QualityStep::NAME,"run"));
+        assert!(!ScopeTable::Entity.contains(QualityStep::NAME,"run"));
+        assert!(ScopeTable::Entity.contains(Release::NAME,"package"));
+        assert!(ScopeTable::CompilerRecord.contains(ArtifactChunk::NAME,"artifact"));
+        assert!(!ScopeTable::CompilerRecord.contains(ArtifactChunk::NAME,"original"));
+        assert!(!ScopeTable::CompilerRecord.contains(ArtifactChunk::NAME,"body"));
+        let raw_relation=Relation::of::<AnalysisEmbeddingUse>();
+        assert!(raw_relation.fields().iter().any(|field|field.name()=="input" && field.target().is_none() && field.scalar()==Scalar::Digest));
+        assert!(ScopeTable::Assertion.contains(AnalysisEmbeddingUse::NAME,"input"));
+        let table=ScopeTable::for_relation(CoverageScope::NAME).unwrap();
+        let fields=table.relation_fields(CoverageScope::NAME);
+        assert!(fields.contains("input_input"));
+        assert!(fields.contains("artifact_artifact"));
+        assert!(!fields.contains("input"));
+        for table in [ScopeTable::Entity,ScopeTable::Assertion,ScopeTable::CompilerRecord] {
+            let sql=scope_schema(table.name());
+            assert_eq!(sql.contains("DEFINE FIELD scope_context"),table!=ScopeTable::CompilerRecord);
+            assert!(!sql.contains("DEFINE FIELD `scope_"));
+            for relation in table.relations() {
+                for field in relation.fields() {
+                    if !field.list() && SCOPE_FIELDS.contains(&field.name()) {assert!(table.contains(relation.name(),field.name()));}
+                }
+            }
+        }
+        let mut bytes=canonical_schema().into_bytes();bytes.extend_from_slice(compiler_record_schema().as_bytes());bytes.extend_from_slice(b"native functions");
+        assert_eq!(realization_identity("native functions"),ContentHash::of(&bytes));
+    }
+    #[test]
+    fn inactive_sum_fields_and_original_pointer_do_not_become_scope_keys() {
+        use surrealdb::types::{Object,Value,RecordId};
+        use lctx_model::domain::{source::CoverageScope,artifact::ArtifactChunk};
+        let table=ScopeTable::for_relation(CoverageScope::NAME).unwrap();
+        let mut body=Object::new();body.insert("input_input",vec![3i64;16]);body.insert("artifact_artifact",Value::Null);
+        let mut row=Object::new();crate::reconciliation::add_scope_fields(&mut row,&Value::Object(body),CoverageScope::NAME,table).unwrap();
+        assert_eq!(row.len(),1);assert_eq!(row.get("scope_keys"),Some(&Value::from_t(vec![format!("{}|input_input|{}",CoverageScope::NAME,Value::from_t(vec![3i64;16]).to_sql())])));
+        let mut body=Object::new();body.insert("artifact",vec![4i64;16]);body.insert("original",RecordId::new("original","physical"));
+        let mut row=Object::new();crate::reconciliation::add_scope_fields(&mut row,&Value::Object(body),ArtifactChunk::NAME,ScopeTable::CompilerRecord).unwrap();
+        let Value::Array(keys)=row.get("scope_keys").unwrap() else{panic!("scope keys");};assert_eq!(keys.len(),1);
+        assert!(!row.contains_key("scope_artifact"));
+    }
     #[test]
     fn generated_native_schemas_keep_opaque_bytes_and_closed_compiler_metadata(){
         let literals=declaration::<lctx_model::domain::value::Literal>();

@@ -1,7 +1,8 @@
 //! Model-owned analysis over completed native/normalized/Enriched inputs.
+use crate::producer_operations;
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use arrow_array::Array;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, future::BoxFuture};
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, model as owner, sources::CapturedSources},
     execution::{model_production::*, model_rules::*},
@@ -11,51 +12,196 @@ use lctx_model::domain::{
 };
 use std::sync::Arc;
 mod scope;
-async fn load<R: Record>(
-    access: &CompletedInputs,
-    session: &datafusion::prelude::SessionContext,
-    consumed: &mut crate::consumed_rows::ConsumedInputs,
-    admission: &mut CoverageAdmission<'_>,
+fn load<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut CoverageAdmission<'sources>,
     mut visit: impl FnMut(
         &ValidationInput,
         &analysis::sources::CompletedInput<R>,
         &arrow_array::RecordBatch,
-    ) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    while let Some((input, permit)) = consumed.next::<R>(access)? {
-        if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
-            .await?
-        {
-            continue;
+    ) -> Result<(), ModelError>
+    + Send
+    + 'a,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+                .await?
+            {
+                continue;
+            }
+            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+                admission.visit_if_expected(permit, batch)?;
+                visit(&input, permit, batch)
+            })
+            .await?;
         }
-        crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
-            admission.visit_if_expected(permit, batch)?;
-            visit(&input, permit, batch)
-        })
-        .await?;
-    }
-    Ok(())
+        Ok(())
+    })
 }
-async fn load_selected_catalog(
-    access: &CompletedInputs,
-    session: &datafusion::prelude::SessionContext,
-    consumed: &mut crate::consumed_rows::ConsumedInputs,
-    data: &mut ModelData,
+
+fn load_selected_catalog<'a>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    data: &'a mut ModelData,
     selected: Id<models::ModelCatalog>,
-) -> Result<(), ModelError> {
-    while let Some((input, permit)) = consumed.next::<models::ModelCatalog>(access)? {
-        crate::consumed_rows::stream_where_at(
-            &permit,
-            &input,
-            access,
-            session,
-            Some(&format!("id={}", scope::hex(selected))),
-            |_, batch| data.visit_input(&input, batch),
-        )
-        .await?;
-    }
-    Ok(())
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<models::ModelCatalog>(access)? {
+            crate::consumed_rows::stream_where_at(
+                &permit,
+                &input,
+                access,
+                session,
+                Some(&format!("id={}", scope::hex(selected))),
+                |_, batch| data.visit_input(&input, batch),
+            )
+            .await?;
+        }
+        Ok(())
+    })
 }
+
+type InputReader = for<'a, 'sources> fn(
+    &'a CompletedInputs,
+    &'a datafusion::prelude::SessionContext,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut CoverageAdmission<'sources>,
+    &'a mut ModelData,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn read_metadata<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut CoverageAdmission<'sources>,
+    data: &'a mut ModelData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    load::<R>(access, session, consumed, admission, |input, _, batch| {
+        data.visit_input(input, batch)
+    })
+}
+fn read_expected<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut CoverageAdmission<'sources>,
+    _data: &'a mut ModelData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    load::<R>(access, session, consumed, admission, |_, _, _| Ok(()))
+}
+fn load_inputs<'a, 'sources>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    definition: &'a analysis::AnalysisDefinition,
+    admission: &'a mut CoverageAdmission<'sources>,
+    budget: &'a resources::ResourceBudget,
+) -> BoxFuture<'a, Result<ModelData, ModelError>> {
+    Box::pin(async move {
+        let mut data = ModelData::new(budget);
+        // The only resident global domain is finite configuration plus compact publication frames.
+        let mut declarations = vec![
+            ValidationInput::of::<models::ModelCatalog>(&["id"]),
+            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+        ];
+        declarations.extend(analysis::expected::inputs(definition.method));
+        let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
+        macro_rules! read {($($ty:ty),*)=>{{
+        const READERS: &[InputReader] = &[$(read_metadata::<$ty>,)*];
+        for read in READERS { read(access, session, &mut consumed, admission, &mut data).await?; }
+    }};}
+        read!(
+            analysis::MethodParameters,
+            analysis::AnalysisDefinition,
+            analysis::enriched_execution::AnalysisInvocation,
+            analysis::source_call::AnalysisInvocation,
+            analysis::local::AnalysisInvocation,
+            attribution::ProviderRun
+        );
+        let selected = data
+            .parameters
+            .get(definition.parameters)
+            .and_then(|row| row.model_catalog)
+            .ok_or_else(|| ModelError::Invalid("Models selected catalog absent".into()))?;
+        load_selected_catalog(access, session, &mut consumed, &mut data, selected).await?;
+        if data.definitions.get(definition.id()) != Some(definition) {
+            return Err(ModelError::Invalid(
+                "Model definition absent from confirmed configuration".into(),
+            ));
+        }
+        macro_rules! expected {($($field:ident:$ty:ty,)*)=>{{
+        const READERS: &[InputReader] = &[$(read_expected::<$ty>,)*];
+        for read in READERS { read(access, session, &mut consumed, admission, &mut data).await?; }
+    }};}
+        lctx_model::expected_domain_inputs!(expected);
+        consumed.finish(access.name())?;
+        Ok(data)
+    })
+}
+
+fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelError>> {
+    Box::pin(async move {
+        macro_rules! declare {($($ty:ty),*)=>{{
+        const DECLARATIONS: &[producer_operations::Declaration] = &[$(producer_operations::declare::<$ty>,)*];
+        producer_operations::declare_ordered(output, DECLARATIONS).await?;
+    }};}
+        macro_rules! common_publication {($($record:ident,)*)=>{declare!($(owner::$record),*);};}
+        lctx_model::analysis_publication!(common_publication);
+        declare!(
+            execution::closed_targets::ClosedTargetAssessment,
+            execution::protocol_interpretation::ProtocolActionAssessment,
+            execution::protocol_interpretation::TerminalFrontierAssessment,
+            execution::protocol_interpretation::ConditionalTerminalFrontier,
+            execution::protocol_interpretation::NormalContinuationRestriction,
+            execution::protocol_interpretation::NativeExitCharacterization,
+            ModelRun,
+            assumptions_universe::AssumptionUniverseSupport,
+            assumptions::AssumptionSet,
+            assumptions::AssumptionSetMember,
+            assumptions::Assumption,
+            assumptions::AssumptionUniverse,
+            ModelApplication,
+            ApplicationPremise,
+            ApplicationBoundary,
+            TargetAssessment,
+            AppliedRule,
+            ChannelAssessment,
+            ModeledOperation,
+            ResourceIdentity,
+            ModelValuePath,
+            ActionAssessment,
+            ActionSource,
+            ActionPostcondition,
+            execution::model_protocol::ContextResource,
+            execution::model_protocol::ContextEntryValue,
+            execution::model_protocol::ContextPostcondition,
+            execution::model_context_transfer::ContextTransferWitness,
+            execution::model_transfer::ModelTransferWitness,
+            transfer::model::TransferKey,
+            transfer::model::TransferAlternative,
+            transfer::model::TransferSupport,
+            value::PlaceRoot,
+            value::Place,
+            assertion::AssertionQualification,
+            conditions::Condition,
+            conditions::ConditionNode,
+            owner::ObligationSubject,
+            owner::SupportSource,
+            owner::AnalysisDerivation,
+            owner::AnalysisProposition,
+            owner::AnalysisDerivationPremise
+        );
+        Ok(())
+    })
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "Descriptor streams, workspace, selected configuration and binding, Base and Local owners are independently validated."
@@ -77,42 +223,12 @@ pub async fn apply(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = CoverageAdmission::new(&sources, budget)?;
     let session = access.session(runtime).await?;
-    let mut data = ModelData::new(budget);
-    // The only resident global domain is finite configuration plus compact publication frames.
-    let mut declarations = vec![
-        ValidationInput::of::<models::ModelCatalog>(&["id"]),
-        ValidationInput::of::<analysis::MethodParameters>(&["id"]),
-        ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
-        ValidationInput::of::<analysis::enriched_execution::AnalysisInvocation>(&["id"]),
-        ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),
-        ValidationInput::of::<analysis::local::AnalysisInvocation>(&["id"]),
-        ValidationInput::of::<attribution::ProviderRun>(&["id"]),
-    ];
-    declarations.extend(analysis::expected::inputs(definition.method));
-    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
-    macro_rules! read{($($ty:ty),*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|input,_,batch|data.visit_input(input,batch)).await?;)*};}
-    read!(
-        analysis::MethodParameters,
-        analysis::AnalysisDefinition,
-        analysis::enriched_execution::AnalysisInvocation,
-        analysis::source_call::AnalysisInvocation,
-        analysis::local::AnalysisInvocation,
-        attribution::ProviderRun
-    );
+    let data = load_inputs(&access, &session, definition, &mut admission, budget).await?;
     let selected = data
         .parameters
         .get(definition.parameters)
         .and_then(|row| row.model_catalog)
         .ok_or_else(|| ModelError::Invalid("Models selected catalog absent".into()))?;
-    load_selected_catalog(&access, &session, &mut consumed, &mut data, selected).await?;
-    if data.definitions.get(definition.id()) != Some(definition) {
-        return Err(ModelError::Invalid(
-            "Model definition absent from confirmed configuration".into(),
-        ));
-    }
-    macro_rules! expected{($($field:ident:$ty:ty,)*)=>{$(load::<$ty>(&access,&session,&mut consumed,&mut admission,|_,_,_|Ok(())).await?;)*};}
-    lctx_model::expected_domain_inputs!(expected);
-    consumed.finish(access.name())?;
     let parsed = SelectedCatalog::read(
         data.catalogs
             .get(selected)
@@ -145,53 +261,7 @@ pub async fn apply(
     } else {
         None
     };
-    macro_rules! declare{($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<owner::$record>().await?;)*};}
-    lctx_model::analysis_publication!(common_publication);
-    declare!(
-        execution::closed_targets::ClosedTargetAssessment,
-        execution::protocol_interpretation::ProtocolActionAssessment,
-        execution::protocol_interpretation::TerminalFrontierAssessment,
-        execution::protocol_interpretation::ConditionalTerminalFrontier,
-        execution::protocol_interpretation::NormalContinuationRestriction,
-        execution::protocol_interpretation::NativeExitCharacterization,
-        ModelRun,
-        assumptions_universe::AssumptionUniverseSupport,
-        assumptions::AssumptionSet,
-        assumptions::AssumptionSetMember,
-        assumptions::Assumption,
-        assumptions::AssumptionUniverse,
-        ModelApplication,
-        ApplicationPremise,
-        ApplicationBoundary,
-        TargetAssessment,
-        AppliedRule,
-        ChannelAssessment,
-        ModeledOperation,
-        ResourceIdentity,
-        ModelValuePath,
-        ActionAssessment,
-        ActionSource,
-        ActionPostcondition,
-        execution::model_protocol::ContextResource,
-        execution::model_protocol::ContextEntryValue,
-        execution::model_protocol::ContextPostcondition,
-        execution::model_context_transfer::ContextTransferWitness,
-        execution::model_transfer::ModelTransferWitness,
-        transfer::model::TransferKey,
-        transfer::model::TransferAlternative,
-        transfer::model::TransferSupport,
-        value::PlaceRoot,
-        value::Place,
-        assertion::AssertionQualification,
-        conditions::Condition,
-        conditions::ConditionNode,
-        owner::ObligationSubject,
-        owner::SupportSource,
-        owner::AnalysisDerivation,
-        owner::AnalysisProposition,
-        owner::AnalysisDerivationPremise
-    );
+    declare_outputs(&output).await?;
     let mut frames = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(budget, "model_frames");
     for frame in data.early.bindings.runs.iter() {
@@ -298,21 +368,22 @@ pub async fn apply(
             )?
         };
         if let Some(scopes) = &scopes {
+            let application = SelectedApplication {
+                access: &access,
+                output: &output,
+                scopes,
+                invocation: &invocation,
+                definition,
+                profile,
+                catalog: &parsed,
+                verified,
+                actual: actual.as_ref(),
+                frame: frame.id(),
+                budget,
+            };
             for compiled in parsed.catalog().models() {
                 let kind = ProductionScope::Target(compiled.declaration().id());
-                let grain = scopes.selected(kind, frame.id(), budget).await?;
-                let selected = scopes.load(&access, &grain, budget).await?;
-                let produced = apply_selected(
-                    &selected,
-                    &invocation,
-                    definition,
-                    profile,
-                    &parsed,
-                    verified,
-                    kind,
-                    actual.as_ref(),
-                    budget,
-                )?;
+                let produced = apply_selection(&application, kind).await?;
                 merge_run(&mut records, &produced)?;
                 publish_records(&output, &produced).await?;
             }
@@ -329,19 +400,12 @@ pub async fn apply(
                         .at_epoch(PublicationBoundary::Facts),
                 )?,
             );
-            macro_rules! roots{($ty:ty,$predicate:expr,$kind:expr)=>{{
-                let alias=crate::consumed_rows::identifier(&access.table_for(&ValidationInput::of::<$ty>(&["id"]))?);
-                let sql=format!("SELECT r.id FROM {alias} r {} ORDER BY r.id",$predicate);
-                let mut stream=crate::sql::query(&session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-                while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
-                    let ids=batch.column(0).as_any().downcast_ref::<arrow_array::FixedSizeBinaryArray>().ok_or(ModelError::Schema(<$ty>::NAME))?;
-                    for i in 0..ids.len(){let id:Id<$ty>=serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new(ids.value(i).iter().copied())).map_err(ModelError::codec)?;let kind=($kind)(id);
-                        let grain=scopes.selected(kind,frame.id(),budget).await?;let selected=scopes.load(&access,&grain,budget).await?;
-                        let produced=apply_selected(&selected,&invocation,definition,profile,&parsed,verified,kind,actual.as_ref(),budget)?;
-                        merge_run(&mut records,&produced)?;publish_records(&output,&produced).await?;
-                    }
-                }
-            }};}
+            macro_rules! roots {
+                ($ty:ty,$predicate:expr,$kind:expr) => {
+                    apply_roots::<$ty>(&application, &session, $predicate, $kind, &mut records)
+                        .await?;
+                };
+            }
             let parent = data
                 .enriched
                 .iter()
@@ -389,6 +453,39 @@ pub async fn apply(
                 ProductionScope::Exit
             );
         }
+        publish_frame(
+            &output,
+            &coverage,
+            records,
+            invocation,
+            parents,
+            inputs,
+            receipts,
+            projections,
+            budget,
+        )
+        .await?;
+    }
+    drop(data);
+    output.finish(ProviderOutcome::Complete).await
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Coverage, selected model result and charged frame receipts have distinct owners and publication order."
+)]
+fn publish_frame<'a>(
+    output: &'a ProducerOutput,
+    coverage: &'a owner::coverage::AdmittedCoverage,
+    records: ModelRecords,
+    invocation: owner::AnalysisInvocation,
+    parents: Rows<owner::InvocationSource>,
+    inputs: Vec<owner::AnalysisInput>,
+    receipts: Vec<owner::SourceReceipt>,
+    projections: Vec<owner::ProjectionInput>,
+    budget: &'a resources::ResourceBudget,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;
@@ -425,60 +522,150 @@ pub async fn apply(
         for row in projections {
             output.push(row).await?;
         }
-    }
-    drop(data);
-    output.finish(ProviderOutcome::Complete).await
+        Ok(())
+    })
 }
 
-async fn publish_records(
-    output: &ProducerOutput,
-    records: &ModelRecords,
-) -> Result<(), ModelError> {
-    macro_rules! write{($($field:ident,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
-    write!(
-        closed_targets,
-        protocol_actions,
-        terminal_assessments,
-        terminal_frontiers,
-        normal_restrictions,
-        exit_characterizations,
-        assumption_sets,
-        assumption_members,
-        assumptions,
-        assumption_universes,
-        universe_supports,
-        applications,
-        application_premises,
-        boundaries,
-        targets,
-        rules,
-        channels,
-        operations,
-        resources,
-        paths,
-        action_assessments,
-        action_sources,
-        postconditions,
-        context_transfers,
-        context_resources,
-        context_values,
-        context_postconditions,
-        transfer_witnesses,
-        transfer_keys,
-        transfer_alternatives,
-        transfer_supports,
-        transfer_roots,
-        transfer_places,
-        qualifications,
-        conditions,
-        condition_nodes,
-        subjects,
-        support_sources,
-        derivations,
-        propositions,
-        derivation_premises,
-    );
-    Ok(())
+// Borrow only the selected model application's semantic owners, without copying rich inputs.
+struct SelectedApplication<'a, 'actual> {
+    access: &'a CompletedInputs,
+    output: &'a ProducerOutput,
+    scopes: &'a scope::ModelScopes,
+    invocation: &'a owner::AnalysisInvocation,
+    definition: &'a analysis::AnalysisDefinition,
+    profile: Profile,
+    catalog: &'a SelectedCatalog,
+    verified: Option<&'a normalized::binding_normalization::VerifiedBindings>,
+    actual: Option<&'a ActualInputs<'actual>>,
+    frame: Id<attribution::ProviderRun>,
+    budget: &'a resources::ResourceBudget,
+}
+fn apply_selection<'a>(
+    application: &'a SelectedApplication<'_, '_>,
+    kind: ProductionScope,
+) -> BoxFuture<'a, Result<ModelRecords, ModelError>> {
+    Box::pin(async move {
+        let grain = application
+            .scopes
+            .selected(kind, application.frame, application.budget)
+            .await?;
+        let selected = application
+            .scopes
+            .load(application.access, &grain, application.budget)
+            .await?;
+        apply_selected(
+            &selected,
+            application.invocation,
+            application.definition,
+            application.profile,
+            application.catalog,
+            application.verified,
+            kind,
+            application.actual,
+            application.budget,
+        )
+    })
+}
+fn apply_roots<'a, R: Record>(
+    application: &'a SelectedApplication<'_, '_>,
+    session: &'a datafusion::prelude::SessionContext,
+    predicate: String,
+    kind: fn(Id<R>) -> ProductionScope,
+    records: &'a mut ModelRecords,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let alias = crate::consumed_rows::identifier(
+            &application
+                .access
+                .table_for(&ValidationInput::of::<R>(&["id"]))?,
+        );
+        let sql = format!("SELECT r.id FROM {alias} r {predicate} ORDER BY r.id");
+        let mut stream = crate::sql::query(session, &sql)
+            .await
+            .map_err(ModelError::codec)?
+            .execute_stream()
+            .await
+            .map_err(ModelError::codec)?;
+        while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+            let ids = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                .ok_or(ModelError::Schema(R::NAME))?;
+            for i in 0..ids.len() {
+                let id: Id<R> =
+                    serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                        _,
+                        serde::de::value::Error,
+                    >::new(
+                        ids.value(i).iter().copied()
+                    ))
+                    .map_err(ModelError::codec)?;
+                let produced = apply_selection(application, kind(id)).await?;
+                merge_run(records, &produced)?;
+                publish_records(application.output, &produced).await?;
+            }
+        }
+        Ok(())
+    })
+}
+
+type RecordEmitter =
+    for<'a> fn(&'a ModelRecords, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+fn publish_records<'a>(
+    output: &'a ProducerOutput,
+    records: &'a ModelRecords,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        macro_rules! write {($($field:ident,)*)=>{{
+        const EMITTERS: &[RecordEmitter] = &[$(|records, output| producer_operations::emit(&records.$field, output),)*];
+        for emit in EMITTERS { emit(records, output).await?; }
+    }};}
+        write!(
+            closed_targets,
+            protocol_actions,
+            terminal_assessments,
+            terminal_frontiers,
+            normal_restrictions,
+            exit_characterizations,
+            assumption_sets,
+            assumption_members,
+            assumptions,
+            assumption_universes,
+            universe_supports,
+            applications,
+            application_premises,
+            boundaries,
+            targets,
+            rules,
+            channels,
+            operations,
+            resources,
+            paths,
+            action_assessments,
+            action_sources,
+            postconditions,
+            context_transfers,
+            context_resources,
+            context_values,
+            context_postconditions,
+            transfer_witnesses,
+            transfer_keys,
+            transfer_alternatives,
+            transfer_supports,
+            transfer_roots,
+            transfer_places,
+            qualifications,
+            conditions,
+            condition_nodes,
+            subjects,
+            support_sources,
+            derivations,
+            propositions,
+            derivation_premises,
+        );
+        Ok(())
+    })
 }
 
 fn merge_run(total: &mut ModelRecords, part: &ModelRecords) -> Result<(), ModelError> {
@@ -503,6 +690,56 @@ fn merge_run(total: &mut ModelRecords, part: &ModelRecords) -> Result<(), ModelE
 mod selected_catalog_controls {
     use super::*;
     #[tokio::test]
+    async fn input_phase_is_lazy_and_missing_metadata_releases_its_charge() {
+        let runtime = Workspace::new(
+            Arc::new(model().unwrap()),
+            crate::workspace::WorkspaceOptions {
+                memory_bytes: 128 << 20,
+                partitions: 1,
+                batch_rows: 16,
+            },
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let access = runtime
+            .inputs("model-phase-laziness", Profile::Catalog, [])
+            .unwrap();
+        let session = access.session(&runtime).await.unwrap();
+        let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
+        let sources =
+            CapturedSources::capture(access.profile(), access.snapshots(), &budget).unwrap();
+        let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
+        let catalog = models::Catalog::parse(
+            "external.toml",
+            include_str!("../../lctx-model/models/external.toml"),
+        )
+        .unwrap();
+        let (_, definition) = execution::configuration::models(catalog.declaration().id());
+        let before = budget.reserved();
+        let operation = load_inputs(&access, &session, &definition, &mut admission, &budget);
+        assert_eq!(
+            budget.reserved(),
+            before,
+            "constructing an unpolled phase must not reserve input state"
+        );
+        drop(operation);
+        assert_eq!(budget.reserved(), before);
+        let error = match load_inputs(&access, &session, &definition, &mut admission, &budget).await
+        {
+            Ok(_) => panic!("missing metadata must fail before catalog or expected-domain work"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains(analysis::MethodParameters::NAME),
+            "first metadata failure: {error}"
+        );
+        assert_eq!(
+            budget.reserved(),
+            before,
+            "failed input phases release finite configuration and declaration charges"
+        );
+    }
+    #[tokio::test]
     async fn captured_catalog_is_selected_before_rich_decode() {
         let runtime = Workspace::new(
             Arc::new(model().unwrap()),
@@ -510,8 +747,9 @@ mod selected_catalog_controls {
                 memory_bytes: 128 << 20,
                 partitions: 1,
                 batch_rows: 16,
-            }, crate::test_native::store()
-)
+            },
+            crate::test_native::store(),
+        )
         .unwrap();
         let parsed = models::Catalog::parse(
             "external.toml",
@@ -534,7 +772,7 @@ mod selected_catalog_controls {
             Profile::Behavioral,
             ContentHash::of(b"catalog-selection-control"),
             access,
-        [<models::ModelCatalog>::NAME],
+            [<models::ModelCatalog>::NAME],
         );
         output.declare::<models::ModelCatalog>().unwrap();
         output.push(catalog.clone()).await.unwrap();

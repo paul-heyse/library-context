@@ -1177,7 +1177,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
-        name: "normalize_projections",
+        captured_binding: None,
+name: "normalize_projections",
         inputs: crate::domain::normalized::facts_stage_inputs(inputs),
         outputs: super::relations()
             .iter()

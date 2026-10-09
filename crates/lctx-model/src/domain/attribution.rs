@@ -223,7 +223,7 @@ impl ProviderRun {
 pub struct CoverageExpectation {
     pub input: Id<InputRevision>,
     pub scope: Id<CoverageScope>,
-    pub provider: Id<Provider>,
+    pub provider: Option<Id<Provider>>,
     pub context: Id<AnalysisContext>,
     pub family: FactFamily,
     pub run: Option<Id<ProviderRun>>,
@@ -269,9 +269,10 @@ pub fn validate_coverage_contract(
     }
     let mut expected_keys = ChargedSet::default();
     for item in expected {
+        if item.provider.is_some()!=item.run.is_some(){return Err(ModelError::Invalid("coverage expectation supplier differs from invocation presence".into()));}
         let key = (
             item.scope,
-            item.run.map(|_| item.provider),
+            item.provider,
             item.context,
             item.family,
             item.run,
@@ -287,7 +288,7 @@ pub fn validate_coverage_contract(
                 .runs
                 .get(&id)
                 .ok_or_else(|| ModelError::Invalid("coverage names missing invocation".into()))?;
-            if (run.input, run.provider, run.context) != (item.input, item.provider, item.context)
+            if (run.input, Some(run.provider), run.context) != (item.input, item.provider, item.context)
                 || !invocation
                     .families
                     .get(&id)

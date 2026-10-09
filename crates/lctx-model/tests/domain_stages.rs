@@ -5,7 +5,8 @@ fn stage_model() -> ValidatedModel {
 fn stages() -> Vec<Stage> {
     vec![
         Stage {
-            name: "packages",
+            captured_binding: None,
+name: "packages",
             inputs: vec![],
             outputs: vec![RelationUse::of::<Package>()],
             contributes: vec![],
@@ -16,7 +17,8 @@ fn stages() -> Vec<Stage> {
             configuration: ContentHash::of(b"test-config"),
         },
         Stage {
-            name: "releases",
+            captured_binding: None,
+name: "releases",
             inputs: vec![RelationUse::of::<Package>()],
             outputs: vec![RelationUse::of::<Release>()],
             contributes: vec![],
@@ -67,7 +69,8 @@ fn the_schedule_refuses_double_or_missing_writers_foreign_relations_and_cycles()
               inputs: Vec<RelationUse>,
               outputs: Vec<RelationUse>,
               profiles: Vec<Profile>| Stage {
-        name,
+        captured_binding: None,
+name,
         inputs,
         outputs,
         contributes: vec![],

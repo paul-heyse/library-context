@@ -684,7 +684,8 @@ pub fn stage(
             .map(RelationUse::of_relation),
     );
     Ok(Stage {
-        name: "analytic_embedding",
+        captured_binding: None,
+name: "analytic_embedding",
         inputs,
         outputs,
         contributes: vec![],

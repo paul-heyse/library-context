@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 fn spec(producer: &str, relation: &Relation) -> ContributionSpec {
     ContributionSpec {
-        producer: producer.into(), profile: Profile::Catalog,
+        captured_binding: None, producer: producer.into(), profile: Profile::Catalog,
         model: ContentHash::of(b"view-fixture-model"),
         implementation: ContentHash::of(b"view-fixture-implementation"),
         configuration: None, inputs: vec![],
@@ -53,7 +53,10 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     #[derive(serde::Serialize,serde::Deserialize)]
     struct Envelope {table:String,row:Value}
     let text=std::fs::read_to_string(file.path()).unwrap();
-    let mut envelopes=text.lines().map(|line|serde_json::from_str::<Envelope>(line).unwrap()).collect::<Vec<_>>();
+    let mut lines=text.lines();
+    let header=lines.next().unwrap();
+    lctx_model::domain::completed::CompletedStateHeader::decode(header.as_bytes()).unwrap();
+    let mut envelopes=lines.map(|line|serde_json::from_str::<Envelope>(line).unwrap()).collect::<Vec<_>>();
     for envelope in &mut envelopes {
         if envelope.table=="compiler_record" {
             let Value::Object(object)=&mut envelope.row else{panic!("backing object");};
@@ -61,7 +64,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
             body.insert("value",Value::Number(Number::Float(2.0)));
         }
     }
-    let text=envelopes.iter().map(|row|serde_json::to_string(row).unwrap()+"\n").collect::<String>();
+    let text=header.to_string()+"\n"+&envelopes.iter().map(|row|serde_json::to_string(row).unwrap()+"\n").collect::<String>();
     std::fs::write(file.path(),text).unwrap();
     let altered=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
     assert!(matches!(altered.import_state(file.path(),&state).await,Err(ModelError::Conflict("compiler backing canonical body"))));
@@ -322,6 +325,18 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
         }
     }
 
+    // Cancel an exact membership-window wait and resume the same returned owner.
+    // No accepted key may be skipped or re-emitted when the SDK request is pending.
+    let columns=vec!["id".to_string()];
+    let mut resumed=store.scan_rows(&frozen,&relation,Some(&columns),Some(NativePredicate::Keys(nominal_keys.clone())),&budget).await.unwrap();
+    let mut interrupted=Box::pin(resumed.next());assert!(futures::poll!(&mut interrupted).is_pending());drop(interrupted);
+    let mut resumed_keys=Vec::new();
+    while let Some(row)=resumed.next().await.unwrap() {
+        let Value::Object(row)=row else{panic!("resumed selected row");};
+        let Some(Value::String(key))=row.get("id") else{panic!("resumed selected nominal identity");};resumed_keys.push(key.clone());
+    }
+    assert_eq!(resumed_keys,expected_keys.iter().map(|row|row.id().hex()).collect::<Vec<_>>());
+
     nominal_keys.sort_unstable();
     nominal_keys.dedup();
     let mut expected_all=releases[..600].to_vec();expected_all.sort_by_key(Record::id);
@@ -355,11 +370,24 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
         assert_eq!(observed,expected,"projected {table_name} retains exact membership, static filtering and unique sorted output");
         }
     }
+    // An unsupported residual stays above the source. Fetch must consume rejected
+    // rows before counting output, and cannot stop on the first native candidate.
+    let provider=store.table_provider(&frozen,relation.clone(),budget.clone(),37).unwrap();
+    let session=datafusion::prelude::SessionContext::new();session.register_table("fetch_frozen",provider).unwrap();
+    for predicate in ["version = '2'","version LIKE '2'"] {
+        let batches=session.sql(&format!("SELECT id,version FROM fetch_frozen WHERE {predicate} LIMIT 1")).await.unwrap().collect().await.unwrap();
+        let expected=expected_all.iter().find(|row|row.version=="2").unwrap();
+        assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),1);
+        let batch=batches.iter().find(|batch|batch.num_rows()>0).unwrap();
+        assert_eq!(batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap().value(0),expected.id().bytes());
+        assert_eq!(batch.column(1).as_any().downcast_ref::<StringArray>().unwrap().value(0),"2");
+    }
     store.abandon().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
+    let budget=ResourceBudget::fixed(32<<20).unwrap();
     use lctx_model::domain::{FiniteF64,analytics::QualityStep,graph::Entity};
     use lctx_surrealdb::surrealdb::types::{Bytes,RecordId,SurrealValue,Value,Variables};
     let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
@@ -383,7 +411,7 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
     let alias_id=lctx_model::domain::graph::EntityId::of(alias.id());
     let mut variables=Variables::new();variables.insert("source",RecordId::new("entity",first_id.0.hex()));variables.insert("target",RecordId::new("entity",alias_id.0.hex()));
     store.client().query("CREATE compiler_alias:selection SET source=$source,target=$target").bind(variables).await.unwrap().check().unwrap();
-    let mut rows=store.scan_canonical(true).await.unwrap();
+    let mut rows=store.scan_canonical(true,&budget).await.unwrap();
     let mut names=BTreeSet::new();
     while let Some(row)=rows.next().await.unwrap(){
         let Value::Object(object)=row else{panic!("canonical graph record");};
@@ -393,17 +421,18 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         names.insert(package.name);
     }
     assert_eq!(names,BTreeSet::from([first.name,alias.name]));
-    let mut headers=store.scan_graph_headers(true).await.unwrap();
+    let mut headers=store.scan_graph_headers(true,&budget).await.unwrap();
     let mut count=0;
     while headers.next().await.unwrap().is_some(){count+=1;}
     assert_eq!(count,2,"nongraph backing and unrelated pending entities stay excluded");
-    let mut assertions=store.scan_canonical(false).await.unwrap();
+    let mut assertions=store.scan_canonical(false,&budget).await.unwrap();
     assert!(assertions.next().await.unwrap().is_none());
     store.abandon().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
+    let budget=ResourceBudget::fixed(32<<20).unwrap();
     use lctx_model::domain::completed::CompletedView;
     let path=std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
     let config=RuntimeConfig::read(&path).unwrap();
@@ -413,20 +442,20 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
     let views=store.complete_contribution(empty,ProviderOutcome::Complete,std::slice::from_ref(&relation),&BTreeMap::new()).await.unwrap();
     let frozen=views[relation.name()].clone();
     assert_eq!(frozen.rows,0);
-    assert!(store.scan_rows(&frozen,&relation,None,None).await.unwrap().next().await.unwrap().is_none());
+    assert!(store.scan_rows(&frozen,&relation,None,None,&budget).await.unwrap().next().await.unwrap().is_none());
     let invalid=vec!["missing_field".to_owned()];
-    assert!(store.scan_rows(&frozen,&relation,Some(&invalid),None).await.is_err());
+    assert!(store.scan_rows(&frozen,&relation,Some(&invalid),None,&budget).await.is_err());
     let invalid=NativePredicate::Field{field:"missing_field".into(),values:vec![]};
-    assert!(store.scan_rows(&frozen,&relation,None,Some(invalid)).await.is_err());
+    assert!(store.scan_rows(&frozen,&relation,None,Some(invalid),&budget).await.is_err());
     let forged=CompletedView::new(relation.name().into(),frozen.contributions.clone(),1).unwrap();
-    assert!(store.scan_rows(&forged,&relation,None,Some(NativePredicate::Keys(vec![]))).await.is_err());
+    assert!(store.scan_rows(&forged,&relation,None,Some(NativePredicate::Keys(vec![])),&budget).await.is_err());
     let next=store.begin_contribution(spec("populated-read",&relation)).await.unwrap();
     store.write_batch(&next,&relation,&Package::encode(&[Package{name:"present".into()}]).unwrap()).await.unwrap();
     let current=store.complete_contribution(next,ProviderOutcome::Complete,std::slice::from_ref(&relation),&views).await.unwrap();
     let view=&current[relation.name()];
     assert_eq!(view.rows,1);
     for predicate in [NativePredicate::Keys(vec![]),NativePredicate::Field{field:"name".into(),values:vec![]}] {
-        assert!(store.scan_rows(view,&relation,None,Some(predicate)).await.unwrap().next().await.unwrap().is_none());
+        assert!(store.scan_rows(view,&relation,None,Some(predicate),&budget).await.unwrap().next().await.unwrap().is_none());
     }
     // An empty physical demand is also preserved through the shared selected provider.
     let budget=ResourceBudget::fixed(32<<20).unwrap();
@@ -438,9 +467,9 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
     let batches=session.sql("SELECT * FROM selected").await.unwrap().collect().await.unwrap();
     assert_eq!(batches.iter().map(|batch|batch.num_rows()).sum::<usize>(),0);
     // Newer members do not widen the exact completed empty view.
-    assert!(store.scan_rows(&frozen,&relation,None,None).await.unwrap().next().await.unwrap().is_none());
+    assert!(store.scan_rows(&frozen,&relation,None,None,&budget).await.unwrap().next().await.unwrap().is_none());
     store.end_writes().await.unwrap();
-    assert!(store.scan_rows(&frozen,&relation,None,None).await.is_err());
-    assert!(store.scan_rows(view,&relation,None,Some(NativePredicate::Keys(vec![]))).await.is_err());
+    assert!(store.scan_rows(&frozen,&relation,None,None,&budget).await.is_err());
+    assert!(store.scan_rows(view,&relation,None,Some(NativePredicate::Keys(vec![])),&budget).await.is_err());
     store.abandon().await.unwrap();
 }

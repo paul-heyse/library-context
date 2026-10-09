@@ -124,13 +124,12 @@ pub async fn materialize(
             Variables::new(),
         )
         .await?;
-    let manifest: Manifest = serde_json::from_slice(
+    let manifest = Manifest::decode(
         manifest_bytes
             .first()
             .filter(|_| manifest_bytes.len() == 1)
             .ok_or(ModelError::Schema("published projection manifest"))?,
-    )
-    .map_err(ModelError::codec)?;
+    )?;
     if manifest.content() != reader.handle().semantic {
         return Err(ModelError::Conflict("published projection manifest"));
     }
@@ -225,10 +224,14 @@ async fn hydrate(
         "symbols",
         <lctx_model::domain::calls::ProviderSymbol as Record>::NAME,
     );
-    let roots: Vec<RecordId> = reader.query("RETURN array::concat(\
-        (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND scope_keys CONTAINSANY $types.map(|$type|$type+'|input|'+<string>$input) AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
-        (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND scope_keys CONTAINSANY $types.map(|$type|$type+'|input|'+<string>$input) AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
-        (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND scope_keys CONTAINS ($symbols+'|context|'+<string>$context)));", bindings).await?;
+    let preparation=vec![
+        "LET $__projection_input_scopes = $types.map(|$type| $type+'|input|'+<string>$input)".into(),
+        format!("LET $__projection_context_scope = {}",crate::prepared::scope_constant("$symbols","context","$context")),
+    ];
+    let roots: Vec<RecordId> = reader.query_prepared(crate::prepared::PreparedQuery::new(bindings,preparation,vec!["RETURN array::concat(\
+        (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
+        (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
+        (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND scope_keys CONTAINS $__projection_context_scope))".into()])?).await?;
     // Input sum records (for example CoverageScope::Input) use arm-prefixed physical
     // columns. Their logical input reference is authoritative native adjacency, so include
     // the exact capture as an ownership anchor rather than guessing those columns.

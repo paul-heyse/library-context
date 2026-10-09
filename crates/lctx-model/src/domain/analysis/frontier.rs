@@ -430,7 +430,8 @@ pub fn stage(
         ContentHash::of(bytes).encode(&mut code);
     }
     Ok(stages::Stage {
-        name: match target {
+        captured_binding: None,
+name: match target {
             Target::Analysis => "assess_analysis_frontier",
             Target::Catalog => "assess_catalog_frontier",
         },

@@ -20,7 +20,8 @@ use std::sync::Arc;
 fn consumer(prefix: Option<PublicationBoundary>) -> Stage {
     let input = RelationUse::completed::<Place>();
     Stage {
-        name: "place_consumer",
+        captured_binding: None,
+name: "place_consumer",
         inputs: vec![prefix.map_or(input, |boundary| input.at_epoch(boundary))],
         outputs: vec![],
         contributes: vec![],

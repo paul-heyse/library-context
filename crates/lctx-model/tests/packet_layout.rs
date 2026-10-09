@@ -17,7 +17,7 @@ fn basis() -> Value {
     json!({"set":id(),"members_digest":hash(),"definitions":[]})
 }
 fn native_support() -> Value {
-    json!({"support":{"relation":"class_trait_supports","row":id()},"run":id(),"input":id(),"context":id(),"environment":hash(),"provider":"pyrefly","provider_revision":"pinned","provider_build":hash(),"surface":"types","evidence":{"kind":"invocation","run":id()},"fidelity":Fidelity::NativeStructural})
+    json!({"support":{"kind":"assertion","assertion":vec![7;32]},"run":id(),"input":id(),"context":id(),"environment":hash(),"provider":"pyrefly","provider_revision":"pinned","provider_build":hash(),"surface":"types","evidence":{"kind":"invocation","run":id()},"fidelity":Fidelity::NativeStructural})
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn boxed_override_universe_keeps_exact_wire_payload_and_schema() {
 
 #[test]
 fn boxed_capture_correspondence_keeps_exact_wire_payload_and_schema() {
-    let support = json!({"support":{"relation":"parameter_declaration_supports","row":id()},"run":id(),"input":id(),"context":id(),"environment":hash(),"provider_id":id(),"provider":"pyrefly","provider_revision":"pinned","provider_build":hash(),"surface":"signatures","evidence":{"kind":"invocation","run":id()},"origin":Origin::AnalyzerAssertion,"mode":ExtractionMode::NativeTraversal,"fidelity":Fidelity::ReportProjection});
+    let support = json!({"support":{"kind":"assertion","assertion":vec![7;32]},"run":id(),"input":id(),"context":id(),"environment":hash(),"provider_id":id(),"provider":"pyrefly","provider_revision":"pinned","provider_build":hash(),"surface":"signatures","evidence":{"kind":"invocation","run":id()},"origin":Origin::AnalyzerAssertion,"mode":ExtractionMode::NativeTraversal,"fidelity":Fidelity::ReportProjection});
     let correspondence = json!({"assertion":id(),"qualification":id(),"scope":id(),"condition":id(),"modality":Modality::Definite,"approximation":Approximation::Exact,"claim_basis":basis(),"source_correspondence_only":true,"support":support});
     let expected = json!({"kind":"entry","formal":id(),"parameter":id(),"declaration":id(),"signature":id(),"ordinal":0,"name":"value","source_correspondence":correspondence});
     let packet: CapturedValueSourcePacket = serde_json::from_value(expected.clone()).unwrap();

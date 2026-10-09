@@ -8,6 +8,7 @@ pub mod bundle;
 pub mod call_records;
 pub mod capture;
 pub mod capture_records;
+pub mod contracts;
 pub mod deployment;
 pub mod deployment_parser;
 pub mod diagnostic_records;

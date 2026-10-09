@@ -1156,7 +1156,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
-        name: "normalize_callables",
+        captured_binding: None,
+name: "normalize_callables",
         inputs: super::facts_stage_inputs(inputs),
         outputs: super::callables::relations()
             .iter()

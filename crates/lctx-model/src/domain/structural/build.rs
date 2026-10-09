@@ -649,7 +649,8 @@ pub fn stage(
         definition(settings, method)?.1.id().encode(&mut key);
     }
     Ok(Stage {
-        name: "analyze_structural",
+        captured_binding: None,
+name: "analyze_structural",
         inputs,
         outputs,
         contributes: vec![],

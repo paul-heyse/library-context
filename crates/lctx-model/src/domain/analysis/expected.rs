@@ -500,13 +500,13 @@ impl FrontierIndex {
         relation: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<bool, ModelError> {
-        self.visit_with_check(relation, batch, || Ok(()))
+        self.visit_with_check(relation, batch, &mut || Ok(()))
     }
     fn visit_with_check(
         &mut self,
         relation: &str,
         batch: &arrow_array::RecordBatch,
-        check: impl FnOnce() -> Result<(), ModelError>,
+        check: &mut dyn FnMut() -> Result<(), ModelError>,
     ) -> Result<bool, ModelError> {
         if relation == SourceArtifact::NAME {
             check()?;
@@ -830,7 +830,7 @@ impl<'a> CoverageAdmission<'a> {
         Ok(
             if self
                 .index
-                .visit_with_check(R::NAME, batch, || self.sources.accepts(permit))?
+                .visit_with_check(R::NAME, batch, &mut || self.sources.accepts(permit))?
             {
                 VisitResult::Handled
             } else {
@@ -1196,6 +1196,33 @@ mod tests {
         );
     }
     #[test]
+    fn conditional_guard_is_lazy_and_checked_once_before_decode() {
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let mut index = FrontierIndex::new(Profile::Catalog, &budget);
+        let batch = SourceArtifact::encode(&[]).unwrap();
+        let calls = std::cell::Cell::new(0);
+        let mut check = || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        };
+        assert!(!index.visit_with_check("unrelated", &batch, &mut check).unwrap());
+        assert_eq!(calls.get(), 0);
+        assert!(index.visit_with_check(SourceArtifact::NAME, &batch, &mut check).unwrap());
+        assert_eq!(calls.get(), 1, "empty recognized input still checks its permit");
+        // A recognized relation with another relation's schema checks before decoding.
+        let wrong_schema = ArtifactUse::encode(&[]).unwrap();
+        assert!(matches!(
+            index.visit_with_check(SourceArtifact::NAME, &wrong_schema, &mut || {
+                calls.set(calls.get() + 1);
+                Err(ModelError::Conflict("guard refusal before decode"))
+            }),
+            Err(ModelError::Conflict("guard refusal before decode"))
+        ));
+        assert_eq!(calls.get(), 2);
+        drop(index);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
     fn artifact_labels_are_transient_and_failed_permits_preserve_prepared_state() {
         let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
         let input = fixture().input;
@@ -1214,7 +1241,7 @@ mod tests {
         let batch = SourceArtifact::encode(&[]).unwrap();
         assert!(
             f.index
-                .visit_with_check(SourceArtifact::NAME, &batch, || Err(invalid(
+                .visit_with_check(SourceArtifact::NAME, &batch, &mut || Err(invalid(
                     "wrong permit"
                 )))
                 .is_err()
@@ -1223,7 +1250,7 @@ mod tests {
         let batch = ArtifactUse::encode(&[]).unwrap();
         assert!(
             f.index
-                .visit_with_check(ArtifactUse::NAME, &batch, || Err(invalid("wrong permit")))
+                .visit_with_check(ArtifactUse::NAME, &batch, &mut || Err(invalid("wrong permit")))
                 .is_err()
         );
         assert_eq!(f.index.roots.get().unwrap()._charge.reserved(), before);

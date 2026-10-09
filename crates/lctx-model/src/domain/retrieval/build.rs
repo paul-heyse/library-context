@@ -1801,7 +1801,8 @@ pub fn stage(
         order,
     )?;
     Ok(Stage {
-        name: "retrieval",
+        captured_binding: None,
+name: "retrieval",
         inputs,
         outputs,
         contributes: vec![],

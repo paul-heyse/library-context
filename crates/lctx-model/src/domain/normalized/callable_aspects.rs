@@ -1403,7 +1403,8 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
-        name: "normalize_callable_aspects",
+        captured_binding: None,
+name: "normalize_callable_aspects",
         inputs: crate::domain::normalized::facts_stage_inputs(inputs),
         outputs: relations()
             .iter()

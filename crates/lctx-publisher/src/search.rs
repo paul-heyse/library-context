@@ -17,7 +17,7 @@ use lctx_surrealdb::{
     Loader, NativeReader, RecordSelection,
     ordered_rows::{OrderedRows, SortedRows},
     reader::target_id,
-    reconciliation::scope_string,
+    prepared::scope_string,
 };
 use std::collections::{BTreeMap, BTreeSet};
 const TABLES: [&str; 7] = [
@@ -146,7 +146,7 @@ impl<'a> Batch<'a> {
             ))
             .bind(bindings)
             .await
-            .map_err(ModelError::codec)?
+            .map_err(lctx_surrealdb::loader::write_failure)?
             .check()
             .map_err(ModelError::codec)?;
         self.bytes = 0;
@@ -845,6 +845,7 @@ fn occurrence(
     row.insert("out", out);
     row.insert("family", w.unit.family as i16);
     row.insert("unit", crate_json(w.unit.id())?);
+    row.insert("unit_node", target_id(Target::Entity(EntityId::of(w.unit.id()))));
     row.insert("window", crate_json(w.window.id())?);
     row.insert("part", crate_json(w.part.id())?);
     row.insert("binding", crate_json(w.binding)?);

@@ -5,6 +5,7 @@ use crate::{
     },
     workspace::CompletedInputs,
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     analysis::native::*,
     execution::{
@@ -37,6 +38,33 @@ pub(super) struct CompletionScopes {
     body: usize,
     _charge: charged::StateCharge,
 }
+type DataReader = for<'a> fn(
+    &'a CompletedInputs,
+    &'a ValidationInput,
+    &'a PreparedClosure,
+    &'a str,
+    &'a mut CompletedEvaluations,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+type RecordMatcher = fn(&ValidationInput) -> bool;
+fn matches_record<R: Record>(input: &ValidationInput) -> bool {
+    input.type_id() == TypeId::of::<R>()
+}
+fn read_data<'a, R: Record>(
+    access: &'a CompletedInputs,
+    input: &'a ValidationInput,
+    scope: &'a PreparedClosure,
+    sql: &'a str,
+    data: &'a mut CompletedEvaluations,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let permit = access.read_at::<R>(input.prefix())?;
+        stream_query_at(&permit, input, access, scope.session(), sql, |_, batch| {
+            data.visit_input(input, batch)
+        })
+        .await
+    })
+}
+
 impl CompletionScopes {
     pub(super) async fn prepare(
         access: &CompletedInputs,
@@ -319,28 +347,57 @@ impl CompletionScopes {
     ) -> Result<PreparedClosure, ModelError> {
         self.edges.grain(self.body, &predicate(id), budget).await
     }
-    pub(super) async fn data(
-        &self,
-        access: &CompletedInputs,
-        scope: &PreparedClosure,
-        budget: &resources::ResourceBudget,
-    ) -> Result<CompletedEvaluations, ModelError> {
-        let mut data = CompletedEvaluations::new(budget);
-        for (table, input) in self.inputs.iter().enumerate() {
-            let sql = scope.select(table)?;
-            macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(if input.type_id()==TypeId::of::<$ty>() {let permit=access.read_at::<$ty>(input.prefix())?;stream_query_at(&permit,input,scope.session(),&sql,|_,batch|data.visit_input(input,batch)).await?;})*};}
-            lctx_model::execution_evaluation_inputs!(read);
-            macro_rules! records {($($ty:ty),*)=>{$(if input.type_id()==TypeId::of::<$ty>() {let permit=access.read_at::<$ty>(input.prefix())?;stream_query_at(&permit,input,scope.session(),&sql,|_,batch|data.visit_input(input,batch)).await?;})*};}
-            records!(
-                analysis::base_evaluation::AnalysisInvocation,
-                analysis::AnalysisDefinition,
-                ExpressionEvaluation,
-                EvaluationSource,
-                EvaluationMember,
-                EvaluationOperand
-            );
-        }
-        Ok(data)
+    pub(super) fn data<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        scope: &'a PreparedClosure,
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<CompletedEvaluations, ModelError>> {
+        Box::pin(async move {
+            let mut data = CompletedEvaluations::new(budget);
+            macro_rules! evaluation {($($field:ident:$ty:ty,)*) => { const EVALUATION: &[(RecordMatcher, DataReader)] = &[$((matches_record::<$ty>, read_data::<$ty>),)*]; };}
+            lctx_model::execution_evaluation_inputs!(evaluation);
+            const RECORDS: &[(RecordMatcher, DataReader)] = &[
+                (
+                    matches_record::<analysis::base_evaluation::AnalysisInvocation>,
+                    read_data::<analysis::base_evaluation::AnalysisInvocation>,
+                ),
+                (
+                    matches_record::<analysis::AnalysisDefinition>,
+                    read_data::<analysis::AnalysisDefinition>,
+                ),
+                (
+                    matches_record::<ExpressionEvaluation>,
+                    read_data::<ExpressionEvaluation>,
+                ),
+                (
+                    matches_record::<EvaluationSource>,
+                    read_data::<EvaluationSource>,
+                ),
+                (
+                    matches_record::<EvaluationMember>,
+                    read_data::<EvaluationMember>,
+                ),
+                (
+                    matches_record::<EvaluationOperand>,
+                    read_data::<EvaluationOperand>,
+                ),
+            ];
+            for (table, input) in self.inputs.iter().enumerate() {
+                let sql = scope.select(table)?;
+
+                // Preserve every matching ordered entry; this consumer never had a
+                // first-decoder guard or a new unknown-input rejection.
+                for (_, read) in EVALUATION
+                    .iter()
+                    .chain(RECORDS)
+                    .filter(|(matches, _)| matches(input))
+                {
+                    read(access, input, scope, &sql, &mut data).await?;
+                }
+            }
+            Ok(data)
+        })
     }
 }
 

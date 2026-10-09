@@ -20,21 +20,19 @@ use lctx_model::domain::{
 };
 use std::sync::Arc;
 async fn load<R: Record>(
+    access: &CompletedInputs,
     session: &SessionContext,
     rows: &mut Rows<R>,
     permit: &analysis::sources::CompletedInput<R>,
     admission: &mut analysis::expected::CoverageAdmission<'_>,
 ) -> Result<(), ModelError> {
-    let query = crate::sql::query(session, &format!("SELECT * FROM \"{}\"", R::NAME))
-        .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        admission.visit_if_expected(permit, &batch)?;
-        rows.decode(&batch)?;
-    }
-    Ok(())
+    let declaration = ValidationInput::of::<R>(&["id"]);
+    crate::consumed_rows::stream_at(permit, &declaration, access, session, |permit, batch| {
+        admission.visit_if_expected(permit, batch)?;
+        rows.decode(batch)
+    }).await
 }
+
 fn nominal<R>(bytes: &[u8]) -> Result<Id<R>, ModelError> {
     serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
         _,
@@ -178,13 +176,13 @@ pub async fn produce(
     let mut data = ConsumptionData::new(b);
     // Configuration is finite authored metadata. E1 text and use rows are read one at a time.
     let permit = access.read::<embedding::EmbeddingSpec>()?;
-    load(session, &mut data.specifications, &permit, &mut admission).await?;
+    load(&access, session, &mut data.specifications, &permit, &mut admission).await?;
     let permit = access.read::<embedding::configuration::ServiceConfiguration>()?;
-    load(session, &mut data.services, &permit, &mut admission).await?;
+    load(&access, session, &mut data.services, &permit, &mut admission).await?;
     let permit = access.read::<embedding::DocumentRecipe>()?;
-    load(session, &mut data.documents, &permit, &mut admission).await?;
+    load(&access, session, &mut data.documents, &permit, &mut admission).await?;
     let permit = access.read::<embedding::projection::ProjectionDefinition>()?;
-    load(session, &mut data.projections, &permit, &mut admission).await?;
+    load(&access, session, &mut data.projections, &permit, &mut admission).await?;
     let mut service = if selected {
         data.selected_spec()?;
         Some(
@@ -210,7 +208,7 @@ pub async fn produce(
         let table = access.table_for(&full)?;
         crate::consumed_rows::stream_query_at(
             &permit,
-            &full,
+            &full, &access,
             session,
             &format!(
                 "SELECT * FROM {} ORDER BY id",
@@ -230,7 +228,7 @@ pub async fn produce(
         let table = access.table_for(&projection)?;
         crate::consumed_rows::stream_query_at(
             &permit,
-            &projection,
+            &projection, &access,
             session,
             &format!(
                 "SELECT * FROM {} ORDER BY id",

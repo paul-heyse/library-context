@@ -59,7 +59,7 @@ pub enum Effect {
     Embedding,
 }
 impl Effect {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Pure => "pure",
             Self::Acquisition => "acquisition",
@@ -162,6 +162,7 @@ pub struct FamilyCoverage {
 }
 #[derive(Debug, Clone)]
 pub struct Stage {
+    pub captured_binding: Option<super::producer_contract::CapturedProducerBinding>,
     pub name: &'static str,
     pub inputs: Vec<RelationUse>,
     pub outputs: Vec<RelationUse>,
@@ -225,6 +226,7 @@ impl Stage {
         digest.finish()
     }
     fn encode(&self, digest: &mut KeySink) {
+        self.captured_binding.as_ref().map(|binding|binding.contract).encode(digest);
         digest.part(b"stage", self.name.as_bytes());
         digest.part(b"effect", self.effect.name().as_bytes());
         digest.part(b"code", &self.code.0);

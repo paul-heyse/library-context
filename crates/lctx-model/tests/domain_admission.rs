@@ -221,7 +221,8 @@ impl World {
         let stage =
             |name, outputs, coverage: Vec<FactFamily>, provider: Option<&Provider>, profiles| {
                 Stage {
-                    name,
+                    captured_binding: None,
+name,
                     inputs: vec![],
                     outputs,
                     contributes: vec![],

@@ -71,7 +71,8 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
                     .unwrap();
             }
             let facts = Stage {
-                name: "static_facts",
+                captured_binding: None,
+name: "static_facts",
                 inputs: vec![],
                 outputs: facts_relations()
                     .iter()

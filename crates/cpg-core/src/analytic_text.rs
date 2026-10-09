@@ -234,7 +234,7 @@ pub async fn publish(
                 let mut data = TextData::new(runtime.budget());
                 let mut consumed = ConsumedInputs::new(TextData::inputs(), runtime.budget())?;
                 macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(while let Some((declaration,permit))=consumed.next::<$ty>(&access)? {
-                    stream_query_at(&permit,&declaration,scope.session(),&scope.select(indices[<$ty>::NAME])?,|_,batch|data.$field.decode(batch)).await?;
+                    stream_query_at(&permit,&declaration, &access,scope.session(),&scope.select(indices[<$ty>::NAME])?,|_,batch|data.$field.decode(batch)).await?;
                 })*};}
                 lctx_model::analytic_text_inputs!(read);
                 consumed.finish("analytic_text")?;

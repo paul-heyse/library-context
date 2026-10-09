@@ -21,7 +21,7 @@ use std::process::{Command, ExitCode};
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use cpg_extract::library;
-use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (ADR-0079).
+use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (ADR-0136).
 
 /// The command line (H1 C4: clap derive; each command takes only its own options).
 #[derive(Parser, Debug)]
@@ -506,141 +506,164 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         )],
         cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
     ));
-    let runtime=tokio::runtime::Runtime::new()?;
-    let native_path=std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").map(PathBuf::from).unwrap_or_else(||PathBuf::from(crate::newnative::DEFAULT_CONFIG));
-    let native_config=crate::newnative::config(&native_path)?;
-    let native=runtime.block_on(lctx_surrealdb::compiler::NativeCompilerStore::begin(&native_config,lctx_model::domain::admission::Frontier::Facts))?;
+    let runtime = tokio::runtime::Runtime::new()?;
+    let native_path = std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(crate::newnative::DEFAULT_CONFIG));
+    let native_config = crate::newnative::config(&native_path)?;
+    let native = runtime.block_on(lctx_surrealdb::compiler::NativeCompilerStore::begin(
+        &native_config,
+        lctx_model::domain::admission::Frontier::Facts,
+    ))?;
     let (model, workspace) = match runtime.block_on(cpg_core::facts::inspect(
         captured,
         flow_workspace_options(&budget),
         Profile::Behavioral,
         native.clone(),
-    )) {Ok(result)=>result,Err(error)=>{native.fail();runtime.block_on(native.abandon())?;return Err(error.into());}};
-    let output=(||->anyhow::Result<()> {
-    let digest = workspace.identity()?;
-    fn read<R: Record>(
-        workspace: &cpg_core::workspace::Workspace,
-        budget: &ResourceBudget,
-    ) -> Result<Batch<R>, ModelError> {
-        let mut rows = Vec::new();
-        for batch in workspace
-            .completed::<R>()?
-            .read::<R>(workspace.model().clone(), budget.clone())?
-        {
-            rows.extend(batch?.rows().iter().cloned());
+    )) {
+        Ok(result) => result,
+        Err(error) => {
+            native.fail();
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step(
+                "facts inspection abandon",
+                runtime.block_on(native.abandon()),
+            );
+            return lctx_model::domain::completion::complete::<()>(Err(error), completion)
+                .map_err(Into::into);
         }
-        Batch::new(workspace.model(), rows, budget)
-    }
-    let occurrences = read::<Occurrence>(&workspace, &budget)?;
-    let uses = read::<FlowUse>(&workspace, &budget)?;
-    let definitions = read::<FlowDefinition>(&workspace, &budget)?;
-    let def_observations = read::<FlowDefinitionObservation>(&workspace, &budget)?;
-    let qs = read::<AssertionQualification>(&workspace, &budget)?;
-    let conditions = read::<Condition>(&workspace, &budget)?;
-    let nodes = read::<ConditionNode>(&workspace, &budget)?;
-    let places = read::<Place>(&workspace, &budget)?;
-    let roots = read::<PlaceRoot>(&workspace, &budget)?;
-    let paths = read::<AccessPath>(&workspace, &budget)?;
-    let segments = read::<PathSegment>(&workspace, &budget)?;
-    let targets = read::<ReachingDefinition>(&workspace, &budget)?;
-    let events = read::<BindingEvent>(&workspace, &budget)?;
-    let at = |id| {
-        occurrences
-            .rows()
-            .iter()
-            .find(|o| o.id() == id)
-            .context("flow occurrence missing")
     };
-    let span = |id| -> anyhow::Result<_> {
-        let o = at(id)?;
-        Ok(serde_json::json!([o.start, o.end]))
-    };
-    let condition = |id| -> anyhow::Result<_> {
-        let q = qs
-            .rows()
-            .iter()
-            .find(|q| q.id() == id)
-            .context("flow qualification missing")?;
-        let c = conditions
-            .rows()
-            .iter()
-            .find(|c| c.id() == q.condition)
-            .context("flow condition missing")?;
-        let d = Diagram::from_records(c, nodes.rows())?;
-        Ok(
-            serde_json::json!({"id":c.id().hex(),"root":c.root.hex(),"is_false":d.is_false(),"is_true":d.is_true(),"approximation":format!("{:?}",q.approximation)}),
-        )
-    };
-    let place_name = |id| -> anyhow::Result<String> {
-        let p = places
-            .rows()
-            .iter()
-            .find(|p| p.id() == id)
-            .context("flow place missing")?;
-        let root = roots
-            .rows()
-            .iter()
-            .find(|r| r.id() == p.root)
-            .context("flow place root missing")?;
-        let name = match root {
-            PlaceRoot::Formal { declaration } => events
-                .rows()
-                .iter()
-                .find(|e| e.site == *declaration)
-                .context("formal binding event missing")?
-                .name
-                .clone(),
-            PlaceRoot::Local { name, .. } | PlaceRoot::Global { name, .. } => name.clone(),
-            _ => format!("{root:?}"),
-        };
-        let path = paths
-            .rows()
-            .iter()
-            .find(|a| a.id() == p.path)
-            .context("flow access path missing")?;
-        let mut out = name;
-        for id in [path.first, path.second].into_iter().flatten() {
-            match segments
-                .rows()
-                .iter()
-                .find(|s| s.id() == id)
-                .context("flow path segment missing")?
+    let output = (|| -> anyhow::Result<String> {
+        let digest = workspace.identity()?;
+        fn read<R: Record>(
+            workspace: &cpg_core::workspace::Workspace,
+            budget: &ResourceBudget,
+        ) -> Result<Batch<R>, ModelError> {
+            let mut rows = Vec::new();
+            for batch in workspace
+                .completed::<R>()?
+                .read::<R>(workspace.model().clone(), budget.clone())?
             {
-                PathSegment::Attribute { name } => {
-                    out.push('.');
-                    out.push_str(name);
-                }
-                PathSegment::Item { .. } | PathSegment::AnyItem => out.push_str("[item]"),
+                rows.extend(batch?.rows().iter().cloned());
             }
+            Batch::new(workspace.model(), rows, budget)
         }
-        Ok(out)
-    };
-    let result = serde_json::json!({
-        "model":model.digest().hex(),"content":digest.hex(),
-        "uses":uses.rows().iter().map(|u|Ok(serde_json::json!({"id":u.id().hex(),"occurrence":u.occurrence.hex(),"place_id":u.place.hex(),"place":place_name(u.place)?,"span":span(u.occurrence)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "definitions":definitions.rows().iter().map(|d|{let obs=def_observations.rows().iter().find(|o|o.definition==d.id()).context("flow definition observation missing")?;Ok(serde_json::json!({"id":d.id().hex(),"place_id":d.place.hex(),"place":place_name(d.place)?,"target":span(d.occurrence)?,"kind":format!("{:?}",obs.kind)}))}).collect::<anyhow::Result<Vec<_>>>()?,
-        "reaching":read::<FlowReachingObservation>(&workspace, &budget)?.rows().iter().map(|r|{let target=targets.rows().iter().find(|t|t.id()==r.target).context("flow reaching target missing")?;Ok(serde_json::json!({"id":r.id().hex(),"use":r.use_.hex(),"definition":match target {ReachingDefinition::Bound {definition}=>Some(definition.hex()),_=>None},"target":format!("{target:?}"),"condition":condition(r.qualification)?,"loop_carried":r.loop_carried}))}).collect::<anyhow::Result<Vec<_>>>()?,
-        "values":read::<FlowValueObservation>(&workspace, &budget)?.rows().iter().map(|v|Ok(serde_json::json!({"id":v.id().hex(),"sink":format!("{:?}",v.kind),"span":span(v.sink)?,"use":v.use_.hex(),"identity":v.transfer==lctx_model::domain::transfer::TransferKind::Identity,"through_call":v.through_call,"condition":condition(v.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "regions":read::<FlowRegionObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"span":span(r.statement)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "tests":read::<FlowTestObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"span":span(r.test)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "test_leaves":read::<FlowTestLeafObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"atom":r.atom.hex(),"operand":r.operand.map(|id|id.hex()),"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
-        "attribute_loads":read::<FlowAttributeLoadObservation>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"occurrence":r.occurrence.hex(),"name":r.name})).collect::<Vec<_>>(),
-        "evaluation_atoms":read::<EvaluationAtom>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"evaluation":r.evaluation.hex(),"context":r.context.hex(),"predicate":r.predicate.hex(),"operand":r.operand.map(|id|id.hex())})).collect::<Vec<_>>(),
-        "predicates":read::<Predicate>(&workspace, &budget)?.rows().iter().map(|r|match r {Predicate::IsNone=>serde_json::json!({"id":r.id().hex(),"kind":"is_none"}),Predicate::IsValue {value}=>serde_json::json!({"id":r.id().hex(),"kind":"is_value","value":value.hex()}),Predicate::Equals {value}=>serde_json::json!({"id":r.id().hex(),"kind":"equals","value":value.hex()}),Predicate::MemberOf {values}=>serde_json::json!({"id":r.id().hex(),"kind":"member_of","values":values.hex()}),Predicate::Truthy=>serde_json::json!({"id":r.id().hex(),"kind":"truthy"}),Predicate::IsInstance {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"is_instance","class_expression":class_expression}),Predicate::TypeIs {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"type_is","class_expression":class_expression}),Predicate::Opaque {text}=>serde_json::json!({"id":r.id().hex(),"kind":"opaque","text":text}),Predicate::InvokedGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"invoked_guard","source":source.hex()}),Predicate::BoundGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"bound_guard","source":source.hex()}),Predicate::NonTerminalCall {awaiting}=>serde_json::json!({"id":r.id().hex(),"kind":"nonterminal_call","awaiting":awaiting}),Predicate::NonEmptyIterable=>serde_json::json!({"id":r.id().hex(),"kind":"nonempty_iterable"}),Predicate::ContextManagerSuppresses {asynchronous}=>serde_json::json!({"id":r.id().hex(),"kind":"context_manager_suppresses","asynchronous":asynchronous}),Predicate::FinallyNormalPathImpossible=>serde_json::json!({"id":r.id().hex(),"kind":"finally_normal_path_impossible"})}).collect::<Vec<_>>(),
-        "call_paths":read::<FlowCallPath>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"steps_digest":r.steps.hex()})).collect::<Vec<_>>(),
-        "call_steps":read::<FlowCallStep>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"path":r.path.hex(),"ordinal":r.ordinal,"call":r.call.hex(),"operand":r.operand.hex(),"role":format!("{:?}",r.role)})).collect::<Vec<_>>(),
-        "value_paths":read::<FlowValuePathObservation>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"value":r.value.hex(),"path":r.path.hex()})).collect::<Vec<_>>(),
-        "conditions":conditions.rows().iter().map(|c|serde_json::json!({"id":c.id().hex(),"root":c.root.hex()})).collect::<Vec<_>>(),
-        "condition_nodes":nodes.rows().iter().map(|node|match node {ConditionNode::False=>serde_json::json!({"id":node.id().hex(),"kind":"false"}),ConditionNode::True=>serde_json::json!({"id":node.id().hex(),"kind":"true"}),ConditionNode::Branch {atom,low,high}=>serde_json::json!({"id":node.id().hex(),"kind":"branch","atom":atom.hex(),"low":low.hex(),"high":high.hex()})}).collect::<Vec<_>>(),
-        "boundaries":read::<SubjectBoundary>(&workspace, &budget)?.rows().iter().map(|b|serde_json::json!({"subject":b.subject.map(|id|id.hex()),"reason":format!("{:?}",b.reason),"detail":b.detail})).collect::<Vec<_>>()
-    });
-    println!("{}", serde_json::to_string(&result)?);
-    Ok(())
+        let occurrences = read::<Occurrence>(&workspace, &budget)?;
+        let uses = read::<FlowUse>(&workspace, &budget)?;
+        let definitions = read::<FlowDefinition>(&workspace, &budget)?;
+        let def_observations = read::<FlowDefinitionObservation>(&workspace, &budget)?;
+        let qs = read::<AssertionQualification>(&workspace, &budget)?;
+        let conditions = read::<Condition>(&workspace, &budget)?;
+        let nodes = read::<ConditionNode>(&workspace, &budget)?;
+        let places = read::<Place>(&workspace, &budget)?;
+        let roots = read::<PlaceRoot>(&workspace, &budget)?;
+        let paths = read::<AccessPath>(&workspace, &budget)?;
+        let segments = read::<PathSegment>(&workspace, &budget)?;
+        let targets = read::<ReachingDefinition>(&workspace, &budget)?;
+        let events = read::<BindingEvent>(&workspace, &budget)?;
+        let at = |id| {
+            occurrences
+                .rows()
+                .iter()
+                .find(|o| o.id() == id)
+                .context("flow occurrence missing")
+        };
+        let span = |id| -> anyhow::Result<_> {
+            let o = at(id)?;
+            Ok(serde_json::json!([o.start, o.end]))
+        };
+        let condition = |id| -> anyhow::Result<_> {
+            let q = qs
+                .rows()
+                .iter()
+                .find(|q| q.id() == id)
+                .context("flow qualification missing")?;
+            let c = conditions
+                .rows()
+                .iter()
+                .find(|c| c.id() == q.condition)
+                .context("flow condition missing")?;
+            let d = Diagram::from_records(c, nodes.rows())?;
+            Ok(
+                serde_json::json!({"id":c.id().hex(),"root":c.root.hex(),"is_false":d.is_false(),"is_true":d.is_true(),"approximation":format!("{:?}",q.approximation)}),
+            )
+        };
+        let place_name = |id| -> anyhow::Result<String> {
+            let p = places
+                .rows()
+                .iter()
+                .find(|p| p.id() == id)
+                .context("flow place missing")?;
+            let root = roots
+                .rows()
+                .iter()
+                .find(|r| r.id() == p.root)
+                .context("flow place root missing")?;
+            let name = match root {
+                PlaceRoot::Formal { declaration } => events
+                    .rows()
+                    .iter()
+                    .find(|e| e.site == *declaration)
+                    .context("formal binding event missing")?
+                    .name
+                    .clone(),
+                PlaceRoot::Local { name, .. } | PlaceRoot::Global { name, .. } => name.clone(),
+                _ => format!("{root:?}"),
+            };
+            let path = paths
+                .rows()
+                .iter()
+                .find(|a| a.id() == p.path)
+                .context("flow access path missing")?;
+            let mut out = name;
+            for id in [path.first, path.second].into_iter().flatten() {
+                match segments
+                    .rows()
+                    .iter()
+                    .find(|s| s.id() == id)
+                    .context("flow path segment missing")?
+                {
+                    PathSegment::Attribute { name } => {
+                        out.push('.');
+                        out.push_str(name);
+                    }
+                    PathSegment::Item { .. } | PathSegment::AnyItem => out.push_str("[item]"),
+                }
+            }
+            Ok(out)
+        };
+        let result = serde_json::json!({
+            "model":model.digest().hex(),"content":digest.hex(),
+            "uses":uses.rows().iter().map(|u|Ok(serde_json::json!({"id":u.id().hex(),"occurrence":u.occurrence.hex(),"place_id":u.place.hex(),"place":place_name(u.place)?,"span":span(u.occurrence)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+            "definitions":definitions.rows().iter().map(|d|{let obs=def_observations.rows().iter().find(|o|o.definition==d.id()).context("flow definition observation missing")?;Ok(serde_json::json!({"id":d.id().hex(),"place_id":d.place.hex(),"place":place_name(d.place)?,"target":span(d.occurrence)?,"kind":format!("{:?}",obs.kind)}))}).collect::<anyhow::Result<Vec<_>>>()?,
+            "reaching":read::<FlowReachingObservation>(&workspace, &budget)?.rows().iter().map(|r|{let target=targets.rows().iter().find(|t|t.id()==r.target).context("flow reaching target missing")?;Ok(serde_json::json!({"id":r.id().hex(),"use":r.use_.hex(),"definition":match target {ReachingDefinition::Bound {definition}=>Some(definition.hex()),_=>None},"target":format!("{target:?}"),"condition":condition(r.qualification)?,"loop_carried":r.loop_carried}))}).collect::<anyhow::Result<Vec<_>>>()?,
+            "values":read::<FlowValueObservation>(&workspace, &budget)?.rows().iter().map(|v|Ok(serde_json::json!({"id":v.id().hex(),"sink":format!("{:?}",v.kind),"span":span(v.sink)?,"use":v.use_.hex(),"identity":v.transfer==lctx_model::domain::transfer::TransferKind::Identity,"through_call":v.through_call,"condition":condition(v.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+            "regions":read::<FlowRegionObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"span":span(r.statement)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+            "tests":read::<FlowTestObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"span":span(r.test)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+            "test_leaves":read::<FlowTestLeafObservation>(&workspace, &budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"atom":r.atom.hex(),"operand":r.operand.map(|id|id.hex()),"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+            "attribute_loads":read::<FlowAttributeLoadObservation>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"occurrence":r.occurrence.hex(),"name":r.name})).collect::<Vec<_>>(),
+            "evaluation_atoms":read::<EvaluationAtom>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"evaluation":r.evaluation.hex(),"context":r.context.hex(),"predicate":r.predicate.hex(),"operand":r.operand.map(|id|id.hex())})).collect::<Vec<_>>(),
+            "predicates":read::<Predicate>(&workspace, &budget)?.rows().iter().map(|r|match r {Predicate::IsNone=>serde_json::json!({"id":r.id().hex(),"kind":"is_none"}),Predicate::IsValue {value}=>serde_json::json!({"id":r.id().hex(),"kind":"is_value","value":value.hex()}),Predicate::Equals {value}=>serde_json::json!({"id":r.id().hex(),"kind":"equals","value":value.hex()}),Predicate::MemberOf {values}=>serde_json::json!({"id":r.id().hex(),"kind":"member_of","values":values.hex()}),Predicate::Truthy=>serde_json::json!({"id":r.id().hex(),"kind":"truthy"}),Predicate::IsInstance {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"is_instance","class_expression":class_expression}),Predicate::TypeIs {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"type_is","class_expression":class_expression}),Predicate::Opaque {text}=>serde_json::json!({"id":r.id().hex(),"kind":"opaque","text":text}),Predicate::InvokedGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"invoked_guard","source":source.hex()}),Predicate::BoundGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"bound_guard","source":source.hex()}),Predicate::NonTerminalCall {awaiting}=>serde_json::json!({"id":r.id().hex(),"kind":"nonterminal_call","awaiting":awaiting}),Predicate::NonEmptyIterable=>serde_json::json!({"id":r.id().hex(),"kind":"nonempty_iterable"}),Predicate::ContextManagerSuppresses {asynchronous}=>serde_json::json!({"id":r.id().hex(),"kind":"context_manager_suppresses","asynchronous":asynchronous}),Predicate::FinallyNormalPathImpossible=>serde_json::json!({"id":r.id().hex(),"kind":"finally_normal_path_impossible"})}).collect::<Vec<_>>(),
+            "call_paths":read::<FlowCallPath>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"steps_digest":r.steps.hex()})).collect::<Vec<_>>(),
+            "call_steps":read::<FlowCallStep>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"path":r.path.hex(),"ordinal":r.ordinal,"call":r.call.hex(),"operand":r.operand.hex(),"role":format!("{:?}",r.role)})).collect::<Vec<_>>(),
+            "value_paths":read::<FlowValuePathObservation>(&workspace, &budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"value":r.value.hex(),"path":r.path.hex()})).collect::<Vec<_>>(),
+            "conditions":conditions.rows().iter().map(|c|serde_json::json!({"id":c.id().hex(),"root":c.root.hex()})).collect::<Vec<_>>(),
+            "condition_nodes":nodes.rows().iter().map(|node|match node {ConditionNode::False=>serde_json::json!({"id":node.id().hex(),"kind":"false"}),ConditionNode::True=>serde_json::json!({"id":node.id().hex(),"kind":"true"}),ConditionNode::Branch {atom,low,high}=>serde_json::json!({"id":node.id().hex(),"kind":"branch","atom":atom.hex(),"low":low.hex(),"high":high.hex()})}).collect::<Vec<_>>(),
+            "boundaries":read::<SubjectBoundary>(&workspace, &budget)?.rows().iter().map(|b|serde_json::json!({"subject":b.subject.map(|id|id.hex()),"reason":format!("{:?}",b.reason),"detail":b.detail})).collect::<Vec<_>>()
+        });
+        Ok(serde_json::to_string(&result)?)
     })();
-    let drained=runtime.block_on(workspace.drain());
-    runtime.block_on(native.abandon())?;
-    drained?;
-    output
+    let mut completion = runtime.block_on(workspace.drain_report());
+    completion.step(
+        "facts inspection abandon",
+        runtime.block_on(native.abandon()),
+    );
+    let output = lctx_model::domain::completion::complete(
+        output.map_err(crate::newnative::operation_error),
+        completion,
+    )?;
+    println!("{output}");
+    Ok(())
 }
 
 #[derive(Subcommand, Debug)]
@@ -874,7 +897,7 @@ fn run() -> anyhow::Result<()> {
                 }
                 SnapshotCommand::Show { handle } => {
                     let reader = runtime.block_on(newnative::pin(&config, handle.as_deref()))?;
-                    let details=runtime.block_on(lctx_publisher::inspection::show(&reader))?;
+                    let details = runtime.block_on(lctx_publisher::inspection::show(&reader))?;
                     println!("{}", serde_json::to_string_pretty(&details)?);
                 }
                 SnapshotCommand::Query { sql, handle } => {
@@ -961,9 +984,16 @@ mod tests {
     async fn flow_workspace_shares_the_capture_budget() {
         use lctx_model::domain::resources::ResourceBudget;
         let budget = ResourceBudget::fixed(32 << 20).unwrap();
-        let path=PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler fixture"));
-        let config=lctx_surrealdb::RuntimeConfig::read(&path).unwrap();
-        let native=lctx_surrealdb::compiler::NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+        let path = PathBuf::from(
+            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler fixture"),
+        );
+        let config = lctx_surrealdb::RuntimeConfig::read(&path).unwrap();
+        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(
+            &config,
+            lctx_model::domain::admission::Frontier::Facts,
+        )
+        .await
+        .unwrap();
         let workspace = cpg_core::workspace::Workspace::with_budget(
             std::sync::Arc::new(lctx_model::domain::model().unwrap()),
             super::flow_workspace_options(&budget),
@@ -996,20 +1026,30 @@ mod tests {
             ])
             .is_ok()
         );
-        assert!(
-            parse(&[
-                "compile",
-                "fastmcp",
-                "--through",
-                "facts",
-                "--artifact-only",
-                "--output",
-                "graph",
-                "--runtime-config",
-                "native.json"
-            ])
-            .is_err()
-        );
+        let Cmd::Compile {
+            artifact_only,
+            output,
+            runtime_config,
+            ..
+        } = parse(&[
+            "compile",
+            "fastmcp",
+            "--through",
+            "facts",
+            "--artifact-only",
+            "--output",
+            "graph",
+            "--runtime-config",
+            "native.json",
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!("expected the explicit native artifact compile route");
+        };
+        assert!(artifact_only);
+        assert_eq!(output, Some(PathBuf::from("graph")));
+        assert_eq!(runtime_config, Some(PathBuf::from("native.json")));
         assert!(matches!(
             parse(&["publish-artifact", "graph"]).unwrap().command,
             Cmd::PublishArtifact { .. }

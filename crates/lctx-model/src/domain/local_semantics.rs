@@ -983,7 +983,8 @@ pub fn stage(
         order,
     )?;
     Ok(Stage {
-        name: "analyze_local",
+        captured_binding: None,
+name: "analyze_local",
         inputs,
         outputs,
         contributes: vec![],

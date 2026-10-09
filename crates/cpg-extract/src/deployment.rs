@@ -1,4 +1,6 @@
 //! Deployment descriptions and explicitly captured reports; analyzed code is never executed.
+use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
+use crate::contracts::supplier;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
@@ -44,11 +46,9 @@ macro_rules! outputs {
         )
     };
 }
-impl Declared for Deployment {
-    fn declaration(&self, _: Profile) -> Stage {
+pub fn contract() -> ProducerContract {
         macro_rules! uses {($($ty:ty),+)=>{vec![$(RelationUse::of::<$ty>()),+]}}
-        let provider = provider();
-        Stage {
+        ProducerContract {
             name: DEPLOYMENT,
             inputs: uses!(
                 SourceArtifact,
@@ -61,20 +61,22 @@ impl Declared for Deployment {
             ),
             outputs: outputs!(uses),
             contributes: assembly::vocabulary(),
-            coverage: vec![FactFamily::Deployment]
-                .into_iter()
-                .map(|family| lctx_model::domain::stages::FamilyCoverage {
-                    family,
-                    provider: provider.id(),
-                })
-                .collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
-            code: provider.build_digest,
-            configuration: ContentHash::of(
+            semantic_revision: 1,
+            configuration: ConfigurationBinding::Fixed(ContentHash::of(
                 b"receipt-v1;64KiB;metadata-and-configuration=64MiB;report-only-runtime",
-            ),
+            )),
+            suppliers: vec![supplier("deployment", "lctx-deployment", env!("CARGO_PKG_VERSION"), vec![FactFamily::Deployment])],
+            not_requested: vec![],
         }
+}
+impl Declared for Deployment {
+    fn declaration(&self, _: Profile) -> Stage {
+        let provider = provider();
+        contract().bind(provider.build_digest, ContentHash::of(
+                b"receipt-v1;64KiB;metadata-and-configuration=64MiB;report-only-runtime",
+            ), [("deployment", provider)])
     }
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

@@ -1,9 +1,13 @@
 //! Complete callable/descriptor and native-origin candidate groups selected before rich decode.
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier, stream_query_at},
+    consumed_rows::{
+        ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier, stream_batches,
+        stream_query_at,
+    },
     workspace::CompletedInputs,
 };
 use arrow_array::Array;
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     assertion::*,
     attribution::*,
@@ -36,6 +40,72 @@ pub(super) struct CallableScopes {
     kernel: Kernel,
     _charge: charged::StateCharge,
 }
+fn load_callable_data<'a>(
+    descriptor: &'a CallableScopes,
+    access: &'a CompletedInputs,
+    scope: &'a PreparedClosure,
+    data: &'a mut CallableData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    type Loader = for<'a> fn(
+        &'a CallableScopes,
+        &'a CompletedInputs,
+        &'a PreparedClosure,
+        &'a mut CallableData,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+        $(fn $field<'a>(descriptor: &'a CallableScopes, access: &'a CompletedInputs, scope: &'a PreparedClosure, data: &'a mut CallableData) -> BoxFuture<'a, Result<(), ModelError>> {
+            Box::pin(async move {
+                let (table, input) = descriptor.inputs.iter().enumerate().find(|(_, input)| input.type_id() == TypeId::of::<$ty>()).ok_or(ModelError::Schema("callable typed scope loader"))?;
+                let permit = access.read_at::<$ty>(input.prefix())?;
+                stream_query_at(&permit, input, access, scope.session(), &scope.select(table)?, |_, batch| data.$field.decode(batch)).await
+            })
+        })*
+        const LOADERS: &[Loader] = &[$($field,)*];
+    };}
+    lctx_model::normalized_callable_inputs!(adapters);
+    Box::pin(async move {
+        for load in LOADERS {
+            load(descriptor, access, scope, data).await?;
+        }
+        Ok(())
+    })
+}
+fn load_callable_admission<'a>(
+    descriptor: &'a CallableScopes,
+    scope: &'a PreparedClosure,
+    cancellation: &'a crate::workspace::Cancellation,
+    data: &'a mut CallableData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    type Loader = for<'a> fn(
+        &'a CallableScopes,
+        &'a PreparedClosure,
+        &'a crate::workspace::Cancellation,
+        &'a mut CallableData,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+        $(fn $field<'a>(descriptor: &'a CallableScopes, scope: &'a PreparedClosure, cancellation: &'a crate::workspace::Cancellation, data: &'a mut CallableData) -> BoxFuture<'a, Result<(), ModelError>> {
+            Box::pin(async move {
+                let index = descriptor.inputs.iter().position(|input| input.type_id() == TypeId::of::<$ty>()).ok_or(ModelError::Schema("callable admission typed decoder"))?;
+                let input = &descriptor.inputs[index];
+                if input.name() != <$ty>::NAME || descriptor.tables[index].relation.type_id() != TypeId::of::<$ty>() {
+                    return Err(ModelError::Schema("callable admission typed decoder"));
+                }
+                let sql = scope.select(index)?;
+                let mut visit = |batch: &arrow_array::RecordBatch| { cancellation.check()?; data.$field.decode(batch) };
+                stream_batches(input, scope.session(), &sql, None, &mut visit).await
+            })
+        })*
+        const LOADERS: &[Loader] = &[$($field,)*];
+    };}
+    lctx_model::normalized_callable_inputs!(adapters);
+    Box::pin(async move {
+        for load in LOADERS {
+            load(descriptor, scope, cancellation, data).await?;
+        }
+        Ok(())
+    })
+}
+
 impl CallableScopes {
     pub(super) async fn prepare(
         access: &CompletedInputs,
@@ -210,59 +280,64 @@ impl CallableScopes {
             _charge: charge,
         })
     }
-    pub(super) async fn data<R: Record>(
-        &self,
-        access: &CompletedInputs,
+    pub(super) fn data<'a, R: Record>(
+        &'a self,
+        access: &'a CompletedInputs,
         selected: Id<R>,
-        budget: &resources::ResourceBudget,
-    ) -> Result<CallableData, ModelError> {
-        let root = self
-            .tables
-            .iter()
-            .position(|table| table.relation.type_id() == TypeId::of::<R>())
-            .ok_or(ModelError::Schema("callable kernel root"))?;
-        let bytes = selected
-            .bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let mut roots = vec![(root, format!("id=X'{bytes}'"))];
-        if matches!(self.kernel, Kernel::Signature) {
-            for (kind, predicate) in [
-                (
-                    TypeId::of::<SignatureParameter>(),
-                    format!("signature=X'{bytes}'"),
-                ),
-                (
-                    TypeId::of::<NativeSignatureObservation>(),
-                    format!("signature=X'{bytes}'"),
-                ),
-                (
-                    TypeId::of::<SignatureTypeSubject>(),
-                    format!("return_signature=X'{bytes}'"),
-                ),
-            ] {
-                let table = self
-                    .tables
-                    .iter()
-                    .position(|table| table.relation.type_id() == kind)
-                    .ok_or(ModelError::Schema("signature member root"))?;
-                roots.push((table, predicate));
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<CallableData, ModelError>> {
+        self.data_selected(access, TypeId::of::<R>(), *selected.bytes(), budget)
+    }
+    fn data_selected<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        kind: TypeId,
+        key: [u8; 16],
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<CallableData, ModelError>> {
+        Box::pin(async move {
+            let root = self
+                .tables
+                .iter()
+                .position(|table| table.relation.type_id() == kind)
+                .ok_or(ModelError::Schema("callable kernel root"))?;
+            let bytes = key
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let mut roots = vec![(root, format!("id=X'{bytes}'"))];
+            if matches!(self.kernel, Kernel::Signature) {
+                for (kind, predicate) in [
+                    (
+                        TypeId::of::<SignatureParameter>(),
+                        format!("signature=X'{bytes}'"),
+                    ),
+                    (
+                        TypeId::of::<NativeSignatureObservation>(),
+                        format!("signature=X'{bytes}'"),
+                    ),
+                    (
+                        TypeId::of::<SignatureTypeSubject>(),
+                        format!("return_signature=X'{bytes}'"),
+                    ),
+                ] {
+                    let table = self
+                        .tables
+                        .iter()
+                        .position(|table| table.relation.type_id() == kind)
+                        .ok_or(ModelError::Schema("signature member root"))?;
+                    roots.push((table, predicate));
+                }
             }
-        }
-        let mut data = CallableData::new(budget);
-        // Member roots are selected explicitly, rather than making all alternative signatures'
-        // rich parameter shapes/native messages part of the descriptor assessment scope.
-        for (root, predicate) in roots {
-            let scope = self.edges.grain(root, &predicate, budget).await?;
-            macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({
-            let (table,input)=self.inputs.iter().enumerate().find(|(_,input)|input.type_id()==TypeId::of::<$ty>()).ok_or(ModelError::Schema("callable typed scope loader"))?;
-            let permit=access.read_at::<$ty>(input.prefix())?;
-            stream_query_at(&permit,input,scope.session(),&scope.select(table)?,|_,batch|data.$field.decode(batch)).await?;
-        })*};}
-            lctx_model::normalized_callable_inputs!(read);
-        }
-        Ok(data)
+            let mut data = CallableData::new(budget);
+            // Member roots are selected explicitly, rather than making all alternative signatures'
+            // rich parameter shapes/native messages part of the descriptor assessment scope.
+            for (root, predicate) in roots {
+                let scope = self.edges.grain(root, &predicate, budget).await?;
+                load_callable_data(self, access, &scope, &mut data).await?;
+            }
+            Ok(data)
+        })
     }
 }
 
@@ -358,13 +433,7 @@ pub(super) async fn validate_callables(
                 .grain(root, &format!("id=X'{bytes}'"), budget)
                 .await?;
             let mut data = CallableData::new(budget);
-            macro_rules! read {($($field:ident:$ty:ty,)*)=>{$({
-                let input=prepared.inputs.iter().position(|input|input.type_id()==TypeId::of::<$ty>()).ok_or(ModelError::Schema("callable admission typed decoder"))?;
-                let sql=format!("SELECT * FROM ({}) selected ORDER BY id",scope.select(input)?);
-                let mut rows=crate::sql::query(scope.session(),&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
-                while let Some(batch)=rows.try_next().await.map_err(ModelError::codec)? {cancellation.check()?;data.$field.decode(&batch)?;tokio::task::yield_now().await;}
-            })*};}
-            lctx_model::normalized_callable_inputs!(read);
+            load_callable_admission(&prepared, &scope, cancellation, &mut data).await?;
             let mut stored = callable_normalization::CallableOutput::new(budget);
             // These predicates select stored membership independently of a producer's claimed
             // premise closure. All expected premises still come from actual source candidates.

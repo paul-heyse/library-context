@@ -1,6 +1,6 @@
 //! Store the explicit authored configuration and actual native premise projection once.
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
-use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     analysis::{native::*, preparation::Configuration, *},
     assertion::AssertionQualification,
@@ -41,21 +41,87 @@ pub async fn configuration(
     output.finish(ProviderOutcome::Complete).await
 }
 
-async fn native_input<R: Record>(
-    access: &CompletedInputs,
-    session: &datafusion::prelude::SessionContext,
-    inventory: &mut NativeInventory,
-) -> Result<(), ModelError> {
-    let _permit = access.read::<R>()?;
-
-    let query = crate::sql::query(session, &format!("SELECT * FROM \"{}\"", R::NAME))
+fn native_input<'a, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    declaration: &'a ValidationInput,
+    inventory: &'a mut NativeInventory,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let permit = access.read_at::<R>(declaration.prefix())?;
+        crate::consumed_rows::stream_at(&permit, declaration, access, session, |_, batch| {
+            inventory.visit(R::NAME, batch)
+        })
         .await
-        .map_err(ModelError::codec)?;
-    let mut stream = query.execute_stream().await.map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-        inventory.visit(R::NAME, &batch)?;
-    }
-    Ok(())
+    })
+}
+fn native_declaration<R: Record>(
+    declarations: &[ValidationInput],
+) -> Result<&ValidationInput, ModelError> {
+    declarations
+        .iter()
+        .find(|input| input.type_id() == std::any::TypeId::of::<R>())
+        .ok_or(ModelError::Schema(
+            "native inventory typed input declaration",
+        ))
+}
+type PairLoader = for<'a> fn(
+    &'a CompletedInputs,
+    &'a datafusion::prelude::SessionContext,
+    &'a [ValidationInput],
+    &'a mut NativeInventory,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn native_pair<'a, A: Record, S: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    declarations: &'a [ValidationInput],
+    inventory: &'a mut NativeInventory,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        // Presence is the existing assertion-family guard. A skipped pair neither resolves
+        // its declarations nor acquires a support permit. Assertion failure precedes support.
+        if access.contains::<A>() {
+            native_input::<A>(
+                access,
+                session,
+                native_declaration::<A>(declarations)?,
+                inventory,
+            )
+            .await?;
+            native_input::<S>(
+                access,
+                session,
+                native_declaration::<S>(declarations)?,
+                inventory,
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn load_native_inputs<'a>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    declarations: &'a [ValidationInput],
+    inventory: &'a mut NativeInventory,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    macro_rules! pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*) => {
+        const PAIRS: &[PairLoader] = &[$(native_pair::<$assertion, $support>,)*];
+    };}
+    lctx_model::native_analysis_pairs!(pairs);
+    Box::pin(async move {
+        native_input::<AssertionQualification>(
+            access,
+            session,
+            native_declaration::<AssertionQualification>(declarations)?,
+            inventory,
+        )
+        .await?;
+        for load in PAIRS {
+            load(access, session, declarations, inventory).await?;
+        }
+        Ok(())
+    })
 }
 pub async fn native_inventory(
     access: CompletedInputs,
@@ -65,14 +131,8 @@ pub async fn native_inventory(
 ) -> Result<(), ModelError> {
     let session = access.session(runtime).await?;
     let mut inventory = NativeInventory::new(runtime.budget());
-    native_input::<AssertionQualification>(&access, &session, &mut inventory).await?;
-    macro_rules! read_pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
-        if access.contains::<$assertion>() {
-            native_input::<$assertion>(&access,&session,&mut inventory).await?;
-            native_input::<$support>(&access,&session,&mut inventory).await?;
-        }
-    )*};}
-    lctx_model::native_analysis_pairs!(read_pairs);
+    let declarations = NativeInventory::inputs();
+    load_native_inputs(&access, &session, &declarations, &mut inventory).await?;
     drop(session);
     let rows = inventory.collect()?;
     drop(inventory);

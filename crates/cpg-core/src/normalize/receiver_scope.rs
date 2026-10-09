@@ -3,6 +3,7 @@ use crate::{
     consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier},
     workspace::CompletedInputs,
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{calls::*, normalized::receiver::ReceiverData, *};
 use std::{any::TypeId, sync::Arc};
 
@@ -11,6 +12,39 @@ pub(super) struct ReceiverScopes {
     tables: Vec<ClosureTable>,
     edges: PreparedEdges,
     _charge: charged::StateCharge,
+}
+
+fn load_receiver_data<'a>(
+    descriptor: &'a ReceiverScopes,
+    access: &'a CompletedInputs,
+    scope: &'a crate::consumed_rows::PreparedClosure,
+    data: &'a mut ReceiverData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    type Loader = for<'a> fn(
+        &'a ReceiverScopes,
+        &'a CompletedInputs,
+        &'a crate::consumed_rows::PreparedClosure,
+        &'a mut ReceiverData,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+        $(fn $field<'a>(descriptor: &'a ReceiverScopes, access: &'a CompletedInputs, scope: &'a crate::consumed_rows::PreparedClosure, data: &'a mut ReceiverData) -> BoxFuture<'a, Result<(), ModelError>> {
+            Box::pin(async move {
+                if let Some((table, input)) = descriptor.inputs.iter().enumerate().find(|(_, input)| input.type_id() == TypeId::of::<$ty>()) {
+                    let permit = access.read_at::<$ty>(input.prefix())?;
+                    crate::consumed_rows::stream_query_at(&permit, input, access, scope.session(), &scope.select(table)?, |_, batch| data.$field.decode(batch)).await?;
+                }
+                Ok(())
+            })
+        })*
+        const LOADERS: &[Loader] = &[$($field,)*];
+    };}
+    lctx_model::normalized_receiver_inputs!(adapters);
+    Box::pin(async move {
+        for load in LOADERS {
+            load(descriptor, access, scope, data).await?;
+        }
+        Ok(())
+    })
 }
 
 impl ReceiverScopes {
@@ -172,35 +206,31 @@ impl ReceiverScopes {
             .grain(root, &format!("id=X'{hex}'"), budget)
             .await
     }
-    pub(super) async fn data(
-        &self,
-        access: &CompletedInputs,
+    pub(super) fn data<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
         target: Id<CallTarget>,
-        budget: &resources::ResourceBudget,
-    ) -> Result<ReceiverData, ModelError> {
-        let root = self
-            .tables
-            .iter()
-            .position(|table| table.relation.type_id() == TypeId::of::<CallTarget>())
-            .ok_or_else(|| ModelError::Invalid("receiver root table absent".into()))?;
-        let bytes = target
-            .bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let scope = self
-            .edges
-            .grain(root, &format!("id=X'{bytes}'"), budget)
-            .await?;
-        let mut data = ReceiverData::new(budget);
-        macro_rules! read {($($field:ident: $ty:ty,)*) => {$({
-            if let Some((table, input)) = self.inputs.iter().enumerate().find(|(_, input)| input.type_id() == TypeId::of::<$ty>()) {
-                let permit = access.read_at::<$ty>(input.prefix())?;
-                crate::consumed_rows::stream_query_at(&permit, input, scope.session(), &scope.select(table)?, |_, batch| data.$field.decode(batch)).await?;
-            }
-        })*};}
-        lctx_model::normalized_receiver_inputs!(read);
-        Ok(data)
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<ReceiverData, ModelError>> {
+        Box::pin(async move {
+            let root = self
+                .tables
+                .iter()
+                .position(|table| table.relation.type_id() == TypeId::of::<CallTarget>())
+                .ok_or_else(|| ModelError::Invalid("receiver root table absent".into()))?;
+            let bytes = target
+                .bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let scope = self
+                .edges
+                .grain(root, &format!("id=X'{bytes}'"), budget)
+                .await?;
+            let mut data = ReceiverData::new(budget);
+            load_receiver_data(self, access, &scope, &mut data).await?;
+            Ok(data)
+        })
     }
 }
 
@@ -221,8 +251,12 @@ mod receiver_scope_controls {
     #[tokio::test]
     async fn target_scope_preserves_conflicting_candidates_and_excludes_foreign_source_payload() {
         let model = Arc::new(model().unwrap());
-        let runtime = Workspace::new(model.clone(), WorkspaceOptions::default(), crate::test_native::store()
-).unwrap();
+        let runtime = Workspace::new(
+            model.clone(),
+            WorkspaceOptions::default(),
+            crate::test_native::store(),
+        )
+        .unwrap();
         let artifact =
             SourceArtifact::from_bytes(nominal(1), "selected.py".into(), b"value").unwrap();
         let unrelated = SourceArtifact::from_bytes(

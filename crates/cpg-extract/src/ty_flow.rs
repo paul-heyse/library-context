@@ -1,5 +1,7 @@
 //! Native ty coordinates become facts only through exact typed attachment. No provider-local
 //! index, predicate key, rendered condition or display-place identity is stored.
+use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
+use crate::contracts::supplier;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::Acquisition,
@@ -84,11 +86,9 @@ macro_rules! output_types {
         )
     };
 }
-impl Declared for TyFlow {
-    fn declaration(&self, _: Profile) -> Stage {
+pub fn contract() -> ProducerContract {
         macro_rules! uses {($($ty:ty),+)=>{vec![$(RelationUse::of::<$ty>()),+]}}
-        let provider = provider();
-        Stage {
+        ProducerContract {
             name: TY_FLOW,
             inputs: uses!(
                 Module,
@@ -105,18 +105,18 @@ impl Declared for TyFlow {
             ),
             outputs: output_types!(uses),
             contributes: crate::assembly::vocabulary(),
-            coverage: vec![FactFamily::Flow]
-                .into_iter()
-                .map(|family| lctx_model::domain::stages::FamilyCoverage {
-                    family,
-                    provider: provider.id(),
-                })
-                .collect(),
             profiles: vec![Profile::Behavioral],
             effect: Effect::Extraction,
-            code: provider.build_digest,
-            configuration: ContentHash::of(format!("{:?}", self.limits).as_bytes()),
+            semantic_revision: 1,
+            configuration: ConfigurationBinding::ProducerSettings,
+            suppliers: vec![supplier("ty-flow", "ty", cpg_flow::PROVIDER, vec![FactFamily::Flow])],
+            not_requested: vec![FactFamily::Flow],
         }
+}
+impl Declared for TyFlow {
+    fn declaration(&self, _: Profile) -> Stage {
+        let provider = provider();
+        contract().bind(provider.build_digest, ContentHash::of(format!("{:?}", self.limits).as_bytes()), [("ty-flow", provider)])
     }
 }
 fn invalid(message: &str) -> ModelError {

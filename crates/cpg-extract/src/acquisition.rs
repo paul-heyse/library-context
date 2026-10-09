@@ -9,6 +9,8 @@
 //! plus every analyzer-readable file it can import. A `RECORD` is verification evidence, not
 //! analyzer input: its console-script lines carry the environment's location, so its in-site
 //! entries are digested into the distribution's verification and its bytes are not captured.
+use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
+use crate::contracts::supplier;
 use crate::bundle::ProviderSink;
 use crate::{
     ExtractError,
@@ -674,26 +676,24 @@ fn capture_error(error: CaptureError) -> ModelError {
         other => ModelError::Invalid(other.to_string()),
     }
 }
-impl Declared for Acquire {
-    fn declaration(&self, _: Profile) -> Stage {
-        let provider = acquisition_provider();
-        Stage {
+pub fn contract() -> ProducerContract {
+        ProducerContract {
             name: ACQUIRE,
             inputs: vec![],
             outputs: outputs(),
             contributes: vec![],
-            coverage: vec![FactFamily::Artifacts]
-                .into_iter()
-                .map(|family| lctx_model::domain::stages::FamilyCoverage {
-                    family,
-                    provider: provider.id(),
-                })
-                .collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Acquisition,
-            code: provider.build_digest,
-            configuration: self.configuration,
+            semantic_revision: 1,
+            configuration: ConfigurationBinding::ProducerSettings,
+            suppliers: vec![supplier("acquisition", "lctx-acquire", env!("CARGO_PKG_VERSION"), vec![FactFamily::Artifacts])],
+            not_requested: vec![],
         }
+}
+impl Declared for Acquire {
+    fn declaration(&self, _: Profile) -> Stage {
+        let provider = acquisition_provider();
+        contract().bind(provider.build_digest, self.configuration, [("acquisition", provider)])
     }
 }
 impl<S: ProviderSink + 'static> ProviderStage<S> for Acquire {

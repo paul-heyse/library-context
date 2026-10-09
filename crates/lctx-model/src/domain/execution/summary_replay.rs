@@ -233,7 +233,8 @@ pub fn stage(
     let mut configuration = KeySink::new("summary-stage");
     definition.id().encode(&mut configuration);
     Ok(Stage {
-        name: "analyze_summaries",
+        captured_binding: None,
+name: "analyze_summaries",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

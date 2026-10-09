@@ -1,8 +1,10 @@
 //! One nominal Summary publication over immutable predecessors and borrowed stored topology.
+use crate::producer_operations;
 use crate::{
     analysis_graphs::PreparedGraphs,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, sources::CapturedSources, summary as owner},
     execution::{summary_production::*, summary_replay},
@@ -24,6 +26,100 @@ macro_rules! decoder_inputs {
         lctx_model::expected_domain_inputs!($apply);
     };
 }
+type InputReader = for<'a, 'sources> fn(
+    &'a CompletedInputs,
+    &'a datafusion::prelude::SessionContext,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut CoverageAdmission<'sources>,
+    &'a mut SummaryData,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn read_input<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    coverage: &'a mut CoverageAdmission<'sources>,
+    data: &'a mut SummaryData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            if crate::consumed_rows::stream_artifact_admission(access, &input, session, coverage)
+                .await?
+            {
+                continue;
+            }
+            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+                coverage.visit_if_expected(permit, batch)?;
+                if [
+                    attribution::ProviderRun::NAME,
+                    analysis::MethodParameters::NAME,
+                    analysis::AnalysisDefinition::NAME,
+                    analysis::local::AnalysisInvocation::NAME,
+                    analysis::model::AnalysisInvocation::NAME,
+                    analysis::enriched_execution::AnalysisInvocation::NAME,
+                    analysis::source_call::AnalysisInvocation::NAME,
+                    analysis::local::AnalysisOutcome::NAME,
+                    analysis::model::AnalysisOutcome::NAME,
+                    analysis::enriched_execution::AnalysisOutcome::NAME,
+                    analysis::source_call::AnalysisOutcome::NAME,
+                ]
+                .contains(&input.name())
+                {
+                    data.visit_input(&input, batch)?;
+                }
+                Ok(())
+            })
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn load_inputs<'a, 'sources>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    coverage: &'a mut CoverageAdmission<'sources>,
+    budget: &'a resources::ResourceBudget,
+) -> BoxFuture<'a, Result<SummaryData, ModelError>> {
+    Box::pin(async move {
+        let mut data = SummaryData::new(budget);
+        let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+            {
+                let mut inputs = summary_replay::production_inputs(Profile::Catalog);
+                inputs.extend(analysis::expected::inputs(
+                    analysis::AnalysisMethod::Summaries,
+                ));
+                inputs
+            },
+            budget,
+        )?;
+        let mut readers: Vec<InputReader> = Vec::new();
+        macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(readers.push(read_input::<$ty>);)*};}
+        decoder_inputs!(inputs);
+        for read in readers {
+            read(access, session, &mut consumed, coverage, &mut data).await?;
+        }
+        consumed.finish(access.name())?;
+        Ok(data)
+    })
+}
+
+fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelError>> {
+    Box::pin(async move {
+        macro_rules! common_publication {($($record:ident,)*)=>{{
+        const DECLARATIONS: &[producer_operations::Declaration] = &[$(producer_operations::declare::<owner::$record>,)*];
+        producer_operations::declare_ordered(output, DECLARATIONS).await?;
+    }};}
+        lctx_model::analysis_publication!(common_publication);
+
+        macro_rules! declarations {($($f:ident:$t:ty,)*)=>{{
+        const DECLARATIONS: &[producer_operations::Declaration] = &[$(producer_operations::declare::<$t>,)*];
+        producer_operations::declare_ordered(output, DECLARATIONS).await?;
+    }};}
+        lctx_model::summary_outputs!(declarations);
+        lctx_model::summary_vocabulary!(declarations);
+        Ok(())
+    })
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "Descriptor streams, workspace, configuration, admitted frontier and actual binding and Local owners have separate lifetimes."
@@ -61,39 +157,14 @@ pub async fn produce(
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut coverage = CoverageAdmission::new(&sources, budget)?;
-    let mut data = SummaryData::new(budget);
     let session = access.session(runtime).await?;
-    let mut consumed = crate::consumed_rows::ConsumedInputs::new(
-        {
-            let mut inputs = summary_replay::production_inputs(Profile::Catalog);
-            inputs.extend(analysis::expected::inputs(
-                analysis::AnalysisMethod::Summaries,
-            ));
-            inputs
-        },
-        budget,
-    )?;
-    macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
-        if crate::consumed_rows::stream_artifact_admission(&access,&input,&session,&mut coverage).await? {continue;}
-        crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
-            coverage.visit_if_expected(permit,batch)?;
-            if [attribution::ProviderRun::NAME,analysis::MethodParameters::NAME,analysis::AnalysisDefinition::NAME,analysis::local::AnalysisInvocation::NAME,analysis::model::AnalysisInvocation::NAME,analysis::enriched_execution::AnalysisInvocation::NAME,analysis::source_call::AnalysisInvocation::NAME,analysis::local::AnalysisOutcome::NAME,analysis::model::AnalysisOutcome::NAME,analysis::enriched_execution::AnalysisOutcome::NAME,analysis::source_call::AnalysisOutcome::NAME].contains(&input.name()){data.visit_input(&input,batch)?;}
-            Ok(())
-        }).await?;
-    })*};}
-    decoder_inputs!(inputs);
-    consumed.finish(access.name())?;
+    let data = load_inputs(&access, &session, &mut coverage, budget).await?;
     let scopes = if access.profile() == Profile::Behavioral {
         Some(scope::SummaryScopes::prepare(&access, &session, _model, budget).await?)
     } else {
         None
     };
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<owner::$record>().await?;)*};}
-    lctx_model::analysis_publication!(common_publication);
-
-    macro_rules! declarations{($($f:ident:$t:ty,)*)=>{$(output.declare_async::<$t>().await?;)*};}
-    lctx_model::summary_outputs!(declarations);
-    lctx_model::summary_vocabulary!(declarations);
+    declare_outputs(&output).await?;
     let mut frames = charged::ChargedSet::default();
     let mut frame_charge = charged::StateCharge::new(budget, "summary-output-frames");
     for run in data.entry.runs.iter() {
@@ -193,10 +264,43 @@ pub async fn produce(
             }
         }
         result.discharge(&actual_coverage)?;
-        macro_rules! write{($($f:ident:$t:ty,)*)=>{$(for row in result.$f.iter(){output.push(row.clone()).await?;})*};}
-        lctx_model::summary_outputs!(write);
-        macro_rules! vocabulary{($($f:ident:$t:ty,)*)=>{$(for row in result.vocabulary.$f.values(){output.push(row.clone()).await?;})*};}
-        lctx_model::summary_vocabulary!(vocabulary);
+        publish_frame(
+            &output,
+            &coverage,
+            result,
+            actual_coverage,
+            actual_premises,
+            invocation,
+            parents,
+            inputs,
+            receipts,
+            projections,
+        )
+        .await?;
+    }
+    drop(data);
+    output.finish(ProviderOutcome::Complete).await
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Summary result, admitted coverage and charged frame receipts retain separate owners and exact publication order."
+)]
+fn publish_frame<'a>(
+    output: &'a ProducerOutput,
+    coverage: &'a owner::coverage::AdmittedCoverage,
+    result: SummaryRecords,
+    actual_coverage: normalized::Rows<owner::AnalysisCoverage>,
+    actual_premises: normalized::Rows<owner::AnalysisCoveragePremise>,
+    invocation: owner::AnalysisInvocation,
+    parents: normalized::Rows<owner::InvocationSource>,
+    inputs: Vec<owner::AnalysisInput>,
+    receipts: Vec<owner::SourceReceipt>,
+    projections: Vec<owner::ProjectionInput>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        emit_results(&result, output).await?;
+        emit_vocabulary(&result.vocabulary, output).await?;
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;
@@ -227,14 +331,96 @@ pub async fn produce(
         for row in projections {
             output.push(row).await?;
         }
-    }
-    drop(data);
-    output.finish(ProviderOutcome::Complete).await
+        Ok(())
+    })
+}
+
+type RecordEmitter =
+    for<'a> fn(&'a SummaryRecords, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+fn emit_results<'a>(
+    records: &'a SummaryRecords,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        macro_rules! write {($($field:ident:$ty:ty,)*)=>{{
+            const EMITTERS: &[RecordEmitter] = &[$(|records, output| producer_operations::emit(&records.$field, output),)*];
+            for emit in EMITTERS { emit(records, output).await?; }
+        }};}
+        lctx_model::summary_outputs!(write);
+        Ok(())
+    })
+}
+type VocabularyEmitter =
+    for<'a> fn(&'a Vocabulary, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+fn emit_vocabulary<'a>(
+    vocabulary: &'a Vocabulary,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        macro_rules! write {($($field:ident:$ty:ty,)*)=>{{
+            const EMITTERS: &[VocabularyEmitter] = &[$(|vocabulary, output| emit_values(&vocabulary.$field, output),)*];
+            for emit in EMITTERS { emit(vocabulary, output).await?; }
+        }};}
+        lctx_model::summary_vocabulary!(write);
+        Ok(())
+    })
+}
+fn emit_values<'a, R: Record>(
+    values: &'a charged::ChargedMap<Id<R>, R>,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        for row in values.values() {
+            output.push(row.clone()).await?;
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]
 mod decoder_tests {
     use super::*;
+    #[tokio::test]
+    async fn input_phase_is_lazy_and_failed_admission_releases_its_charge() {
+        let runtime = Workspace::new(
+            Arc::new(model().unwrap()),
+            crate::workspace::WorkspaceOptions {
+                memory_bytes: 128 << 20,
+                partitions: 1,
+                batch_rows: 16,
+            },
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let access = runtime
+            .inputs("summary-phase-laziness", Profile::Catalog, [])
+            .unwrap();
+        let session = access.session(&runtime).await.unwrap();
+        let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
+        let sources =
+            CapturedSources::capture(access.profile(), access.snapshots(), &budget).unwrap();
+        let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
+        let before = budget.reserved();
+        let operation = load_inputs(&access, &session, &mut admission, &budget);
+        assert_eq!(
+            budget.reserved(),
+            before,
+            "unpolled Summary acquisition must not reserve declaration state"
+        );
+        drop(operation);
+        assert_eq!(budget.reserved(), before);
+        assert!(
+            load_inputs(&access, &session, &mut admission, &budget)
+                .await
+                .is_err(),
+            "missing completed inputs must refuse rather than manufacture Summary metadata"
+        );
+        assert_eq!(
+            budget.reserved(),
+            before,
+            "failed acquisition releases its configuration and declaration charges"
+        );
+    }
     #[test]
     fn declared_sources_have_decoder_reachability_in_both_profiles() {
         let mut decoders = std::collections::BTreeSet::new();

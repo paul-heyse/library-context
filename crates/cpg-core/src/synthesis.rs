@@ -1,8 +1,10 @@
 //! Single S0 writer; rendering never reconstructs graphs or invents completed parents.
+use crate::producer_operations::{self, Declaration};
 use crate::{
     synthesis_preparation,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     analysis::{self, synthesis::*},
     normalized::Rows,
@@ -34,18 +36,6 @@ enum LoadPhase {
     Documentary,
     Member,
     Conclusion,
-}
-async fn publish_documentary_grain(
-    output: &ProducerOutput,
-    rows: &synthesis::documentary::Output,
-) -> Result<(), ModelError> {
-    macro_rules! write {($($field:ident),*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
-    write!(
-        sources,
-        prose_sources,
-        slices, qualifications, conclusions, component_boundaries, boundaries
-    );
-    Ok(())
 }
 struct SynthesisScopes {
     inputs: Vec<ValidationInput>,
@@ -105,6 +95,107 @@ fn scope_target(
         return Err(ModelError::Conflict("S0 exact immutable vocabulary"));
     }
     Ok(selected.first().copied())
+}
+type MetadataLoader = for<'a, 'sources> fn(
+    &'a CompletedInputs,
+    &'a datafusion::prelude::SessionContext,
+    &'a [ValidationInput],
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut analysis::expected::CoverageAdmission<'sources>,
+    &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load_metadata<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    topology: &'a [ValidationInput],
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+    data: &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+                .await?
+            {
+                continue;
+            }
+            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+                admission.visit_if_expected(permit, batch)?;
+                if topology.iter().any(|item| {
+                    item.type_id() == input.type_id() && item.prefix() == input.prefix()
+                }) {
+                    data.visit_input(&input, batch)?;
+                }
+                Ok(())
+            })
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn read_metadata<'a, 'sources>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    topology: &'a [ValidationInput],
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+    data: &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let mut loaders: Vec<MetadataLoader> = Vec::new();
+        macro_rules! read {($($field:ident:$ty:ty,)*) => {$(loaders.push(load_metadata::<$ty>);)*};}
+        decoder_inputs!(read);
+        for loader in loaders {
+            loader(access, session, topology, consumed, admission, data).await?;
+        }
+        Ok(())
+    })
+}
+type ScopedLoader = for<'a> fn(
+    &'a SynthesisScopes,
+    &'a CompletedInputs,
+    &'a crate::consumed_rows::PreparedClosure,
+    LoadPhase,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load_scoped<'a, R: Record>(
+    scopes: &'a SynthesisScopes,
+    access: &'a CompletedInputs,
+    scope: &'a crate::consumed_rows::PreparedClosure,
+    phase: LoadPhase,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    data: &'a mut Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            let table = scopes
+                .inputs
+                .iter()
+                .position(|candidate| {
+                    candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
+                })
+                .ok_or(ModelError::Conflict("S0 scoped declaration"))?;
+            let selected = if input.type_id() == std::any::TypeId::of::<artifact::ArtifactChunk>() {
+                scopes.chunks(scope, phase)?
+            } else {
+                scope.select(table)?
+            };
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                &input,
+                access,
+                scope.session(),
+                &selected,
+                |_, batch| {
+                    data.visit_input(&input, batch)?;
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    })
 }
 impl SynthesisScopes {
     async fn prepare(
@@ -418,12 +509,12 @@ impl SynthesisScopes {
         };
         let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, budget)?;
         let mut data = Data::new(budget);
-        macro_rules! scoped {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
-            let table=self.inputs.iter().position(|candidate|candidate.type_id()==input.type_id()&&candidate.prefix()==input.prefix()).ok_or(ModelError::Conflict("S0 scoped declaration"))?;
-            let selected=if input.type_id()==std::any::TypeId::of::<artifact::ArtifactChunk>(){self.chunks(scope,phase)?}else{scope.select(table)?};
-            crate::consumed_rows::stream_query_at(&permit,&input,scope.session(),&selected,|_,batch|{data.visit_input(&input,batch)?;Ok(())}).await?;
-        })*};}
+        let mut loaders: Vec<ScopedLoader> = Vec::new();
+        macro_rules! scoped {($($field:ident:$ty:ty,)*) => {$(loaders.push(load_scoped::<$ty>);)*};}
         decoder_inputs!(scoped);
+        for loader in loaders {
+            loader(self, access, scope, phase, &mut consumed, &mut data).await?;
+        }
         consumed.finish(access.name())?;
         Ok(data)
     }
@@ -518,6 +609,75 @@ fn nominal<T>(bytes: &[u8]) -> Result<Id<T>, ModelError> {
     .map_err(ModelError::codec)
 }
 
+struct RankingTables<'a> {
+    public: &'a str,
+    result: &'a str,
+    community: &'a str,
+}
+type RankingLoader = for<'a> fn(
+    &'a CompletedInputs,
+    &'a datafusion::prelude::SessionContext,
+    &'a synthesis::frames::Parents,
+    &'a RankingTables<'a>,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut synthesis::automatic::Data,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load_ranking<'a, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    parent: &'a synthesis::frames::Parents,
+    tables: &'a RankingTables<'a>,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    automatic: &'a mut synthesis::automatic::Data,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        use crate::consumed_rows::identifier;
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            let alias = identifier(&access.table_for(&input)?);
+            let frame = parent.structural.hex();
+            let analytic = parent.analytic.hex();
+            let selected = match input.type_id() {
+                kind if kind == std::any::TypeId::of::<structural::UsageScore>() => format!(
+                    "SELECT r.* FROM {alias} r LEFT SEMI JOIN {} p ON p.entity=r.target AND p.frame=r.frame WHERE r.frame=X'{frame}'",
+                    identifier(tables.public)
+                ),
+                kind if kind == std::any::TypeId::of::<analytics::RankScore>() => format!(
+                    "SELECT r.* FROM {alias} r JOIN {} t ON r.result=t.id LEFT SEMI JOIN {} p ON p.entity=r.target AND p.frame=X'{frame}' WHERE t.frame=X'{analytic}'",
+                    identifier(tables.result),
+                    identifier(tables.public)
+                ),
+                kind if kind == std::any::TypeId::of::<analytics::Community>() => format!(
+                    "SELECT r.* FROM {alias} r JOIN {} t ON r.result=t.id WHERE t.frame=X'{analytic}'",
+                    identifier(tables.result)
+                ),
+                kind if kind == std::any::TypeId::of::<analytics::CommunityMember>() => format!(
+                    "SELECT r.* FROM {alias} r JOIN {} c ON r.community=c.id JOIN {} t ON c.result=t.id LEFT SEMI JOIN {} p ON p.entity=r.entity AND p.frame=X'{frame}' WHERE t.frame=X'{analytic}'",
+                    identifier(tables.community),
+                    identifier(tables.result),
+                    identifier(tables.public)
+                ),
+                _ => {
+                    return Err(ModelError::Schema(
+                        "S0 automatic input property declaration",
+                    ));
+                }
+            };
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                &input,
+                access,
+                session,
+                &selected,
+                |_, batch| {
+                    automatic.visit(input.name(), batch)?;
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
 async fn ranking(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
@@ -577,22 +737,217 @@ async fn ranking(
     let community = access.table_for(&ValidationInput::of::<analytics::Community>(&["id"]))?;
     let mut consumed =
         crate::consumed_rows::ConsumedInputs::new(synthesis::automatic::Data::inputs(), budget)?;
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(access)?{
-        let alias=identifier(&access.table_for(&input)?);let frame=parent.structural.hex();let analytic=parent.analytic.hex();
-        let selected=match input.type_id(){
-            kind if kind==std::any::TypeId::of::<structural::UsageScore>()=>format!("SELECT r.* FROM {alias} r LEFT SEMI JOIN {} p ON p.entity=r.target AND p.frame=r.frame WHERE r.frame=X'{frame}'",identifier(&public)),
-            kind if kind==std::any::TypeId::of::<analytics::RankScore>()=>format!("SELECT r.* FROM {alias} r JOIN {} t ON r.result=t.id LEFT SEMI JOIN {} p ON p.entity=r.target AND p.frame=X'{frame}' WHERE t.frame=X'{analytic}'",identifier(&result),identifier(&public)),
-            kind if kind==std::any::TypeId::of::<analytics::Community>()=>format!("SELECT r.* FROM {alias} r JOIN {} t ON r.result=t.id WHERE t.frame=X'{analytic}'",identifier(&result)),
-            kind if kind==std::any::TypeId::of::<analytics::CommunityMember>()=>format!("SELECT r.* FROM {alias} r JOIN {} c ON r.community=c.id JOIN {} t ON c.result=t.id LEFT SEMI JOIN {} p ON p.entity=r.entity AND p.frame=X'{frame}' WHERE t.frame=X'{analytic}'",identifier(&community),identifier(&result),identifier(&public)),
-            _=>return Err(ModelError::Schema("S0 automatic input property declaration")),
-        };
-        crate::consumed_rows::stream_query_at(&permit,&input,session,&selected,|_,batch|{automatic.visit(input.name(),batch)?;Ok(())}).await?;
-    })*};}
+    macro_rules! read {($($field:ident:$ty:ty,)*) => {const LOADERS: &[RankingLoader] = &[$(load_ranking::<$ty>,)*];};}
     lctx_model::synthesis_automatic_unique_inputs!(read);
+    let tables = RankingTables {
+        public: &public,
+        result: &result,
+        community: &community,
+    };
+    for loader in LOADERS {
+        loader(
+            access,
+            session,
+            parent,
+            &tables,
+            &mut consumed,
+            &mut automatic,
+        )
+        .await?;
+    }
     consumed.finish(access.name())?;
     Ok((slots, automatic))
 }
 
+fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelError>> {
+    Box::pin(async move {
+        let mut declarations: Vec<Declaration> = Vec::new();
+        macro_rules! common_publication {($($record:ident,)*)=>{$(declarations.push(producer_operations::declare::<analysis::synthesis::$record>);)*};}
+        lctx_model::analysis_publication!(common_publication);
+        macro_rules! declare {($($ty:ty),*)=>{$(declarations.push(producer_operations::declare::<$ty>);)*};}
+        declare!(
+            synthesis::seeds::SeedPlan,
+            synthesis::seeds::ConfiguredSeedDecision,
+            synthesis::seeds::ConfiguredSeedCandidate,
+            synthesis::seeds::SelectedSeedSource,
+            synthesis::seeds::SelectedSeed,
+            synthesis::automatic::Decision,
+            synthesis::summary::SummaryFacet,
+            synthesis::frames::Frame,
+            synthesis::assertions::ProgrammaticAssertion,
+            synthesis::assertions::AssertionTemplate,
+            synthesis::assertions::AssertionSource,
+            synthesis::assertions::ProgrammaticAssertionSupport,
+            synthesis::briefs::Brief,
+            synthesis::briefs::BriefAssertion,
+            synthesis::briefs::BriefSource,
+            synthesis::briefs::BriefSummary,
+            synthesis::briefs::BriefCodeBoundary,
+            synthesis::briefs::BriefDocument,
+            synthesis::briefs::BriefOmission
+        );
+        macro_rules! declare_rows {($($field:ident:$ty:ty,)*)=>{$(if <$ty>::NAME!=assertion::AssertionQualification::NAME{declarations.push(producer_operations::declare::<$ty>);})*};}
+        lctx_model::synthesis_pattern_outputs!(declare_rows);
+        lctx_model::synthesis_observation_outputs!(declare_rows);
+        producer_operations::declare_ordered(output, &declarations).await
+    })
+}
+fn publish_seed<'a>(
+    rows: &'a synthesis::seeds::Output,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        type Emit = for<'a> fn(
+            &'a synthesis::seeds::Output,
+            &'a ProducerOutput,
+        ) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        entries!(plans, automatic, decisions, candidates, sources, selected);
+        for emit in EMITTERS {
+            emit(rows, output).await?;
+        }
+        Ok(())
+    })
+}
+fn publish_assertions<'a>(
+    rows: &'a synthesis::assertions::Output,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        type Emit = for<'a> fn(
+            &'a synthesis::assertions::Output,
+            &'a ProducerOutput,
+        ) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        entries!(assertions, templates, sources, supports);
+        for emit in EMITTERS {
+            emit(rows, output).await?;
+        }
+        Ok(())
+    })
+}
+fn publish_briefs<'a>(
+    rows: &'a synthesis::briefs::Output,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        type Emit = for<'a> fn(
+            &'a synthesis::briefs::Output,
+            &'a ProducerOutput,
+        ) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        entries!(
+            briefs,
+            assertions,
+            sources,
+            summary,
+            code_boundaries,
+            documents,
+            omissions
+        );
+        for emit in EMITTERS {
+            emit(rows, output).await?;
+        }
+        Ok(())
+    })
+}
+fn publish_patterns<'a>(
+    rows: &'a synthesis::patterns::Output,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        type Emit = for<'a> fn(
+            &'a synthesis::patterns::Output,
+            &'a ProducerOutput,
+        ) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        lctx_model::synthesis_pattern_outputs!(entries);
+        for emit in EMITTERS {
+            emit(rows, output).await?;
+        }
+        Ok(())
+    })
+}
+fn publish_observations<'a>(
+    rows: &'a synthesis::observations::Output,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        type Emit = for<'a> fn(
+            &'a synthesis::observations::Output,
+            &'a ProducerOutput,
+        ) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        lctx_model::synthesis_observation_outputs!(entries);
+        for emit in EMITTERS {
+            emit(rows, output).await?;
+        }
+        Ok(())
+    })
+}
+fn publish_frames<'a>(
+    frames: &'a Rows<synthesis::frames::Frame>,
+    sources: &'a Rows<InvocationSource>,
+    inputs: &'a Rows<AnalysisInput>,
+    receipts: &'a Rows<SourceReceipt>,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        producer_operations::emit(frames, output).await?;
+        producer_operations::emit(sources, output).await?;
+        producer_operations::emit(inputs, output).await?;
+        producer_operations::emit(receipts, output).await
+    })
+}
+fn publish_coverage<'a, 'sources>(
+    invocations: &'a Rows<Invocation>,
+    definition: &'a analysis::AnalysisDefinition,
+    admission: &'a analysis::expected::CoverageAdmission<'sources>,
+    budget: &'a resources::ResourceBudget,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        for invocation in invocations.iter() {
+            let admitted = coverage::admit(
+                invocation,
+                definition,
+                analysis::AnalysisCapability::Synthesis,
+                admission,
+                budget,
+            )?;
+            for scope in admitted.scopes() {
+                let (requirement, members) = scope.expectation().records()?;
+                output.push(requirement).await?;
+                for row in members {
+                    output.push(row).await?;
+                }
+                for row in scope.observations() {
+                    output.push(row.source().clone()).await?;
+                }
+                let (coverage, members) = coverage::assess(
+                    scope.expectation(),
+                    scope.observations(),
+                    analysis::AnalysisStatus::Completed,
+                    None,
+                    budget,
+                )?;
+                output.push(coverage).await?;
+                for row in members {
+                    output.push(row).await?;
+                }
+            }
+            output
+                .push(AnalysisOutcome {
+                    invocation: invocation.id(),
+                    status: analysis::AnalysisStatus::Completed,
+                    reason: None,
+                })
+                .await?;
+            output.push(invocation.clone()).await?;
+        }
+        Ok(())
+    })
+}
 pub async fn produce(
     access: CompletedInputs,
     mut output: ProducerOutput,
@@ -618,52 +973,20 @@ pub async fn produce(
         },
         runtime.budget(),
     )?;
-    macro_rules! read{($($f:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)? {
-        if input.type_id()==std::any::TypeId::of::<source::SourceArtifact>(){
-                let actual=access.read_at::<source::SourceArtifact>(input.prefix())?;
-                let alias=access.table_for(&input)?;
-                let selected=format!("SELECT {} FROM {}",analysis::expected::CoverageAdmission::artifact_property_columns(),crate::consumed_rows::identifier(&alias));
-                crate::consumed_rows::stream_query_at(&actual,&input,&session,&selected,|permit,batch|admission.visit_artifact_properties(permit,batch)).await?;
-                continue;
-            }
-            crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch| {
-            admission.visit_if_expected(permit,batch)?;
-            if topology.iter().any(|item|item.type_id()==input.type_id()&&item.prefix()==input.prefix()){data.visit_input(&input,batch)?;}
-            Ok(())
-        }).await?;
-    })*};}
-    decoder_inputs!(read);
+    read_metadata(
+        &access,
+        &session,
+        &topology,
+        &mut consumed,
+        &mut admission,
+        &mut data,
+    )
+    .await?;
     consumed.finish(access.name())?;
     let (_, definition) = synthesis::build::definition();
     let settings = data.frames.configuration()?;
     let parents = synthesis::frames::parents(&data.frames, runtime.budget())?;
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::synthesis::$record>().await?;)*};}
-    lctx_model::analysis_publication!(common_publication);
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    declare!(
-        synthesis::seeds::SeedPlan,
-        synthesis::seeds::ConfiguredSeedDecision,
-        synthesis::seeds::ConfiguredSeedCandidate,
-        synthesis::seeds::SelectedSeedSource,
-        synthesis::seeds::SelectedSeed,
-        synthesis::automatic::Decision,
-        synthesis::summary::SummaryFacet,
-        synthesis::frames::Frame,
-        synthesis::assertions::ProgrammaticAssertion,
-        synthesis::assertions::AssertionTemplate,
-        synthesis::assertions::AssertionSource,
-        synthesis::assertions::ProgrammaticAssertionSupport,
-        synthesis::briefs::Brief,
-        synthesis::briefs::BriefAssertion,
-        synthesis::briefs::BriefSource,
-        synthesis::briefs::BriefSummary,
-        synthesis::briefs::BriefCodeBoundary,
-        synthesis::briefs::BriefDocument,
-        synthesis::briefs::BriefOmission
-    );
-    macro_rules! declare_rows {($($field:ident:$ty:ty,)*)=>{$(if <$ty>::NAME!=assertion::AssertionQualification::NAME{output.declare_async::<$ty>().await?;})*};}
-    lctx_model::synthesis_pattern_outputs!(declare_rows);
-    lctx_model::synthesis_observation_outputs!(declare_rows);
+    declare_outputs(&output).await?;
     let scopes =
         SynthesisScopes::prepare(&access, model, &session, &parents, runtime.budget()).await?;
     let mut documentary_spool = crate::documentary_spool::DocumentarySpool::new(runtime.budget())?;
@@ -730,7 +1053,7 @@ pub async fn produce(
             {
                 emission.insert(&mut emission_charge, id)?;
             }
-            publish_documentary_grain(&output, &docs).await?;
+            synthesis_preparation::publish_documentary_grain(&output, &docs).await?;
             drop(docs);
             drop(grain);
             drop(scope);
@@ -794,8 +1117,7 @@ pub async fn produce(
         )?;
         // Every candidate and ranking decision is emitted; only selected navigation identities
         // and their plan survive until the member render pass.
-        macro_rules! publish_seed {($($field:ident:$ty:ty),*)=>{$(for row in selected.$field.iter(){output.push(row.clone()).await?;})*};}
-        publish_seed!(plans:synthesis::seeds::SeedPlan,automatic:synthesis::automatic::Decision,decisions:synthesis::seeds::ConfiguredSeedDecision,candidates:synthesis::seeds::ConfiguredSeedCandidate,sources:synthesis::seeds::SelectedSeedSource,selected:synthesis::seeds::SelectedSeed);
+        publish_seed(&selected, &output).await?;
         for row in selected.plans.iter() {
             seeds.plans.insert(row.clone())?;
         }
@@ -905,11 +1227,9 @@ pub async fn produce(
             &patterns,
             runtime.budget(),
         )?;
-        macro_rules! write {($($ty:ty=>$rows:expr),*)=>{$(for row in $rows.iter(){output.push(row.clone()).await?;})*};}
-        write!(synthesis::assertions::ProgrammaticAssertion=>assertions.assertions,synthesis::assertions::AssertionTemplate=>assertions.templates,synthesis::assertions::AssertionSource=>assertions.sources,synthesis::assertions::ProgrammaticAssertionSupport=>assertions.supports,
-            synthesis::briefs::Brief=>briefs.briefs,synthesis::briefs::BriefAssertion=>briefs.assertions,synthesis::briefs::BriefSource=>briefs.sources,synthesis::briefs::BriefSummary=>briefs.summary,synthesis::briefs::BriefCodeBoundary=>briefs.code_boundaries,synthesis::briefs::BriefDocument=>briefs.documents,synthesis::briefs::BriefOmission=>briefs.omissions);
-        macro_rules! patterns_write{($($field:ident:$ty:ty,)*)=>{$(for row in patterns.$field.iter(){output.push(row.clone()).await?;})*};}
-        lctx_model::synthesis_pattern_outputs!(patterns_write);
+        publish_assertions(&assertions, &output).await?;
+        publish_briefs(&briefs, &output).await?;
+        publish_patterns(&patterns, &output).await?;
         drop(briefs);
         drop(selected);
         drop(patterns);
@@ -992,11 +1312,8 @@ pub async fn produce(
                         &invocations,
                         runtime.budget(),
                     )?;
-                    for row in facets.iter() {
-                        output.push(row.clone()).await?;
-                    }
-                    macro_rules! observation_write{($($field:ident:$ty:ty,)*)=>{$(for row in observations.$field.iter(){output.push(row.clone()).await?;})*};}
-                    lctx_model::synthesis_observation_outputs!(observation_write);
+                    producer_operations::emit(&facets, &output).await?;
+                    publish_observations(&observations, &output).await?;
                     drop(facets);
                     drop(observations);
                     drop(grain);
@@ -1004,46 +1321,15 @@ pub async fn produce(
             }
         }
     }
-    macro_rules! write {($($ty:ty=>$rows:expr),*)=>{$(for row in $rows.iter(){output.push(row.clone()).await?;})*};}
-    write!(synthesis::frames::Frame=>frames,InvocationSource=>sources,AnalysisInput=>inputs,SourceReceipt=>receipts);
-    for invocation in invocations.iter() {
-        let admitted = coverage::admit(
-            invocation,
-            &definition,
-            analysis::AnalysisCapability::Synthesis,
-            &admission,
-            runtime.budget(),
-        )?;
-        for scope in admitted.scopes() {
-            let (requirement, members) = scope.expectation().records()?;
-            output.push(requirement).await?;
-            for row in members {
-                output.push(row).await?;
-            }
-            for row in scope.observations() {
-                output.push(row.source().clone()).await?;
-            }
-            let (coverage, members) = coverage::assess(
-                scope.expectation(),
-                scope.observations(),
-                analysis::AnalysisStatus::Completed,
-                None,
-                runtime.budget(),
-            )?;
-            output.push(coverage).await?;
-            for row in members {
-                output.push(row).await?;
-            }
-        }
-        output
-            .push(AnalysisOutcome {
-                invocation: invocation.id(),
-                status: analysis::AnalysisStatus::Completed,
-                reason: None,
-            })
-            .await?;
-        output.push(invocation.clone()).await?;
-    }
+    publish_frames(&frames, &sources, &inputs, &receipts, &output).await?;
+    publish_coverage(
+        &invocations,
+        &definition,
+        &admission,
+        runtime.budget(),
+        &output,
+    )
+    .await?;
     drop(coverages);
     drop(scopes);
     drop(receipts);
@@ -1391,53 +1677,146 @@ mod decoder_tests {
     #[tokio::test]
     async fn control_formal_grain_selects_named_parameter_links_without_unrelated_parameters() {
         use crate::consumed_rows::ClosureTable;
-        use datafusion::{datasource::MemTable,prelude::SessionContext};
+        use datafusion::{datasource::MemTable, prelude::SessionContext};
         use futures::TryStreamExt;
-        use normalized::entities::{ParameterEntity,ParameterEntityLink};
-        fn install<R:Record>(session:&SessionContext,tables:&[ClosureTable],inputs:&[ValidationInput],rows:&[R]) {
-            let index=inputs.iter().position(|input|input.type_id()==std::any::TypeId::of::<R>()).unwrap();
-            let batch=R::encode(rows).unwrap();
-            session.deregister_table(tables[index].alias.as_str()).unwrap();
-            session.register_table(tables[index].alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();
+        use normalized::entities::{ParameterEntity, ParameterEntityLink};
+        fn install<R: Record>(
+            session: &SessionContext,
+            tables: &[ClosureTable],
+            inputs: &[ValidationInput],
+            rows: &[R],
+        ) {
+            let index = inputs
+                .iter()
+                .position(|input| input.type_id() == std::any::TypeId::of::<R>())
+                .unwrap();
+            let batch = R::encode(rows).unwrap();
+            session
+                .deregister_table(tables[index].alias.as_str())
+                .unwrap();
+            session
+                .register_table(
+                    tables[index].alias.as_str(),
+                    Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap()),
+                )
+                .unwrap();
         }
-        let budget=resources::ResourceBudget::fixed(8<<20).unwrap();
-        let model=lctx_model::domain::model().unwrap();
-        let inputs=Data::inputs(Profile::Catalog);
-        let session=SessionContext::new();
-        let tables=inputs.iter().enumerate().map(|(index,input)|{
-            let relation=model.relation(input.name()).unwrap().clone();
-            let alias=format!("control_parameter_fixture_{index}");
-            let batch=arrow_array::RecordBatch::new_empty(relation.schema().clone());
-            session.register_table(alias.as_str(),Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();
-            ClosureTable{relation,alias}
-        }).collect::<Vec<_>>();
-        let formal=ParameterEntity::Source{declaration:nominal(&[1;16]).unwrap()};
-        let unrelated=ParameterEntity::Source{declaration:nominal(&[2;16]).unwrap()};
-        let shapes=[calls::ParameterShape{name:Some("flag".into()),kind:calls::ParameterKind::KeywordOnly,required:false},calls::ParameterShape{name:Some("unrelated".into()),kind:calls::ParameterKind::KeywordOnly,required:false}];
-        let parameters=[calls::SignatureParameter{signature:nominal(&[3;16]).unwrap(),ordinal:0,shape:shapes[0].id()},calls::SignatureParameter{signature:nominal(&[4;16]).unwrap(),ordinal:0,shape:shapes[1].id()}];
-        let links=[ParameterEntityLink{parameter:parameters[0].id(),entity:formal.id(),declaration:None},ParameterEntityLink{parameter:parameters[1].id(),entity:unrelated.id(),declaration:None}];
-        let path=structural::controls::ControlPath{traversal:nominal(&[5;16]).unwrap(),target:nominal(&[6;16]).unwrap(),formal:formal.id(),may_suppress:false,length:0};
-        install(&session,&tables,&inputs,&[formal,unrelated]);
-        install(&session,&tables,&inputs,&shapes);
-        install(&session,&tables,&inputs,&parameters);
-        install(&session,&tables,&inputs,&links);
-        install(&session,&tables,&inputs,std::slice::from_ref(&path));
-        let scopes=SynthesisScopes::prepare_bound(inputs,tables,&session,None,&budget).await.unwrap();
-        let root=typed::<structural::controls::ControlPath>(&scopes.inputs).unwrap();
-        let scope=scopes.edges.grain(root,&format!("id=X'{}'",path.id().hex()),&budget).await.unwrap();
-        let mut selected_links=Rows::<ParameterEntityLink>::new(&budget);
-        let mut selected_shapes=Rows::<calls::ParameterShape>::new(&budget);
-        for (index,is_link) in [(typed::<ParameterEntityLink>(&scopes.inputs).unwrap(),true),(typed::<calls::ParameterShape>(&scopes.inputs).unwrap(),false)] {
-            let mut stream=crate::sql::query(scope.session(),&scope.select(index).unwrap()).await.unwrap().execute_stream().await.unwrap();
-            while let Some(batch)=stream.try_next().await.unwrap(){if is_link{selected_links.decode(&batch).unwrap();}else{selected_shapes.decode(&batch).unwrap();}}
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let model = lctx_model::domain::model().unwrap();
+        let inputs = Data::inputs(Profile::Catalog);
+        let session = SessionContext::new();
+        let tables = inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let relation = model.relation(input.name()).unwrap().clone();
+                let alias = format!("control_parameter_fixture_{index}");
+                let batch = arrow_array::RecordBatch::new_empty(relation.schema().clone());
+                session
+                    .register_table(
+                        alias.as_str(),
+                        Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap()),
+                    )
+                    .unwrap();
+                ClosureTable { relation, alias }
+            })
+            .collect::<Vec<_>>();
+        let formal = ParameterEntity::Source {
+            declaration: nominal(&[1; 16]).unwrap(),
+        };
+        let unrelated = ParameterEntity::Source {
+            declaration: nominal(&[2; 16]).unwrap(),
+        };
+        let shapes = [
+            calls::ParameterShape {
+                name: Some("flag".into()),
+                kind: calls::ParameterKind::KeywordOnly,
+                required: false,
+            },
+            calls::ParameterShape {
+                name: Some("unrelated".into()),
+                kind: calls::ParameterKind::KeywordOnly,
+                required: false,
+            },
+        ];
+        let parameters = [
+            calls::SignatureParameter {
+                signature: nominal(&[3; 16]).unwrap(),
+                ordinal: 0,
+                shape: shapes[0].id(),
+            },
+            calls::SignatureParameter {
+                signature: nominal(&[4; 16]).unwrap(),
+                ordinal: 0,
+                shape: shapes[1].id(),
+            },
+        ];
+        let links = [
+            ParameterEntityLink {
+                parameter: parameters[0].id(),
+                entity: formal.id(),
+                declaration: None,
+            },
+            ParameterEntityLink {
+                parameter: parameters[1].id(),
+                entity: unrelated.id(),
+                declaration: None,
+            },
+        ];
+        let path = structural::controls::ControlPath {
+            traversal: nominal(&[5; 16]).unwrap(),
+            target: nominal(&[6; 16]).unwrap(),
+            formal: formal.id(),
+            may_suppress: false,
+            length: 0,
+        };
+        install(&session, &tables, &inputs, &[formal, unrelated]);
+        install(&session, &tables, &inputs, &shapes);
+        install(&session, &tables, &inputs, &parameters);
+        install(&session, &tables, &inputs, &links);
+        install(&session, &tables, &inputs, std::slice::from_ref(&path));
+        let scopes = SynthesisScopes::prepare_bound(inputs, tables, &session, None, &budget)
+            .await
+            .unwrap();
+        let root = typed::<structural::controls::ControlPath>(&scopes.inputs).unwrap();
+        let scope = scopes
+            .edges
+            .grain(root, &format!("id=X'{}'", path.id().hex()), &budget)
+            .await
+            .unwrap();
+        let mut selected_links = Rows::<ParameterEntityLink>::new(&budget);
+        let mut selected_shapes = Rows::<calls::ParameterShape>::new(&budget);
+        for (index, is_link) in [
+            (typed::<ParameterEntityLink>(&scopes.inputs).unwrap(), true),
+            (
+                typed::<calls::ParameterShape>(&scopes.inputs).unwrap(),
+                false,
+            ),
+        ] {
+            let mut stream = crate::sql::query(scope.session(), &scope.select(index).unwrap())
+                .await
+                .unwrap()
+                .execute_stream()
+                .await
+                .unwrap();
+            while let Some(batch) = stream.try_next().await.unwrap() {
+                if is_link {
+                    selected_links.decode(&batch).unwrap();
+                } else {
+                    selected_shapes.decode(&batch).unwrap();
+                }
+            }
         }
-        assert_eq!(selected_links.len(),1);
-        assert_eq!(selected_links.get(links[0].id()),Some(&links[0]));
+        assert_eq!(selected_links.len(), 1);
+        assert_eq!(selected_links.get(links[0].id()), Some(&links[0]));
         assert!(selected_links.get(links[1].id()).is_none());
-        assert_eq!(selected_shapes.len(),1);
-        assert_eq!(selected_shapes.get(shapes[0].id()),Some(&shapes[0]));
-        drop(selected_links);drop(selected_shapes);drop(scope);drop(scopes);
-        assert_eq!(budget.reserved(),0);
+        assert_eq!(selected_shapes.len(), 1);
+        assert_eq!(selected_shapes.get(shapes[0].id()), Some(&shapes[0]));
+        drop(selected_links);
+        drop(selected_shapes);
+        drop(scope);
+        drop(scopes);
+        assert_eq!(budget.reserved(), 0);
     }
 
     #[tokio::test]

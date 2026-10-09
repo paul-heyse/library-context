@@ -95,12 +95,9 @@ pub async fn compile(
 ) -> Fixture {
     let workspace = Workspace::new(
         Arc::new(model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            partitions: 2,
-            ..Default::default()
-        }, crate::native_fixture::store()
-)
+        WorkspaceOptions::default(),
+        crate::native_fixture::store(),
+    )
     .unwrap();
     let captured = capture(case, profile, workspace.budget());
     let prepared = matches!(frontier, Frontier::Analysis | Frontier::Catalog).then(|| {

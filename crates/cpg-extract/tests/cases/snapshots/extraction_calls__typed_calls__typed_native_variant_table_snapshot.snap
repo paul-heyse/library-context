@@ -1,0 +1,53 @@
+---
+source: crates/cpg-extract/tests/cases/typed_calls.rs
+expression: "lines.join(\"\\n\")"
+---
+1035-1040 ArtificialCall/Call [BinaryOperator:None] Call Direct overrides:__add__ Candidate attr=None
+1053-1061 Regular/Call [] Call Direct resolved:inner Definite attr=None
+1142-1150 Regular/Call [] Init Direct resolved:__init__ Definite attr=None
+1142-1150 Regular/Call [] New Direct resolved:__new__ Definite attr=None
+1155-1165 Regular/AttributeAccess [] PropertySet Direct overrides:size Candidate attr=Some(false)
+1182-1192 Regular/AttributeAccess [] PropertyGet Direct overrides:size Candidate attr=Some(false)
+1206-1243 Regular/Call [] Call Direct resolved:apply Definite attr=None
+1206-1243 Regular/Call [] Call HigherOrder { argument_index: 0 } resolved:double Potential attr=None
+1212-1218 Identifier/Identifier [] Call Direct resolved:double Potential attr=None
+1220-1242 Regular/Call [] Call Direct resolved:dispatch Definite attr=None
+1255-1278 Regular/Call [] Call Direct resolved:getattr Definite attr=None
+1290-1299 Regular/AttributeAccess [] Call Direct overrides:run Potential attr=Some(false)
+1311-1346 FormatStringArtificial/FormatStringArtificial [FormatStringArtificial:None] Call Direct SyntheticFormatting Definite attr=None
+1314-1319 FormatStringStringify/FormatStringStringify [FormatStringStringify:None] Call Direct overrides:__format__ Candidate attr=None
+1322-1328 FormatStringStringify/FormatStringStringify [FormatStringStringify:None] Call Direct overrides:__repr__ Candidate attr=None
+1333-1337 FormatStringStringify/FormatStringStringify [FormatStringStringify:None] Call Direct Unresolved { reason: UnresolvedTarget, native: Some(UnexpectedPyreflyTarget) } Candidate attr=None
+1340-1344 FormatStringStringify/FormatStringStringify [FormatStringStringify:None] Call Direct overrides:__repr__ Candidate attr=None
+1340-1344 Identifier/Identifier [] Call Direct overrides:run Potential attr=None
+1350-1360 ArtificialCall/Call [Comparison:None] Call Direct overrides:__gt__ Candidate attr=None
+1366-1377 ArtificialCall/Call [StrCallToDunderMethod:None] Call Direct overrides:__repr__ Candidate attr=None
+1366-1377 Regular/Call [] Init Direct resolved:__init__ Definite attr=None
+1366-1377 Regular/Call [] New Direct resolved:__new__ Definite attr=None
+1395-1405 Regular/Call [] Call Direct resolved:double Definite attr=None
+1496-1502 Regular/AttributeAccess [] PropertyGet Direct resolved:size Candidate attr=Some(true)
+1647-1653 Identifier/Identifier [] Call Direct resolved:double Potential attr=None
+1684-1685 Identifier/Identifier [] Call Direct Unresolved { reason: UnresolvedTarget, native: Some(UnexpectedPyreflyTarget) } Potential attr=None
+1684-1685 Identifier/Identifier [] Call Direct resolved:double Potential attr=None
+1744-1769 ArtificialAttributeAccess/AttributeAccess [GetAttrConstantLiteral:None] Call Direct Unresolved { reason: UnresolvedTarget, native: Some(EmptyPyreflyCallTarget) } Potential attr=Some(false)
+1744-1769 ArtificialAttributeAccess/AttributeAccess [GetAttrConstantLiteral:None] PropertyGet Direct overrides:size Candidate attr=Some(false)
+1744-1769 Regular/Call [] Call Direct resolved:getattr Definite attr=None
+354-362 ArtificialCall/Call [ForDecoratedTarget:None] Init Direct resolved:__init__ Definite attr=None
+354-362 ArtificialCall/Call [ForDecoratedTarget:None] New Direct resolved:__new__ Definite attr=None
+413-417 Identifier/Identifier [] Call Direct resolved:size Potential attr=None
+413-424 ArtificialCall/Call [ForDecoratedTarget:None] Call Direct Unresolved { reason: UnresolvedTarget, native: Some(UnsupportedFunctionTarget) } Candidate attr=None
+506-510 Identifier/Identifier [] Init Direct resolved:__init__ Potential attr=None
+506-510 Identifier/Identifier [] New Direct resolved:__new__ Potential attr=None
+576-583 Regular/Call [] Init Direct resolved:__init__ Definite attr=None
+576-583 Regular/Call [] New Direct resolved:__new__ Definite attr=None
+576-596 Regular/Call [] Call Direct Unresolved { reason: UnresolvedTarget, native: Some(UnsupportedFunctionTarget) } Candidate attr=None
+592-595 Identifier/Identifier [] Init Direct resolved:__init__ Potential attr=None
+592-595 Identifier/Identifier [] New Direct resolved:__new__ Potential attr=None
+723-730 Regular/Call [] Init Direct resolved:__init__ Definite attr=None
+723-730 Regular/Call [] New Direct resolved:__new__ Definite attr=None
+723-737 Regular/Call [] Call Direct resolved:run Definite attr=None
+723-750 ArtificialCall/Call [BinaryOperator:None] Call Direct overrides:__add__ Candidate attr=None
+808-822 Regular/Call [] Call Direct overrides:run Candidate attr=None
+892-901 Regular/Call [] Call Direct Unresolved { reason: UnresolvedTarget, native: Some(UnexpectedPyreflyTarget) } Candidate attr=None
+942-947 ArtificialCall/Call [BinaryOperator:None] Call Direct overrides:__mul__ Candidate attr=None
+951-959 ArtificialCall/Call [ForDecoratedTarget:None] Call Direct resolved:register Definite attr=None

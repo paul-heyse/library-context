@@ -4,6 +4,7 @@ use crate::{
     normalize::call_scope::CallScopes,
     workspace::CompletedInputs,
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     execution::model_production::{ModelData, ProductionScope, SelectedCatalog},
     *,
@@ -233,25 +234,66 @@ impl ModelScopes {
             sql
         })
     }
-    pub(super) async fn load(
-        &self,
-        access: &CompletedInputs,
-        grain: &PreparedClosure,
-        budget: &resources::ResourceBudget,
-    ) -> Result<ModelData, ModelError> {
-        let mut data = ModelData::new(budget);
-        macro_rules! read{($($field:ident:$ty:ty,)*)=>{$({for(table,input)in self.calls.inputs().iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<$ty>()){
-   let permit=access.read_at::<$ty>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&self.select(grain,table,input)?,|_,batch|data.visit_input(input,batch)).await?;
-  }})*};}
-        lctx_model::normalized_binding_inputs!(read);
-        lctx_model::normalized_binding_outputs!(read);
-        lctx_model::model_pin_inputs!(read);
-        lctx_model::execution_evaluation_inputs!(read);
-        lctx_model::entry_value_inputs!(read);
-        read! {catalogs:models::ModelCatalog,parameters:analysis::MethodParameters,definitions:analysis::AnalysisDefinition,enriched:analysis::enriched_execution::AnalysisInvocation,source_calls:analysis::source_call::AnalysisInvocation,local:analysis::local::AnalysisInvocation,runs:attribution::ProviderRun,members:class_metadata::ClassMemberObservation,metadata:class_metadata::ClassMetadataObservation,origins:calls::CallOrigin,origin_steps:calls::CallOriginStep,terminals:protocols::NativeTerminalObservation,exits:protocols::NativeExitObservation,literals:value::Literal,
-        entries:conditions::entry::EntryValueWitness,entry_sources:conditions::entry::EntryAccessSource,evaluations:execution::records::ExpressionEvaluation,sources:execution::records::EvaluationSource,members:execution::records::EvaluationMember,operands:execution::records::EvaluationOperand,base:analysis::base_evaluation::AnalysisInvocation,bodies:execution::body_records::SourceBodyCompletion,body_frames:analysis::base_completion::AnalysisInvocation,headers:execution::source_call_records::SourceCallHeader,header_members:execution::source_call_records::HeaderMember,boundaries:execution::source_call_records::SourceCallBoundary,runs:execution::source_call_records::SourceCallRun,invocations:execution::source_call_records::SourceInvocation,releases:execution::source_call_records::SourceFrameRelease,arguments:execution::source_call_records::SourceFrameArgument,syntax:syntax::ParameterSyntaxObservation,outcomes:execution::source_call_records::SourceCallOutcome,boundaries:execution::source_call_records::InvocationBoundary,outcomes:analysis::source_call::AnalysisOutcome,modeled:execution::modeled_call::ModeledCallEvaluation,modeled_args:execution::modeled_call::ModeledCallArgument,modeled_native:execution::modeled_call::ModeledCallNative,bindings:execution::context_binding::ContextEntryBinding,binding_sources:execution::context_binding::BindingSource,binding_members:execution::context_binding::BindingMember,contexts:execution::context_execution::ContextExecution,items:execution::context_execution::ContextItem,sources:execution::context_execution::ContextSource,members:execution::context_execution::ContextMember,outcomes:execution::enriched_records::ExecutionOutcome,}
-        Ok(data)
+    pub(super) fn load<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        grain: &'a PreparedClosure,
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<ModelData, ModelError>> {
+        Box::pin(async move {
+            let mut data = ModelData::new(budget);
+            let mut readers: Vec<Reader> = Vec::new();
+            macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(readers.push(read_record::<$ty>);)*};}
+            lctx_model::normalized_binding_inputs!(read);
+            lctx_model::normalized_binding_outputs!(read);
+            lctx_model::model_pin_inputs!(read);
+            lctx_model::execution_evaluation_inputs!(read);
+            lctx_model::entry_value_inputs!(read);
+            read! {catalogs:models::ModelCatalog,parameters:analysis::MethodParameters,definitions:analysis::AnalysisDefinition,enriched:analysis::enriched_execution::AnalysisInvocation,source_calls:analysis::source_call::AnalysisInvocation,local:analysis::local::AnalysisInvocation,runs:attribution::ProviderRun,members:class_metadata::ClassMemberObservation,metadata:class_metadata::ClassMetadataObservation,origins:calls::CallOrigin,origin_steps:calls::CallOriginStep,terminals:protocols::NativeTerminalObservation,exits:protocols::NativeExitObservation,literals:value::Literal,
+            entries:conditions::entry::EntryValueWitness,entry_sources:conditions::entry::EntryAccessSource,evaluations:execution::records::ExpressionEvaluation,sources:execution::records::EvaluationSource,members:execution::records::EvaluationMember,operands:execution::records::EvaluationOperand,base:analysis::base_evaluation::AnalysisInvocation,bodies:execution::body_records::SourceBodyCompletion,body_frames:analysis::base_completion::AnalysisInvocation,headers:execution::source_call_records::SourceCallHeader,header_members:execution::source_call_records::HeaderMember,boundaries:execution::source_call_records::SourceCallBoundary,runs:execution::source_call_records::SourceCallRun,invocations:execution::source_call_records::SourceInvocation,releases:execution::source_call_records::SourceFrameRelease,arguments:execution::source_call_records::SourceFrameArgument,syntax:syntax::ParameterSyntaxObservation,outcomes:execution::source_call_records::SourceCallOutcome,boundaries:execution::source_call_records::InvocationBoundary,outcomes:analysis::source_call::AnalysisOutcome,modeled:execution::modeled_call::ModeledCallEvaluation,modeled_args:execution::modeled_call::ModeledCallArgument,modeled_native:execution::modeled_call::ModeledCallNative,bindings:execution::context_binding::ContextEntryBinding,binding_sources:execution::context_binding::BindingSource,binding_members:execution::context_binding::BindingMember,contexts:execution::context_execution::ContextExecution,items:execution::context_execution::ContextItem,sources:execution::context_execution::ContextSource,members:execution::context_execution::ContextMember,outcomes:execution::enriched_records::ExecutionOutcome,}
+            for read in readers {
+                read(self, access, grain, &mut data).await?;
+            }
+            Ok(data)
+        })
     }
+}
+
+type Reader = for<'a> fn(
+    &'a ModelScopes,
+    &'a CompletedInputs,
+    &'a PreparedClosure,
+    &'a mut ModelData,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+
+fn read_record<'a, R: Record>(
+    scopes: &'a ModelScopes,
+    access: &'a CompletedInputs,
+    grain: &'a PreparedClosure,
+    data: &'a mut ModelData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        for (table, input) in scopes
+            .calls
+            .inputs()
+            .iter()
+            .enumerate()
+            .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
+        {
+            let permit = access.read_at::<R>(input.prefix())?;
+            let sql = scopes.select(grain, table, input)?;
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                input,
+                access,
+                grain.session(),
+                &sql,
+                |_, batch| data.visit_input(input, batch),
+            )
+            .await?;
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

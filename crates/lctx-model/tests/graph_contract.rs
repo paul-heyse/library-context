@@ -252,6 +252,7 @@ fn manifest_distinguishes_exact_empty_partial_and_missing_obligations() {
         domain: hash(2),
     };
     let mut manifest = Manifest {
+        admission_contract: ContentHash::of(b"fixture admission contract"),
         format_version: ARTIFACT_FORMAT_VERSION,
         completed_state: d::completed::CompletedStateIdentity {
             format_version: d::completed::STATE_FORMAT_VERSION,
@@ -263,6 +264,7 @@ fn manifest_distinguishes_exact_empty_partial_and_missing_obligations() {
         captures: vec![EntityId(hash(3))],
         semantic_contract: hash(4),
         producers: vec![ProducerImplementation {
+            contract: None,
             producer: "native".into(),
             implementation: hash(5),
             configuration: hash(6),
@@ -951,12 +953,13 @@ fn identity_bearing_analysis_companions_survive_transport_and_refuse_omission() 
                         .contains("source or projection membership")
                 );
             }
-            // A well-formed existing receipt redirected to another content digest cannot retain
+            // A well-formed existing receipt redirected to another exact view cannot retain
             // the old invocation's source membership, even after mechanical row-key reconstruction.
             let mut value = serde_json::to_value(&receipts[0]).unwrap();
-            value["content"] = serde_json::to_value(hash(99)).unwrap();
+            value["view"] = serde_json::to_value(hash(99)).unwrap();
             let changed: owner::SourceReceipt = serde_json::from_value(value).unwrap();
             changed.validate().unwrap();
+            assert_ne!(changed,receipts[0],"the corruption control must change retained source identity");
             assert!(
                 check(&[changed], &projections)
                     .unwrap_err()

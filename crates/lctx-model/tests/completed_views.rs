@@ -3,7 +3,7 @@ use lctx_model::domain::{ContentHash, Relation, analysis::sources::SourceSnapsho
 use std::collections::{BTreeMap, BTreeSet};
 
 fn spec(producer:&str)->ContributionSpec {
-    ContributionSpec {producer:producer.into(),profile:Profile::Catalog,
+    ContributionSpec {captured_binding: None, producer:producer.into(),profile:Profile::Catalog,
         model:ContentHash::of(b"model"),implementation:ContentHash::of(b"implementation"),
         configuration:None,inputs:vec![],outputs:BTreeSet::from(["packages".into()])}
 }

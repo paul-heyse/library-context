@@ -151,6 +151,16 @@ opt-level = 2
 [profile.test]
 debug = 0
 
+# Qualification state: ordinary verification remains release until this candidate passes.
+[profile.local-test-candidate]
+inherits = "test"
+opt-level = 1
+lto = "off"
+incremental = true
+debug = 0
+debug-assertions = true
+overflow-checks = true
+
 [profile.release]
 opt-level = 2
 # The daily test loop uses release; retain workspace edit/rebuild state here too.

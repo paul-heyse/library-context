@@ -1554,7 +1554,8 @@ impl InvariantCheck for EntityCheck {
 }
 pub fn stage() -> stages::Stage {
     stages::Stage {
-        name: "normalize_entities",
+        captured_binding: None,
+name: "normalize_entities",
         inputs: super::facts_stage_inputs(EntityData::stage_inputs()),
         outputs: super::entities::relations()
             .iter()

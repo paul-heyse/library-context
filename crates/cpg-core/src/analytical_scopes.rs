@@ -3,6 +3,7 @@ use crate::{
     consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
     workspace::CompletedInputs,
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::*;
 use std::{any::TypeId, sync::Arc};
 #[derive(Clone, Copy)]
@@ -738,30 +739,75 @@ impl FrameScopes {
             )
             .await
     }
-    pub(super) async fn read<R: Record>(
-        &self,
-        access: &CompletedInputs,
-        grain: &PreparedClosure,
-        mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
-    ) -> Result<(), ModelError> {
-        for (table, input) in self
-            .inputs
-            .iter()
-            .enumerate()
-            .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
-        {
-            let permit = access.read_at::<R>(input.prefix())?;
-            crate::consumed_rows::stream_query_at(
-                &permit,
-                input,
-                grain.session(),
-                &grain.select(table)?,
-                |_, batch| visit(input, batch),
-            )
-            .await?;
-        }
-        Ok(())
+    pub(super) fn read<'a, R: Record>(
+        &'a self,
+        access: &'a CompletedInputs,
+        grain: &'a PreparedClosure,
+        visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>
+        + Send
+        + 'a,
+    ) -> BoxFuture<'a, Result<(), ModelError>> {
+        self.read_matching(
+            access,
+            grain,
+            TypeId::of::<R>(),
+            read_declaration::<R>,
+            Box::new(visit),
+        )
     }
+
+    fn read_matching<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        grain: &'a PreparedClosure,
+        kind: TypeId,
+        read: DeclarationReader,
+        mut visit: FrameVisitor<'a>,
+    ) -> BoxFuture<'a, Result<(), ModelError>> {
+        Box::pin(async move {
+            for (table, input) in self
+                .inputs
+                .iter()
+                .enumerate()
+                .filter(|(_, input)| input.type_id() == kind)
+            {
+                read(access, input, grain, table, &mut visit).await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+type FrameVisitor<'a> = Box<
+    dyn FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
+>;
+type DeclarationReader = for<'a, 'visit> fn(
+    &'a CompletedInputs,
+    &'a ValidationInput,
+    &'a PreparedClosure,
+    usize,
+    &'a mut FrameVisitor<'visit>,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+
+fn read_declaration<'a, R: Record>(
+    access: &'a CompletedInputs,
+    input: &'a ValidationInput,
+    grain: &'a PreparedClosure,
+    table: usize,
+    visit: &'a mut FrameVisitor<'_>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let permit = access.read_at::<R>(input.prefix())?;
+        crate::consumed_rows::stream_query_at(
+            &permit,
+            input,
+            access,
+            grain.session(),
+            &grain.select(table)?,
+            |_, batch| visit(input, batch),
+        )
+        .await
+    })
 }
 
 #[cfg(test)]
@@ -886,5 +932,174 @@ mod controls {
         assert_eq!(tiny.reserved(), 0);
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn frame_reader_preserves_exact_prefix_order_failure_and_unpolled_charge() {
+        use crate::workspace::{Workspace, WorkspaceOptions};
+        use stages::{PublicationBoundary, RelationUse};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let workspace = Workspace::new(
+            Arc::new(model().unwrap()),
+            WorkspaceOptions::default(),
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let place = |name: &str| {
+            let input = input::InputRevision {
+                manifest: ContentHash::of(b"frame-reader-prefixes"),
+            };
+            let source =
+                SourceArtifact::from_bytes(input.id(), "frame.py".into(), b"x=1\n").unwrap();
+            let module = source::Module {
+                source: source.id(),
+                qualified_name: "frame".into(),
+            };
+            value::Place {
+                root: value::PlaceRoot::Global {
+                    module: module.id(),
+                    name: name.into(),
+                }
+                .id(),
+                path: value::AccessPath::empty().id(),
+            }
+        };
+        let first = place("facts");
+        let second = place("model");
+        for (producer, row, epoch) in [
+            (
+                "frame-reader-facts",
+                first.clone(),
+                PublicationBoundary::Facts,
+            ),
+            (
+                "frame-reader-model",
+                second.clone(),
+                PublicationBoundary::Model,
+            ),
+        ] {
+            let output = workspace.output(
+                producer,
+                stages::Profile::Catalog,
+                ContentHash::of(producer.as_bytes()),
+                workspace
+                    .inputs(producer, stages::Profile::Catalog, [])
+                    .unwrap(),
+                [value::Place::NAME],
+            );
+            output.declare_async::<value::Place>().await.unwrap();
+            output.push(row).await.unwrap();
+            output
+                .finish(stages::ProviderOutcome::Complete)
+                .await
+                .unwrap();
+            workspace.freeze_inputs_async(epoch).await.unwrap();
+        }
+        let declaration = stages::Stage {
+            captured_binding: None,
+            name: "frame-reader-control",
+            inputs: vec![
+                RelationUse::completed::<value::Place>().at_epoch(PublicationBoundary::Facts),
+                RelationUse::completed::<value::Place>().at_epoch(PublicationBoundary::Model),
+            ],
+            outputs: vec![],
+            contributes: vec![],
+            coverage: vec![],
+            profiles: stages::Profile::ALL.to_vec(),
+            effect: stages::Effect::Pure,
+            code: ContentHash::of(b"frame-reader-control"),
+            configuration: ContentHash::of(b"frame-reader-configuration"),
+        };
+        let access = workspace
+            .stage_inputs(&declaration, stages::Profile::Catalog)
+            .unwrap();
+        let session = access.session(&workspace).await.unwrap();
+        let inputs = [PublicationBoundary::Facts, PublicationBoundary::Model]
+            .map(|prefix| ValidationInput::of::<value::Place>(&["id"]).at_epoch(prefix))
+            .to_vec();
+        let tables = inputs
+            .iter()
+            .map(|input| ClosureTable {
+                relation: Relation::of::<value::Place>(),
+                alias: access.table_for(input).unwrap(),
+            })
+            .collect();
+        let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
+        let edges = NominalClosure::new(tables)
+            .unwrap()
+            .prepare(&session, &budget)
+            .await
+            .unwrap();
+        let grain = edges
+            .grain_roots(&[(0, "TRUE".into()), (1, "TRUE".into())], &budget)
+            .await
+            .unwrap();
+        let scopes = FrameScopes {
+            inputs,
+            edges,
+            root: 0,
+            _charge: charged::StateCharge::new(&budget, "frame-reader-control"),
+        };
+        let mut observed = Vec::new();
+        scopes
+            .read::<value::Place>(&access, &grain, |input, batch| {
+                for row in <value::Place as Record>::decode(batch)? {
+                    observed.push((input.prefix(), row));
+                }
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let facts: Vec<_> = observed
+            .iter()
+            .filter(|(epoch, _)| *epoch == Some(PublicationBoundary::Facts))
+            .map(|(_, row)| row.clone())
+            .collect();
+        let model: Vec<_> = observed
+            .iter()
+            .filter(|(epoch, _)| *epoch == Some(PublicationBoundary::Model))
+            .map(|(_, row)| row.clone())
+            .collect();
+        assert_eq!(facts, vec![first.clone()]);
+        assert_eq!(model.len(), 2);
+        assert!(model.contains(&first) && model.contains(&second));
+        assert_eq!(
+            observed.first().unwrap().0,
+            Some(PublicationBoundary::Facts)
+        );
+        assert!(
+            observed[1..]
+                .iter()
+                .all(|(epoch, _)| *epoch == Some(PublicationBoundary::Model))
+        );
+        let mut visited = Vec::new();
+        let failure = scopes
+            .read::<value::Place>(&access, &grain, |input, _| {
+                visited.push(input.prefix());
+                Err(ModelError::Conflict("frame visitor refusal"))
+            })
+            .await;
+        assert!(matches!(
+            failure,
+            Err(ModelError::Conflict("frame visitor refusal"))
+        ));
+        assert_eq!(visited, vec![Some(PublicationBoundary::Facts)]);
+        let before = budget.reserved();
+        let charge = budget.reserve("unpolled-frame-visitor", 1024).unwrap();
+        let visited = Arc::new(AtomicBool::new(false));
+        let seen = visited.clone();
+        let pending = scopes.read::<value::Place>(&access, &grain, move |_, _| {
+            let _held = &charge;
+            seen.store(true, Ordering::Relaxed);
+            Ok(())
+        });
+        assert_eq!(budget.reserved(), before + 1024);
+        assert!(!visited.load(Ordering::Relaxed));
+        drop(pending);
+        assert_eq!(budget.reserved(), before);
+        assert!(!visited.load(Ordering::Relaxed));
+        drop(grain);
+        drop(scopes);
+        assert_eq!(budget.reserved(), 0);
+        workspace.drain().await.unwrap();
     }
 }

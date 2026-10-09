@@ -98,7 +98,6 @@ pub async fn populate(
         workspace,
         frontier,
         profile,
-        acquisition_config,
         &captures,
         &mut charge,
     ).await?;
@@ -117,6 +116,7 @@ pub async fn populate(
         return Err(invalid("duplicate manifest family"));
     }
     let manifest = Manifest {
+        admission_contract: workspace.admitted_facts_async(profile).await?.contract,
         format_version: ARTIFACT_FORMAT_VERSION,
         completed_state: workspace.native().completed_state().await?,
         frontier,
@@ -141,7 +141,7 @@ pub(crate) async fn producer_inventory(workspace:&Workspace,charge:&mut charged:
     for contribution in workspace.native().contributions().await? {
         let spec=contribution.spec;
         let configuration=spec.configuration.ok_or_else(||invalid(format!("{} has no declared producer configuration",spec.producer)))?;
-        let value=ProducerImplementation{producer:spec.producer,implementation:spec.implementation,configuration};
+        let value=ProducerImplementation{contract:spec.captured_binding.as_ref().map(|binding|binding.contract),producer:spec.producer,implementation:spec.implementation,configuration};
         if let Some(old)=producers.get(&value.producer) {
             if old!=&value{return Err(invalid("conflicting producer implementation or configuration"));}
         } else {
@@ -158,29 +158,15 @@ async fn semantic_outcomes(
     workspace: &Workspace,
     frontier: Frontier,
     profile: Profile,
-    acquisition_config: ContentHash,
     captures: &[EntityId],
     charge: &mut charged::StateCharge,
 ) -> Result<BTreeMap<OutcomeKey, Outcome>, ModelError> {
-    let available = workspace.facts_availability_async(profile).await?;
-    let reporting = crate::facts::providers(acquisition_config)
-        .into_iter()
-        .flat_map(|provider| {
-            let stage = provider.declaration(profile);
-            stage
-                .coverage
-                .into_iter()
-                .map(move |coverage| ((coverage.family, coverage.provider), stage.name))
-        })
-        .collect::<BTreeMap<_, _>>();
+    let admitted = workspace.admitted_facts_async(profile).await?;
+    let available = &admitted.availability;
+    let reporting = &admitted.reporting;
     let mut expected = BTreeMap::new();
     for evidence in available.evidence() {
-        let producer = match evidence.provider {
-            Some(provider) => *reporting
-                .get(&(evidence.family, provider))
-                .ok_or_else(|| invalid("coverage lacks declared native owner"))?,
-            None => cpg_extract::assembly::ASSEMBLE,
-        };
+        let producer = *reporting.get(&(evidence.family,evidence.provider)).ok_or_else(||invalid("coverage lacks declared reporting owner"))?;
         let mut domain = KeySink::new("native-outcome-domain/v1");
         evidence.family.encode(&mut domain);
         evidence.provider.encode(&mut domain);
@@ -329,7 +315,6 @@ pub(crate) async fn verify_outcomes(
         workspace,
         manifest.frontier,
         manifest.profile,
-        manifest.settings,
         &manifest.captures,
         &mut charge,
     ).await?;

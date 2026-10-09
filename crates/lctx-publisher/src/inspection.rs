@@ -82,7 +82,7 @@ async fn marker(
     if hex::encode(serde_json::to_vec(&handle).map_err(ModelError::codec)?) != row.handle {
         return Err(ModelError::Conflict("canonical publication handle"));
     }
-    let manifest: Manifest = serde_json::from_slice(&row.manifest).map_err(ModelError::codec)?;
+    let manifest = Manifest::decode(&row.manifest)?;
     manifest.validate()?;
     if manifest.content() != handle.semantic {
         return Err(ModelError::Conflict("publication semantic manifest"));

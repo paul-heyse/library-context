@@ -2,18 +2,15 @@
 
 _Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: Rust coroutine correction plan authored, 2026-10-08.**
-The [companion](docs/plans/rust-coroutine-compilation-amplification-plan_2026-10-08.md) develops structural-first CU0–CU6 and confirmed recurrence. Its [independent target review](docs/design_review/reviews/design_review_rust-coroutine-compilation-amplification-plan_2026-10-08.md) accepts the revised Proposed target; source implementation remains open.
-The [compilation coordinator §9/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#9-sole-compilation-cost-finding-disposition) owns source/target-review finding disposition and combined BC1/BC3/BC5 closure; PC acceptance stays with its coordinator.
-[ADR-0137](docs/adr/0137-qualified-local-compilation.md) and the [target review](docs/design_review/reviews/design_review_rust-compilation-costs-plan_2026-10-08.md) retain the qualified local-default target.
-**Implemented / source reviewed:** ordered boxed C1 loaders/phases, shared stream setup, conditional coverage, native submission and charged writer completion; no material review defect.
-**passed (2026-10-08):** core/model all-test compile check and nine focused model controls (plan §12).
-**Measured partial diagnostic:** C1 MIR25,100→591; retained ≥1ms C1 InstCombine350.33s/353.16s→0.185s/0.266s (normal/harness). Full compile-time improvement is unmeasured.
-**Retained diagnosis:** matched raw structural IR and simplified LLVM reproduction show amplification; actual-rustc transformed PHI attribution remains unresolved (plan §12).
-**In progress:** focused native/core/C1 controls `20261008T202337.170Z-114602`; run observed running during authoring, left untouched.
-**not_run:** CU implementation, BC3 default installation, BC5 optimized acceptance; target review is not native/runtime acceptance.
-Active defaults remain release; available compiler/test parallelism, production settings and PC dirty work are preserved. Original tooling/docs receipts stay in plan §11/§12.
-**passed (authoring, 2026-10-08):** `just docs-check` (346 pages, zero link errors), static grouped-command resolution and preservation checks (companion §7); no product checks/new compiler runs.
+**Current scope: Rust coroutine corrections integrated; acceptance in progress, 2026-10-08.**
+The [companion](docs/plans/rust-coroutine-compilation-amplification-plan_2026-10-08.md#7-source-obligation-coverage-and-current-handoff) owns CU0–CU6 consumers, source identities and current receipts.
+The [compilation coordinator §9/§13](docs/plans/rust-compilation-costs-plan_2026-10-08.md#9-sole-compilation-cost-finding-disposition) retains source finding disposition and BC3/BC5 closure; PC acceptance remains separate.
+**Implemented / source reviewed:** structural/shared frame phases and all named confirmed inventories, including C0/documentary, execution/normalization children, local analysis and native inventory. Independent review found no material defect across24 source files. CU5 retains buffered checked `push` with an attributed-cost/contract trigger.
+**passed (2026-10-08):** final core/model all-test compile check;13 actual focused candidate controls; final profiled normal/harness plus seven integration products (`20261008T225117.998Z-e84d9b`,2m51s, exit0).
+**Diagnostic limits:** the preceding instrumented run hit filesystem exhaustion after normal codegen; raw completed/partial evidence is retained. The replacement's parent/child/drop assessment found no attributed relocated runaway; no whole-workspace speed or runtime-performance claim.
+**Cancelled by authorization:** old native build `20261008T202337.170Z-114602`, without a test verdict or surviving fixture.
+**Current acceptance:** release `qualify` (`20261008T225907.834Z-dd7ee2`) has model/provider/compiler/CLI/store/serving failures/timeouts; both MCP journeys failed native member-selection requests, and later oracle/tooling/Clippy/Ruff/dependency checks also failed; docs/types and other applicable leaves passed. Reviewed repairs are integrated, with explicit mixed-source boundaries: six-crate all-test compile,757 model tests,17 focused compiler,12 store and3 native codec/cancellation controls passed; both repaired native serving controls passed. Ordinary Workspace/compiler/MCP/corpus defaults now use shared64GiB headroom and automatic CPU partitioning; intentional budget oracles remain. The integrated compiler capture passed; four broader Behavioral stage controls still timed out and are deferred by the operator for a later focused review. Latest six-crate/corpus compile and docs checks passed; affected Clippy still fails on baseline defects. CU6 runtime acceptance remains open; native preparation/acceptance must refresh after final scoped formatting. BC3/BC5 and F01–F04 remain open; companion §7 owns exact receipts and PC follow-up.
+[ADR-0137](docs/adr/0137-qualified-local-compilation.md) retains the qualified local-default target; active defaults remain release. Available compiler/test parallelism, production settings and PC dirty work are preserved. Previous C1 partial diagnostic and tooling receipts remain at coordinator §11/§12.
 
 **Persisted graph correction packages PC0–PC6 remain pending acceptance.**
 The [persisted graph execution plan](docs/plans/persisted-graph-execution-plan_2026-10-07.md)

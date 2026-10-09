@@ -665,7 +665,8 @@ pub fn stage(profile: Profile) -> Stage {
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
     Stage {
-        name: "normalize_coverage",
+        captured_binding: None,
+name: "normalize_coverage",
         inputs: super::facts_stage_inputs(inputs),
         outputs: relations().iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

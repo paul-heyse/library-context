@@ -3,11 +3,99 @@ use crate::{
     consumed_rows::{ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier},
     workspace::CompletedInputs,
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{
     normalized::{binding_normalization::BindingData, event_normalization::EventData},
     *,
 };
 use std::{any::TypeId, sync::Arc};
+
+// Ordinary prepare uses facts_inputs, which deduplicates each nominal relation before
+// filtering unavailable tables. Wider summary/model scopes may retain several epochs;
+// these normalization readers deliberately select only the first matching declaration.
+fn first_input<R: Record>(inputs: &[ValidationInput]) -> Option<(usize, &ValidationInput)> {
+    inputs
+        .iter()
+        .enumerate()
+        .find(|(_, input)| input.type_id() == TypeId::of::<R>())
+}
+
+fn read_first<'a, R: Record>(
+    scopes: &'a CallScopes,
+    access: &'a CompletedInputs,
+    grain: &'a PreparedClosure,
+    visit: impl FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let mut visit = visit;
+        if let Some((table, input)) = first_input::<R>(&scopes.inputs) {
+            let permit = access.read_at::<R>(input.prefix())?;
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                input,
+                access,
+                grain.session(),
+                &grain.select(table)?,
+                |_, batch| visit(batch),
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+
+fn load_event<'a>(
+    call_scopes: &'a CallScopes,
+    access: &'a CompletedInputs,
+    grain: &'a PreparedClosure,
+    data: &'a mut EventData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    type Loader = for<'a> fn(
+        &'a CallScopes,
+        &'a CompletedInputs,
+        &'a PreparedClosure,
+        &'a mut EventData,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+        $(fn $field<'a>(call_scopes: &'a CallScopes, access: &'a CompletedInputs, grain: &'a PreparedClosure, data: &'a mut EventData) -> BoxFuture<'a, Result<(), ModelError>> {
+            read_first::<$ty>(call_scopes, access, grain, |batch| data.$field.decode(batch))
+        })*
+        const LOADERS: &[Loader] = &[$($field,)*];
+    };}
+    lctx_model::normalized_event_inputs!(adapters);
+    Box::pin(async move {
+        for load in LOADERS {
+            load(call_scopes, access, grain, data).await?;
+        }
+        Ok(())
+    })
+}
+fn load_binding<'a>(
+    call_scopes: &'a CallScopes,
+    access: &'a CompletedInputs,
+    grain: &'a PreparedClosure,
+    data: &'a mut BindingData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    type Loader = for<'a> fn(
+        &'a CallScopes,
+        &'a CompletedInputs,
+        &'a PreparedClosure,
+        &'a mut BindingData,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+        $(fn $field<'a>(call_scopes: &'a CallScopes, access: &'a CompletedInputs, grain: &'a PreparedClosure, data: &'a mut BindingData) -> BoxFuture<'a, Result<(), ModelError>> {
+            read_first::<$ty>(call_scopes, access, grain, |batch| data.$field.decode(batch))
+        })*
+        const LOADERS: &[Loader] = &[$($field,)*];
+    };}
+    lctx_model::normalized_binding_inputs!(adapters);
+    Box::pin(async move {
+        for load in LOADERS {
+            load(call_scopes, access, grain, data).await?;
+        }
+        Ok(())
+    })
+}
 
 pub(crate) struct CallScopes {
     inputs: Vec<ValidationInput>,
@@ -129,8 +217,11 @@ impl CallScopes {
         }
         macro_rules! own_existing {
             ($member:ty, $field:literal, $owner:ty) => {{
-                if let (Some(member),Some(owner))=(index(TypeId::of::<$member>()),index(TypeId::of::<$owner>())) {
-                    plan.own_existing(member,$field,owner)?;
+                if let (Some(member), Some(owner)) = (
+                    index(TypeId::of::<$member>()),
+                    index(TypeId::of::<$owner>()),
+                ) {
+                    plan.own_existing(member, $field, owner)?;
                 }
             }};
         }
@@ -510,39 +601,31 @@ impl CallScopes {
             .grain(root, &format!("id=X'{hex}'"), budget)
             .await
     }
-    pub(super) async fn event_data<R: Record>(
-        &self,
-        access: &CompletedInputs,
+    pub(super) fn event_data<'a, R: Record>(
+        &'a self,
+        access: &'a CompletedInputs,
         root: Id<R>,
-        budget: &resources::ResourceBudget,
-    ) -> Result<EventData, ModelError> {
-        let grain = self.grain(root, budget).await?;
-        let mut data = EventData::new(budget);
-        macro_rules! read {($($field:ident:$ty:ty,)*) => {$({
-            if let Some((table, input)) = self.inputs.iter().enumerate().find(|(_, input)| input.type_id() == TypeId::of::<$ty>()) {
-                let permit = access.read_at::<$ty>(input.prefix())?;
-                crate::consumed_rows::stream_query_at(&permit, input, grain.session(), &grain.select(table)?, |_, batch| data.$field.decode(batch)).await?;
-            }
-        })*};}
-        lctx_model::normalized_event_inputs!(read);
-        Ok(data)
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<EventData, ModelError>> {
+        Box::pin(async move {
+            let grain = self.grain(root, budget).await?;
+            let mut data = EventData::new(budget);
+            load_event(self, access, &grain, &mut data).await?;
+            Ok(data)
+        })
     }
-    pub(super) async fn binding_data(
-        &self,
-        access: &CompletedInputs,
+    pub(super) fn binding_data<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
         event: Id<normalized::events::NormalizedCallEvent>,
-        budget: &resources::ResourceBudget,
-    ) -> Result<BindingData, ModelError> {
-        let grain = self.grain(event, budget).await?;
-        let mut data = BindingData::new(budget);
-        macro_rules! read {($($field:ident:$ty:ty,)*) => {$({
-            if let Some((table, input)) = self.inputs.iter().enumerate().find(|(_, input)| input.type_id() == TypeId::of::<$ty>()) {
-                let permit = access.read_at::<$ty>(input.prefix())?;
-                crate::consumed_rows::stream_query_at(&permit, input, grain.session(), &grain.select(table)?, |_, batch| data.$field.decode(batch)).await?;
-            }
-        })*};}
-        lctx_model::normalized_binding_inputs!(read);
-        Ok(data)
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<BindingData, ModelError>> {
+        Box::pin(async move {
+            let grain = self.grain(event, budget).await?;
+            let mut data = BindingData::new(budget);
+            load_binding(self, access, &grain, &mut data).await?;
+            Ok(data)
+        })
     }
 }
 
@@ -558,6 +641,34 @@ mod call_scope_controls {
         source::*,
         stages::*,
     };
+    #[test]
+    fn normalization_construction_is_unique_and_wider_scopes_select_first_epoch() {
+        for declarations in [
+            EventData::validation_inputs(),
+            BindingData::validation_inputs(),
+        ] {
+            let mut nominal = std::collections::HashSet::new();
+            for declaration in declarations {
+                assert!(
+                    nominal.insert(declaration.type_id()),
+                    "{} repeats",
+                    declaration.name()
+                );
+            }
+        }
+        let declarations = [
+            ValidationInput::of::<calls::CallTarget>(&["id"]),
+            ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Facts),
+            ValidationInput::of::<assertion::AssertionQualification>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Summary),
+        ];
+        let (table, selected) =
+            first_input::<assertion::AssertionQualification>(&declarations).unwrap();
+        assert_eq!(table, 1);
+        assert_eq!(selected.prefix(), Some(stages::PublicationBoundary::Facts));
+        assert!(first_input::<calls::CallResolution>(&declarations).is_none());
+    }
     fn nominal<R>(value: u8) -> Id<R> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
             _,
@@ -568,8 +679,12 @@ mod call_scope_controls {
     #[tokio::test]
     async fn event_grain_keeps_orphans_and_declared_skew_without_unrelated_source_payload() {
         let model = Arc::new(model().unwrap());
-        let runtime = Workspace::new(model.clone(), WorkspaceOptions::default(), crate::test_native::store()
-).unwrap();
+        let runtime = Workspace::new(
+            model.clone(),
+            WorkspaceOptions::default(),
+            crate::test_native::store(),
+        )
+        .unwrap();
         let artifact =
             SourceArtifact::from_bytes(nominal(1), "selected.py".into(), b"call").unwrap();
         let unrelated = SourceArtifact::from_bytes(
@@ -714,9 +829,16 @@ mod call_scope_controls {
             .stage_inputs(&declaration, Profile::Catalog)
             .unwrap();
         let session = access.session(&runtime).await.unwrap();
-        let scopes = CallScopes::prepare(&access, &session, &model, runtime.budget(), false)
+        let mut scopes = CallScopes::prepare(&access, &session, &model, runtime.budget(), false)
             .await
             .unwrap();
+        // A wider caller can retain a later declaration. It is deliberately unavailable to
+        // this access/closure: touching it would either fail admission or select no table.
+        // The first facts declaration alone must feed the normalization data.
+        scopes.inputs.push(
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(PublicationBoundary::Summary),
+        );
         let small = resources::ResourceBudget::fixed(96 << 10).unwrap();
         let selected = scopes
             .event_data(&access, target.id(), &small)
@@ -728,6 +850,10 @@ mod call_scope_controls {
         assert!(selected.targets.get(skew.id()).is_some());
         assert_eq!(selected.resolutions.get(resolution.id()), Some(&resolution));
         assert_eq!(selected.members.get(member.id()), Some(&member));
+        assert_eq!(
+            selected.qualifications.get(qualification.id()),
+            Some(&qualification)
+        );
         let receivers = receiver::normalize_produced(&receiver::ReceiverData::new(&small), &small)
             .unwrap()
             .1;

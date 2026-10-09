@@ -12,9 +12,16 @@ macro_rules! fixture_cases {
     ($($case:ident),* $(,)?) => {
         const CASES: &[&str] = &[$(stringify!($case)),*];
         $(
-            #[tokio::test]
-            async fn $case() {
-                both_profiles_use_the_real_facts_frontier(stringify!($case)).await;
+            mod $case {
+                use super::*;
+                #[tokio::test]
+                async fn catalog() {
+                    run_profile(stringify!($case), Profile::Catalog).await;
+                }
+                #[tokio::test]
+                async fn behavioral() {
+                    run_profile(stringify!($case), Profile::Behavioral).await;
+                }
             }
         )*
     };
@@ -36,6 +43,8 @@ fixture_cases! {
     native_lexical,
     native_overload_origins,
     native_usage,
+    remediation_scopes,
+    scoped_source_execution,
     protocol_observations,
     python_reference_oracle,
     ruff_context,
@@ -120,7 +129,7 @@ fixture_cases! {
     unicode_bom,
 }
 fn budget() -> ResourceBudget {
-    ResourceBudget::fixed(4 << 30).unwrap()
+    ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }
 fn root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python")
@@ -164,40 +173,165 @@ fn every_fixture_is_registered() {
     assert_eq!(listed, CASES.iter().map(|c| c.to_string()).collect());
 }
 
-async fn both_profiles_use_the_real_facts_frontier(case: &str) {
-    let mut failures = vec![];
-    for profile in Profile::ALL {
-        let resources = budget();
-        let result = async {
-            let workspace = Workspace::with_budget(
-                Arc::new(lctx_model::domain::model()?),
-                WorkspaceOptions {
-                    memory_bytes: resources.limit(),
-                    ..Default::default()
-                },
-                resources.clone(), crate::native_fixture::store()
-)?;
-            cpg_core::facts::compile_facts(
-                &workspace,
-                &capture(case, profile, &resources),
-                profile,
-                cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")),
-                Default::default(),
-            )
-            .await?;
-            workspace.validate().await?;
-            workspace.facts_availability(profile)?;
-            workspace.identity()
-        }
-        .await;
-        match result {
-            Ok(content) => {
-                println!("passed {case} {} {}", profile.name(), content.hex());
-            }
-            Err(error) => failures.push(format!("{case} {}: {error}", profile.name())),
-        }
+// Every profile owns its own budget, capture and native workspace. Separate tests retain
+// the same two provider jobs while reporting each independent result and deadline separately.
+async fn run_profile(case: &str, profile: Profile) {
+    let resources = budget();
+    let result = async {
+        let workspace = Workspace::with_budget(
+            Arc::new(lctx_model::domain::model()?),
+            WorkspaceOptions {
+                memory_bytes: resources.limit(),
+                ..Default::default()
+            },
+            resources.clone(),
+            crate::native_fixture::store(),
+        )?;
+        cpg_core::facts::compile_facts(
+            &workspace,
+            &capture(case, profile, &resources),
+            profile,
+            cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")),
+            Default::default(),
+        )
+        .await?;
+        workspace.validate().await?;
+        workspace.facts_availability(profile)?;
+        assert_registered_contract(case, &workspace)?;
+        workspace.identity()
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    .await;
+    match result {
+        Ok(content) => println!("passed {case} {} {}", profile.name(), content.hex()),
+        Err(error) => panic!("{case} {}: {error}", profile.name()),
+    }
+}
+
+// These cases exercise scoped declarations and closure capture shapes. The Facts registry
+// checks their exact original sources and top-level declarations; behavioral producer controls
+// separately own SourceCall/Enriched and supported-vs-refused capture semantics.
+fn assert_registered_contract(
+    case: &str,
+    workspace: &Workspace,
+) -> Result<(), lctx_model::domain::ModelError> {
+    use lctx_model::domain::{
+        ModelError, Record,
+        source::{Occurrence, SourceArtifact},
+        syntax::DeclarationObservation,
+    };
+    fn rows<R: Record>(workspace: &Workspace) -> Result<Vec<R>, ModelError> {
+        let mut rows = Vec::new();
+        for batch in workspace.completed::<R>()?.batches()? {
+            rows.extend(R::decode(&batch?)?);
+        }
+        Ok(rows)
+    }
+    let expected: &[(&str, &[&str])] = match case {
+        "remediation_scopes" => &[
+            ("alpha.py", &["Alpha", "alpha"]),
+            ("beta.py", &["Beta", "beta"]),
+            ("empty.py", &[]),
+        ],
+        "scoped_source_execution" => &[
+            (
+                "cases.py",
+                &[
+                    "literal_argument",
+                    "held_argument",
+                    "documented_argument",
+                    "unavailable_default",
+                    "enriched_argument",
+                ],
+            ),
+            ("other.py", &["independent_argument"]),
+        ],
+        "stable_capture_shapes" => &[(
+            "cases.py",
+            &[
+                "captured_entry",
+                "captured_literal",
+                "mutation",
+                "call_before_assignment",
+                "escaped",
+                "delayed",
+                "nonlocal_write",
+                "global_read",
+                "loop_capture",
+                "nested_scope",
+            ],
+        )],
+        _ => return Ok(()),
+    };
+    let artifacts = rows::<SourceArtifact>(workspace)?;
+    let occurrences = rows::<Occurrence>(workspace)?
+        .into_iter()
+        .map(|row| (row.id(), row))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let declarations = rows::<DeclarationObservation>(workspace)?;
+    for (path, names) in expected {
+        let sources = artifacts
+            .iter()
+            .filter(|source| source.path == *path)
+            .collect::<Vec<_>>();
+        assert_eq!(sources.len(), 1, "{case}: exact original source {path}");
+        let source = sources[0];
+        let bytes = std::fs::read(root().join(case).join(path)).map_err(ModelError::codec)?;
+        assert_eq!(
+            source.content,
+            ContentHash::of(&bytes),
+            "{case}: immutable bytes for {path}"
+        );
+        assert_eq!(
+            source.byte_len,
+            i64::try_from(bytes.len()).unwrap(),
+            "{case}: original length for {path}"
+        );
+        let mut actual = BTreeSet::new();
+        for declaration in declarations
+            .iter()
+            .filter(|declaration| declaration.parent.is_none())
+        {
+            let name = occurrences
+                .get(&declaration.name)
+                .expect("declaration name retains its canonical occurrence");
+            if name.source == source.id() {
+                let spelling = std::str::from_utf8(&bytes[name.start as usize..name.end as usize])
+                    .map_err(ModelError::codec)?;
+                actual.insert(spelling.to_owned());
+            }
+        }
+        assert_eq!(
+            actual,
+            names.iter().map(|name| (*name).to_owned()).collect(),
+            "{case}: exact top-level declarations for {path}"
+        );
+    }
+    if case == "remediation_scopes" {
+        let documents = artifacts
+            .iter()
+            .filter(|source| source.path == "guide.md")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            documents.len(),
+            1,
+            "independent repeated alpha examples retain their original document"
+        );
+        let guide = std::fs::read(root().join(case).join("guide.md")).map_err(ModelError::codec)?;
+        assert_eq!(documents[0].content, ContentHash::of(&guide));
+        let blocks = rows::<lctx_model::domain::documents::DocumentNode>(workspace)?;
+        assert_eq!(
+            blocks
+                .iter()
+                .filter(|node| matches!(
+                    node,
+                    lctx_model::domain::documents::DocumentNode::CodeBlock { .. }
+                ))
+                .count(),
+            2,
+            "both repeated alpha examples retain distinct document blocks"
+        );
+    }
+    Ok(())
 }
 
 #[tokio::test]
@@ -214,8 +348,9 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
                         partitions,
                         batch_rows,
                     },
-                    resources.clone(), crate::native_fixture::store()
-)
+                    resources.clone(),
+                    crate::native_fixture::store(),
+                )
                 .unwrap();
                 cpg_core::facts::compile_facts(
                     &workspace,

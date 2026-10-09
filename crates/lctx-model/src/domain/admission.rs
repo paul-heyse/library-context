@@ -404,6 +404,58 @@ impl FrontierContract {
     pub fn preflight(&self, schedule: &Schedule) -> Result<Preflight, ModelError> {
         self.preflight_scope(schedule, false)
     }
+    /// Bind independently selected supported contracts to immutable captures, without constructing
+    /// executable stages. Reported outcomes do not select any expected supplier.
+    pub fn captured_preflight(&self,contracts:&[super::producer_contract::ProducerContract],bindings:&BTreeMap<&str,&super::producer_contract::CapturedProducerBinding>)->Result<Preflight,ModelError> {
+        let mut names=BTreeSet::new();let mut written=BTreeMap::new();let mut coverers:BTreeMap<FactFamily,BTreeSet<Id<Provider>>>=BTreeMap::new();
+        let mut digest=KeySink::new("captured-facts-admission-contract/v1");self.digest.encode(&mut digest);
+        let mut declarations=contracts.iter().collect::<Vec<_>>();declarations.sort_by_key(|contract|contract.name);
+        for declaration in declarations {
+            declaration.validate()?;
+            if !names.insert(declaration.name){return Err(refuse("duplicate producer semantic contract"));}
+            if !declaration.profiles.contains(&self.profile){
+                // An inactive analyzer supplies no attempted semantics. Bind only the declared
+                // reporting ownership needed by this profile's NotRequested obligations.
+                for family in declaration.not_requested.iter().copied().collect::<BTreeSet<_>>().into_iter().filter(|family|!self.requested(*family)) {
+                    digest.part(b"not-requested-owner",declaration.name.as_bytes());family.encode(&mut digest);
+                }
+                continue;
+            }
+            declaration.identity().encode(&mut digest);
+            let binding=bindings.get(declaration.name).ok_or_else(||refuse("missing captured producer binding"))?;
+            if binding.contract!=declaration.identity(){return Err(refuse("unsupported captured producer contract"));}
+            for relation in declaration.inputs.iter().chain(&declaration.outputs).chain(&declaration.contributes) {
+                if !self.contains(relation.name()){return Err(refuse("producer contract exceeds facts frontier"));}
+            }
+            for relation in &declaration.outputs {
+                if written.insert(relation.name(),declaration).is_some(){return Err(refuse("ambiguous facts relation writer"));}
+            }
+            for role in &declaration.suppliers {
+                let provider=*binding.suppliers.get(role.name).ok_or_else(||refuse("unbound declared supplier role"))?;
+                for family in &role.families {
+                    if !self.requested(*family){return Err(refuse("supplier attempts an unrequested family"));}
+                    coverers.entry(*family).or_default().insert(provider);
+                }
+            }
+        }
+        for requirement in &self.requirements {
+            if self.requested(requirement.family) {
+                if !coverers.contains_key(&requirement.family){return Err(refuse("requested family lacks declared supplier"));}
+            } else if contracts.iter().filter(|contract|contract.not_requested.contains(&requirement.family)).count()!=1 {
+                return Err(refuse("unrequested family lacks exact reporting owner"));
+            }
+        }
+        for (relation,family) in &self.families {
+            match (self.requested(*family),written.get(relation)) {
+                (true,Some(writer)) if writer.suppliers.iter().any(|role|role.families.contains(family))=>{},
+                (false,None)=>{},
+                _=>return Err(refuse("facts assertion writer differs from declared coverage ownership")),
+            }
+        }
+        for relation in [ProviderCoverage::NAME,CoverageScope::NAME] {if !written.contains_key(relation){return Err(refuse("missing declared attribution writer"));}}
+        let mut contract=self.clone();contract.digest=digest.finish();
+        Ok(Preflight{schedule:contract.digest,contract,coverers})
+    }
     /// Admission for a frozen prefix of a cumulative schedule. A stage cannot straddle the
     /// checkpoint boundary; later writers are excluded, while the full schedule digest is bound.
     pub fn checkpoint_preflight(&self, schedule: &Schedule) -> Result<Preflight, ModelError> {

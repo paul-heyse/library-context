@@ -1,4 +1,6 @@
 //! Typed document producer over markdown-rs offsets and captured derived blocks.
+use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
+use crate::contracts::supplier;
 use crate::bundle::ProviderSink;
 use lctx_model::domain::{calls::SymbolKind, documents::*, source::*, syntax::DeclarationKind, *};
 use markdown::mdast::{AttributeContent, AttributeValue, Node};
@@ -492,11 +494,9 @@ macro_rules! document_types {
         )
     };
 }
-impl Declared for Documents {
-    fn declaration(&self, _: Profile) -> Stage {
+pub fn contract() -> ProducerContract {
         macro_rules! uses {($($ty:ty),+)=>{vec![$(RelationUse::of::<$ty>()),+]}}
-        let provider = provider();
-        Stage {
+        ProducerContract {
             name: DOCUMENTS,
             inputs: uses!(
                 Module,
@@ -509,20 +509,22 @@ impl Declared for Documents {
             ),
             outputs: document_types!(uses),
             contributes: assembly::vocabulary(),
-            coverage: vec![FactFamily::Docs]
-                .into_iter()
-                .map(|family| lctx_model::domain::stages::FamilyCoverage {
-                    family,
-                    provider: provider.id(),
-                })
-                .collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
-            code: provider.build_digest,
-            configuration: ContentHash::of(
+            semantic_revision: 1,
+            configuration: ConfigurationBinding::Fixed(ContentHash::of(
                 b"mdx-frontmatter; source=64MiB; nodes=1000000; depth=256",
-            ),
+            )),
+            suppliers: vec![supplier("documents", "markdown-rs", "1.0.0", vec![FactFamily::Docs])],
+            not_requested: vec![],
         }
+}
+impl Declared for Documents {
+    fn declaration(&self, _: Profile) -> Stage {
+        let provider = provider();
+        contract().bind(provider.build_digest, ContentHash::of(
+                b"mdx-frontmatter; source=64MiB; nodes=1000000; depth=256",
+            ), [("documents", provider)])
     }
 }
 impl Vocabulary {

@@ -10,7 +10,7 @@ use std::collections::{BTreeMap,BTreeSet};
 async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs(){
     async fn persist<R:Record>(store:&std::sync::Arc<NativeCompilerStore>,producer:&str,rows:&[R])->lctx_model::domain::completed::CompletedView {
         let relation=Relation::of::<R>();
-        let spec=ContributionSpec{producer:producer.into(),profile:Profile::Catalog,model:ContentHash::of(b"existing-owner-model"),implementation:ContentHash::of(b"existing-owner-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([R::NAME.into()])};
+        let spec=ContributionSpec{captured_binding: None, producer:producer.into(),profile:Profile::Catalog,model:ContentHash::of(b"existing-owner-model"),implementation:ContentHash::of(b"existing-owner-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([R::NAME.into()])};
         let contribution=store.begin_contribution(spec).await.unwrap();
         store.write_batch(&contribution,&relation,&R::encode(rows).unwrap()).await.unwrap();
         store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&BTreeMap::new()).await.unwrap().remove(R::NAME).unwrap()
@@ -59,7 +59,7 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs(){
     fn nominal<T>(byte:u8)->Id<T>{serde_json::from_value(serde_json::to_value(vec![byte;16]).unwrap()).unwrap()}
     async fn persist<R:Record>(store:&std::sync::Arc<NativeCompilerStore>,producer:&str,rows:&[R])->lctx_model::domain::completed::CompletedView {
         let relation=Relation::of::<R>();
-        let spec=ContributionSpec{producer:producer.into(),profile:Profile::Catalog,model:ContentHash::of(b"forward-closure-model"),implementation:ContentHash::of(b"forward-closure-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([R::NAME.into()])};
+        let spec=ContributionSpec{captured_binding: None, producer:producer.into(),profile:Profile::Catalog,model:ContentHash::of(b"forward-closure-model"),implementation:ContentHash::of(b"forward-closure-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([R::NAME.into()])};
         let contribution=store.begin_contribution(spec).await.unwrap();
         store.write_batch(&contribution,&relation,&R::encode(rows).unwrap()).await.unwrap();
         store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&BTreeMap::new()).await.unwrap().remove(R::NAME).unwrap()
@@ -110,7 +110,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime(){
     releases.sort_by_key(Record::id);
     let huge=Release{package:unrelated.id(),version:"x".repeat(4<<20)};
     let package_relation=Relation::of::<Package>();let release_relation=Relation::of::<Release>();
-    let spec=ContributionSpec{producer:"native-closure".into(),profile:Profile::Catalog,model:ContentHash::of(b"closure-model"),implementation:ContentHash::of(b"closure-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([Package::NAME.into(),Release::NAME.into()])};
+    let spec=ContributionSpec{captured_binding: None, producer:"native-closure".into(),profile:Profile::Catalog,model:ContentHash::of(b"closure-model"),implementation:ContentHash::of(b"closure-implementation"),configuration:None,inputs:vec![],outputs:BTreeSet::from([Package::NAME.into(),Release::NAME.into()])};
     let contribution=store.begin_contribution(spec.clone()).await.unwrap();
     store.write_batch(&contribution,&package_relation,&Package::encode(&[package.clone(),unrelated.clone()]).unwrap()).await.unwrap();
     store.write_batch(&contribution,&release_relation,&Release::encode(&releases).unwrap()).await.unwrap();

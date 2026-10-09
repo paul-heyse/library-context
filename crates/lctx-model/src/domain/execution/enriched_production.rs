@@ -1421,7 +1421,8 @@ pub fn stage(
     let mut key = KeySink::new("enriched-execution-definition");
     definition.id().encode(&mut key);
     Ok(Stage {
-        name: "enrich_execution",
+        captured_binding: None,
+name: "enrich_execution",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

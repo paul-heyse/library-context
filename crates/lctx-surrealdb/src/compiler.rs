@@ -2,12 +2,14 @@
 //! govern reads. Canonical graph payloads and query fields are immutable mechanical forms.
 use crate::{Loader, RuntimeConfig, reader::{self, NativeRows}};
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
-use futures::{FutureExt, StreamExt, future::BoxFuture};
+use futures::{FutureExt, future::BoxFuture};
 use lctx_model::domain::{self as d, *, completed::*, admission::Frontier, stages::ProviderOutcome};
 use serde::{Deserialize, Serialize};
 use std::{collections::{BTreeMap}, sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}}};
 use surrealdb::{Surreal, engine::remote::grpc::Client, types::{Bytes, Object, RecordId, Value, Variables, SurrealValue, SerdeWrapper, ToSql}};
 use tokio::sync::Notify;
+use crate::{acknowledged_candidates::{AsyncCandidateSort,AsyncOrderedCandidates,AsyncPhysicalSort,AsyncOrderedRows,BlockingTerminal}, ordered_rows::Candidate};
+use d::resources::{ResourceBudget,Reservation};
 
 #[derive(Clone)]
 pub enum NativePredicate {
@@ -33,11 +35,21 @@ pub struct NativeCompilerStore {
     frontier: Mutex<Frontier>,
 }
 #[derive(Default)]
-struct OperationState {closed:bool,active:usize,scans:usize,failed:bool,uncertain:bool}
+struct OperationState {closed:bool,active:usize,scans:usize,failed:bool,uncertain:bool,failures:Vec<Arc<ModelError>>}
 #[derive(Default)]
 struct OperationAdmission {state:Mutex<OperationState>,changed:Notify}
 struct OperationLease {owner:Arc<OperationAdmission>,scan:bool,finished:bool}
-impl OperationLease {fn finish(mut self){self.finished=true;}}
+impl OperationLease {
+    fn finish(mut self){self.finished=true;}
+    fn finish_with<T>(self,result:&Result<T,ModelError>){
+        if result.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()) && let Ok(mut state)=self.owner.state.lock(){state.failed=true;state.uncertain=true;}
+        self.finish();
+    }
+}
+// A blocking worker owns a local computation, not a remote acknowledgement. Its
+// lease remains live until the worker really exits, including cancellation/drop.
+struct BlockingLease(Option<OperationLease>);
+impl Drop for BlockingLease {fn drop(&mut self){if let Some(lease)=self.0.take(){lease.finish();}}}
 impl Drop for OperationLease {
     fn drop(&mut self){
         if let Ok(mut state)=self.owner.state.lock(){
@@ -62,20 +74,30 @@ impl NativeCompilerStore {
         sink.part(b"process",&std::process::id().to_le_bytes());
         let database=d::serving::Name::new(format!("snapshot_{}",sink.finish().hex())).map_err(ModelError::codec)?;
         let client=reader::authenticated(&config.endpoint,&config.root_credentials(),None).await?;
+        let mut creation_attempted=false;
+        let setup=async {
         let version=client.version().await.map_err(ModelError::codec)?.to_string();
         if !version.starts_with("3.3.") { return Err(ModelError::Invalid("native compiler requires reviewed SurrealDB3.3".into())); }
         client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`",config.namespace.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         client.use_ns(config.namespace.as_str()).await.map_err(ModelError::codec)?;
-        let setup=async {
-            client.query(format!("DEFINE DATABASE `{}` STRICT",database.as_str())).await.map_err(|error|ModelError::codec(format!("native compiler database creation: {error}")))?.check().map_err(|error|ModelError::codec(format!("native compiler database creation: {error}")))?;
+            creation_attempted=true;
+            client.query(format!("DEFINE DATABASE `{}` STRICT",database.as_str())).await.map_err(crate::loader::write_failure)?.check().map_err(|error|ModelError::codec(format!("native compiler database creation: {error}")))?;
             client.use_db(database.as_str()).await.map_err(ModelError::codec)?;
             Loader::new(client.clone()).install("").await?;
             Loader::new(client.clone()).install_declarations(&compiler_schema(),"compiler state schema").await?;
             Ok::<(),ModelError>(())
         }.await;
         if let Err(error)=setup {
-            let cleanup=async {client.query(format!("REMOVE DATABASE IF EXISTS `{}`",database.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok::<(),ModelError>(())}.await;
-            return Err(match cleanup{Err(cleanup)=>ModelError::infrastructure(Infrastructure::Unconfirmed,format!("native compiler setup failed: {error}; cleanup failed: {cleanup}; owned unselected database {}/{} remains unconfirmed",config.namespace.as_str(),database.as_str())),Ok(())=>error});
+            let mut completion=d::completion::Completion::default();
+            if creation_attempted && !error.permits_storage_cleanup() {
+                completion.remote=d::completion::RemoteState::Unknown;
+                completion.storage.push(d::completion::StorageState::Orphan(format!("{}/{}",config.namespace.as_str(),database.as_str())));
+            } else if creation_attempted {
+                let cleanup=async {client.query(format!("REMOVE DATABASE IF EXISTS `{}`",database.as_str())).await.map_err(crate::loader::write_failure)?.check().map_err(|error|ModelError::Cause(Box::new(error)))?;Ok::<(),ModelError>(())}.await;
+                completion.cleanup(format!("{}/{}",config.namespace.as_str(),database.as_str()),cleanup);
+            }
+            completion.step("setup session invalidation",client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));
+            return d::completion::complete(Err(error),completion);
         }
         Ok(Arc::new(Self {client,database,namespace:config.namespace.clone(),specifications:Mutex::default(),known_views:Mutex::default(),known_contributors:Mutex::default(),failed:AtomicBool::new(false),sealed:AtomicBool::new(false),admission:Arc::new(OperationAdmission::default()),runtime:tokio::runtime::Handle::current(),frontier:Mutex::new(frontier)}))
     }
@@ -87,7 +109,7 @@ impl NativeCompilerStore {
     pub async fn install_state_schema(self:&Arc<Self>)->Result<(),ModelError> {
         let lease=self.admit(false)?;
         let result=self.install_state_schema_inner().await;
-        lease.finish();
+        lease.finish_with(&result);
         if result.is_err(){self.fail();}
         result
     }
@@ -99,45 +121,69 @@ impl NativeCompilerStore {
         let result=(||{
             if !self.specifications.lock().map_err(|_|ModelError::Conflict("contribution owner"))?.is_empty(){return Err(ModelError::Conflict("frontier after compiler writes"));}
             *self.frontier.lock().map_err(|_|ModelError::Conflict("frontier owner"))?=frontier;Ok(())
-        })();lease.finish();result
+        })();lease.finish_with(&result);result
     }
     pub async fn contributions(self:&Arc<Self>)->Result<Vec<CompletedContribution>,ModelError> {
         let lease=self.admit(false)?;
         let result=self.contributions_inner().await;
-        lease.finish();
+        lease.finish_with(&result);
         result
     }
     async fn contributions_inner(self:&Arc<Self>)->Result<Vec<CompletedContribution>,ModelError> {
         let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM compiler_contribution WHERE completed=true ORDER BY logical").stream_items().map_err(ModelError::codec)?,1)?)?;
         let mut contributions=Vec::new();while let Some(row)=rows.next().await?{validate_state_row("compiler_contribution",&row)?;let object=value_object(&row).ok_or(ModelError::Schema("contribution descriptor row"))?;let Some(Value::Bytes(bytes))=object.get("descriptor") else{return Err(ModelError::Schema("contribution descriptor bytes"));};let descriptor:CompletedContribution=serde_json::from_slice(bytes).map_err(ModelError::codec)?;descriptor.identity()?;contributions.push(descriptor);}Ok(contributions)
     }
-    pub async fn scan_canonical(self:&Arc<Self>,entities:bool)->Result<CompilerRows,ModelError> {
-        self.scan_graph(entities,"id,content,canonical,kind,subtype,semantic_type,semantic_key").await
+    pub async fn scan_canonical(self:&Arc<Self>,entities:bool,budget:&ResourceBudget)->Result<CompilerRows,ModelError> {
+        self.scan_graph(entities,"id,content,canonical,kind,subtype,semantic_type,semantic_key",budget).await
     }
-    pub async fn scan_graph_headers(self:&Arc<Self>,entities:bool)->Result<CompilerRows,ModelError> {
-        self.scan_graph(entities,"id,kind,subtype,body.byte_len AS source_length").await
+    pub async fn scan_graph_headers(self:&Arc<Self>,entities:bool,budget:&ResourceBudget)->Result<CompilerRows,ModelError> {
+        self.scan_graph(entities,"id,kind,subtype,body.byte_len AS source_length",budget).await
     }
-    async fn scan_graph(self:&Arc<Self>,entities:bool,fields:&str)->Result<CompilerRows,ModelError> {
+    async fn scan_graph(self:&Arc<Self>,entities:bool,fields:&str,budget:&ResourceBudget)->Result<CompilerRows,ModelError> {
         let lease=self.admit(false)?;
-        let result=self.scan_graph_inner(entities,fields).await;
-        lease.finish();
-        result
+        let result=self.scan_graph_inner(entities,fields,budget).await;
+        lease.finish_with(&result);result
     }
-    async fn scan_graph_inner(self:&Arc<Self>,entities:bool,fields:&str)->Result<CompilerRows,ModelError> {
+    async fn scan_graph_inner(self:&Arc<Self>,entities:bool,fields:&str,budget:&ResourceBudget)->Result<CompilerRows,ModelError> {
         self.check_failed()?;
         let table=if entities {"entity"}else{"assertion"};
-        let mut sql="LET $__compiler_owners = (SELECT VALUE id FROM compiler_contribution WHERE completed=true); LET $__compiler_members = (SELECT VALUE node FROM compiler_membership WHERE contribution IN $__compiler_owners GROUP BY node);".to_string();
-        let mut statements=2;
-        let candidates=if entities {
-            sql.push_str("LET $__compiler_aliases = (SELECT VALUE target FROM compiler_alias WHERE source IN $__compiler_members GROUP BY target);");
-            statements+=1;
-            "array::union($__compiler_members,$__compiler_aliases)"
-        } else {"$__compiler_members"};
-        sql.push_str(&format!("LET $__compiler_nodes = {candidates}.filter(|$node| record::table($node)='{table}'); SELECT {fields} FROM $__compiler_nodes ORDER BY id"));
-        statements+=2;
-        let stream=final_statement_rows(self.client.query(sql).stream_items().map_err(ModelError::codec)?,statements);
-        let rows=self.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?;
-        Ok(rows)
+        let mut sorted=AsyncPhysicalSort::new_registered(budget,self.blocking_owner()?,self.blocking_observer()?).await?;
+        let _frontier_charge=budget.reserve("canonical-alias-frontier",crate::loader::NATIVE_WINDOW_ROWS*512)?;
+        let mut frontier=Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
+        let mut owners=self.track_rows(NativeRows::new(self.client.query("SELECT VALUE id FROM compiler_contribution WHERE completed=true").stream_items().map_err(ModelError::codec)?,1)?)?;
+        while let Some(owner)=owners.next_native().await? {
+            let Value::RecordId(owner)=owner else{return Err(ModelError::Schema("canonical contribution owner"));};
+            let mut bindings=Variables::new();bindings.insert("owner",owner);
+            let mut members=self.track_rows(NativeRows::new(self.client.query("SELECT node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner").bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
+            while let Some(member)=members.next_native().await? {
+                let Some(Value::RecordId(node))=value_object(&member).and_then(|row|row.get("node")) else{return Err(ModelError::Schema("canonical membership pointer"));};
+                if node.table.as_str()!=table {continue;}
+                frontier.push(node.clone());
+                if frontier.len()==crate::loader::NATIVE_WINDOW_ROWS {
+                    self.expand_graph_frontier(&mut sorted,&frontier,entities).await?;frontier.clear();
+                }
+            }
+        }
+        if !frontier.is_empty(){self.expand_graph_frontier(&mut sorted,&frontier,entities).await?;}
+        let ordered=sorted.finish().await?;
+        let transfer=budget.reserve("canonical-pointer-window",crate::loader::NATIVE_WINDOW_ROWS*512)?;
+        let lease=self.retained_scan()?;
+        let graph=GraphRows{ordered,payload:None,store:self.clone(),fields:fields.into(),expected:std::collections::VecDeque::new(),_transfer:transfer};
+        Ok(CompilerRows{rows:None,selection:None,graph:Some(Box::new(graph)),store:self.clone(),lease:Some(lease)})
+    }
+    async fn expand_graph_frontier(self:&Arc<Self>,sorted:&mut AsyncPhysicalSort,frontier:&[RecordId],entities:bool)->Result<(),ModelError>{
+        for node in frontier {sorted.push(pointer_row(node.clone())).await?;}
+        if entities {
+            let mut bindings=Variables::new();bindings.insert("sources",frontier.to_vec());
+            // Bounded exact sources expand one hop. Alias targets never feed this frontier.
+            let mut aliases=self.track_rows(NativeRows::new(self.client.query("SELECT VALUE target FROM compiler_alias WITH INDEX alias_source WHERE source IN $sources").bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
+            while let Some(alias)=aliases.next_native().await? {
+                let Value::RecordId(alias)=alias else{return Err(ModelError::Schema("canonical alias pointer"));};
+                if alias.table.as_str()!="entity"{return Err(ModelError::Conflict("canonical alias family"));}
+                sorted.push(pointer_row(alias)).await?;
+            }
+        }
+        Ok(())
     }
     pub fn client(&self)->&Surreal<Client> { &self.client }
     pub fn shared_client(&self)->Arc<Surreal<Client>> { self.client.clone() }
@@ -164,16 +210,31 @@ impl NativeCompilerStore {
         let mut state=self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?;
         state.active=state.active.checked_add(1).ok_or(ModelError::Schema("native operation count"))?;state.scans+=1;
         let lease=OperationLease{owner:self.admission.clone(),scan:true,finished:false};
-        Ok(CompilerRows{rows:Some(rows),selection:None,store:self.clone(),lease:Some(lease)})
+        Ok(CompilerRows{rows:Some(rows),selection:None,graph:None,store:self.clone(),lease:Some(lease)})
     }
-    #[allow(clippy::too_many_arguments,reason="A selected stream retains its exact view, projected fields, bound predicate and compact preparation")]
-    fn track_selection(self:&Arc<Self>,keys:SelectionKeys,view:&CompletedView,relation:&Relation,fields:String,predicate:String,bindings:Variables,preparation:Vec<String>)->Result<CompilerRows,ModelError>{
-        let owners=self.view_owners(view)?;
+    fn retained_scan(&self)->Result<OperationLease,ModelError>{
         let mut state=self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?;
         state.active=state.active.checked_add(1).ok_or(ModelError::Schema("native operation count"))?;state.scans+=1;
-        let lease=OperationLease{owner:self.admission.clone(),scan:true,finished:false};
-        let selection=SelectedRows{keys,owners,relation:relation.name().into(),fields,predicate,bindings,preparation,store:self.clone(),lookup:None,payload:None,pending_keys:Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS)};
-        Ok(CompilerRows{rows:None,selection:Some(Box::new(selection)),store:self.clone(),lease:Some(lease)})
+        Ok(OperationLease{owner:self.admission.clone(),scan:true,finished:false})
+    }
+    fn blocking_owner(&self)->Result<BlockingLease,ModelError>{Ok(BlockingLease(Some(self.retained_scan()?)))}
+    fn record_background_failure(&self,error:Arc<ModelError>){
+        self.fail();if let Ok(mut state)=self.admission.state.lock(){state.failed=true;state.failures.push(error);}
+    }
+    fn blocking_observer(self:&Arc<Self>)->Result<impl FnOnce(BlockingTerminal)+Send+'static,ModelError>{
+        let lease=self.retained_scan()?;let store=self.clone();
+        Ok(move |terminal|{let runtime=store.runtime.clone();runtime.spawn(async move{
+            if let Err(error)=terminal.await {store.record_background_failure(error);}
+            lease.finish();
+        });})
+    }
+    #[allow(clippy::too_many_arguments,reason="A selected stream retains its exact view, projected fields, bound predicate and compact preparation")]
+    fn track_selection(self:&Arc<Self>,keys:SelectionKeys,view:&CompletedView,relation:&Relation,fields:String,predicate:String,bindings:Variables,preparation:Vec<String>,budget:&ResourceBudget)->Result<CompilerRows,ModelError>{
+        let owners=self.view_owners(view)?;
+        let transfer=budget.reserve("compiler-selected-window",owners.len().saturating_mul(64).saturating_add(crate::loader::NATIVE_WINDOW_ROWS*2048))?;
+        let lease=self.retained_scan()?;
+        let selection=SelectedRows{keys,owners,relation:relation.name().into(),fields,predicate,bindings,preparation,store:self.clone(),lookup:None,payload:None,pending_keys:Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS),pointers:BTreeMap::new(),_transfer:transfer};
+        Ok(CompilerRows{rows:None,selection:Some(Box::new(selection)),graph:None,store:self.clone(),lease:Some(lease)})
     }
     async fn wait_operations(&self,scans_only:bool)->Result<(),ModelError>{
         loop {
@@ -185,26 +246,48 @@ impl NativeCompilerStore {
     }
     async fn wait_scans(&self)->Result<(),ModelError>{self.wait_operations(true).await}
     pub async fn abandon(&self)->Result<(),ModelError>{
-        self.drain().await?;
-        let uncertain={self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?.uncertain};
-        if uncertain {
-            let _=self.client.invalidate().await;
-            return Err(ModelError::infrastructure(Infrastructure::Unconfirmed,format!("cancelled native operation left owned unselected database {}",self.database.as_str())));
+        let mut completion=self.drain_report().await;
+        let identity=format!("{}/{}",self.namespace.as_str(),self.database.as_str());
+        if completion.local==d::completion::LocalState::Terminal && completion.remote==d::completion::RemoteState::Confirmed {
+            let cleanup=async {self.client.query(format!("REMOVE DATABASE IF EXISTS `{}`",self.database.as_str())).await.map_err(crate::loader::write_failure)?.check().map_err(|error|ModelError::Cause(Box::new(error)))?;Ok(())}.await;
+            completion.cleanup(identity,cleanup);
+        } else {
+            completion.storage.push(d::completion::StorageState::Orphan(identity));
         }
-        self.client.query(format!("REMOVE DATABASE IF EXISTS `{}`",self.database.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok(())
+        completion.step("native session invalidation",self.client.invalidate().await.map_err(|error|ModelError::Cause(Box::new(error))));
+        d::completion::complete(Ok(()),completion)
+    }
+    /// Local terminality and remote acknowledgement are independent facts. The admission owner
+    /// remains registered when this future is interrupted, allowing a later drain to finish.
+    pub async fn drain_report(&self)->d::completion::Completion {
+        let mut completion=d::completion::Completion::default();
+        match self.admission.state.lock() {
+            Ok(mut state)=>state.closed=true,
+            Err(_)=>{completion.local=d::completion::LocalState::Outstanding;completion.step("close native admission",Err(ModelError::Conflict("native operation admission")));return completion;}
+        }
+        if let Err(error)=self.wait_operations(false).await {
+            completion.local=d::completion::LocalState::Outstanding;completion.step("native operation drainage",Err(error));
+        }
+        match self.admission.state.lock() {
+            Ok(state) if state.uncertain=>{
+                completion.remote=d::completion::RemoteState::Unknown;
+                completion.step("native acknowledgement",Err(ModelError::infrastructure(Infrastructure::Unconfirmed,"native operation ended without acknowledgement")));
+            }
+            Err(_)=>{completion.remote=d::completion::RemoteState::Unknown;completion.step("native acknowledgement state",Err(ModelError::Conflict("native operation admission")));}
+            _=>{}
+        }
+        if let Ok(state)=self.admission.state.lock(){for error in &state.failures {completion.step("native background work",Err(ModelError::SharedCause(error.clone())));}}
+        completion
     }
     /// Final drainage closes admission before waiting; ordinary completion uses scan quiescence.
-    pub async fn drain(&self)->Result<(),ModelError>{
-        self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?.closed=true;
-        self.wait_operations(false).await
-    }
+    pub async fn drain(&self)->Result<(),ModelError>{d::completion::complete(Ok(()),self.drain_report().await)}
     pub async fn end_writes(&self)->Result<(),ModelError>{
         self.drain().await?;self.check_failed()?;self.sealed.store(true,Ordering::Release);Ok(())
     }
     pub async fn begin_contribution(self:&Arc<Self>,spec:ContributionSpec)->Result<ContentHash,ModelError> {
         let lease=self.admit(false)?;
         let result=self.begin_contribution_inner(spec).await;
-        lease.finish();
+        lease.finish_with(&result);
         if result.is_err(){self.fail();}
         result
     }
@@ -215,7 +298,7 @@ impl NativeCompilerStore {
         let mut row=Object::new(); row.insert("id",RecordId::new("compiler_contribution",id.hex())); row.insert("spec",Bytes::from(serde_json::to_vec(&spec).map_err(ModelError::codec)?)); row.insert("completed",false);
         for (field,value) in contribution_projection(&spec) {row.insert(field,value);}
         let mut b=Variables::new(); b.insert("row",row);
-        let write=async {self.client.query("INSERT INTO compiler_contribution $row RETURN NONE").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok::<(),ModelError>(())}.await;
+        let write=async {self.client.query("INSERT INTO compiler_contribution $row RETURN NONE").bind(b).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;Ok::<(),ModelError>(())}.await;
         if let Err(e)=write { self.fail(); return Err(e); }
         Ok(id)
     }
@@ -228,7 +311,7 @@ impl NativeCompilerStore {
         async move {
             let lease=self.admit(false)?;
             let result=self.write_batch_inner(contribution,relation,batch).await;
-            lease.finish();
+            lease.finish_with(&result);
             if result.is_err(){self.fail();}
             result
         }.boxed()
@@ -271,7 +354,7 @@ impl NativeCompilerStore {
                 Some(GraphRow::Assertion(row))=>(RecordId::new("assertion",row.id().0.hex()),row.content(),serde_json::to_vec(&row).map_err(ModelError::codec)?,Some(row.kind as i64),None),
                 None=>{ if !crate::schema::compiler_relations().iter().any(|declared|declared.name()==relation.name()) {return Err(ModelError::Schema("undeclared compiler backing type"));} let bytes=serde_json::to_vec(&body).map_err(ModelError::codec)?; let mut sink=KeySink::new("compiler-backing-key/v1"); relation.name().to_string().encode(&mut sink); sink.part(b"key",ids.value(i)); (RecordId::new("compiler_record",sink.finish().hex()),ContentHash::of(&bytes),bytes,None,None) }
             };
-            let mut physical=Object::new(); physical.insert("id",node.clone()); physical.insert("semantic_type",relation.name().to_string()); physical.insert("semantic_key",key.clone()); physical.insert("content",content.hex()); physical.insert("canonical",Bytes::from(canonical)); physical.insert("body",body);
+            let mut physical=Object::new(); physical.insert("id",node.clone()); physical.insert("semantic_type",relation.name().to_string()); physical.insert("semantic_key",key.clone()); physical.insert("content",content.hex()); physical.insert("canonical",Bytes::from(canonical)); crate::reconciliation::add_scope_fields(&mut physical,&body,relation.name(),crate::schema::ScopeTable::from_name(node.table.as_str())?)?; physical.insert("body",body);
             if let Some(kind)=kind {physical.insert("kind",kind);physical.insert("subtype",subtype.map(Value::from_t).unwrap_or(Value::Null));}
             let physical=Value::Object(physical);
             let name=node.to_sql();
@@ -281,7 +364,7 @@ impl NativeCompilerStore {
         let alias_values=crate::codec::entity_views(&native_aliases.iter().map(|(_,target)|target.clone()).collect::<Vec<_>>())?;
         let mut aliases=Vec::new();
         for ((source,target),view) in native_aliases.into_iter().zip(alias_values) {
-            let node=RecordId::new("entity",target.id().0.hex());let mut physical=Object::new();physical.insert("id",node.clone());physical.insert("semantic_type",view.semantic_type);physical.insert("semantic_key",view.semantic_key);physical.insert("kind",target.kind() as i64);physical.insert("subtype",target.subtype().map(Value::from_t).unwrap_or(Value::Null));physical.insert("content",target.content().hex());physical.insert("canonical",Bytes::from(serde_json::to_vec(&target).map_err(ModelError::codec)?));physical.insert("body",view.body);
+            let node=RecordId::new("entity",target.id().0.hex());let mut physical=Object::new();physical.insert("id",node.clone());physical.insert("semantic_type",view.semantic_type.clone());physical.insert("semantic_key",view.semantic_key);physical.insert("kind",target.kind() as i64);physical.insert("subtype",target.subtype().map(Value::from_t).unwrap_or(Value::Null));physical.insert("content",target.content().hex());physical.insert("canonical",Bytes::from(serde_json::to_vec(&target).map_err(ModelError::codec)?));crate::reconciliation::add_scope_fields(&mut physical,&view.body,&view.semantic_type,crate::schema::ScopeTable::Entity)?;physical.insert("body",view.body);
             let physical=Value::Object(physical);if let Some(previous)=nodes.insert(node.to_sql(),physical.clone()) && previous!=physical {return Err(ModelError::Conflict("native alias payload"));}
             let mut sink=KeySink::new("native-place-alias/v1");source.0.encode(&mut sink);target.id().0.encode(&mut sink);
             let mut alias=Object::new();alias.insert("id",RecordId::new("compiler_alias",sink.finish().hex()));alias.insert("source",RecordId::new("entity",source.0.hex()));alias.insert("target",node);aliases.push(Value::Object(alias));
@@ -346,7 +429,7 @@ impl NativeCompilerStore {
     pub async fn complete_contribution(self:&Arc<Self>,id:ContentHash,outcome:ProviderOutcome,outputs:&[Relation],previous:&BTreeMap<String,CompletedView>)->Result<BTreeMap<String,CompletedView>,ModelError> {
         let lease=self.admit(false)?;
         let result=self.complete_contribution_inner(id,outcome,outputs,previous).await;
-        lease.finish();
+        lease.finish_with(&result);
         if result.is_err(){self.fail();}
         result
     }
@@ -394,7 +477,7 @@ impl NativeCompilerStore {
         let descriptor=CompletedContribution {spec,outcome:outcome.code(),outputs:content.into_iter().map(|(name,(rows,sink))|(name,OutputContent{rows,content:sink.finish()})).collect()};
         let logical=descriptor.identity()?;
         let mut b=Variables::new();b.insert("id",RecordId::new("compiler_contribution",id.hex()));b.insert("descriptor",Bytes::from(serde_json::to_vec(&descriptor).map_err(ModelError::codec)?));b.insert("logical",logical.hex());b.insert("outcome",outcome.code());
-        let response=self.client.query("UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true WHERE completed=false RETURN VALUE completed").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let response=self.client.query("UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true WHERE completed=false RETURN VALUE completed").bind(b).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
         let mut response=response; let success:Vec<bool>=response.take(0).map_err(ModelError::codec)?; if success!=vec![true] {self.fail();return Err(ModelError::Conflict("native completion transition"));}
         self.specifications.lock().map_err(|_|ModelError::Conflict("native contribution owner"))?.get_mut(&id).ok_or(ModelError::Conflict("unknown native contribution"))?.1=true;
         self.remember_contributor(logical,id)?;
@@ -406,7 +489,7 @@ impl NativeCompilerStore {
             let count=prior.map(|view|view.rows).unwrap_or(0).checked_add(new).ok_or(ModelError::Schema("native union count overflow"))?;
             let view=CompletedView::new(relation.name().into(),contributions,count)?;
             let mut row=Object::new();row.insert("id",RecordId::new("compiler_view",view.identity.hex()));row.insert("descriptor",Bytes::from(serde_json::to_vec(&view).map_err(ModelError::codec)?));for (field,value) in view_projection(&view)? {row.insert(field,value);}let mut b=Variables::new();b.insert("row",row);
-            self.client.query("UPSERT $row.id CONTENT $row RETURN NONE").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            self.client.query("UPSERT $row.id CONTENT $row RETURN NONE").bind(b).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
             self.remember_view(&view)?;
             views.insert(relation.name().to_string(),view);
         }
@@ -449,7 +532,7 @@ impl NativeCompilerStore {
     pub async fn verify_state(self:&Arc<Self>)->Result<(),ModelError> {
         let lease=self.admit(false)?;
         let result=self.verify_state_inner().await;
-        lease.finish();
+        lease.finish_with(&result);
         result
     }
     async fn verify_state_inner(self:&Arc<Self>)->Result<(),ModelError> {
@@ -484,12 +567,16 @@ impl NativeCompilerStore {
             let actual=actual.into_iter().map(|(name,(rows,sink))|(name,OutputContent {rows,content:sink.finish()})).collect::<BTreeMap<_,_>>();
             if actual!=contribution.outputs {return Err(ModelError::Conflict("restored contribution output membership"));}
         }
+        // Cold audit uses one bounded budget for each complete exact membership scan,
+        // rather than a whole-match GROUP array merely to count distinct keys.
+        let audit_budget=ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
         for view in self.views_inner().await? {
-            let mut b=Variables::new();b.insert("relation",view.relation.clone());b.insert("contributions",view.contributions.iter().map(ContentHash::hex).collect::<Vec<_>>());
-            let stream=self.client.query("LET $__compiler_owners = (SELECT VALUE id FROM compiler_contribution WHERE completed=true AND logical IN $contributions); SELECT semantic_key FROM compiler_membership WHERE relation=$relation AND contribution IN $__compiler_owners GROUP BY semantic_key").bind(b).stream_items().map_err(ModelError::codec)?;
-            let mut rows=self.track_rows(NativeRows::new(final_statement_rows(stream,2),2)?)?;
-            let mut count=0u64;while rows.next().await?.is_some(){count+=1;}if count!=view.rows{return Err(ModelError::Conflict("completed view cardinality"));}
-            self.validate_view_contributions(std::slice::from_ref(&view)).await?;
+            let table=crate::schema::ScopeTable::for_relation(&view.relation)?;
+            let relation=table.relations().iter().find(|relation|relation.name()==view.relation).ok_or(ModelError::Schema("completed view relation"))?;
+            let columns=vec!["id".to_string()];
+            let mut rows=self.scan_rows_inner(&view,relation,Some(&columns),None,&audit_budget).await?;
+            let mut count=0u64;while rows.next().await?.is_some(){count+=1;}
+            if count!=view.rows{return Err(ModelError::Conflict("completed view cardinality"));}
         }
         for binding in self.bindings_inner().await? {self.registered_view(&binding.view).await?;}
         Ok(())
@@ -561,7 +648,7 @@ impl NativeCompilerStore {
     pub async fn bind(self:&Arc<Self>,binding:CompletedBinding)->Result<(),ModelError> {
         let lease=self.admit(false)?;
         let result=self.bind_inner(binding).await;
-        lease.finish();
+        lease.finish_with(&result);
         if result.is_err(){self.fail();}
         result
     }
@@ -582,13 +669,13 @@ impl NativeCompilerStore {
                 return Ok(());
             }
         }
-        self.client.query("UPSERT $row.id CONTENT $row RETURN NONE").bind(b).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        self.client.query("UPSERT $row.id CONTENT $row RETURN NONE").bind(b).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
         Ok(())
     }
     pub async fn bindings(self:&Arc<Self>)->Result<Vec<CompletedBinding>,ModelError> {
         let lease=self.admit(false)?;
         let result=self.bindings_inner().await;
-        lease.finish();
+        lease.finish_with(&result);
         result
     }
     async fn bindings_inner(self:&Arc<Self>)->Result<Vec<CompletedBinding>,ModelError> {
@@ -606,7 +693,7 @@ impl NativeCompilerStore {
     pub async fn views(self:&Arc<Self>)->Result<Vec<CompletedView>,ModelError> {
         let lease=self.admit(false)?;
         let result=self.views_inner().await;
-        lease.finish();
+        lease.finish_with(&result);
         result
     }
     async fn views_inner(self:&Arc<Self>)->Result<Vec<CompletedView>,ModelError> {
@@ -622,7 +709,7 @@ impl NativeCompilerStore {
     pub async fn completed_state(self:&Arc<Self>)->Result<CompletedStateIdentity,ModelError> {
         let lease=self.admit(false)?;
         let result=self.completed_state_inner().await;
-        lease.finish();
+        lease.finish_with(&result);
         result
     }
     async fn completed_state_inner(self:&Arc<Self>)->Result<CompletedStateIdentity,ModelError> {
@@ -632,7 +719,7 @@ impl NativeCompilerStore {
     // pass still checks every framing/canonical row, without repeating model reconstruction.
     async fn state_identity_inner(self:&Arc<Self>,validate_backing:bool)->Result<CompletedStateIdentity,ModelError> {
         self.wait_scans().await?;
-        let mut sink=KeySink::new("native-completed-state/v1");
+        let mut sink=KeySink::new("native-completed-state/v2");
         let mut counts=[0u64;6];
         for (i,table) in STATE_TABLES.iter().enumerate() {
             table.to_string().encode(&mut sink);
@@ -652,13 +739,15 @@ impl NativeCompilerStore {
     pub async fn export_state(self:&Arc<Self>,path:&std::path::Path)->Result<CompletedStateIdentity,ModelError> {
         let lease=self.admit(false)?;
         let result=self.export_state_inner(path).await;
-        lease.finish();
+        lease.finish_with(&result);
         result
     }
     async fn export_state_inner(self:&Arc<Self>,path:&std::path::Path)->Result<CompletedStateIdentity,ModelError> {
         use std::io::Write;
         let expected=self.completed_state_inner().await?;
         let mut file=std::io::BufWriter::new(std::fs::File::create(path).map_err(ModelError::codec)?);
+        serde_json::to_writer(&mut file,&CompletedStateHeader::current()).map_err(ModelError::codec)?;
+        file.write_all(b"\n").map_err(ModelError::codec)?;
         for table in STATE_TABLES {
             let mut rows=self.track_rows(NativeRows::new(self.client.query(format!("SELECT * FROM {table} ORDER BY id")).stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(d::resources::MAX_ROW_BYTES))?;
             while let Some(row)=rows.next().await? {
@@ -672,16 +761,20 @@ impl NativeCompilerStore {
     pub async fn import_state(self:&Arc<Self>,path:&std::path::Path,expected:&CompletedStateIdentity)->Result<(),ModelError> {
         let lease=self.admit(false)?;
         let result=self.import_state_inner(path,expected).await;
-        lease.finish();
+        lease.finish_with(&result);
         if result.is_err(){self.fail();}
         result
     }
     async fn import_state_inner(self:&Arc<Self>,path:&std::path::Path,expected:&CompletedStateIdentity)->Result<(),ModelError> {
         use std::io::{BufRead,Read};
         self.check_failed()?;
+        expected.validate()?;
         // Each envelope owns one bounded row; only fixed generated table names are admitted.
         let mut file=std::io::BufReader::new(std::fs::File::open(path).map_err(ModelError::codec)?);
         let mut bytes=Vec::new();let mut previous:Option<(usize,String)>=None;
+        let header_bytes=file.by_ref().take(d::resources::MAX_ROW_BYTES as u64+1).read_until(b'\n',&mut bytes).map_err(ModelError::codec)?;
+        if header_bytes==0 || header_bytes>d::resources::MAX_ROW_BYTES {return Err(ModelError::Schema("completed state transport header"));}
+        CompletedStateHeader::decode(&bytes)?;
         let mut pending=Vec::new();let mut pending_table=None;let mut pending_bytes=0usize;
         loop {
             bytes.clear();let read=file.by_ref().take(d::resources::MAX_ROW_BYTES as u64+1).read_until(b'\n',&mut bytes).map_err(ModelError::codec)?;
@@ -711,17 +804,16 @@ impl NativeCompilerStore {
         if *table=="compiler_record" {validate_backing_batch(&rows)?;}
         Loader::new(self.client.clone()).insert(table,rows,false).await
     }
-    pub async fn scan_rows(self:&Arc<Self>,view:&CompletedView,relation:&Relation,columns:Option<&[String]>,predicate:Option<NativePredicate>)->Result<CompilerRows,ModelError> {
+    pub async fn scan_rows(self:&Arc<Self>,view:&CompletedView,relation:&Relation,columns:Option<&[String]>,predicate:Option<NativePredicate>,budget:&ResourceBudget)->Result<CompilerRows,ModelError> {
         let lease=self.admit(false)?;
-        let result=self.scan_rows_inner(view,relation,columns,predicate).await;
-        lease.finish();
+        let result=self.scan_rows_inner(view,relation,columns,predicate,budget).await;
+        lease.finish_with(&result);
         result
     }
-    async fn scan_rows_inner(self:&Arc<Self>,view:&CompletedView,relation:&Relation,columns:Option<&[String]>,predicate:Option<NativePredicate>)->Result<CompilerRows,ModelError> {
+    async fn scan_rows_inner(self:&Arc<Self>,view:&CompletedView,relation:&Relation,columns:Option<&[String]>,predicate:Option<NativePredicate>,budget:&ResourceBudget)->Result<CompilerRows,ModelError> {
         self.check_failed()?; self.registered_view(view).await?;
         if view.relation!=relation.name() {return Err(ModelError::Conflict("native view relation"));}
         let mut b=Variables::new();b.insert("relation",relation.name().to_string());b.insert("contributions",view.contributions.iter().map(ContentHash::hex).collect::<Vec<_>>());
-        let selected=predicate.is_some();
         let empty=match &predicate {None=>view.rows==0,Some(NativePredicate::Keys(keys)|NativePredicate::KeysSql{keys,..})=>keys.is_empty(),Some(NativePredicate::Field{values,..}|NativePredicate::FieldSql{values,..})=>values.is_empty(),Some(NativePredicate::Sql{..})=>false};
         let mut explicit_keys=None;
         let mut atomic_field=None;
@@ -733,16 +825,16 @@ impl NativeCompilerStore {
             Some(NativePredicate::Field{field,values})=>{
                 if !relation.fields().iter().any(|f|f.name()==field) {return Err(ModelError::Conflict("native selected field"));}
                 if relation.name()==d::artifact::ArtifactChunk::NAME && field=="body" {return Err(ModelError::Conflict("original bytes are hydrated after native selection"));}
-                let atomic=crate::schema::atomic_scope_fields().contains(field.as_str()) && !values.iter().any(|value|matches!(value,Value::Null|Value::None));
+                let atomic=crate::schema::atomic_scope_field(relation.name(),field.as_str()) && !values.iter().any(|value|matches!(value,Value::Null|Value::None));
                 if atomic {atomic_field=Some((field.clone(),values.clone()));}
                 b.insert("values",values);
-                if atomic {b.insert("scope_prefix",format!("{}|{field}|",relation.name()));preparation.push("LET $__compiler_scope_filter = $values.map(|$value| $scope_prefix + <string>$value)".into());"scope_keys CONTAINSANY $__compiler_scope_filter".into()}
+                if atomic {crate::prepared::prepare_scope(&mut preparation,"__compiler_scope_filter","$relation",&field,"$values");"scope_keys CONTAINSANY $__compiler_scope_filter".into()}
                 else {format!("body.`{field}` IN $values")}
             },
             Some(NativePredicate::FieldSql{field,values,sql,bindings,preparation:prepared})=>{
-                if !relation.fields().iter().any(|f|f.name()==field) || !crate::schema::atomic_scope_fields().contains(field.as_str()) || values.iter().any(|value|matches!(value,Value::Null|Value::None)) {return Err(ModelError::Conflict("native selected atomic field"));}
-                atomic_field=Some((field.clone(),values.clone()));b.extend(bindings);preparation=prepared;b.insert("values",values);b.insert("scope_prefix",format!("{}|{field}|",relation.name()));
-                preparation.push("LET $__compiler_scope_filter = $values.map(|$value| $scope_prefix + <string>$value)".into());
+                if !relation.fields().iter().any(|f|f.name()==field) || !crate::schema::atomic_scope_field(relation.name(),field.as_str()) || values.iter().any(|value|matches!(value,Value::Null|Value::None)) {return Err(ModelError::Conflict("native selected atomic field"));}
+                atomic_field=Some((field.clone(),values.clone()));b.extend(bindings);preparation=prepared;b.insert("values",values);
+                crate::prepared::prepare_scope(&mut preparation,"__compiler_scope_filter","$relation",&field,"$values");
                 format!("scope_keys CONTAINSANY $__compiler_scope_filter AND ({sql})")
             },
             Some(NativePredicate::Sql{sql,bindings,preparation:prepared})=>{b.extend(bindings);preparation=prepared;sql},
@@ -756,54 +848,29 @@ impl NativeCompilerStore {
         // Exact empty demand still passes the owner, view and shape checks above. There is
         // no physical stream to hold or drain, and no fabricated transport receipt. Internal
         // SQL predicates keep their ordinary execution/error semantics.
-        if empty {return Ok(CompilerRows{rows:None,selection:None,store:self.clone(),lease:None});}
+        if empty {return Ok(CompilerRows{rows:None,selection:None,graph:None,store:self.clone(),lease:None});}
         if let Some(mut keys)=explicit_keys {
             keys.sort_unstable();keys.dedup();
-            return self.track_selection(SelectionKeys::Known(keys.into_iter()),view,relation,projections.join(","),predicate,b,preparation);
+            return self.track_selection(SelectionKeys::Known(keys.into_iter()),view,relation,projections.join(","),predicate,b,preparation,budget);
         }
+        let mut sorted=AsyncCandidateSort::new_registered(budget,self.blocking_owner()?,self.blocking_observer()?).await?;
         if let Some((field,values))=atomic_field {
-            let table=compiler_table(relation.name());
-            let mut sql=String::new();let mut selections=Vec::new();
-            // Locked3.3 expands at most32 containment values. Exclude the competing semantic-
-            // family prefix index so each finite scope window actually drives by_scope.
-            for (index,window) in values.chunks(32).enumerate(){
-                let binding=format!("__compiler_scope_{index}");b.insert(binding.clone(),window.to_vec());
-                let selected=format!("$__compiler_scope_nodes_{index}");
-                // The planner cannot index an inline map expression. Compute this compact
-                // constant first, retaining the same native cast as the scope-key schema.
-                let scope_keys=format!("$__compiler_scope_keys_{index}");
-                sql.push_str(&format!("LET {scope_keys} = ${binding}.map(|$value| '{}|{field}|'+<string>$value); LET {selected} = (SELECT VALUE id FROM {table} WITH INDEX by_scope WHERE semantic_type=$relation AND scope_keys CONTAINSANY {scope_keys});",relation.name()));
-                selections.push(selected);
+            let table=crate::schema::ScopeTable::for_relation(relation.name())?.name();
+            for value in values {
+                let mut bindings=Variables::new();bindings.insert("relation",relation.name().to_string());bindings.insert("value",value);
+                let constant=crate::prepared::scope_constant("$relation",&field,"$value");
+                let sql=format!("LET $__compiler_scope = {constant}; SELECT semantic_type AS relation,semantic_key,id AS node FROM {table} WITH INDEX by_scope WHERE scope_keys CONTAINS $__compiler_scope AND semantic_type=$relation");
+                let mut rows=self.track_rows(prepared_rows(&self.client,sql,bindings,2)?)?;
+                while let Some(row)=rows.next_native().await? {sorted.push(decode_candidate(row,relation.name())?).await?;}
             }
-            let statements=selections.len()*2+2;
-            sql.push_str(&format!("LET $__compiler_scope_nodes = array::distinct(array::flatten([{}])); SELECT semantic_key FROM $__compiler_scope_nodes GROUP BY semantic_key ORDER BY semantic_key",selections.join(",")));
-            let rows=self.track_rows(NativeRows::new(final_statement_rows(self.client.query(sql).bind(b.clone()).stream_items().map_err(ModelError::codec)?,statements),statements)?)?;
-            return self.track_selection(SelectionKeys::Native(rows),view,relation,projections.join(","),predicate,b,preparation);
+        } else {
+            for owner in self.view_owners(view)? {
+                let mut bindings=Variables::new();bindings.insert("relation",relation.name().to_string());bindings.insert("owner",RecordId::new("compiler_contribution",owner.hex()));
+                let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT relation,semantic_key,node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation").bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
+                while let Some(row)=rows.next_native().await? {sorted.push(decode_candidate(row,relation.name())?).await?;}
+            }
         }
-        // Start with exact selected keys, then fetch their immutable payloads. Membership overlap
-        // is deduplicated before rich hydration; private pending rows never enter this query.
-        let table=compiler_table(relation.name());
-        // Resolve compact candidates and completed owners once, rather than reevaluating nested
-        // subqueries for every physical row. Only the exact deduplicated membership record IDs
-        // become payload targets; projection and original hydration happen after selection.
-        b.insert("__compiler_owners",self.view_owners(view)?.iter().map(|id|RecordId::new("compiler_contribution",id.hex())).collect::<Vec<_>>());
-        let mut sql=preparation.iter().map(|statement|format!("{statement};")).collect::<String>();
-        let mut statements=preparation.len();
-        let candidate=if selected {
-            sql.push_str(&format!("LET $__compiler_candidates = (SELECT VALUE semantic_key FROM {table} WHERE semantic_type=$relation AND ({predicate}));"));
-            statements+=1;
-            "AND semantic_key IN $__compiler_candidates".to_string()
-        } else {String::new()};
-        sql.push_str(&format!("LET $__compiler_nodes = (SELECT VALUE node FROM compiler_membership WHERE relation=$relation {candidate} AND contribution IN $__compiler_owners GROUP BY node);"));
-        statements+=1;
-        sql.push_str(&format!("SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation ORDER BY semantic_key",projections.join(",")));
-        statements+=1;
-        let stream=self.client.query(sql).bind(b).stream_items().map_err(ModelError::codec)?;
-        // LET emits a scalar NONE through the SDK row stream. Keep all statement terminals
-        // (including failures), and expose only the final SELECT's projected records.
-        let stream=final_statement_rows(stream,statements);
-        let rows=self.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?;
-        Ok(rows)
+        self.track_selection(SelectionKeys::Ordered(sorted.finish().await?),view,relation,projections.join(","),predicate,b,preparation,budget)
     }
     pub fn table_provider(self:&Arc<Self>,view:&CompletedView,relation:Relation,budget:d::resources::ResourceBudget,batch_rows:usize)->Result<Arc<dyn datafusion::catalog::TableProvider>,ModelError> {
         crate::compiler_provider::table_provider(self.clone(),view.clone(),relation,budget,batch_rows)
@@ -813,23 +880,19 @@ impl NativeCompilerStore {
     }
 }
 
-/// LET statements emit scalar NONE rows. Preserve every statement terminal/error and expose
-/// projected payloads only from the final SELECT, for both typed and canonical graph scans.
-fn final_statement_rows(stream:impl futures::Stream<Item=surrealdb::Result<surrealdb::method::StreamItem>>+Send+'static,statements:usize)->impl futures::Stream<Item=surrealdb::Result<surrealdb::method::StreamItem>>+Send {
-    stream.filter_map(move |item|async move {
-        match &item {
-            Ok(surrealdb::method::StreamItem::Row{statement,value}) if *statement<statements-1=>{
-                if matches!(value,Value::None){None}
-                else{Some(Err(surrealdb::Error::internal("native scan intermediate payload".into())))}
-            },
-            _=>Some(item),
-        }
-    })
+fn prepared_rows(client:&Surreal<Client>,sql:String,bindings:Variables,statements:usize)->Result<NativeRows,ModelError> {
+    crate::prepared::PreparedQuery::from_sql(sql,bindings,statements,vec![statements-1])?.stream(client)
 }
 
-pub struct CompilerRows {rows:Option<NativeRows>,selection:Option<Box<SelectedRows>>,store:Arc<NativeCompilerStore>,lease:Option<OperationLease>}
+pub struct CompilerRows {rows:Option<NativeRows>,selection:Option<Box<SelectedRows>>,graph:Option<Box<GraphRows>>,store:Arc<NativeCompilerStore>,lease:Option<OperationLease>}
 impl CompilerRows {
     pub async fn next(&mut self)->Result<Option<Value>,ModelError> {
+        if let Some(graph)=&mut self.graph {
+            let result=graph.next().await;
+            if result.is_err(){self.store.fail();}
+            if !matches!(&result,Ok(Some(_))) {self.graph.take();if let Some(lease)=self.lease.take(){lease.finish();}}
+            return result;
+        }
         if let Some(selection)=&mut self.selection {
             let result=selection.next().await;
             if result.is_err(){self.store.fail();}
@@ -841,25 +904,29 @@ impl CompilerRows {
     async fn next_native(&mut self)->Result<Option<Value>,ModelError> {
         let Some(rows)=&mut self.rows else {return Ok(None);};
         let result=rows.next().await.and_then(|row|row.map(hydrate_original_row).transpose());
-        if result.is_err() {self.store.fail();rows.drain_transport().await;}
+        let result=match result {
+            Ok(row)=>Ok(row),Err(error)=>{
+                self.store.fail();let primary=rows.remember_failure(error);
+                let mut completion=d::completion::Completion::default();
+                completion.step("native stream transport drainage",rows.drain_transport().await);
+                d::completion::complete(Err(primary),completion)
+            }
+        };
         if !matches!(&result,Ok(Some(_))) {self.rows.take();if let Some(lease)=self.lease.take(){lease.finish();}}
         result
     }
 }
 impl Drop for CompilerRows {
     fn drop(&mut self){
-        if self.selection.take().is_some() && let Some(lease)=self.lease.take(){lease.finish();}
+        if (self.selection.take().is_some() | self.graph.take().is_some()) && let Some(lease)=self.lease.take(){lease.finish();}
         if let Some(mut rows)=self.rows.take(){
             let store=self.store.clone();let lease=self.lease.take();
             self.store.runtime.spawn(async move{
-                loop {match rows.next().await {Ok(Some(_))=>{},Ok(None)=>break,Err(_)=>{store.fail();rows.drain_transport().await;break;}}}
+                loop {match rows.next().await {Ok(Some(_))=>{},Ok(None)=>break,Err(error)=>{store.record_background_failure(Arc::new(error));if let Err(error)=rows.drain_transport().await {store.record_background_failure(Arc::new(error));}break;}}}
                 if let Some(lease)=lease{lease.finish();}
             });
         }
     }
-}
-fn compiler_table(relation:&str)->&'static str {
-    if crate::schema::compiler_relations().iter().any(|declared|declared.name()==relation) {"compiler_record"} else if relation_is_entity(relation) {"entity"} else {"assertion"}
 }
 fn membership_id(contribution:ContentHash,relation:&str,key:&[u8])->RecordId {
     let mut sink=KeySink::new("compiler-membership/v1");contribution.encode(&mut sink);relation.to_string().encode(&mut sink);sink.part(b"key",key);
@@ -900,11 +967,12 @@ impl MembershipLookup {
         }
     }
 }
-enum SelectionKeys {Known(std::vec::IntoIter<[u8;16]>),Native(CompilerRows)}
+enum SelectionKeys {Known(std::vec::IntoIter<[u8;16]>),Ordered(AsyncOrderedCandidates)}
 struct SelectedRows {
     keys:SelectionKeys,owners:Vec<ContentHash>,relation:String,fields:String,predicate:String,bindings:Variables,
     preparation:Vec<String>,
     store:Arc<NativeCompilerStore>,lookup:Option<MembershipLookup>,payload:Option<CompilerRows>,pending_keys:Vec<[u8;16]>,
+    pointers:BTreeMap<String,RecordId>,_transfer:Box<dyn Reservation>,
 }
 impl SelectedRows {
     async fn next(&mut self)->Result<Option<Value>,ModelError>{
@@ -916,40 +984,68 @@ impl SelectedRows {
             }
             if let Some(lookup)=&mut self.lookup {
                 let nodes=lookup.collect().await?;self.lookup.take();
+                for (key,node) in &nodes {if let Some(expected)=self.pointers.get(key) && expected!=node {return Err(ModelError::Conflict("selected candidate backing collision"));}}
+                self.pointers.clear();
                 if nodes.is_empty(){continue;}
                 let mut bindings=self.bindings.clone();bindings.insert("__compiler_nodes",nodes.into_values().collect::<Vec<_>>());
                 let prelude=self.preparation.iter().map(|statement|format!("{statement};")).collect::<String>();
                 let statements=self.preparation.len()+1;
                 let sql=format!("{prelude}SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",self.fields,self.predicate);
-                let stream=final_statement_rows(self.store.client.query(sql).bind(bindings).stream_items().map_err(ModelError::codec)?,statements);
-                self.payload=Some(self.store.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?);
+                self.payload=Some(self.store.track_rows(prepared_rows(&self.store.client,sql,bindings,statements)?.with_row_bytes(64<<20))?);
                 continue;
             }
             match &mut self.keys {
                 SelectionKeys::Known(source)=>self.pending_keys.extend(source.by_ref().take(window_rows)),
-                SelectionKeys::Native(source)=>{
-                    while self.pending_keys.len()<window_rows {
-                        let Some(row)=source.next_native().await? else{break;};
-                        let Some(Value::String(key))=value_object(&row).and_then(|row|row.get("semantic_key")) else{return Err(ModelError::Schema("native selected key"));};
-                        self.pending_keys.push(decode_nominal_key(key)?);
+                SelectionKeys::Ordered(source)=>{
+                    for candidate in source.next_batch(window_rows).await? {
+                        if candidate.relation!=self.relation{return Err(ModelError::Conflict("ordered candidate relation"));}
+                        self.pointers.insert(hex::encode(candidate.key),candidate.node);self.pending_keys.push(candidate.key);
                     }
-                    if self.pending_keys.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Conflict("native selected key order"));}
                 },
             }
             if self.pending_keys.is_empty(){return Ok(None);}
+            if self.pending_keys.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Conflict("native selected key order"));}
             let keys=std::mem::replace(&mut self.pending_keys,Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS));
-            if keys.len().saturating_mul(self.owners.len())<=crate::loader::NATIVE_WINDOW_ROWS {
-                let ids=self.owners.iter().flat_map(|owner|keys.iter().map(|key|membership_id(*owner,&self.relation,key))).collect::<Vec<_>>();
-                let mut bindings=self.bindings.clone();bindings.insert("__compiler_member_ids",ids);bindings.insert("__compiler_keys",keys.iter().map(hex::encode).collect::<Vec<_>>());
-                bindings.insert("__compiler_owners",self.owners.iter().map(|owner|RecordId::new("compiler_contribution",owner.hex())).collect::<Vec<_>>());
-                let prelude=self.preparation.iter().map(|statement|format!("{statement};")).collect::<String>();
-                let statements=self.preparation.len()+2;
-                let sql=format!("{prelude}LET $__compiler_nodes = (SELECT VALUE node FROM $__compiler_member_ids WHERE relation=$relation AND semantic_key IN $__compiler_keys AND contribution IN $__compiler_owners GROUP BY node); SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",self.fields,self.predicate);
-                let stream=final_statement_rows(self.store.client.query(sql).bind(bindings).stream_items().map_err(ModelError::codec)?,statements);
-                self.payload=Some(self.store.track_rows(NativeRows::new(stream,statements)?.with_row_bytes(64<<20))?);
-            } else {self.lookup=Some(MembershipLookup::new(self.store.clone(),self.relation.clone(),keys,self.owners.clone()));}
+            self.lookup=Some(MembershipLookup::new(self.store.clone(),self.relation.clone(),keys,self.owners.clone()));
         }
     }
+}
+struct GraphRows {
+    ordered:AsyncOrderedRows,payload:Option<CompilerRows>,store:Arc<NativeCompilerStore>,fields:String,
+    expected:std::collections::VecDeque<RecordId>,_transfer:Box<dyn Reservation>,
+}
+impl GraphRows {
+    async fn next(&mut self)->Result<Option<Value>,ModelError>{
+        loop {
+            if let Some(payload)=&mut self.payload {
+                if let Some(row)=payload.next_native().await? {
+                    let expected=self.expected.pop_front().ok_or(ModelError::Conflict("unexpected canonical graph row"))?;
+                    if value_object(&row).and_then(|row|row.get("id"))!=Some(&Value::RecordId(expected)){return Err(ModelError::Conflict("canonical graph pointer order"));}
+                    return Ok(Some(row));
+                }
+                if !self.expected.is_empty(){return Err(ModelError::Conflict("missing canonical graph backing"));}
+                self.payload.take();
+            }
+            let pointers=self.ordered.next_batch(crate::loader::NATIVE_WINDOW_ROWS).await?;
+            if pointers.is_empty(){return Ok(None);}
+            for pointer in pointers {
+                let Some(Value::RecordId(node))=value_object(&pointer).and_then(|row|row.get("id")) else{return Err(ModelError::Schema("canonical ordered pointer"));};
+                self.expected.push_back(node.clone());
+            }
+            let mut bindings=Variables::new();bindings.insert("nodes",self.expected.iter().cloned().collect::<Vec<_>>());
+            self.payload=Some(self.store.track_rows(NativeRows::new(self.store.client.query(format!("SELECT {} FROM $nodes ORDER BY id",self.fields)).bind(bindings).stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(64<<20))?);
+        }
+    }
+}
+fn pointer_row(node:RecordId)->Value{let mut row=Object::new();row.insert("id",node);Value::Object(row)}
+fn decode_candidate(row:Value,relation:&str)->Result<Candidate,ModelError>{
+    let object=value_object(&row).ok_or(ModelError::Schema("native compact candidate"))?;
+    let Some(Value::String(actual))=object.get("relation") else{return Err(ModelError::Schema("candidate relation"));};
+    if actual!=relation{return Err(ModelError::Conflict("native candidate relation"));}
+    let Some(Value::String(key))=object.get("semantic_key") else{return Err(ModelError::Schema("candidate nominal key"));};
+    let Some(Value::RecordId(node))=object.get("node") else{return Err(ModelError::Schema("candidate backing pointer"));};
+    if node.table.as_str()!=crate::schema::ScopeTable::for_relation(relation)?.name(){return Err(ModelError::Conflict("candidate backing family"));}
+    Ok(Candidate{relation:actual.clone(),key:decode_nominal_key(key)?,node:node.clone()})
 }
 
 #[derive(Clone)]
@@ -966,8 +1062,6 @@ fn decode_descriptor<T:serde::de::DeserializeOwned>(row:&Value)->Result<T,ModelE
 }
 
 
-macro_rules! entity_names {($($variant:ident:$ty:ty,)*)=>{fn relation_is_entity(name:&str)->bool {[$(<$ty>::NAME,)*].contains(&name)}};}
-lctx_model::graph_entity_records!(entity_names);
 
 const STATE_TABLES:[&str;6]=["compiler_contribution","compiler_membership","compiler_view","compiler_record","compiler_binding","compiler_alias"];
 #[derive(Serialize,Deserialize)]
@@ -1051,6 +1145,10 @@ fn validate_compiler_backing(row:&Object,id:&RecordId)->Result<Option<OriginalBa
         return Err(ModelError::Conflict("compiler backing canonical body"));
     }
     if row.get("content")!=Some(&Value::String(ContentHash::of(canonical).hex())) {return Err(ModelError::Conflict("compiler backing content"));}
+    let mut expected=Object::new();
+    crate::reconciliation::add_scope_fields(&mut expected,&canonical_body,name,crate::schema::ScopeTable::CompilerRecord)?;
+    let actual=row.iter().filter(|(field,_)|field.starts_with("scope_")).map(|(field,value)|(field.clone(),value.clone())).collect::<Object>();
+    if actual!=expected {return Err(ModelError::Conflict("compiler backing derived scope"));}
     Ok(original)
 }
 fn require_backing_fields(body:&Object,fields:&[&str])->Result<(),ModelError> {
@@ -1143,4 +1241,80 @@ fn admit_backing_row(pending:&mut Vec<Value>,bytes:&mut usize,row:Value)->Result
         validate_backing_batch(pending)?;pending.clear();*bytes=0;
     }
     *bytes=bytes.saturating_add(weight);pending.push(row);Ok(())
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    fn local_store()->Arc<NativeCompilerStore> {
+        NativeCompilerStore::from_existing(Arc::new(Surreal::init()),d::serving::Name::new("local_control").unwrap(),d::serving::Name::new("owned_control").unwrap())
+    }
+    #[tokio::test]
+    async fn failed_write_transport_retains_cause_and_unknown_acknowledgement() {
+        let store=local_store();let lease=store.admit(false).unwrap();
+        let error=crate::loader::write_failure(surrealdb::Error::internal("injected transport failure".into()));
+        assert!(matches!(error.primary(),Some(ModelError::Cause(cause)) if cause.downcast_ref::<surrealdb::Error>().is_some()));
+        assert!(!error.permits_storage_cleanup());let result=Err::<(),_>(error);lease.finish_with(&result);
+        let completion=store.drain_report().await;
+        assert_eq!(completion.local,d::completion::LocalState::Terminal);assert_eq!(completion.remote,d::completion::RemoteState::Unknown);
+    }
+    #[tokio::test]
+    async fn local_terminal_drain_retains_unknown_native_acknowledgement() {
+        let store=local_store();let lease=store.admit(false).unwrap();drop(lease);
+        let completion=store.drain_report().await;
+        assert_eq!(completion.local,d::completion::LocalState::Terminal);
+        assert_eq!(completion.remote,d::completion::RemoteState::Unknown);
+        assert_eq!(completion.failures.len(),1);assert!(store.end_writes().await.is_err());
+    }
+    #[tokio::test]
+    async fn interrupted_native_drain_keeps_admission_for_acknowledged_retry() {
+        let store=local_store();let lease=store.admit(false).unwrap();
+        let owner=store.clone();let first=tokio::spawn(async move{owner.drain_report().await});
+        tokio::task::yield_now().await;assert!(!first.is_finished());first.abort();assert!(first.await.is_err());
+        lease.finish();let completion=store.drain_report().await;
+        assert_eq!(completion.local,d::completion::LocalState::Terminal);
+        assert_eq!(completion.remote,d::completion::RemoteState::Confirmed);assert!(completion.failures.is_empty());
+    }
+    #[tokio::test]
+    async fn local_sort_worker_failure_remains_typed_in_compiler_finalization() {
+        let store=local_store();let budget=ResourceBudget::fixed(1024).unwrap();
+        assert!(AsyncCandidateSort::new_registered(&budget,store.blocking_owner().unwrap(),store.blocking_observer().unwrap()).await.is_err());
+        let completion=store.drain_report().await;
+        assert_eq!(completion.local,d::completion::LocalState::Terminal);assert_eq!(completion.remote,d::completion::RemoteState::Confirmed);
+        assert!(completion.failures.iter().any(|failure|matches!(failure.error.primary(),Some(ModelError::Resource{owner:"ordered-command-owner",..}))));
+        assert_eq!(budget.reserved(),0);
+    }
+    #[tokio::test]
+    async fn cancelled_native_failure_drain_retains_typed_primary_and_late_error() {
+        use futures::StreamExt;
+        let store=local_store();let (release,gate)=tokio::sync::oneshot::channel::<()>();
+        let initial=futures::stream::iter(vec![Ok(surrealdb::method::StreamItem::StatementEnd{statement:0,stats:Default::default(),result:Err(surrealdb::Error::query("owned primary refusal".into(),None))}),Err(surrealdb::Error::internal("owned late transport error".into()))]);
+        let tail=futures::stream::once(async move{gate.await.unwrap();Ok(surrealdb::method::StreamItem::StatementEnd{statement:1,stats:Default::default(),result:Ok(())})});
+        let mut rows=store.track_rows(NativeRows::new(initial.chain(tail),2).unwrap()).unwrap();
+        let mut next=Box::pin(rows.next());assert!(futures::poll!(&mut next).is_pending());drop(next);drop(rows);
+        let mut drain=Box::pin(store.drain_report());assert!(futures::poll!(&mut drain).is_pending());release.send(()).unwrap();
+        let completion=drain.await;assert_eq!(completion.local,d::completion::LocalState::Terminal);assert_eq!(completion.remote,d::completion::RemoteState::Confirmed);
+        assert!(completion.failures.iter().any(|failure|matches!(failure.error.primary(),Some(ModelError::Cause(cause)) if cause.downcast_ref::<surrealdb::Error>().is_some() && cause.to_string().contains("owned primary refusal"))));
+        assert!(completion.failures.iter().any(|failure|failure.error.to_string().contains("owned late transport error")));
+    }
+}
+
+#[cfg(test)]
+mod compiler_scope_tests {
+    use super::*;
+    #[test]
+    fn canonical_compiler_backing_rejects_imported_scope_and_retired_scalars() {
+        let record=d::analytics::QualityStep{run:serde_json::from_value(serde_json::to_value([7u8;16]).unwrap()).unwrap(),ordinal:0,value:d::FiniteF64::new(0.5).unwrap()};
+        let relation=Relation::of::<d::analytics::QualityStep>();
+        let body=crate::codec::batch_bodies(&relation,&d::analytics::QualityStep::encode(std::slice::from_ref(&record)).unwrap()).unwrap().pop().unwrap();
+        let canonical=serde_json::to_vec(&body).unwrap();
+        let mut sink=KeySink::new("compiler-backing-key/v1");relation.name().to_string().encode(&mut sink);sink.part(b"key",record.id().bytes());
+        let id=RecordId::new("compiler_record",sink.finish().hex());
+        let mut row=Object::new();row.insert("id",id.clone());row.insert("semantic_type",relation.name().to_string());row.insert("semantic_key",hex::encode(record.id().bytes()));row.insert("body",body);row.insert("canonical",Bytes::from(canonical.clone()));row.insert("content",ContentHash::of(&canonical).hex());
+        let expected=format!("{}|run|{}",relation.name(),Value::from_t(vec![7i64;16]).to_sql());
+        row.insert("scope_keys",vec![expected]);
+        assert!(validate_compiler_backing(&row,&id).unwrap().is_none());
+        row.insert("scope_run","retired scalar");assert!(validate_compiler_backing(&row,&id).is_err());row.remove("scope_run");
+        row.insert("scope_keys",vec!["imported wrong key"]);assert!(validate_compiler_backing(&row,&id).is_err());
+    }
 }

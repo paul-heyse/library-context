@@ -1,7 +1,8 @@
 //! C0 execution consumes completed native/normalized authorities. No flow or brief producer.
+use crate::producer_operations::{self, Declaration};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use datafusion::execution::context::SessionContext;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, future::BoxFuture};
 use lctx_model::domain::stages::ProviderOutcome;
 use lctx_model::domain::{
     analysis::{self, catalog_core::*},
@@ -13,26 +14,90 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
-async fn inventory<R: Record>(
-    access: &CompletedInputs,
-    session: &SessionContext,
-    consumed: &mut crate::consumed_rows::ConsumedInputs,
-    admission: &mut analysis::expected::CoverageAdmission<'_>,
-    mut visit: impl FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError>,
-) -> Result<(), ModelError> {
-    while let Some((input, permit)) = consumed.next::<R>(access)? {
-        if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
-            .await?
-        {
-            continue;
+struct Metadata {
+    definitions: Rows<analysis::AnalysisDefinition>,
+    parameters: Rows<analysis::MethodParameters>,
+    runs: Rows<attribution::ProviderRun>,
+}
+type InventoryLoader = for<'a, 'sources> fn(
+    &'a CompletedInputs,
+    &'a SessionContext,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut analysis::expected::CoverageAdmission<'sources>,
+    &'a mut Metadata,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn inventory<'a, 'sources, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+    metadata: &'a mut Metadata,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+                .await?
+            {
+                continue;
+            }
+            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+                admission.visit_if_expected(permit, batch)?;
+                if R::NAME == analysis::AnalysisDefinition::NAME {
+                    metadata.definitions.decode(batch)?;
+                }
+                if R::NAME == analysis::MethodParameters::NAME {
+                    metadata.parameters.decode(batch)?;
+                }
+                if R::NAME == attribution::ProviderRun::NAME {
+                    metadata.runs.decode(batch)?;
+                }
+                Ok(())
+            })
+            .await?;
         }
-        crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
-            admission.visit_if_expected(permit, batch)?;
-            visit(batch)
-        })
-        .await?;
-    }
-    Ok(())
+        Ok(())
+    })
+}
+fn load_metadata<'a, 'sources>(
+    access: &'a CompletedInputs,
+    session: &'a SessionContext,
+    runtime: &'a Workspace,
+    admission: &'a mut analysis::expected::CoverageAdmission<'sources>,
+) -> BoxFuture<'a, Result<Metadata, ModelError>> {
+    Box::pin(async move {
+        let mut metadata = Metadata {
+            definitions: Rows::new(runtime.budget()),
+            parameters: Rows::new(runtime.budget()),
+            runs: Rows::new(runtime.budget()),
+        };
+        let mut declarations = CatalogData::validation_inputs();
+        declarations.extend(analysis::expected::inputs(build::definition().1.method));
+        declarations.extend([
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+            ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+        ]);
+        let mut consumed =
+            crate::consumed_rows::ConsumedInputs::new(declarations, runtime.budget())?;
+        macro_rules! read {($($field:ident:$ty:ty,)*)=>{{
+            const LOADERS:&[InventoryLoader]=&[$(inventory::<$ty>,)*];
+            for load in LOADERS {load(access,session,&mut consumed,admission,&mut metadata).await?;}
+        }};}
+        lctx_model::catalog_inputs!(read);
+        lctx_model::expected_domain_inputs!(read);
+        read! {definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,runs:attribution::ProviderRun,}
+        consumed.finish(access.name())?;
+        Ok(metadata)
+    })
+}
+fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelError>> {
+    Box::pin(async move {
+        macro_rules! declare {($($field:ident:$ty:ty,)*)=>{{const DECLARATIONS:&[Declaration]=&[$(producer_operations::declare::<$ty>,)*];producer_operations::declare_ordered(output,DECLARATIONS).await?;}};}
+        lctx_model::catalog_outputs!(declare);
+        macro_rules! common {($($record:ident,)*)=>{{const DECLARATIONS:&[Declaration]=&[$(producer_operations::declare::<analysis::catalog_core::$record>,)*];producer_operations::declare_ordered(output,DECLARATIONS).await?;}};}
+        lctx_model::analysis_publication!(common);
+        producer_operations::declare::<catalog::CatalogMemberInvocation>(output).await
+    })
 }
 /// Internal stage entry; public catalog frontiers are assembled separately by F0.
 pub async fn produce(
@@ -48,44 +113,19 @@ pub async fn produce(
     )?;
     let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
     let session = access.session(runtime).await?;
-    let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
-    let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
-    let mut runs = Rows::<attribution::ProviderRun>::new(runtime.budget());
-    let mut declarations = CatalogData::validation_inputs();
-    declarations.extend(analysis::expected::inputs(build::definition().1.method));
-    declarations.extend([
-        ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
-        ValidationInput::of::<analysis::MethodParameters>(&["id"]),
-        ValidationInput::of::<attribution::ProviderRun>(&["id"]),
-    ]);
-    let mut consumed = crate::consumed_rows::ConsumedInputs::new(declarations, runtime.budget())?;
-    macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(inventory::<$ty>(&access,&session,&mut consumed,&mut admission,|batch|{
-        if <$ty>::NAME==analysis::AnalysisDefinition::NAME{definitions.decode(batch)?;}
-        if <$ty>::NAME==analysis::MethodParameters::NAME{parameters.decode(batch)?;}
-        if <$ty>::NAME==attribution::ProviderRun::NAME{runs.decode(batch)?;}
-        Ok(())
-    }).await?;)*};}
-    lctx_model::catalog_inputs!(read);
-    lctx_model::expected_domain_inputs!(read);
-    read! {definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,runs:attribution::ProviderRun,}
-    consumed.finish(access.name())?;
+    let metadata = load_metadata(&access, &session, runtime, &mut admission).await?;
     let (expected_parameters, definition) = build::definition();
-    if definitions.get(definition.id()) != Some(&definition)
-        || parameters.get(expected_parameters.id()) != Some(&expected_parameters)
+    if metadata.definitions.get(definition.id()) != Some(&definition)
+        || metadata.parameters.get(expected_parameters.id()) != Some(&expected_parameters)
     {
         return Err(ModelError::Invalid(
             "catalog requires its completed authored definition".into(),
         ));
     }
-    macro_rules! declare_outputs {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    lctx_model::catalog_outputs!(declare_outputs);
-    macro_rules! declare {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<analysis::catalog_core::$record>().await?;)*};}
-    lctx_model::analysis_publication!(common_publication);
-    declare!(catalog::CatalogMemberInvocation);
+    declare_outputs(&output).await?;
     let mut frames = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(runtime.budget(), "catalog-computation-frames");
-    for run in runs.iter() {
+    for run in metadata.runs.iter() {
         frames.insert(&mut charge, (run.input, run.context))?;
     }
     let mut invocations = Rows::new(runtime.budget());
@@ -147,9 +187,7 @@ pub async fn produce(
         invocations.insert(invocation)?;
     }
     drop(frames);
-    drop(runs);
-    drop(definitions);
-    drop(parameters);
+    drop(metadata);
     drop(charge);
     let scopes = crate::catalog_core_scope::CatalogScopes::prepare(
         &access,
@@ -200,18 +238,7 @@ pub async fn produce(
                 .edges
                 .grain(scopes.root, &predicate, runtime.budget())
                 .await?;
-            let mut data = CatalogData::new(runtime.budget());
-            let mut consumed =
-                crate::consumed_rows::ConsumedInputs::new(scopes.inputs.clone(), runtime.budget())?;
-            macro_rules! scoped_inputs {($($field:ident:$ty:ty,)*)=>{$(
-                while let Some((input,permit))=consumed.next::<$ty>(&access)? {
-                    let table=scopes.inputs.iter().position(|candidate|candidate.type_id()==input.type_id()&&candidate.prefix()==input.prefix())
-                        .ok_or(ModelError::Conflict("C0 scoped input declaration"))?;
-                    crate::consumed_rows::stream_query_at(&permit,&input,scope.session(),&scope.select(table)?,|_,batch|{data.visit(input.name(),batch)?;Ok(())}).await?;
-                }
-            )*};}
-            lctx_model::catalog_inputs!(scoped_inputs);
-            consumed.finish(access.name())?;
+            let data = load_scope(&scopes, &scope, &access, runtime).await?;
             drop(scope);
             let budget = runtime.budget().clone();
             let (data, rows) = tokio::task::spawn_blocking(move || {
@@ -222,8 +249,7 @@ pub async fn produce(
             .map_err(ModelError::codec)??;
             let links = build::invocation_links(&data, &rows, &invocations, runtime.budget())?;
             drop(data);
-            macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
-            lctx_model::catalog_outputs!(write);
+            emit_rows(&rows, &output).await?;
             for link in links.iter() {
                 output.push(link.clone()).await?;
             }
@@ -238,4 +264,74 @@ pub async fn produce(
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await
+}
+
+type ScopedLoader = for<'a> fn(
+    &'a crate::catalog_core_scope::CatalogScopes,
+    &'a crate::consumed_rows::PreparedClosure,
+    &'a CompletedInputs,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut CatalogData,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn load_record<'a, R: Record>(
+    scopes: &'a crate::catalog_core_scope::CatalogScopes,
+    scope: &'a crate::consumed_rows::PreparedClosure,
+    access: &'a CompletedInputs,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    data: &'a mut CatalogData,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            let table = scopes
+                .inputs
+                .iter()
+                .position(|candidate| {
+                    candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
+                })
+                .ok_or(ModelError::Conflict("C0 scoped input declaration"))?;
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                &input,
+                access,
+                scope.session(),
+                &scope.select(table)?,
+                |_, batch| {
+                    data.visit(input.name(), batch)?;
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn load_scope<'a>(
+    scopes: &'a crate::catalog_core_scope::CatalogScopes,
+    scope: &'a crate::consumed_rows::PreparedClosure,
+    access: &'a CompletedInputs,
+    runtime: &'a Workspace,
+) -> BoxFuture<'a, Result<CatalogData, ModelError>> {
+    Box::pin(async move {
+        let mut data = CatalogData::new(runtime.budget());
+        let mut consumed =
+            crate::consumed_rows::ConsumedInputs::new(scopes.inputs.clone(), runtime.budget())?;
+        macro_rules! read {($($field:ident:$ty:ty,)*)=>{{const LOADERS:&[ScopedLoader]=&[$(load_record::<$ty>,)*];for load in LOADERS{load(scopes,scope,access,&mut consumed,&mut data).await?;}}};}
+        lctx_model::catalog_inputs!(read);
+        consumed.finish(access.name())?;
+        Ok(data)
+    })
+}
+type Emitter = for<'a> fn(
+    &'a build::CatalogOutput,
+    &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn emit_rows<'a>(
+    rows: &'a build::CatalogOutput,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        macro_rules! emit {($($field:ident:$ty:ty,)*)=>{{const EMITTERS:&[Emitter]=&[$(|rows,output|producer_operations::emit(&rows.$field,output),)*];for emit in EMITTERS{emit(rows,output).await?;}}};}
+        lctx_model::catalog_outputs!(emit);
+        Ok(())
+    })
 }

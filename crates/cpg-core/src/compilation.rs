@@ -551,6 +551,7 @@ fn boxed_driver<'a>(
         prepared,
         embedder,
         cache,
+        None,
     )
     .boxed()
 }
@@ -568,11 +569,12 @@ async fn compile_driver(
     prepared: Option<&PreparedCompilation>,
     embedder: Option<&dyn Embedder>,
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
+    providers: Option<Vec<Box<dyn ProviderStage<ProducerOutput>>>>,
 ) -> Result<(), ModelError> {
     workspace.native().set_frontier(frontier)?;
     let model = workspace.model();
     let capture_identity = workspace.captures(&captured)?;
-    let providers = facts::providers(configuration);
+    let providers = providers.unwrap_or_else(|| facts::providers(configuration));
     // Plan every declaration before running native effects. The schedule is static dependency
     // metadata only; completed streams, not execution grants, supply runtime inputs.
     let schedule = if let Some(prepared) = prepared {
@@ -707,7 +709,8 @@ async fn compile_driver(
             prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
         if !binding.graphs(profile).is_empty()
             && (binding != UpperStage::Analytic || analytics::build::requested(prepared.settings()))
-            && graphs.is_none() {
+            && graphs.is_none()
+        {
             graphs = Some(
                 PreparedGraphs::load(
                     &access,
@@ -872,14 +875,7 @@ async fn compile_driver(
                 .await?
             }
             UpperStage::Analytic => {
-                crate::analytic::produce(
-                    access,
-                    output,
-                    workspace,
-                    model,
-                    graphs.as_ref(),
-                )
-                .await?
+                crate::analytic::produce(access, output, workspace, model, graphs.as_ref()).await?
             }
             UpperStage::AnalysisFrontier => {
                 crate::final_coverage::produce(
@@ -920,6 +916,228 @@ async fn compile_driver(
 #[cfg(test)]
 mod publication_tests {
     use super::*;
+    use crate::{artifact, workspace::WorkspaceOptions};
+    use lctx_model::domain as d;
+
+    struct RawSourceSpanProvider {
+        provider: Box<dyn ProviderStage<ProducerOutput>>,
+        evidence: d::assertion::Evidence,
+    }
+    impl cpg_extract::bundle::Declared for RawSourceSpanProvider {
+        fn declaration(&self, profile: Profile) -> Stage {
+            let mut stage = self.provider.declaration(profile);
+            let mut code = KeySink::new("raw-source-span-fixture/v1");
+            code.part(b"delegate", &stage.code.0);
+            code.part(b"fixture", include_str!("compilation.rs").as_bytes());
+            stage.code = code.finish();
+            stage
+        }
+    }
+    impl ProviderStage<ProducerOutput> for RawSourceSpanProvider {
+        fn run(
+            &mut self,
+            context: &mut cpg_extract::bundle::StageContext<ProducerOutput>,
+        ) -> Result<ProviderOutcome, ModelError> {
+            let outcome = self.provider.run(context)?;
+            let d::assertion::Evidence::SourceSpan { source, .. } = &self.evidence else {
+                return Err(ModelError::Invalid(
+                    "fixture requires an exact source span".into(),
+                ));
+            };
+            let mut found = false;
+            for batch in context.input::<d::source::SourceArtifact>()? {
+                found |= batch?.rows().iter().any(|row| row.id() == *source);
+            }
+            if !found {
+                return Err(ModelError::Invalid(
+                    "fixture evidence source is not acquired".into(),
+                ));
+            }
+            context.contribute(self.evidence.clone())?;
+            Ok(outcome)
+        }
+    }
+
+    fn transported<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> Vec<T> {
+        use datafusion::arrow::{array::BinaryArray, ipc::reader::FileReader};
+        FileReader::try_new(std::fs::File::open(path).unwrap(), None)
+            .unwrap()
+            .flat_map(|batch| {
+                let batch = batch.unwrap();
+                let payload = batch
+                    .column_by_name("payload")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .unwrap();
+                (0..batch.num_rows())
+                    .map(|row| serde_json::from_slice(payload.value(row)).unwrap())
+                    .collect::<Vec<T>>()
+            })
+            .collect()
+    }
+    fn completed_rows<R: lctx_model::domain::Record>(workspace: &Workspace) -> Vec<R> {
+        workspace
+            .completed::<R>()
+            .unwrap()
+            .batches()
+            .unwrap()
+            .flat_map(|batch| R::decode(&batch.unwrap()).unwrap())
+            .collect()
+    }
+    #[tokio::test]
+    async fn raw_original_bytes_and_half_open_span_survive_artifact_transport() {
+        use cpg_extract::{
+            acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput,
+        };
+        use lctx_model::domain::{
+            self as d, Record,
+            graph::{Entity, EntityId},
+        };
+        let workspace = Workspace::new(
+            Arc::new(d::model().unwrap()),
+            WorkspaceOptions {
+                memory_bytes: 1 << 30,
+                ..Default::default()
+            },
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let input = tempfile::tempdir().unwrap();
+        let raw = b"a\x00\xff\xfez\r\n";
+        std::fs::write(input.path().join("original.bin"), raw).unwrap();
+        std::fs::write(input.path().join("api.py"), b"def f(x): return x\n").unwrap();
+        let captured = Arc::new(CapturedInputs::new(
+            vec![AcquiredInput::tree(
+                CapturedInput::capture(
+                    input.path(),
+                    &["api.py".into(), "original.bin".into()],
+                    workspace.budget(),
+                )
+                .unwrap(),
+                "raw-artifact",
+            )],
+            cpg_extract::native_context::NativeContextConfig::committed(
+                Profile::Catalog,
+                workspace.budget(),
+            )
+            .unwrap(),
+        ));
+        let configuration = ContentHash::of(b"raw-original-artifact");
+        let source = captured.inputs()[0]
+            .captured()
+            .artifacts()
+            .iter()
+            .find(|row| row.path == "original.bin")
+            .unwrap()
+            .clone();
+        let evidence = d::assertion::Evidence::SourceSpan {
+            source: source.id(),
+            start: 1,
+            end: 4,
+        };
+        let mut providers = facts::providers(configuration);
+        let index = providers
+            .iter()
+            .position(|provider| {
+                provider.declaration(Profile::Catalog).name == cpg_extract::deployment::DEPLOYMENT
+            })
+            .unwrap();
+        let provider = providers.remove(index);
+        providers.insert(
+            index,
+            Box::new(RawSourceSpanProvider {
+                provider,
+                evidence: evidence.clone(),
+            }),
+        );
+        let schedule = Schedule::build(
+            workspace.model(),
+            providers
+                .iter()
+                .map(|provider| provider.declaration(Profile::Catalog))
+                .collect(),
+            &[],
+            Profile::Catalog,
+        )
+        .unwrap();
+        let position = |name| {
+            schedule
+                .stages()
+                .iter()
+                .position(|stage| stage.name == name)
+                .unwrap()
+        };
+        assert!(
+            position(cpg_extract::acquisition::ACQUIRE)
+                < position(cpg_extract::deployment::DEPLOYMENT)
+        );
+        assert!(
+            position(cpg_extract::deployment::DEPLOYMENT)
+                < position(cpg_extract::assembly::ASSEMBLE)
+        );
+        let authored = schedule
+            .stages()
+            .iter()
+            .find(|stage| stage.name == cpg_extract::deployment::DEPLOYMENT)
+            .unwrap();
+        assert!(authored.reads::<d::source::SourceArtifact>());
+        assert!(authored.contributes_to::<d::assertion::Evidence>());
+        compile_driver(
+            &workspace,
+            captured.clone(),
+            Profile::Catalog,
+            configuration,
+            Frontier::Facts,
+            None,
+            None,
+            None,
+            Some(providers),
+        )
+        .boxed()
+        .await
+        .unwrap();
+        let admitted = artifact::admit(
+            &workspace,
+            &captured,
+            Frontier::Facts,
+            Profile::Catalog,
+            configuration,
+        )
+        .await
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("raw-graph");
+        admitted.export(&destination).await.unwrap();
+        admitted
+            .verify_export(&destination, &workspace)
+            .await
+            .unwrap();
+        assert!(completed_rows::<d::source::SourceArtifact>(&workspace).contains(&source));
+        let source_id = EntityId::of(source.id());
+        let originals =
+            std::fs::read(destination.join(format!("original-{}.bin", source_id.0.hex()))).unwrap();
+        assert_eq!(originals, raw);
+        assert!(std::str::from_utf8(&originals).is_err());
+        let entities: Vec<Entity> = transported(&destination.join("entities.arrow"));
+        assert!(
+            entities
+                .iter()
+                .any(|entity| matches!(entity,Entity::Source(row) if row==&source))
+        );
+        let restored = entities
+            .into_iter()
+            .find(|entity| entity == &Entity::from(evidence.clone()))
+            .expect("admitted artifact lost its source-span evidence");
+        if let Entity::Evidence(d::assertion::Evidence::SourceSpan { source, start, end }) =
+            restored
+        {
+            assert_eq!(EntityId::of(source), source_id);
+            assert_eq!(&originals[start as usize..end as usize], b"\x00\xff\xfe");
+        } else {
+            panic!("source evidence lost its typed span");
+        }
+    }
 
     #[test]
     fn value_publication_boundaries_follow_semantic_dependency_order() {

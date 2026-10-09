@@ -8,7 +8,8 @@
     just verify qualify       every boundary and leaf; no reuse, no filters, no self-preparation
     just verify-<family> [--command BOUNDARY] [-- ARGS]   shortcut; ARGS reach the primary tool
 
-Tool arguments attach to the preceding ``--select`` (before any ``--select`` they apply to every
+Tool arguments and ``--cargo-profile NAME`` attach to the preceding ``--select`` (before any
+``--select`` they apply to every
 selected boundary that has that tool). ``BOUNDARIES`` is the only catalogue: plan, ``--print``,
 ``--list``, execution, ``summary.json`` and this help derive from it.
 
@@ -32,6 +33,8 @@ import signal
 import subprocess
 import sys
 import time
+import re
+import tomllib
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,7 +46,8 @@ from build_environment import ROOT, normalized_env
 from harness import OUTCOMES, write_json_atomic
 
 SCHEMA = 1
-NEXTEST_RUN = ("cargo", "nextest", "run", "--release", "--no-fail-fast", "--no-tests=fail")
+DEFAULT_CARGO_PROFILE = "release"  # Change only after local-profile qualification.
+NEXTEST_RUN = ("cargo", "nextest", "run", "--no-fail-fast", "--no-tests=fail")
 PYTEST = ("uv", "run", "--no-sync", "pytest")
 TOOLS = ("nextest", "pytest")
 TAIL_LINES = 25
@@ -59,7 +63,7 @@ class Step:
 
     ``tool`` is ``nextest`` (packages + default targets), ``pytest`` (paths), ``cargo`` (a full
     cargo argv such as a build) or ``just`` (a recipe). Only nextest and pytest steps receive
-    tool arguments. ``env`` values may use ``{release}`` (the release artifact directory) and
+    tool arguments. ``env`` values may use ``{artifacts}`` (the resolved profile directory) and
     ``{serving}`` (the serving configuration this boundary produces or reuses); ``option_env``
     entries apply only when their option (e.g. ``cli``) is selected.
     """
@@ -74,6 +78,10 @@ class Step:
     restart_after: bool = False
     when: str | None = None  # an option that enables this step (e.g. "cli")
     option_env: tuple[tuple[str, str, str], ...] = ()  # (option, name, value) when option is set
+    required_filter: str | None = None
+    target_filters: tuple[tuple[str, str | None, str], ...] = ()
+    cargo_profile: str | None = None  # A production-only step, independent of local selection.
+    artifact_target_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -96,12 +104,29 @@ class Boundary:
         return next((step.tool for step in self.steps if step.tool in TOOLS), None)
 
 
-def nextest(name: str, *packages: str, targets: Sequence[str] = ()) -> Step:
-    return Step(name, "nextest", packages=packages, targets=tuple(targets))
+def nextest(
+    name: str, *packages: str, targets: Sequence[str] = (), required_filter: str | None = None,
+    target_filters: tuple[tuple[str, str | None, str], ...] = (),
+) -> Step:
+    return Step(name, "nextest", packages=packages, targets=tuple(targets), required_filter=required_filter, target_filters=target_filters)
 
 
 def tests(*names: str) -> tuple[str, ...]:
     return tuple(item for name in names for item in ("--test", name))
+
+
+# These predicates retain the old provider boundary after coherent harness grouping. Binary
+# predicates prevent similarly named tests in another module/target from widening the scope.
+PROVIDER_TARGET_FILTERS = (
+    ("--lib", None, "kind(lib)"),
+    ("--test", "acquisition", "binary(=acquisition)"),
+    ("--test", "bundle", "binary(=bundle)"),
+    ("--test", "extraction_contracts", "(binary(=extraction_contracts) & (test(/^harness::/) | test(/^typed_conformance::/)))"),
+    ("--test", "extraction_types", "(binary(=extraction_types) & test(/^typed_flow::/))"),
+    ("--test", "extraction_calls", "(binary(=extraction_calls) & (test(/^typed_calls::/) | test(/^native_overload_origins::/)))"),
+    ("--test", "extraction_syntax", "(binary(=extraction_syntax) & test(/^typed_ruff_context::/))"),
+)
+PROVIDER_FILTER = " | ".join(predicate for _, _, predicate in PROVIDER_TARGET_FILTERS)
 
 
 # Requirements follow what a boundary's commands import (D1): `tools` only where a command runs
@@ -148,14 +173,14 @@ BOUNDARIES: tuple[Boundary, ...] = (
                     *tests(
                         "acquisition",
                         "bundle",
-                        "harness",
-                        "typed_conformance",
-                        "typed_flow",
-                        "typed_calls",
-                        "native_overload_origins",
-                        "typed_ruff_context",
+                        "extraction_contracts",
+                        "extraction_types",
+                        "extraction_calls",
+                        "extraction_syntax",
                     ),
                 ),
+                required_filter=PROVIDER_FILTER,
+                target_filters=PROVIDER_TARGET_FILTERS,
             ),
         ),
         # tests/harness.rs runs `uv run --no-sync pyrefly`.
@@ -202,7 +227,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
             Step(
                 "build-cli",
                 "cargo",
-                ("cargo", "build", "--release", "--locked", "-p", "lctx", "--bin", "lctx"),
+                ("cargo", "build", "--locked", "-p", "lctx", "--bin", "lctx"),
                 when="cli",
             ),
             Step(
@@ -210,7 +235,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 "nextest",
                 packages=("lctx-surrealdb", "lctx-publisher"),
                 # publication.rs selects through this CLI when set, else in-process.
-                option_env=(("cli", "LCTX_REMEDIATION_CLI_BIN", "{release}/lctx"),),
+                option_env=(("cli", "LCTX_REMEDIATION_CLI_BIN", "{artifacts}/lctx"),),
             ),
         ),
         STORE,
@@ -232,7 +257,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
             Step(
                 "build",
                 "cargo",
-                ("cargo", "build", "--release", "--locked", "-p", "lctx-eval", "-p", "lctx"),
+                ("cargo", "build", "--locked", "-p", "lctx-eval", "-p", "lctx"),
             ),
             Step(
                 "native_journey",
@@ -240,7 +265,6 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 (
                     "cargo",
                     "test",
-                    "--release",
                     "--locked",
                     "-p",
                     "lctx-serving",
@@ -266,8 +290,8 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 env=(
                     ("LCTX_NATIVE_SERVING_CONFIG", "{serving}"),
                     ("LCTX_NATIVE_TEST_LIBRARY", "synthesis-sources"),
-                    ("LCTX_EVAL_WORKER", "{release}/lctx-eval"),
-                    ("LCTX_REMEDIATION_CLI_BIN", "{release}/lctx"),
+                    ("LCTX_EVAL_WORKER", "{artifacts}/lctx-eval"),
+                    ("LCTX_REMEDIATION_CLI_BIN", "{artifacts}/lctx"),
                 ),
             ),
         ),
@@ -279,8 +303,8 @@ BOUNDARIES: tuple[Boundary, ...] = (
         "flow",
         "flow soundness oracle over the product binary",
         (
-            Step("build", "cargo", ("cargo", "build", "--release", "--locked", "-p", "lctx")),
-            Step("pytest", "pytest", ("tests/scripts/test_flow_soundness.py",)),
+            Step("build", "cargo", ("cargo", "build", "--locked", "-p", "lctx"), cargo_profile="release", artifact_target_dir=ROOT / "target"),
+            Step("pytest", "pytest", ("tests/scripts/test_flow_soundness.py",), cargo_profile="release", artifact_target_dir=ROOT / "target"),
         ),
         frozenset({"tools"}),
     ),
@@ -305,7 +329,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
             Step(
                 "doctest",
                 "cargo",
-                ("cargo", "test", "--release", "--workspace", "--doc", "--no-fail-fast"),
+                ("cargo", "test", "--workspace", "--doc", "--no-fail-fast"),
             ),
         ),
     ),
@@ -447,6 +471,7 @@ class Selection:
     select: str | None
     nextest_args: list[str] = field(default_factory=list)
     pytest_args: list[str] = field(default_factory=list)
+    cargo_profile: str | None = None
 
 
 @dataclass(frozen=True)
@@ -457,6 +482,7 @@ class Options:
     serving: str | None = None
     retain_serving: str | None = None
     qualify: bool = False
+    required_release: bool = False  # Optimized acceptance provenance survives focused reruns.
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -466,6 +492,7 @@ class Options:
             "serving": self.serving,
             "retain_serving": self.retain_serving,
             "qualify": self.qualify,
+            "required_release": self.qualify or self.required_release,
         }
 
 
@@ -474,6 +501,7 @@ class PlannedStep:
     step: Step
     argv: tuple[str, ...]
     skipped: str | None = None  # why the step is not part of this plan
+    cargo_profile: str | None = None
 
 
 @dataclass(frozen=True)
@@ -492,6 +520,119 @@ def with_cargo_config(argv: tuple[str, ...], configuration: Sequence[str]) -> tu
     return argv[:1] + options + argv[1:]
 
 
+def validate_profile(profile: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", profile) or profile in {"debug", "build-override"}:
+        raise PlanError(f"invalid Cargo profile {profile!r}; use a Cargo profile name")
+    return profile
+
+
+def profile_directory(profile: str) -> str:
+    if profile in {"dev", "test"}:
+        return "debug"
+    return "release" if profile == "bench" else profile
+
+
+def cargo_configuration(value: str) -> dict[str, Any]:
+    """The same inline TOML or file accepted by Cargo's --config."""
+    try:
+        return tomllib.loads(value) if "=" in value else tomllib.loads((ROOT / value).read_text())
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise PlanError(f"cannot inspect Cargo configuration {value!r}: {error}") from error
+
+
+def target_directory(env: Mapping[str, str], configuration: Sequence[str] = ()) -> Path:
+    # Command-line --config has the highest precedence, followed by the environment, then
+    # checkout configuration. Keep Cargo's final artifacts separate from its shared build-dir.
+    selected = None
+    relative_to = ROOT
+    for value in configuration:
+        override = cargo_configuration(value).get("build", {}).get("target-dir")
+        if override is not None:
+            selected = override
+            relative_to = ROOT if "=" in value else (ROOT / value).resolve().parent.parent
+    if selected is None:
+        selected = env.get("CARGO_TARGET_DIR") or env.get("CARGO_BUILD_TARGET_DIR")
+    if selected is None:
+        config = ROOT / ".cargo" / "config.toml"
+        selected = tomllib.loads(config.read_text()).get("build", {}).get("target-dir") if config.exists() else None
+    path = Path(selected or ROOT / "target").expanduser()
+    return path if path.is_absolute() else relative_to / path
+
+
+def artifact_directory(target: Path, profile: str) -> Path:
+    return target / profile_directory(profile)
+
+
+def step_receipt(planned: PlannedStep, target: Path) -> dict[str, Any]:
+    return {
+        "name": planned.step.name,
+        "argv": list(planned.argv),
+        "cargo_profile": planned.cargo_profile,
+        "artifact_dir": str(artifact_directory(planned.step.artifact_target_dir or target, planned.cargo_profile)) if planned.cargo_profile else None,
+    }
+
+
+def validate_nextest_arguments(arguments: Sequence[str]) -> None:
+    for argument in arguments:
+        option = argument.partition("=")[0]
+        if option in {"--release", "-r", "--cargo-profile"} or argument.startswith("-r"):
+            raise PlanError("Cargo profile flags belong to verify --cargo-profile, not --nextest-args")
+        if option in {"--config", "--target-dir", "--target"}:
+            raise PlanError(f"{option} must be owned by verify; use --cargo-config or LCTX_CARGO_TARGET_DIR")
+
+
+def restricted_arguments(step: Step, arguments: Sequence[str]) -> tuple[str, ...]:
+    """Intersect the boundary's required scope with the user's union of filter expressions.
+
+    Nextest unions repeated -E arguments. Combine them first, then intersect once so no user
+    expression can add tests outside the declared grouped boundary.
+    """
+    if step.required_filter is None:
+        return tuple(arguments)
+    remaining: list[str] = []
+    expressions: list[str] = []
+    split = arguments.index("--") if "--" in arguments else len(arguments)
+    trailing = tuple(arguments[split:])
+    arguments = arguments[:split]
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        option, separator, value = argument.partition("=")
+        if option in {"-E", "--filter-expr", "--filterset"}:
+            if not separator:
+                index += 1
+                if index >= len(arguments):
+                    raise PlanError(f"{option} requires a filter expression")
+                value = arguments[index]
+            expressions.append(value)
+        elif argument.startswith("-E"):
+            expressions.append(argument[2:])
+        else:
+            remaining.append(argument)
+        index += 1
+    required = step.required_filter
+    targets = target_options(arguments)
+    if targets and step.target_filters:
+        # Nextest validates binary names against compiled targets. Do not reference unbuilt
+        # groups when the user narrows to --lib or one target, and do not admit extra modules.
+        selected = {
+            (option, name)
+            for option, name, _ in step.target_filters
+            if (option, name) in targets
+            or ("--all-targets", None) in targets
+            # Cargo --tests includes the library unit-test harness as well as integrations.
+            or (option in {"--lib", "--test"} and ("--tests", None) in targets)
+        }
+        required = " | ".join(predicate for option, name, predicate in step.target_filters if (option, name) in selected) or "none()"
+    predicate = f"({required})"
+    if step.packages:
+        package_scope = " | ".join(f"package(={package})" for package in step.packages)
+        predicate = f"({package_scope}) & {predicate}"
+    if expressions:
+        predicate += " & (" + " | ".join(f"({expression})" for expression in expressions) + ")"
+    return (*remaining, "-E", predicate, *trailing)
+
+
 def step_argv(
     boundary: Boundary,
     step: Step,
@@ -501,21 +642,27 @@ def step_argv(
     targets: Mapping[str, Mapping[str, set[str]]] | None = None,
     *,
     listing: bool = False,
+    cargo_profile: str = DEFAULT_CARGO_PROFILE,
 ) -> tuple[str, ...]:
+    profile = step.cargo_profile or cargo_profile
     if step.tool == "nextest":
         chosen, defaults = narrow(boundary, step, nextest_args, targets)
         selection = (*(item for p in chosen for item in ("-p", p)), *defaults)
         head = (
-            ("cargo", "nextest", "list", "--release", "--message-format", "json")
+            ("cargo", "nextest", "list", "--message-format", "json")
             if listing
             else NEXTEST_RUN
         )
-        argv = (*head, *selection, *nextest_args)
+        argv = (*head, "--cargo-profile", profile, *selection, *restricted_arguments(step, nextest_args))
     elif step.tool == "pytest":
         extra = ("--collect-only", "-q") if listing else ("-q",)
         argv = (*PYTEST, *step.argv, *extra, *pytest_args)
     else:
         argv = step.argv
+        if step.tool == "cargo" and argv[1:2] in (("build",), ("test",), ("doc",)):
+            argv = (*argv[:2], "--profile", profile, *argv[2:])
+            if step.artifact_target_dir is not None:
+                argv = (*argv, "--target-dir", str(step.artifact_target_dir))
     return with_cargo_config(argv, options.cargo_config)
 
 
@@ -543,12 +690,23 @@ def resolve(
         if options.attach or options.serving or options.retain_serving:
             raise PlanError("qualify refuses reuse: no --attach, --serving or --retain-serving")
         scoped = [Selection(boundary.id) for boundary in BOUNDARIES]
+    if options.qualify or options.required_release:
+        if any(s.cargo_profile not in (None, "release") for s in selections):
+            raise PlanError("qualify requires Cargo profile release (including focused acceptance reruns)")
+        configurations = [cargo_configuration(value) for value in options.cargo_config]
+        if any("profile" in config or any(key.startswith("CARGO_PROFILE_") for key in config.get("env", {})) for config in configurations):
+            raise PlanError("qualify refuses Cargo profile configuration overrides")
+        if any(key.startswith("CARGO_PROFILE_") for key in os.environ):
+            raise PlanError("qualify refuses inherited CARGO_PROFILE_* configuration overrides")
     if not scoped:
         raise PlanError("select at least one boundary: --select FAMILY[:BOUNDARY]")
     if (options.serving or options.retain_serving) and not options.attach:
         raise PlanError("--serving/--retain-serving need a kept fixture: --attach ID")
     common_nextest = [a for s in shared for a in s.nextest_args]
     common_pytest = [a for s in shared for a in s.pytest_args]
+    common_profiles = [s.cargo_profile for s in shared if s.cargo_profile is not None]
+    if len(common_profiles) > 1:
+        raise PlanError("only one shared --cargo-profile is allowed")
     for args in (common_nextest, common_pytest):
         if any(a.startswith("--no-tests") for a in args):
             raise PlanError("empty required selections must fail; --no-tests is fixed")
@@ -574,6 +732,11 @@ def resolve(
             seen[boundary.id] = selection.select
             nextest_args = [*common_nextest, *selection.nextest_args]
             pytest_args = [*common_pytest, *selection.pytest_args]
+            validate_nextest_arguments(nextest_args)
+            requested_profile = selection.cargo_profile if selection.cargo_profile is not None else (common_profiles[0] if common_profiles else DEFAULT_CARGO_PROFILE)
+            profile = validate_profile("release" if options.qualify or options.required_release else requested_profile)
+            if boundary.id == "oracles:flow":
+                profile = "release"  # The independent oracle builds a release producer itself.
             steps = []
             for step in boundary.steps:
                 skipped = None
@@ -581,8 +744,11 @@ def resolve(
                     skipped = "enabled by --cli"
                 elif step.produces_serving and options.serving:
                     skipped = f"reuses retained serving content {options.serving!r}"
-                argv = step_argv(boundary, step, nextest_args, pytest_args, options, targets)
-                steps.append(PlannedStep(step, argv, skipped))
+                argv = step_argv(boundary, step, nextest_args, pytest_args, options, targets, cargo_profile=profile)
+                actual_profile = step.cargo_profile or profile if step.tool in {"cargo", "nextest"} or step.cargo_profile else None
+                if step.tool == "just" and step.name == "clippy":
+                    actual_profile = "release"  # The existing production leaf is explicit release.
+                steps.append(PlannedStep(step, argv, skipped, actual_profile))
             plan.append(
                 Planned(
                     boundary,
@@ -590,6 +756,8 @@ def resolve(
                         "select": boundary.id,
                         "nextest_args": nextest_args if "nextest" in boundary.tools() else [],
                         "pytest_args": pytest_args if "pytest" in boundary.tools() else [],
+                        "cargo_profile": profile,
+                        "production_only": ["native-python preparation: release"] if "native-python" in boundary.requirements else [],
                     },
                     tuple(steps),
                 )
@@ -663,7 +831,7 @@ class Runtime:
     progress: Callable[..., None] = lambda **_: None
     report: Callable[[str], None] = lambda message: print(message, flush=True)
     base_env: Mapping[str, str] = field(default_factory=dict)
-    release_dir: Path = ROOT / "target" / "release"
+    target_dir: Path = ROOT / "target"
     stop: Callable[[], bool] = lambda: False
 
 
@@ -755,8 +923,8 @@ def run_boundary(
         return done("blocked", blocked)
 
 
-def _expand(value: str, release: Path, serving: Path | None) -> str:
-    value = value.replace("{release}", str(release))
+def _expand(value: str, artifacts: Path, serving: Path | None) -> str:
+    value = value.replace("{artifacts}", str(artifacts))
     if "{serving}" in value:
         if serving is None:
             raise PlanError("a step needs {serving} outside a fixture")
@@ -796,7 +964,9 @@ def _run_steps(
         env = attachment.environment(env)
     for planned_step in planned.steps:
         step = planned_step.step
-        record: dict[str, Any] = {"name": step.name, "argv": list(planned_step.argv)}
+        profile = planned_step.cargo_profile or planned.selection["cargo_profile"]
+        artifacts = artifact_directory(step.artifact_target_dir or runtime.target_dir, profile)
+        record = step_receipt(planned_step, runtime.target_dir)
         result["steps"].append(record)
         if planned_step.skipped:
             record.update(outcome="not_run", reason=planned_step.skipped)
@@ -807,10 +977,10 @@ def _run_steps(
             raise Interrupted
         step_env = dict(env)
         for key, value in step.env:
-            step_env[key] = _expand(value, runtime.release_dir, serving)
+            step_env[key] = _expand(value, artifacts, serving)
         for option, key, value in step.option_env:
             if getattr(options, option):
-                step_env[key] = _expand(value, runtime.release_dir, serving)
+                step_env[key] = _expand(value, artifacts, serving)
         runtime.progress(
             current_command=f"{boundary.id} {step.name}: {shlex.join(planned_step.argv)}"
         )
@@ -944,11 +1114,6 @@ def base_environment() -> dict[str, str]:
     return normalized_env(dict(os.environ, INSTA_UPDATE="no", UV_NO_SYNC="1"))
 
 
-def release_directory(env: Mapping[str, str]) -> Path:
-    target = env.get("CARGO_TARGET_DIR")
-    return (Path(target) if target else ROOT / "target") / "release"
-
-
 # ---------------------------------------------------------------------------------------------
 # Inspection
 
@@ -966,6 +1131,7 @@ def fixture_variables() -> list[str]:
 
 def describe(plan: Sequence[Planned], observations: Mapping[str, Any], options: Options):
     rows = []
+    target = target_directory(base_environment(), options.cargo_config)
     for planned in plan:
         boundary = planned.boundary
         names = list(VERIFY_ENVIRONMENT)
@@ -986,10 +1152,10 @@ def describe(plan: Sequence[Planned], observations: Mapping[str, Any], options: 
                 "description": boundary.description,
                 "requirements": sorted(boundary.requirements),
                 "fixture": fixture,
+                "selection": planned.selection,
                 "steps": [
                     {
-                        "name": s.step.name,
-                        "argv": list(s.argv),
+                        **step_receipt(s, target),
                         "env": sorted(
                             {
                                 *names,
@@ -1053,6 +1219,7 @@ def list_plan(plan: Sequence[Planned], options: Options, env: Mapping[str, str])
                 planned.selection["pytest_args"],
                 options,
                 listing=True,
+                cargo_profile=planned.selection["cargo_profile"],
             )
             done = subprocess.run(argv, cwd=ROOT, env=dict(env), capture_output=True, text=True)
             if done.returncode:
@@ -1067,6 +1234,9 @@ def list_plan(plan: Sequence[Planned], options: Options, env: Mapping[str, str])
                 else [line for line in done.stdout.splitlines() if "::" in line]
             )
             print(f"  {step.name}: {len(names)} test(s)")
+            if not names:
+                status = 1
+                print(f"  {step.name}: empty required selection")
             for name in names:
                 print(f"    {name}")
     return status
@@ -1106,6 +1276,17 @@ class _ToolArgs(argparse.Action):
         getattr(target, self.dest).extend(shlex.split(str(values)))
 
 
+class _CargoProfile(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        selections = namespace.selections
+        if not selections:
+            selections.append(Selection(None))
+        target = selections[-1]
+        if target.cargo_profile is not None:
+            parser.error("only one --cargo-profile is allowed per selection")
+        target.cargo_profile = str(values)
+
+
 def help_epilog() -> str:
     lines = ["boundaries (FAMILY:BOUNDARY; a family selects all of its boundaries):"]
     for boundary in BOUNDARIES:
@@ -1127,6 +1308,7 @@ def parser() -> argparse.ArgumentParser:
     top.add_argument("--select", action=_Select, metavar="FAMILY[:BOUNDARY]")
     top.add_argument("--nextest-args", dest="nextest_args", action=_ToolArgs, metavar="ARGS")
     top.add_argument("--pytest-args", dest="pytest_args", action=_ToolArgs, metavar="ARGS")
+    top.add_argument("--cargo-profile", action=_CargoProfile, metavar="NAME", help="Cargo compilation profile for preceding selection (before first: shared)")
     mode = top.add_mutually_exclusive_group()
     mode.add_argument("--print", action="store_true", help="static plan; builds nothing")
     mode.add_argument("--list", action="store_true", help="tool discovery; builds")
@@ -1238,6 +1420,7 @@ def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
             item["selection"]["select"],
             item["selection"]["nextest_args"],
             item["selection"]["pytest_args"],
+            item["selection"].get("cargo_profile", "release"),
         )
         for item in data["boundaries"]
         if item["outcome"] != "passed"
@@ -1246,7 +1429,7 @@ def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
     for planned in data.get("plan", []):
         if planned["select"] not in selected:  # never reached (interrupted before it)
             selections.append(
-                Selection(planned["select"], planned["nextest_args"], planned["pytest_args"])
+                Selection(planned["select"], planned["nextest_args"], planned["pytest_args"], planned.get("cargo_profile", "release"))
             )
     saved = data.get("options", {})
     options = Options(
@@ -1256,6 +1439,7 @@ def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
         serving=saved.get("serving"),
         retain_serving=None,  # retained content is recorded once; a rerun does not re-retain
         qualify=False,
+        required_release=saved.get("required_release", False) or saved.get("qualify", False),
     )
     return selections, options
 
@@ -1265,12 +1449,13 @@ class Summary:
 
     def __init__(self, path: Path | None, plan: Sequence[Planned], options: Options) -> None:
         self.path = path
+        target = target_directory(base_environment(), options.cargo_config)
         self.data: dict[str, Any] = {
             "schema": SCHEMA,
             "run_id": os.environ.get("LCTX_RUN_ID"),
             "argv": sys.argv[1:],
             "options": options.to_json(),
-            "plan": [p.selection for p in plan],
+            "plan": [{**p.selection, "steps": [step_receipt(step, target) for step in p.steps]} for p in plan],
             "started": runs.now(),
             "ended": None,
             "termination": None,
@@ -1316,17 +1501,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     selections: list[Selection] = args.selections
     try:
         if args.rerun:
-            if any(s.select for s in selections):
-                raise PlanError("--rerun repeats a prior selection; do not add --select")
+            if any(s.select or s.cargo_profile is not None or s.nextest_args or s.pytest_args for s in selections):
+                raise PlanError("--rerun repeats a prior selection and profile; do not add selection overrides")
             selections, options = rerun_selection(args.rerun)
             if not selections:
                 print(f"verify: nothing to rerun: every boundary of {args.rerun} passed")
                 return 0
         plan = resolve(selections, options)
+        env = base_environment()
+        target = target_directory(env, options.cargo_config)
     except (PlanError, runs.RunNotFound, OSError, ValueError) as error:
         print(f"verify: {error}", file=sys.stderr)
         return 2
-    env = base_environment()
     requirements = set().union(*(p.boundary.requirements for p in plan))
     if args.print:
         observations = observe_requirements(requirements, static=True)
@@ -1365,7 +1551,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         owner=lambda required, report: environment_owner(required, report),
         progress=publish_progress,
         base_env=env,
-        release_dir=release_directory(env),
+        target_dir=target,
         stop=lambda: bool(stopping),
     )
     results = execute(plan, runtime, options, log_dir, live=args.live, on_result=summary.update)

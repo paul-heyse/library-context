@@ -1,8 +1,8 @@
 //! Actual admitted Catalog compilation, native publication, ten tools and original bytes.
-#[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
-mod runtime;
 #[path = "../../cpg-core/tests/fixtures/native.rs"]
 mod native_fixture;
+#[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
+mod runtime;
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},
@@ -189,13 +189,14 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         cache_database: Name::new("cache").unwrap(),
         selection: scratch.path().join("selection.json"),
     };
-    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog).await.unwrap();
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
+        .await
+        .unwrap();
     let workspace = Workspace::new(
         Arc::new(model().unwrap()),
         WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            partitions: 1,
             batch_rows: 128,
+            ..Default::default()
         },
         native,
     )
@@ -235,9 +236,10 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     )
     .await
     .unwrap();
-    let handle = lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
-        .await
-        .unwrap();
+    let handle =
+        lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
+            .await
+            .unwrap();
     assert!(!config.selection.exists());
     let reader = NativeReader::connect(
         &config.endpoint,
@@ -768,13 +770,14 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         cache_database: Name::new("cache").unwrap(),
         selection: scratch.path().join("selection.json"),
     };
-    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog).await.unwrap();
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
+        .await
+        .unwrap();
     let workspace = Workspace::new(
         Arc::new(model().unwrap()),
         WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            partitions: 1,
             batch_rows: 128,
+            ..Default::default()
         },
         native,
     )
@@ -852,9 +855,10 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     )
     .await
     .unwrap();
-    let handle = lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
-        .await
-        .unwrap();
+    let handle =
+        lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
+            .await
+            .unwrap();
     let reader = NativeReader::connect(&config.endpoint, &config.viewer_credentials(), handle)
         .await
         .unwrap();

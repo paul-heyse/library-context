@@ -4,7 +4,7 @@ use lctx_model::domain::{
     ContentHash, ContentHasher, ModelError,
     graph::{Assertion, Entity, FamilyHasher, GraphFamily, Manifest, Target},
 };
-use surrealdb::types::{Bytes, RecordId, SurrealValue, ToSql, Value, Variables};
+use surrealdb::types::{Bytes, RecordId, SurrealValue, Value, Variables};
 fn canonical_size(actual:&Value)->Result<usize,ModelError>{
     match actual {Value::Object(object)=>match object.get("canonical"){Some(Value::Bytes(bytes))=>Ok(bytes.len()),_=>Err(ModelError::Schema("native canonical payload"))},_=>Err(ModelError::Schema("native canonical object"))}
 }
@@ -134,7 +134,7 @@ impl Loader {
                 physical.insert("content", content.hex());
                 physical.insert("canonical", Bytes::from(canonical));
                 let body = view.body;
-                add_scope_fields(&mut physical, &body, &view.semantic_type)?;
+                add_scope_fields(&mut physical, &body, &view.semantic_type, crate::schema::ScopeTable::from_name(table)?)?;
                 physical.insert("body", body);
                 if serde_json::to_vec(&actual).map_err(ModelError::codec)?
                     != serde_json::to_vec(&Value::Object(physical)).map_err(ModelError::codec)?
@@ -305,33 +305,23 @@ fn remember_external(
     }
     Ok(())
 }
-/// The schema's persisted <string> lowering, derived from canonical fields, including NULL.
-pub fn scope_string(value: &Value) -> String {
-    match value {
-        Value::String(value) => value.clone(),
-        other => other.to_sql(),
-    }
-}
 pub fn add_scope_fields(
     object: &mut surrealdb::types::Object,
     body: &Value,
     semantic_type: &str,
+    table: crate::schema::ScopeTable,
 ) -> Result<(), ModelError> {
     let Value::Object(body) = body else {
         return Err(ModelError::Schema("canonical scope body"));
     };
     let mut keys = Vec::new();
-    for field in crate::schema::atomic_scope_fields() {
-        if let Some(value) = body
-            .get(*field)
-            .filter(|value| !matches!(value, Value::None))
-        {
-            let text = scope_string(value);
-            object.insert(format!("scope_{field}"), text.clone());
-            if !matches!(value, Value::Null) {
-                keys.push(format!("{semantic_type}|{field}|{text}"));
-            }
+    for field in table.relation_fields(semantic_type) {
+        if let Some(value)=body.get(field).filter(|value|!matches!(value,Value::None|Value::Null)) {
+            keys.push(format!("{semantic_type}|{field}|{}",crate::prepared::scope_string(value)));
         }
+    }
+    if table!=crate::schema::ScopeTable::CompilerRecord && let Some(value)=body.get("context").filter(|value|!matches!(value,Value::None)) {
+        object.insert("scope_context",crate::prepared::scope_string(value));
     }
     object.insert("scope_keys", keys);
     Ok(())

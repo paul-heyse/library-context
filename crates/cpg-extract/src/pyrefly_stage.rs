@@ -20,6 +20,8 @@
 //! parameter's displayed annotation, and declaration links at exact name spans. Signatures are
 //! complete unless a declaration fails to attach, which is a boundary. Exports stay Partial until
 //! the public names are stated. A computed `__all__` is a subject boundary.
+use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
+use crate::contracts::supplier;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
@@ -260,43 +262,24 @@ fn outputs() -> Vec<RelationUse> {
         ExportEnumerationSupport
     )
 }
-impl Declared for Pyrefly {
-    fn declaration(&self, _: Profile) -> Stage {
-        let provider = pyrefly_provider();
-        Stage {
+pub fn contract() -> ProducerContract {
+        ProducerContract {
             name: PYREFLY,
             inputs: vec![],
             outputs: outputs(),
             contributes: crate::assembly::vocabulary(),
-            coverage: FAMILIES
-                .to_vec()
-                .into_iter()
-                .map(|family| lctx_model::domain::stages::FamilyCoverage {
-                    family,
-                    provider: if family == FactFamily::Syntax {
-                        crate::ruff_context::provider().id()
-                    } else {
-                        provider.id()
-                    },
-                })
-                .chain(std::iter::once(
-                    lctx_model::domain::stages::FamilyCoverage {
-                        family: FactFamily::Exports,
-                        provider: crate::ruff_context::provider().id(),
-                    },
-                ))
-                .chain(std::iter::once(
-                    lctx_model::domain::stages::FamilyCoverage {
-                        family: FactFamily::Lexical,
-                        provider: crate::ruff_context::provider().id(),
-                    },
-                ))
-                .collect(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
             effect: Effect::Extraction,
-            code: provider.build_digest,
-            configuration: ContentHash::of(format!("{:?}", self.limits).as_bytes()),
+            semantic_revision: 1,
+            configuration: ConfigurationBinding::ProducerSettings,
+            suppliers: vec![supplier("pyrefly", "pyrefly", PYREFLY_REVISION, FAMILIES.into_iter().filter(|family|*family!=FactFamily::Syntax).collect()), supplier("pyrefly-ruff", "ruff", crate::ruff_context::RUFF_REVISION, vec![FactFamily::Syntax, FactFamily::Exports, FactFamily::Lexical])],
+            not_requested: vec![],
         }
+}
+impl Declared for Pyrefly {
+    fn declaration(&self, _: Profile) -> Stage {
+        let provider = pyrefly_provider();
+        contract().bind(provider.build_digest, ContentHash::of(format!("{:?}", self.limits).as_bytes()), [("pyrefly", provider), ("pyrefly-ruff", crate::ruff_context::provider())])
     }
 }
 
@@ -466,6 +449,7 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Pyrefly {
         let provider = pyrefly_provider();
         let (condition, nodes) = Diagram::always().records();
         context.contribute(provider.clone())?;
+        context.contribute(crate::ruff_context::provider())?;
         context.contribute(condition.clone())?;
         for node in nodes {
             context.contribute(node)?;

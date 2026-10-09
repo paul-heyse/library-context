@@ -34,7 +34,16 @@ impl<R: Record> Rows<R> {
             "normalized-decode",
         );
         transient.grow(crate::domain::record::decode_allowance::<R>(batch)?)?;
-        for row in R::decode(batch)? {
+        let rows = R::decode(batch)?;
+        // Physical decoder scratch has ended. Keep the returned vector and payload charged
+        // through the map handoff, including spare capacity; map insertions reserve first.
+        let retained = crate::domain::record::rows_bytes(&rows, rows.capacity())?;
+        if retained > transient.reserved() {
+            transient.grow(retained - transient.reserved())?;
+        } else {
+            transient.release(transient.reserved() - retained);
+        }
+        for row in rows {
             self.insert(row)?;
         }
         Ok(())
@@ -126,6 +135,26 @@ mod required_controls {
         output.decode(&batch).unwrap();
         assert_eq!(output.get(rows[0].id()), Some(&rows[0]));
         assert!(budget.reserved() < 1 << 15);
+    }
+    #[test]
+    fn decoder_scratch_is_released_before_large_rows_enter_retained_state() {
+        let row = Row {
+            key: "large".into(),
+            value: "x".repeat(1 << 20),
+        };
+        let batch = Row::encode(std::slice::from_ref(&row)).unwrap();
+        let budget = ResourceBudget::fixed(7 << 19).unwrap();
+        // The reader still owns Arrow while Rows owns the decoded vector and map handoff.
+        let arrow = budget
+            .reserve("reader-arrow-control", batch.get_array_memory_size())
+            .unwrap();
+        let mut output = Rows::new(&budget);
+        output.decode(&batch).unwrap();
+        assert_eq!(output.get(row.id()), Some(&row));
+        drop(output);
+        assert_eq!(budget.reserved(), arrow.size());
+        drop(arrow);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn required_lookup_preserves_error_domains_conflicts_and_retained_admission() {

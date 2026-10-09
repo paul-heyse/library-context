@@ -5,6 +5,7 @@ use crate::{
     normalize::call_scope::CallScopes,
     workspace::CompletedInputs,
 };
+use futures::future::BoxFuture;
 use lctx_model::domain::{execution::summary_production::SummaryData, *};
 use std::{any::TypeId, sync::Arc};
 pub(super) struct SummaryScopes {
@@ -223,36 +224,116 @@ impl SummaryScopes {
             format!("SELECT {columns} FROM ({sql}) source_properties")
         })))
     }
-    pub(super) async fn load(
-        &self,
-        access: &CompletedInputs,
-        grain: &PreparedClosure,
-        budget: &resources::ResourceBudget,
-    ) -> Result<SummaryData, ModelError> {
-        let mut data = SummaryData::new(budget);
-        macro_rules! read{($($field:ident:$ty:ty,)*)=>{$({for(table,input)in self.calls.inputs().iter().enumerate().filter(|(_,input)|input.type_id()==TypeId::of::<$ty>()){
-   let Some(sql)=Self::select_actual(grain,table,input)?else{continue;};
-   if input.type_id()==TypeId::of::<source::Occurrence>(){
-    let permit=access.read_at::<source::Occurrence>(input.prefix())?;
-    crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&sql,|permit,batch|data.occurrences.visit(permit,batch)).await?;
-   }else if input.type_id()==TypeId::of::<source::SourceArtifact>(){
-    let permit=access.read_at::<source::SourceArtifact>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&sql,|permit,batch|data.artifacts.visit(permit,batch)).await?;
-   }else if input.type_id()==TypeId::of::<calls::ProviderSymbol>(){
-    let permit=access.read_at::<calls::ProviderSymbol>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&sql,|permit,batch|data.symbols.visit(permit,batch)).await?;
-   }else{
-    let permit=access.read_at::<$ty>(input.prefix())?;crate::consumed_rows::stream_query_at(&permit,input,grain.session(),&sql,|_,batch|data.visit_actual(input,batch)).await?;
-   }
-  }})*};}
-        lctx_model::normalized_binding_inputs!(read);
-        lctx_model::normalized_binding_outputs!(read);
-        lctx_model::entry_value_inputs!(read);
-        lctx_model::summary_path_inputs!(read);
-        lctx_model::summary_owned_inputs!(read);
-        lctx_model::summary_vocabulary!(read);
-        lctx_model::summary_evidence_inputs!(read);
-        Ok(data)
+    pub(super) fn load<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        grain: &'a PreparedClosure,
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<SummaryData, ModelError>> {
+        Box::pin(async move {
+            let mut data = SummaryData::new(budget);
+            let mut readers: Vec<Reader> = Vec::new();
+            macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(readers.push(reader::<$ty>());)*};}
+            lctx_model::normalized_binding_inputs!(read);
+            lctx_model::normalized_binding_outputs!(read);
+            lctx_model::entry_value_inputs!(read);
+            lctx_model::summary_path_inputs!(read);
+            lctx_model::summary_owned_inputs!(read);
+            lctx_model::summary_vocabulary!(read);
+            lctx_model::summary_evidence_inputs!(read);
+            for read in readers {
+                read(self, access, grain, &mut data).await?;
+            }
+            Ok(data)
+        })
     }
 }
+// Inventories retain their order and overlap; each adapter visits every matching prefix.
+type Reader = for<'a> fn(
+    &'a SummaryScopes,
+    &'a CompletedInputs,
+    &'a PreparedClosure,
+    &'a mut SummaryData,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+
+fn reader<R: Record>() -> Reader {
+    if TypeId::of::<R>() == TypeId::of::<source::Occurrence>() {
+        |scopes, access, grain, data| {
+            read_record::<source::Occurrence>(
+                scopes,
+                access,
+                grain,
+                data,
+                |data, _, permit, batch| data.occurrences.visit(permit, batch),
+            )
+        }
+    } else if TypeId::of::<R>() == TypeId::of::<source::SourceArtifact>() {
+        |scopes, access, grain, data| {
+            read_record::<source::SourceArtifact>(
+                scopes,
+                access,
+                grain,
+                data,
+                |data, _, permit, batch| data.artifacts.visit(permit, batch),
+            )
+        }
+    } else if TypeId::of::<R>() == TypeId::of::<calls::ProviderSymbol>() {
+        |scopes, access, grain, data| {
+            read_record::<calls::ProviderSymbol>(
+                scopes,
+                access,
+                grain,
+                data,
+                |data, _, permit, batch| data.symbols.visit(permit, batch),
+            )
+        }
+    } else {
+        |scopes, access, grain, data| {
+            read_record::<R>(scopes, access, grain, data, |data, input, _, batch| {
+                data.visit_actual(input, batch)
+            })
+        }
+    }
+}
+
+fn read_record<'a, R: Record>(
+    scopes: &'a SummaryScopes,
+    access: &'a CompletedInputs,
+    grain: &'a PreparedClosure,
+    data: &'a mut SummaryData,
+    visit: fn(
+        &mut SummaryData,
+        &ValidationInput,
+        &analysis::sources::CompletedInput<R>,
+        &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        for (table, input) in scopes
+            .calls
+            .inputs()
+            .iter()
+            .enumerate()
+            .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
+        {
+            let Some(sql) = SummaryScopes::select_actual(grain, table, input)? else {
+                continue;
+            };
+            let permit = access.read_at::<R>(input.prefix())?;
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                input,
+                access,
+                grain.session(),
+                &sql,
+                |permit, batch| visit(data, input, permit, batch),
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 mod summary_scope_controls {
     use super::*;

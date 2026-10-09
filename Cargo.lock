@@ -1247,6 +1247,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "blake3",
  "cpg-extract",
  "datafusion",
  "futures 0.3.34",
@@ -1260,6 +1261,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokenizers",
  "tokio",
+ "toml 1.1.6+spec-1.1.0",
  "tracing",
 ]
 

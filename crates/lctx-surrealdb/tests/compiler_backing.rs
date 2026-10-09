@@ -15,7 +15,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state(){
     let mut payload=vec![0xff;snapshot::CHUNK_BYTES];payload[..3].copy_from_slice(&[0xff,0,0x80]);
     let chunk=ProjectionSnapshotChunk{snapshot:header.id(),ordinal:0,payload:EvidenceBytes(payload)};
     let header_relation=Relation::of::<ProjectionSnapshot>();let chunk_relation=Relation::of::<ProjectionSnapshotChunk>();
-    let spec=ContributionSpec{producer:"projection-backing".into(),profile:Profile::Catalog,model:ContentHash::of(b"projection-backing-model"),implementation:ContentHash::of(b"projection-backing-code"),configuration:None,inputs:vec![],outputs:BTreeSet::from([ProjectionSnapshot::NAME.into(),ProjectionSnapshotChunk::NAME.into()])};
+    let spec=ContributionSpec{captured_binding: None, producer:"projection-backing".into(),profile:Profile::Catalog,model:ContentHash::of(b"projection-backing-model"),implementation:ContentHash::of(b"projection-backing-code"),configuration:None,inputs:vec![],outputs:BTreeSet::from([ProjectionSnapshot::NAME.into(),ProjectionSnapshotChunk::NAME.into()])};
     let contribution=store.begin_contribution(spec.clone()).await.unwrap();
     store.write_batch(&contribution,&header_relation,&ProjectionSnapshot::encode(std::slice::from_ref(&header)).unwrap()).await.unwrap();
     store.write_batch(&contribution,&chunk_relation,&ProjectionSnapshotChunk::encode(std::slice::from_ref(&chunk)).unwrap()).await.unwrap();
@@ -70,7 +70,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks(){
     let store=NativeCompilerStore::begin(&config,Frontier::Facts).await.unwrap();
     let relation=Relation::of::<QualityStep>();
     let row=QualityStep{run:serde_json::from_value(serde_json::json!(vec![3u8;16])).unwrap(),ordinal:0,value:FiniteF64::new(0.0).unwrap()};
-    let spec=ContributionSpec{producer:"quality-zero".into(),profile:Profile::Catalog,model:ContentHash::of(b"quality-zero-model"),implementation:ContentHash::of(b"quality-zero-code"),configuration:None,inputs:vec![],outputs:BTreeSet::from([QualityStep::NAME.into()])};
+    let spec=ContributionSpec{captured_binding: None, producer:"quality-zero".into(),profile:Profile::Catalog,model:ContentHash::of(b"quality-zero-model"),implementation:ContentHash::of(b"quality-zero-code"),configuration:None,inputs:vec![],outputs:BTreeSet::from([QualityStep::NAME.into()])};
     let contribution=store.begin_contribution(spec).await.unwrap();
     store.write_batch(&contribution,&relation,&QualityStep::encode(&[row]).unwrap()).await.unwrap();
     store.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&BTreeMap::new()).await.unwrap();

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import struct
 import subprocess
@@ -170,6 +171,28 @@ def test_profiling_environment_and_product_exit_are_independent(root, monkeypatc
     assert meta["telemetry"]["outcome"] == "not_run"
 
 
+def test_repeated_cancellation_during_finalization_keeps_product_exit_and_receipt(root, monkeypatch):
+    run_dir = runs.new_run_dir()
+    write_json_atomic(run_dir / "record.json", {"owner": ProcessIdentity.of().to_json(), "termination": None})
+    monkeypatch.setenv("LCTX_RUN_DIR", str(run_dir))
+    monkeypatch.setattr(profile, "focus_manifests", lambda *_: ["/workspace/core"])
+    monkeypatch.setattr(profile, "provenance", lambda *_: {"version": 1})
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def finalizing(_directory):
+        handler = signal.getsignal(signal.SIGTERM)
+        assert callable(handler), "cancellation handler was restored before terminal receipts"
+        handler(signal.SIGTERM, None)
+        handler(signal.SIGTERM, None)
+        return []
+
+    monkeypatch.setattr(profile, "unit_records", finalizing)
+    assert profile.cmd_internal(argparse.Namespace(command=[sys.executable, "-c", "import sys; sys.exit(7)"], focus="cpg-core")) == 7
+    final = json.loads((run_dir / "compile-profile/record.json").read_text())
+    assert final["product"] == {"outcome": "failed", "exit_code": 7, "signals": [signal.SIGTERM]}
+    assert signal.getsignal(signal.SIGTERM) == previous
+
+
 def test_cancel_uses_existing_run_group_and_retains_profile(root):
     launcher = subprocess.run(
         [
@@ -222,6 +245,270 @@ def test_cancel_uses_existing_run_group_and_retains_profile(root):
     finally:
         if runs.state_of(run_dir, runs.load_record(run_dir)) == "running":
             subprocess.run([sys.executable, str(Path(runs.__file__)), "cancel", run_id], timeout=30)
+
+
+@pytest.mark.parametrize("before_retention", [False, True])
+def test_cancel_stops_separate_session_descendants_and_preserves_unrelated_process(
+    root, before_retention
+):
+    receipt = root / "escaped.json"
+    gate = root / "allow-observation"
+    cargo = """
+import json,os,pathlib,subprocess,sys,time
+sys.path.insert(0,'scripts')
+from compile_profile_capture import process_identity
+compiler=subprocess.Popen([sys.executable,'-c','import time; time.sleep(90)'])
+pathlib.Path(sys.argv[1]).write_text(json.dumps([
+    process_identity(os.getpid()),process_identity(compiler.pid)]))
+time.sleep(90)
+"""
+    nextest = """
+import subprocess,sys,time
+subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]],start_new_session=True)
+time.sleep(90)
+"""
+    unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(90)"], start_new_session=True)
+    unrelated_identity = capture.process_identity(unrelated.pid)
+    run_dir = None
+    identities = []
+    try:
+        runner = [sys.executable, str(profile.SCRIPT)]
+        if before_retention:
+            runner = [sys.executable, "-c", """
+import pathlib,sys
+sys.path.insert(0,'scripts')
+import compile_profile as profile
+gate=pathlib.Path(sys.argv[1])
+observe=profile.OwnedCommandTree.observe
+def delayed(self):
+    if gate.exists(): observe(self)
+profile.OwnedCommandTree.observe=delayed
+raise SystemExit(profile.main(sys.argv[2:]))
+""", str(gate)]
+        launched = subprocess.run(
+            [sys.executable, str(Path(runs.__file__)), "run", "--background", "--json", "--",
+             *runner, "_record", "--focus", "cpg-core", "--", sys.executable, "-c",
+             nextest, cargo, str(receipt)],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert launched.returncode == 0, launched.stderr
+        run_dir = runs.resolve(json.loads(launched.stdout)["id"])
+        deadline = time.monotonic() + 20
+        retained = []
+        while time.monotonic() < deadline:
+            if receipt.exists():
+                identities = json.loads(receipt.read_text())
+            path = run_dir / "compile-profile/owned-descendants.json"
+            if path.exists():
+                retained = json.loads(path.read_text())
+            captured = identities and {item["pid"] for item in identities}.issubset(
+                {item["pid"] for item in retained}
+            )
+            if identities and (captured or before_retention):
+                break
+            time.sleep(0.05)
+        assert identities
+        if before_retention:
+            assert not {item["pid"] for item in identities}.intersection(
+                {item["pid"] for item in retained}
+            )
+        else:
+            assert captured
+        record = runs.load_record(run_dir)
+        assert record is not None
+        assert identities[0]["pid"] != os.getpgid(ProcessIdentity.from_json(record["child"]).pid)
+        cancelling = subprocess.Popen(
+            [sys.executable, str(Path(runs.__file__)), "cancel", run_dir.name, "--json"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        if before_retention:
+            profile_pid = record["child"]["pid"]
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                fields = Path(f"/proc/{identities[0]['pid']}/stat").read_text().rsplit(")", 1)[1].split()
+                if int(fields[1]) == profile_pid:
+                    break
+                time.sleep(0.01)
+            assert int(fields[1]) == profile_pid, "escaped Cargo was not adopted by the subreaper"
+            gate.touch()
+        stdout, stderr = cancelling.communicate(timeout=30)
+        cancelled = subprocess.CompletedProcess(cancelling.args, cancelling.returncode, stdout, stderr)
+        assert cancelled.returncode == 0, cancelled.stderr
+        assert json.loads(cancelled.stdout)["state"] == "cancelled"
+        assert all(not capture.identity_matches(item["pid"], item) for item in identities)
+        assert capture.identity_matches(unrelated.pid, unrelated_identity)
+        final = json.loads((run_dir / "compile-profile/record.json").read_text())
+        assert any(item["pgid"] == identities[0]["pid"] for item in final["descendant_signals"])
+        assert final["product"]["exit_code"] == -signal.SIGTERM
+    finally:
+        if run_dir is not None and runs.state_of(run_dir, runs.load_record(run_dir)) == "running":
+            subprocess.run([sys.executable, str(Path(runs.__file__)), "cancel", run_dir.name], timeout=30)
+        for item in identities:
+            if capture.identity_matches(item["pid"], item):
+                os.kill(item["pid"], signal.SIGKILL)
+        unrelated.terminate()
+        unrelated.wait(timeout=5)
+
+
+@pytest.mark.parametrize("changed", [{"start_time": "0"}, {"uid": -1}])
+def test_descendant_cancellation_refuses_changed_identity(changed):
+    target = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(90)"], start_new_session=True)
+    try:
+        tree = profile.OwnedCommandTree(target.pid)
+        tree.processes[target.pid].update(changed)
+        tree.signal_escaped(signal.SIGTERM)
+        assert target.poll() is None
+        assert not tree.actions
+    finally:
+        target.terminate()
+        target.wait(timeout=5)
+
+
+def test_cancel_reaches_adopted_child_when_root_exited_before_identity_receipt(root):
+    receipt = root / "already-orphaned.json"
+    runner = """
+import pathlib,sys,time
+sys.path.insert(0,'scripts')
+import compile_profile as profile
+initialize=profile.OwnedCommandTree.__init__
+identify=profile.ProcessIdentity.of
+def after_exit(self,pid,*args):
+    deadline=time.monotonic()+5
+    while time.monotonic()<deadline:
+        fields=pathlib.Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()
+        if fields[0]=='Z': break
+        time.sleep(.01)
+    assert fields[0]=='Z'
+    def unavailable(candidate=None):
+        if candidate==pid: raise ProcessLookupError('exited root namespace receipt unavailable')
+        return identify(candidate)
+    profile.ProcessIdentity.of=unavailable
+    initialize(self,pid,*args)
+profile.OwnedCommandTree.__init__=after_exit
+raise SystemExit(profile.main(sys.argv[1:]))
+"""
+    command = """
+import json,pathlib,subprocess,sys
+sys.path.insert(0,'scripts')
+from compile_profile_capture import process_identity
+child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(90)'],
+    start_new_session=True)
+pathlib.Path(sys.argv[1]).write_text(json.dumps(process_identity(child.pid)))
+"""
+    launched = subprocess.run(
+        [sys.executable, str(Path(runs.__file__)), "run", "--background", "--json", "--",
+         sys.executable, "-c", runner, "_record", "--focus", "cpg-core", "--",
+         sys.executable, "-c", command, str(receipt)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert launched.returncode == 0, launched.stderr
+    run_dir = runs.resolve(json.loads(launched.stdout)["id"])
+    identity = None
+    try:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            if receipt.exists():
+                identity = json.loads(receipt.read_text())
+            retained = run_dir / "compile-profile/owned-descendants.json"
+            if identity and retained.exists() and any(
+                item["pid"] == identity["pid"] for item in json.loads(retained.read_text())
+            ):
+                break
+            time.sleep(.05)
+        assert identity and retained.exists()
+        assert capture.identity_matches(identity["pid"], identity)
+        cancelled = subprocess.run(
+            [sys.executable, str(Path(runs.__file__)), "cancel", run_dir.name, "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert cancelled.returncode == 0, cancelled.stderr
+        assert json.loads(cancelled.stdout)["state"] == "cancelled"
+        assert not capture.identity_matches(identity["pid"], identity)
+        final = json.loads((run_dir / "compile-profile/record.json").read_text())
+        assert "command_identity" not in final
+        assert any(item.startswith("command identity receipt:") for item in final["stdout_errors"])
+        assert final["product"]["exit_code"] == 0
+        assert final["product"]["signals"] == [signal.SIGTERM]
+    finally:
+        if runs.state_of(run_dir, runs.load_record(run_dir)) == "running":
+            subprocess.run([sys.executable, str(Path(runs.__file__)), "cancel", run_dir.name], timeout=30)
+        if identity and capture.identity_matches(identity["pid"], identity):
+            os.kill(identity["pid"], signal.SIGKILL)
+
+
+def test_cancellation_preserves_slow_sampler_finalization_beyond_compiler_grace(root):
+    perf = root / "slow-perf"
+    perf.write_text(f"#!{sys.executable}\n" + r"""
+import pathlib,signal,sys,time
+output=pathlib.Path(sys.argv[sys.argv.index('-o')+1])
+active=output.open('wb'); active.write(b'raw sample'); active.flush()
+def finish(*_):
+    signal.signal(signal.SIGINT,signal.SIG_IGN)
+    time.sleep(6.25)
+    active.close()
+    completed=output.with_name(output.name+'.202610080001')
+    output.rename(completed)
+    print('[ perf record: Dump '+str(completed)+' ]',flush=True)
+    raise SystemExit(0)
+signal.signal(signal.SIGINT,finish)
+signal.signal(signal.SIGTERM,lambda *_:sys.exit(91))
+output.with_name('ready').touch()
+while True: time.sleep(.05)
+""")
+    perf.chmod(0o755)
+    command = r"""
+import os,pathlib,sys,time
+sys.path.insert(0,'scripts')
+import compile_profile_capture as capture
+unit=pathlib.Path(os.environ['LCTX_COMPILE_PROFILE_DIR'])/'units'/'slow-sampler'
+identity=capture.process_identity(os.getpid())
+sampler=capture.start_sampler(unit,os.getpid(),identity,sys.argv[1])
+capture.write_json(unit/'record.json',dict(identity,phase='running',kind='normal',
+    collector={'pid':sampler.pid,'status':'running'},sidecars={}))
+time.sleep(90)
+"""
+    launched = subprocess.run(
+        [sys.executable, str(Path(runs.__file__)), "run", "--background", "--json", "--",
+         sys.executable, str(profile.SCRIPT), "_record", "--focus", "cpg-core", "--",
+         sys.executable, "-c", command, str(perf)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert launched.returncode == 0, launched.stderr
+    run_dir = runs.resolve(json.loads(launched.stdout)["id"])
+    unit = run_dir / "compile-profile/units/slow-sampler"
+    sampler_identity = None
+    try:
+        deadline = time.monotonic() + 20
+        while not (unit / "ready").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert (unit / "ready").exists()
+        sampler = json.loads((unit / "sampler.json").read_text())
+        sampler_identity = sampler["identity"]
+        started = time.monotonic()
+        cancelled = subprocess.run(
+            [sys.executable, str(Path(runs.__file__)), "cancel", run_dir.name, "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert cancelled.returncode == 0, cancelled.stderr
+        assert json.loads(cancelled.stdout)["state"] == "cancelled"
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            collector = json.loads((unit / "collector.json").read_text())
+            if collector["phase"] == "completed":
+                break
+            time.sleep(0.05)
+        assert collector["phase"] == "completed"
+        assert collector["exit_code"] == 0
+        assert time.monotonic() - started > 5
+        assert capture.read_completed_chunks(unit) == [unit / "perf.data.202610080001"]
+        assert (unit / "perf.data.202610080001").read_bytes() == b"raw sample"
+        final = json.loads((run_dir / "compile-profile/record.json").read_text())
+        assert all(item["pgid"] != sampler["pid"] for item in final["descendant_signals"])
+    finally:
+        if runs.state_of(run_dir, runs.load_record(run_dir)) == "running":
+            subprocess.run([sys.executable, str(Path(runs.__file__)), "cancel", run_dir.name], timeout=30)
+        if sampler_identity and capture.identity_matches(sampler_identity["pid"], sampler_identity):
+            os.killpg(sampler_identity["pid"], signal.SIGKILL)
 
 
 def test_self_profile_format_guard_fails_before_tools(tmp_path, monkeypatch):

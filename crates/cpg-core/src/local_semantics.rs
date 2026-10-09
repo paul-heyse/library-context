@@ -1,7 +1,8 @@
 //! Local analysis uses confirmed inputs, one attempt budget and the domain's shared replay.
+use crate::producer_operations::{Declaration, declare, declare_ordered, emit};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use arrow_array::Array;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, future::BoxFuture};
 use lctx_model::domain::{
     analysis::{self, expected::CoverageAdmission, local as publication, sources::CapturedSources},
     local_semantics::{self, LocalData},
@@ -48,6 +49,98 @@ macro_rules! decoder_inputs {
         $apply! {definitions:analysis::AnalysisDefinition,}
     };
 }
+type MetadataLoader = for<'a, 'sources> fn(
+    &'a CompletedInputs,
+    &'a datafusion::prelude::SessionContext,
+    &'a mut crate::consumed_rows::ConsumedInputs,
+    &'a mut CoverageAdmission<'sources>,
+    &'a mut LocalData,
+    &'a mut normalized::Rows<input::InputRevision>,
+    &'a mut normalized::Rows<analysis::AnalysisDefinition>,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn read_metadata<'a, R: Record>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut CoverageAdmission<'_>,
+    data: &'a mut LocalData,
+    inputs: &'a mut normalized::Rows<input::InputRevision>,
+    definitions: &'a mut normalized::Rows<analysis::AnalysisDefinition>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        while let Some((input, permit)) = consumed.next::<R>(access)? {
+            if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+                .await?
+            {
+                continue;
+            }
+            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
+                admission.visit_if_expected(permit, batch)?;
+                if R::NAME == attribution::ProviderRun::NAME
+                    || R::NAME == attribution::Provider::NAME
+                {
+                    data.entry.visit(R::NAME, batch)?;
+                }
+                if R::NAME == input::InputRevision::NAME {
+                    inputs.decode(batch)?;
+                }
+                if R::NAME == analysis::AnalysisDefinition::NAME {
+                    definitions.decode(batch)?;
+                }
+                Ok(())
+            })
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn load_metadata<'a>(
+    access: &'a CompletedInputs,
+    session: &'a datafusion::prelude::SessionContext,
+    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
+    admission: &'a mut CoverageAdmission<'_>,
+    data: &'a mut LocalData,
+    inputs: &'a mut normalized::Rows<input::InputRevision>,
+    definitions: &'a mut normalized::Rows<analysis::AnalysisDefinition>,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    let mut loaders: Vec<MetadataLoader> = Vec::new();
+    macro_rules! adapters {($($field:ident:$ty:ty,)*) => {$(loaders.push(read_metadata::<$ty>);)*};}
+    decoder_inputs!(adapters);
+    Box::pin(async move {
+        for load in loaders {
+            load(
+                access,
+                session,
+                consumed,
+                admission,
+                data,
+                inputs,
+                definitions,
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelError>> {
+    Box::pin(async move {
+        let mut declarations: Vec<Declaration> = Vec::new();
+        macro_rules! common {($($record:ident,)*) => {$(declarations.push(declare::<publication::$record>);)*};}
+        lctx_model::analysis_publication!(common);
+        declarations.extend([
+            declare::<publication::AnalysisDiagnostic> as Declaration,
+            declare::<publication::ObligationSource>,
+            declare::<publication::AnalysisObligation>,
+            declare::<publication::DischargeEvidence>,
+        ]);
+        macro_rules! outputs {($($field:ident:$ty:ty,)*) => {$(declarations.push(declare::<$ty>);)*};}
+        lctx_model::local_semantic_outputs!(outputs);
+        lctx_model::local_theory_outputs!(outputs);
+        lctx_model::local_field_outputs!(outputs);
+        declare_ordered(output, &declarations).await
+    })
+}
+
 pub async fn run(
     access: CompletedInputs,
     output: ProducerOutput,
@@ -76,17 +169,16 @@ pub async fn run(
     let mut data = LocalData::new(budget);
     let mut inputs = normalized::Rows::<input::InputRevision>::new(budget);
     let mut definitions = normalized::Rows::<analysis::AnalysisDefinition>::new(budget);
-    macro_rules! load {($($field:ident:$ty:ty,)*)=>{$(while let Some((input,permit))=consumed.next::<$ty>(&access)?{
-        if crate::consumed_rows::stream_artifact_admission(&access,&input,&session,&mut admission).await? {continue;}
-        crate::consumed_rows::stream_at(&permit,&input,&access,&session,|permit,batch|{
-            admission.visit_if_expected(permit,batch)?;
-            if <$ty>::NAME==attribution::ProviderRun::NAME || <$ty>::NAME==attribution::Provider::NAME{data.entry.visit(<$ty>::NAME,batch)?;}
-            if <$ty>::NAME==input::InputRevision::NAME{inputs.decode(batch)?;}
-            if <$ty>::NAME==analysis::AnalysisDefinition::NAME{definitions.decode(batch)?;}
-            Ok(())
-        }).await?;
-    })*};}
-    decoder_inputs!(load);
+    load_metadata(
+        &access,
+        &session,
+        &mut consumed,
+        &mut admission,
+        &mut data,
+        &mut inputs,
+        &mut definitions,
+    )
+    .await?;
     consumed.finish(access.name())?;
     if definitions.get(definition.id()) != Some(definition) {
         return Err(ModelError::Invalid(
@@ -99,19 +191,7 @@ pub async fn run(
     } else {
         None
     };
-    macro_rules! declare_publication {($($ty:ty),*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    macro_rules! common_publication {($($record:ident,)*)=>{$(output.declare_async::<publication::$record>().await?;)*};}
-    lctx_model::analysis_publication!(common_publication);
-    declare_publication!(
-        publication::AnalysisDiagnostic,
-        publication::ObligationSource,
-        publication::AnalysisObligation,
-        publication::DischargeEvidence
-    );
-    macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(output.declare_async::<$ty>().await?;)*};}
-    lctx_model::local_semantic_outputs!(declare);
-    lctx_model::local_theory_outputs!(declare);
-    lctx_model::local_field_outputs!(declare);
+    declare_outputs(&output).await?;
     let mut actual = local_semantics::ProducedLocal::empty(budget);
     let mut frames = charged::ChargedSet::default();
     let mut frame_charge = charged::StateCharge::new(budget, "local_invocation_frames");
@@ -271,17 +351,44 @@ pub async fn run(
     }))
 }
 
-async fn publish_records(
-    output: &ProducerOutput,
-    rows: &local_semantics::LocalRecords,
-) -> Result<(), ModelError> {
-    macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){output.push(row.clone()).await?;})*};}
-    lctx_model::local_semantic_outputs!(write);
-    macro_rules! theory_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.theory.$field.iter(){output.push(row.clone()).await?;})*};}
-    lctx_model::local_theory_outputs!(theory_write);
-    macro_rules! fields_write{($($field:ident:$ty:ty,)*)=>{$(for row in rows.fields.$field.iter(){output.push(row.clone()).await?;})*};}
-    lctx_model::local_field_outputs!(fields_write);
-    Ok(())
+fn publish_records<'a>(
+    output: &'a ProducerOutput,
+    rows: &'a local_semantics::LocalRecords,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    type Emission = for<'a> fn(
+        &'a ProducerOutput,
+        &'a local_semantics::LocalRecords,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+    let semantic = {
+        macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+            const EMISSIONS: &[Emission] = &[$($field,)*];
+        };}
+        lctx_model::local_semantic_outputs!(adapters);
+        EMISSIONS
+    };
+    let theory = {
+        macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.theory.$field, output) })*
+            const EMISSIONS: &[Emission] = &[$($field,)*];
+        };}
+        lctx_model::local_theory_outputs!(adapters);
+        EMISSIONS
+    };
+    let fields = {
+        macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
+            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.fields.$field, output) })*
+            const EMISSIONS: &[Emission] = &[$($field,)*];
+        };}
+        lctx_model::local_field_outputs!(adapters);
+        EMISSIONS
+    };
+    Box::pin(async move {
+        for emission in semantic.iter().chain(theory).chain(fields) {
+            emission(output, rows).await?;
+        }
+        Ok(())
+    })
 }
 
 #[cfg(test)]

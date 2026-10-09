@@ -12,6 +12,7 @@ struct Recorder {
     batches: Mutex<Vec<RecordedBatch>>,
     finished: Mutex<Vec<ProviderOutcome>>,
     streamed_error: bool,
+    drained: Arc<tokio::sync::Notify>,
 }
 impl ProviderSink for Recorder {
     fn read<R: Record>(
@@ -49,6 +50,26 @@ impl ProviderSink for Recorder {
         self.finished.lock().unwrap().push(outcome);
         Ok(())
     }
+    fn drain_provider(
+        &self,
+        thread: std::thread::JoinHandle<()>,
+    ) -> tokio::sync::oneshot::Receiver<Result<(), ModelError>> {
+        let (done, finished) = tokio::sync::oneshot::channel();
+        let drained = self.drained.clone();
+        let join = move || {
+            let result = thread
+                .join()
+                .map_err(|_| ModelError::Invalid("provider thread panicked while draining".into()));
+            let _ = done.send(result);
+            drained.notify_one();
+        };
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn_blocking(join);
+        } else {
+            join();
+        }
+        finished
+    }
 }
 type Run =
     Box<dyn FnMut(&mut StageContext<Recorder>) -> Result<ProviderOutcome, ModelError> + Send>;
@@ -68,6 +89,7 @@ impl ProviderStage<Recorder> for Provider {
 }
 fn packages() -> Stage {
     Stage {
+        captured_binding: None,
         name: "packages",
         inputs: vec![],
         outputs: vec![RelationUse::of::<Package>()],
@@ -299,12 +321,10 @@ async fn dropping_the_future_drains_native_work_and_refuses_completion() {
         TransferLimits::default(),
     ));
     tokio::select! { result = &mut future => panic!("unexpected completion {result:?}"), result = begun => result.unwrap() }
-    let unblock = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        release.send(()).unwrap();
-    });
     drop(future);
-    unblock.join().unwrap();
+    release.send(()).unwrap();
+    // The provider flag precedes StageContext release; join acknowledges terminal ownership.
+    sink.drained.notified().await;
     assert!(stopped.load(Ordering::Acquire));
     assert!(sink.finished.lock().unwrap().is_empty());
     assert_eq!(budget.reserved(), 0);

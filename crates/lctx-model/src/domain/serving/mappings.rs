@@ -999,6 +999,7 @@ mod encoding_controls {
         frame(b"frontier", b"catalog");
         frame(b"capability", b"catalog");
         frame(b"field", b"name");
+        frame(b"textual", &[1]);
         frame(b"scalar", b"text");
         frame(b"roles", &[1, 0, 0, 0]);
         frame(b"target", b"");
