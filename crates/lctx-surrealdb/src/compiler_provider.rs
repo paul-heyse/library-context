@@ -175,7 +175,7 @@ impl TableProvider for NativeTable {
         Ok(filters
             .iter()
             .map(|expr| {
-                if translate(expr, &self.relation).is_some() {
+                if SupportedFilter::interpret(expr, &self.relation).is_some() {
                     TableProviderFilterPushDown::Exact
                 } else {
                     TableProviderFilterPushDown::Unsupported
@@ -199,24 +199,12 @@ impl TableProvider for NativeTable {
         let mut preparation = Vec::new();
         let mut driver = None;
         for (index, filter) in filters.iter().enumerate() {
-            if let Some(mut translated) = translate(filter, &self.relation) {
+            if let Some(supported) = SupportedFilter::interpret(filter, &self.relation) {
+                let mut translated = supported.render(&self.relation, &format!("f{index}_"));
                 if driver.is_none() {
                     driver = translated.driver.take();
                 }
-                // Every translated predicate uses its own value names.
-                let prefix = format!("f{index}_");
-                for (name, value) in translated.values {
-                    bindings.insert(format!("{prefix}{name}"), value);
-                }
-                for name in translated.names.into_iter().rev() {
-                    translated.sql = translated
-                        .sql
-                        .replace(&format!("${name}"), &format!("${prefix}{name}"));
-                    for statement in &mut translated.preparation {
-                        *statement =
-                            statement.replace(&format!("${name}"), &format!("${prefix}{name}"));
-                    }
-                }
+                bindings.extend(translated.values.into_iter().collect());
                 preparation.extend(translated.preparation);
                 predicates.push(format!("({})", translated.sql));
             }
@@ -418,6 +406,120 @@ impl ExecutionPlan for NativeExec {
         })
     }
 }
+/// Invariant field bindings are prepared on first poll and retained (and charged) by the
+/// selected scan. Native scan ownership still takes SDK value copies per active window.
+struct PreparedSelection {
+    sql: String,
+    bindings: Variables,
+    preparation: Vec<String>,
+    field_driver: Option<(String, Vec<Value>)>,
+    empty: bool,
+    field_copy_bytes: usize,
+    _reservation: Box<dyn lctx_model::domain::resources::Reservation>,
+}
+impl PreparedSelection {
+    fn new(
+        keys: &[SelectedKeys],
+        driver: usize,
+        relation: &Relation,
+        predicate: Option<NativePredicate>,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let field_keys = keys
+            .iter()
+            .filter(|selection| selection.field.is_some())
+            .map(|selection| selection.keys.len())
+            .sum::<usize>();
+        let reservation = budget.reserve(
+            "native-selected-field-preparation",
+            field_keys.saturating_mul(1536).saturating_add(4096),
+        )?;
+        let mut bindings = Variables::new();
+        let mut predicates = Vec::new();
+        let mut preparation = Vec::new();
+        let mut field_driver = None;
+        for (index, selection) in keys.iter().enumerate() {
+            let Some(field) = selection.field else {
+                continue;
+            };
+            let name = format!("closure_selected_fields_{index}");
+            let values = selection
+                .keys
+                .iter()
+                .map(|key| {
+                    Value::Array(
+                        key.iter()
+                            .map(|byte| Value::Number(Number::Int(i64::from(*byte))))
+                            .collect(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            if index == driver {
+                field_driver = Some((field.to_string(), values));
+                continue;
+            }
+            bindings.insert(name.clone(), values);
+            let scope = format!("closure_selected_scope_{index}");
+            predicates.push(crate::prepared::prepare_scope(
+                &mut preparation,
+                &scope,
+                &format!("'{}'", relation.name()),
+                field,
+                &format!("${name}"),
+            ));
+        }
+        match predicate {
+            Some(NativePredicate::Sql {
+                sql,
+                bindings: static_bindings,
+                preparation: static_preparation,
+            }) => {
+                bindings.extend(static_bindings);
+                preparation.extend(static_preparation);
+                predicates.push(format!("({sql})"));
+            }
+            None => {}
+            _ => return Err(ModelError::Schema("native table static predicate")),
+        }
+        Ok(Self {
+            sql: if predicates.is_empty() {
+                "true".into()
+            } else {
+                predicates.join(" AND ")
+            },
+            bindings,
+            preparation,
+            field_driver,
+            empty: keys.iter().any(|selection| selection.keys.is_empty()),
+            field_copy_bytes: field_keys.saturating_mul(1536),
+            _reservation: reservation,
+        })
+    }
+    fn predicate(&self, nominal: Option<Vec<[u8; 16]>>) -> Result<NativePredicate, ModelError> {
+        // Empty demand must still check the exact view through the ordinary native reader.
+        if self.empty || nominal.as_ref().is_some_and(Vec::is_empty) {
+            return Ok(NativePredicate::Keys(vec![]));
+        }
+        if let Some(keys) = nominal {
+            Ok(NativePredicate::KeysSql {
+                keys,
+                sql: self.sql.clone(),
+                bindings: self.bindings.clone(),
+                preparation: self.preparation.clone(),
+            })
+        } else if let Some((field, values)) = &self.field_driver {
+            Ok(NativePredicate::FieldSql {
+                field: field.clone(),
+                values: values.clone(),
+                sql: self.sql.clone(),
+                bindings: self.bindings.clone(),
+                preparation: self.preparation.clone(),
+            })
+        } else {
+            Err(ModelError::Schema("native selected driver"))
+        }
+    }
+}
 #[allow(
     clippy::too_many_arguments,
     reason = "Selected native streams retain the exact view, projection, static predicates and existing key owner"
@@ -443,149 +545,82 @@ fn selected_batches(
         .min_by_key(|(_, selection)| selection.keys.len())
         .map(|(index, _)| index)
         .unwrap_or(0);
-    let windows = futures::stream::try_unfold((0usize, false), move |(offset, done)| {
-        let store = store.clone();
-        let view = view.clone();
-        let relation = relation.clone();
-        let projection = projection.clone();
-        let predicate = predicate.clone();
-        let keys = keys.clone();
-        let budget = budget.clone();
-        async move {
-            if done {
-                return Ok::<_, datafusion::error::DataFusionError>(None);
-            }
-            let end = if keys[driver].field.is_some() {
-                keys[driver].keys.len()
-            } else {
-                offset
-                    .saturating_add(TRANSFER_ROWS)
-                    .min(keys[driver].keys.len())
-            };
-            let field_keys = keys
-                .iter()
-                .filter(|selection| selection.field.is_some())
-                .map(|selection| selection.keys.len())
-                .sum::<usize>();
-            let transfer = budget
-                .reserve(
-                    "native-selected-key-transfer",
-                    (end - offset)
-                        .saturating_mul(192)
-                        .saturating_add(field_keys.saturating_mul(1536))
-                        .saturating_add(4096),
-                )
-                .map_err(df_error)?;
-            let mut bindings = Variables::new();
-            let mut predicates = Vec::new();
-            let mut preparation = Vec::new();
-            let mut nominal = None;
-            let mut field_driver = None;
-            let mut empty = keys.iter().any(|selection| selection.keys.is_empty());
-            if keys[driver].field.is_none() {
-                let selected = keys[driver].keys[offset..end]
-                    .iter()
-                    .filter(|key| {
-                        keys.iter()
-                            .filter(|selection| selection.field.is_none())
-                            .all(|selection| selection.keys.binary_search(key).is_ok())
-                    })
-                    .copied()
-                    .collect::<Vec<_>>();
-                empty |= selected.is_empty();
-                nominal = Some(selected);
-            }
-            for (index, selection) in keys.iter().enumerate() {
-                let Some(field) = selection.field else {
-                    continue;
+    let windows = futures::stream::try_unfold(
+        (0usize, false, None::<Arc<PreparedSelection>>, predicate),
+        move |(offset, done, prepared, predicate)| {
+            let store = store.clone();
+            let view = view.clone();
+            let relation = relation.clone();
+            let projection = projection.clone();
+            let keys = keys.clone();
+            let budget = budget.clone();
+            async move {
+                if done {
+                    return Ok::<_, datafusion::error::DataFusionError>(None);
+                }
+                let end = if keys[driver].field.is_some() {
+                    keys[driver].keys.len()
+                } else {
+                    offset
+                        .saturating_add(TRANSFER_ROWS)
+                        .min(keys[driver].keys.len())
                 };
-                let name = format!("closure_selected_fields_{index}");
-                let values = selection
-                    .keys
-                    .iter()
-                    .map(|key| {
-                        Value::Array(
-                            key.iter()
-                                .map(|byte| Value::Number(Number::Int(i64::from(*byte))))
-                                .collect(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                if index == driver {
-                    field_driver = Some((field.to_string(), values));
-                    continue;
-                }
-                bindings.insert(name.clone(), values);
-                let scope = format!("closure_selected_scope_{index}");
-                predicates.push(crate::prepared::prepare_scope(
-                    &mut preparation,
-                    &scope,
-                    &format!("'{}'", relation.name()),
-                    field,
-                    &format!("${name}"),
-                ));
+                let prepared = match prepared {
+                    Some(prepared) => prepared,
+                    None => Arc::new(
+                        PreparedSelection::new(&keys, driver, &relation, predicate, &budget)
+                            .map_err(df_error)?,
+                    ),
+                };
+                // Changing nominal-window state and SDK-owned copies have a separate lifetime.
+                let transfer = budget
+                    .reserve(
+                        "native-selected-key-transfer",
+                        (end - offset)
+                            .saturating_mul(192)
+                            .saturating_add(prepared.field_copy_bytes)
+                            .saturating_add(4096),
+                    )
+                    .map_err(df_error)?;
+                let nominal = if keys[driver].field.is_none() {
+                    Some(
+                        keys[driver].keys[offset..end]
+                            .iter()
+                            .filter(|key| {
+                                keys.iter()
+                                    .filter(|selection| selection.field.is_none())
+                                    .all(|selection| selection.keys.binary_search(key).is_ok())
+                            })
+                            .copied()
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                };
+                let predicate = prepared.predicate(nominal).map_err(df_error)?;
+                let rows = scan_batches(
+                    store,
+                    view,
+                    relation,
+                    projection,
+                    Some(predicate),
+                    budget,
+                    batch_rows,
+                )
+                .await
+                .map_err(df_error)?;
+                let held_prepared = prepared.clone();
+                let rows = rows.map(move |batch| {
+                    let _held = (&transfer, &held_prepared);
+                    batch
+                });
+                Ok(Some((
+                    rows,
+                    (end, end == keys[driver].keys.len(), Some(prepared), None),
+                )))
             }
-            match predicate {
-                Some(NativePredicate::Sql {
-                    sql,
-                    bindings: static_bindings,
-                    preparation: static_preparation,
-                }) => {
-                    bindings.extend(static_bindings);
-                    preparation.extend(static_preparation);
-                    predicates.push(format!("({sql})"));
-                }
-                None => {}
-                _ => {
-                    return Err(df_error(ModelError::Schema(
-                        "native table static predicate",
-                    )));
-                }
-            }
-            let sql = if predicates.is_empty() {
-                "true".into()
-            } else {
-                predicates.join(" AND ")
-            };
-            // Even empty demand checks the exact view/pin through the ordinary native reader.
-            let predicate = if empty {
-                NativePredicate::Keys(vec![])
-            } else if let Some(keys) = nominal {
-                NativePredicate::KeysSql {
-                    keys,
-                    sql,
-                    bindings,
-                    preparation,
-                }
-            } else if let Some((field, values)) = field_driver {
-                NativePredicate::FieldSql {
-                    field,
-                    values,
-                    sql,
-                    bindings,
-                    preparation,
-                }
-            } else {
-                return Err(df_error(ModelError::Schema("native selected driver")));
-            };
-            let rows = scan_batches(
-                store,
-                view,
-                relation,
-                projection,
-                Some(predicate),
-                budget,
-                batch_rows,
-            )
-            .await
-            .map_err(df_error)?;
-            let rows = rows.map(move |batch| {
-                let _held = &transfer;
-                batch
-            });
-            Ok(Some((rows, (end, end == keys[driver].keys.len()))))
-        }
-    })
+        },
+    )
     .try_flatten();
     Box::pin(RecordBatchStreamAdapter::new(schema, windows))
 }
@@ -654,115 +689,91 @@ fn df_error(error: ModelError) -> datafusion::error::DataFusionError {
 struct Predicate {
     sql: String,
     values: Vec<(String, Value)>,
-    names: Vec<String>,
     preparation: Vec<String>,
     driver: Option<(String, Vec<Value>)>,
 }
-fn translate(expr: &Expr, relation: &Relation) -> Option<Predicate> {
-    fn field(expr: &Expr, relation: &Relation) -> Option<String> {
-        let Expr::Column(column) = expr else {
-            return None;
-        };
-        if relation.name()
-            == <lctx_model::domain::artifact::ArtifactChunk as lctx_model::domain::Record>::NAME
-            && column.name == "body"
-        {
-            return None;
-        }
-        relation.schema().field_with_name(&column.name).ok()?;
-        if column.name == "id" {
-            Some("semantic_key".into())
+/// Recognition borrows operands and performs no native-value or SQL materialization.
+/// Both capability reporting and rendering consume this same supported interpretation.
+#[derive(Clone, Copy)]
+struct FilterField<'a> {
+    name: &'a str,
+    atomic: bool,
+}
+impl FilterField<'_> {
+    fn sql(self) -> String {
+        if self.name == "id" {
+            "semantic_key".into()
         } else {
-            Some(format!("body.`{}`", column.name.replace('`', "``")))
+            format!("body.`{}`", self.name.replace('`', "``"))
         }
     }
-    fn literal(expr: &Expr, id: bool) -> Option<Value> {
-        let Expr::Literal(value, _) = expr else {
-            return None;
-        };
-        Some(match value {
-            ScalarValue::Boolean(Some(value)) => Value::Bool(*value),
-            ScalarValue::Int16(Some(value)) => Value::Number(Number::Int(i64::from(*value))),
-            ScalarValue::Int32(Some(value)) => Value::Number(Number::Int(i64::from(*value))),
-            ScalarValue::Int64(Some(value)) => Value::Number(Number::Int(*value)),
-            ScalarValue::Float64(Some(value)) if value.is_finite() => {
-                Value::Number(Number::Float(*value))
-            }
-            ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => {
-                Value::String(value.clone())
-            }
-            ScalarValue::FixedSizeBinary(_, Some(value)) => {
-                if id {
-                    Value::String(hex::encode(value))
-                } else {
-                    Value::Array(
-                        value
-                            .iter()
-                            .map(|byte| Value::Number(Number::Int(i64::from(*byte))))
-                            .collect(),
-                    )
-                }
-            }
-            _ => return None,
-        })
+}
+enum SupportedFilter<'a> {
+    Boolean(Box<Self>, Operator, Box<Self>),
+    Compare(FilterField<'a>, Operator, &'a ScalarValue),
+    In(FilterField<'a>, &'a [Expr]),
+    Null(FilterField<'a>, bool),
+}
+fn supported_literal(expr: &Expr) -> Option<&ScalarValue> {
+    let Expr::Literal(value, _) = expr else {
+        return None;
+    };
+    match value {
+        ScalarValue::Boolean(Some(_))
+        | ScalarValue::Int16(Some(_))
+        | ScalarValue::Int32(Some(_))
+        | ScalarValue::Int64(Some(_))
+        | ScalarValue::Utf8(Some(_))
+        | ScalarValue::LargeUtf8(Some(_))
+        | ScalarValue::FixedSizeBinary(_, Some(_)) => Some(value),
+        ScalarValue::Float64(Some(number)) if number.is_finite() => Some(value),
+        _ => None,
     }
-    // Only a mandatory conjunct can narrow the candidate universe independently of the full
-    // residual expression. An OR branch alone cannot establish an exact atomic field demand.
-    fn driver(expr: &Expr, relation: &Relation) -> Option<(String, Vec<Value>)> {
-        match expr {
-            Expr::BinaryExpr(binary) if binary.op == Operator::And => {
-                driver(&binary.left, relation).or_else(|| driver(&binary.right, relation))
-            }
-            Expr::BinaryExpr(binary) if binary.op == Operator::Eq => {
-                field(&binary.left, relation)?;
-                let Expr::Column(column) = binary.left.as_ref() else {
-                    return None;
-                };
-                if !crate::schema::atomic_scope_field(relation.name(), column.name.as_str()) {
-                    return None;
-                }
-                Some((column.name.clone(), vec![literal(&binary.right, false)?]))
-            }
-            Expr::InList(list) if !list.negated => {
-                field(&list.expr, relation)?;
-                let Expr::Column(column) = list.expr.as_ref() else {
-                    return None;
-                };
-                if !crate::schema::atomic_scope_field(relation.name(), column.name.as_str()) {
-                    return None;
-                }
-                let values = list
-                    .list
-                    .iter()
-                    .map(|value| literal(value, false))
-                    .collect::<Option<Vec<_>>>()?;
-                Some((column.name.clone(), values))
-            }
-            _ => None,
+}
+fn native_literal(value: &ScalarValue, id: bool) -> Value {
+    match value {
+        ScalarValue::Boolean(Some(value)) => Value::Bool(*value),
+        ScalarValue::Int16(Some(value)) => Value::Number(Number::Int(i64::from(*value))),
+        ScalarValue::Int32(Some(value)) => Value::Number(Number::Int(i64::from(*value))),
+        ScalarValue::Int64(Some(value)) => Value::Number(Number::Int(*value)),
+        ScalarValue::Float64(Some(value)) => Value::Number(Number::Float(*value)),
+        ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => {
+            Value::String(value.clone())
         }
+        ScalarValue::FixedSizeBinary(_, Some(value)) if id => Value::String(hex::encode(value)),
+        ScalarValue::FixedSizeBinary(_, Some(value)) => Value::Array(
+            value
+                .iter()
+                .map(|byte| Value::Number(Number::Int(i64::from(*byte))))
+                .collect(),
+        ),
+        _ => unreachable!("only recognized literals are rendered"),
     }
-    fn walk(
-        expr: &Expr,
-        relation: &Relation,
-        values: &mut Vec<(String, Value)>,
-        preparation: &mut Vec<String>,
-    ) -> Option<String> {
-        let mut bind = |value| {
-            let name = format!("v{}", values.len());
-            values.push((name.clone(), value));
-            format!("${name}")
-        };
+}
+impl<'a> SupportedFilter<'a> {
+    fn interpret(expr: &'a Expr, relation: &Relation) -> Option<Self> {
+        fn field<'a>(expr: &'a Expr, relation: &Relation) -> Option<FilterField<'a>> {
+            let Expr::Column(column) = expr else {
+                return None;
+            };
+            if relation.name()
+                == <lctx_model::domain::artifact::ArtifactChunk as lctx_model::domain::Record>::NAME
+                && column.name == "body"
+            {
+                return None;
+            }
+            relation.schema().field_with_name(&column.name).ok()?;
+            Some(FilterField {
+                name: &column.name,
+                atomic: crate::schema::atomic_scope_field(relation.name(), &column.name),
+            })
+        }
         match expr {
             Expr::BinaryExpr(binary) if matches!(binary.op, Operator::And | Operator::Or) => {
-                let left = walk(&binary.left, relation, values, preparation)?;
-                let right = walk(&binary.right, relation, values, preparation)?;
-                Some(format!(
-                    "({left}) {} ({right})",
-                    if binary.op == Operator::And {
-                        "AND"
-                    } else {
-                        "OR"
-                    }
+                Some(Self::Boolean(
+                    Box::new(Self::interpret(&binary.left, relation)?),
+                    binary.op,
+                    Box::new(Self::interpret(&binary.right, relation)?),
                 ))
             }
             Expr::BinaryExpr(binary)
@@ -776,95 +787,143 @@ fn translate(expr: &Expr, relation: &Relation) -> Option<Predicate> {
                         | Operator::GtEq
                 ) =>
             {
-                let column = field(&binary.left, relation)?;
-                let value = literal(&binary.right, column == "semantic_key")?;
-                let bound = bind(value);
-                if binary.op == Operator::Eq && column.starts_with("body.") {
-                    let Expr::Column(field) = binary.left.as_ref() else {
-                        return None;
-                    };
-                    if crate::schema::atomic_scope_field(relation.name(), field.name.as_str()) {
-                        let scope = format!("scope{}", preparation.len());
+                Some(Self::Compare(
+                    field(&binary.left, relation)?,
+                    binary.op,
+                    supported_literal(&binary.right)?,
+                ))
+            }
+            Expr::InList(list) if !list.negated => {
+                let field = field(&list.expr, relation)?;
+                for value in &list.list {
+                    supported_literal(value)?;
+                }
+                Some(Self::In(field, &list.list))
+            }
+            Expr::IsNull(expr) => Some(Self::Null(field(expr, relation)?, true)),
+            Expr::IsNotNull(expr) => Some(Self::Null(field(expr, relation)?, false)),
+            _ => None,
+        }
+    }
+    // Only mandatory conjuncts can narrow the candidate universe; OR supplies no driver.
+    fn driver(&self) -> Option<(String, Vec<Value>)> {
+        match self {
+            Self::Boolean(left, Operator::And, right) => left.driver().or_else(|| right.driver()),
+            Self::Compare(field, Operator::Eq, value) if field.atomic => {
+                Some((field.name.into(), vec![native_literal(value, false)]))
+            }
+            Self::In(field, list) if field.atomic => Some((
+                field.name.into(),
+                list.iter()
+                    .map(|expr| {
+                        native_literal(supported_literal(expr).expect("recognized literal"), false)
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        }
+    }
+    fn render(&self, relation: &Relation, namespace: &str) -> Predicate {
+        fn walk(
+            filter: &SupportedFilter<'_>,
+            relation: &Relation,
+            namespace: &str,
+            values: &mut Vec<(String, Value)>,
+            preparation: &mut Vec<String>,
+        ) -> String {
+            let mut bind = |value| {
+                let name = format!("{namespace}v{}", values.len());
+                values.push((name.clone(), value));
+                format!("${name}")
+            };
+            match filter {
+                SupportedFilter::Boolean(left, op, right) => {
+                    let left = walk(left, relation, namespace, values, preparation);
+                    let right = walk(right, relation, namespace, values, preparation);
+                    format!("({left}) {op} ({right})")
+                }
+                SupportedFilter::Compare(field, op, value) => {
+                    let column = field.sql();
+                    let bound = bind(native_literal(value, field.name == "id"));
+                    if *op == Operator::Eq && field.atomic {
+                        let scope = format!("{namespace}scope{}", preparation.len());
                         preparation.push(format!(
                             "LET ${scope} = {}",
                             crate::prepared::scope_constant(
                                 &format!("'{}'", relation.name()),
-                                &field.name,
+                                field.name,
                                 &bound
                             )
                         ));
-                        return Some(format!("scope_keys CONTAINS ${scope}"));
+                        format!("scope_keys CONTAINS ${scope}")
+                    } else {
+                        format!(
+                            "({column} IS NOT NULL AND {column} IS NOT NONE AND {column} {op} {bound})"
+                        )
                     }
                 }
-                Some(format!(
-                    "({column} IS NOT NULL AND {column} IS NOT NONE AND {column} {} {bound})",
-                    binary.op
-                ))
-            }
-            Expr::InList(list) if !list.negated => {
-                let column = field(&list.expr, relation)?;
-                let items = list
-                    .list
-                    .iter()
-                    .map(|value| literal(value, column == "semantic_key"))
-                    .collect::<Option<Vec<_>>>()?;
-                if column.starts_with("body.") {
-                    let Expr::Column(field) = list.expr.as_ref() else {
-                        return None;
-                    };
-                    if crate::schema::atomic_scope_field(relation.name(), field.name.as_str()) {
+                SupportedFilter::In(field, list) => {
+                    let items = list
+                        .iter()
+                        .map(|expr| {
+                            native_literal(
+                                supported_literal(expr).expect("recognized literal"),
+                                field.name == "id",
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    if field.atomic {
                         let predicates = items
                             .chunks(32)
                             .map(|window| {
                                 let bound = bind(Value::Array(window.to_vec().into()));
-                                let scope = format!("scope{}", preparation.len());
+                                let scope = format!("{namespace}scope{}", preparation.len());
                                 crate::prepared::prepare_scope(
                                     preparation,
                                     &scope,
                                     &format!("'{}'", relation.name()),
-                                    &field.name,
+                                    field.name,
                                     &bound,
                                 )
                             })
                             .collect::<Vec<_>>();
-                        return Some(if predicates.is_empty() {
+                        if predicates.is_empty() {
                             "false".into()
                         } else {
                             format!("({})", predicates.join(" OR "))
-                        });
+                        }
+                    } else {
+                        let column = field.sql();
+                        format!(
+                            "({column} IS NOT NULL AND {column} IS NOT NONE AND {column} IN {})",
+                            bind(Value::Array(items.into()))
+                        )
                     }
                 }
-                Some(format!(
-                    "({column} IS NOT NULL AND {column} IS NOT NONE AND {column} IN {})",
-                    bind(Value::Array(items.into()))
-                ))
+                SupportedFilter::Null(field, null) => {
+                    let field = field.sql();
+                    if *null {
+                        format!("({field} IS NULL OR {field} IS NONE)")
+                    } else {
+                        format!("({field} IS NOT NULL AND {field} IS NOT NONE)")
+                    }
+                }
             }
-            Expr::IsNull(expr) => {
-                let field = field(expr, relation)?;
-                Some(format!("({field} IS NULL OR {field} IS NONE)"))
-            }
-            Expr::IsNotNull(expr) => {
-                let field = field(expr, relation)?;
-                Some(format!("({field} IS NOT NULL AND {field} IS NOT NONE)"))
-            }
-            _ => None,
+        }
+        let mut values = Vec::new();
+        let mut preparation = Vec::new();
+        let sql = walk(self, relation, namespace, &mut values, &mut preparation);
+        Predicate {
+            sql,
+            values,
+            preparation,
+            driver: self.driver(),
         }
     }
-    let mut values = Vec::new();
-    let mut preparation = Vec::new();
-    let sql = walk(expr, relation, &mut values, &mut preparation)?;
-    let names = values
-        .iter()
-        .map(|(name, _)| name.clone())
-        .chain((0..preparation.len()).map(|index| format!("scope{index}")))
-        .collect();
-    Some(Predicate {
-        sql,
-        values,
-        names,
-        preparation,
-        driver: driver(expr, relation),
-    })
+}
+#[cfg(test)]
+fn translate(expr: &Expr, relation: &Relation) -> Option<Predicate> {
+    Some(SupportedFilter::interpret(expr, relation)?.render(relation, ""))
 }
 
 #[cfg(test)]
@@ -909,6 +968,168 @@ mod tests {
         assert!(null.driver.is_none());
         assert!(null.sql.contains("IS NULL OR"));
         assert!(null.preparation.is_empty());
+    }
+    #[test]
+    fn supported_interpretation_borrows_operands_and_renders_disjoint_namespaces() {
+        use datafusion::prelude::{col, lit};
+        let relation = Relation::of::<Release>();
+        let supported = [
+            ScalarValue::Boolean(Some(true)),
+            ScalarValue::Int16(Some(1)),
+            ScalarValue::Int32(Some(2)),
+            ScalarValue::Int64(Some(3)),
+            ScalarValue::Float64(Some(4.5)),
+            ScalarValue::Utf8(Some("v0 $scope0".into())),
+            ScalarValue::LargeUtf8(Some("alias".into())),
+            ScalarValue::FixedSizeBinary(16, Some(vec![7; 16])),
+        ];
+        for value in supported {
+            let expr = col("version").eq(lit(value));
+            let demand = SupportedFilter::interpret(&expr, &relation).unwrap();
+            let SupportedFilter::Compare(_, _, value) = &demand else {
+                panic!("borrowed comparison");
+            };
+            let Expr::BinaryExpr(binary) = &expr else {
+                unreachable!();
+            };
+            let Expr::Literal(original, _) = binary.right.as_ref() else {
+                unreachable!();
+            };
+            assert!(std::ptr::eq(*value, original));
+            assert_eq!(demand.render(&relation, "f10_").values[0].0, "f10_v0");
+        }
+        for value in [
+            ScalarValue::Int8(Some(1)),
+            ScalarValue::UInt64(Some(1)),
+            ScalarValue::Float32(Some(1.0)),
+            ScalarValue::Float64(Some(f64::NAN)),
+            ScalarValue::Utf8(None),
+        ] {
+            assert!(
+                SupportedFilter::interpret(&col("version").eq(lit(value)), &relation).is_none()
+            );
+        }
+        assert!(SupportedFilter::interpret(&lit("v").eq(col("version")), &relation).is_none());
+        assert!(
+            SupportedFilter::interpret(&col("version").eq(col("version")), &relation).is_none()
+        );
+        assert!(
+            SupportedFilter::interpret(&col("version").in_list(vec![lit("v")], true), &relation)
+                .is_none()
+        );
+        let keys = (0..40)
+            .map(|byte| lit(ScalarValue::FixedSizeBinary(16, Some(vec![byte; 16]))))
+            .collect();
+        let expr = col("package")
+            .in_list(keys, false)
+            .and(col("version").eq(lit("$v0")));
+        let interpreted = SupportedFilter::interpret(&expr, &relation).unwrap();
+        for prefix in ["f1_", "f10_"] {
+            let rendered = interpreted.render(&relation, prefix);
+            assert_eq!(rendered.preparation.len(), 2);
+            assert!(rendered.sql.contains(&format!("${prefix}scope0")));
+            assert!(rendered.sql.contains(&format!("${prefix}scope1")));
+            assert!(rendered.sql.contains(&format!("${prefix}v2")));
+            assert_eq!(rendered.values[2].1, Value::String("$v0".into()));
+        }
+        let id = col("id").eq(lit(ScalarValue::FixedSizeBinary(16, Some(vec![1; 16]))));
+        assert_eq!(
+            SupportedFilter::interpret(&id, &relation)
+                .unwrap()
+                .render(&relation, "id_")
+                .values[0]
+                .1,
+            Value::String(hex::encode([1; 16]))
+        );
+    }
+    #[tokio::test]
+    async fn selected_preparation_is_lazy_charged_and_retained_across_windows() {
+        let relation = Relation::of::<Release>();
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let charge = Arc::new(StateCharge::new(&budget, "selected-preparation-control"));
+        let keys = vec![
+            SelectedKeys {
+                keys: Arc::new(vec![[1; 16]; TRANSFER_ROWS + 1]),
+                field: None,
+                _charge: charge.clone(),
+            },
+            SelectedKeys {
+                keys: Arc::new(vec![[2; 16]]),
+                field: Some("package"),
+                _charge: charge,
+            },
+        ];
+        let store = NativeCompilerStore::from_existing(
+            Arc::new(surrealdb::Surreal::init()),
+            Name::new("lazy").unwrap(),
+            Name::new("lazy").unwrap(),
+        );
+        let view = CompletedView::new(
+            Release::NAME.into(),
+            BTreeSet::from([ContentHash::of(b"lazy")]),
+            1,
+        )
+        .unwrap();
+        let stream = selected_batches(
+            store,
+            view,
+            relation.clone(),
+            None,
+            None,
+            keys.clone(),
+            budget.clone(),
+            1,
+            relation.schema().clone(),
+        );
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "an unpolled stream has no preparation effect"
+        );
+        drop(stream);
+        assert_eq!(budget.reserved(), 0);
+        let prepared =
+            Arc::new(PreparedSelection::new(&keys, 0, &relation, None, &budget).unwrap());
+        let reserved = budget.reserved();
+        assert!(reserved > 0);
+        let first = prepared.predicate(Some(vec![[1; 16]])).unwrap();
+        let second = prepared.predicate(Some(vec![[3; 16]])).unwrap();
+        let NativePredicate::KeysSql {
+            keys: first_keys,
+            sql: first_sql,
+            bindings: first_bindings,
+            preparation: first_preparation,
+        } = first
+        else {
+            panic!("nominal window");
+        };
+        let NativePredicate::KeysSql {
+            keys: second_keys,
+            sql: second_sql,
+            bindings: second_bindings,
+            preparation: second_preparation,
+        } = second
+        else {
+            panic!("nominal window");
+        };
+        assert_ne!(first_keys, second_keys);
+        assert_eq!(
+            (first_sql, first_bindings, first_preparation),
+            (second_sql, second_bindings, second_preparation)
+        );
+        assert_eq!(
+            budget.reserved(),
+            reserved,
+            "invariant preparation remains one charged owner"
+        );
+        assert!(
+            matches!(prepared.predicate(Some(vec![])).unwrap(), NativePredicate::Keys(keys) if keys.is_empty())
+        );
+        let held = prepared.clone();
+        drop(prepared);
+        assert_eq!(budget.reserved(), reserved);
+        drop(held);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn fetch_delegates_after_native_filtering_without_scan_limit() {
@@ -958,9 +1179,17 @@ mod tests {
         );
         assert_eq!(limited.with_fetch(None).unwrap().fetch(), None);
         let unsupported = datafusion::prelude::col("version").like(datafusion::prelude::lit("%x%"));
+        let exact = datafusion::prelude::col("version").eq(datafusion::prelude::lit("v"));
         assert_eq!(
-            provider.supports_filters_pushdown(&[&unsupported]).unwrap(),
-            [TableProviderFilterPushDown::Unsupported]
+            provider
+                .supports_filters_pushdown(&[&exact, &unsupported, &exact])
+                .unwrap(),
+            [
+                TableProviderFilterPushDown::Exact,
+                TableProviderFilterPushDown::Unsupported,
+                TableProviderFilterPushDown::Exact
+            ],
+            "capability reporting returns exactly one answer per filter"
         );
     }
     #[tokio::test]

@@ -442,7 +442,9 @@ impl NativeRows {
         let cause = self.failure.get_or_insert_with(|| Arc::new(error)).clone();
         ModelError::SharedCause(cause)
     }
-    pub(crate) async fn drain_transport(&mut self) -> Result<(), ModelError> {
+    /// Consume every remaining statement and the outer transport, retaining late errors.
+    /// Interrupted drainage can be retried on this same owner; it never admits failed rows.
+    pub async fn drain_transport(&mut self) -> Result<(), ModelError> {
         if !self.exhausted {
             while let Some(item) = self.stream.next().await {
                 match item {
