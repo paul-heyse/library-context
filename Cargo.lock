@@ -1263,6 +1263,7 @@ dependencies = [
  "tokio",
  "toml 1.1.6+spec-1.1.0",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1313,6 +1314,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
+ "tracing",
  "tracing-subscriber",
  "ty_ide",
  "ty_project",
@@ -3941,6 +3943,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tikv-jemallocator",
  "tokio",
+ "tracing",
  "url",
 ]
 
@@ -4038,6 +4041,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic",
+ "tracing",
 ]
 
 [[package]]
@@ -4068,6 +4072,7 @@ dependencies = [
  "surrealdb",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -4080,12 +4085,15 @@ dependencies = [
  "datafusion",
  "futures 0.3.34",
  "hex",
+ "insta",
  "lctx-model",
  "serde",
  "serde_json",
  "surrealdb",
  "tempfile",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -4113,6 +4121,7 @@ dependencies = [
  "char_str",
  "chrono",
  "compact_str 0.10.0",
+ "console",
  "crc32fast",
  "dashmap",
  "digest 0.10.7",

@@ -142,8 +142,14 @@ async fn native_codec_graph_search_and_immutable_winners() {
         .await
         .unwrap();
     assert_eq!(adjacency, vec!["releases"]);
-    let schema_error=client.query("CREATE entity:bad CONTENT {semantic_type:'packages',semantic_key:'bad',kind:29,subtype:null,content:'bad',canonical:b\"00\",body:{__type:'packages',name:'bad',extra:1}};").await.unwrap().check();
-    assert!(schema_error.is_err());
+    // Raw SQL preserves flexible bodies; independent admission owns semantic closure.
+    client.query("CREATE entity:bad CONTENT {semantic_type:'packages',semantic_key:'bad',kind:29,subtype:null,content:'bad',canonical:b\"00\",scope_keys:[],body:{__type:'packages',name:'bad',extra:1}};").await.unwrap().check().unwrap();
+    client
+        .query("DELETE entity:bad")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     let enforced=client.query("RELATE assertion:absent->participant:dangling->entity:absent CONTENT {field:'missing',role:0,position:null};").await.unwrap().check();
     assert!(enforced.is_err());
     let cache = NativeEmbeddingCache::install(client.clone()).await.unwrap();
@@ -198,9 +204,9 @@ async fn native_codec_graph_search_and_immutable_winners() {
         .unwrap();
 }
 
-/// The native body and its closed schema must agree on logical binary-backed text.
+/// Flexible native bodies preserve logical text, bytes and explicit inactive NULL fields.
 #[tokio::test]
-async fn native_binary_backed_text_matches_closed_schema() {
+async fn native_binary_backed_text_preserves_flexible_bodies() {
     use lctx_model::domain::{
         retrieval::{CorpusText, Family, RENDER_VERSION, Unit},
         value::Literal,
@@ -341,15 +347,16 @@ async fn native_binary_backed_text_matches_closed_schema() {
         "id",
         reader::target_id(Target::Entity(EntityId::of(unit.id()))),
     );
+    client
+        .query("UPDATE $id SET body.unexpected=1;")
+        .bind(bindings)
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     assert!(
-        client
-            .query("UPDATE $id SET body.unexpected=1;")
-            .bind(bindings)
-            .await
-            .unwrap()
-            .check()
-            .is_err(),
-        "logical text must not open the closed object schema"
+        loader.ensure_entities(&[Entity::from(unit)]).await.is_err(),
+        "complete envelope comparison rejects raw flexible body drift"
     );
     client
         .query(format!("REMOVE DATABASE {db}"))

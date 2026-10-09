@@ -1,15 +1,15 @@
 # Storage and publication
 
-**Accepted target / implementation in progress, 2026-10-07 (ADR-0133).**
+**Implemented / targeted acceptance in progress, 2026-10-09 (ADR-0138).**
 The [persisted graph execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this hard compiler and shared-consumer pivot. One private persisted compiler database
 retains exact completed views and dependency bindings through direct sealing. Independent
 external import and stored reconciliation remain separate exposures. Prior graph-native receipts
-retain their date and scope; acceptance of this target does not establish its implementation.
+retain their date and scope; focused current controls do not establish whole-plan qualification.
 
 ## §5 Projections
 
-**Accepted bounded-access target, 2026-10-08; implementation in progress.** Native prepared
+**Implemented bounded access, 2026-10-09; enclosing planner qualification remains open.** Native prepared
 demand owns bindings, result positions and expected terminals. Scope layout follows each physical
 table's actual inventory; graph scope_context and independently owned search columns remain.
 Compact atomic candidates use the existing bounded external ordering owner before exact-membership
@@ -19,7 +19,7 @@ DDL, constructed rows, independent imported-value reconciliation and realization
 together; the [correction plan PC3–PC4](../../plans/persisted-execution-corrections-plan_2026-10-07.md#4-one-native-demand-interpretation-and-bounded-candidate-execution)
 owns implementation and actual planner qualification.
 
-> Decision: ADR-0135
+> Decision: ADR-0138
 
 **Implemented compiler and published native projections, 2026-10-05.** Named projection contracts specify their
 completed source, semantic roles, contexts, vertex universe, direction, multiplicity, weights,
@@ -32,11 +32,11 @@ publication handle. Indexed native selection and projected Arrow streams feed mo
 semantic/vector predecessors. Published export uses scoped native queries and terminally successful
 responses under the same projection contract. External destinations remain consumer-triggered.
 
-> Decision: ADR-0133, ADR-0103, ADR-0044, ADR-0085
+> Decision: ADR-0138, ADR-0103, ADR-0044, ADR-0085
 
 ## §6 Persistence and publication
 
-**Accepted completion/restore target, 2026-10-08; implementation in progress.** Every owned
+**Implemented completion/restore, 2026-10-09; current populated publication/backup/restore acceptance passed; enclosing qualification remains open.** Every owned
 operation composes structured primary and finalization outcomes. A sealed unselected database or
 persisted backup remains committed if later cleanup fails; unknown remote acknowledgement cannot
 authorize success. Restore batches parser-owned whole units into checked sequential HTTP requests
@@ -44,16 +44,16 @@ under unchanged byte/count/deadline bounds. Later independent units in a failed 
 private effects, but no following request executes and failed staging is abandoned or reported as
 an orphan. Fresh-format cold admission and independent reconciliation remain mandatory.
 
-> Decision: ADR-0135
+> Decision: ADR-0138
 
-**Accepted target, 2026-10-07; operator activation not_run.** Compilation owns a managed
+**Implemented, 2026-10-09; operator activation not_run.** Compilation owns a managed
 STRICT native database from its first persisted output. `lctx-model` owns semantics;
 `lctx-surrealdb` owns mechanical storage/access, `cpg-core` owns orchestration/admission, and
 `lctx-publisher` owns visibility. The publisher seals that same admitted database. Selection
 remains an explicit operator action. The [execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
 owns integration and focused functional acceptance.
 
-> Decision: ADR-0133
+> Decision: ADR-0138
 
 ### §6.1 Admitted content and native publication
 
@@ -72,6 +72,8 @@ mappings once after content/definition writers drain, readies indexes/functions 
 executable realization. No transaction spans extraction, CPU analyses or embeddings. A short control
 transition publishes the complete realization; selection remains explicit and separate.
 
+**Implemented final-content boundary, 2026-10-09; focused controls and current populated publication/backup/restore passed; enclosing qualification remains open.** Compiler content closes irreversibly before final admission. The completion gate fences native completion, binding persistence and visible descriptors; accepted mutations drain before actual frozen owners/bindings are compared and attested. Canonical reads share immutable compact preparation with independent charged cursors. No idle prepared handle owns an active native scan lease. Detached transport remains independently admitted, then publication consumes that native authority without reloading canonical data. A narrowly owned sealing phase drains general operations while retaining definition verification, VIEWER creation, publication marking and session finalization.
+
 Sealing fingerprints the effective database and table definitions returned by native metadata,
 including fields, indexes, events, functions and analyzers. An explicit cold audit reuses content
 reconciliation and that fingerprint. It excludes credentials and live subscriptions; SurrealDB
@@ -80,7 +82,17 @@ backup transports canonical graph/original families, exact completed contributio
 current and frozen bindings, retained dependencies and nongraph backing values. Restore preserves
 their versioned state identity and rebuilds current derived search/executable definitions.
 
-> Decision: ADR-0133, ADR-0088, ADR-0126
+> Decision: ADR-0138, ADR-0088, ADR-0126
+
+The final publication workflow accepts only core's private-constructed `AdmittedArtifact`,
+`VerifiedExport` or `RestoredAdmission`, bound to the exact immutable store and manifest.
+Native lifecycle guards alone provide no publication method or administrator client. Publisher
+owns its separate private authenticated effect session under these guards, keeps the marker
+writer private, and records acknowledged committed identity in the retained owner before any
+subsequent await. Already admitted read descendants complete while final closure waits;
+external read admission stays closed. These API corrections are **Implemented, 2026-10-09**;
+focused native guard controls passed; current populated direct/restore acceptance passed, with remaining transport/upper-frontier timeout limits recorded by the coordinator.
+
 
 ### §6.2 Readers
 
@@ -100,16 +112,18 @@ lifetime ownership. Functions, analyzers, index specs, engine identity and adopt
 cannot change beneath a pinned handle. Streamed results remain provisional until terminal success.
 A partial diagnostic subgraph reports its boundary and cannot claim global compiler completeness.
 
-> Decision: ADR-0133, ADR-0126
+> Decision: ADR-0138, ADR-0126
 
 ### §6.3 Schema evolution
+
+**Implemented physical lowering / focused Tested, 2026-10-09.** Fixed top-level SCHEMAFULL fields, unique indexes and enforced role edges remain database obligations. Flexible semantic object bodies and supplied scope fields are produced by selected declaration-derived adapters, preserving missing/NULL, bytes/text, local sums, originals and aliases. Complete independent expected-row reconstruction rejects extra envelope/body/scope content and coherent corruption. Standalone arbitrary raw-SQL body rejection is deliberately lost; supported ingress and exposure remain fail-closed. Physical definition identity changes together with DDL and lowering; semantic artifact/contribution formats remain unchanged.
 
 Typed declarations and explicit canonical codecs own contracts; Arrow IPC/container bytes and
 engine coercions do not define semantic identity. Snapshot changes are explicit migrations;
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0133, ADR-0087, ADR-0048
+> Decision: ADR-0138, ADR-0087, ADR-0048
 
 ### §6.4 Serving realizations
 
@@ -119,7 +133,7 @@ SurrealQL is the only executor; Python remains a thin adapter. Complex kernels c
 batched inputs. Search eligibility precedes channel limits; exact analytical neighbors remain a
 separate contract from approximate discovery. Resources and continuations pin complete realization.
 
-> Decision: ADR-0133, ADR-0071, ADR-0131, ADR-0049
+> Decision: ADR-0138, ADR-0071, ADR-0131, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -137,4 +151,4 @@ consumer. Historical runs/operation records are retired rather than reconstructe
 The [operator runbook](../../surrealdb.md) documents configuration, publication and explicit selection.
 Operator reconstruction, live vectors and activation belong to separately authorized Q1 work.
 
-> Decision: ADR-0133, ADR-0073, ADR-0131
+> Decision: ADR-0138, ADR-0073, ADR-0131

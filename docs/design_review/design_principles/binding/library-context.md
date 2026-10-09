@@ -31,7 +31,7 @@ concrete question being assessed. FP-07/A4 qualitatively assess physical work fo
 independently of correctness gates: semantic declarations do not prescribe physical objects,
 execution hops or enforcement frequency. This assessment does not require numerical cost models,
 runtime accounting or additional proof machinery; those need a separate functional or operational
-requirement. Quantitative performance claims still need measurement. ADR-0133 adopts persisted graph compilation and direct sealing, retaining the graph-native obligations; its implementation and functional acceptance
+requirement. Quantitative performance claims still need measurement. ADR-0138 adopts persisted graph compilation and direct sealing, retaining the graph-native obligations; its implementation and functional acceptance
 remain bounded by the coordinator, not this qualitative assessment policy.
 
 ## Reviews in this repository
@@ -83,18 +83,18 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 | ID | Binding decision (DESIGN.md §2 is authoritative) | Bears on |
 |---|---|---|
 | §B1 | Independent latest Ruff owns canonical syntax/lexical facts; Pyrefly owns typing within its embedded Ruff family, and ty owns the declared runtime flow view. Provider-local parsing and exact source/role attachment preserve nominal boundaries (ADR-0117) | DP-01, DP-08, DP-14, DP-16, CI-02 · G1, G7 |
-| §B2 | `lctx-model` typed graph declarations own semantic facts and derive explicit codecs; Arrow is internal computation, codebooks remain append-only (ADR-0133/0085/0088) | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
+| §B2 | `lctx-model` typed graph declarations own semantic facts and derive explicit codecs; Arrow is internal computation, codebooks remain append-only (ADR-0138/0085/0088) | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
 | §B3 | Shared model invariant validators serve tests and publication; pure finite model kernels and selected model-owned relational lowerings implement compute; DataFusion owns in-process SQL/provider execution | DP-03, DP-08, DP-18, DP-23 · G3 |
 | §B4 | Graph algorithms have named owners and named consumers | DP-07, DP-11, DP-13, DP-21, CI-05, CI-07, CI-09 · G6, G8 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | DP-05, DP-08, DP-11, DP-22, CI-06 · G2, G7, CI-G1 |
 | §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained; analysis results carry provenance in-row | DP-01, DP-02, DP-05, DP-21, CI-01 · G1, G2, CI-G1 |
-| §B7 | One private persisted compiler graph, exact completed views and direct sealing; publication and selection are distinct, with pinned readers (ADR-0133) | DP-04, DP-19 · G5 |
+| §B7 | One private persisted compiler graph, exact completed views and direct sealing; publication and selection are distinct, with pinned readers (ADR-0138) | DP-04, DP-19 · G5 |
 | §B8 | Independent Ruff/ty and Pyrefly link in-process at exact fork revisions, with observational seams and explicitly constructed configurations (ADR-0117/0118) | DP-09, DP-14, DP-15, DP-18, DP-21, CI-10 · G2, G4, G6 |
 | §B9 | One pinned compute family and two exact, source-scoped analyzer families (ADR-0118) | DP-09, DP-15, DP-21 · G6, G7 |
 | §B10 | The standing exclusions | DP-16 · — |
 | §B11 | Insight synthesis is programmatic; no generative model in v1, and never in the query path | DP-02, DP-08, DP-11, DP-22, CI-11 · G2, G7, CI-G2 |
-| §B12 | One semantic graph realized in SurrealDB from compiler outputs; workspace/analytical projections are derived, no parallel canonical store (ADR-0133) | DP-01, DP-19, CI-13 · G1, G5 |
-| §B13 | The FastMCP interface pins one complete realization; Rust owns meaning and native SurrealQL may own execution (ADR-0133) | DP-10, DP-14, DP-15, CI-13 · G2, G3, G7 |
+| §B12 | One semantic graph realized in SurrealDB from compiler outputs; workspace/analytical projections are derived, no parallel canonical store (ADR-0138) | DP-01, DP-19, CI-13 · G1, G5 |
+| §B13 | The FastMCP interface pins one complete realization; Rust owns meaning and native SurrealQL may own execution (ADR-0138) | DP-10, DP-14, DP-15, CI-13 · G2, G3, G7 |
 | §B14 | Actual encoder/input/query/render/projection identities, immutable full values, explicit analytical policy and conformance-checked clients | DP-09, DP-11, DP-21, CI-13 · G6 |
 
 ## 2. Recurring review questions, routed onto the gates

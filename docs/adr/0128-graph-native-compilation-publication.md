@@ -4,7 +4,7 @@ title: Compile admitted semantic graphs without a store and realize them nativel
 status: superseded
 date: 2026-10-05
 supersedes: [ADR-0086]
-superseded-by: ADR-0133
+superseded-by: ADR-0138
 design: ["§1.2", "§B2", "§B3", "§B7", "§B12", "§B13", "§5", "§6", "§15"]
 evidence: Proposed
 ---

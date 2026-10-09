@@ -11,15 +11,15 @@ use std::sync::Arc;
 async fn compiled(
     profile: Profile,
     frontier: Frontier,
-    memory: usize,
+    memory: Option<usize>,
     batch_rows: usize,
 ) -> artifact::AdmittedArtifact {
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
         WorkspaceOptions {
-            memory_bytes: memory,
-            partitions: 1,
+            memory_bytes: memory.unwrap_or_else(|| WorkspaceOptions::default().memory_bytes),
             batch_rows,
+            ..Default::default()
         },
         crate::native_fixture::store(),
     )
@@ -57,65 +57,51 @@ async fn compiled(
     .await
     .unwrap()
 }
-#[tokio::test]
-async fn both_profiles_admit_every_frontier_and_export_exact_originals() {
-    for profile in Profile::ALL {
-        for frontier in [
-            Frontier::Facts,
-            Frontier::Normalized,
-            Frontier::Analysis,
-            Frontier::Catalog,
-        ] {
-            let admitted = compiled(profile, frontier, 1 << 30, 4096).await;
-            let manifest = admitted.manifest();
-            manifest.validate().unwrap();
-            assert_eq!(manifest.frontier, frontier);
-            assert!(
-                manifest
-                    .families
-                    .iter()
-                    .any(|f| f.family == GraphFamily::Entities && f.rows > 0)
-            );
-            assert!(
-                manifest
-                    .families
-                    .iter()
-                    .any(|f| f.family == GraphFamily::Assertions && f.rows > 0)
-            );
-            assert!(!manifest.required_outcomes.is_empty());
-            let root = tempfile::tempdir().unwrap();
-            let output = root.path().join("graph");
-            admitted.export(&output).await.unwrap();
-            assert!(output.join("manifest.json").is_file());
-            assert!(output.join("entities.arrow").is_file());
-            for original in &manifest.originals {
-                let bytes =
-                    std::fs::read(output.join(format!("original-{}.bin", original.source.0.hex())))
-                        .unwrap();
-                assert_eq!(bytes.len() as u64, original.byte_len);
-                assert_eq!(ContentHash::of(&bytes), original.content);
-            }
-            let marker = std::fs::read(output.join("manifest.json")).unwrap();
-            assert!(admitted.export(&output).await.is_err());
-            assert_eq!(std::fs::read(output.join("manifest.json")).unwrap(), marker);
-        }
+async fn admit_frontier_and_export_exact_originals(profile: Profile, frontier: Frontier) {
+    let admitted = compiled(profile, frontier, None, 4096).await;
+    let manifest = admitted.manifest();
+    manifest.validate().unwrap();
+    assert_eq!(manifest.frontier, frontier);
+    assert!(
+        manifest
+            .families
+            .iter()
+            .any(|f| f.family == GraphFamily::Entities && f.rows > 0)
+    );
+    assert!(
+        manifest
+            .families
+            .iter()
+            .any(|f| f.family == GraphFamily::Assertions && f.rows > 0)
+    );
+    assert!(!manifest.required_outcomes.is_empty());
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("graph");
+    admitted.export(&output).await.unwrap();
+    assert!(output.join("manifest.json").is_file());
+    assert!(output.join("entities.arrow").is_file());
+    for original in &manifest.originals {
+        let bytes = std::fs::read(output.join(format!("original-{}.bin", original.source.0.hex())))
+            .unwrap();
+        assert_eq!(bytes.len() as u64, original.byte_len);
+        assert_eq!(ContentHash::of(&bytes), original.content);
     }
+    let marker = std::fs::read(output.join("manifest.json")).unwrap();
+    assert!(admitted.export(&output).await.is_err());
+    assert_eq!(std::fs::read(output.join("manifest.json")).unwrap(), marker);
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn graph_content_is_independent_of_transfer_batching() {
-    let ordinary = compiled(Profile::Catalog, Frontier::Normalized, 1 << 30, 4096).await;
-    let small = compiled(Profile::Catalog, Frontier::Normalized, 128 << 20, 7).await;
+    let ordinary = compiled(Profile::Catalog, Frontier::Normalized, None, 4096).await;
+    let small = compiled(Profile::Catalog, Frontier::Normalized, Some(128 << 20), 7).await;
     assert_eq!(ordinary.manifest().content(), small.manifest().content());
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn transported_graph_refuses_missing_and_tampered_originals() {
-    let admitted = compiled(Profile::Catalog, Frontier::Facts, 1 << 30, 4096).await;
+    let admitted = compiled(Profile::Catalog, Frontier::Facts, None, 4096).await;
     let resources = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
@@ -135,29 +121,104 @@ async fn transported_graph_refuses_missing_and_tampered_originals() {
     std::fs::write(output.join("assertions.arrow"), b"invalid stream").unwrap();
     assert!(admitted.verify_export(&output, &resources).await.is_err());
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
+    use std::{
+        io::{self, Write},
+        sync::Mutex,
+    };
+    use tracing::instrument::WithSubscriber;
+    #[derive(Clone, Default)]
+    struct Output(Arc<Mutex<Vec<u8>>>);
+    impl Write for Output {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let output = Output::default();
+    let writer = output.clone();
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish(),
+    );
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
     let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
-    assert!(
+    let rejected = async {
+        assert!(
+            tracing::enabled!(tracing::Level::INFO),
+            "scoped capture disables INFO: static {:?}, current {:?}",
+            tracing::level_filters::STATIC_MAX_LEVEL,
+            tracing::level_filters::LevelFilter::current()
+        );
+        tracing::info!(target:"lctx_phase_control", "artifact failure scoped capture active");
+        let probe = lctx_surrealdb::phase::Phase::begin("artifact_failure_capture_probe");
+        tokio::task::yield_now().await;
+        probe.finish_result(&Ok::<(), lctx_model::domain::ModelError>(()));
         artifact::admit(
             &workspace,
             &captured,
             Frontier::Facts,
             Profile::Catalog,
-            ContentHash::of(b"fixture")
+            ContentHash::of(b"fixture"),
         )
         .await
-        .is_err()
+    }
+    .with_subscriber(dispatch)
+    .await;
+    assert!(
+        matches!(rejected,Err(lctx_model::domain::ModelError::Invalid(ref message))
+        if message=="artifact requires the completed requested compilation and exact captures")
     );
+    let retained = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        retained.contains("artifact failure scoped capture active"),
+        "test event missing from scoped capture: {retained}"
+    );
+    let probe = retained
+        .lines()
+        .filter(|line| line.contains("phase=\"artifact_failure_capture_probe\""))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        probe.len(),
+        2,
+        "native Phase probe missing from scoped capture: {retained}"
+    );
+    assert!(
+        probe[0].contains("status=\"begin\"") && probe[1].contains("status=\"passed\""),
+        "{retained}"
+    );
+    let phases = retained
+        .lines()
+        .filter(|line| line.contains("phase=\"artifact_admission\""))
+        .collect::<Vec<_>>();
+    assert_eq!(phases.len(), 2, "{retained}");
+    assert!(
+        phases[0].contains("status=\"begin\"") && !phases[0].contains("elapsed_ms="),
+        "{retained}"
+    );
+    assert!(
+        phases[1].contains("status=\"failed\"") && phases[1].contains("elapsed_ms="),
+        "{retained}"
+    );
+    let phase_id = |line: &str| {
+        line.split_whitespace()
+            .find_map(|field| field.strip_prefix("phase_id="))
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(phase_id(phases[0]), phase_id(phases[1]), "{retained}");
     workspace.cancellation().cancel();
     assert!(
         artifact::admit(
@@ -172,16 +233,13 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn artifact_identity_includes_exact_consumed_embedding_values() {
     use cpg_core::embedding_service::{Embedder, FakeEmbedder};
     let embedder = FakeEmbedder::new();
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
@@ -238,15 +296,12 @@ async fn artifact_identity_includes_exact_consumed_embedding_values() {
         .unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn completed_compilation_binds_frontier_captures_and_configuration() {
     use lctx_model::domain::{input::Package, stages::ProviderOutcome};
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
@@ -358,7 +413,7 @@ fn completed_rows<R: lctx_model::domain::Record>(workspace: &Workspace) -> Vec<R
         .flat_map(|batch| R::decode(&batch.unwrap()).unwrap())
         .collect()
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn selected_analytics_export_membership_provenance_and_projection_losses() {
     use lctx_model::domain::{
         self as d, Record,
@@ -366,10 +421,7 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
     };
     let workspace = Workspace::new(
         Arc::new(d::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
@@ -521,7 +573,7 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn trusted_local_export_verifies_without_live_compiler_token() {
     use datafusion::arrow::{
         array::{BinaryArray, FixedSizeBinaryArray},
@@ -532,13 +584,10 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
         EmbeddingConsumption, Entity, FamilyContent, FamilyHasher, Manifest,
     };
     use std::{fs::File, io::Read};
-    let admitted = compiled(Profile::Catalog, Frontier::Normalized, 1 << 30, 4096).await;
+    let admitted = compiled(Profile::Catalog, Frontier::Normalized, None, 4096).await;
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
@@ -752,7 +801,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     artifact::verify_export(&output, &workspace).await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_admission_refuses_unsupported_facts_with_consistent_hashes() {
     use datafusion::arrow::{
         array::{Array, BinaryArray, FixedSizeBinaryArray, UInt32Array},
@@ -766,13 +815,10 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         source::SyntaxSupport,
     };
     use std::fs::File;
-    let admitted = compiled(Profile::Catalog, Frontier::Facts, 1 << 30, 256).await;
+    let admitted = compiled(Profile::Catalog, Frontier::Facts, None, 256).await;
     let runtime = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
@@ -862,44 +908,33 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     );
 }
 
-#[tokio::test]
-async fn remediation_detached_admission_all_frontiers_and_profiles_without_producer_replay() {
-    for profile in Profile::ALL {
-        for frontier in [
-            Frontier::Facts,
-            Frontier::Normalized,
-            Frontier::Analysis,
-            Frontier::Catalog,
-        ] {
-            let admitted = compiled(profile, frontier, 1 << 30, 128).await;
-            let directory = tempfile::tempdir().unwrap();
-            let export = directory.path().join("export");
-            admitted.export(&export).await.unwrap();
-            let semantic = admitted.manifest().content();
-            drop(admitted);
-            // This workspace has no providers, captured inputs, producer receipts or grants.
-            let importer = Workspace::new(
-                Arc::new(lctx_model::domain::model().unwrap()),
-                WorkspaceOptions {
-                    memory_bytes: 1 << 30,
-                    batch_rows: 31,
-                    ..Default::default()
-                },
-                crate::native_fixture::store(),
-            )
-            .unwrap();
-            let imported = artifact::verify_export(&export, &importer)
-                .await
-                .unwrap_or_else(|error| panic!("{profile:?}/{frontier:?}: {error}"));
-            assert_eq!(imported.manifest().content(), semantic);
-        }
-    }
+async fn detached_frontier_without_producer_replay(profile: Profile, frontier: Frontier) {
+    let admitted = compiled(profile, frontier, None, 128).await;
+    let directory = tempfile::tempdir().unwrap();
+    let export = directory.path().join("export");
+    admitted.export(&export).await.unwrap();
+    let semantic = admitted.manifest().content();
+    drop(admitted);
+    // This workspace has no providers, captured inputs, producer receipts or grants.
+    let importer = Workspace::new(
+        Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions {
+            batch_rows: 31,
+            ..Default::default()
+        },
+        crate::native_fixture::store(),
+    )
+    .unwrap();
+    let imported = artifact::verify_export(&export, &importer)
+        .await
+        .unwrap_or_else(|error| panic!("{profile:?}/{frontier:?}: {error}"));
+    assert_eq!(imported.manifest().content(), semantic);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_domain() {
     use lctx_model::domain::graph::Manifest;
-    let admitted = compiled(Profile::Catalog, Frontier::Facts, 1 << 30, 128).await;
+    let admitted = compiled(Profile::Catalog, Frontier::Facts, None, 128).await;
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
     admitted.export(&export).await.unwrap();
@@ -925,10 +960,7 @@ async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_doma
     .unwrap();
     let importer = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: 1 << 30,
-            ..Default::default()
-        },
+        WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
@@ -1150,9 +1182,9 @@ mod enriched_graph_adversaries {
         .unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn remediation_detached_enriched_frame_admission_uses_actual_compact_graph_domain() {
-        let admitted = compiled(Profile::Catalog, Frontier::Analysis, 1 << 30, 128).await;
+        let admitted = compiled(Profile::Catalog, Frontier::Analysis, None, 128).await;
         let directory = tempfile::tempdir().unwrap();
         let export = directory.path().join("export");
         admitted.export(&export).await.unwrap();
@@ -1238,9 +1270,9 @@ mod enriched_graph_adversaries {
         // separate empty-family case below exercises complete detached transport and admission.
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn remediation_detached_admission_refuses_absent_whole_enriched_frame_family() {
-        let admitted = compiled(Profile::Catalog, Frontier::Analysis, 1 << 30, 128).await;
+        let admitted = compiled(Profile::Catalog, Frontier::Analysis, None, 128).await;
         let directory = tempfile::tempdir().unwrap();
         let export = directory.path().join("export");
         admitted.export(&export).await.unwrap();
@@ -1248,10 +1280,7 @@ mod enriched_graph_adversaries {
         let importer = || {
             Workspace::new(
                 Arc::new(d::model().unwrap()),
-                WorkspaceOptions {
-                    memory_bytes: 1 << 30,
-                    ..Default::default()
-                },
+                WorkspaceOptions::default(),
                 crate::native_fixture::store(),
             )
             .unwrap()
@@ -1310,7 +1339,7 @@ mod enriched_graph_adversaries {
 async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
     use lctx_model::domain::{Record, graph::Entity, normalized::entities::EntityRef};
     use std::collections::BTreeSet;
-    let admitted = compiled(Profile::Behavioral, frontier, 1 << 30, 128).await;
+    let admitted = compiled(Profile::Behavioral, frontier, None, 128).await;
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
     admitted.export(&export).await.unwrap();
@@ -1319,7 +1348,6 @@ async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
     let importer = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
         WorkspaceOptions {
-            memory_bytes: 1 << 30,
             batch_rows: 31,
             ..Default::default()
         },
@@ -1360,17 +1388,63 @@ async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_behavioral_analysis_with_upper_place_endpoints() {
     detached_behavioral_upper_place_endpoints(Frontier::Analysis).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_behavioral_catalog_with_upper_place_endpoints() {
     detached_behavioral_upper_place_endpoints(Frontier::Catalog).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_behavioral_facts_without_normalized_place_endpoints() {
     detached_behavioral_upper_place_endpoints(Frontier::Facts).await;
+}
+
+async fn frontier_journey(
+    profile: Profile,
+    frontier: Frontier,
+    run: impl std::future::Future<Output = ()>,
+) {
+    use tracing::{Instrument, instrument::WithSubscriber};
+    let dispatch = cpg_extract::logging::dispatch();
+    let span = tracing::dispatcher::with_default(
+        &dispatch,
+        || tracing::info_span!(target: "lctx_phase", "artifact_journey", profile = profile.name(), frontier = frontier.name()),
+    );
+    async {
+        let phase = lctx_surrealdb::phase::Phase::begin("artifact_journey");
+        run.await;
+        phase.finish(lctx_surrealdb::phase::Terminal::Passed);
+    }
+    .instrument(span)
+    .with_subscriber(dispatch)
+    .await;
+}
+
+macro_rules! frontier_cases {
+    ($($export:ident, $detached:ident, $profile:ident, $frontier:ident);* $(;)?) => {$ (
+        #[tokio::test(flavor = "multi_thread")]
+        async fn $export() {
+            frontier_journey(Profile::$profile, Frontier::$frontier,
+                admit_frontier_and_export_exact_originals(Profile::$profile, Frontier::$frontier)).await;
+        }
+        #[tokio::test(flavor = "multi_thread")]
+        async fn $detached() {
+            frontier_journey(Profile::$profile, Frontier::$frontier,
+                detached_frontier_without_producer_replay(Profile::$profile, Frontier::$frontier)).await;
+        }
+    )*};
+}
+frontier_cases! {
+    catalog_facts_admits_and_exports_exact_originals, remediation_detached_catalog_facts_without_producer_replay, Catalog, Facts;
+    catalog_normalized_admits_and_exports_exact_originals, remediation_detached_catalog_normalized_without_producer_replay, Catalog, Normalized;
+    catalog_analysis_admits_and_exports_exact_originals, remediation_detached_catalog_analysis_without_producer_replay, Catalog, Analysis;
+    catalog_catalog_admits_and_exports_exact_originals, remediation_detached_catalog_catalog_without_producer_replay, Catalog, Catalog;
+    behavioral_facts_admits_and_exports_exact_originals, remediation_detached_behavioral_facts_without_producer_replay, Behavioral, Facts;
+    behavioral_normalized_admits_and_exports_exact_originals, remediation_detached_behavioral_normalized_without_producer_replay, Behavioral, Normalized;
+    behavioral_analysis_admits_and_exports_exact_originals, remediation_detached_behavioral_analysis_without_producer_replay, Behavioral, Analysis;
+    behavioral_catalog_admits_and_exports_exact_originals, remediation_detached_behavioral_catalog_without_producer_replay, Behavioral, Catalog;
 }

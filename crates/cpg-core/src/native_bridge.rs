@@ -4,13 +4,20 @@
 //! while that stream remains open; each request is an owned task rather than a serial actor
 //! operation. Shutdown wakes callers and drains submitted operations before releasing the runtime.
 use crate::workspace::Cancellation;
-use futures::{FutureExt,future::{BoxFuture,Shared}};
+use futures::{
+    FutureExt,
+    future::{BoxFuture, Shared},
+};
 use lctx_model::domain::ModelError;
-use std::{sync::{Arc,Mutex}, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::sync::{mpsc, oneshot};
+use tracing::{Instrument, instrument::WithSubscriber};
 
-type Request = BoxFuture<'static, Result<(),ModelError>>;
-type BridgeDrain = Shared<BoxFuture<'static,Result<(),Arc<ModelError>>>>;
+type Request = BoxFuture<'static, Result<(), ModelError>>;
+type BridgeDrain = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 const WAIT: Duration = Duration::from_millis(20);
 
 pub(crate) struct NativeBridge {
@@ -19,8 +26,8 @@ pub(crate) struct NativeBridge {
     thread: Mutex<BridgeThread>,
 }
 struct BridgeThread {
-    thread:Option<std::thread::JoinHandle<Result<(),ModelError>>>,
-    joined:Option<BridgeDrain>,
+    thread: Option<std::thread::JoinHandle<Result<(), ModelError>>>,
+    joined: Option<BridgeDrain>,
 }
 impl NativeBridge {
     pub(crate) fn new(cancellation: Cancellation) -> Result<Self, ModelError> {
@@ -58,7 +65,14 @@ impl NativeBridge {
                 })
             })
             .map_err(ModelError::codec)?;
-        Ok(Self { requests, cancellation, thread: Mutex::new(BridgeThread{thread:Some(thread),joined:None}) })
+        Ok(Self {
+            requests,
+            cancellation,
+            thread: Mutex::new(BridgeThread {
+                thread: Some(thread),
+                joined: None,
+            }),
+        })
     }
     /// The future owns its bounded, budget-charged arguments until acknowledgement.
     pub(crate) fn call<T: Send + 'static>(
@@ -73,10 +87,18 @@ impl NativeBridge {
     ) -> Result<T, ModelError> {
         self.cancellation.check()?;
         let (answer, mut result) = oneshot::channel();
-        let request: Request = Box::pin(async move {
-            let value=future.await;
-            match answer.send(value) {Err(Err(error))=>Err(error),_=>Ok(())}
-        });
+        // Capture this request's origin before it crosses the actor queue. The actor runtime
+        // polls each request under its own dispatcher, independently of the actor thread.
+        let request: Request = async move {
+            let value = future.await;
+            match answer.send(value) {
+                Err(Err(error)) => Err(error),
+                _ => Ok(()),
+            }
+        }
+        .in_current_span()
+        .with_current_subscriber()
+        .boxed();
         self.submit(request)?;
         loop {
             self.cancellation.check()?;
@@ -87,8 +109,16 @@ impl NativeBridge {
             }
         }
     }
-    pub(crate) fn launch(&self, request: BoxFuture<'static,()>) -> Result<(), ModelError> {
-        self.submit(async move{request.await;Ok(())}.boxed())
+    pub(crate) fn launch(&self, request: BoxFuture<'static, ()>) -> Result<(), ModelError> {
+        self.submit(
+            async move {
+                request.await;
+                Ok(())
+            }
+            .in_current_span()
+            .with_current_subscriber()
+            .boxed(),
+        )
     }
     fn submit(&self, mut request: Request) -> Result<(), ModelError> {
         loop {
@@ -106,22 +136,42 @@ impl NativeBridge {
     /// No runtime worker waits inline for an actor thread. Caller invokes this before cleanup.
     pub(crate) async fn drain(&self) -> Result<(), ModelError> {
         self.cancellation.cancel();
-        let joined={
-            let mut owned=self.thread.lock().map_err(|_|{
-                let mut completion=lctx_model::domain::completion::Completion::default();completion.local=lctx_model::domain::completion::LocalState::Outstanding;
-                lctx_model::domain::completion::complete::<()>(Err(closed()),completion).unwrap_err()
+        let joined = {
+            let mut owned = self.thread.lock().map_err(|_| {
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+                lctx_model::domain::completion::complete::<()>(Err(closed()), completion)
+                    .unwrap_err()
             })?;
-            if let Some(thread)=owned.thread.take(){
-                let task=tokio::task::spawn_blocking(move || thread.join());
-                owned.joined=Some(async move{
-                    task.await.map_err(|error|Arc::new(ModelError::Cause(Box::new(error))))?
-                        .map_err(|payload|Arc::new(ModelError::Cause(Box::new(lctx_model::domain::completion::ThreadPanic::new("native bridge",payload)))))?
-                        .map_err(Arc::new)
-                }.boxed().shared());
+            if let Some(thread) = owned.thread.take() {
+                let dispatch = tracing::dispatcher::get_default(Clone::clone);
+                let span = tracing::Span::current();
+                let task = tokio::task::spawn_blocking(move || {
+                    tracing::dispatcher::with_default(&dispatch, || span.in_scope(|| thread.join()))
+                });
+                owned.joined = Some(
+                    async move {
+                        task.await
+                            .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))?
+                            .map_err(|payload| {
+                                Arc::new(ModelError::Cause(Box::new(
+                                    lctx_model::domain::completion::ThreadPanic::new(
+                                        "native bridge",
+                                        payload,
+                                    ),
+                                )))
+                            })?
+                            .map_err(Arc::new)
+                    }
+                    .boxed()
+                    .shared(),
+                );
             }
             owned.joined.clone()
         };
-        if let Some(joined)=joined{joined.await.map_err(ModelError::SharedCause)?;}
+        if let Some(joined) = joined {
+            joined.await.map_err(ModelError::SharedCause)?;
+        }
         Ok(())
     }
 }
@@ -133,10 +183,19 @@ impl Drop for NativeBridge {
         {
             // Explicit drainage is required by the attempt owner. This fallback keeps an
             // interrupted owner from synchronously blocking a runtime worker in its destructor.
+            let dispatch = tracing::dispatcher::get_default(Clone::clone);
+            let span = tracing::Span::current();
+            let join = move || {
+                tracing::dispatcher::with_default(&dispatch, || {
+                    span.in_scope(|| {
+                        let _ = thread.join();
+                    })
+                })
+            };
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-                runtime.spawn_blocking(move || { let _ = thread.join(); });
+                runtime.spawn_blocking(join);
             } else {
-                let _ = thread.join();
+                join();
             }
         }
     }
@@ -149,33 +208,71 @@ fn closed() -> ModelError {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    #[tokio::test(flavor="current_thread")]
+    #[tokio::test(flavor = "current_thread")]
     async fn cancelled_bridge_caller_retains_late_failure_in_completion() {
-        let cancellation=Cancellation::default();let bridge=Arc::new(NativeBridge::new(cancellation.clone()).unwrap());
-        let entered=Arc::new(tokio::sync::Notify::new());let release=Arc::new(tokio::sync::Notify::new());
-        let owner=bridge.clone();let running=entered.clone();let finish=release.clone();
-        let caller=std::thread::spawn(move||owner.call(async move{running.notify_one();finish.notified().await;Err::<(),_>(ModelError::Schema("late bridge failure"))}));
-        entered.notified().await;cancellation.cancel();assert!(caller.join().unwrap().is_err());release.notify_one();
-        let error=bridge.drain().await.unwrap_err();
-        let ModelError::SharedCause(cause)=error else{panic!()};
-        let ModelError::Completion(outcome)=cause.as_ref() else{panic!()};
-        assert_eq!(outcome.completion.local,lctx_model::domain::completion::LocalState::Terminal);
-        assert!(matches!(&outcome.completion.failures[0].error,ModelError::Schema("late bridge failure")));
+        let cancellation = Cancellation::default();
+        let bridge = Arc::new(NativeBridge::new(cancellation.clone()).unwrap());
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let owner = bridge.clone();
+        let running = entered.clone();
+        let finish = release.clone();
+        let caller = std::thread::spawn(move || {
+            owner.call(async move {
+                running.notify_one();
+                finish.notified().await;
+                Err::<(), _>(ModelError::Schema("late bridge failure"))
+            })
+        });
+        entered.notified().await;
+        cancellation.cancel();
+        assert!(caller.join().unwrap().is_err());
+        release.notify_one();
+        let error = bridge.drain().await.unwrap_err();
+        let ModelError::SharedCause(cause) = error else {
+            panic!()
+        };
+        let ModelError::Completion(outcome) = cause.as_ref() else {
+            panic!()
+        };
+        assert_eq!(
+            outcome.completion.local,
+            lctx_model::domain::completion::LocalState::Terminal
+        );
+        assert!(matches!(
+            &outcome.completion.failures[0].error,
+            ModelError::Schema("late bridge failure")
+        ));
     }
-    #[tokio::test(flavor="current_thread")]
+    #[tokio::test(flavor = "current_thread")]
     async fn completed_failed_bridge_join_is_terminal_and_retained_for_retry() {
-        let bridge=NativeBridge::new(Cancellation::default()).unwrap();
-        let entered=Arc::new(tokio::sync::Notify::new());let running=entered.clone();
-        bridge.launch(Box::pin(async move{running.notify_one();panic!("injected task panic")})).unwrap();
+        let bridge = NativeBridge::new(Cancellation::default()).unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let running = entered.clone();
+        bridge
+            .launch(Box::pin(async move {
+                running.notify_one();
+                panic!("injected task panic")
+            }))
+            .unwrap();
         entered.notified().await;
         for _ in 0..2 {
-            let error=bridge.drain().await.unwrap_err();
+            let error = bridge.drain().await.unwrap_err();
             assert!(error.permits_storage_cleanup());
-            let ModelError::SharedCause(cause)=error else{panic!()};
-            let ModelError::Completion(outcome)=cause.as_ref() else{panic!()};
-            assert_eq!(outcome.completion.local,lctx_model::domain::completion::LocalState::Terminal);
-            assert_eq!(outcome.completion.failures.len(),1);
-            assert!(matches!(&outcome.completion.failures[0].error,ModelError::Cause(error) if error.downcast_ref::<tokio::task::JoinError>().is_some_and(tokio::task::JoinError::is_panic)));
+            let ModelError::SharedCause(cause) = error else {
+                panic!()
+            };
+            let ModelError::Completion(outcome) = cause.as_ref() else {
+                panic!()
+            };
+            assert_eq!(
+                outcome.completion.local,
+                lctx_model::domain::completion::LocalState::Terminal
+            );
+            assert_eq!(outcome.completion.failures.len(), 1);
+            assert!(
+                matches!(&outcome.completion.failures[0].error,ModelError::Cause(error) if error.downcast_ref::<tokio::task::JoinError>().is_some_and(tokio::task::JoinError::is_panic))
+            );
         }
     }
     #[tokio::test(flavor = "current_thread")]
@@ -186,17 +283,26 @@ mod tests {
     }
     #[tokio::test(flavor = "current_thread")]
     async fn interrupted_drain_retains_actor_join_for_retry() {
-        let bridge=Arc::new(NativeBridge::new(Cancellation::default()).unwrap());
-        let entered=Arc::new(tokio::sync::Notify::new());
-        let completed=Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let call_owner=bridge.clone();let call_entered=entered.clone();let call_completed=completed.clone();
-        let request=std::thread::spawn(move ||call_owner.call(async move{
-            call_entered.notify_one();tokio::time::sleep(Duration::from_millis(80)).await;
-            call_completed.store(true,std::sync::atomic::Ordering::Release);Ok::<(),ModelError>(())
-        }));
+        let bridge = Arc::new(NativeBridge::new(Cancellation::default()).unwrap());
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let call_owner = bridge.clone();
+        let call_entered = entered.clone();
+        let call_completed = completed.clone();
+        let request = std::thread::spawn(move || {
+            call_owner.call(async move {
+                call_entered.notify_one();
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                call_completed.store(true, std::sync::atomic::Ordering::Release);
+                Ok::<(), ModelError>(())
+            })
+        });
         entered.notified().await;
-        let first_owner=bridge.clone();let first=tokio::spawn(async move{first_owner.drain().await});
-        tokio::time::sleep(Duration::from_millis(5)).await;first.abort();assert!(first.await.is_err());
+        let first_owner = bridge.clone();
+        let first = tokio::spawn(async move { first_owner.drain().await });
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        first.abort();
+        assert!(first.await.is_err());
         bridge.drain().await.unwrap();
         assert!(completed.load(std::sync::atomic::Ordering::Acquire));
         assert!(request.join().unwrap().is_err());
@@ -206,16 +312,18 @@ mod tests {
         let cancellation = Cancellation::default();
         let bridge = Arc::new(NativeBridge::new(cancellation.clone()).unwrap());
         let entered = Arc::new(tokio::sync::Notify::new());
-        let completed=Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let request_completed=completed.clone();
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let request_completed = completed.clone();
         let request_bridge = bridge.clone();
         let request_entered = entered.clone();
-        let request = std::thread::spawn(move || request_bridge.call(async move {
-            request_entered.notify_one();
-            tokio::time::sleep(Duration::from_millis(80)).await;
-            request_completed.store(true,std::sync::atomic::Ordering::Release);
-            Ok::<(),ModelError>(())
-        }));
+        let request = std::thread::spawn(move || {
+            request_bridge.call(async move {
+                request_entered.notify_one();
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                request_completed.store(true, std::sync::atomic::Ordering::Release);
+                Ok::<(), ModelError>(())
+            })
+        });
         entered.notified().await;
         cancellation.cancel();
         bridge.drain().await.unwrap();

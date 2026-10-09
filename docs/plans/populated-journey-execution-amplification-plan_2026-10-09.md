@@ -1,6 +1,6 @@
 # Operation-shaped native lowering and final canonical preparation
 
-**Proposed implementation target · 2026-10-09.** Document authoring does not authorize production changes. The operator accepted populated-review RC01/RC02 and retained RC03/RC04 during plan preparation. Implementation, independent controls and benefit measurement remain separate.
+**Accepted implementation target / execution in progress · 2026-10-09 (ADR-0138).** The operator authorized implementation after detailed execution planning. The operator accepted populated-review RC01/RC02 and retained RC03/RC04 during plan preparation. Implementation, independent controls and benefit measurement remain separate.
 
 This supporting plan develops the [populated journey target review](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md). The [persisted-execution coordinator](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns scheduled finding disposition, combined dependencies and actual receipts. Its §9.1 records the successful populated boundary and outstanding timeout/whole-plan limits. Existing PC/CU/BC packages retain their identities and remaining obligations.
 
@@ -34,7 +34,7 @@ These source-qualified IDs differ from earlier reviews' RC01/RC02.
 | RC03, native compiler placement | **Retained; change rejected for this target** | Every frontier/profile, including artifact-only, continues to use the native compiler. Different intermediate placement remains a triggered investigation, requiring a new operator decision if selected later. |
 | RC04, native SQL transport | **Retained; change rejected for this target** | Preserve staging isolation and fresh reconstruction. Data-only transport remains an investigation; this plan does not implement it or serve imported staging. |
 
-PJ0 uses the ADR skill to record a superseding physical-enforcement decision for the affected ADR-0133/0135 commitments, carrying forward every unaffected native-placement, supplier, completion, transport and publication obligation. Allocate the ADR number through the owning recipe. Update semantic model §15.11 and storage/publication §6.1–§6.3 together; keep accepted record bodies immutable. The replacement distinguishes typed semantic admission, fixed native envelope enforcement and independent full physical validation.
+PJ0 installed ADR-0138, consolidating the affected physical-enforcement decisions and every surviving native-placement, supplier, completion, transport and publication obligation. Semantic model §15.11 and storage/publication §6.1–§6.3 distinguish typed semantic admission, fixed envelope enforcement and complete independent physical validation. Superseded records retire after all governing references transfer; Git retains their provenance.
 
 The new physical schema is a migration. Rebuild owned disposable/current project realizations from pinned inputs; change realization identity and reviewed schema snapshots coherently. Keep completed-state format2 and artifact format3: the selected correction changes enforcement and private preparation, not their transported record meaning. No old-schema reader, dual writes or compatibility generation is added. Operator database adoption/quiescence remains separately authorized; implementation controls use disposable owned databases.
 
@@ -101,7 +101,7 @@ Migrate the complete affected route:
 - `VerifiedExport` publication: consume its already readmitted native authority. Retire the post-admission portable canonical/original reload in `publisher::load`; derive edges/search and seal through the shared native publication owner after independent external admission;
 - restored finalization: use fresh destination preparation where canonical reads are needed, retain actual graph/state/search reconciliation and physical-name independence.
 
-Detached publication is not ordinary self-import: initial external transport and semantic admission remain independent. The common publication routine receives the admitted native authority, its exact manifest and preparation; wrappers retain their actual trust provenance. It does not admit arbitrary native state.
+Detached publication is not ordinary self-import: initial external transport and semantic admission remain independent. The common publication routine receives the admitted native authority, its exact manifest and preparation; wrappers retain their actual trust provenance. It does not admit arbitrary native state. Publication is private to publisher and accepts only core's nominal admitted artifact/export/restored owners, bound to the exact store and manifest. A separate private authenticated effect session runs under native lifecycle guards; no native public seal, marker writer or compiler administrator client escapes.
 
 Publisher edge/search/definition/publication writes remain allowed after compiler-content freeze because they do not mutate backing, memberships or aliases. Restrict all identified production content-mutating escape paths, including loader/shared-client callers. Already derived reference edges copied during restore may be reconciled; they cannot widen canonical membership.
 
@@ -110,6 +110,8 @@ Publisher edge/search/definition/publication writes remain allowed after compile
 Retain borrowed synchronous finite kernels and their owned inputs. Populated compiler journeys should use the multithread runtime topology of the CLI, with available workers and test parallelism; small current-thread controls remain useful for their own contracts. This is control representativeness, not a proven remedy for the observed duration. Do not replace borrowed leaves with detached `spawn_blocking` calls.
 
 PJ1 establishes coarse phase visibility for the operational question that prompted this plan: setup, providers, normalization, upper operations, final preparation/admission, sealing, tool groups and restore. Use the existing tracing/logging and run-output routes, with explicit begin/terminal status and elapsed phase observations retained if the command is interrupted. Library owners emit their own phase boundaries; the journey/CLI exposes those through an appropriately scoped subscriber. Preserve concurrent attribution and avoid global subscriber collisions, secrets or evidence payload logging. No event ledger, generic telemetry framework, per-row tracing or new profiler is required.
+
+Implementation observation, 2026-10-09: a composed core binary captured ordinary scoped INFO but suppressed native macro phase callsites. Fixed-metadata phase events now use the captured Dispatch directly, honoring metadata/event filters and the retained parent; the underlying library/compiler cause is unproven. Facts, invariant and frontier admission have distinct coarse observations. Fixture thread handoffs retain the caller dispatch/span. This changes diagnostics, not operation or admission semantics.
 
 Already emitted observations survive cancellation/process death through the owned run log. A missing terminal remains incomplete; forced termination cannot fabricate a successful/cancelled phase terminal or completed elapsed duration. Graceful cancellation records terminal evidence only after actual work drainage. Keep build/preparation time separate from executed compiler/journey phases.
 
@@ -169,9 +171,31 @@ PJ4 is not permission to begin an unspecified redesign. A trigger produces a bou
 
 These are local decision routes, not a second finding register. Quantitative runtime/peak-memory benefits remain unmeasured. Static evidence may establish removal of a repeated program or inventory; representative measurement is needed to quantify its consequence.
 
+**Bounded residual assessment, 2026-10-09:** current frontier phase logs expose prolonged
+normalization before final admission. Static inspection found unchanged per-root selected work:
+callable-aspect normalization invokes `PreparedEdges::grain` and `AspectScopes::load_data` for
+each root across three namespaces, loading every declared input; entity normalization similarly
+builds closures for selected observation roots. The owners are
+[`normalize/mod.rs`](../../crates/cpg-core/src/normalize/mod.rs),
+[`scoped_aspects.rs`](../../crates/cpg-core/src/scoped_aspects.rs) and
+[`consumed_rows.rs`](../../crates/cpg-core/src/consumed_rows.rs).
+Those files and the native scan path are unchanged by PJ2/PJ3; scope indexes/predicates remain.
+No bounded correctness regression or supported freeze/read cycle was identified. Preserve these
+specific repeated-effect paths for the operator-deferred timeout followup; this is not approval
+for a new normalization redesign. Receiver CPU observations do not bound callable-aspect CPU
+work, whose synchronous kernel is not separately instrumented. The coordinator retains actual
+durations, outcomes and the incomplete Behavioral entity-normalization observations.
+
+The populated run also exposes normalized admission as a distinct interval. Its unchanged
+semantic path registers the completed relation set, checks uncached nominal-reference fields
+with separate queries, then runs applicable invariants and scoped closure validators. It does
+not freeze content, prepare canonical rows or call `wait_scans`; the new completion-owner handoff
+has already returned. This supports a further concrete validation/access-amplification avenue,
+not a PJ2/PJ3 wait-cycle diagnosis or a measured attribution. Follow the same deferred owner.
+
 ## 7. Verification, migration and completion
 
-**During implementation:** compile checks and minimal revealing controls for the changed boundary, owned disposable fixtures, normal available parallelism and pinned release artifacts. Resolve exact selectors with `just verify --print`; no long family/journey after a slice. The current session's native fixture prerequisite is blocked by the unavailable user systemd bus; repair the login/user-manager prerequisite at execution, without touching operator databases. This does not block static authoring.
+**During implementation:** compile checks and minimal revealing controls for the changed boundary, owned disposable fixtures, normal available parallelism and pinned release artifacts. Resolve exact selectors with `just verify --print`; no long family/journey after a slice. The authoring session lacked its user systemd bus. Execution repaired this with the existing /run/user/1000 manager socket and explicit XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS; readiness passed on 2026-10-09, without touching operator databases.
 
 | Boundary | Revealing independent controls |
 |---|---|
@@ -191,7 +215,7 @@ Current command routes, statically resolved on 2026-10-09:
 - `serving:rust` selects native serving. Narrow these with actual affected target/filter arguments.
 - `serving:mcp` builds CLI/evaluator, runs both native journeys, then Python controls. A pytest filter does not skip native preparation.
 
-At functional completion PJ5 schedules affected leaves once and assembled release `just qualify` where the changed shared trust/publication contracts require it. The execution coordinator must reconcile this with the operator-deferred timeout scope before launching broader acceptance; do not silently resume deferred cases. Record every failed/blocked/not_run obligation rather than converting focused passes into full qualification. BC3 retains its qualified-default installation gate; release remains current until that gate completes. No floating toolchain, dependency re-resolution, cargo clean or new job/worker caps.
+At functional completion PJ5 schedules affected leaves once. The operator selected targeted completion: focused controls and one integrated populated native/MCP/evaluator boundary. Assembled release `just qualify` and the deferred timeout campaign remain open and not_run; do not silently resume deferred cases. Record every failed/blocked/not_run obligation rather than converting focused passes into full qualification. BC3 retains its qualified-default installation gate; release remains current until that gate completes. No floating toolchain, dependency re-resolution, cargo clean or new job/worker caps.
 
 A new schema uses fresh fixtures. No operator rebuild/selection, real FastMCP/Qwen pilot, protected evaluation, wheel, benchmark campaign or push is implied. Preserve profiling captures, shared caches and the dirty PC3 worktree. No performance threshold or real-library claim is an acceptance substitute.
 
@@ -213,7 +237,7 @@ Before implementation, a fresh independent design/target reviewer assesses this 
 
 F01/F02 scheduling transfers their mutable disposition to the coordinator, with source links retained. This plan owns design and package prerequisites, not another progress ledger. F03 and unscheduled alternatives retain source-owned deferrals until their triggers warrant a scoped decision.
 
-**Authoring checkpoint, 2026-10-09:** target Proposed; production packages, native probes and performance measurements not_run. The [independent design/target review](../design_review/reviews/design_review_populated-journey-execution-plan_2026-10-09.md) concludes **Accept scoped at Proposed strength**, with no remaining blocking target-design finding. Its plan-review F01 corrected finalization order and the complete workspace/native handoff in §3.3 before publication; this is not source-finding closure or Tested implementation. `just docs-check` **passed**, 2026-10-09, 349 canonical pages and zero link errors. Enduring physical contracts move into their architectural owners through PJ0/PJ2; successful document publication is not implementation or finding closure.
+**Execution checkpoint, 2026-10-09:** PJ0–PJ3 and the bounded assembled-review corrections are **Implemented**; targeted PJ5 acceptance is recorded with remaining timeout limits. The [independent assembled review](../design_review/reviews/design_review_assembled-populated-execution-correction_2026-10-09.md) accepts scoped at static / Implemented strength. Current passed controls, normalization timeouts and the passed populated native/MCP/evaluator boundary are recorded only in [coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07). The earlier target-plan review accepted Proposed strength and corrected finalization order and the complete workspace/native handoff before implementation. Neither review acceptance nor focused controls establish enclosing finding closure or a measured speed improvement. Enduring physical contracts are recorded in their semantic/storage owners through ADR-0138; the deferred timeout campaign and PC6/CU6/BC3/BC5 remain open.
 
 ### Pinned capability evidence
 

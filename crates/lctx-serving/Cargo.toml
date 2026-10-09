@@ -16,6 +16,7 @@ tokio.workspace = true
 hex.workspace = true
 
 [dev-dependencies]
+tracing.workspace = true
 datafusion.workspace = true
 cpg-core = { path = "../cpg-core" }
 cpg-extract = { path = "../cpg-extract" }

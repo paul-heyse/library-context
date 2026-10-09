@@ -405,23 +405,15 @@ fn graph_value(
     canonical: Vec<u8>,
     view: codec::RecordView,
 ) -> Result<Value, ModelError> {
-    let mut object = Object::new();
-    object.insert("id", RecordId::new(table, id.hex()));
-    object.insert("semantic_type", view.semantic_type.clone());
-    object.insert("semantic_key", view.semantic_key);
-    object.insert("kind", kind);
-    object.insert("subtype", subtype.map(Value::from_t).unwrap_or(Value::Null));
-    object.insert("content", content.hex());
-    object.insert("canonical", Bytes::from(canonical));
-    crate::reconciliation::add_scope_fields(
-        &mut object,
-        &view.body,
-        &view.semantic_type,
-        crate::schema::ScopeTable::from_name(table)?,
-    )?;
-    object.insert("body", view.body);
-    Ok(Value::Object(object))
+    crate::adapter::physical_row(
+        RecordId::new(table, id.hex()),
+        content,
+        canonical,
+        Some((kind, subtype)),
+        view,
+    )
 }
+
 fn entity_values(rows: &[Entity], canonical: Vec<Vec<u8>>) -> Result<Vec<Value>, ModelError> {
     rows.iter()
         .zip(codec::entity_views(rows)?)
@@ -549,6 +541,12 @@ pub(crate) fn native_bytes(value: &Value) -> usize {
         Value::RecordId(value) => value.to_sql().len(),
         _ => 0,
     })
+}
+pub(crate) fn validate_native_row(row: &Value) -> Result<(), ModelError> {
+    require_row(
+        native_bytes(row),
+        lctx_model::domain::batching::TransferLimits::default(),
+    )
 }
 fn require_row(
     bytes: usize,

@@ -1,5 +1,8 @@
 //! Trusted local logical transport. Imported metadata never becomes a serving realization.
-use crate::{PrivatePublication, abandon, begin, seal};
+use crate::{
+    PrivatePublication, abandon, begin,
+    native_publication::{Admission, Publication},
+};
 use lctx_model::domain::{
     ModelError,
     completion::{Completion, RemoteState, StorageState, complete},
@@ -225,65 +228,127 @@ pub async fn restore(
     input: &Path,
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
-    let staging = begin(config).await?;
-    let result = async {
-        let manifest = import(config, input, &staging)
-            .await
-            .map_err(|error| restore_phase("staging admission", error))?;
-        let fresh = begin(config).await?;
+    let phase = lctx_surrealdb::phase::Phase::begin("restore");
+    let outcome = async {
+        let staging = begin(config).await?;
         let result = async {
-            copy(config, &staging, &fresh, &manifest, native_definitions)
+            let admission_phase = lctx_surrealdb::phase::Phase::begin("restore_staging_admission");
+            let admission = import(config, input, &staging)
                 .await
-                .map_err(|error| restore_phase("canonical copy", error))?;
-            seal(&fresh, &manifest, config, native_definitions)
-                .await
-                .map_err(|error| restore_phase("final sealing", error))
+                .map_err(|error| restore_phase("staging admission", error));
+            admission_phase.finish_result(&admission);
+            let manifest = admission?;
+            let fresh =
+                lctx_surrealdb::compiler::NativeCompilerStore::begin(config, manifest.frontier)
+                    .await?;
+            let result = async {
+                let copy_phase = lctx_surrealdb::phase::Phase::begin("restore_canonical_copy");
+                let copied = copy(config, &staging, &fresh, &manifest)
+                    .await
+                    .map_err(|error| restore_phase("canonical copy", error));
+                copy_phase.finish_result(&copied);
+                let admitted = copied?;
+                let publication = Publication::new(Admission::Restored(&admitted), config).await?;
+                let published = async {
+                    publication.install_definitions(native_definitions).await?;
+                    let reference_phase =
+                        lctx_surrealdb::phase::Phase::begin("restore_derived_references");
+                    let references = async {
+                        let mut after = RecordId::new("entity", "");
+                        loop {
+                            let (rows, last) = page::<Entity>(&staging, "entity", after).await?;
+                            if rows.is_empty() {
+                                break;
+                            }
+                            publication.entity_references(&rows).await?;
+                            after = last;
+                        }
+                        let mut after = RecordId::new("assertion", "");
+                        loop {
+                            let (rows, last) =
+                                page::<Assertion>(&staging, "assertion", after).await?;
+                            if rows.is_empty() {
+                                break;
+                            }
+                            publication.assertion_references(&rows).await?;
+                            after = last;
+                        }
+                        Ok::<(), ModelError>(())
+                    }
+                    .await;
+                    reference_phase.finish_result(&references);
+                    references?;
+                    publication
+                        .materialize_search()
+                        .await
+                        .map_err(|error| restore_phase("search reconstruction", error))?;
+                    publication
+                        .seal(config, native_definitions)
+                        .await
+                        .map_err(|error| restore_phase("final sealing", error))
+                }
+                .await;
+                let mut completion = Completion::default();
+                if published.is_err() {
+                    completion.step(
+                        "restore publication session invalidation",
+                        publication.invalidate().await,
+                    );
+                }
+                complete(published, completion)
+            }
+            .await;
+            let mut completion = Completion::default();
+            if let Err(error) = &result
+                && !error.has_committed_effect()
+            {
+                if error.permits_storage_cleanup() {
+                    retain_abandon_outcome(
+                        &mut completion,
+                        fresh.database().as_str(),
+                        "fresh realization abandon",
+                        fresh.abandon().await,
+                    );
+                } else {
+                    completion
+                        .storage
+                        .push(StorageState::Orphan(fresh.database().as_str().into()));
+                }
+            }
+            complete(result, completion)
         }
         .await;
         let mut completion = Completion::default();
-        if let Err(error) = &result
-            && !error.has_committed_effect()
+        if let Ok(handle) = &result {
+            completion.committed(
+                "sealed unselected database",
+                serde_json::to_string(handle).map_err(ModelError::codec)?,
+            );
+        }
+        if result
+            .as_ref()
+            .err()
+            .is_none_or(ModelError::permits_storage_cleanup)
         {
-            if error.permits_storage_cleanup() {
-                retain_abandon_outcome(
-                    &mut completion,
-                    fresh.database.as_str(),
-                    "fresh realization abandon",
-                    abandon(&fresh).await,
-                );
-            } else {
-                completion
-                    .storage
-                    .push(StorageState::Orphan(fresh.database.as_str().into()));
-            }
+            let cleanup_phase = lctx_surrealdb::phase::Phase::begin("restore_staging_cleanup");
+            let cleanup = abandon(&staging).await;
+            cleanup_phase.finish_result(&cleanup);
+            retain_abandon_outcome(
+                &mut completion,
+                staging.database.as_str(),
+                "restore staging abandon",
+                cleanup,
+            );
+        } else {
+            completion
+                .storage
+                .push(StorageState::Orphan(staging.database.as_str().into()));
         }
         complete(result, completion)
     }
     .await;
-    let mut completion = Completion::default();
-    if let Ok(handle) = &result {
-        completion.committed(
-            "sealed unselected database",
-            serde_json::to_string(handle).map_err(ModelError::codec)?,
-        );
-    }
-    if result
-        .as_ref()
-        .err()
-        .is_none_or(ModelError::permits_storage_cleanup)
-    {
-        retain_abandon_outcome(
-            &mut completion,
-            staging.database.as_str(),
-            "restore staging abandon",
-            abandon(&staging).await,
-        );
-    } else {
-        completion
-            .storage
-            .push(StorageState::Orphan(staging.database.as_str().into()));
-    }
-    complete(result, completion)
+    phase.finish_result(&outcome);
+    outcome
 }
 
 fn retain_abandon_outcome(
@@ -391,18 +456,10 @@ async fn import_units(client: &Surreal<Client>, input: &Path) -> Result<(), Mode
 async fn copy(
     config: &RuntimeConfig,
     staging: &PrivatePublication,
-    fresh: &PrivatePublication,
+    native: &std::sync::Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
     manifest: &Manifest,
-    native_definitions: &str,
-) -> Result<(), ModelError> {
-    fresh.loader.install(native_definitions).await?;
-    let native = lctx_surrealdb::compiler::NativeCompilerStore::from_existing(
-        fresh.loader.shared_client(),
-        config.namespace.clone(),
-        fresh.database.clone(),
-    );
+) -> Result<cpg_core::artifact::RestoredAdmission, ModelError> {
     let setup = async {
-        native.install_state_schema().await?;
         cpg_core::workspace::Workspace::new(
             std::sync::Arc::new(lctx_model::domain::model()?),
             cpg_core::workspace::WorkspaceOptions::default(),
@@ -433,19 +490,16 @@ async fn copy(
             return Err(ModelError::Conflict("restore source state"));
         }
 
-        // Two passes: materialize every endpoint before constructing native role/reference arcs.
-        for references in [false, true] {
+        // External reconstruction owns content mutation. Derived publication begins only
+        // after independent semantic admission returns its nominal owner.
+        {
             let mut after = RecordId::new("entity", "");
             loop {
                 let (rows, last) = page::<Entity>(staging, "entity", after).await?;
                 if rows.is_empty() {
                     break;
                 }
-                if references {
-                    fresh.loader.entity_references(&rows).await?
-                } else {
-                    fresh.loader.entities(&rows).await?
-                }
+                native.import_entities(&rows).await?;
                 after = last;
             }
             let mut after = RecordId::new("assertion", "");
@@ -454,11 +508,7 @@ async fn copy(
                 if rows.is_empty() {
                     break;
                 }
-                if references {
-                    fresh.loader.assertion_references(&rows).await?
-                } else {
-                    fresh.loader.assertions(&rows).await?
-                }
+                native.import_assertions(&rows).await?;
                 after = last;
             }
         }
@@ -508,9 +558,8 @@ async fn copy(
                 return Err(ModelError::Conflict("restored original source metadata"));
             }
             file.rewind().map_err(ModelError::codec)?;
-            fresh
-                .loader
-                .original_stream(
+            native
+                .import_original_stream(
                     original.source.0,
                     original.content,
                     original.byte_len,
@@ -525,27 +574,20 @@ async fn copy(
         runtime.restore(manifest.profile).await?;
         cpg_core::artifact::verify_restored(&runtime, manifest)
             .await
-            .map_err(|error| restore_phase("restored artifact admission", error))?;
-        crate::materialize_search(&fresh.loader)
-            .await
-            .map_err(|error| restore_phase("search reconstruction", error))?;
-        fresh
-            .loader
-            .reconcile(manifest)
-            .await
-            .map_err(|error| restore_phase("final graph reconciliation", error))
+            .map_err(|error| restore_phase("restored artifact admission", error))
     }
     .await;
-    let mut completion = runtime.drain_report().await;
+    let mut completion = Completion::default();
     completion.step(
         "restore source native drain",
         complete(Ok(()), source_state.drain_report().await),
     );
     if result.is_err() || !completion.failures.is_empty() {
         native.fail();
-    } else {
-        completion.step("restore native end writes", native.end_writes().await);
+        let drained = runtime.drain_report().await;
+        completion.step("restore reconstruction drain", complete(Ok(()), drained));
     }
+
     complete(result, completion)
 }
 

@@ -700,7 +700,7 @@ struct FilterField<'a> {
     atomic: bool,
 }
 impl FilterField<'_> {
-    fn sql(self) -> String {
+    fn sql_expression(self) -> String {
         if self.name == "id" {
             "semantic_key".into()
         } else {
@@ -843,7 +843,7 @@ impl<'a> SupportedFilter<'a> {
                     format!("({left}) {op} ({right})")
                 }
                 SupportedFilter::Compare(field, op, value) => {
-                    let column = field.sql();
+                    let column = field.sql_expression();
                     let bound = bind(native_literal(value, field.name == "id"));
                     if *op == Operator::Eq && field.atomic {
                         let scope = format!("{namespace}scope{}", preparation.len());
@@ -893,7 +893,7 @@ impl<'a> SupportedFilter<'a> {
                             format!("({})", predicates.join(" OR "))
                         }
                     } else {
-                        let column = field.sql();
+                        let column = field.sql_expression();
                         format!(
                             "({column} IS NOT NULL AND {column} IS NOT NONE AND {column} IN {})",
                             bind(Value::Array(items.into()))
@@ -901,7 +901,7 @@ impl<'a> SupportedFilter<'a> {
                     }
                 }
                 SupportedFilter::Null(field, null) => {
-                    let field = field.sql();
+                    let field = field.sql_expression();
                     if *null {
                         format!("({field} IS NULL OR {field} IS NONE)")
                     } else {

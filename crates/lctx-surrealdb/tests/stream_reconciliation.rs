@@ -86,6 +86,14 @@ async fn candidate_plan_controls(native: &NativeReader, release: &Release) {
     row.insert("body", body);
     row.insert("canonical", Bytes::from(canonical.clone()));
     row.insert("content", ContentHash::of(&canonical).hex());
+    let body = row.get("body").unwrap().clone();
+    lctx_surrealdb::reconciliation::add_scope_fields(
+        &mut row,
+        &body,
+        relation.name(),
+        lctx_surrealdb::schema::ScopeTable::CompilerRecord,
+    )
+    .unwrap();
     let mut bindings = Variables::new();
     bindings.insert("row", row);
     native
@@ -553,8 +561,32 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         reader::target_id(graph::Target::Entity(graph::EntityId::of(release.id()))),
     );
     let before = physical_row(&native, bindings.clone()).await;
-    // Simulate imported derived-field drift by making the stored scope array independently writable.
-    client.query("DEFINE FIELD OVERWRITE scope_keys ON entity TYPE array<string>; UPDATE $id SET scope_keys=['wrong'];").bind(bindings.clone()).await.unwrap().check().unwrap();
+    bindings.insert("saved", before.clone());
+    // The fixed envelope deliberately allows raw nested writes; admission still rejects them.
+    client
+        .query("UPDATE $id SET body.unexpected=1")
+        .bind(bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    assert!(loader.reconcile(&manifest).await.is_err());
+    client
+        .query("UPDATE $id CONTENT $saved")
+        .bind(bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    loader.reconcile(&manifest).await.unwrap();
+    // Supplied scopes remain independently checked against the declared body.
+    client
+        .query("UPDATE $id SET scope_keys=['wrong'];")
+        .bind(bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     assert!(loader.ensure_entities(&entities).await.is_err());
     assert!(loader.reconcile(&manifest).await.is_err());
     let after = physical_row(&native, bindings.clone()).await;
@@ -594,6 +626,258 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     client
         .query("UPDATE $id CONTENT $saved")
         .bind(bindings)
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    loader.reconcile(&manifest).await.unwrap();
+    client
+        .query(format!("REMOVE DATABASE {db}"))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
+    use lctx_surrealdb::surrealdb::types::{Bytes, Object};
+    let cfg: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned persistent fixture"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let credentials = Credentials::Root {
+        username: cfg["admin_user"].as_str().unwrap().into(),
+        password: cfg["admin_password"].as_str().unwrap().into(),
+    };
+    let ns = "pj2_envelopes";
+    let db = format!("reconstruct_{}", std::process::id());
+    let client = reader::connect(
+        cfg["grpc_endpoint"].as_str().unwrap(),
+        &credentials,
+        ns,
+        &db,
+    )
+    .await
+    .unwrap();
+    client
+        .query(format!(
+            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
+        ))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let loader = Loader::new(client.clone());
+    loader.install("").await.unwrap();
+    let original_bytes = vec![0xff, 0, 0x80];
+    let input = input::InputRevision::from_entries(vec![input::ManifestEntry {
+        path: "envelope.py".into(),
+        content: ContentHash::of(&original_bytes),
+        byte_len: original_bytes.len() as i64,
+    }])
+    .unwrap();
+    let artifact =
+        source::SourceArtifact::from_bytes(input.id(), "envelope.py".into(), &original_bytes)
+            .unwrap();
+    let original = graph::Original {
+        source: graph::EntityId::of(artifact.id()),
+        content: artifact.content,
+        byte_len: original_bytes.len() as u64,
+    };
+    let entities = vec![
+        Entity::from(value::Literal::Bytes {
+            value: EvidenceBytes(vec![0xff, 0, 0x80]),
+        }),
+        Entity::from(Package {
+            name: "envelope-control".into(),
+        }),
+        Entity::from(input),
+        Entity::from(artifact),
+    ];
+    let manifest_for = |entities: &[Entity]| {
+        let mut ordered = entities.to_vec();
+        ordered.sort_by_key(Entity::id);
+        let mut entity_family = FamilyHasher::new(GraphFamily::Entities);
+        for entity in ordered {
+            entity_family.push(entity.id().0, entity.content()).unwrap();
+        }
+        Manifest {
+            admission_contract: ContentHash::of(b"fixture-admission"),
+            format_version: graph::ARTIFACT_FORMAT_VERSION,
+            completed_state: completed::CompletedStateIdentity {
+                format_version: completed::STATE_FORMAT_VERSION,
+                contributions: 0,
+                memberships: 0,
+                backing_rows: 0,
+                content: ContentHash::of(b"fixture-empty-state"),
+            },
+            frontier: admission::Frontier::Facts,
+            profile: stages::Profile::Catalog,
+            captures: vec![],
+            semantic_contract: ContentHash::of(b"fixture"),
+            producers: vec![],
+            settings: ContentHash::of(b"fixture"),
+            families: vec![
+                entity_family.finish(),
+                FamilyHasher::new(GraphFamily::Assertions).finish(),
+            ],
+            required_outcomes: vec![],
+            outcomes: vec![],
+            originals: vec![],
+            projections: vec![],
+            embeddings: vec![],
+        }
+    };
+    loader.reconcile(&manifest_for(&[])).await.unwrap();
+    loader.entities(&entities).await.unwrap();
+    loader.entity_references(&entities).await.unwrap();
+    loader
+        .original_stream(
+            original.source.0,
+            original.content,
+            original.byte_len,
+            &mut original_bytes.as_slice(),
+        )
+        .await
+        .unwrap();
+    let mut manifest = manifest_for(&entities);
+    manifest.originals = vec![original.clone()];
+    loader.reconcile(&manifest).await.unwrap();
+    let id = reader::target_id(graph::Target::Entity(entities[0].id()));
+    let mut bindings = Variables::new();
+    bindings.insert("id", id);
+    let mut response = client
+        .query("SELECT * FROM $id")
+        .bind(bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let mut rows: Vec<Value> = response.take(0).unwrap();
+    let saved = rows.pop().unwrap();
+    assert!(rows.is_empty());
+    let saved = saved.as_object().unwrap();
+    for defect in [
+        "extra_body_field",
+        "missing_inactive_null",
+        "wrong_bytes",
+        "wrong_sum_tag",
+        "wrong_scope",
+        "wrong_semantic_key",
+    ] {
+        let mut altered: Object = saved.clone();
+        match defect {
+            "wrong_scope" => {
+                altered.insert("scope_keys", vec!["wrong"]);
+            }
+            "wrong_semantic_key" => {
+                altered.insert("semantic_key", "wrong");
+            }
+            _ => {
+                let Some(Value::Object(body)) = altered.get_mut("body") else {
+                    panic!("literal body");
+                };
+                match defect {
+                    "extra_body_field" => {
+                        body.insert("unexpected", 1i64);
+                    }
+                    "missing_inactive_null" => {
+                        assert_eq!(body.remove("string_value"), Some(Value::Null));
+                    }
+                    "wrong_bytes" => {
+                        body.insert("bytes_value", Bytes::from(vec![9u8]));
+                    }
+                    "wrong_sum_tag" => {
+                        body.insert(
+                            Relation::of::<value::Literal>().sum().unwrap().tag,
+                            i64::from(i16::MAX),
+                        );
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
+        bindings.insert("row", Value::Object(altered));
+        client
+            .query("UPDATE $id CONTENT $row")
+            .bind(bindings.clone())
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        assert!(
+            loader.reconcile(&manifest).await.is_err(),
+            "independent reconstruction rejects {defect}"
+        );
+        bindings.insert("row", Value::Object(saved.clone()));
+        client
+            .query("UPDATE $id CONTENT $row")
+            .bind(bindings.clone())
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        loader.reconcile(&manifest).await.unwrap();
+    }
+    let chunk_id = RecordId::new("original_chunk", format!("{}_0", original.source.0.hex()));
+    let wrong_id = RecordId::new("original_chunk", "corrupted_identity");
+    let mut chunk_bindings = Variables::new();
+    chunk_bindings.insert("id", chunk_id);
+    chunk_bindings.insert("wrong", wrong_id.clone());
+    let mut response = client
+        .query("SELECT * FROM $id")
+        .bind(chunk_bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let rows: Vec<Value> = response.take(0).unwrap();
+    let [saved_chunk] = rows.as_slice() else {
+        panic!("one original chunk");
+    };
+    let mut wrong = saved_chunk.as_object().unwrap().clone();
+    wrong.insert("id", wrong_id);
+    chunk_bindings.insert("row", Value::Object(wrong));
+    chunk_bindings.insert("saved", saved_chunk.clone());
+    client
+        .query("DELETE $id; INSERT INTO original_chunk $row;")
+        .bind(chunk_bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    assert!(
+        loader.reconcile(&manifest).await.is_err(),
+        "original chunk identity is part of the complete physical envelope"
+    );
+    client
+        .query("DELETE $wrong; INSERT INTO original_chunk $saved;")
+        .bind(chunk_bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    loader.reconcile(&manifest).await.unwrap();
+    // Simulate an imported auxiliary envelope with a separately declared extra field.
+    client
+        .query("DEFINE FIELD extra ON original_chunk TYPE option<int>; UPDATE $id SET extra=1;")
+        .bind(chunk_bindings.clone())
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    assert!(
+        loader.reconcile(&manifest).await.is_err(),
+        "extra original envelope data cannot disappear in typed projection"
+    );
+    client
+        .query("UPDATE $id CONTENT $saved;")
+        .bind(chunk_bindings)
         .await
         .unwrap()
         .check()

@@ -2,7 +2,7 @@
 
 # §15 Semantic graph model
 
-**Accepted operation-contract target, 2026-10-08 (ADR-0135); implementation in progress.**
+**Implemented / focused acceptance in progress, 2026-10-09 (ADR-0138).**
 Completed contributions capture declared supplier semantics separately from executable build
 provenance. Supported cold admission and manifest reporting consume those bindings and the same
 nine-view admitted facts result. The correction cutover uses completed-state format2, artifact
@@ -12,19 +12,19 @@ remote certainty and private/committed effects while workflow owners execute cle
 The [correction plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md) owns the
 complete contracts and current migration; acceptance remains with its coordinator.
 
-> Decision: ADR-0135
+> Decision: ADR-0138
 
 **Implemented / acceptance in progress, 2026-10-08 (ADR-0137).** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.
 
 > Decision: ADR-0137
 
-**Accepted persisted compiler target / implementation in progress, 2026-10-07 (ADR-0133).**
+**Implemented persisted compiler / targeted acceptance in progress, 2026-10-09 (ADR-0138).**
 The [persisted graph execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this hard pivot and its focused acceptance. One Rust-owned graph governs semantic entities,
 assertions, roles, source correspondence, conditions, obligations and derivations. Compilation
 uses exact immutable completed views in one managed native database and seals that same admitted
 realization. Typed Arrow records remain computation/transport views. Prior receipts retain their
-original boundary; the new target's acceptance is not implementation or measured speed.
+original boundary; current focused acceptance does not establish whole-plan qualification or measured speed.
 
 Logical identities, captured bytes, semantic compatibility, producer implementations, graph content
 and native physical realization have separate scopes. Semantic compatibility is declared structure
@@ -50,13 +50,13 @@ consumption enters the artifact and reconstructs without a service. Query-only c
 invalidate unchanged document values.
 Native persistent cache and serving are implemented. Operator activation remains separately authorized.
 
-ADR-0133 replaces earlier compilation placement and publication-roundtrip mechanisms. Earlier cited decisions
+ADR-0138 replaces earlier compilation placement and publication-roundtrip mechanisms. Earlier cited decisions
 retain their typed semantic, ownership, coverage and product obligations. Previous PostgreSQL
 receipts bound that implementation only. The coordinator records native
 runtime evidence separately; real-library acceptance and Measured performance do not follow
 from this architectural decision.
 
-> Decision: ADR-0131, ADR-0133, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
+> Decision: ADR-0131, ADR-0138, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 
@@ -86,7 +86,7 @@ Native graph access is used during compilation; publication seals the same admit
 `lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
 records targeted functional controls; broad assembled qualification is not_run by user direction.
 
-> Decision: ADR-0133, ADR-0085, ADR-0117, ADR-0105, ADR-0108
+> Decision: ADR-0138, ADR-0085, ADR-0117, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -116,7 +116,7 @@ analyses after normalization. The companion is an identity alias, without qualif
 normalization evidence. Facts retain their actual vocabulary without normalized records. Detached import retains the actual
 records and requires complete endpoint membership; it never synthesizes missing companions.
 
-> Decision: ADR-0133, ADR-0085
+> Decision: ADR-0138, ADR-0085
 
 <a id="section-15-3"></a>
 
@@ -754,9 +754,13 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 
 ## §15.11 Compilation and physical realization
 
-**Accepted target / implementation in progress, 2026-10-07 (ADR-0133).** The compiler owns one private STRICT native database from its first output. Model-owned contribution specifications declare producer/code/settings and exact consumed views; immutable completed memberships and current/frozen semantic-boundary bindings define readable inputs. Pending contributions cannot widen a completed view. Completion validates local shape, canonical keys, reference closure, outcomes and applicable cross-element invariants; unchanged exact premises retain their validated status. Shared vocabulary unions exact nominal keys with full-payload conflict checks.
+**Implemented / focused acceptance in progress, 2026-10-09 (ADR-0138).** The compiler owns one private STRICT native database from its first output. Model-owned contribution specifications declare producer/code/settings and exact consumed views; immutable completed memberships and current/frozen semantic-boundary bindings define readable inputs. Pending contributions cannot widen a completed view. Completion validates local shape, canonical keys, reference closure, outcomes and applicable cross-element invariants; unchanged exact premises retain their validated status. Shared vocabulary unions exact nominal keys with full-payload conflict checks.
 
 Canonical graph payloads and complete generated native bodies share one immutable value owner. A single declaration-derived inventory governs non-graph compiler backing across schema, writes, scans and bounded cold model regeneration. It preserves projection headers/chunks and other required intermediate fields; no manually maintained type whitelist owns coverage. Regenerated canonical bytes, full nominal keys and retained content must agree at external exposure. ArtifactChunk exposes the existing original_chunk bytes through typed metadata rather than copying original bytes into compiler backing. Native selected/projected scans and bulk Arrow/DataFusion compute serve each operation's physical demand. Pure model kernels remain usable without a server. Cancellation drains submitted writes and reader transports before an owned attempt is removed.
+
+**Implemented finalization, 2026-10-09 (ADR-0138); targeted acceptance in progress.** Native families retain fixed SCHEMAFULL envelopes and flexible object bodies. Declaration-selected synchronous adapters validate complete typed bodies and derive supplied scopes before a bounded write window has effects. Independent cold admission reconstructs and compares complete physical envelopes; arbitrary private raw SQL does not establish semantic validity. Unrelated vocabulary no longer expands each existing row's native body or scope program.
+
+Final admission closes content mutation and drains accepted mutators under the Workspace completion gate. Actual native descriptors and current/frozen bindings must agree with the completed Workspace before compilation attestation and semantic admission. Reads remain open. Normal compilation and restored-manifest admission keep separate provenance. Frozen authority prepares complete alias-aware compact entity/assertion runs once; independent charged cursors retain scratch through terminal workers and their last consumer. Preparation never replaces hydration or independent validation. Compiler-owned admin sessions have no unrestricted client escape. Core privately constructs store/manifest-bound admission owners; publisher accepts only these, owns its private effect session under native guards, and keeps the marker writer private. Derived publication and one final seal remain available after content closure; physical freeze alone grants neither. Already admitted read descendants complete during final drainage. Acknowledged committed identity survives caller cancellation in the retained owner.
 
 Ordinary compile admits and seals this same database; it does not write and re-import its own portable artifact. The explicit `--artifact-only --output <directory>` route also requires native runtime readiness and exports graph, originals and complete retained contribution/view/binding state. External import/restore independently checks semantic/reference/state closure. Failed or cancelled attempts expose no complete publication; restart from pinned captures rather than resume arbitrary pending state. Publication remains separate from selection, and serving handles pin both semantic content and executable realization.
 
@@ -769,7 +773,7 @@ attributed outcomes. The execution plan owns current focused evidence for this c
 
 The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 
-> Decision: ADR-0133, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
+> Decision: ADR-0138, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 
@@ -787,7 +791,7 @@ The pivot removes PostgreSQL-serving effects. The accepted persisted target dire
 schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-> Decision: ADR-0133, ADR-0114, ADR-0116
+> Decision: ADR-0138, ADR-0114, ADR-0116
 
 <a id="section-15-13"></a>
 

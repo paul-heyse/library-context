@@ -178,7 +178,7 @@ retain separate execution status.
 
 ## §11 Serving and agent interface
 
-> Decision: ADR-0128, ADR-0131, ADR-0114, ADR-0117
+> Decision: ADR-0138, ADR-0131, ADR-0114, ADR-0117
 
 **Implemented native serving, 2026-10-06 (ADR-0128); targeted verification passed and activation is separate.** A running service pins one complete
 sealed SurrealDB realization. Rust owns operation meaning and uncertainty; native queries/functions
@@ -190,7 +190,7 @@ realizations underneath a reader. Native querying is selected, without an adopti
 Compiler artifacts retain exact original bytes and consumed vectors. Native indexes are derived;
 changed functions/analyzers/index specs belong to physical realization identity. `lctx-serving` dispatches all ten operations from the pinned native reader. The PyO3 NativeSession
 and FastMCP adapter consume model-generated schemas and the same complete snapshot boundary.
-ADR-0128 governs the replacement runtime and lifecycle mechanisms; the cited earlier decisions
+ADR-0138 governs the replacement runtime and lifecycle mechanisms; the cited earlier decisions
 retain their semantic, embedding and product obligations. Startup receives only database VIEWER credentials; first use checks the sealed Rust operation
 definition. No unrelated corpus is hydrated at startup.
 
@@ -198,7 +198,7 @@ definition. No unrelated corpus is hydrated at startup.
 
 ### §11.1 Embedding spec and vectors
 
-> Decision: ADR-0128, ADR-0131, ADR-0106
+> Decision: ADR-0138, ADR-0131, ADR-0106
 
 **Implemented replacement, 2026-10-06; integrated native acceptance pending (ADR-0131):** format3
 separates actual encoder/input, rendering, query and projection dependencies.
@@ -223,7 +223,7 @@ acceptance, numerical parity, usefulness and operator adoption require their own
 
 ### §11.2 Retrieval
 
-> Decision: ADR-0128, ADR-0131
+> Decision: ADR-0138, ADR-0131
 
 **Implemented native retrieval, 2026-10-06; integrated acceptance pending and no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
 contextual occurrences. Native operations retain release/library eligibility, finite channels,
@@ -251,7 +251,7 @@ owns ER3/ER4; native querying remains selected without an adoption/proof campaig
 
 ### §11.3 FastMCP contract
 
-> Decision: ADR-0128, ADR-0025, ADR-0049, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063, ADR-0071, ADR-0073, ADR-0116
+> Decision: ADR-0138, ADR-0025, ADR-0049, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063, ADR-0071, ADR-0073, ADR-0116
 
 **Implemented native transport, 2026-10-06; actual journey outcomes are in the coordinator.** Rust owns the
 finite request/response inventory, strict nominal inputs, scalar policies, classification and wire
@@ -289,4 +289,4 @@ invent a universal engine-step counter. Qualitative first-principles/library-inf
 these choices; quantitative speed/capacity claims require measurement. Custom APIs, WASM modules,
 buckets, reactive enrichment and external exporters are activated only by a current consumer.
 
-> Decision: ADR-0128, ADR-0131
+> Decision: ADR-0138, ADR-0131

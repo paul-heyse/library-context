@@ -19,7 +19,9 @@ fn supplier() -> Provider {
 }
 
 fn package() -> Package {
-    Package { name: "provenance-package".into() }
+    Package {
+        name: "provenance-package".into(),
+    }
 }
 
 fn workspace() -> Arc<Workspace> {
@@ -36,7 +38,9 @@ async fn produce(code: ContentHash, supplier: &Provider) -> Arc<Workspace> {
         "provenance-output",
         Profile::Catalog,
         code,
-        workspace.inputs("provenance-output", Profile::Catalog, []).unwrap(),
+        workspace
+            .inputs("provenance-output", Profile::Catalog, [])
+            .unwrap(),
         [Provider::NAME, Package::NAME],
     );
     output.declare_async::<Provider>().await.unwrap();
@@ -48,7 +52,11 @@ async fn produce(code: ContentHash, supplier: &Provider) -> Arc<Workspace> {
 }
 
 fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
-    workspace.completed::<R>().unwrap().batches().unwrap()
+    workspace
+        .completed::<R>()
+        .unwrap()
+        .batches()
+        .unwrap()
         .flat_map(|batch| R::decode(&batch.unwrap()).unwrap())
         .collect()
 }
@@ -57,7 +65,12 @@ async fn contribution(workspace: &Workspace) -> CompletedContribution {
     let mut inventory = workspace.native().contributions().await.unwrap();
     assert_eq!(inventory.len(), 1);
     let contribution = inventory.pop().unwrap();
-    assert_eq!(contribution.spec.outputs, [Provider::NAME.into(), Package::NAME.into()].into_iter().collect());
+    assert_eq!(
+        contribution.spec.outputs,
+        [Provider::NAME.into(), Package::NAME.into()]
+            .into_iter()
+            .collect()
+    );
     assert_eq!(contribution.outputs[Provider::NAME].rows, 1);
     assert_eq!(contribution.outputs[Package::NAME].rows, 1);
     contribution
@@ -73,14 +86,20 @@ async fn ordinary_output_composes_stage_code_without_rewriting_supplier_identity
     let first = contribution(&original).await;
     let second = contribution(&changed).await;
 
-    assert_ne!(first.spec.implementation, original_code,
-        "native execution includes the compiler composition beyond raw supplied code");
+    assert_ne!(
+        first.spec.implementation, original_code,
+        "native execution includes the compiler composition beyond raw supplied code"
+    );
     assert_ne!(second.spec.implementation, changed_code);
-    assert_ne!(first.spec.implementation, second.spec.implementation,
-        "changing stage code changes the persisted execution identity");
+    assert_ne!(
+        first.spec.implementation, second.spec.implementation,
+        "changing stage code changes the persisted execution identity"
+    );
     assert_ne!(first.identity().unwrap(), second.identity().unwrap());
-    assert_eq!(first.outputs, second.outputs,
-        "identical supplier observations retain identical row content");
+    assert_eq!(
+        first.outputs, second.outputs,
+        "identical supplier observations retain identical row content"
+    );
     for workspace in [&original, &changed] {
         assert_eq!(rows::<Provider>(workspace), vec![supplier.clone()]);
         assert_eq!(rows::<Package>(workspace), vec![package()]);
@@ -101,27 +120,58 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     captured.configuration = Some(ContentHash::of(b"captured-foreign-settings"));
     assert_ne!(captured.implementation, current_implementation);
     let mut captured_supplier = supplier.clone();
-    captured_supplier.build_digest = ContentHash::of(b"captured-foreign-supplier-implementation/v1");
+    captured_supplier.build_digest =
+        ContentHash::of(b"captured-foreign-supplier-implementation/v1");
     assert_ne!(captured_supplier.build_digest, supplier.build_digest);
     let expected_implementation = captured.implementation;
     let source = workspace();
     let relations = [Relation::of::<Provider>(), Relation::of::<Package>()];
-    let pending = source.native().begin_contribution(captured.clone()).await.unwrap();
-    source.native().write_batch(&pending, &relations[0],
-        &Provider::encode(std::slice::from_ref(&captured_supplier)).unwrap()).await.unwrap();
-    source.native().write_batch(&pending, &relations[1],
-        &Package::encode(&[package()]).unwrap()).await.unwrap();
-    let views = source.native().complete_contribution(
-        pending, ProviderOutcome::Complete, &relations, &BTreeMap::new(),
-    ).await.unwrap();
+    let pending = source
+        .native()
+        .begin_contribution(captured.clone())
+        .await
+        .unwrap();
+    source
+        .native()
+        .write_batch(
+            &pending,
+            &relations[0],
+            &Provider::encode(std::slice::from_ref(&captured_supplier)).unwrap(),
+        )
+        .await
+        .unwrap();
+    source
+        .native()
+        .write_batch(
+            &pending,
+            &relations[1],
+            &Package::encode(&[package()]).unwrap(),
+        )
+        .await
+        .unwrap();
+    let views = source
+        .native()
+        .complete_contribution(
+            pending,
+            ProviderOutcome::Complete,
+            &relations,
+            &BTreeMap::new(),
+        )
+        .await
+        .unwrap();
     for relation in &relations {
         let view = views[relation.name()].clone();
-        source.native().bind(CompletedBinding {
-            boundary: None,
-            source: SourceSnapshot::of_completed_view(relation, source.model().digest(), &view).unwrap(),
-            view,
-            configuration: None,
-        }).await.unwrap();
+        source
+            .native()
+            .bind(CompletedBinding {
+                boundary: None,
+                source: SourceSnapshot::of_completed_view(relation, source.model().digest(), &view)
+                    .unwrap(),
+                view,
+                configuration: None,
+            })
+            .await
+            .unwrap();
     }
     source.restore(Profile::Catalog).await.unwrap();
     let expected = contribution(&source).await;
@@ -133,23 +183,48 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     let restored = workspace();
     // Completed-state transport carries contribution/membership state. Its canonical graph
     // payload is loaded through the independent graph loader before cold state admission.
-    lctx_surrealdb::Loader::new(restored.native().shared_client()).entities(&[
-        Entity::from(captured_supplier.clone()), Entity::from(package()),
-    ]).await.unwrap();
-    restored.native().import_state(export.path(), &state).await.unwrap();
+    let config_path = std::path::PathBuf::from(
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
+    );
+    let config = lctx_surrealdb::RuntimeConfig::read(&config_path).unwrap();
+    let admin = lctx_surrealdb::reader::connect(
+        &config.endpoint,
+        &config.root_credentials(),
+        restored.native().namespace().as_str(),
+        restored.native().database().as_str(),
+    )
+    .await
+    .unwrap();
+    lctx_surrealdb::Loader::new(admin)
+        .entities(&[
+            Entity::from(captured_supplier.clone()),
+            Entity::from(package()),
+        ])
+        .await
+        .unwrap();
+    restored
+        .native()
+        .import_state(export.path(), &state)
+        .await
+        .unwrap();
     restored.restore(Profile::Catalog).await.unwrap();
 
     let imported = contribution(&restored).await;
     assert_eq!(imported, expected);
-    assert_eq!(imported.spec.implementation, expected_implementation,
-        "cold restoration retains captured execution rather than current-build composition");
+    assert_eq!(
+        imported.spec.implementation, expected_implementation,
+        "cold restoration retains captured execution rather than current-build composition"
+    );
     assert_eq!(imported.identity().unwrap(), expected.identity().unwrap());
     assert_eq!(restored.native().completed_state().await.unwrap(), state);
     assert_eq!(restored.native().bindings().await.unwrap(), bindings);
     assert_eq!(rows::<Provider>(&restored), vec![captured_supplier]);
     assert_eq!(rows::<Package>(&restored), vec![package()]);
     for relation in &relations {
-        assert_eq!(restored.relation(relation.name()).unwrap().view(), &views[relation.name()]);
+        assert_eq!(
+            restored.relation(relation.name()).unwrap().view(),
+            &views[relation.name()]
+        );
     }
     current.drain().await.unwrap();
     source.drain().await.unwrap();

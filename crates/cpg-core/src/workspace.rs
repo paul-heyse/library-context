@@ -142,6 +142,11 @@ pub struct Workspace {
     native: Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
     bridge: Arc<crate::native_bridge::NativeBridge>,
     native_calls: Arc<crate::native_calls::NativeCalls>,
+    content_frozen: AtomicBool,
+    completed_owners: Mutex<(
+        BTreeMap<ContentHash, lctx_model::domain::completed::CompletedContribution>,
+        StateCharge,
+    )>,
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
     frozen_shared: Mutex<
         BTreeMap<
@@ -197,6 +202,10 @@ impl Workspace {
             Default::default(),
             StateCharge::new(&budget, "compiler-validity-premises"),
         ));
+        let completed_owners = Mutex::new((
+            BTreeMap::new(),
+            StateCharge::new(&budget, "compiler-completed-owners"),
+        ));
         let cancellation = Cancellation::default();
         let bridge = Arc::new(crate::native_bridge::NativeBridge::new(
             cancellation.clone(),
@@ -215,6 +224,8 @@ impl Workspace {
             native,
             bridge,
             native_calls,
+            content_frozen: AtomicBool::new(false),
+            completed_owners,
             completed: Mutex::default(),
             frozen_shared: Mutex::default(),
             cancellation,
@@ -256,6 +267,10 @@ impl Workspace {
             Default::default(),
             StateCharge::new(&budget, "compiler-validity-premises"),
         ));
+        owner.completed_owners = Mutex::new((
+            BTreeMap::new(),
+            StateCharge::new(&budget, "compiler-completed-owners"),
+        ));
         owner.native_calls = Arc::new(crate::native_calls::NativeCalls::new(
             owner.native.clone(),
             owner.cancellation.clone(),
@@ -280,7 +295,24 @@ impl Workspace {
         }
         let contributions = self.native.contributions().await?;
         let mut output_names = std::collections::BTreeSet::new();
+        let mut owners = BTreeMap::new();
+        let mut owner_charge = StateCharge::new(&self.budget, "compiler-completed-owners");
         for contribution in contributions {
+            owner_charge.grow(
+                serde_json::to_vec(&contribution)
+                    .map_err(ModelError::codec)?
+                    .len()
+                    .saturating_mul(4)
+                    .saturating_add(256),
+            )?;
+            if owners
+                .insert(contribution.spec.identity()?, contribution.clone())
+                .is_some()
+            {
+                return Err(ModelError::Conflict(
+                    "duplicate restored contribution owner",
+                ));
+            }
             contribution.identity()?;
             let spec = contribution.spec;
             if spec.model != self.model.digest() || spec.profile != profile {
@@ -372,11 +404,15 @@ impl Workspace {
                 return Err(ModelError::Conflict("duplicate current restored binding"));
             }
         }
+        *self.completed_owners.lock().map_err(|_| poisoned())? = (owners, owner_charge);
         *self.completed.lock().map_err(|_| poisoned())? = completed;
         *self.frozen_shared.lock().map_err(|_| poisoned())? = frozen;
         Ok(())
     }
     fn writable(&self) -> Result<(), ModelError> {
+        if self.content_frozen.load(Ordering::Acquire) {
+            return Err(ModelError::Conflict("compiler content is frozen"));
+        }
         if self
             .compilation_complete
             .lock()
@@ -407,6 +443,119 @@ impl Workspace {
             captures,
             content,
         });
+        Ok(())
+    }
+    /// Fence the complete native completion/binding/visibility handoff before admission.
+    /// The permanent mutation fence also applies to restored workspaces, which do not
+    /// invent a normal compilation attestation.
+    pub(crate) async fn freeze_for_admission(
+        &self,
+        request: Option<(
+            &cpg_extract::bundle::CapturedInputs,
+            lctx_model::domain::admission::Frontier,
+            Profile,
+            ContentHash,
+        )>,
+    ) -> Result<(), ModelError> {
+        if let Some((captures, frontier, profile, settings)) = request {
+            let capture_identity = self.captures(captures)?;
+            let completed = self.compilation_complete.lock().map_err(|_| poisoned())?;
+            if completed.as_ref().is_none_or(|done| {
+                done.captures != capture_identity
+                    || done.frontier != frontier
+                    || done.profile != profile
+                    || done.configuration != settings
+            }) {
+                return Err(ModelError::Invalid(
+                    "artifact requires the completed requested compilation and exact captures"
+                        .into(),
+                ));
+            }
+        }
+        let _gate = self.completion_gate.lock().await;
+        self.cancellation.check()?;
+        self.content_frozen.store(true, Ordering::Release);
+        let descriptor_bytes = self
+            .completed_owners
+            .lock()
+            .map_err(|_| poisoned())?
+            .1
+            .reserved();
+        let binding_bytes = {
+            let current = self.completed.lock().map_err(|_| poisoned())?;
+            let frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
+            current
+                .values()
+                .chain(frozen.values())
+                .try_fold(0usize, |bytes, source| {
+                    let serialized = serde_json::to_vec(&source.view)
+                        .map_err(ModelError::codec)?
+                        .len();
+                    Ok::<_, ModelError>(
+                        bytes.saturating_add(serialized.saturating_mul(8).saturating_add(512)),
+                    )
+                })?
+        };
+        let _handoff_charge = self.budget.reserve(
+            "compiler-final-handoff",
+            descriptor_bytes
+                .saturating_mul(3)
+                .saturating_add(binding_bytes),
+        )?;
+        let inventory = self.native.freeze_content().await?;
+        let expected_owners = self
+            .completed_owners
+            .lock()
+            .map_err(|_| poisoned())?
+            .0
+            .clone();
+        let mut actual_owners = BTreeMap::new();
+        for owner in inventory.contributions {
+            if actual_owners
+                .insert(owner.spec.identity()?, owner)
+                .is_some()
+            {
+                return Err(ModelError::Conflict(
+                    "duplicate frozen native completed owner",
+                ));
+            }
+        }
+        if actual_owners != expected_owners {
+            return Err(ModelError::Conflict(
+                "frozen native completed owner handoff",
+            ));
+        }
+        let mut expected_bindings = Vec::new();
+        for source in self.completed.lock().map_err(|_| poisoned())?.values() {
+            expected_bindings.push(lctx_model::domain::completed::CompletedBinding {
+                boundary: None,
+                source: source.snapshot(),
+                view: source.view.clone(),
+                configuration: None,
+            });
+        }
+        for ((boundary, _), source) in self.frozen_shared.lock().map_err(|_| poisoned())?.iter() {
+            expected_bindings.push(lctx_model::domain::completed::CompletedBinding {
+                boundary: Some(boundary.name().into()),
+                source: source.snapshot(),
+                view: source.view.clone(),
+                configuration: None,
+            });
+        }
+        let binding_key = |binding: &lctx_model::domain::completed::CompletedBinding| {
+            (binding.boundary.clone(), binding.view.relation.clone())
+        };
+        expected_bindings.sort_by_key(binding_key);
+        let mut actual_bindings = inventory.bindings;
+        actual_bindings.sort_by_key(binding_key);
+        if actual_bindings != expected_bindings {
+            return Err(ModelError::Conflict(
+                "frozen native completed binding handoff",
+            ));
+        }
+        if let Some((captures, frontier, profile, settings)) = request {
+            self.require_compilation(captures, frontier, profile, settings)?;
+        }
         Ok(())
     }
     pub(crate) fn captures(
@@ -1751,6 +1900,7 @@ impl Workspace {
         boundary: lctx_model::domain::stages::PublicationBoundary,
     ) -> Result<(), ModelError> {
         let _completion = self.completion_gate.lock().await;
+        self.writable()?;
         if self
             .frozen_shared
             .lock()
@@ -1792,6 +1942,11 @@ impl Workspace {
         &self,
         boundary: lctx_model::domain::stages::PublicationBoundary,
     ) -> Result<(), ModelError> {
+        let _completion = self
+            .completion_gate
+            .try_lock()
+            .map_err(|_| ModelError::Conflict("compiler completion handoff in progress"))?;
+        self.writable()?;
         let completed = self.completed.lock().map_err(|_| poisoned())?;
         let mut frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
         if frozen.keys().any(|(existing, _)| *existing == boundary) {
@@ -2618,12 +2773,8 @@ impl ProducerOutput {
     }
     /// The same registration operation serves sync/async declarations and empty completion.
     /// The gate retains single native registration; the ID precedes typed writer visibility.
-    fn registration_request(&self) -> BoxFuture<'static, Result<ContentHash, ModelError>> {
-        let registration = self.registration.clone();
-        let contribution = self.contribution.clone();
-        let native = self.workspace.native.clone();
-        let calls = self.workspace.native_calls.clone();
-        let descriptor = lctx_model::domain::completed::ContributionSpec {
+    fn contribution_spec(&self) -> lctx_model::domain::completed::ContributionSpec {
+        lctx_model::domain::completed::ContributionSpec {
             captured_binding: self.captured_binding.clone(),
             producer: self.name.into(),
             profile: self.profile,
@@ -2632,7 +2783,14 @@ impl ProducerOutput {
             configuration: self.configuration,
             inputs: self.inputs.snapshots().collect(),
             outputs: self.allowed.iter().map(|name| (*name).to_owned()).collect(),
-        };
+        }
+    }
+    fn registration_request(&self) -> BoxFuture<'static, Result<ContentHash, ModelError>> {
+        let registration = self.registration.clone();
+        let contribution = self.contribution.clone();
+        let native = self.workspace.native.clone();
+        let calls = self.workspace.native_calls.clone();
+        let descriptor = self.contribution_spec();
         async move {
             let _registration = registration.lock().await;
             if let Some(id) = *contribution.lock().map_err(|_| poisoned())? {
@@ -2868,6 +3026,7 @@ impl ProducerOutput {
             }
             let _completion = self.workspace.completion_gate.lock().await;
             self.workspace.writable()?;
+            let spec = self.contribution_spec();
             let registration = self.registration_request();
             let writers = self.writers.into_inner().map_err(|_| poisoned())?;
             if let Some(name) = self
@@ -2935,6 +3094,7 @@ impl ProducerOutput {
                 .into_inner()
                 .map_err(|_| poisoned())?
                 .expect("checked producer outcome");
+            let expected_outcome = outcome as i16;
             let native = self.workspace.native.clone();
             let views = self
                 .workspace
@@ -2945,6 +3105,20 @@ impl ProducerOutput {
                         .await
                 })
                 .await?;
+            let native = self.workspace.native.clone();
+            let descriptor = self
+                .workspace
+                .native_calls
+                .call(async move { native.completed_contribution(id).await })
+                .await?;
+            if descriptor.spec != spec || descriptor.outcome != expected_outcome {
+                return Err(ModelError::Conflict("completed native producer handoff"));
+            }
+            let descriptor_bytes = serde_json::to_vec(&descriptor)
+                .map_err(ModelError::codec)?
+                .len()
+                .saturating_mul(4)
+                .saturating_add(256);
             let mut completed = Vec::new();
             for pending in pending {
                 let name = pending.relation.name();
@@ -2991,6 +3165,18 @@ impl ProducerOutput {
                     .await?;
             }
             self.workspace.cancellation.check()?;
+            let mut owners = self
+                .workspace
+                .completed_owners
+                .lock()
+                .map_err(|_| poisoned())?;
+            owners.1.grow(descriptor_bytes)?;
+            if owners.0.insert(id, descriptor).is_some() {
+                return Err(ModelError::Conflict(
+                    "duplicate completed native producer handoff",
+                ));
+            }
+            drop(owners);
             let mut visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
             for source in completed {
                 visible.insert(source.name(), source);

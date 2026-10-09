@@ -12,6 +12,22 @@ use lctx_surrealdb::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+async fn fixture_admin(
+    store: &NativeCompilerStore,
+    config: &RuntimeConfig,
+) -> std::sync::Arc<
+    lctx_surrealdb::surrealdb::Surreal<lctx_surrealdb::surrealdb::engine::remote::grpc::Client>,
+> {
+    lctx_surrealdb::reader::connect(
+        &config.endpoint,
+        &config.root_credentials(),
+        store.namespace().as_str(),
+        store.database().as_str(),
+    )
+    .await
+    .unwrap()
+}
+
 fn spec(producer: &str, relation: &Relation) -> ContributionSpec {
     ContributionSpec {
         captured_binding: None,
@@ -83,6 +99,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
+    let admin = fixture_admin(&store, &config).await;
     let relation = Relation::of::<QualityStep>();
     let row = QualityStep {
         run: serde_json::from_value(serde_json::json!(vec![3u8; 16])).unwrap(),
@@ -121,8 +138,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     restored.import_state(file.path(), &state).await.unwrap();
     restored.abandon().await.unwrap();
 
-    store
-        .client()
+    admin
         .query("UPDATE compiler_record SET body.value=2.0f")
         .await
         .unwrap()
@@ -136,8 +152,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         store.completed_state().await,
         Err(ModelError::Conflict("compiler backing canonical body"))
     ));
-    store
-        .client()
+    admin
         .query("UPDATE compiler_record SET body.value=0.5f")
         .await
         .unwrap()
@@ -145,8 +160,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .unwrap();
     let mut bindings = Variables::new();
     bindings.insert("key", "00".repeat(16));
-    store
-        .client()
+    admin
         .query("UPDATE compiler_record SET semantic_key=$key")
         .bind(bindings)
         .await
@@ -163,8 +177,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     ));
     let mut bindings = Variables::new();
     bindings.insert("key", row.id().hex());
-    store
-        .client()
+    admin
         .query("UPDATE compiler_record SET semantic_key=$key")
         .bind(bindings)
         .await
@@ -238,6 +251,7 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
+    let admin = fixture_admin(&store, &config).await;
     let relation = Relation::of::<Package>();
     let rows = vec![
         Package {
@@ -266,8 +280,7 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
         .unwrap();
     store.verify_state().await.unwrap();
 
-    let mut response = store
-        .client()
+    let mut response = admin
         .query("SELECT * FROM compiler_membership ORDER BY semantic_key")
         .await
         .unwrap()
@@ -290,9 +303,8 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
     bindings.insert("payload", Value::Object(payload.clone()));
     // Delete before create preserves the unique owner/relation/key index. The immutable
     // payload and contribution claims remain intact; only the physical lookup ID changes.
-    store.client().query("BEGIN TRANSACTION; DELETE $original; CREATE $renamed CONTENT $payload; COMMIT TRANSACTION;").bind(bindings).await.unwrap().check().unwrap();
-    let mut response = store
-        .client()
+    admin.query("BEGIN TRANSACTION; DELETE $original; CREATE $renamed CONTENT $payload; COMMIT TRANSACTION;").bind(bindings).await.unwrap().check().unwrap();
+    let mut response = admin
         .query("SELECT * FROM compiler_membership ORDER BY semantic_key")
         .await
         .unwrap()
@@ -326,6 +338,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
+    let admin = fixture_admin(&store, &config).await;
     let relation = Relation::of::<Package>();
     let first = Package {
         name: "first".into(),
@@ -408,7 +421,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         "overlapping membership must deduplicate"
     );
     assert_ne!(current[relation.name()].identity, frozen.identity);
-    let mut response=store.client().query("SELECT producer,inputs.relation AS predecessors FROM compiler_contribution WHERE producer='b'").await.unwrap().check().unwrap();
+    let mut response=admin.query("SELECT producer,inputs.relation AS predecessors FROM compiler_contribution WHERE producer='b'").await.unwrap().check().unwrap();
     let projected: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(
         projected[0]["predecessors"],
@@ -438,8 +451,9 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
             .await
             .unwrap();
+    let restored_admin = fixture_admin(&restored, &config).await;
     // Complete state references canonical families; detached import loads those separately.
-    lctx_surrealdb::Loader::new(restored.shared_client())
+    lctx_surrealdb::Loader::new(restored_admin.clone())
         .entities(&[
             lctx_model::domain::graph::Entity::from(first.clone()),
             lctx_model::domain::graph::Entity::from(Package {
@@ -471,8 +485,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution", replay.hex()),
     );
     bindings.insert("content", ContentHash::of(b"corrupt-membership").hex());
-    restored
-        .client()
+    restored_admin
         .query("UPDATE compiler_membership SET content=$content WHERE contribution=$contribution")
         .bind(bindings)
         .await
@@ -514,6 +527,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
+    let admin = fixture_admin(&store, &config).await;
     let bytes = (0..(1024 * 1024))
         .map(|index| (index % 256) as u8)
         .collect::<Vec<_>>();
@@ -570,8 +584,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         bytes
     );
     assert!(rows.try_next().await.unwrap().is_none());
-    let mut response = store
-        .client()
+    let mut response = admin
         .query("SELECT count() AS rows FROM original_chunk GROUP ALL")
         .await
         .unwrap()
@@ -579,8 +592,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap();
     let counts: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(counts, vec![serde_json::json!({"rows":16})]);
-    let mut response = store
-        .client()
+    let mut response = admin
         .query("SELECT VALUE body FROM compiler_record")
         .await
         .unwrap()
@@ -590,8 +602,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     assert!(metadata.iter().all(|body|matches!(body,lctx_surrealdb::surrealdb::types::Value::Object(object) if !object.contains_key("body"))));
     store.verify_state().await.unwrap();
     let state = store.completed_state().await.unwrap();
-    store
-        .client()
+    admin
         .query("UPDATE compiler_record SET body.ordinal=1")
         .await
         .unwrap()
@@ -609,8 +620,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
             "compiler original metadata"
         ))
     ));
-    store
-        .client()
+    admin
         .query("UPDATE compiler_record SET body.ordinal=0")
         .await
         .unwrap()
@@ -618,8 +628,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap();
     assert_eq!(store.completed_state().await.unwrap(), state);
     // Metadata is intact; the independently read physical byte owner must still agree.
-    let mut response = store
-        .client()
+    let mut response = admin
         .query("SELECT * FROM original_chunk ORDER BY start LIMIT 1")
         .await
         .unwrap()
@@ -641,8 +650,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         lctx_surrealdb::surrealdb::types::Bytes::from(changed.clone()),
     );
     bindings.insert("content", ContentHash::of(&changed).hex());
-    store
-        .client()
+    admin
         .query("UPDATE $id SET bytes=$bytes,content=$content")
         .bind(bindings)
         .await
@@ -659,8 +667,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     bindings.insert("id", chunk.get("id").unwrap().clone());
     bindings.insert("bytes", original.clone());
     bindings.insert("content", ContentHash::of(original).hex());
-    store
-        .client()
+    admin
         .query("UPDATE $id SET bytes=$bytes,content=$content")
         .bind(bindings)
         .await
@@ -781,13 +788,14 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
+    let admin = fixture_admin(&store, &config).await;
     let relation = Relation::of::<Release>();
     let packages = (0..180)
         .map(|index| Package {
             name: format!("selection-{index:04}"),
         })
         .collect::<Vec<_>>();
-    lctx_surrealdb::Loader::new(store.shared_client())
+    lctx_surrealdb::Loader::new(admin.clone())
         .entities(
             &packages
                 .iter()
@@ -1228,6 +1236,7 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Normalized)
             .await
             .unwrap();
+    let admin = fixture_admin(&store, &config).await;
     let relation = Relation::of::<Package>();
     let first = Package {
         name: "completed".into(),
@@ -1290,8 +1299,7 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
     let mut variables = Variables::new();
     variables.insert("source", RecordId::new("entity", first_id.0.hex()));
     variables.insert("target", RecordId::new("entity", alias_id.0.hex()));
-    store
-        .client()
+    admin
         .query("CREATE compiler_alias:selection SET source=$source,target=$target")
         .bind(variables)
         .await

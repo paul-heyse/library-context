@@ -26,7 +26,7 @@ Native execution and PC6 acceptance remain separate, unfinished evidence obligat
 
 The subject is the dirty PC1–PC5 implementation on `main` above documentation decision baseline
 `607fef2eb1850eef94e21edcffca43289f15f242`, examined on 2026-10-08. PC0's accepted target is
-[ADR-0135](../../adr/0135-persisted-execution-operation-contracts.md), described by the
+ADR-0135 (now consolidated by [ADR-0138](../../adr/0138-operation-shaped-native-finalization.md)), described by the
 [correction plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md) and the semantic,
 extraction and storage owners. The
 [correction-causes review](design_review_persisted-execution-correction-causes_2026-10-07.md)

@@ -29,23 +29,14 @@ pub async fn resolve(
     Ok(resolved.metadata(budget)?.domains)
 }
 pub fn native_definitions() -> &'static str {
-    r#"
-DEFINE FUNCTION fn::lctx_library_roots($name: option<string|null>) {
- LET $packages=SELECT VALUE id FROM entity WHERE semantic_type='packages' AND ($name=NONE OR $name=NULL OR body.name=$name);
- LET $releases=SELECT VALUE in FROM reference WHERE field='package' AND out IN $packages;
- LET $all_distributions=SELECT VALUE in FROM participant WHERE field='release' AND out IN $releases;
- LET $distributions=SELECT VALUE id FROM assertion WHERE id IN $all_distributions AND semantic_type='input_distributions' AND body.role=0;
- LET $inputs=SELECT VALUE out FROM participant WHERE in IN $distributions AND field='input';
- LET $corpora=SELECT VALUE in FROM participant WHERE out IN $inputs AND field='library' AND in.semantic_type='corpus_libraries';
- LET $corpus_inputs=SELECT VALUE out FROM participant WHERE in IN $corpora AND field='corpus';
- LET $all_inputs=array::distinct(array::concat($inputs,$corpus_inputs));
- LET $runs=SELECT VALUE in FROM reference WHERE out IN $all_inputs AND field='input' AND in.semantic_type='provider_runs';
- LET $sources=SELECT VALUE in FROM reference WHERE out IN $all_inputs AND field='input' AND in.semantic_type='source_artifacts';
- LET $modules=SELECT VALUE in FROM reference WHERE out IN $sources AND field='source' AND in.semantic_type='modules';
- LET $scope_targets=array::distinct(array::concat($all_inputs,$releases,$sources,$modules));
- LET $scopes=SELECT VALUE in FROM reference WHERE out IN $scope_targets AND field IN ['input','release','artifact','module'] AND in.semantic_type='coverage_scopes';
- LET $coverage=array::distinct(array::concat((SELECT VALUE in FROM participant WHERE out IN $runs AND field='run' AND in.semantic_type='provider_coverage'),(SELECT VALUE in FROM participant WHERE out IN $scopes AND field='scope' AND in.semantic_type='provider_coverage')));
- RETURN array::distinct(array::concat($distributions,$inputs,$corpora,$corpus_inputs,$runs,$coverage));
-};
-"#
+    lctx_surrealdb::materialization::library_definitions()
+}
+
+#[cfg(test)]
+mod blueprint_controls {
+    #[test]
+    fn actual_serving_blueprint_is_accepted_by_native_publication() {
+        lctx_surrealdb::materialization::validate_native_definitions(&crate::native_definitions())
+            .unwrap();
+    }
 }

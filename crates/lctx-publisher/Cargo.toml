@@ -25,11 +25,13 @@ tonic = { version = "=0.14.6", features = ["transport"] }
 tokio-stream = { version = "=0.1.19", features = ["net"] }
 tokio.workspace = true
 tempfile.workspace = true
+tracing.workspace = true
 [lints]
 workspace = true
 
-# Used by the shared catalog_runtime.rs fixture included from cpg-core tests.
+# Used by shared catalog_runtime.rs/native.rs fixtures included from cpg-core tests,
+# outside cargo-shear's package-local source scan.
 [package.metadata.cargo-shear]
-ignored = ["datafusion"]
+ignored = ["datafusion", "tracing"]
 # backup.rs includes this test module through an explicit #[path].
 ignored-paths = ["tests/fixtures/grpc_export.rs"]

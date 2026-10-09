@@ -18,6 +18,7 @@ pub enum Target<'a> {
     clippy::too_many_arguments,
     reason = "Explicit CLI captures, configuration and destination"
 )]
+#[tracing::instrument(target = "lctx_phase", name = "compile_cli", skip_all, fields(library = name, profile = profile.name(), frontier = frontier.name()))]
 pub async fn compile(
     name: &str,
     profile: Profile,
@@ -30,33 +31,61 @@ pub async fn compile(
     sources: &Path,
     target: Target<'_>,
 ) -> anyhow::Result<()> {
-    if name.is_empty()
-        || Path::new(name).components().count() != 1
-        || !matches!(
-            Path::new(name).components().next(),
-            Some(std::path::Component::Normal(_))
-        )
-    {
-        anyhow::bail!("library name must be one normalized path component");
+    use lctx_surrealdb::phase::{Phase, Terminal};
+    let operation_phase = Phase::begin("compile_cli");
+    let setup_phase = Phase::begin("cli_setup");
+    let setup: anyhow::Result<_> = async {
+        if name.is_empty()
+            || Path::new(name).components().count() != 1
+            || !matches!(
+                Path::new(name).components().next(),
+                Some(std::path::Component::Normal(_))
+            )
+        {
+            anyhow::bail!("library name must be one normalized path component");
+        }
+        options.validate_frontier(frontier.name())?;
+        let runtime = crate::newnative::config(match &target {
+            Target::Artifact(_, config) | Target::Native(config) => config,
+        })?;
+        crate::newnative::ready(&runtime).await?;
+        let model = Arc::new(lctx_model::domain::model()?);
+        let store =
+            lctx_surrealdb::compiler::NativeCompilerStore::begin(&runtime, frontier).await?;
+        let workspace = match cpg_core::workspace::Workspace::new(
+            model,
+            cpg_core::workspace::WorkspaceOptions {
+                memory_bytes,
+                ..Default::default()
+            },
+            store.clone(),
+        ) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                store.fail();
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.step("compile setup abandon", store.abandon().await);
+                return lctx_model::domain::completion::complete::<_>(Err(error), completion)
+                    .map_err(Into::into);
+            }
+        };
+        Ok((runtime, store, workspace))
     }
-    options.validate_frontier(frontier.name())?;
-    let runtime = crate::newnative::config(match &target {
-        Target::Artifact(_, config) | Target::Native(config) => config,
-    })?;
-    crate::newnative::ready(&runtime).await?;
-    let model = Arc::new(lctx_model::domain::model()?);
-    let store = lctx_surrealdb::compiler::NativeCompilerStore::begin(&runtime, frontier).await?;
-    let workspace = match cpg_core::workspace::Workspace::new(
-        model,
-        cpg_core::workspace::WorkspaceOptions {
-            memory_bytes,
-            ..Default::default()
-        },
-        store.clone(),
-    ) {Ok(workspace)=>workspace,Err(error)=>{store.fail();let mut completion=lctx_model::domain::completion::Completion::default();completion.step("compile setup abandon",store.abandon().await);return lctx_model::domain::completion::complete::<()>(Err(error),completion).map_err(Into::into);}};
-    let artifact_target=matches!(&target,Target::Artifact(..));
-    let mut committed=None;
+    .await;
+    setup_phase.finish_result(&setup);
+    let (runtime, store, workspace) = match setup {
+        Ok(tuple) => tuple,
+        Err(error) => {
+            operation_phase.finish(Terminal::Failed);
+            return Err(error);
+        }
+    };
+
+    let artifact_target = matches!(&target, Target::Artifact(..));
+    let mut committed = None;
     let result: anyhow::Result<String>=async {
+    let acquisition_phase = Phase::begin("configuration_and_acquisition");
+    let acquired: anyhow::Result<_>=async {
     let budget = workspace.budget();
     let library = libraries.join(name);
     let upper = options.prepare(frontier.name(), &library)?;
@@ -89,6 +118,11 @@ pub async fn compile(
     let captured = Arc::new(cpg_extract::acquisition::capture_receipts(
         &inventory, budget, receipts, native,
     )?);
+        Ok((upper,prepared,cache,captured,configuration))
+    }.await;
+    acquisition_phase.finish_result(&acquired);
+    let (upper,prepared,cache,captured,configuration)=acquired?;
+
     cpg_core::compilation::compile(
         &workspace,
         captured.clone(),
@@ -115,17 +149,37 @@ pub async fn compile(
     };
     Ok(output)
     }.await;
-    let result=result.map_err(crate::newnative::operation_error);
-    let mut completion=workspace.drain_report().await;
-    if let Some(identity)=committed {completion.committed("sealed unselected database",identity);}
+    let result = result.map_err(crate::newnative::operation_error);
+    let mut completion = workspace.drain_report().await;
+    if let Some(identity) = committed {
+        completion.committed("sealed unselected database", identity);
+    }
     if artifact_target || result.is_err() || !completion.failures.is_empty() {
         store.fail();
-        if completion.committed.is_empty() && !result.as_ref().err().is_some_and(lctx_model::domain::ModelError::has_committed_effect) {
-            if result.as_ref().err().is_none_or(lctx_model::domain::ModelError::permits_storage_cleanup) {completion.step("compile abandon",store.abandon().await);}
-            else {completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(store.database().as_str().into()));}
+        if completion.committed.is_empty()
+            && !result
+                .as_ref()
+                .err()
+                .is_some_and(lctx_model::domain::ModelError::has_committed_effect)
+        {
+            if result
+                .as_ref()
+                .err()
+                .is_none_or(lctx_model::domain::ModelError::permits_storage_cleanup)
+            {
+                completion.step("compile abandon", store.abandon().await);
+            } else {
+                completion
+                    .storage
+                    .push(lctx_model::domain::completion::StorageState::Orphan(
+                        store.database().as_str().into(),
+                    ));
+            }
         }
     }
-    let output=lctx_model::domain::completion::complete(result,completion)?;
+    let output = lctx_model::domain::completion::complete(result, completion);
+    operation_phase.finish_result(&output);
+    let output = output?;
     println!("{output}");
     Ok(())
 }

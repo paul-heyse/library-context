@@ -350,7 +350,15 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     assert_ne!(source.native().database(), restored.native().database());
     // Canonical graph payload is loaded independently; native transport supplies the exact
     // contributions, dependencies, views and membership rather than re-executing a producer.
-    let loader = lctx_surrealdb::Loader::new(restored.native().shared_client());
+    let admin = lctx_surrealdb::reader::connect(
+        &config.endpoint,
+        &config.root_credentials(),
+        restored.native().namespace().as_str(),
+        restored.native().database().as_str(),
+    )
+    .await
+    .unwrap();
+    let loader = lctx_surrealdb::Loader::new(admin);
     let mut entities = vec![
         Entity::from(input),
         Entity::from(context),

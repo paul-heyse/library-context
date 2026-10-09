@@ -1,6 +1,6 @@
 # Architecture map
 
-**Accepted target / implementation in progress, 2026-10-07:** the [persisted graph execution plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns the native compiler and shared efficient execution follow-up. ADR-0133 owns native compilation and direct sealing; STATUS and that plan distinguish integrated code from final acceptance.
+**Accepted target / implementation in progress, 2026-10-07:** the [persisted graph execution plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns the native compiler and shared efficient execution follow-up. ADR-0138 owns native compilation and direct sealing; STATUS and that plan distinguish integrated code from final acceptance.
 
 **Interface-checked, 2026-10-02:** these source entrypoints locate current responsibilities.
 [DESIGN](DESIGN.md) holds scope, the binding decisions §B1–§B14 and durable deferrals; the
@@ -9,7 +9,7 @@ Evidence labels distinguish accepted targets from implemented behavior. [STATUS]
 locates current completion claims. The
 [graph-native replacement coordinator](../plans/graph-native-pivot-plan_2026-10-05.md)
 owns the accepted hard-pivot series grounded in the graph-native target and SurrealDB capability
-reviews. Native querying and persisted compilation are selected by ADR-0133; execution-fit principles guide efficient
+reviews. Native querying and persisted compilation are selected by ADR-0138; execution-fit principles guide efficient
 design rather than introducing accounting proofs or adoption gates. The earlier compiler acceptance remains a dated receipt; the current persisted pivot is in progress.
 The coordinator's §9/R-Q0 records current remediation acceptance and the separate operator activation boundary.
 Earlier PostgreSQL evidence is baseline history, not replacement acceptance.
@@ -19,7 +19,7 @@ retains the implemented baseline's dated correction/qualification receipt and or
 
 | Responsibility | Owner | Source entry / adjacent consumer |
 |---|---|---|
-| Semantic graph, persisted compiler and native SurrealDB realization | [Semantic graph model (§15)](sections/semantic-model.md) | `lctx-model` graph contracts, `cpg-core` completed-view compilation and `lctx-surrealdb` native state; ADR-0133; the [persisted plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns current acceptance; operator activation remains pending |
+| Semantic graph, persisted compiler and native SurrealDB realization | [Semantic graph model (§15)](sections/semantic-model.md) | `lctx-model` graph contracts, `cpg-core` completed-view compilation and `lctx-surrealdb` native state; ADR-0138; the [persisted plan](../plans/persisted-graph-execution-plan_2026-10-07.md) owns current acceptance; operator activation remains pending |
 | API/evidence product target and Context7 differentiation | [Product target (§14)](sections/api-and-evidence-product.md) | Model-owned catalog, source/effective options, original evidence and declaration selection; native tool serving is implemented; product comparison and real-library qualification remain open |
 | Scope, binding decisions, dependency family, deferrals | [DESIGN §1, §2, §7, §13](DESIGN.md) | Every owner below; ADRs govern its §B sections |
 | Fact authority, identity, codebooks, coverage, graph catalog | [Facts and identity (§3–§3.8)](sections/facts-and-identity.md) | [lctx-model](../../crates/lctx-model/src/lib.rs); native extraction produces these contracts, codebooks stay append-only |

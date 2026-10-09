@@ -21,7 +21,7 @@ The pieces:
   - Arrow/DataFusion is bounded compute/transfer, not completed IPC authority.
   - Necessary semantic admission is distinct from diagnostic producer replay.
   - Explicit detached imports establish the same owner properties without providers. Completed descriptors retain producer/profile/model, exact dependency views and vocabulary identity.
-  - Ordinary publication seals the admitted compiler database directly; explicitly requested export/import retains independent admission (ADR-0133).
+  - Ordinary publication seals the admitted compiler database directly; explicitly requested export/import retains independent admission (ADR-0138).
   - The model owns identities, roles, qualifications, coverage and graph meaning. Internal typed record views do not dictate the published physical schema.
 - **Behavior.** Conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with pinned models and finite summaries composed over petgraph SCCs. Five verdicts, never a null.
 - **Analytics.** petgraph, leiden-rs and our own FCA/RCA.

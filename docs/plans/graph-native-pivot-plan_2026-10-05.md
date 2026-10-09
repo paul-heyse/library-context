@@ -293,7 +293,7 @@ compiler-side A1/A2 and their G0/S1 interfaces as Implemented, with scoped Teste
 It does not claim every check passed, complete-stage Tested assurance or Measured performance.
 
 The current compiler is `cpg-core` over exact persisted native completed views, under
-[ADR-0133](../adr/0133-persisted-graph-compilation.md). `lctx-model` owns finite graph types,
+[ADR-0138](../adr/0138-operation-shaped-native-finalization.md). `lctx-model` owns finite graph types,
 nominal references, participant roles, semantic policy and admission. Native pending outputs
 remain private; completed contributions and frozen bindings replace the prior IPC authority.
 One charged spillable DataFusion runtime and shared native selections serve compiler consumers.

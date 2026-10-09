@@ -11,8 +11,26 @@ use cpg_core::{
 };
 use lctx_model::domain::{admission::Frontier, serving::*, stages::Profile, *};
 use lctx_serving::NativeService;
+use lctx_surrealdb::phase::{Phase, Terminal};
 use lctx_surrealdb::{NativeReader, RecordSelection, RuntimeConfig, reader};
 use std::{io::Write, os::unix::fs::OpenOptionsExt, sync::Arc};
+use tracing::{Instrument, instrument::WithSubscriber};
+
+async fn journey(name: &'static str, run: impl std::future::Future<Output = ()>) {
+    let dispatch = cpg_extract::logging::dispatch();
+    let span = tracing::dispatcher::with_default(
+        &dispatch,
+        || tracing::info_span!(target: "lctx_phase", "native_journey", journey = name),
+    );
+    async {
+        let phase = Phase::begin("native_journey");
+        run.await;
+        phase.finish(Terminal::Passed);
+    }
+    .instrument(span)
+    .with_subscriber(dispatch)
+    .await;
+}
 const LIBRARY: &str = "synthesis-sources";
 /// Nominal E1 output needs known above-floor geometry, not the random-text fake's cosine.
 /// This fixture owns a distinct encoder identity. A shared dominant component plus small
@@ -162,19 +180,25 @@ fn library_fixture_tree(
         tree.config().clone(),
     ))
 }
+#[tracing::instrument(target = "lctx_phase", name = "tool", skip_all, fields(tool))]
 async fn call(
     service: &NativeService,
     tool: &str,
     request: serde_json::Value,
 ) -> serde_json::Value {
+    let phase = Phase::begin("tool_execute");
     let encoded = service
         .execute(tool, &serde_json::to_string(&request).unwrap())
         .await
         .unwrap_or_else(|e| panic!("{tool} request {request}: {e}"));
-    serde_json::from_str(&encoded).unwrap()
+    let result = serde_json::from_str(&encoded).unwrap();
+    phase.finish(Terminal::Passed);
+    result
 }
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign_cursor_refusal() {
+    journey("catalog_ten_tools", async {
+    let setup_phase = Phase::begin("journey_setup");
     let file = std::env::var("LCTX_SURREAL_TEST_CONFIG")
         .expect("owned disposable SurrealDB fixture required");
     let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
@@ -214,6 +238,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         workspace.budget(),
     )
     .unwrap();
+    setup_phase.finish(Terminal::Passed);
     compilation::compile(
         &workspace,
         captured.clone(),
@@ -409,6 +434,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         }
         assert_ne!(endpoint_digests[0], endpoint_digests[1]);
     }
+    let tools_phase = Phase::begin("tool_groups");
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
     let missing = service
         .execute("browse_library", r#"{"library":"absent-library"}"#)
@@ -625,6 +651,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     );
     // Canonical full values and policies survive actual backup/re-admission. Restore has no
     // embedder or mutable-cache parameter and reconstructs search arrays from these exact bytes.
+    tools_phase.finish(Terminal::Passed);
     let backup = scratch.path().join("canonical-values.surql");
     lctx_publisher::backup::backup(&config, &handle, &backup)
         .await
@@ -750,10 +777,13 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
             .check()
             .unwrap();
     }
+    }).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
+    journey("browse_scopes", async {
+    let setup_phase = Phase::begin("journey_setup");
     let fixture: serde_json::Value = serde_json::from_slice(
         &std::fs::read(std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned fixture required"))
             .unwrap(),
@@ -833,6 +863,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         workspace.budget(),
     )
     .unwrap();
+    setup_phase.finish(Terminal::Passed);
     compilation::compile(
         &workspace,
         captured.clone(),
@@ -888,6 +919,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
             .unwrap()
             .id()
     };
+    let tools_phase = Phase::begin("tool_groups");
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
     let unknown_scope = service
         .execute(
@@ -1196,4 +1228,6 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         PublicFailure::new(FailureKind::Incompatible),
         "changed operation request"
     );
+    tools_phase.finish(Terminal::Passed);
+    }).await;
 }

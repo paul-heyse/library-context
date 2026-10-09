@@ -1,6 +1,6 @@
 # Complete persisted execution contracts and bounded native operations
 
-**Accepted target / production integrated; enclosing acceptance open, 2026-10-08 (ADR-0135).**
+**Accepted target / production integrated; enclosing acceptance open, 2026-10-08 (ADR-0138).**
 This supporting plan integrates the [correction-causes review](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md), including F01–F06, secondary capability recommendations and remaining investigations. The [persisted execution coordinator](persisted-graph-execution-plan_2026-10-07.md) owns the combined PG0–PG9 undertaking, current finding dispositions and execution evidence. This document owns the corrective design and PC0–PC6 packages; it does not create a second progress ledger.
 
 ## 1. Outcome, baseline and foundations
@@ -28,7 +28,7 @@ The workload includes many small dump statements, growth in fact families and pr
 
 These identifiers are distinct from the catalog-speed review's earlier RC01/RC02. F01–F04 complete intended contracts; new captured-binding metadata and candidate execution still require an architectural decision explaining their meaningful alternatives.
 
-PC0 installs [ADR-0135](../adr/0135-persisted-execution-operation-contracts.md) and the semantic, extraction and storage owner targets. ADR-0133's native placement/direct-sealing decision remains. The operator authorized PC0–PC6 execution on 2026-10-08. This acceptance does not label the remaining production changes Implemented or Tested.
+PC0 installs [ADR-0138](../adr/0138-operation-shaped-native-finalization.md) and the semantic, extraction and storage owner targets. ADR-0138's native placement/direct-sealing decision remains. The operator authorized PC0–PC6 execution on 2026-10-08. This acceptance does not label the remaining production changes Implemented or Tested.
 
 ## 3. Complete admission and completion contracts
 
@@ -112,7 +112,7 @@ Packages describe delivered behavior, not a fresh numbering of PG0–PG9. The ro
 
 | Package | Required input | Delivered behavior and existing integration |
 |---|---|---|
-| **PC0 — decisions and architecture** | Both operator confirmations; independent target-plan review resolved | Complementary ADR and owner updates for §§3–5; accepted-rule routing and explicit state/schema cutover. Extends PG0 without undoing ADR-0133. |
+| **PC0 — decisions and architecture** | Both operator confirmations; independent target-plan review resolved | Complementary ADR and owner updates for §§3–5; accepted-rule routing and explicit state/schema cutover. Extends PG0 without undoing ADR-0138. |
 | **PC1 — complete operation outcomes** | PC0 outcome contract | Model composition plus every identified workflow/setup consumer, drain certainty and cancellation ownership. Extends PG1/PG5/PG7/PG9; closes F01 only with all siblings migrated. |
 | **PC2 — authoritative captured bindings** | PC0 binding/migration contract | Producer declarations, executable/captured binding, persisted versioning, admission/reporting and all external consumers move together. Extends PG1/PG3/PG5/PG7; removes F02's competing classifier. |
 | **PC3 — scope layout and shared lowering** | PC0; table/consumer map and prepared-result contract | Complete table-specific DDL/lowering/reconciliation plus compiler, reader, projection and serving query generation. Extends PG1/PG2/PG5/PG6; F03 remains open until PC4 qualifies execution. |

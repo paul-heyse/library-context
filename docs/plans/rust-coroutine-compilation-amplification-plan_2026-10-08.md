@@ -27,7 +27,7 @@ publisher/serving/native-loader leads receive bounded triage, not an equal-depth
 **Rule impacts: no new architectural rule.** Coroutine containment preserves pins, profiles,
 semantic authority and native lifecycle. The operator resource follow-up in §7 aligns ordinary
 workspace/fixture defaults with shared64GiB headroom and automatic available-CPU partitioning;
-intentional refusal/invariance controls retain their chosen bounds. Existing ADR-0135/0137 decisions stay
+intentional refusal/invariance controls retain their chosen bounds. Existing ADR-0138/0137 decisions stay
 with their owners. Ordinary internal phase/adapter extraction needs no new ADR; a later change
 that alters a consequential architectural decision must use the existing decision route before
 its dependent implementation. No such change is needed for the selected target.

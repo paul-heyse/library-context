@@ -99,9 +99,22 @@ pub trait ProviderSink: Send + Sync + 'static {
     /// Wake blocked read/write methods when the caller abandons the provider.
     fn cancel(&self) {}
     /// Retain the interrupted thread's drainage under the attempt owner when applicable.
-    fn drain_provider(&self, thread: std::thread::JoinHandle<()>) -> oneshot::Receiver<Result<(), ModelError>> {
+    fn drain_provider(
+        &self,
+        thread: std::thread::JoinHandle<()>,
+    ) -> oneshot::Receiver<Result<(), ModelError>> {
         let (done, finished) = oneshot::channel();
-        let join = move || { let _ = done.send(thread.join().map_err(|_| ModelError::Invalid("provider thread panicked while draining".into()))); };
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
+        let span = tracing::Span::current();
+        let join = move || {
+            tracing::dispatcher::with_default(&dispatch, || {
+                span.in_scope(|| {
+                    let _ = done.send(thread.join().map_err(|_| {
+                        ModelError::Invalid("provider thread panicked while draining".into())
+                    }));
+                })
+            })
+        };
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn_blocking(join);
         } else {
@@ -386,6 +399,8 @@ pub async fn run_provider<S: ProviderSink>(
         ));
     }
     let name = stage.name;
+    let span = tracing::info_span!(target: "lctx_phase", "provider", producer = name);
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
     let cancelled = Arc::new(AtomicBool::new(false));
     let (done, finished) = oneshot::channel();
     let mut context = StageContext {
@@ -406,13 +421,18 @@ pub async fn run_provider<S: ProviderSink>(
         .name(format!("lctx-{name}"))
         .stack_size(PROVIDER_STACK_BYTES)
         .spawn(move || {
-            let result = std::panic::catch_unwind(AssertUnwindSafe(|| provider.run(&mut context)))
-                .unwrap_or_else(|_| {
-                    Err(ModelError::Invalid(format!("the {name} provider panicked")))
-                });
-            let result = context.close(result);
-            drop(provider);
-            let _ = done.send(result);
+            tracing::dispatcher::with_default(&dispatch, || {
+                span.in_scope(|| {
+                    let result =
+                        std::panic::catch_unwind(AssertUnwindSafe(|| provider.run(&mut context)))
+                            .unwrap_or_else(|_| {
+                                Err(ModelError::Invalid(format!("the {name} provider panicked")))
+                            });
+                    let result = context.close(result);
+                    drop(provider);
+                    let _ = done.send(result);
+                })
+            })
         })
         .map_err(|error| ModelError::infrastructure(Infrastructure::Io, error))?;
     let mut drain = ProviderDrain {
@@ -425,9 +445,15 @@ pub async fn run_provider<S: ProviderSink>(
             "the {name} provider ended without a result"
         )))
     });
-    if result.is_err() { drain.sink.cancel(); }
+    if result.is_err() {
+        drain.sink.cancel();
+    }
     let thread = drain.thread.take().expect("owned provider thread");
-    drain.sink.drain_provider(thread).await.map_err(ModelError::codec)??;
+    drain
+        .sink
+        .drain_provider(thread)
+        .await
+        .map_err(ModelError::codec)??;
     result
 }
 struct ProviderDrain<S: ProviderSink> {

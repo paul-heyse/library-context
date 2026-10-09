@@ -1,6 +1,6 @@
 # SurrealDB operator runbook
 
-**Accepted target / implementation in progress, 2026-10-07:** [Persisted graph execution](plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. The same managed persistent server remains the selected host. PG5/PG7 change compiler/import/restore boundaries and completed-state format; ADR-0133 owns this execution boundary; current acceptance is in STATUS and the persisted plan. Operator runtime actions and real-library pilots remain held during this implementation.
+**Accepted target / implementation in progress, 2026-10-07:** [Persisted graph execution](plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. The same managed persistent server remains the selected host. PG5/PG7 change compiler/import/restore boundaries and completed-state format; ADR-0138 owns this execution boundary; current acceptance is in STATUS and the persisted plan. Operator runtime actions and real-library pilots remain held during this implementation.
 
 **Implemented / focused Tested route, 2026-10-07; operator selection/adoption held for catalog compilation design revision.** The native server hosts fresh,
 immutable graph snapshots and a separate mutable embedding cache. Compilation writes exact
