@@ -2,6 +2,19 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+**Build-storage review, 2026-10-09:** the [independent review](docs/design_review/reviews/design_review_build-storage_2026-10-09.md)
+judges the workspace storage lifecycle **Revise**; its F01–F03/RC01–RC04 remain Proposed and
+unscheduled. The [census and attribution](docs/design_review/evidence/2026-10-09_build-storage/README.md)
+observed 409.383 GiB of regular files; 130.645 GiB of old isolated Cargo trees are the first removal
+candidates, subject to fresh owner/use checks. Cited raw captures and pending BC3 state remain
+protected. **passed:** metadata census, exact isolated-root `du -B1 -sx` reconciliation and
+disposable hardlink/sparse/symlink controls. Deletion, archival, policy/configuration changes and
+product qualification **not_run**. Next: decide the review's lifecycle changes and schedule their
+owners; AF1 continues to own cleanup certainty. Current native acceptance below is separate.
+Publication **passed:** `just docs`, 367 pages, zero link errors; scoped Ruff checks passed.
+Full `just docs-check` **failed:** the concurrent ADR index was already stale; it is unchanged
+by this review. Scoped `git diff --check` passed.
+
 **Current scope: native-execution efficiency plan authored; production implementation/testing paused.**
 The [compiler/kernel plan](docs/plans/graph-compilation-kernels-and-hashing-plan_2026-10-09.md),
 [reuse companion](docs/plans/graph-compilation-reuse-and-invalidation-plan_2026-10-09.md#7-implemented-contract-refinements-2026-10-09)
