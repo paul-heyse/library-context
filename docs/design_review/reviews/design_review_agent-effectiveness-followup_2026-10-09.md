@@ -31,6 +31,10 @@ F01–F05 and selected opportunities now have their sole scheduled disposition i
 That plan also receives AE-24; the existing workspace and testing plans retain their other
 finding IDs, ownership and historical receipts.
 
+**Subsequent implementation:** the [plan §9](../../plans/agent-effectiveness-followup-plan_2026-10-09.md#9-execution-checkpoint)
+records focused acceptance of the corrections and selected capabilities on2026-10-09.
+This source review's verdict remains the dated pre-remediation assessment.
+
 ## 1. Scope, functional target and evidence boundary
 
 | Field | Review contract |

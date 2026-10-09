@@ -46,16 +46,19 @@ PSE-arrow's patched WebSocket buffers query results; progressive server `query_s
 need an adapter with equivalent cancellation and backup support. PSE-arrow is unchanged.
 No dependency version or public artifact schema changed; [pins](docs/pins.md) owns the SDK hold.
 
-**Agent-effectiveness plan authored, 2026-10-09:** the [follow-up plan §8](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
-owns scheduled F01–F05, selected capabilities/help and transferred AE-24; earlier receipts and
-other obligations retain their [workspace-plan owner](docs/plans/agent-workspace-effectiveness-plan_2026-10-07.md#9-finding-dispositions).
-The [independent target review](docs/design_review/reviews/design_review_agent-effectiveness-plan_2026-10-09.md)
-accepts the corrected **Proposed / scoped** target. RC01–RC04 are individually operator-confirmed;
-AF0 decisions and AF1 lifecycle corrections are next, with AF5/AF8 independently ready.
-The [source review](docs/design_review/reviews/design_review_agent-effectiveness-followup_2026-10-09.md)
-still judges implemented behavior **Revise**. Remediation, configuration and product controls **not_run**;
-this task authors the plan only. Publication **passed**, 2026-10-09: `just docs-check`,
-364 canonical pages, zero link errors; `git diff --check` passed. Product qualification is separate.
+**Agent effectiveness AF0–AF9 implemented / focused-Tested, 2026-10-09:** the
+[follow-up plan §8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
+owns F01–F05, AE-24, selected capabilities and current receipts. ADR-0142 governs owned readiness,
+independent cleanup and detachable display. [Independent integrated review](docs/design_review/reviews/design_review_agent-effectiveness-integrated_2026-10-09.md)
+accepts the examined scope after closing its additional fixture-lock/retention and leader-reaping
+findings. Read-only freshness, checked SQL diagnostics and invocation-scoped native Codex MCP
+are implemented; process skills and permanent client registrations are unchanged.
+**passed:** nine affected tooling modules,313 controls (`20261009T231848.005Z-9bf4ac`);
+final fixture correction selection,20 controls; post-cleanup harness/run/verify,139 controls;
+publisher/ADR `just docs-test`,78 controls. Plan §9 retains exact scopes and earlier failures.
+Scoped Ruff/types, `just adr-lint` and `just docs-check` **passed** (374 pages, zero link errors).
+Comprehensive product tests and measured effectiveness **not_run**, per operator instruction.
+Next: reuse these owners in storage/unified-service work; existing product acceptance stays separate.
 
 **Current verification, 2026-10-09:**
 
@@ -90,9 +93,10 @@ this task authors the plan only. Publication **passed**, 2026-10-09: `just docs-
   both cache matrices and all three analytics controls timed out at unchanged300s, no assertion
   failures. Full equivalence and analytics acceptance remain open.
 - **passed:** guard-free native refresh `20261009T214454.980Z-f24fba`,18s.
-- **running:** resumed release qualification `20261009T214543.898Z-81f4a8`, only previously
-  failed/interrupted/unrun boundaries, through `just verify --rerun 20261009T205753.562Z-7c4894`.
-  Extraction69controls passed; full compiler and remaining boundaries are in progress.
+- **failed composite, receipt observed:** resumed qualification `20261009T214543.898Z-81f4a8`
+  ended22:54:13UTC, exit1. Extraction/CLI/serving-Rust/oracles/docs controls passed;
+  compiler/store/serving-MCP/tooling-Python and several leaves failed. Its original summary
+  retains the boundaries; this agent-tooling task neither reran nor closes that product scope.
 - **failed / canceled partial, historical:** prior assembled release `just qualify`,
   `20261009T170649.056Z-032c30`: model798/analytics14/flow passed; extract authentication/timeouts
   and core cache-off matrix timeouts retained. Remaining boundaries not_run. Both earlier native

@@ -12,7 +12,7 @@ records the currently implemented baseline, not a shared-store fallback. AF find
 remain here; unified findings stay with the persisted coordinator. This addition does not claim
 the concurrent AF implementation was reviewed or run by the unified-plan author.
 
-**Status, 2026-10-09: Proposed; plan authoring only.** This document schedules the
+**Status, 2026-10-09: AF0–AF9 implemented and accepted at focused scope.** This document schedules the
 [follow-up review](../design_review/reviews/design_review_agent-effectiveness-followup_2026-10-09.md)
 and its [command retrospective](../design_review/evidence/2026-10-09_agent-effectiveness-followup/retrospective.md).
 The operator confirmed RC01–RC04 during plan preparation and selected resolution of each
@@ -21,8 +21,8 @@ The [earlier workspace plan](agent-workspace-effectiveness-plan_2026-10-07.md) r
 historical implementation receipts and other obligations. This plan's §8 is the sole current
 disposition owner for follow-up F01–F05, the selected recommendations and transferred AE-24.
 The [independent target review](../design_review/reviews/design_review_agent-effectiveness-plan_2026-10-09.md)
-accepts the corrected target at **Proposed, scoped** strength; the implemented workspace still
-has the source review's Revise judgment until the scheduled corrections are verified.
+accepts the corrected target at **Proposed, scoped** strength. The source review retains its
+dated Revise judgment; §8/§9 own current implementation and focused acceptance.
 
 ## 1. Outcome, scope and baseline
 
@@ -30,8 +30,9 @@ Make agent work easier to express, observe and recover on this personal workstat
 Codex is the primary coding agent and Claude Code is used occasionally. Preserve bare tools,
 native argument grammar, explicit environment preparation, concurrent execution and intentional
 overrides. Improve existing owners before composing new diagnostic capabilities over them.
-Expected benefits are **Proposed**, with mechanisms below; no productivity or speed gain has
-been measured. A smaller instruction file, more wrappers or fewer parallel workers is not a goal.
+The mechanisms are **Implemented / focused-Tested, 2026-10-09**, within §9's boundaries;
+no productivity or speed gain has been measured. A smaller instruction file, more wrappers
+or fewer parallel workers is not a goal.
 
 **Implemented / source-inspected baseline, 2026-10-09:** clean `main` at `2a9a3771` when
 authoring began. The October 7–8 workspace work supplies requirement-scoped environment
@@ -250,9 +251,11 @@ codex -c 'mcp_servers.fixture_probe.url="http://127.0.0.1:1/mcp"' \
 ```
 
 [Official Codex MCP guidance](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), installed
-help and local adapter source constrain applicability. Live server availability, actual Basic
+help and local adapter source constrain applicability. For authoring, live server availability, actual Basic
 authentication, tool schema/exposure, source-to-installed adapter equivalence and client lifetime
-remain **not_run**. Native gRPC stream-terminal acceptance remains with product owners; HTTP/MCP
+were **not_run**. Subsequent disposable implementation observations are recorded in §9 and
+[the diagnostic guide](../surrealdb.md#disposable-agent-diagnostics); adapter provenance beyond the
+installed scratch request remains unqualified. Native gRPC stream-terminal acceptance remains with product owners; HTTP/MCP
 diagnostic success cannot substitute for it.
 
 Rustdoc JSON, HIR and MIR remain distinct optional tools for public API, resolved semantic and
@@ -278,7 +281,7 @@ this review's root/descendants and covers older Codex 0.160–0.161 activity; in
 | U3: `verify --background` rejected | AF8 verification help shows `just run --background --label LABEL -- just verify --select leaf:deps`. | Launch receipt and boundary result remain separate; no second background owner inside verify. |
 | E1: Python 3.12 parse error, then independent HTTP 400 | AF8 retains `uv run --no-sync python` routing; AF6 explains transport/statement failures. | No Python 3.12 compatibility rewrite or invented HTTP cause. |
 | T1: displayed JSON truncation caused parser failure | AF8 uses files/structured channels for complete JSON and compact displayed receipts with selected fields/log paths. | A display warning never becomes a producer failure. Preserve batching and arbitrary output; no global output cap. |
-| T2: malformed orchestration JavaScript | AF8 puts one small valid composition in the task-relevant runtime guidance/skill, if a current owner consumes it. | Rejected outer syntax executed no shell command. No new always-loaded handbook. |
+| T2: malformed orchestration JavaScript | No process-skill prescription is added (operator correction, 2026-10-09). A rejected outer expression is a runtime observation; revisit only for a concrete repeated capability gap. | Rejected outer syntax executed no shell command. No new workflow rule or always-loaded handbook. |
 | T3: unknown native process handle | AF8 distinguishes native session IDs, code-mode cell IDs and durable run IDs; documents durable recovery when required. | Original cause remains unresolved; do not attribute it to cancellation or a harness bug. |
 
 Retired Docker/root-owned SST cleanup and an earlier absent native binary remain historical,
@@ -317,7 +320,7 @@ reimplementing feature resolution; missing offline inputs should produce an hone
 
 ## 7. Work packages, dependencies and acceptance
 
-All packages are **Proposed / not_run**. Dependencies below mean implemented-and-focused-tested
+The packages below are implemented and accepted within the operator's focused scope. Dependencies mean implemented-and-focused-tested
 contracts unless explicitly described as design only. Ready independent work may proceed in
 parallel, but `runs.py`/`harness.py`, `verify.py`, fixture and shared documentation each need one
 writer at a time. The root owns shared contracts, integration and acceptance; package ordering
@@ -334,7 +337,7 @@ is not a global synchronization barrier.
 | AF6 — native syntax and fixture diagnostics | Add the thin explicit-scope SQL diagnostic operation and native validation guidance; preserve indexed outcomes/redaction at the existing fixture API/CLI. Reuse current authentication and attachment/content routes. | AF1 fixture guard and AF4 outcome contract before integrated diagnostic acceptance; syntax guidance can proceed earlier. Owned disposable known schema/index/content, correct/wrong scope, syntax-valid/runtime-invalid query, mixed statuses, transport refusal, useful redaction and cleanup. No operator or real-library data. |
 | AF7 — invocation-scoped MCP | Add §4 launcher to the fixture owner with child-only auth environment and native Codex overrides; no new global config, stdio datastore, plugin or bridge. Document explicit namespace/database calls and the native-output/non-sensitive-content support limit. | AF1/AF2 lifecycle, AF4 outcomes and AF6 checked scope/HTTP diagnostics. Exercise a fresh Codex session on one disposable synthetic attachment: handshake/INFO/EXPLAIN, positive/negative auth, mixed failures, child exit/interruption and no residual registration/transport credentials in output. Inspect native errors without claiming redaction; reject unsupported content routing. If blocked, record prerequisite/repair; AF7 is not completed by HTTP-only fallback. |
 | AF8 — precise native/help routes | Update task-owned run/verification/environment/compiler/Codex guidance for §4–5. Keep native versions/effects/overrides explicit; do not put detailed examples into always-loaded AGENTS unnecessarily. No selector/adapter patch/diagnostic CLI is implemented. | Mostly independent; final examples consume AF1–7 interfaces where relevant. Parser/help checks without expensive workload; scratch semantic rename/reference cases only for claimed exercised abilities. Native output/fixture scope examples must distinguish configured/active/exercised and syntax/compile/test success. |
-| AF9 — integrate and qualify | Reconcile actual consumers, remove replaced implementation paths, update single finding table/owners/STATUS; independent assembled review of the implemented scope. | Relevant AF1–8 packages focused-tested, AF0 routes in place. Run affected harness controls and applicable leaves once, then assembled qualification as below. No performance or product-failure closure inferred. |
+| AF9 — integrate and qualify | Reconcile actual consumers, remove replaced implementation paths, update single finding table/owners/STATUS; independent assembled review of the implemented scope. | Relevant AF1–8 packages focused-tested, AF0 routes in place. Run affected harness controls and applicable leaves once, under the operator acceptance boundary below. No performance or product-failure closure inferred. |
 
 During implementation use compile checks only for touched Rust (none is currently planned),
 focused controls and minimal revealing cases. Named Python test owners are
@@ -346,14 +349,15 @@ verify readiness first through its ordinary owned route. Do not sync while reade
 `just docs-test` applies to AF5's publisher changes; `just docs-check` applies to published docs.
 Tests must expose effects/interleavings, not simply mirror the implementation's classification.
 
-AF9 owns the once-per-functional-scope affected controls/non-functional leaves and independent
-implemented-scope review. Because run receipt/recovery is a shared receipt contract, repository
-ADR-0126's assembled `just qualify` rule applies at completion; this plan does not waive it.
-Run it after integration, not after every package, with normal parallelism. Preserve and repair
-failed/blocked boundaries through their actual owners, then rerun affected boundaries. If unrelated
-product failures prevent assembled acceptance, record that boundary as failed/blocked and leave
-whole-plan acceptance open; do not relabel it a harness pass or resume held pilots/operator work.
-AF7's disposable task-scoped client check is in scope; real-library qualification is not.
+**Operator execution override, 2026-10-09:** comprehensive repository acceptance is explicitly
+excluded while existing failures are being addressed. AF9 establishes that the intended changes
+function as premised, and that first-principles reasoning plus direct execution observations
+support their expected benefit. Run revealing affected controls and actual disposable command
+journeys, with independent implemented-scope review; do not run `just qualify`, full families or
+a comprehensive repository suite for this task. This supersedes this plan's earlier AF9 assembled
+qualification requirement, not ADR-0126's general policy. Preserve existing product failures at
+their owners. AF7's disposable task-scoped client check is in scope; real-library qualification,
+operator activation and quantified effectiveness are not.
 
 Benefits remain unmeasured. A future before/after task sample or compilation comparison is useful
 only when the operator asks for a quantitative claim; it is not a prerequisite for these concrete
@@ -367,20 +371,22 @@ not merely an accepted ADR or a passing mock.
 
 | Source obligation | Current disposition / responsible owner | Closure evidence or revisit trigger |
 |---|---|---|
-| Follow-up F01 | Scheduled, open — AF1 run/fixture lifecycle; AF9 integration | Exception-safe spawned groups, truthful failed/unknown cleanup, retry and pruning, actual downstream consumers and preserved historical captures. |
-| Follow-up F02 | Scheduled, open — AF2 run/verification display | Blocked/broken output cannot stop capture, cancellation or supervision; observer lifecycle is independently cleaned. |
-| Follow-up F03 | Scheduled, open — AF3 environment/verification | Readiness/discovery protected for full consumption; queued writer recheck; no sync/parallelism regression. |
-| Follow-up F04 | Scheduled, open — AF2 shared log reader | Suffix/follow algorithm and both actual consumers; edge cases and no whole-file hydration for small tail. |
-| Follow-up F05 | Scheduled, open — AF4 launch/fixture outcome | Real launch errors versus actual127; shared fixture classification and unknown cause; summary/rerun distinctions. |
-| Earlier AE-24 | Transferred here, scheduled, open — AF5 publisher/freshness | Neither Hakari observation nor docs freshness changes live inputs; publication-owned receipt and truthful stale/not_run. |
-| Follow-up §8 capability recommendations | Selected per §4 — AF6/AF7/AF8 | Each adoption's revealing case; adapter patch, selector CLI and diagnostic middleware explicitly deferred with §4 triggers. No availability-only adoption claim. |
-| Retrospective U1/U2/U3/E1/T1/T2/T3 | Scheduled, open — AF8 help/composition, AF6 diagnostics | §5 examples and their stated interpretation limits. T3 root cause stays unknown; no historical causal claim required for closure of guidance work. |
+| Follow-up F01 | Closed, focused-Tested — AF1/AF9 run/fixture lifecycle, 2026-10-09 | Real post-spawn failures, descendant cleanup/refusal/retry, legacy observation/selected upgrade, preserved records and downstream profile/worktree protection; integrated F01/F02 corrections below. |
+| Follow-up F02 | Closed, focused-Tested — AF2 run/verification display, 2026-10-09 | Actual stalled/broken sinks, complete logs, cancellation and independently ended observers; affected harness/run/verify controls in §9. |
+| Follow-up F03 | Closed, focused-Tested — AF3 environment/verification, 2026-10-09 | Real shared/exclusive interleavings, owned discovery and post-wait readiness; independent readers overlap without synchronization. |
+| Follow-up F04 | Closed, focused-Tested — AF2 shared log reader, 2026-10-09 | Both consumers use suffix/offset access; empty, partial, CRLF, multibyte, large-line and replacement/truncation controls pass. |
+| Follow-up F05 | Closed, focused-Tested — AF4 launch/fixture outcome, 2026-10-09 | Actual missing/non-executable launch versus child127, unknown/native OOM endings and cancellation preserve distinct outcomes. |
+| Earlier AE-24 | Closed, focused-Tested — AF5 publisher/freshness, 2026-10-09 | Scratch Hakari leaves live bytes unchanged; publisher-captured inputs and schema2 receipt-integrity controls reject partial inventories and publication drift. |
+| Follow-up §8 capability recommendations | Adopted within §4 limits — AF6/AF7/AF8, 2026-10-09 | Disposable SQL/native MCP and scratch semantic requests exercised; native help/metadata/composition checked. Adapter patch, selector CLI and diagnostic middleware retain §4 triggers. |
+| Retrospective U1/U2/U3/E1/T1/T2/T3 | Guidance implemented / interface-checked — AF8/AF6, 2026-10-09 | §5/§10 examples and the actual background/retention path. T2 has no skill rule per operator correction; T3 cause remains unknown. Historical workload failures are not closed by guidance. |
 | Plan target review F01/F02 | Closed in Proposed target — §3.1/§4 and AF1/AF7; [independent review](../design_review/reviews/design_review_agent-effectiveness-plan_2026-10-09.md#7-stable-authoring-findings-and-their-resolution) | Static rereading confirmed the explicit selected legacy-record upgrade and native MCP output/content support limit. Implementation closure is not established. |
+| Integrated review F01 | Closed, focused-Tested — fixture lifecycle and worktree consumer, 2026-10-09 | [Independent source closure](../design_review/reviews/design_review_agent-effectiveness-integrated_2026-10-09.md#F01): unresolved records survive teardown/sweep, acquired current locks and reread protect every recovery/deletion path; actual child retry and checkout protection controls pass. |
+| Integrated review F02 | Closed, focused-Tested — shared direct-owner guard, runs and fixture, 2026-10-09 | [Independent source closure](../design_review/reviews/design_review_agent-effectiveness-integrated_2026-10-09.md#F02): non-reaping exit observation retains group authority through cleanup; lost pin refuses signaling; real descendant and unrelated-group controls pass. |
 | Loaded-extension `build_identity()` | Routed, unchanged — earlier workspace D1 deferral; later native-extension product change | A concrete loaded-versus-on-disk identity discrepancy can reopen that route; no new import gate is scheduled by this follow-up. |
 | Earlier AE-12/AE-25 coverage | Routed, unchanged — [testing architecture plan](testing-architecture-pivot-plan_2026-10-04.md) via earlier workspace §9 | Coverage owner revises families; this plan tests its own contracts without duplicating that backlog. |
 | Product native/stream/timeouts/equivalence | Routed, unchanged — STATUS and native/persisted graph coordinators | Their original acceptance and authorization; no closure from this plan. |
 
-## 9. Authoring checkpoint and next action
+## 9. Execution checkpoint
 
 **Proposed / Interface-checked, 2026-10-09:** current source/consumer mapping and native capability
 research settled the choices above. `cargo hakari --help`, `generate --help` and
@@ -390,7 +396,146 @@ handshake, semantic request, build, test, sync, install, pilot or operator actio
 
 **passed, 2026-10-09:** independent target review at Proposed/scoped strength, `just docs-check`
 (364 canonical pages, zero link errors), and `git diff --check`. These establish authoring and
-publication acceptance only; product acceptance is **not_run**. Root scoped turn-end maintenance
-follows the final documentation edits. The next executable implementation work is AF0
-and the AF1 lifecycle contract, with AF5/AF8 available independently. Implementation remains
-subject to separate execution authorization; creating this document does not implement AF0–AF9.
+publication acceptance only; product acceptance is **not_run**. These historical checks establish the authored target only. Execution was subsequently authorized
+on the current main tree; no separate checkout was used.
+
+**Implementation acceptance, 2026-10-09:** affected verification/environment controls **passed**
+(`uv run --no-sync pytest tests/scripts/test_verify.py tests/scripts/test_workspace_env.py -q -o addopts=''`,
+70 cases). This includes real reader/writer locks, post-wait readiness, actual missing/permission
+launch failures versus launched127, direct verification display with stalled/broken sinks and
+complete2MiB logs, and unknown fixture endings without inventing a cause. A direct owned
+`--list` invocation collected the requested node ID; the first execution exposed and repaired
+pytest's duplicate-quiet false-empty observation.
+
+The actual background composition in §10 **passed** for four selected harness cases, run
+`20261009T230142.374Z-18e4c0`; its `summary.json` records the passed selection and its schema-2
+`record.json` records child0, confirmed cleanup and no remaining group. Plain retention also
+**passed**. These exercise the launcher/verification composition, not dependency policy or a
+whole tooling family. The receipt is retained under `build/runs/`.
+
+AF5 controls **passed**,53 cases after independent review found and corrected incomplete dynamic
+receipt inventories. Schema2 validates a canonical receipt-body digest before consuming its
+inventory; omitted asset entries now yield `not_run`. This is accidental-integrity checking,
+not authentication. `just docs-test` **passed**,78 cases after that correction; after the
+publisher source-path type narrowing, its40 affected controls also **passed**.
+`just fresh hakari docs` observed Hakari **clean** and the older docs receipt **not_run**;
+it did not modify the live lockfile or publish docs.
+
+Independent source reviews accepted AF1/AF2/launch and AF3/AF5 within their assigned bounds.
+The assembled review found fixture-cleanup retention/ownership gaps (integrated review F01)
+and premature leader reaping before cleanup (F02). F02 is corrected and independently closed:
+direct owners observe terminal state with `waitid(WNOWAIT)`, clean while the leader pins the
+group ID, and reap only after confirmation; a lost pin refuses signaling. F01 is also corrected
+and independently closed: current fixture/attachment locks freeze writers, reread identities and
+govern recovery, sweeping and deletion; unresolved/unreadable evidence remains protected.
+Native HTTP/MCP and scratch semantic
+observations are described in §4/§10 and [the diagnostic guide](../surrealdb.md#disposable-agent-diagnostics).
+No process-skill change is retained. Comprehensive repo tests, product qualification and measured
+effectiveness remain **not_run** under the operator's scope.
+
+The nine affected tooling modules **passed**,313 controls in52.47s, through this actual durable
+composition (2026-10-09). Run `20261009T231848.005Z-9bf4ac` is retained; its `output.log` contains
+the controls and its `record.json` records child0 and confirmed cleanup. This is the affected
+tooling scope, not a comprehensive repository test run. Later fixture ownership corrections
+have their own narrow rerun below.
+
+```sh
+just run --background --label agent-followup-affected-controls -- \
+  uv run --no-sync pytest tests/scripts/test_harness.py tests/scripts/test_runs.py \
+  tests/scripts/test_verify.py tests/scripts/test_workspace_env.py \
+  tests/scripts/test_compile_profile.py tests/scripts/test_worktree.py \
+  tests/scripts/test_docs.py tests/scripts/test_freshness.py \
+  tests/scripts/test_surrealdb_fixture.py -ra -o addopts=''
+```
+
+Final fixture corrections **passed**,20 selected controls,28 deselected in11.27s. The first
+correction rerun was **failed composite** (18 passed,2 failed): stronger locking exposed the
+context retaining its own attachment lock during teardown. Releasing that attachment while
+still holding the server owner lock repaired ordinary teardown without weakening external
+recovery refusal. Deterministic replaced-lock/changed-record controls and actual native
+SQL/MCP, interruption, unknown server end and surviving-child cleanup/refusal/retry now pass:
+
+```sh
+uv run --no-sync pytest -o addopts='' -q tests/scripts/test_surrealdb_fixture.py \
+  -k 'incomplete_sweep or kept_sweep_rereads or run_sweep_recovers or stale_fixture_lock or sweep_removes_only or dead_run_owned_fixture_terminates or recovery_locks_freeze or previous_boot_launch or kept_attachment_with_live or failed_fixture_cleanup or force_recovery or native_mcp_launcher or disposable_diagnostics or unknown_native_server_end'
+```
+
+The equivalent lint cleanup in shared harness/run code was followed by **passed** affected
+controls: `uv run --no-sync pytest tests/scripts/test_harness.py tests/scripts/test_runs.py
+tests/scripts/test_verify.py -q -o addopts=''`,139 cases in12.22s. The
+[independent integrated review](../design_review/reviews/design_review_agent-effectiveness-integrated_2026-10-09.md)
+accepts the examined implementation at scoped strength; F01/F02 retain their dated diagnoses
+and closure evidence. No whole-repository or quantitative claim follows.
+
+**Final non-functional scope, passed 2026-10-09:** Ruff on the18 affected production/test Python
+files; pyrefly on the9 affected production scripts (zero errors); `just adr-lint` (78 current
+records); `just docs-check` (374 canonical pages, zero link errors); scoped `git diff --check`.
+`just turn-end --paths ...` regenerated the ADR index and formatted only this work's Python
+files; build-feature generation and Rust formatting were skipped because no Cargo/Rust file
+changed. The post-publication observation, `just fresh docs`, reported **stale** while concurrent
+documentation inputs continued changing; it did not publish. Process-skill diff is empty.
+These leaves establish their named scope, not existing
+product-test closure.
+
+
+## 10. Task-owned command examples
+
+Use installed help for the selected operation. Examples retain native arguments and authority;
+these routes do not synchronize, qualify the product or imply measured effectiveness.
+
+```sh
+# Complete package/target data in a file; no build or dependency graph resolution.
+cargo metadata --locked --offline --no-deps --format-version 1 > build/cargo-metadata.json
+# Preview only; repeated -p PACKAGE uses one global --tests with native Cargo/nextest.
+just verify --print --select model --nextest-args '--tests'
+# Discovery compiles Rust binaries or collects Python cases under environment ownership.
+just verify --list --select tooling:python --pytest-args '-k NAME'
+# Durable background ownership composes around verification.
+just run --background --label deps -- just verify --select leaf:deps
+just runs status RUN --json
+just runs logs RUN --tail 30
+just runs retain RUN
+just verify --rerun RUN
+# Read-only generated-input observations; docs freshness never publishes.
+just fresh hakari docs
+# Use existing captures before recording another compilation workload.
+just compile-profile status RUN
+just compile-profile report RUN
+```
+
+`retain` has plain output and no `--json`. Run `list`/`status` have JSON output. Child exit,
+termination and cleanup are independent fields; a terminal child can still have protected,
+unresolved cleanup. `runs cancel RUN` requests live cancellation or explicitly recovers a
+selected dead owner; merely reading status never upgrades historical records. Full `output.log`
+and verification `summary.json` live at the paths in status. Select the fields needed from those
+files using `uv run --no-sync python`, rather than parsing a truncated displayed blob. Bare
+launchers take argv: use `env NAME=value COMMAND`, or an explicitly quoted shell when shell
+operators are intended. Native process, code-cell and durable-run handles are distinct; use the continuation API
+associated with the returned handle.
+
+For compiler events, request Cargo's native JSON during an already authorized compile and retain
+its package/target/span/code/artifact fields. `build-finished` establishes compilation only;
+nextest's list JSON establishes selection only. Do not add `--no-capture` for visibility: installed
+nextest runs serially with that option. `--live` observes the full file independently of the child.
+Shared sccache totals do not attribute concurrent work; workspace incremental Rust is not
+cacheable rustc work. Keep the existing compilation profile and retained captures.
+
+For a concrete Codex configuration discrepancy, inspect installed `codex --help`,
+`codex doctor --json` (redacted native diagnostics), `codex mcp list --json` and
+`codex mcp get NAME --json`. Use `--strict-config` to refuse unknown keys. Configured servers,
+active session `/mcp` entries and exercised tool calls are different observations. Config changes
+apply to a fresh session. No repository configuration validator or global registration is added.
+
+For Rust semantics, use the current rust-analyzer MCP symbols/definition/hover for a specific
+question; references can be inconclusive while cold. Rename returns reviewable changes with
+`applied: false`; review both text edits and `file_operations`, including position encoding,
+before applying them. Do not force full-workspace diagnostics as a warm-up. `rg` and ast-grep
+remain the fallback. Use the selected `rust-code-model` skill for a concrete rustdoc/HIR/MIR need,
+checking its pinned compiler/profile against this checkout first.
+
+**Exercised, 2026-10-09:** in `build/agent-followup-semantic`, a disposable two-file Cargo package
+using the checkout toolchain, the installed rust-analyzer MCP returned both declaration/reference
+locations; function rename returned two edits across two files, module rename included the file
+rename, and a non-symbol position was refused. No returned edits were applied; source bytes
+remained unchanged. The MCP workspace was restored to the repository. This qualifies the small
+scratch path, not full-workspace indexing health or arbitrary code-action execution.

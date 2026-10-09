@@ -87,3 +87,14 @@ The shared `rust-code-model` skill pins ra_ap 0.0.352, rustdoc-types 0.61.0, car
 **Passed (2026-10-09):** `codex --version`, `cargo nextest --version`, `sccache --version`, `rustc --version`, `rust-analyzer-mcp --version`, `rust-analyzer --version`; inspected help for Codex, Cargo, nextest and sccache; `cargo -Z help`, `rustc -Z help`; bounded Cargo metadata command above; Context7 and official-doc retrieval. These are capability/version inspections, not product or tool-performance acceptance.
 
 **Not_run:** semantic MCP requests, fresh-session config application, doctor runtime checks, nextest discovery/execution JSON, doctests, sccache stats/cache workloads, full reader hash validation, profiling/report/view, rustdoc/MIR extraction, product tests/builds and turn-end. No blocked prerequisite was repaired or bypassed. Remaining material uncertainty is live host/session settings, exact installed adapter source provenance, readiness/result behavior under this current mixed tree, future compiler format compatibility, and whether richer structured-result consumers justify any integration beyond current native composition.
+
+
+## Implementation qualification, 2026-10-09
+
+The follow-up implementation exercised the installed semantic MCP against the disposable
+`build/agent-followup-semantic` two-file Cargo package. References returned declaration and call;
+function rename returned two reviewable edits, module rename included a file operation, and a
+non-symbol position was refused. No edits were applied; source bytes were unchanged and workspace
+selection was restored. This extends the authoring evidence only for these scratch requests.
+[Current task routes and limits](../../../plans/agent-effectiveness-followup-plan_2026-10-09.md#10-task-owned-command-examples)
+own the guidance; no full-workspace indexing or performance claim follows.
