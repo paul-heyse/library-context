@@ -2,18 +2,18 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Build-storage review, 2026-10-09:** the [independent review](docs/design_review/reviews/design_review_build-storage_2026-10-09.md)
-judges the workspace storage lifecycle **Revise**; its F01–F03/RC01–RC04 remain Proposed and
-unscheduled. The [census and attribution](docs/design_review/evidence/2026-10-09_build-storage/README.md)
-observed 409.383 GiB of regular files; 130.645 GiB of old isolated Cargo trees are the first removal
-candidates, subject to fresh owner/use checks. Cited raw captures and pending BC3 state remain
-protected. **passed:** metadata census, exact isolated-root `du -B1 -sx` reconciliation and
-disposable hardlink/sparse/symlink controls. Deletion, archival, policy/configuration changes and
-product qualification **not_run**. Next: decide the review's lifecycle changes and schedule their
-owners; AF1 continues to own cleanup certainty. Current native acceptance below is separate.
-Publication **passed:** `just docs`, 367 pages, zero link errors; scoped Ruff checks passed.
-Full `just docs-check` **failed:** the concurrent ADR index was already stale; it is unchanged
-by this review. Scoped `git diff --check` passed.
+**Storage lifecycle plan authored, 2026-10-09:** the [plan §9](docs/plans/storage-lifecycle-management-plan_2026-10-09.md#9-finding-disposition-owner)
+owns scheduled storage F01–F03; the [independent target review](docs/design_review/reviews/design_review_storage-lifecycle-plan_2026-10-09.md)
+accepts the corrected **Proposed / scoped** design. Operator-confirmed choices preserve warm
+caches, detailed profiling and performance settings, and select automatic rules-based lifecycle
+management across repository and shared host assets. Target-review F01/F02 are resolved in the
+Proposed target; operational closure remains open. AF1 retains cleanup/recovery ownership;
+BC3 and current evidence remain protected. Next: SM0 decisions/SM1 observation and the working
+AF1 prerequisite, then producer migration, legacy adoption and qualified automation.
+Cleanup, archival, configuration/agent-policy implementation and product controls **not_run**;
+this task authors the plan only. Publication **passed:** `just docs`,369pages, zero link errors;
+scoped `git diff --check` passed. Full `just docs-check` **failed** on the already-stale concurrent
+ADR index, which this task leaves untouched.
 
 **Current scope: native-execution efficiency plan authored; production implementation/testing paused.**
 The [compiler/kernel plan](docs/plans/graph-compilation-kernels-and-hashing-plan_2026-10-09.md),
