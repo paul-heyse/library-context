@@ -2,14 +2,16 @@
 
 Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
 
-**Accepted persisted foundation and corrective target; production integrated, focused acceptance incomplete, 2026-10-08. No performance measurement.**
-**Proposed physical-execution refinement, 2026-10-09:** the [populated-journey companion](populated-journey-execution-amplification-plan_2026-10-09.md) develops operation-shaped native enforcement and final canonical preparation. This coordinator remains the sole scheduled-finding and integrated-acceptance owner. Operator acceptance of its RC01/RC02 does not apply the new schema or establish implementation.
-**Proposed replacement target, 2026-10-09:** the operator accepted graph/hash RC01 and RC02.
+**Implemented, 2026-10-09:** persisted completion/publication and populated correction foundations,
+plus GK0–GK5 and required GR1 program identity/interner foundations. ADR-0138 and ADR-0139
+own the accepted execution boundaries; focused receipts and remaining acceptance are in §9.1.
+No performance measurement or whole-plan qualification is claimed.
 The [compiler companion](graph-compilation-kernels-and-hashing-plan_2026-10-09.md) and
 [reuse companion](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md) replace conflicting
-open per-root/SQL-only and dependency-foundations-only routes with model-owned relation compilation,
-shared prepared demand and selective cross-run reuse. Earlier work is not a prerequisite to design
-this replacement; its surviving guarantees and acceptance obligations remain owned here.
+open per-root/SQL-only and dependency-foundations-only routes. GR2–GR5 persistent products,
+invalidation and request caching, GK6 composition and GK7/GR6 final qualification remain later work.
+This coordinator remains the sole scheduled-finding and integrated-acceptance owner; earlier
+receipts retain their original source boundaries and surviving obligations.
 This document coordinates the next hard design pivot. Its source is the
 [catalog compilation speed review](../design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md),
 especially F01–F05 and RC01/RC02, together with the operator's 2026-10-07 selection of persisted
@@ -442,8 +444,10 @@ reuse. GK6 assembles them; GK7/GR6 finish affected qualification and retirement.
 actual consumers land together, with one owner for shared model/schema/native/manifest edits.
 Available independent work depends on delivered contract slices, not completion of older plans.
 
-GK0/GR0 schedule architectural decisions and owner changes; this plan-authoring turn applies
-neither production changes nor new runtime policy. Operator databases/configuration and activation
+GK0–GK5 and the required GR1 identity/interner foundation are implemented on the 2026-10-09
+tree, with focused Tested evidence in §9.1. ADR-0139 records the complementary scope-compiler
+decision. GR2–GR5 persistent reuse/invalidation/request caching, GK6 composition and GK7/GR6
+final qualification remain later work. Operator databases/configuration and activation
 remain held. Native persistence does not require every domain operation to be a native query,
 and compiled graph intent does not require every algorithm to be serialized into a universal IR.
 
@@ -451,7 +455,7 @@ and compiled graph intent does not require every algorithm to be serialized into
 
 ### Graph/hash review findings transferred on 2026-10-09
 
-Both findings are **Open; corrective target Proposed and rule changes operator-accepted**.
+Both findings are **Open at enclosing scope; GK0–GK5 source correction Implemented / focused Tested, 2026-10-09**.
 This is their sole current disposition owner. Their source assessment remains dated and is not
 rewritten as implementation acceptance. The new target supersedes overlapping open routes;
 PC6/CU6/BC3/BC5 and remaining timed-out boundaries survive until matching evidence resolves them.
@@ -464,6 +468,34 @@ PC6/CU6/BC3/BC5 and remaining timed-out boundaries survive until matching eviden
 The seven opportunity routes and library/investigation decisions are developed in the two
 companions, not another status register. Scope ownership is prerequisite to aggressive sharing;
 reuse does not close the older catalog-speed, correction or populated findings automatically.
+
+### Assembled scope-compiler review, 2026-10-09
+
+The [independent assembled review](../design_review/reviews/design_review_assembled-graph-scope-compilation_2026-10-09.md)
+assesses the integrated GK0–GK5 tree at static / Implemented strength. These source-qualified
+IDs have this coordinator as their sole disposition owner. Source correction is distinct from
+the runtime evidence in §9.1 and from enclosing GK7/GR6 qualification.
+
+| Source finding | Responsible owner / current disposition | Revealing evidence obligation |
+|---|---|---|
+| VS-F01 — independently reconstructed ClassInventory scope | Model normalization / GK1, source corrected / focused Tested, 2026-10-09 | Execute the actual aspect program through the finite evaluator; nested/member/coverage and rule-extension cases retain independent expected sets. |
+| C-F01 — absent seed suppresses a subsequently reached nominal | Finite/native selection / GK2, source corrected / focused Tested, 2026-10-09 | Independent absent/virtual outcomes and reached-missing reverse membership agree across realizations. |
+| C-F02 — optional discovery history consumes required-work budget | Shared finite/native preparation / GK2, source corrected / focused Tested, 2026-10-09 | Optional retained discovery memo removed; repeated, reordered and skewed windows preserve exact membership and release charges. |
+| C-F03 — unsupported finite scalar/list/NULL/parameter states become false joins | Finite lowering / GK1–GK2, source corrected / focused Tested, 2026-10-09 | Explicit scalar and NULL adapters or early refusal; list scalars and missing/wrong-kind parameters reject, including empty input. |
+| C-F04 — missing occurrence adapter becomes false structural selection | Finite lowering / GK1–GK2, source corrected / focused Tested, 2026-10-09 | Up-front matching occurrence requirement, nearest ranking and canonical occurrence controls. |
+| C-F05 — semantic sum-reference name differs from declared storage column | Record/macro projection and finite lowering / GK1–GK2, source corrected / focused Tested, 2026-10-09 | Preserve semantic graph roles; generated physical references match active encoded columns, optional/inactive omission, exact scalar joins and native/finite TypeOf child membership. |
+| GK-F01 — core independently authors family roots/ranking | Model factories / GK3–GK4, source corrected / focused Tested, 2026-10-09 | Aspect, E0, S0, Model and SourceCall known-answer inventories and negative domains; native/finite primitives preserve the same intent. |
+| GK-F02 — Model still loads independently per selected root | Model consumer / GK4, source corrected / focused Tested, 2026-10-09 | Shared selected-demand window; duplicate targets, exact independent catalog/symbol sets and absent-context refusal. |
+| GK-F03 — construction/SQL/canonical storage admitted after or far beyond actual allocation | Model factories/core lowering / GK1–GK4, source corrected / focused Tested, 2026-10-09 | Reservations precede copies/formatting and survive readers; exact canonical count/digest/capacity, unchanged focused budgets and final release. |
+
+Structural and Analytic retain one demanded complete frame per exact provider/input/context;
+Summary retains its complete SCC/fixpoint universe. These are justified whole-universe kernels,
+not unresolved per-root migration. Normalization borrows typed union views. C1/C2/S0/Local decode
+the union once but retain charged exact current-partition copies for private kernels. SourceCall,
+E0 and Model share rich native columns and still decode each private partition. No claim that all
+rich decoding occurs once is made. SourceCall's set DAG is relational/native in this slice;
+primitive scopes have contrasting finite/native lowerings. Persistent products and reusable
+cross-request preparation remain the reuse companion's later work.
 
 ### Plan-target review finding transferred on 2026-10-09
 
@@ -588,6 +620,52 @@ paths are deleted, and targeted actual native/MCP/evaluator journeys plus affect
 Report stopped, failed and not_run evidence honestly. Update STATUS from that actual boundary.
 
 ### 9.1 Current execution checkpoint, 2026-10-07
+
+**Current graph compiler slice, 2026-10-09:** GK0–GK5 and required GR1 foundations are
+**Implemented / focused Tested**, committed on main as `da7c4747` from baseline `4d94339f`.
+ADR-0139 records model-owned
+operation compilation; no record/physical schema, existing digest framing or codebook changed.
+The added direct `xxhash-rust =0.8.19` declaration uses the already locked version; Hakari now
+unifies its existing `xxh3` and `xxh64` features. XXH3 only selects buckets; full canonical bytes
+establish equality and BLAKE3 remains portable identity. Request-owned serving preparation is
+implemented; persistent reuse/invalidation and cross-request Moka caching remain later work.
+
+Exact argv/environment and retained logs live in `build/verification/graph-scope-2026-10-09/`.
+All Cargo/Nextest commands use normal available parallelism and cached release code. Native
+controls use owned disposable fixtures, not operator state. Review findings §8 carry their
+bounded source and focused-test dispositions; no historical journey qualifies this compiler.
+
+| Current command / boundary | Outcome, 2026-10-09 |
+|---|---|
+| `cargo check --release -p lctx-model -p cpg-core -p lctx-serving --tests` | **passed**, 1m29s (`compile-check.log`). Final SourceCall-only lifetime correction is also compiled by the passing final all-target Clippy below. Earlier declaration/caller compile failures were repaired; this is not a clean-first-pass claim. |
+| `just fixture -- cargo nextest run --release --no-fail-fast -p lctx-model -p cpg-core -p lctx-surrealdb -p lctx-serving --lib --test stream_reconciliation --test native_companions --test native_search --test executable_identity -E <exact selection in commands.json>` | **failed composite:** 288 selected, 286 passed / 2 failed, 6.332s bodies; Nextest `f21e2b3d-4b46-4c6b-8e23-0417773ddeb0`, `combined-controls.log`. All 242 model, 36 core and eight native/serving controls passed. SourceCall's two constructor budget refusals were repaired and exactly rerun below. |
+| `cargo nextest run --release --no-fail-fast -p cpg-core --lib -E 'test(event_and_owner_closures_keep_all_alternatives_and_project_unused_docstring) \| test(empty_root_stream_and_private_spool_preserve_exact_issuer_and_release_resources)'` with `INSTA_UPDATE=no` | **passed repaired boundary:** two controls, 1.967s; Nextest `fc73c7f9-65a3-4925-a867-dcff3ddf504d`, `sourcecall-repair-2.log`. The preceding exact rerun `3848ef3d-6f65-4924-ad7b-cf8e51356c63` failed both at physical lowering (`sourcecall-repair-1.log`). Raw factory state now drops before lowering; prepared topology retains its owners before lowering scratch drops and selectors compile. Test budgets/predicates are unchanged. The aggregate selection has passing evidence after repairs; the original composite remains failed. |
+| `cargo clippy --release --keep-going -p lctx-model -p lctx-model-macros -p cpg-core -p lctx-surrealdb -p lctx-serving --all-targets --no-deps -- -D warnings` | **passed**, final source including SourceCall phase correction, 2.52s (`clippy-final.log`). Covers affected declarations, callers and controls, not full-workspace Clippy. |
+| `just deps`; `just rules-test`; `just rules-scan`; `just adr-lint` | **passed**, `deps.log`, `rules-test-final.log`, `rules-scan-final.log`, `adr-lint-final.log`. Initial dependency leaf exposed stale Hakari; generated feature union repaired it. No dependency version bump or warning suppression. |
+
+The model controls include forced hash collisions/full-byte equality, canonical buffer count and
+ownership release, independent expected scopes, scalar/list/NULL/absence/virtual and physical
+sum-field semantics. Core controls challenge borrowed admission, exact batch partitions, Model
+known-answer inventories, S0/E0/SourceCall selected projections and cancellation/late corrupt
+hydration. Native controls independently challenge actual statement terminality/cancellation,
+260-member bounded hydration and the same serving template bound to two distinct reader databases.
+SourceCall's complete set DAG is tested relationally; primitive finite/native contrast does not
+establish a second complete finite set-DAG implementation.
+
+**Source boundary:** these focused bodies and final Clippy precede mechanical scoped formatting.
+Scoped `just turn-end --paths …` **passed** (70 changed Rust files; ADR/Hakari refreshed),
+`just docs-check` **passed** (355 canonical pages, zero link errors), and guard-free `just ready`
+**passed** on the formatted source (`turn-end.log`, `docs-check.log`, `ready-final.log`). Readiness
+rebuilt the native extension and confirmed checkout-specific Python 3.14.7/environment/skill links.
+No long journey was repeated solely for formatting. Earlier failed core/native composites exposed
+allocation/lifetime and retired-field assertion issues; corrected affected cases passed in the
+combined selection or exact rerun above. No production budget, worker cap or semantic validator
+was relaxed. Complete-frame Structural/Analytic/Summary exceptions remain justified in §8.
+
+**not_run:** GR2–GR5 products/invalidation/request caching, GK6 reuse composition and GK7/GR6
+assembled release qualification. Prior 19 core 300s timeouts, six upper-frontier 900s timeouts and
+the large compiled-export publication 300s timeout remain failed historical boundaries below;
+no new attribution or measured speed claim closes them. No operator adoption or real-library pilot.
 
 **Current populated correction, 2026-10-09:** PJ0–PJ3 and the assembled review remedies are committed locally on main as `2a62e817` (starting baseline `e98fb4a9`); targeted PJ5 acceptance is recorded below, with six upper-frontier timeouts and enclosing qualification still open. The accepted physical schema is a migration: the reviewed fixed-envelope snapshot was accepted, while completed-state format2, artifact format3 and semantic digest domains remain unchanged. Declaration-selected lowering, full physical reconstruction, mutation-only content freeze, shared immutable pointer runs and private admitted-owner publication replace the old routes. No dependency version moved. The assembled review and its captured-phase followup accept scoped at static / Implemented strength; quantitative benefit and enclosing qualification remain unmeasured/open.
 
@@ -774,16 +852,18 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-09: graph/hash replacement target planned; production paused.** The operator accepted
-both source-review rule changes and instructed stronger designs to supersede overlapping open
-routes. GK/GR companions now own the detailed target; §7.1 maps replacement and preserved
-acceptance, §8 owns transferred F01/F02. Static/interface evidence supports the chosen compiler
-and content-addressed reuse direction; implementation/benefit remain Proposed/unmeasured.
-The [independent target-plan review](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md)
-accepts the revised target at Proposed/interface strength, after correcting the GR5 retirement
-order; §8 retains its separate implementation obligation. Documentation outcomes are recorded
-in STATUS. Next execution planning uses GK0/GR0/GK1 and working prerequisites, not a return to
-the older deferred normalization route.
+**2026-10-09: GK0–GK5 and required GR1 foundations Implemented / focused Tested.**
+ADR-0139 and the architectural owners install model-owned relation scope compilation, canonical
+program identity and exact-equality XXH3 interning. Finite/native root partitions and bounded
+shared hydration reach normalization/admission, upper consumers and pinned native serving.
+The [independent assembled review](../design_review/reviews/design_review_assembled-graph-scope-compilation_2026-10-09.md)
+accepts the inspected source at Implemented strength; §8 owns its source-qualified findings.
+The 288-control focused selection has passing evidence after the repaired exact-two SourceCall
+rerun; its initial composite remains failed. Affected all-target Clippy and applicable leaves passed
+(§9.1). This is not whole-plan qualification or measured benefit.
+GR2–GR5 persistent products/invalidation/request caching, GK6 composition and GK7/GR6 final
+qualification remain later work. Prior timeouts and PC/CU/BC obligations survive under §7.1.
+No operator database/configuration, activation, real-library pilot or push is authorized.
 
 **2026-10-08: PC0–PC6 execution resumed; corrective target accepted under ADR-0138.** The [independent correction-plan review](../design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md) accepted PC0–PC6 at Proposed strength, with no remaining blocking design finding; runtime closure remains open. Native compiler and adjacent shared operations are on main; current targeted receipts and remaining checks are in §9.1. The correction plan develops all six new findings and both accepted rule changes; §8 owns their current disposition. The independent
 [target-plan review](../design_review/reviews/design_review_persisted-graph-execution-plan_2026-10-07.md)

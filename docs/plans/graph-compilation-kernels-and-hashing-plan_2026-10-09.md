@@ -1,6 +1,6 @@
 # Model-owned graph compilation and shared relation kernels
 
-**Proposed target, 2026-10-09; production implementation not_run.** This plan develops the
+**GK0–GK5 and required GR1 foundations Implemented / focused Tested, 2026-10-09.** This plan develops the
 [graph compilation and hashing review](../design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md).
 The [persisted-execution coordinator](persisted-graph-execution-plan_2026-10-07.md) owns the
 combined target, source-qualified finding disposition, cross-plan sequencing and acceptance.
