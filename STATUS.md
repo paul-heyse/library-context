@@ -1,8 +1,8 @@
 # Status
 
-_Updated 2026-10-08 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: populated journey passed; execution-amplification target review delivered.**
+**Current scope: populated execution plan authored; independent target review accepted scoped.**
 The operator committed and pushed the preceding PC/BC/CU tree as
 `dcb505d5a8c8c4760893f4d49b459b3d0bfce69d`. This continuation is committed locally in
 `e6a73d12`, `a148758c` and `70b8bf53`; final receipts and review documentation follow that source.
@@ -80,14 +80,29 @@ Native phase/hotspot attribution remains unresolved; passing integration does no
 [populated journey review](docs/design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md)
 concludes **Revise** execution fit: vocabulary-wide native lowering and repeated canonical membership
 preparation amplify physical work. Semantic ownership and current sequential composition retain
-their scoped judgment. The review owns new unscheduled findings and investigations, including
-overlapping-read completion, runtime placement and data-only restore; no rule or production change
-is applied. Its diagnosis does not attribute the 31m23s native runtime to a particular phase.
-Review publication: `just docs-check` **passed**, 2026-10-08, 347 canonical pages; product checks
-are **not_run** for this documentation scope. The completed journey retains its attributed receipt.
+their scoped judgment. Its diagnosis does not attribute the 31m23s native runtime to a phase.
+Review publication: `just docs-check` **passed**, 2026-10-08, 347 canonical pages; the completed
+journey retains its attributed receipt. Those are not fresh plan-authoring checks.
 
-**Preservation / next:** integrate that review's recommendations, rule impacts and investigations
-through plan creation. Preserve the timeout follow-up and whole-plan open boundary.
+**Proposed plan, 2026-10-09:** the
+[populated companion](docs/plans/populated-journey-execution-amplification-plan_2026-10-09.md)
+selects fixed native envelopes with typed ingress/supplied scopes, final compiler-content freeze
+and shared immutable pointer spools with independent charged cursors. Independent cold/physical
+admission and initial external readmission remain. Coordinator §8 owns scheduled review F01/F02;
+F03 stays source-deferred. RC01/RC02 are accepted, RC03/RC04 retained: native frontiers and SQL
+staging restore remain. PJ0 installs decisions/owners before production changes; none are applied.
+The plan captures every review investigation with its owner, evidence and trigger. Authoring
+product checks, native probes and performance measurements are **not_run**. The selector dry run
+resolved release boundaries; native fixtures are **blocked** by this session's missing user
+systemd bus, affecting execution/probes rather than static authoring. The
+[independent target-plan review](docs/design_review/reviews/design_review_populated-journey-execution-plan_2026-10-09.md)
+is **Accept scoped at Proposed strength**; its finalization-order/handoff correction is integrated,
+with no remaining blocking target finding. `just docs-check` **passed**, 2026-10-09,
+349 canonical pages and zero link errors. Production changes and product checks remain **not_run**.
+
+**Preservation / next:** document authoring/review is complete; next is detailed execution planning
+for PJ0/PJ1/PJ2/PJ3 and their shared consumers. Preserve the
+timeout follow-up and whole-plan open boundary; no authoring run resumes deferred qualification.
 PC3's isolated worktree retains an uncommitted planner-control copy already represented on main;
 preserve it until safe retirement is established. Shared caches and profiling evidence remain.
 No operator store/configuration, client registration, Qwen service, protected gold/heldout,

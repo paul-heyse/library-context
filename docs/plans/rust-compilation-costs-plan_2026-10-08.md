@@ -541,6 +541,8 @@ they are outside this correction-and-diagnosis completion boundary.
 
 ## 13. Coroutine architecture review checkpoint, 2026-10-08
 
+**Runtime follow-up, Proposed 2026-10-09:** the [populated companion](populated-journey-execution-amplification-plan_2026-10-09.md) owns native write/preparation improvements and coarse runtime phase evidence. Its PJ2 dispatch retains BC1/CU's shared future boundaries; runtime preparation does not undo the compiler-cost correction or justify per-row erasure/tasks. The persisted coordinator owns new populated findings and PJ5's native/CLI/cold/MCP acceptance, which may supply BC5/CU6 only with matching source/profile and the actual required controls. BC3 default installation remains independently qualification-gated; release remains active, and operator-deferred timeout/assembled obligations stay open. Existing compiler captures are not runtime phase attribution or new-schema acceptance.
+
 The [independent coroutine design/target review](../design_review/reviews/design_review_rust-coroutine-compilation-amplification_2026-10-08.md)
 is complete. **Decision: Revise for A4; A1–A3 and semantic/lifecycle gates hold within the
 inspected scope.** Its F01 is grouped with existing F01 at §9. It assesses structural execution

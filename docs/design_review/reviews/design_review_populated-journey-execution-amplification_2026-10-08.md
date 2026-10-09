@@ -115,7 +115,7 @@ This review finds no basis to claim every registered method executes, that all g
 
 ## 5. Findings
 
-Current execution disposition for these new findings is source-owned below. No implementation has been scheduled by this review. If plan creation schedules a finding, transfer its current disposition to the existing coordinator’s findings table and link back here; do not create a second register.
+**Disposition transfer, 2026-10-09:** plan creation scheduled F01/F02 through the [populated companion](../../plans/populated-journey-execution-amplification-plan_2026-10-09.md). Their single mutable disposition owner is now [persisted coordinator §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#populated-journey-findings-transferred-on-2026-10-09). The dated review judgment remains unchanged. F03 remains source-owned Deferred below; plan creation does not establish implementation or closure.
 
 <a id="f01"></a>
 
@@ -153,7 +153,7 @@ A giant sequential CASE, constructing a lookup map on every row, or a table per 
 
 **Closure evidence.** Inspect an extension adding an unrelated family and demonstrate that existing-family write preparation does not expand with the whole inventory. Challenge unknown tags/fields, malformed active arms, NONE/NULL, wrong supplied scope keys and imported physical disagreement through the real selected lowering. Representative measurements are required before claiming elapsed-time improvement.
 
-**Disposition:** Deferred pending the next populated-journey physical-lowering decision. Trigger: plan creation selects schema/write correction or a new family materially expands the shared lowering.
+**Disposition:** Transferred on 2026-10-09 to [persisted coordinator §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#populated-journey-findings-transferred-on-2026-10-09), scheduled through the Proposed companion PJ0/PJ2/PJ5. The plan selects typed ingress with fixed native envelopes and supplied scope fields; this is a target, not verified closure.
 
 <a id="f02"></a>
 
@@ -201,7 +201,7 @@ For selected nominal demand, compare the existing deterministic point reads with
 
 **Closure evidence.** Show one preparation for a fixed completed state across lookup/admission/sealing, and correct invalidation after new completion. Challenge aliases, overlapping contributors, isolates, empty views, pending rows, same-key disagreement, changed membership and cold corruption. Preserve independent physical readback. Measure complete journeys only to claim runtime benefit.
 
-**Disposition:** Deferred pending plan creation for populated canonical admission/sealing. Trigger: another repeated canonical consumer or selection of the compact/indexed completed-view remedy.
+**Disposition:** Transferred on 2026-10-09 to [persisted coordinator §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#populated-journey-findings-transferred-on-2026-10-09), scheduled through the Proposed companion PJ0/PJ3/PJ5. Its explicit final content freeze prevents mutation rather than caching mutable generations; independent cold/physical assurance remains. No implementation or speed claim follows.
 
 <a id="f03"></a>
 
@@ -349,7 +349,7 @@ Incoming batch bounds apply to the final question. Downstream loader windows alo
 
 ## 11. Rule impacts and dispositions
 
-These are conditional recommendations, not applied changes. Plan creation presents the selected impacts to the operator through the existing decision route.
+These remain unapplied recommendations. **Operator decisions, 2026-10-09:** RC01/RC02 accepted; RC03/RC04 retained and their changes rejected for the selected target. [Companion §2](../../plans/populated-journey-execution-amplification-plan_2026-10-09.md#2-confirmed-rule-decisions-and-architectural-route) records consequences and the decision route. PJ0 must precede dependent implementation; the accepted ADRs and production schema have not changed.
 
 <a id="rc01"></a>
 
@@ -362,7 +362,7 @@ These are conditional recommendations, not applied changes. Plan creation presen
 
 F02’s immutable preparation correction does not require weakening ADR-0133. Narrowing F03’s contribution barrier does not waive global cancellation/sealing/removal drainage. Making runtime assumptions explicit does not require a CPU/thread cap.
 
-All new findings remain **Deferred in this source review** until scheduled. Existing PC/CU/BC findings retain their current owners and receipts; these findings do not reopen a previously corrected nominal-pointer lookup by relabelling it.
+F01/F02 now have their single mutable disposition at the persisted coordinator; F03 remains **Deferred in this source review**. The companion §6 routes the review's investigations and retained alternatives. Existing PC/CU/BC findings retain their current owners and receipts; these findings do not reopen a previously corrected nominal-pointer lookup by relabelling it.
 
 ## 12. Judgments and bounded decision
 

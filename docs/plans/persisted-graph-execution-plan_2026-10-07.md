@@ -3,6 +3,7 @@
 Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
 
 **Accepted persisted foundation and corrective target; production integrated, focused acceptance incomplete, 2026-10-08. No performance measurement.**
+**Proposed physical-execution refinement, 2026-10-09:** the [populated-journey companion](populated-journey-execution-amplification-plan_2026-10-09.md) develops operation-shaped native enforcement and final canonical preparation. This coordinator remains the sole scheduled-finding and integrated-acceptance owner. Operator acceptance of its RC01/RC02 does not apply the new schema or establish implementation.
 This document coordinates the next hard design pivot. Its source is the
 [catalog compilation speed review](../design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md),
 especially F01–F05 and RC01/RC02, together with the operator's 2026-10-07 selection of persisted
@@ -13,7 +14,7 @@ alternative; its diagnoses, preservation obligations and uncertainty remain appl
 
 The [correction-causes review](../design_review/reviews/design_review_persisted-execution-correction-causes_2026-10-07.md) subsequently identified incomplete admission/completion contracts and native execution amplification. Its [supporting correction plan](persisted-execution-corrections-plan_2026-10-07.md) defines PC0–PC6, integrated below. Both correction-causes RC01/RC02 were operator-accepted on2026-10-07. They are different from the catalog-speed rule impacts above.
 
-This plan owns the sole scheduled disposition of both source reviews and the additional source-inspected inefficiencies in §8.
+This plan owns the sole scheduled disposition of its source reviews and the additional source-inspected inefficiencies in §8.
 The existing graph-native and evidence/evaluation coordinators retain their original findings and
 dated receipts. They do not close the new findings. The architectural collection owns enduring
 contracts; PG0 changes those contracts before dependent implementation. The operator resumed PC0–PC6 production work on 2026-10-08; ADR-0135 installs its accepted target. The targeted acceptance boundary in §9 remains authoritative. Operator adoption remains held; the interrupted pilot has no successful verdict.
@@ -443,11 +444,28 @@ The [integrated correction review](../design_review/reviews/design_review_persis
 
 Secondary fetch delegation is scheduled in PC4; retained Arrow/Tokio/shared-join mechanisms and triggered parser/native-order specializations are explicitly disposed in correction plan §4.3/§7. No separate capability or investigation status register is introduced.
 
+### Populated-journey findings transferred on 2026-10-09
+
+Both scheduled findings are **Open; corrective target Proposed**, developed in the [populated companion](populated-journey-execution-amplification-plan_2026-10-09.md). Source-qualified IDs are distinct from the earlier reviews' F01/F02; no earlier finding is renumbered or automatically closed.
+
+The [independent design/target plan review](../design_review/reviews/design_review_populated-journey-execution-plan_2026-10-09.md), 2026-10-09, concludes **Accept scoped at Proposed strength**. Its separate plan-review F01 corrected the proposed finalization order and workspace/native handoff before publication. No remaining blocking target finding was identified; neither that static correction nor document acceptance closes scheduled source findings or qualifies production.
+
+| Source finding | Responsible owner and packages | Required closure evidence |
+|---|---|---|
+| [Populated-review F01](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md#f01) — vocabulary-wide physical dispatch | Native schema/codec/ingress and independent reconstruction; PJ0/PJ2/PJ5, extending PC3/PC4 | Selected-record adapters and fixed native envelope/supplied scopes across every writer and cold consumer; unrelated-kind extension does not expand existing write programs; malformed typed ingress and private native tamper reject at the declared boundaries; fresh-schema native acceptance and independent full physical reconciliation. |
+| [Populated-review F02](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md#f02) — repeated completed canonical preparation | Native mutation/read/scratch owner and artifact/publisher consumers; PJ0/PJ3/PJ5, extending PC6 | Atomic final content freeze rejects pending/failed state and late mutations while reads/derived publication remain supported; one complete alias-aware pointer preparation per family reused by independent charged cursors for header/payload/export/sealing; exact empty/conflict/cancellation/cold controls and no post-admission canonical reload. Independent actual-state reconciliation remains. |
+
+[Populated-review F03](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md#f03) remains **Deferred in its source review**, triggered by supported independent pre-final overlap or demonstrated unrelated blocking. Companion §6 routes all other investigations without creating another finding register. RC01/RC02 are operator-accepted; RC03/RC04 remain unchanged. PJ0 must install the decision/owner changes before dependent production work.
+
 Retain source links and responsible owners when combining related corrections. Do not close F01
 solely on a native database rename, F02 on moving the same prefix work into an index builder, or
 F03 by deleting checks. Additional exposed consumers join the responsible package before closure.
 
 ## 9. Targeted functional verification and completion
+
+**Current execution dependencies, Proposed 2026-10-09:** PC1/PC2's integrated completion/captured-binding contracts are working foundations for PJ0–PJ3. PJ2 replaces PC3's physical enforcement route only after PJ0, and preserves PC4's exact selection/access obligations. PJ3 consumes current retained setup and acknowledged ordering ownership; its mutation-only freeze is distinct from final global drainage. PJ1 runtime/phase controls can proceed independently. PJ2/PJ3 share native and cold/publication editing surfaces even when logically ready in parallel. PC5 SQL unit/request semantics remain selected; no data-only transport is introduced. Integrate PJ2/PJ3 before repeating the populated journey and reuse only valid matching-source/profile acceptance at this coordinator.
+
+PJ5 and existing PC6/CU6/BC5 consume the resulting native/CLI/cold/MCP controls; no plan's receipt silently closes another plan's obligations. BC3 retains its candidate/default qualification gate and active release route. The operator-deferred timeout follow-up remains deferred. Assembled release qualification required by changed shared trust contracts stays an explicit open completion obligation until its deferred scope is reactivated; do not silently run it during authoring or substitute focused passes for it.
 
 These are **planned checks, not newly executed tests**. Use touched-crate compile checks and
 explicit affected family/filter controls throughout implementation. The operator's hard-pivot
@@ -630,4 +648,4 @@ accepted the Proposed architecture. Its frozen-universe, deferred-reference, exa
 and complete-body obligations remain binding during implementation. Source acceptance and
 bounded successful controls do not establish the whole pivot or measured compilation speed.
 
-PC0–PC5 contracts and consumer migrations are integrated in the operator's committed checkpoint; current refinements are committed in `e6a73d12`, `a148758c` and `70b8bf53`. §9.1 owns exact receipts: native refresh, focused native/cold/budget controls, affected leaves and the populated native/MCP/evaluator journey passed; CLI has three passes and three deferred timeouts. Next: carry the [populated journey review](../design_review/reviews/design_review_populated-journey-execution-amplification_2026-10-08.md)'s target recommendations and investigations into implementation planning. Its source-owned new findings are not scheduled or closed by this receipt. Update §8 and architectural labels only from actual evidence. Broad-suite and timeout reruns remain deferred. PC3's isolated worktree still has an uncommitted planner-control copy, whose implementation is present on main; preserve it until safe retirement is established. Other fully merged worker worktrees have been removed. No further push is requested.
+PC0–PC5 contracts and consumer migrations are integrated in the operator's committed checkpoint; current refinements are committed in `e6a73d12`, `a148758c` and `70b8bf53`. §9.1 owns exact receipts: native refresh, focused native/cold/budget controls, affected leaves and the populated native/MCP/evaluator journey passed; CLI has three passes and three deferred timeouts. The [populated companion](populated-journey-execution-amplification-plan_2026-10-09.md) now develops the new Proposed target; §8 owns its scheduled F01/F02 while F03 remains source-deferred. Next: detailed execution planning for PJ0–PJ3/PJ1 and their shared consumers, preserving the explicit whole-plan and timeout boundaries. Update §8 and architectural labels only from actual evidence. PC3's isolated worktree still has an uncommitted planner-control copy, whose implementation is present on main; preserve it until safe retirement is established. Other fully merged worker worktrees have been removed. No further push is requested.
