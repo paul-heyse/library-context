@@ -1,0 +1,185 @@
+use std::fmt;
+use std::time::Duration;
+
+use surrealdb_kvs::config::{AolMode, SnapshotMode};
+
+use crate::engine::local::Db;
+use crate::{Connect, Error};
+
+/// Format a duration in the compact suffix form the server's config parser
+/// accepts (`30d`, `12h`, `5m`, `90s`, `250ms`, `10us`), choosing the largest
+/// unit that divides the duration exactly. Inlined copy of the engine-side
+/// helper so the SDK does not depend on the config crate for one formatter.
+fn format_duration(d: Duration) -> String {
+	let micros = d.as_micros() as u64;
+	if micros == 0 {
+		return "0".to_string();
+	}
+	let secs = d.as_secs();
+	// Try largest unit first
+	if secs > 0 && secs.is_multiple_of(86400) && d.subsec_nanos() == 0 {
+		return format!("{}d", secs / 86400);
+	}
+	if secs > 0 && secs.is_multiple_of(3600) && d.subsec_nanos() == 0 {
+		return format!("{}h", secs / 3600);
+	}
+	if secs > 0 && secs.is_multiple_of(60) && d.subsec_nanos() == 0 {
+		return format!("{}m", secs / 60);
+	}
+	if d.subsec_nanos() == 0 {
+		return format!("{secs}s");
+	}
+	if micros.is_multiple_of(1000) {
+		return format!("{}ms", micros / 1000);
+	}
+	format!("{micros}us")
+}
+
+impl<R> Connect<Db, R> {
+	/// Enable MVCC versioning on the datastore.
+	///
+	/// Supported by the `SurrealKv` and `RocksDb` engines.
+	///
+	/// # Examples
+	///
+	/// ```no_run
+	/// # #[tokio::main]
+	/// # async fn main() -> surrealdb::Result<()> {
+	/// use surrealdb::Surreal;
+	/// use surrealdb::engine::local::SurrealKv;
+	///
+	/// let db = Surreal::new::<SurrealKv>("path/to/database-folder").versioned().await?;
+	/// # Ok(())
+	/// # }
+	/// ```
+	pub fn versioned(mut self) -> Self {
+		self.address = self.address.map(|mut endpoint| {
+			endpoint.append_query_param("versioned", "true");
+			endpoint
+		});
+		self
+	}
+
+	/// Set the version retention period.
+	///
+	/// Determines how long old versions are kept before being garbage collected.
+	/// A duration of zero means unlimited retention.
+	///
+	/// Supported by the `SurrealKv` and `RocksDb` engines. Requires `versioned()`.
+	///
+	/// # Examples
+	///
+	/// ```no_run
+	/// # #[tokio::main]
+	/// # async fn main() -> surrealdb::Result<()> {
+	/// use std::time::Duration;
+	/// use surrealdb::Surreal;
+	/// use surrealdb::engine::local::SurrealKv;
+	///
+	/// let db = Surreal::new::<SurrealKv>("path/to/database-folder")
+	///     .versioned()
+	///     .retention(Duration::from_secs(30 * 86400)) // 30 days
+	///     .await?;
+	/// # Ok(())
+	/// # }
+	/// ```
+	pub fn retention(mut self, duration: Duration) -> Self {
+		self.address = self.address.map(|mut endpoint| {
+			endpoint.append_query_param("retention", &format_duration(duration));
+			endpoint
+		});
+		self
+	}
+
+	/// Set the disk sync mode.
+	///
+	/// Controls how and when data is flushed to disk. Supported by `SurrealKv`,
+	/// `RocksDb`, and `Mem` engines (the `Mem` engine requires a persist path,
+	/// e.g. `Surreal::new::<Mem>("/tmp/data")` or `connect("mem:///tmp/data")`,
+	/// for sync to take effect).
+	///
+	/// The `mode` argument can be any type that implements `Display`. The
+	/// canonical type is `SyncMode`:
+	///
+	/// - `SyncMode::Never` - leave flushing to the OS (fastest, least durable).
+	/// - `SyncMode::Every` - sync on every transaction commit (fast, most durable).
+	/// - `SyncMode::Interval(duration)` - periodic background flushing (fast, less durable).
+	///
+	/// # Examples
+	///
+	/// ```no_run
+	/// # #[tokio::main]
+	/// # async fn main() -> surrealdb::Result<()> {
+	/// use surrealdb::Surreal;
+	/// use surrealdb::engine::local::SurrealKv;
+	/// use surrealdb_kvs::config::SyncMode;
+	///
+	/// let db = Surreal::new::<SurrealKv>("path/to/database-folder")
+	///     .sync(SyncMode::Every)
+	///     .await?;
+	/// # Ok(())
+	/// # }
+	/// ```
+	///
+	/// ```no_run
+	/// # #[tokio::main]
+	/// # async fn main() -> surrealdb::Result<()> {
+	/// use std::time::Duration;
+	/// use surrealdb::Surreal;
+	/// use surrealdb::engine::local::RocksDb;
+	/// use surrealdb_kvs::config::SyncMode;
+	///
+	/// let db = Surreal::new::<RocksDb>("path/to/database-folder")
+	///     .sync(SyncMode::Interval(Duration::from_millis(200)))
+	///     .await?;
+	/// # Ok(())
+	/// # }
+	/// ```
+	pub fn sync(mut self, mode: impl fmt::Display) -> Self {
+		self.address = self.address.map(|mut endpoint| {
+			endpoint.append_query_param("sync", &mode.to_string());
+			endpoint
+		});
+		self
+	}
+
+	/// Set the AOL (Append-Only Log) mode for the `Mem` engine.
+	///
+	/// Requires a persist path (e.g. `Surreal::new::<Mem>("/tmp/data")` or
+	/// `connect("mem:///tmp/data")`).
+	///
+	/// - `MemAolMode::Never` - never use AOL (default).
+	/// - `MemAolMode::Sync` - write synchronously to AOL on every commit.
+	/// - `MemAolMode::Async` - write asynchronously to AOL after commit.
+	pub fn aol(mut self, mode: AolMode) -> Self {
+		self.address = self.address.and_then(|mut endpoint| match endpoint.url.scheme() {
+			"mem" => {
+				endpoint.append_query_param("aol", &mode.to_string());
+				Ok(endpoint)
+			}
+			scheme => Err(Error::internal(format!(
+				"The 'aol' option is only supported by the 'mem' engine, not '{scheme}'"
+			))),
+		});
+		self
+	}
+
+	/// Set the snapshot interval for the `Mem` engine.
+	///
+	/// Requires a persist path. Periodic snapshots are created at the given interval.
+	///
+	/// - `SnapshotMode::Never` - never use snapshots (default).
+	/// - `SnapshotMode::Interval(duration)` - take snapshots at the given interval.
+	pub fn snapshot(mut self, mode: SnapshotMode) -> Self {
+		self.address = self.address.and_then(|mut endpoint| match endpoint.url.scheme() {
+			"mem" => {
+				endpoint.append_query_param("snapshot", &mode.to_string());
+				Ok(endpoint)
+			}
+			scheme => Err(Error::internal(format!(
+				"The 'snapshot' option is only supported by the 'mem' engine, not '{scheme}'"
+			))),
+		});
+		self
+	}
+}

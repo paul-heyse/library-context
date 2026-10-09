@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "python/lctx_semantics"]
-exclude = ["third_party/allocative"]
+exclude = ["third_party/allocative", "third_party/surrealdb"]
 
 [workspace.package]
 version = "0.1.0"
@@ -177,6 +177,7 @@ opt-level = 2
 # Backport the upstream never-type fix without upgrading Pyrefly's dependency graph (ADR-0136).
 [patch.crates-io]
 allocative = { path = "third_party/allocative" }
+surrealdb = { path = "third_party/surrealdb" }
 
 # Keep all reachable published latest-family crates at the same nominal source.
 ruff_annotate_snippets = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
