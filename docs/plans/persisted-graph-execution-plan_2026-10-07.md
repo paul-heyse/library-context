@@ -3,13 +3,14 @@
 Command excerpts identify verification scope; original invocations remain in the cited logs and Git history.
 
 **Implemented, 2026-10-09:** persisted completion/publication and populated correction foundations,
-plus GK0–GK5 and required GR1 program identity/interner foundations. ADR-0138 and ADR-0139
+plus GK0–GK6 and GR0–GR5 program/product/dependency/viewer integration. ADR-0138–ADR-0140
 own the accepted execution boundaries; focused receipts and remaining acceptance are in §9.1.
 No performance measurement or whole-plan qualification is claimed.
 The [compiler companion](graph-compilation-kernels-and-hashing-plan_2026-10-09.md) and
 [reuse companion](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md) replace conflicting
-open per-root/SQL-only and dependency-foundations-only routes. GR2–GR5 persistent products,
-invalidation and request caching, GK6 composition and GK7/GR6 final qualification remain later work.
+open per-root/SQL-only and dependency-foundations-only routes. Persistent products, complete
+selected-domain reuse, dependency metadata and viewer caching are integrated; GK7/GR6 final
+qualification, BC3 and failed full-compiler equivalence controls remain open.
 This coordinator remains the sole scheduled-finding and integrated-acceptance owner; earlier
 receipts retain their original source boundaries and surviving obligations.
 This document coordinates the next hard design pivot. Its source is the
@@ -444,18 +445,77 @@ reuse. GK6 assembles them; GK7/GR6 finish affected qualification and retirement.
 actual consumers land together, with one owner for shared model/schema/native/manifest edits.
 Available independent work depends on delivered contract slices, not completion of older plans.
 
-GK0–GK5 and the required GR1 identity/interner foundation are implemented on the 2026-10-09
-tree, with focused Tested evidence in §9.1. ADR-0139 records the complementary scope-compiler
-decision. GR2–GR5 persistent reuse/invalidation/request caching, GK6 composition and GK7/GR6
-final qualification remain later work. Operator databases/configuration and activation
-remain held. Native persistence does not require every domain operation to be a native query,
-and compiled graph intent does not require every algorithm to be serialized into a universal IR.
+GK0–GK6 and GR0–GR5 are implemented on the 2026-10-09 tree, with focused Tested
+and source-review boundaries in §9.1. ADR-0139 owns operation compilation; ADR-0140 owns
+selective product and viewer reuse. Exact request identity selects replay or fresh computation;
+the charged dependency graph resolves implicit input selectors to selected frozen epochs while
+keeping explicit epochs distinct. It is not a general incremental scheduler. Selected Entity,
+Callable and Aspect domains are freshly discovered before rich hydration. SCC schedules execute
+once per prepared graph, bound by its private materialization identity; canonical nominal topology
+identities remain available without repeated binding hashes or a persisted SCC cutoff. Behavioral Local/Base/Body/SourceCall remain Fresh because their
+complete private-owner validation repeats the kernels. Their obsolete portable hints are removed.
+Viewer Moka initialization, pressure reclamation and close-before-reader invalidation are integrated.
+GK7/GR6 and BC3/BC5/PC6/CU6 qualification remain open until their matching controls pass.
+Operator databases/configuration and activation remain held. Native persistence does not require
+every domain operation to be a native query; graph intent is not a universal serialized algorithm IR.
+
+### 7.2 Native-efficiency replacement and common acceptance, 2026-10-09
+
+The [native-efficiency companion](native-execution-efficiency-plan_2026-10-09.md) develops
+NE0–NE9 from the independent source review. RC01–RC05 were explicitly operator-accepted on
+2026-10-09. NE0 installs the complementary access/local-completion decision and owner updates;
+plan authoring does not itself adopt those production changes. Existing GK/GR/PJ/PC/BC/CU IDs
+and dated evidence remain intact.
+
+The [independent target-plan review](../design_review/reviews/design_review_native-execution-efficiency-plan_2026-10-09.md)
+accepts this coordinated target at Proposed / Interface-checked strength on 2026-10-09, without
+new blocking findings. It does not establish implementation, native-query/session/lifetime
+qualification or measured benefit; all eight source findings below remain Open.
+
+NE1 shares exact resolved input bindings; NE2 qualifies actual native membership access without
+owner Cartesian or union-index seen state; NE3 shares physical admission inputs while keeping
+independent checks/Full negative universes; NE4 shares tokens and typed replay; NE5/NE6 provide
+wake-driven handoffs and contribution-relevant completion; NE7 separates live flights from
+optional retention; NE8 makes observation purpose explicit. These refine current GK/GR consumers,
+not another canonical store, scheduler or mutable validity authority.
+
+NE1's prepared binding and NE0's decision/transport slices precede their actual consumers.
+NE5 and NE7 can advance on independent ready contracts; shared native/core files retain one
+writer. NE4 does not gate cold-path fixes. NE9/GK7/GR6 now own the common final-source retirement
+and assembled acceptance, including surviving PC6/CU6/BC5 and affected CLI/native/MCP/transport
+controls. BC3 retains its separate candidate-profile gate and release defaults until qualified.
+Old timeouts and canceled/not_run boundaries remain unqualified; optional reuse cannot explain
+first cache-off timeouts. No new native run, environment synchronization or production change
+is authorized by this document integration.
 
 ## 8. Sole finding disposition
 
+### Native-efficiency findings transferred on 2026-10-09
+
+The [source review](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md)
+retains its static dated assessment. The rows below are the sole current disposition owner;
+all eight findings are **Open**, with Proposed corrections in the native-efficiency companion.
+Operator acceptance of RC01–RC05 does not establish implementation or closure.
+
+| Source finding | Responsible component / package and decision route | Required closure evidence |
+|---|---|---|
+| [Native-efficiency F01](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f01) — absent owner/key enumeration | Native exact-view reader and completion/token consumers, NE0/NE2/NE9; accepted RC01 | Qualified equality-prefix/one-owner/verified-pointer or exact-view prepared route without relocated Cartesian or native union-seen state; independent sparse/missing/foreign/overlap/conflict/order/projection and terminal controls; unrelated-owner/startup work justified |
+| [Native-efficiency F02](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f02) — repeated admission preparation/input | Core/model support and normalization/general admission, NE1/NE3/NE9; accepted RC03 | Compatible exact providers/logical preparation and union typed input shared across separate checks; Full ownership, stored-output orphans, missing qualifications and context/epoch differences still refuse independently |
+| [Native-efficiency F03](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f03) — repeated selected tokens | Core prepared root domains / NE4/NE9; accepted RC03 | One union token read per exact input/group, unchanged independent root keys/roles/missing and complete negative domains, hit/miss/deletion/empty controls. Enabled lookup only; not a cache-off explanation |
+| [Native-efficiency F04](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f04) — repeated product representations | Core/model canonical/current replay and capture / NE4/NE9; accepted RC03 | One charged typed decode through canonical/current pre-effect checks and fresh ingress; wrong-but-canonical rows refuse, uncertain effects remain fatal. Cold capture decision preserves actual completion/readback without duplicate representation or unbounded residency |
+| [Native-efficiency F05](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f05) — polling/fine handoffs | Native bridge/provider/core writers and batches / NE5/NE9; accepted RC04 | Actual completion/cancellation wakeups and suitable coarse async/blocking boundaries; queue-full/drop/late-error controls retain charged batches, runtime/client and terminal acknowledgements |
+| [Native-efficiency F06](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f06) — global scan wait at local completion | Native/core contribution lifecycle / NE0/NE6/NE9; accepted RC02 | Own relevant read/write descendants gate local completion; unrelated retained immutable readers do not. Late errors/global poisoning and final freeze/seal/abandon drainage remain, with no premature publication |
+| [Native-efficiency F07](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f07) — pressure splits initialization | Viewer preparation/pin lifecycle / NE7/NE9; accepted RC04 | Same exact key stays one live flight across retention replacement; independent cancellation, completion/removal/close races and external borrows retain charges/pins; no deferred rich result ownership after flight terminality |
+| [Native-efficiency F08](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md#f08) — whole-inventory selected observation | Typed extraction harness / NE8/NE9; accepted RC05 | Explicit selected versus complete observation; selected inspectors avoid unrelated rich scans while independent unexpected-row/orphan/inventory controls remain native and complete |
+
+The companion maps the review's other recommendations, libraries, alternatives and investigation
+triggers without duplicating mutable status. SDK-session qualification and unresolved historical
+timeouts remain explicit NE0/NE9 obligations in §9.1. Existing finding closure is not inferred
+from these new source IDs or an accepted rule decision.
+
 ### Graph/hash review findings transferred on 2026-10-09
 
-Both findings are **Open at enclosing scope; GK0–GK5 source correction Implemented / focused Tested, 2026-10-09**.
+Both findings are **Open at enclosing scope; GK0–GK6/GR0–GR5 source correction Implemented / focused Tested, 2026-10-09**.
 This is their sole current disposition owner. Their source assessment remains dated and is not
 rewritten as implementation acceptance. The new target supersedes overlapping open routes;
 PC6/CU6/BC3/BC5 and remaining timed-out boundaries survive until matching evidence resolves them.
@@ -495,18 +555,34 @@ the union once but retain charged exact current-partition copies for private ker
 E0 and Model share rich native columns and still decode each private partition. No claim that all
 rich decoding occurs once is made. SourceCall's set DAG is relational/native in this slice;
 primitive scopes have contrasting finite/native lowerings. Persistent products and reusable
-cross-request preparation remain the reuse companion's later work.
+cross-request preparation are now integrated; the reuse companion §7 records eligibility and
+current-owner refinements. Their enclosing qualification remains open.
 
 ### Plan-target review finding transferred on 2026-10-09
 
 The [independent target-plan review](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md)
 accepts the revised combined target at **Proposed/interface strength**. Its F01 is distinct from
 source graph/hash F01. The document correction resolves its target-order gap; implementation
-and the revealing lifecycle control remain **Open / not_run** under GR5/GR6.
+and the revealing lifecycle control are **Implemented / focused Tested, 2026-10-09** under GR5.
+Actual native consumer integration passed its focused repaired control; GR6 enclosing acceptance
+remains open.
 
 | Source finding | Responsible component and disposition | Required implementation evidence |
 |---|---|---|
-| [Plan-target F01](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md#F01) — cache insertion racing viewer retirement | Viewer/cache lifecycle, GR5/GR6. **Target corrected at Proposed strength, 2026-10-09**: fence admission/retries, drain initialization/insertion owners, release final cache references, then wait external leases. | Race completing initialization against retirement; no cache-owned pin/charge survives final release, while an external borrower retains its own pin/charge until release. Production closure requires that control and actual consumer integration. |
+| [Plan-target F01](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md#F01) — cache insertion racing viewer retirement | Viewer/cache lifecycle, GR5/GR6. **Implemented / focused Tested, 2026-10-09**: fence admission/retries, drain initialization/insertion owners, release final cache references, then wait external leases. Moka retention generation is dropped under pressure/close rather than assuming prompt logical-invalidation reclamation. | Race completing initialization against retirement; no cache-owned pin/charge survives final release, while an external borrower retains its own pin/charge until release. Production closure requires that control and actual consumer integration. |
+
+### Compiled-product contract review, 2026-10-09
+
+The [independent source review](../design_review/reviews/design_review_compiled-product-reuse-contracts_2026-10-09.md)
+retains its initial findings and dated follow-ups. This coordinator owns their scheduled
+disposition; source corrections and bounded passing controls do not close GK7/GR6.
+
+| Source finding | Responsible component / disposition | Closure evidence and limit |
+|---|---|---|
+| Reuse-contract F01 — native unknown effects, quota and coordination | Native products / GR2–GR6. Source corrected; focused native controls passed on the recorded revisions. | Exact ACK/readback, point-stage/generation fences, uncertain reservations, cross-process borrowed capacity, fixed stripe collision refusal and lifecycle drain. Reset follow-up requires persistent coordination owner and explicit pre-DDL fence; final revised control recorded in §9.1. No operator installation. |
+| Reuse-contract F02 — uncharged queued owners and retained optional capacity | Viewer preparation / GR5. Source corrected / focused Tested after repairs. | Insertion owner charged before spawn; canceled waiter and close races drain owners. Whole optional Moka generation releases unborrowed values before required-work retry; retained external borrows remain charged. Initial failing composite is retained. |
+| Reuse-contract F03 — portable private state fidelity/completeness | Behavioral products / GR4. Source route retired, 2026-10-09. | All four private-owner families remain Fresh; obsolete hint interfaces/private portable fields removed. No avoided-computation claim. Full Behavioral pipeline acceptance is still open. |
+| Reuse-contract F04 — canonical decoder field/identity validation gaps | Model/native typed replay / GR2–GR4. Source corrected / focused Tested. | Typed canonical re-encoding rejects unknown fields and duplicate IDs across bounded windows before semantic callbacks or ingress. Current predicates validate Receiver/Event/Binding. Full compiler matrices timed out and do not establish integrated equivalence. |
 
 ### Retained catalog-speed and additional findings
 
@@ -585,7 +661,7 @@ F03 by deleting checks. Additional exposed consumers join the responsible packag
 
 **Current execution dependencies, Proposed 2026-10-09:** PC1/PC2's integrated completion/captured-binding contracts are working foundations for PJ0–PJ3. PJ2 replaces PC3's physical enforcement route only after PJ0, and preserves PC4's exact selection/access obligations. PJ3 consumes current retained setup and acknowledged ordering ownership; its mutation-only freeze is distinct from final global drainage. PJ1 runtime/phase controls can proceed independently. PJ2/PJ3 share native and cold/publication editing surfaces even when logically ready in parallel. PC5 SQL unit/request semantics remain selected; no data-only transport is introduced. Integrate PJ2/PJ3 before repeating the populated journey and reuse only valid matching-source/profile acceptance at this coordinator.
 
-PJ5 and existing PC6/CU6/BC5 consume the resulting native/CLI/cold/MCP controls; no plan's receipt silently closes another plan's obligations. BC3 retains its candidate/default qualification gate and active release route. The operator-deferred timeout follow-up remains deferred. Assembled release qualification required by changed shared trust contracts stays an explicit open completion obligation until its deferred scope is reactivated; do not silently run it during authoring or substitute focused passes for it.
+PJ5 and existing PC6/CU6/BC5 consume the resulting native/CLI/cold/MCP controls; no plan's receipt silently closes another plan's obligations. BC3 retains its candidate/default qualification gate and active release route. The earlier operator-deferred timeout receipts remain failed at their original source boundary. The current authorization to execute all remaining GK/GR scope reactivates matching final-source assembled release qualification; it does not establish causal runtime attribution or measured benefit. Authoring alone never activates this gate, and focused passes cannot substitute for it.
 
 These are **planned checks, not newly executed tests**. Use touched-crate compile checks and
 explicit affected family/filter controls throughout implementation. The operator's hard-pivot
@@ -621,7 +697,60 @@ Report stopped, failed and not_run evidence honestly. Update STATUS from that ac
 
 ### 9.1 Current execution checkpoint, 2026-10-07
 
-**Current graph compiler slice, 2026-10-09:** GK0–GK5 and required GR1 foundations are
+**Native-efficiency documentation authoring, 2026-10-09:** NE0–NE9 and cross-plan replacement
+routes are authored, with [independent scoped target acceptance](../design_review/reviews/design_review_native-execution-efficiency-plan_2026-10-09.md).
+`just docs-check` **passed** on 360 canonical pages with zero link errors after repairing the
+existing ADR-0140/§B3 reference mismatch and two new section links; `git diff --check` **passed**.
+All73 pre-existing unowned files are unchanged. Product builds/native controls are **not_run**
+for this documentation-only scope. RC01–RC05 direction is accepted; NE0 decisions and all eight
+corrections remain Proposed/Open. These receipts do not replace any historical failure below.
+
+**Current compiled-product/viewer integration, 2026-10-09:** GK0–GK6 and GR0–GR5 are
+Implemented with focused Tested/source-inspected evidence. ADR-0140 and the reuse companion §7
+own the refined eligibility, exact selected domains, current admission, fresh graph-bound SCC schedules and
+viewer lifecycle. The [independent source review](../design_review/reviews/design_review_compiled-product-reuse-contracts_2026-10-09.md)
+retains all initial and subsequent findings. Behavioral private Local/Base/Body/SourceCall hints
+are fully retired; these kernels remain Fresh. No general mutable-query scheduler, portable
+checked capability, operator adoption or measured latency claim follows.
+
+Commands use available Cargo/compiler/test parallelism, unchanged normal stacks/timeouts and
+owned disposable native fixtures. The session uses the host user-manager environment
+`XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus` only to
+make that fixture prerequisite available. Exact arguments/outcomes remain in each
+`build/runs/<ID>/summary.json` and adjacent logs.
+
+| Command / current boundary | Outcome, 2026-10-09 |
+|---|---|
+| `cargo check --release -p lctx-model -p lctx-surrealdb -p cpg-core -p lctx-serving -p lctx --tests --message-format short` | **passed**, run `20261009T140913.635Z-80b5f9`, 1m10s. Subsequent bounded native/core/serving release compile checks also passed after integration repairs; later source is exercised by the actual reruns below. |
+| Focused release model/core/native/serving reuse selection | `20261009T141350.380Z-c60fda`: **failed composite**, 28 passed / 3 failed / 3 timed out. Exposed retained optional Moka capacity/close and incomplete normalization-test ancestry; source and fixture corrected without budget or predicate relaxation. |
+| Same affected selection plus compiler matrices and pressure controls | `20261009T143114.145Z-f74363`: **failed composite**, 37 passed / 2 timed out. All completed primitive/domain/native/serving/canonical controls passed after repairs. Catalog and Behavioral six-attempt real-provider compiler matrices exceeded unchanged300s; end-to-end off/cold/hit/reload/changed-input equivalence remains unqualified. Phase/checkpoint diagnostics added for subsequent integrated runs, without narrowing behavior. |
+| Final 38-control focused selection, full matrices excluded | `20261009T144502.670Z-8a071a`: **failed composite**, 37 passed / 1 failed, 8.349s bodies. Production fixed-stripe collision control passed; the subprocess borrowed-capacity control still used the obsolete full-key lock path. Its shared production-path correction and exact-two rerun **passed**, `20261009T144833.859Z-e1a97f`, 0.291s, Nextest `4b303dc8-55cc-4e32-ab20-5337baed1a1f`. Aggregate selected controls have passing evidence after repairs; the original composite stays failed. |
+| `just verify --select store:rust --nextest-args='--lib -E "test(product_cache::tests::native_)"'` | Native schema4 obsolete-required-field reset control and all12 product controls **passed**, `20261009T145640.086Z-3e9392`, 0.456s bodies. Later review found reset ownership/late-administration gaps; this receipt does not qualify the final reset protocol. |
+| Native schema5 persistent-owner reset plus `compiler:producer --lib -E 'test(compilation::reuse::tests::)'` | **passed**, `20261009T150136.950Z-f6c00f`: all12 native controls, 0.634s, and all3 graph controls, 0.006s. Actual graph-only implicit-epoch selection keeps cache identity unchanged and explicit equal-content epochs separate. Reset now has persistent directory ownership; atomic administration refinements follow below. |
+| `just fixture -- cargo nextest run --release --no-fail-fast -p lctx-surrealdb --lib -E 'test(product_cache::tests::native_)'` | Atomic reset/retire fencing13controls **passed**, `20261009T150731.463Z-931937`, 0.453s; final pending-marker/shared administration-epoch protocol13controls **passed**, `20261009T150919.600Z-955ea5`, 0.513s, Nextest `92db742b-b9bc-4f9d-90c6-e5aaa85c7358`. Real pending SDK transactions cannot commit reset DDL or retirement after a newer install; readonly connection cannot clear quarantine. Final bounded stale-ACK cleanup/control **passed**, `20261009T151353.336Z-db7117`, all13controls, 0.532s, Nextest `7809d7fa-1890-444c-98aa-d1c9c32f46d5`; committed-but-ack-lost retirement preserves quarantine until compatible explicit recovery reclaims obsolete receipts. |
+| SCC refinement and final candidate model controls | **passed**, `20261009T154435.789Z-dc2a91`: 25 model controls, 0.041s, Nextest `f0424d38-9fc5-4ac2-afec-87c8ee05bedd`. Includes graph moves, identical/changed rematerialization refusal and separate graph/schedule charge release. Independent bounded source check accepts exact private materialization binding and Summary consumer ownership. Candidate compiler run cancelled for the concrete normalization repair after the failures below; CLI not_run. |
+| Actual BC3 candidate `just verify` model/compiler/CLI selection | Cancelled owned run `20261009T151658.341Z-97de35` (exit143) for the SCC eligibility refinement before compiler bodies. Model22controls **passed** on preceding source, 0.039s, Nextest `5f1636d1-1ee4-487b-8305-c8aa79ec9251`; compiler/CLI gate **not_run** on final source. `effective-profile.json` records manifest/candidate settings and sampled actual compiler O1 workspace/O3 imported flags, available frontend/backend workers. These partial receipts do not install a default. |
+| SCC-refined candidate compiler selection | `20261009T154435.789Z-dc2a91`: **failed partial**, Nextest `e6e1f467-e91d-4d03-bcaa-6a0ea7810728`;20 selected,10 passed,7 normalization conflicts,2 structural300s timeouts and1 remaining Behavioral Facts terminated when root cancelled the owned pipeline for repair (exit143). Logs identify `normalize_entities` / `Conflict("symbol_entity_resolutions")` in both profiles. Static tracing found incidental lookup symbols incorrectly emitted as computational roots without their full candidate families. Explicit typed output demand is the correction; no conflict suppression or recursive whole-graph expansion. CLI gate not_run on this source. |
+| Explicit entity output-demand correction | `cargo check --release -p lctx-model -p cpg-core --tests --message-format short` **passed**, `20261009T160553.448Z-ad044c`,1m09s. Typed Symbol/SyntaxField/Public/Enumeration demands retain nominal lookup without incidental output, Public ambiguity, semantic refusals and full-normalizer first-error order. Independent bounded source check accepts exact root/miss mapping and output ownership. All6 selected finite/model controls **passed**, `20261009T160744.103Z-5fd0d5`,0.038s, Nextest `508e407f-aaf0-486d-8754-5f8e55fd8663`, including three new demanded-versus-full normalization controls and SCC ownership. Core root-binding refusal **passed**. Actual Catalog and Behavioral normalized-frontier controls **failed** at independent artifact admission after every normalization stage passed (578.412s/827.768s), Nextest `e1bd8092-2400-43e7-ae2e-1169f9bb963a`; both report `selected callable owner claims differ from actual source premises`. This repairs the original Entity conflict but does not qualify artifacts. Source tracing found admission mixing supporting callables' advertised claims into the requested owner family; model-owned advertised-owner selection is the correction, keeping global orphan and strict same-owner completeness checks. |
+| `uv run --no-sync pytest -q tests/scripts/test_verify.py` | **passed**, all45 verification routing controls. Mocked routing does not qualify BC3 or a product boundary. |
+| Model-owned advertised callable-owner correction | `cargo check --release -p lctx-model -p cpg-core --tests --message-format short` **passed**, `20261009T163428.407Z-d6a8d2`,1m11s. Owner selection follows actual assessments and child/premise links, retaining broad source premises and strict same-owner completeness/global orphan checks; independent bounded source assessment accepts ownership, charging and retained global orphan probes. Both new finite supporting-callable/adversarial controls **passed**, `20261009T163757.029Z-9b0811`,0.002s, Nextest `d32faa69-be1f-4ce6-8468-1ed36fb8118f`. Composite **failed**: both native normalized artifacts timed out at unchanged900s, Nextest `5d8f73d4-da3e-421a-8d08-cc0081f3b4ce`. Both completed normalization, content freeze and facts admission, then timed out in `artifact_invariant_admission` without a new assertion. This is not successful callable/artifact admission; candidate default adoption remains blocked by its required failing boundary. No whole candidate/CLI gate pass is inferred or installed. |
+| Guard-free `just ready` | **passed**, `20261009T151547.473Z-0bab4b`, 45s, on final native source; earlier full rebuild `20261009T151034.207Z-3d69b3` passed2m36s before the narrow receipt cleanup. Final preparation rebuilt the extension, selected checkout Python3.14.7 and verified tools/skill links. |
+| Final-source guard-free readiness | **passed**, `20261009T165830.221Z-835b15`,7m04s. `just ready` rebuilt the native extension after SCC/entity/callable ownership corrections, retained locked Python3.14.7 and verified tools/skill links. No live native guards or operator state were used. Assembled `just qualify` follows on this source with the release profile; its result remains pending. |
+| Final-source assembled `just qualify` | **failed / canceled partial**, `20261009T170649.056Z-032c30`, canceled17:27:50UTC after21m01s, exit143. Full model family **passed**, all798 tests across87 binaries,2.213s bodies after3m34s release build, Nextest `302bde20-36ea-4e46-851f-535e36819598`; analytics14 and flow controls passed. Extract retained45passes, one authentication failure and21timeouts; core retained147passes and two300s matrix timeouts, both in their first cache-off attempt. SIGTERM outcomes are cancellations; remaining families/journeys/leaves were not_run. Ordinary available parallelism and owned disposable fixtures were used. This receipt predates the unverified stable SDK-session correction; no assembled pass or authentication-cause proof. |
+| `just build-features`; `just adr-index` | **passed**, regenerated the CLI feature union and ADR index for Moka/ADR-0140 before final acceptance. The direct pinned Moka0.12.16 dependency adds only its narrow lock closure; existing library versions remain unchanged. |
+
+**Remaining acceptance:** BC3 cannot qualify while its required repaired native normalized
+boundary still times out; its complete model/compiler/CLI-main gate remains open and no default
+cutover is installed. Assembled release qualification is paused for the
+[native-efficiency design review](../design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md);
+NE0–NE9 now schedule its corrections, with all eight findings Open here in §8. A passing
+release control does not qualify the different candidate profile. Native Python preparation must refresh after final Rust source
+in a guard-free interval; its prior pass retains the source boundary above. Release remains
+the default until the actual candidate gate passes; neither routing tests nor compiler captures
+install it. Historical19core300s/six-upper900s/large compiled-export300s timeouts retain their
+failed source boundaries. No whole-plan qualification is claimed.
+
+**Previous graph compiler slice, 2026-10-09:** GK0–GK5 and required GR1 foundations are
 **Implemented / focused Tested**, committed on main as `da7c4747` from baseline `4d94339f`.
 ADR-0139 records model-owned
 operation compilation; no record/physical schema, existing digest framing or codebook changed.
@@ -662,8 +791,8 @@ allocation/lifetime and retired-field assertion issues; corrected affected cases
 combined selection or exact rerun above. No production budget, worker cap or semantic validator
 was relaxed. Complete-frame Structural/Analytic/Summary exceptions remain justified in §8.
 
-**not_run:** GR2–GR5 products/invalidation/request caching, GK6 reuse composition and GK7/GR6
-assembled release qualification. Prior 19 core 300s timeouts, six upper-frontier 900s timeouts and
+**At that earlier checkpoint, not_run:** GR2–GR5 products/invalidation/request caching, GK6 reuse composition and GK7/GR6
+assembled release qualification. The current checkpoint above supersedes only that implementation state. Prior 19 core 300s timeouts, six upper-frontier 900s timeouts and
 the large compiled-export publication 300s timeout remain failed historical boundaries below;
 no new attribution or measured speed claim closes them. No operator adoption or real-library pilot.
 
@@ -852,7 +981,7 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-09: GK0–GK5 and required GR1 foundations Implemented / focused Tested.**
+**2026-10-09: GK0–GK6/GR0–GR5 integrated, Implemented / focused Tested; enclosing qualification open.**
 ADR-0139 and the architectural owners install model-owned relation scope compilation, canonical
 program identity and exact-equality XXH3 interning. Finite/native root partitions and bounded
 shared hydration reach normalization/admission, upper consumers and pinned native serving.
@@ -861,8 +990,10 @@ accepts the inspected source at Implemented strength; §8 owns its source-qualif
 The 288-control focused selection has passing evidence after the repaired exact-two SourceCall
 rerun; its initial composite remains failed. Affected all-target Clippy and applicable leaves passed
 (§9.1). This is not whole-plan qualification or measured benefit.
-GR2–GR5 persistent products/invalidation/request caching, GK6 composition and GK7/GR6 final
-qualification remain later work. Prior timeouts and PC/CU/BC obligations survive under §7.1.
+ADR-0140 adds portable products, selected-domain reuse, current dependency metadata and
+viewer preparation. The independent reuse-contract review and repaired controls are recorded
+in §8/§9.1. GK7/GR6 qualification and BC3 remain open; full compiler matrices timed out.
+Prior timeouts and PC/CU/BC obligations survive under §7.1.
 No operator database/configuration, activation, real-library pilot or push is authorized.
 
 **2026-10-08: PC0–PC6 execution resumed; corrective target accepted under ADR-0138.** The [independent correction-plan review](../design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md) accepted PC0–PC6 at Proposed strength, with no remaining blocking design finding; runtime closure remains open. Native compiler and adjacent shared operations are on main; current targeted receipts and remaining checks are in §9.1. The correction plan develops all six new findings and both accepted rule changes; §8 owns their current disposition. The independent

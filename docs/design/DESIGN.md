@@ -321,7 +321,7 @@ Compatible selected roots share bounded acquisition; actual kernels and independ
 retain their authorities. [§15.10](sections/semantic-model.md#section-15-10) owns the implementation
 boundary and remaining qualification. Selective cross-run products remain an accepted target.
 
-> Decision: ADR-0139, ADR-0138, ADR-0126
+> Decision: ADR-0140, ADR-0139, ADR-0138, ADR-0126
 
 <a id="section-b4"></a>
 

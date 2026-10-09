@@ -17,6 +17,12 @@ packages consume these contracts without another finding-status ledger. This coo
 the combined completion boundary; no new default, compiler/toolchain change or native acceptance
 is implied by authoring the companion.
 
+The [native-efficiency companion NE5/NE9](native-execution-efficiency-plan_2026-10-09.md#4-packages-and-prerequisites)
+refines shared native handoffs using wakeups/coarse awaits and charge-preserving typed leaves.
+It must retain BC1/CU containment rather than rebuilding vocabulary-sized async/generic units.
+NE9/GK7/GR6 join surviving BC5/PC6/CU6 native acceptance; BC3 remains a separate profile gate,
+with release defaults until it passes. Runtime timeouts are not renewed compile-cost diagnoses.
+
 Plan authoring changes documentation only. During implementation, preserve current source repairs, exact pins, shared caches/intermediates, available compiler/test parallelism, disposable fixture ownership, operator state and protected evaluation inputs. Do not routinely clean Cargo caches, add job/thread caps, synchronize a live native environment, or interrupt another running build. A performance campaign, toolchain upgrade and real-library pilot are not prerequisites to correcting the demonstrated architecture.
 
 ## 2. Confirmed rule changes and target defaults

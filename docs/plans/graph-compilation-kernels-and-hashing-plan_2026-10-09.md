@@ -1,6 +1,7 @@
 # Model-owned graph compilation and shared relation kernels
 
-**GK0–GK5 and required GR1 foundations Implemented / focused Tested, 2026-10-09.** This plan develops the
+**GK0–GK6 and GR0–GR5 integration Implemented / focused Tested, 2026-10-09;
+GK7/GR6 integrated qualification remains open.** This plan develops the
 [graph compilation and hashing review](../design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md).
 The [persisted-execution coordinator](persisted-graph-execution-plan_2026-10-07.md) owns the
 combined target, source-qualified finding disposition, cross-plan sequencing and acceptance.
@@ -110,6 +111,15 @@ ambiguous/missing bindings explicitly. Compile the immutable program once per ap
 and operation shape; prepare source-specific access/layout once per exact dependency lifetime.
 Root IDs parameterize the prepared plan; they do not require rebuilding its semantic program.
 
+**Proposed physical refinement, 2026-10-09:** the
+[native-efficiency companion](native-execution-efficiency-plan_2026-10-09.md#3-target-responsibilities-and-shared-contracts)
+NE1 resolves ordered role/epoch selectors once into exact immutable bindings consumed by provider
+registration, products and native resolution. NE2 removes amplified owner/key enumeration using
+qualified equality-prefix/verified-pointer or compact exact-view selection; native union-IN
+is not presumed bounded. NE3 shares captured providers, checked logical preparation and compatible
+union inputs across independent admission grains, including complete OwnershipRows::Full domains.
+Physical grouping does not share semantic acceptance or mutate catalogs beneath other grains.
+
 The shared root executor returns `(root partition, relation namespace, nominal key)` memberships,
 explicit root outcomes and a shared compact union for physical demand. Roots that exist only as
 advertised admission obligations are processed and refused when appropriate, never omitted.
@@ -191,13 +201,20 @@ GK5 can use working scope bindings independently of cross-run compiler reuse. On
 shared declarations, manifests/schema, integration and acceptance; logical independence does not
 permit competing writers in the same files.
 
+The [native-efficiency packages NE0–NE9](native-execution-efficiency-plan_2026-10-09.md#4-packages-and-prerequisites)
+refine implemented GK foundations before GK7/GR6 qualification. NE0 records accepted access/local
+completion decisions; NE1–NE3 improve actual binding/access/admission; NE5/NE6 preserve contained
+native ownership while replacing polling/global local waits; NE7 refines GK5 preparation. None
+resets GK identities or closes the older source findings. The coordinator owns replacement
+mapping and all final-source receipts.
+
 ## 5. Acceptance, cutover and investigations
 
 **Planned / not_run.** During implementation use compile checks and minimal revealing controls
 on pinned release artifacts, normal available parallelism and owned disposable fixtures.
 Resolve actual target/filter commands with `just verify --print --select ...` or the relevant
 bare command under `just fixture`. Never run broad families after each slice. At GK7/GR6 schedule
-one affected assembled `just qualify` because shared model/dependency/admission contracts change,
+one affected assembled `just qualify` at the NE9/GK7/GR6 boundary because shared model/dependency/admission contracts change,
 plus surviving PC6/CU6/BC3/BC5 obligations on matching final source/profile. Separate operator
 adoption, real-library/Qwen/protected evaluation and performance measurement remain unauthorized.
 
@@ -230,3 +247,40 @@ integrity, not implementation, measured benefit or closure of F01/F02.
 accepts the combined target at Proposed/interface strength. Its separate GR5 retirement-order
 finding is corrected in the target; the coordinator §8 retains the runtime control obligation.
 Source graph/hash F01/F02 remain open until implementation and closure evidence exist.
+
+
+**Execution refinement, 2026-10-09:** GK6 composes shared model-owned programs and selected
+layouts with the reuse companion's exact products and complete selected domains. Current
+ownership and admission remain independent. Behavioral private Local/Base/Body/SourceCall
+owners execute afresh because complete semantic validation would repeat their kernels; no
+portable private hint or second authority remains. SCC schedules execute once per prepared graph
+and bind through its private materialization identity: validating a portable schedule would
+repeat graph traversal and condensation ordering, then add hashing and lookup. Complete nominal
+topology identities remain available for beneficial pure contracts. The driver dependency graph describes current
+computational/provenance edges; it does not claim a general incremental scheduler. Viewer-owned
+Moka preparation is integrated through the same immutable reader, with charged insertion owners,
+pressure reclamation and close-before-reader-invalidates ordering. See the reuse companion §7
+for the complete family and lifecycle boundary and coordinator §8/§9.1 for review disposition
+and dated evidence. GK7/GR6, BC3 and failed full-compiler equivalence controls remain open;
+focused passes do not qualify the whole pivot or establish measured benefit.
+
+**Integrated demand correction, 2026-10-09 (Implemented / acceptance in progress).** Candidate native
+controls exposed `symbol_entity_resolutions` conflicts in both profiles. The entity scope already
+separates virtual computational roots from nominal lookup dependencies; the kernel incorrectly
+emitted resolutions for all hydrated symbols, including support symbols lacking their reverse
+candidate families. Typed output demand now carries the requested root through kernel execution,
+including surviving mixed-cache partitions. Supporting facts remain available for lookup; public
+demand retains all origin-matched alternatives, and parameter/field computation follows the
+demanded symbol owner. The correction neither suppresses conflicting rows nor recursively expands
+every supporting symbol. Revealing finite demanded-versus-full normalization controls and the
+affected actual native candidate gate establish closure; coordinator §9.1 retains failed receipts.
+
+**Advertised callable-owner correction, 2026-10-09 (Implemented / acceptance in progress).**
+After the entity correction, both native normalized frontiers completed normalization and
+failed independent artifact admission: nominal reachability had also selected a supporting
+callable's advertised claims. Model-owned `CallableOwnerSelection` now selects the requested
+callable's actual advertised assessment/evidence family, independently of recomputed expected
+IDs. Broad source premises, strict same-owner extra/missing checks and global orphan probes
+remain unchanged. This is the same separation of computational ownership and lookup dependency;
+finite supporting-callable/adversarial controls and actual native artifact admission establish
+the correction's evidence boundary in coordinator §9.1.

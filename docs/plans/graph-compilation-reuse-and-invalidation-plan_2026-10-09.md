@@ -1,6 +1,7 @@
 # Selective graph-compilation reuse, hashing and invalidation
 
-**Proposed target, 2026-10-09; production implementation not_run.** Companion to
+**GR0–GR5 and GK6 integration Implemented / focused Tested, 2026-10-09;
+GR6 integrated qualification remains open.** Companion to
 [model-owned graph compilation](graph-compilation-kernels-and-hashing-plan_2026-10-09.md), based on
 the [graph/hash review](../design_review/reviews/design_review_graph-compilation-kernels-and-hashing_2026-10-09.md).
 The [persisted coordinator](persisted-graph-execution-plan_2026-10-07.md) owns all scheduled
@@ -41,7 +42,7 @@ provenance are distinct. Existing checked-input validation remains attempt-local
 | Salsa0.28.5 tracked queries/backdating/persistence | **Alternative, not selected for this target.** Persistence exists but is not currently enabled. It requires modelling native reads/absence, exclusive serialization and cancellation/clone lifetimes, and another retained ingredient format beside canonical products. | A long-lived fine-grained mutable-query workload can naturally replace the explicit product graph and justify its retained state. Compare complete lifecycle, not only query speed. |
 | Ascent0.8.1/Datafrog2.0.1 | **Possible kernel lowerings, not the cross-run store.** Snapshot fixpoints may fit relation operations; Datafrog monotonic variables/fixed-negative antijoin and unqualified Ascent retractions do not establish deletion support. Neither is currently locked. | A named multi-relation fixpoint cannot be adequately expressed with existing graph/set kernels. Qualify deletion/negation, convergence and generated Rust cost before adopting. |
 | Differential/DBSP | **Not selected.** Signed-delta propagation is eligible, but the review supplies no qualified project integration; exact immutable-product reuse serves the current batch compiler. | Repeated insertions/deletions dominate an actual incremental workload and snapshot recomputation is inadequate. A subsequent selected engine must subsume rather than duplicate the dependency owner. |
-| Moka0.12.16 future cache | **Selected for GR5 replaceable prepared values.** Coalesced fallible initialization and weighted eviction replace bespoke concurrent-init/eviction machinery; exact dependencies, resource ownership and pins stay with the viewer. It is not the persistent product store or canonical program interner. | A concrete primitive limitation prevents preserving the viewer's preparation/cancellation contract; retain equivalent typed owner semantics when replacing it. |
+| Moka0.12.16 future cache | **Selected for GR5 replaceable prepared values.** Weighted retention remains library-owned. Native-efficiency NE7 separates stable charged flight ownership from replaceable Moka generations; coalescing is not assumed across cache objects. Exact keys, resource ownership and pins stay with the viewer. | A concrete primitive limitation prevents preserving the viewer's preparation/cancellation contract; retain equivalent typed owner semantics when replacing it. |
 
 Context7 resolve/query and exact pinned source were refreshed for Salsa/xxhash-rust during
 authoring. Salsa's [persistence API](https://docs.rs/crate/salsa/0.28.5/source/src/database.rs) and
@@ -65,13 +66,20 @@ advantage for these compact internal keys. This is an interface/integration choi
 throughput. Current transitive XXH64/XXH32 features do not already enable XXH3.
 
 GR5 adds `moka = { version = "=0.12.16", default-features = false, features = ["future"] }`
-to its serving owner when implementation is authorized. It is absent from the current lockfile;
+to its serving owner. It has been added with its narrow lockfile closure; at authoring it was absent;
 the [tagged manifest](https://github.com/moka-rs/moka/blob/v0.12.16/Cargo.toml),
 [pinned future-cache contract](https://docs.rs/moka/0.12.16/moka/future/struct.Cache.html) and
 [initializer source](https://github.com/moka-rs/moka/blob/v0.12.16/src/future/value_initializer.rs)
 were checked after Context7 discovery. Errors are uncached and same-key fallible initializers
 coalesce when they use the same error type. Generic cache weights/maintenance are best effort;
 they do not certify exact resource ownership or snapshot semantics.
+
+The [native-efficiency companion NE1/NE4](native-execution-efficiency-plan_2026-10-09.md#product-pipeline)
+refines physical reuse: resolved exact bindings are shared, selected root groups fetch union tokens
+once, and public products decode once into charged typed candidates borrowed by canonical/current
+semantic checks and transferred to fresh ingress. Cold capture has an explicit actual-completion
+comparison decision. Complete membership/absence remains necessary; pre-effect fallback never
+covers uncertain effects. Behavioral private-owner families and SCC schedules stay Fresh.
 
 ## 3. Products and exact dependency contracts
 
@@ -202,7 +210,13 @@ unknown/absence and evidence/cursor contracts. Snapshot replacement constructs a
 old readers keep their old cache and pin until quiescent. Embedding values keep their existing
 cache and spec identity; no duplicate vector cache is introduced.
 
-GR5 uses `moka::future::Cache<ExactPreparedKey, Arc<ChargedPreparedValue>>` and `try_get_with`.
+GR5's implemented preparation uses `moka::future::Cache<ExactPreparedKey, Arc<ChargedPreparedValue>>`
+and `try_get_with`. **Proposed correction, 2026-10-09:**
+[native-efficiency NE7](native-execution-efficiency-plan_2026-10-09.md#stable-preparation)
+keeps Moka optional completed-value retention but moves live same-key initialization into a stable
+charged viewer-owned flight owner. Generation pressure cannot split an active loader; exact
+completion/removal, independent waiter cancellation and retirement remain governed. The following
+lifetime/charge guarantees survive this mechanism replacement.
 Prepare with viewer-owned cancellation; each request can stop waiting without making its token
 the lifetime of shared preparation. Reserve payload and owned-metadata charge inside the
 initializer before allocation, and retain it with the value's immutable pin. Eviction removes
@@ -259,10 +273,10 @@ an explicit effect/semantic reason it must execute afresh; no blanket caching of
 
 ## 6. Acceptance, investigations and cutover
 
-**Planned / not_run.** Independent small expected graphs/rows challenge production declarations;
+**Implemented / focused Tested, 2026-10-09; integrated acceptance open.** Independent small expected graphs/rows challenge production declarations;
 clean-rebuild equivalence is necessary for finer incremental claims but is not the only oracle.
 Use normal available parallelism and current release-profile controls, disposable native fixtures
-and exact module/target selection. GK7/GR6 share one final-source affected assembled acceptance
+and exact module/target selection. NE9/GK7/GR6 share one final-source affected assembled acceptance
 with PC6/CU6/BC3/BC5 obligations; do not rerun broad journeys after each package.
 
 | Case | Required distinction |
@@ -295,4 +309,63 @@ review, distinct from implementation acceptance and measured reuse benefit.
 **Target reviewed, 2026-10-09:** the [independent plan-target review](../design_review/reviews/design_review_graph-compilation-and-reuse-plan_2026-10-09.md)
 accepts the combined target at Proposed/interface strength. Its separate F01 corrected the GR5
 retirement order and retry fence in §4; the coordinator §8 owns current disposition and the
-required runtime race control. Source graph/hash findings remain open; reuse is not implemented.
+required runtime race control. Source graph/hash findings and enclosing acceptance remain open under the coordinator; the production reuse implementation and bounded controls below do not establish whole-plan qualification.
+
+
+## 7. Implemented contract refinements, 2026-10-09
+
+ADR-0140 and the semantic/product owners record the delivered target. The coordinator §9.1
+owns dated commands and outcomes; §8 owns finding disposition. This section explains the
+implementation boundary rather than creating another receipt ledger.
+
+- A shared `ScopeProgramRuntime` owns charged, exact-equality canonical program interning.
+  Default Workspaces remain attempt-owned; an explicit shared runtime permits repeated attempts
+  under the same model. Program sharing never shares a checked-input capability.
+- Portable format1 retains only request, outcome and canonical sections. Native private cache
+  schema5 has full keys, checked bounded chunks, acknowledged read-back receipts, generation
+  and point transaction fences, a separate capacity ledger, and leased lifecycle/entry state.
+  Two fixed 4096-stripe lock spaces bound filesystem coordination metadata; stripe collisions
+  refuse optional insertion or delay eviction, never establish product equality. Explicit
+  incompatible reset removes old private tables and their obsolete schema definitions before
+  rebuilding. An immutable native directory-owner receipt survives schema reset and interrupted rebuilding; the old generation is point-fenced before DDL. The existing coordination-directory owner must authorize that reset. All reset DDL/header/quota effects share one native transaction guarded by a persistent administrative generation. Compatible explicit installation and retirement rotate the same token; a durable pending marker blocks readonly connection/lookup until confirmed explicit-install reconciliation.
+- Every producer receives exact ordered role-associated completed inputs. Exact request keys
+  select current recomputation or replay; a charged petgraph dependency graph retains reverse
+  computational and provenance edges. Graph-only implicit selectors resolve to their selected frozen epoch without weakening request identity or merging explicit equal-content epochs. Its reachability is descriptive metadata, not a general
+  mutable-query scheduler. Ordinary completed-view consumers remain exact-view-dependent.
+- Entity, callable and class/aspect kernels additionally compute complete selected membership,
+  content and missing/empty domains before rich hydration. Only misses hydrate their union;
+  hits preserve original root partitions. Canonical topology identities include complete nominal
+  vertices and identity-bearing directional arcs. The current SCC schedule stays Fresh: validating
+  a cached schedule repeats traversal and condensation ordering, then adds hashing/lookup.
+  It executes once per prepared graph and binds through a private materialization identity;
+  no persistent SCC cutoff or universal downstream backdating is claimed.
+- Typed entity output demands and model-owned advertised callable output selection keep lookup
+  dependencies distinct from requested outputs. Supporting symbols/callables remain available
+  without incidental output claims. Callable selection follows actual stored ownership links,
+  never expected computed IDs; strict same-owner completeness and global orphan checks remain.
+- Normalized Entity/Relation/Callable/CallableAspect/Projection rows are eligible. Receiver,
+  Event and Binding replay requires canonical validation and the existing full current semantic
+  admission predicates before any writer registration or mutation. Coverage executes afresh.
+- Structural, Summary, governed Analytic, Text, CatalogCore/CatalogEvidence, Selection,
+  Enriched, Models, Synthesis and Retrieval pure rows use conservative exact-input products.
+  Catalog Local/Base/Body/SourceCall NotRequested outcomes are eligible. Behavioral versions of
+  **all four remain Fresh**: validating portable private state faithfully would rerun their
+  entire current production kernels and add lookup/comparison/replay work. Their former hint
+  interfaces and portable private fields have been removed. Configuration, frontier admission,
+  providers/effects and embedding inference retain their existing fresh or specialized owners.
+- Every hit reconstructs current typed ingress, contribution ownership, completed views and
+  admission. Canonical typed validation rejects extra fields and duplicates across batch windows.
+  Known optional preparation/capture resource refusal falls back to fresh work; uncertain or
+  committed native effects remain fatal through nested DataFusion/model errors.
+- Viewer-owned Moka preparation coalesces one fallible initializer with independently cancellable
+  requests and exact pin/input/root/field keys. Pending owners and retained values stay charged.
+  Pressure drops the optional cache generation so its deferred maintenance cannot indefinitely
+  retain required-work capacity; active initializers and external borrowers retain their own
+  charges. Close fences requests/retries, drains initialization, drops retention, then waits
+  external leases. The reader is invalidated after service preparation closes.
+
+Pure, native lifecycle, selected-domain, corruption, capacity and serving race controls have
+passing evidence after repairs. Full six-attempt Catalog and Behavioral compiler matrices
+remain **failed (300s timeout)**, so cross-attempt end-to-end equivalence is not yet qualified.
+BC3 retains the release default until its actual candidate gate passes. No numeric speed benefit,
+operator cache installation, real-library qualification or general incremental scheduler is claimed.

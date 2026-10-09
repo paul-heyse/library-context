@@ -8,9 +8,12 @@ This supporting plan develops the [populated journey target review](../design_re
 
 **Proposed replacement target, 2026-10-09:** the accepted graph/hash RC01/RC02 now schedule
 [model-owned relation compilation](graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
-and [selective reuse](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md). GK2/GK3/GK5
-supersede this plan's normalization/validation/browse preparation deferrals where reviewed
-amplification exists. PJ2/PJ3 remain implemented preservation constraints; coordinator §7.1/§8
+and [selective reuse](graph-compilation-reuse-and-invalidation-plan_2026-10-09.md). GK2/GK3/GK5 supersede this plan's normalization/validation/browse preparation deferrals where
+reviewed amplification exists. The [native-efficiency companion](native-execution-efficiency-plan_2026-10-09.md)
+now refines those implemented routes: NE1–NE3 share exact binding/access/admission preparation,
+NE5/NE6 replace polling and unrelated-reader waits at local completion, and NE7 preserves one
+live preparation across retention pressure. Final content freeze/global closure and independent
+stored-state admission remain distinct. Native union-IN is not a qualified bulk alternative. PJ2/PJ3 remain implemented preservation constraints; coordinator §7.1/§8
 own replacement mapping and finding status. Plan authoring still does not resume tests or production.
 
 At source baseline `3c76f172`, two independently populated native journeys passed in 1883.02s of test execution; the complete `just verify --select serving:mcp` boundary passed in 2439.61s, including builds and 35 dependent Python controls. These are attributed 2026-10-08 local receipts, not new checks or internal phase measurements. They establish neither the dominant runtime phase nor any remedy's speed.
@@ -228,7 +231,7 @@ Current command routes, statically resolved on 2026-10-09:
 - `serving:mcp` builds CLI/evaluator, runs both native journeys, then Python controls. A pytest filter does not skip native preparation.
 
 At functional completion PJ5 schedules affected leaves once. The preceding operator selection
-completed a targeted populated boundary; its historical passes remain scoped. GK7/GR6 now schedule
+completed a targeted populated boundary; its historical passes remain scoped. NE9/GK7/GR6 now schedule
 affected final-source assembled qualification and surviving timeout/PC/CU/BC controls after the
 replacement works. Authoring runs no product tests. Record each failed/blocked/not_run obligation;
 BC3 retains its qualified-default gate and release stays current until it passes. No floating

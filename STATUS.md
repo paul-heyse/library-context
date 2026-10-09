@@ -2,14 +2,17 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: native-execution efficiency design review; GK/GR implementation and testing paused.**
+**Current scope: native-execution efficiency plan authored; production implementation/testing paused.**
 The [compiler/kernel plan](docs/plans/graph-compilation-kernels-and-hashing-plan_2026-10-09.md),
 [reuse companion](docs/plans/graph-compilation-reuse-and-invalidation-plan_2026-10-09.md#7-implemented-contract-refinements-2026-10-09)
 and [persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
 own implementation scope, scheduled finding disposition and exact failed/repaired receipts.
-The [native-efficiency review](docs/design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md)
-owns its new unscheduled findings and Proposed recommendations; these do not amend accepted decisions.
-GK0–GK6 and GR0–GR5 are implemented in the current uncommitted tree on `85e8b9cb`;
+The [native-efficiency plan](docs/plans/native-execution-efficiency-plan_2026-10-09.md) develops
+NE0–NE9; source-review F01–F08 now have their sole scheduled disposition in coordinator §8.
+Operator RC01–RC05 acceptance is recorded individually; production decisions/corrections remain Proposed.
+The [independent target review](docs/design_review/reviews/design_review_native-execution-efficiency-plan_2026-10-09.md)
+accepts the Proposed / Interface-checked target, without new blocking findings or implementation closure.
+GK0–GK6 and GR0–GR5 are implemented in the current uncommitted tree on `d2341cc4`;
 prior GK0–GK5 foundations are committed as `da7c4747`. GK7/GR6 acceptance remains open.
 Preserve the operator's untracked hashing references. No push or operator activation requested.
 
@@ -34,9 +37,9 @@ transaction token prevent stale administration after newer install. Explicit ins
 reconciles interrupted administration; ordinary connection neither installs nor repairs state.
 No completed-artifact or published physical-schema migration is introduced by cache metadata.
 
-Viewer-owned Moka preparation coalesces exact-pin requests with independently cancellable
+Viewer-owned Moka preparation coalesces exact-pin requests within one retention generation, with independently cancellable
 waiters and charged insertion/value owners. Pressure replaces and drops optional cache retention;
-external borrowers retain charge and reader pin. Close drains preparation before reader
+external borrowers retain charge and reader pin. NE7 schedules stable flights across pressure replacement. Close drains preparation before reader
 invalidation. Existing native serving and Python session consumers use this lifecycle.
 The direct pinned Moka0.12.16 adds only its narrow lock closure; no existing version changes.
 
@@ -74,13 +77,15 @@ The direct pinned Moka0.12.16 adds only its narrow lock closure; no existing ver
 - **Implemented / not_run:** stable SDK-session streaming correction retains the authenticated
   client through explicit drainage. Its new native control and final-source compile check have
   not run. The previous readiness receipt predates this patch; authentication causality is unproven.
-- **passed:** review publication/link check, `just docs`, 2026-10-09,358canonical pages, zero link errors;
-  `git diff --check`. **failed:** `just docs-check` stops at the existing dirty ADR-0140/§B3
-  decision-line mismatch. No architectural decision was amended to repair that unrelated metadata.
+- **passed:** plan authoring `just docs-check`, 2026-10-09,360canonical pages, zero link errors;
+  `git diff --check`. The earlier ADR-0140/§B3 reference mismatch and two new broken links were
+  repaired, then the actual publication check rerun. This is documentation acceptance only.
+- **passed:** preservation check:73 pre-existing unowned files remain byte-for-byte unchanged.
+  Production compile/native controls are **not_run** for this documentation-only task.
 
-**Next:** integrate the review's recommendations and investigation decisions into implementation
-plans before resuming remediation or qualification. Retain failed boundaries and release default
-until BC3 passes. Review findings are source-backed; latency attribution and improvement remain unmeasured.
+**Next:** plan detailed execution from NE0/NE1 and their actual query/transport/lifetime prerequisite slices. No tests or
+production work resume through authoring. Retain failed boundaries and release default until BC3
+passes. Structural corrections are Proposed; latency attribution and improvement remain unmeasured.
 Source code, focused controls, candidate profile qualification and whole-plan acceptance remain
 separate claims; no measured speed or whole-plan completion is claimed.
 

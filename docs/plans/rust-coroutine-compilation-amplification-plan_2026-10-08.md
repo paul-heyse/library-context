@@ -174,6 +174,13 @@ remain unchanged. CU5 may introduce an internal checked transfer-granularity out
 its exact contract must be settled before implementation and is not selected by this document.
 No dependency upgrade, feature expansion, profile change or library adoption is needed.
 
+The [native-efficiency companion NE5/NE6/NE9](native-execution-efficiency-plan_2026-10-09.md#4-packages-and-prerequisites)
+refines actual native handoffs/completion while retaining CU's contained synchronous kernels,
+shared erased request paths, exact semantic order and full charge/terminal ownership. These
+runtime corrections do not restart CU source migration or authorize compiler profiling. CU6's
+surviving native/CLI/finality obligations join NE9/GK7/GR6 on matching final source; BC3 candidate
+adoption remains distinct. This link changes the completion route, not historical receipts.
+
 ## 4. Execution packages and concrete dependencies
 
 CU0–CU4 corrections and CU5’s keep-current decision are **implemented / source reviewed**; CU6 acceptance is in progress. The root owns shared reader,

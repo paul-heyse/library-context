@@ -86,7 +86,11 @@ The simplest viable improvement is to resolve each declared input selector/prede
 
 ## 5. Findings
 
-Each finding is a dated source-review obligation. All are **Deferred / unscheduled** here pending explicit transfer to the existing persisted graph coordinator's sole disposition table. This is a review disposition, not a new work schedule or parallel findings register.
+Each finding is a dated source-review obligation. On2026-10-09, plan authoring transferred F01–F08 to
+[the persisted coordinator's sole disposition table](../../plans/persisted-graph-execution-plan_2026-10-07.md#native-efficiency-findings-transferred-on-2026-10-09).
+The [native-efficiency companion](../../plans/native-execution-efficiency-plan_2026-10-09.md) develops
+the proposed corrections and investigation routes. This transfer changes status ownership, not
+the review's original source assessment or its evidence strength.
 
 <a id="f01"></a>
 ### F01 — Exact membership demand expands into absent owner/key combinations
@@ -255,19 +259,24 @@ The consequential open choices are the actual native membership plan in F01, par
 
 ### Rule impacts after the architectural judgment
 
+The operator explicitly accepted RC01–RC05 during plan preparation on2026-10-09.
+[Companion §2](../../plans/native-execution-efficiency-plan_2026-10-09.md#2-operator-decisions-and-authority-route)
+records each outcome and its implementation route. The recommendations below retain their
+original review meaning; this confirmation does not amend an accepted ADR or establish closure.
+
 | ID | Proposed change / rule impact | Required route and owner | Source findings / status |
 |---|---|---|---|
-| RC01 | Replace §6.2's physical requirement to “point-read deterministic memberships” with exact immutable membership selection, qualified actual access paths and deterministic conflict/dedup semantics. The current physical wording unnecessarily commits the contract to Cartesian point enumeration | Storage/publication owner; update governed architecture through the appropriate ADR route. Keep model/exact-view semantics; accepted ADR-0138 is not edited in place | F01; **Proposed decision, unscheduled** |
-| RC02 | Distinguish local contribution completion from final global read drainage in the native lifecycle contract | Semantic-model §15.10/15.11 and storage lifecycle owners; decide explicit relevant descendant/failure ownership, then amend owning architecture if the current global completion guarantee is deliberately changed | F06; **Proposed decision, unscheduled** |
-| RC03 | Share prepared relational/typed representations while retaining independent admission, exact premise identity and reject-before-ingress | Existing model/core owners; implementation/refactor under current authority unless chosen lifetime/assurance meaning changes. SQL statement prohibition stays; opening PREPARE is not required | F02–F04; **No additional semantic rule relaxation proposed** |
-| RC04 | Separate optional value retention from stable in-flight ownership; replace polling with actual completion wakeups | Serving/native/provider owners; implement inside current retained-owner/terminal contracts. Any altered cancellation/acknowledgement contract requires the existing decision route | F05/F07; **No caps, scheduler or retry framework proposed** |
-| RC05 | Declare selected versus complete-inventory observation in typed extraction controls | Harness/validation owners; preserve independent full-universe controls and actual native realization | F08; **No acceptance-scope weakening proposed** |
+| <a id="rc01"></a>RC01 | Replace §6.2's physical requirement to “point-read deterministic memberships” with exact immutable membership selection, qualified actual access paths and deterministic conflict/dedup semantics. The current physical wording unnecessarily commits the contract to Cartesian point enumeration | Storage/publication owner; update governed architecture through the appropriate ADR route. Keep model/exact-view semantics; accepted ADR-0138 is not edited in place | F01; **Proposed decision at review time; operator accepted direction2026-10-09, route in companion §2** |
+| <a id="rc02"></a>RC02 | Distinguish local contribution completion from final global read drainage in the native lifecycle contract | Semantic-model §15.10/15.11 and storage lifecycle owners; decide explicit relevant descendant/failure ownership, then amend owning architecture if the current global completion guarantee is deliberately changed | F06; **Proposed decision at review time; operator accepted direction2026-10-09, route in companion §2** |
+| <a id="rc03"></a>RC03 | Share prepared relational/typed representations while retaining independent admission, exact premise identity and reject-before-ingress | Existing model/core owners; implementation/refactor under current authority unless chosen lifetime/assurance meaning changes. SQL statement prohibition stays; opening PREPARE is not required | F02–F04; **No additional semantic rule relaxation proposed** |
+| <a id="rc04"></a>RC04 | Separate optional value retention from stable in-flight ownership; replace polling with actual completion wakeups | Serving/native/provider owners; implement inside current retained-owner/terminal contracts. Any altered cancellation/acknowledgement contract requires the existing decision route | F05/F07; **No caps, scheduler or retry framework proposed** |
+| <a id="rc05"></a>RC05 | Declare selected versus complete-inventory observation in typed extraction controls | Harness/validation owners; preserve independent full-universe controls and actual native realization | F08; **No acceptance-scope weakening proposed** |
 
 No alternate canonical authority, operator activation, old-format compatibility reader, source of truth ledger or universal execution graph is authorized by these rule impacts. If the materially different intermediate placement wins a later comparison, it can supersede §B7/§B12 and related decisions through the existing ADR/owner route rather than conforming to them by construction.
 
 | Findings | Current disposition owner | Transfer / reopening trigger |
 |---|---|---|
-| F01–F08 | This review, Deferred / unscheduled | Coordinator selects native execution correction scope and transfers rows with source IDs/responsible owner/closure evidence to the existing persisted graph execution coordinator's sole finding-disposition table |
+| F01–F08 | [Persisted coordinator §8](../../plans/persisted-graph-execution-plan_2026-10-07.md#native-efficiency-findings-transferred-on-2026-10-09), transferred2026-10-09 | [Native-efficiency companion](../../plans/native-execution-efficiency-plan_2026-10-09.md) schedules corrections with original IDs, owners and closure evidence; this dated review does not keep another mutable status table |
 | Existing GK/GR/PJ obligations and canceled qualification | Their existing coordinator/plan owners | This review neither closes nor duplicates their mutable status; root reconciles current receipt truth and explicit transfer |
 
 ## 10. Architectural decision and priorities

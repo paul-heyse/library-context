@@ -100,13 +100,21 @@ For atomic scope demand, prepare each constant once and stream compact candidate
 
 Feed compact relation-qualified nominal keys and real physical pointers into the existing native external-run ordering mechanism. Refactor its private run/merge kernel for two adapters: existing full physical-row reconciliation, and compact candidate ordering. Retain bounded sorted runs, binary-carry merging and adjacent-key deduplication; do not create fake native identities to reuse the existing RecordId comparator. Preserve conflicting pointer/payload detection where equality promises require it. Charge retained buffers and run metadata to the operation budget; spill data is private derived scratch. Merge/file work runs under acknowledged blocking-work ownership with bounded input buffering, and scratch survives interrupted drainage until that work is terminal.
 
-After complete compact ordering and deduplication, use the existing bounded writer-derived membership point lookups against verified exact completed owners, then hydrate only admitted selected rows in bounded projected batches. Never apply an output LIMIT before exact membership and residual filtering. Reuse complete nominal keys and existing point-write mapping; pending rows, foreign epochs and overlapping contributions do not widen the universe. Preserve partial-window state across interrupted and resumed reads.
+After complete compact ordering and deduplication, establish exact immutable membership, then
+hydrate only admitted selected rows in bounded projected batches. The
+[native-efficiency NE2 target](native-execution-efficiency-plan_2026-10-09.md#32-native-access-follows-actual-membership--f01)
+replaces multi-owner Cartesian point enumeration with qualified scalar equality-prefix access,
+verified source pointers or compact exact-view preparation. Single-owner deterministic point reads
+remain legitimate. Preserve PC4's no native union-seen state requirement: a bounded IN list is
+not evidence of bounded candidates. NE0 routes the accepted reader-rule refinement before migration.
+
+Never apply an output LIMIT before exact membership and residual filtering. Reuse complete nominal keys and existing point-write mapping; pending rows, foreign epochs and overlapping contributions do not widen the universe. Preserve partial-window state across interrupted and resumed reads.
 
 Unfiltered and general-predicate compiler scans stream compact membership entries per selected exact contributor through the same ordering route, using the existing contribution/relation membership index. Apply residual predicates to exact selected rows; unsupported predicates may require examining the complete exact input but cannot first collect all nodes into a resident array. Preserve canonical family scans, frontier-specific one-hop graph aliases and published-versus-private identity mapping. Canonical export/reconciliation retains physical-ID order through its existing adapter; typed selected streams retain nominal-key order. Expand aliases in bounded frontiers before canonical external deduplication; do not impose one comparator on both contracts. This route intentionally sorts compact necessary candidates before yielding ordered output; it is not a claim of immediate first-row delivery.
 
 This reuses an existing native spill owner across plain compiler, serving and reconciliation callers. DataFusion SortExec is a viable library alternative when a caller already supplies its runtime; the current store scanner has no such context, and a new nested runtime per scan would add ownership and configuration. Do not add that second route now. Native ordered equality merging is a deferred specialization, triggered only by a concrete need and exact plan evidence; it is not a fallback that silently reintroduces growing seen sets.
 
-PC4 must qualify the concrete equality and exact-contributor scan plans on pinned SurrealDB3.3 before closing F03/F04. Source inspection establishes a credible target, not that every generated query currently chooses it. If the composed plan still inserts material whole-match state, revise the lowering within PC4 and keep the finding open; do not compensate with larger runtime limits or a truncated answer.
+PC4/NE2 must qualify the concrete equality and exact-contributor scan plans on pinned SurrealDB3.3 before closing their source-qualified findings. Source inspection establishes a credible target, not that every generated query currently chooses it. If the composed plan still inserts material whole-match state, revise the lowering within PC4 and keep the finding open; do not compensate with larger runtime limits or a truncated answer.
 
 ### 4.3 DataFusion and retained library mechanisms
 
