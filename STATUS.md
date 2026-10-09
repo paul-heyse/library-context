@@ -2,70 +2,91 @@
 
 _Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Delivered scope: GK0–GK5 and required GR1 foundations, Implemented / focused Tested.**
-The [compiler/kernel plan](docs/plans/graph-compilation-kernels-and-hashing-plan_2026-10-09.md)
+**Current scope: native-execution efficiency design review; GK/GR implementation and testing paused.**
+The [compiler/kernel plan](docs/plans/graph-compilation-kernels-and-hashing-plan_2026-10-09.md),
+[reuse companion](docs/plans/graph-compilation-reuse-and-invalidation-plan_2026-10-09.md#7-implemented-contract-refinements-2026-10-09)
 and [persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
-own current finding disposition, exact commands, failed/repaired receipts and enclosing acceptance.
-Implementation is committed on main as `da7c4747` (baseline `4d94339f`); preserve the operator's
-untracked hashing references.
-No push or operator activation is requested.
+own implementation scope, scheduled finding disposition and exact failed/repaired receipts.
+The [native-efficiency review](docs/design_review/reviews/design_review_native-execution-efficiency_2026-10-09.md)
+owns its new unscheduled findings and Proposed recommendations; these do not amend accepted decisions.
+GK0–GK6 and GR0–GR5 are implemented in the current uncommitted tree on `85e8b9cb`;
+prior GK0–GK5 foundations are committed as `da7c4747`. GK7/GR6 acceptance remains open.
+Preserve the operator's untracked hashing references. No push or operator activation requested.
 
-**Implemented / source-inspected, 2026-10-09:** ADR-0139 and architectural owners accept
-model-owned relation scope programs with mechanical finite/native/relational lowerings.
-Canonical tagged frames retain BLAKE3 identities; XXH3 buckets require exact-byte equality.
-The new direct `xxhash-rust =0.8.19` declaration uses the existing locked version, with no bump.
-Shared prepared demand retains exact private root partitions, explicit absent/virtual outcomes,
-completed-input epochs and independent admission. Normalization borrows typed union views;
-C1/C2/S0/Local retain charged exact selected copies, while SourceCall/E0/Model share rich columns
-before private decoding. Structural/Analytic/Summary retain necessary complete-frame universes.
-Pinned serving uses the same captured reader through discovery and hydration. These are
-request-owned scopes, not cross-request caches. No record/physical schema migration in this slice.
+**Implemented / focused Tested or source-inspected, 2026-10-09:** ADR-0140 integrates selective
+portable products with model-owned scope programs. Requests carry exact role/order/prefix,
+model/code/configuration/profile and canonical output contracts; BLAKE3 durable identity and
+XXH3 exact-equality interning retain distinct responsibilities. Complete selected membership,
+content and missing/empty domains precede rich hydration. The graph records actual selected
+frozen epochs and computational/provenance edges; it is not a general incremental scheduler.
 
-The [independent assembled review](docs/design_review/reviews/design_review_assembled-graph-scope-compilation_2026-10-09.md)
-accepts the source boundary at Implemented/source-inspected strength. Review corrections include
-absent-root propagation, fail-closed finite adapters, semantic-to-physical sum references, actual
-Model windows, removal of optional discovery history, exact canonical allocation and immutable
-Relation sharing. SourceCall construction, lowering and selector phases release temporary state
-at ownership transfer; budgets and semantic predicates remain unchanged. No measured speed claim.
+Replay checks typed canonical rows and necessary current semantic predicates before ingress,
+then creates fresh contributions and checked owners. Portable products carry no private hints.
+Behavioral Local/Base/Body/SourceCall remain Fresh because complete replay validation repeats
+their kernels; Catalog NotRequested rows are eligible. SCC schedules compute once per prepared
+graph and bind through a private materialization identity; persisted SCC replay is retired because
+its validator repeats traversal and condensation ordering. Canonical topology identities remain.
 
-**passed, 2026-10-09:**
+The optional native private cache has complete keys/chunks, acknowledged canonical readback,
+bounded fixed lock stripes, separate quota, entry/lifecycle leases and unknown-effect quarantine.
+Persistent directory ownership, point-fenced atomic schema reset and a shared administrative
+transaction token prevent stale administration after newer install. Explicit installation alone
+reconciles interrupted administration; ordinary connection neither installs nor repairs state.
+No completed-artifact or published physical-schema migration is introduced by cache metadata.
 
-- Affected crate/test `cargo check --release -p lctx-model -p cpg-core -p lctx-serving --tests`.
-- All 242 model, 36 core and eight native/serving controls in the initial 288-control selection.
-  That composite **failed** its two SourceCall constructor controls. Their exact repaired rerun
-  **passed**, Nextest `fc73c7f9-65a3-4925-a867-dcff3ddf504d`, 1.967s. The original composite
-  remains failed; aggregate selected controls have passing evidence after repairs.
-- Final affected-crate all-target keep-going Clippy with `-D warnings`, including final SourceCall
-  source. This is affected scope, not a new full-workspace receipt.
-- `just deps`, final `just rules-test`, `just rules-scan` and `just adr-lint`; stale Hakari was
-  regenerated before the passing dependency rerun. No warning suppression or concurrency caps.
+Viewer-owned Moka preparation coalesces exact-pin requests with independently cancellable
+waiters and charged insertion/value owners. Pressure replaces and drops optional cache retention;
+external borrowers retain charge and reader pin. Close drains preparation before reader
+invalidation. Existing native serving and Python session consumers use this lifecycle.
+The direct pinned Moka0.12.16 adds only its narrow lock closure; no existing version changes.
 
-Matching argv/environment and logs are retained in `build/verification/graph-scope-2026-10-09/`.
-Focused controls cover forced collisions, exact scopes/negative domains, budget ownership release,
-independent admission, native terminality/cancellation, late corrupt hydration, 260-member windows
-and one serving template bound to two distinct reader databases. SourceCall's complete set DAG
-has a relational lowering; primitive finite/native contrasts do not qualify another set-DAG backend.
-Final scoped `just turn-end --paths …` **passed** (70 changed Rust files); `just docs-check`
-**passed** (355 canonical pages, zero link errors); guard-free `just ready` **passed**, rebuilding
-the formatted native extension and confirming Python 3.14.7 and checkout-specific skill/environment
-readiness. These follow the focused bodies; the coordinator records that source boundary.
-No long journey was repeated solely for formatting.
+**Current verification, 2026-10-09:**
 
-**Next:** execute GR2–GR5 from the
-[reuse/invalidation companion](docs/plans/graph-compilation-reuse-and-invalidation-plan_2026-10-09.md),
-then GK6 composition and GK7/GR6 final-source qualification. Those scopes are **not_run** here.
-The reuse target is accepted; persistent products, dependency invalidation and Moka request
-caching are not implemented by this slice. No whole-plan qualification is claimed.
+- **passed:** affected release compile checks; repaired pure/domain/canonical/replay/serving
+  controls have aggregate passing evidence. Original failed composites remain failed.
+- **passed:** final13 actual native cache controls, run `20261009T151353.336Z-db7117`, including
+  late admin fencing, unknown effects, stripe collisions and committed-but-ack-lost recovery.
+  Three exact dependency-graph controls passed; readonly independent review accepts the bounded
+  final native protocol and graph-bound SCC consumer at source-inspected strength.
+- **passed:** final SCC-refined candidate25 model controls, run `20261009T154435.789Z-dc2a91`.
+  Graph moves, identical/changed rematerialization refusal and separate charge release covered.
+- **passed:** typed entity demand and SCC controls, six finite cases plus core root refusal,
+  run `20261009T160744.103Z-5fd0d5`. Both native profiles subsequently completed normalization.
+- **failed / corrected source, runtime unqualified:** both normalized artifacts refused callable admission:
+  supporting callables' advertised claims were mixed into the requested owner. Model-owned
+  advertised-owner selection is implemented; release compile check passed in
+  `20261009T163428.407Z-d6a8d2`. Both new finite/adversarial controls passed in
+  `20261009T163757.029Z-9b0811`; both native normalized artifacts completed normalization,
+  content freeze and facts admission, then timed out during invariant admission at900s.
+  No new assertion or artifact pass was established. Earlier candidate normalization
+  conflicts/timeouts and terminated Behavioral Facts retain their original failed boundary.
+- **failed:** earlier six-attempt Catalog and Behavioral compiler reuse matrices exceeded300s;
+  the retained logs do not establish the failing phase. Attempt/compiler phase diagnostics now
+  improve the next run. No full cache-off/cold/hit/reload/changed-input equivalence claim.
+- **passed:** verification routing45 Python controls; generated CLI feature union and ADR index.
+  Final-source guard-free `just ready` passed in `20261009T165830.221Z-835b15`,7m04s,
+  rebuilding the native extension after SCC/entity/callable ownership corrections.
+- **failed / canceled partial:** assembled release `just qualify`, `20261009T170649.056Z-032c30`,
+  canceled at17:27:50UTC after21m01s, exit143. Model798, analytics14 and flow controls passed;
+  extract retained one authentication failure and21timeouts; core retained147passes and two
+  300s matrix timeouts in their first cache-off attempts. SIGTERM cases are cancellations.
+  Remaining families/leaves were not_run; no assembled pass or whole-plan completion.
+- **Implemented / not_run:** stable SDK-session streaming correction retains the authenticated
+  client through explicit drainage. Its new native control and final-source compile check have
+  not run. The previous readiness receipt predates this patch; authentication causality is unproven.
+- **passed:** review publication/link check, `just docs`, 2026-10-09,358canonical pages, zero link errors;
+  `git diff --check`. **failed:** `just docs-check` stops at the existing dirty ADR-0140/§B3
+  decision-line mismatch. No architectural decision was amended to repair that unrelated metadata.
 
-**Surviving failed boundaries:** prior populated correction `2a62e817` has targeted native/MCP,
-transport and publication acceptance on its own source. Its 19 combined core 300s timeouts,
-six upper-frontier 900s timeouts and large compiled-export publication 300s timeout remain failed
-receipts in the coordinator. Their causal runtime attribution is unproven. PC6/CU6/BC3/BC5 and
-assembled release `qualify` remain open, mapped to GK7/GR6. Active defaults stay release until
-BC3 qualifies its candidate. Historical populated passes do not qualify the graph compiler.
+**Next:** integrate the review's recommendations and investigation decisions into implementation
+plans before resuming remediation or qualification. Retain failed boundaries and release default
+until BC3 passes. Review findings are source-backed; latency attribution and improvement remain unmeasured.
+Source code, focused controls, candidate profile qualification and whole-plan acceptance remain
+separate claims; no measured speed or whole-plan completion is claimed.
 
-**Preservation:** retain PC3's dirty isolated planner-control copy, shared build intermediates
-and profiling/benchmark captures. No operator database/configuration, client registration,
-Qwen service, protected gold/heldout, real FastMCP/Q1 pilot, wheel, benchmark campaign, activation
-or push is requested. Earlier product/evidence/graph-native obligations retain coordinator owners.
-Workspace commands and maintenance follow [AGENTS.md](AGENTS.md#commands).
+**Preservation and boundaries:** retain PC3's dirty isolated planner-control copy, shared build
+intermediates and compiler/profiling/benchmark captures. Prior coordinator receipts include
+19core300s/six-upper900s/large compiled-export300s timeouts; preserve their original source scope.
+PC6/CU6/BC3/BC5 acceptance is mapped to GK7/GR6. Operator databases/configuration, client
+registration, Qwen, protected gold/heldout, real FastMCP/Q1 pilot, wheels, benchmark campaign,
+activation and push remain held. Maintenance follows [AGENTS.md](AGENTS.md#commands).
