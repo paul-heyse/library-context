@@ -31,9 +31,17 @@ const STATE_TABLES: &[&str] = &[
     "compiler_binding",
     "compiler_alias",
 ];
+const SPOOL_BUFFER_BYTES: usize = 64 * 1024;
+
+/// Flush explicitly, then disarm BufWriter's best-effort Drop flush even after failure.
+fn finish_spool<W: Write>(mut writer: std::io::BufWriter<W>) -> Result<(), ModelError> {
+    let result = writer.flush().map_err(ModelError::codec);
+    let (_sink, _unflushed) = writer.into_parts();
+    result
+}
+
 struct Dump {
     _directory: tempfile::TempDir,
-    files: BTreeMap<String, std::fs::File>,
     definitions: BTreeSet<String>,
     original_chunks: BTreeMap<RecordId, std::path::PathBuf>,
     _charge: Box<dyn Reservation>,
@@ -44,23 +52,30 @@ impl Dump {
             "restore-parse-and-definition-metadata",
             crate::backup_import::MAX_DUMP_RECORD_BYTES * 4,
         )?;
+        // One fixed buffer per table and at most one original-chunk append buffer.
+        let _spool_buffers = budget.reserve(
+            "restore-spool-buffers",
+            SPOOL_BUFFER_BYTES * (DATA_TABLES.len() + 1),
+        )?;
         let directory = tempfile::tempdir().map_err(ModelError::codec)?;
         let files = (|| {
             let mut files = BTreeMap::new();
             for table in DATA_TABLES {
                 files.insert(
                     table.to_string(),
-                    std::fs::OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .create_new(true)
-                        .open(directory.path().join(table))
-                        .map_err(ModelError::codec)?,
+                    std::io::BufWriter::with_capacity(
+                        SPOOL_BUFFER_BYTES,
+                        std::fs::OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .open(directory.path().join(table))
+                            .map_err(ModelError::codec)?,
+                    ),
                 );
             }
             Ok(files)
         })();
-        let files = match files {
+        let mut files = match files {
             Ok(files) => files,
             Err(error) => {
                 let mut completion = lctx_model::domain::completion::Completion::default();
@@ -73,7 +88,6 @@ impl Dump {
         };
         let mut result = Self {
             _directory: directory,
-            files,
             definitions: BTreeSet::new(),
             original_chunks: BTreeMap::new(),
             _charge: charge,
@@ -126,17 +140,26 @@ impl Dump {
                                     .original_chunks
                                     .get(&source)
                                     .expect("inserted source spool");
-                                let mut file = std::fs::OpenOptions::new()
-                                    .create(true)
-                                    .append(true)
-                                    .open(path)
-                                    .map_err(ModelError::codec)?;
-                                serde_json::to_writer(&mut file, &row)
-                                    .map_err(ModelError::codec)?;
-                                file.write_all(b"\n").map_err(ModelError::codec)?;
+                                let mut file = std::io::BufWriter::with_capacity(
+                                    SPOOL_BUFFER_BYTES,
+                                    std::fs::OpenOptions::new()
+                                        .create(true)
+                                        .append(true)
+                                        .open(path)
+                                        .map_err(ModelError::codec)?,
+                                );
+                                let written = (|| {
+                                    serde_json::to_writer(&mut file, &row)
+                                        .map_err(ModelError::codec)?;
+                                    file.write_all(b"\n").map_err(ModelError::codec)
+                                })();
+                                let mut completion =
+                                    lctx_model::domain::completion::Completion::default();
+                                completion
+                                    .step("restore original chunk spool flush", finish_spool(file));
+                                lctx_model::domain::completion::complete(written, completion)?;
                             } else {
-                                let file = result
-                                    .files
+                                let file = files
                                     .get_mut(&table)
                                     .ok_or(ModelError::Schema("restore spool table"))?;
                                 serde_json::to_writer(&mut *file, &row)
@@ -147,12 +170,15 @@ impl Dump {
                     }
                 }
             }
-            for file in result.files.values_mut() {
-                file.flush().map_err(ModelError::codec)?;
-                file.rewind().map_err(ModelError::codec)?;
-            }
             Ok(())
         })();
+        // Attempt every buffer's flush even after a parse/write failure. Readers reopen the
+        // completed spool at offset zero, only after all buffered writes succeeded.
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        for file in files.into_values() {
+            completion.step("restore table spool flush", finish_spool(file));
+        }
+        let decoded = lctx_model::domain::completion::complete(decoded, completion);
         if let Err(error) = decoded {
             let mut completion = lctx_model::domain::completion::Completion::default();
             completion.cleanup(
@@ -998,44 +1024,61 @@ async fn reconstruct(
             )
             .await?;
     }
+    let _state_buffer = budget.reserve("restore-completed-state-buffer", SPOOL_BUFFER_BYTES)?;
     let mut state = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
-    serde_json::to_writer(&mut state, &CompletedStateHeader::current())
-        .map_err(ModelError::codec)?;
-    state.write_all(b"\n").map_err(ModelError::codec)?;
-    let mut binding_keys = BTreeSet::new();
-    for table in STATE_TABLES {
-        let mut sorted = lctx_surrealdb::ordered_rows::SortedRows::with_budget(budget)?;
-        for row in dump.rows(table)? {
-            let row = row?;
-            let obj = object(&row)?;
-            let keep = prepared.keep_row(table, &row)?
-                && (*table != "compiler_binding" || {
-                    let descriptor: CompletedBinding =
-                        serde_json::from_slice(bytes(obj, "descriptor")?)
-                            .map_err(ModelError::codec)?;
-                    binding_keys.insert(descriptor.key())
-                });
-            if keep {
-                sorted.push(lctx_surrealdb::compiler::normalize_transport_row(
-                    table,
-                    &row,
-                    &owner_specs,
-                )?)?;
+    let mut writer = std::io::BufWriter::with_capacity(SPOOL_BUFFER_BYTES, &mut state);
+    let assembled = (|| {
+        serde_json::to_writer(&mut writer, &CompletedStateHeader::current())
+            .map_err(ModelError::codec)?;
+        writer.write_all(b"\n").map_err(ModelError::codec)?;
+        let mut binding_keys = BTreeSet::new();
+        for table in STATE_TABLES {
+            let mut sorted = lctx_surrealdb::ordered_rows::SortedRows::with_budget(budget)?;
+            for row in dump.rows(table)? {
+                let row = row?;
+                let obj = object(&row)?;
+                let keep = prepared.keep_row(table, &row)?
+                    && (*table != "compiler_binding" || {
+                        let descriptor: CompletedBinding =
+                            serde_json::from_slice(bytes(obj, "descriptor")?)
+                                .map_err(ModelError::codec)?;
+                        binding_keys.insert(descriptor.key())
+                    });
+                if keep {
+                    sorted.push(lctx_surrealdb::compiler::normalize_transport_row(
+                        table,
+                        &row,
+                        &owner_specs,
+                    )?)?;
+                }
+            }
+            let mut sorted = sorted.finish()?;
+            while let Some(row) = sorted.next_row()? {
+                serde_json::to_writer(&mut writer, &serde_json::json!({"table":table,"row":row}))
+                    .map_err(ModelError::codec)?;
+                writer.write_all(b"\n").map_err(ModelError::codec)?;
             }
         }
-        let mut sorted = sorted.finish()?;
-        while let Some(row) = sorted.next_row()? {
-            serde_json::to_writer(&mut state, &serde_json::json!({"table":table,"row":row}))
-                .map_err(ModelError::codec)?;
-            state.write_all(b"\n").map_err(ModelError::codec)?;
-        }
+        Ok(())
+    })();
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.step("restore completed-state spool flush", finish_spool(writer));
+    let assembled = lctx_model::domain::completion::complete(assembled, completion);
+    let result = async {
+        assembled?;
+        native
+            .import_state(state.path(), &manifest.completed_state)
+            .await?;
+        runtime.restore(manifest.profile).await?;
+        cpg_core::artifact::verify_restored(&runtime, manifest).await
     }
-    state.flush().map_err(ModelError::codec)?;
-    native
-        .import_state(state.path(), &manifest.completed_state)
-        .await?;
-    runtime.restore(manifest.profile).await?;
-    cpg_core::artifact::verify_restored(&runtime, manifest).await
+    .await;
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.cleanup(
+        state.path().display().to_string(),
+        state.close().map_err(ModelError::codec),
+    );
+    lctx_model::domain::completion::complete(result, completion)
 }
 
 #[cfg(test)]
@@ -1052,6 +1095,36 @@ mod definition_tests {
         stages::Profile,
     };
     use lctx_surrealdb::surrealdb::types::Object;
+
+    #[test]
+    fn buffered_spool_reports_final_flush_failure_without_drop_retry() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct FaultSink(Arc<AtomicUsize>);
+        impl Write for FaultSink {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "spool sink failure",
+                ))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let mut writer =
+            std::io::BufWriter::with_capacity(SPOOL_BUFFER_BYTES, FaultSink(attempts.clone()));
+        writer.write_all(b"provisional claimed row").unwrap();
+        assert_eq!(attempts.load(Ordering::SeqCst), 0);
+        let error = finish_spool(writer).unwrap_err();
+        assert!(error.to_string().contains("spool sink failure"), "{error}");
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "failed final flush must not be silently retried by Drop"
+        );
+    }
 
     // Claimed transport metadata exercises pure preparation only, never semantic admission.
     struct ClaimedFixture {
@@ -1550,15 +1623,18 @@ mod definition_tests {
     fn claimed_alias_metadata_reserves_large_physical_keys_before_retaining_them() {
         let mut fixture = claimed_fixture();
         let mut alias = row("compiler_alias", "large-unselected-alias");
-        alias.insert("source", RecordId::new("entity", "s".repeat(128 * 1024)));
-        alias.insert("target", RecordId::new("entity", "t".repeat(128 * 1024)));
+        alias.insert("source", RecordId::new("entity", "s".repeat(512 * 1024)));
+        alias.insert("target", RecordId::new("entity", "t".repeat(512 * 1024)));
         fixture.rows.push(Value::Object(alias));
         let scratch = tempfile::tempdir().unwrap();
         let input = scratch.path().join("raw.surql");
         write_claimed(&input, &fixture.rows);
-        let budget =
-            ResourceBudget::fixed(crate::backup_import::MAX_DUMP_RECORD_BYTES * 4 + 96 * 1024)
-                .unwrap();
+        let budget = ResourceBudget::fixed(
+            crate::backup_import::MAX_DUMP_RECORD_BYTES * 4
+                + SPOOL_BUFFER_BYTES * (DATA_TABLES.len() + 1)
+                + 96 * 1024,
+        )
+        .unwrap();
         let dump = Dump::decode(&input, &budget).unwrap();
         let error = PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget)
             .err()

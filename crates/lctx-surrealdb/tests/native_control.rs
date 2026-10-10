@@ -134,6 +134,7 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
             control::ensure_rows(&client,Some(private.attempt()),rows).await?;
             control::hold(&client,Some(private.attempt()),private_owner.clone(),window.to_vec()).await?;
             control::hold(&client,Some(private.attempt()),private_product.clone(),window.to_vec()).await?;
+            control::hold(&client,Some(admitted.attempt()),RecordId::new("native_attempt",admitted.attempt().hex()),window.to_vec()).await?;
         }
         let mut partial = Variables::new();
         partial.insert("attempt",private_owner.clone());
@@ -158,7 +159,7 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
         let prior_receipts: Vec<RecordId> = receipt_reader.query_native("SELECT VALUE id FROM native_effect WHERE attempt IN $attempts", receipt_scope.clone()).await?;
         let prior_receipts = prior_receipts.into_iter().collect::<BTreeSet<_>>();
         private.abandon().await?;admitted.abandon().await?;
-        let receipts: Vec<Object> = receipt_reader.query_native("SELECT id,attempt,epoch,committed,resolved FROM native_effect WHERE attempt IN $attempts", receipt_scope).await?;
+        let receipts: Vec<Object> = receipt_reader.query_native("SELECT id,request,attempt,epoch,revision,committed,resolved FROM native_effect WHERE attempt IN $attempts", receipt_scope).await?;
         let cleanup_receipts = receipts.into_iter().filter(|receipt| !matches!(receipt.get("id"), Some(Value::RecordId(id)) if prior_receipts.contains(id))).collect::<Vec<_>>();
         let private_product=RecordId::new("native_product",format!("{}_{}",nonce.hex(),private.attempt().hex()));let admitted_product=RecordId::new("native_product",format!("{}_{}",nonce.hex(),admitted.attempt().hex()));
         let mut response=client.query("SELECT VALUE id FROM $products; SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$private; SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$admitted; SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$unrelated; SELECT VALUE state FROM $attempts; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt; SELECT VALUE id FROM $targets").bind(("products",vec![private_product.clone(),admitted_product.clone()])).bind(("private",private_product)).bind(("admitted",admitted_product.clone())).bind(("unrelated",RecordId::new("native_pin",unrelated.identity.hex()))).bind(("attempts",vec![private_owner.clone(),RecordId::new("native_attempt",admitted.attempt().hex())])).bind(("attempt",private_owner)).bind(("targets",targets)).await.map_err(lctx_model::domain::ModelError::codec)?.check().map_err(lctx_model::domain::ModelError::codec)?;
@@ -216,7 +217,8 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
         })
         .collect::<BTreeMap<_, _>>();
     assert_eq!(original_epochs.len(), 2);
-    let mut windows = BTreeMap::<RecordId, usize>::new();
+    let mut scopes = BTreeMap::<RecordId, usize>::new();
+    let mut requests = BTreeSet::new();
     for receipt in cleanup_receipts {
         let Some(Value::RecordId(owner)) = receipt.get("attempt") else {
             panic!("cleanup receipt must name its terminal owner");
@@ -230,23 +232,38 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
         );
         assert_eq!(receipt.get("committed"), Some(&Value::Bool(true)));
         assert_eq!(receipt.get("resolved"), Some(&Value::Bool(true)));
-        *windows.entry(owner.clone()).or_default() += 1;
+        let Some(Value::String(request)) = receipt.get("request") else {
+            panic!("cleanup request identity");
+        };
+        assert!(
+            requests.insert((owner.clone(), request.clone())),
+            "each completed cleanup scope has its own exact request"
+        );
+        if let Some(Value::Number(surrealdb::types::Number::Int(revision))) =
+            receipt.get("revision")
+        {
+            if *revision >= 10 {
+                *scopes.entry(owner.clone()).or_default() += 1;
+            }
+        } else {
+            panic!("cleanup scope revision");
+        }
     }
     assert!(
-        windows
+        scopes
             .get(&RecordId::new("native_attempt", private.attempt().hex()))
             .copied()
             .unwrap_or_default()
-            >= 18,
-        "multiwindow product and attempt cleanup must leave original-owner receipts"
+            >= 2,
+        "both private product and attempt scopes must commit only after all nine pages and final empty proof"
     );
     assert!(
-        windows
+        scopes
             .get(&RecordId::new("native_attempt", admitted.attempt().hex()))
             .copied()
             .unwrap_or_default()
             >= 1,
-        "admitted cleanup uses the same terminal authorization"
+        "large admitted cleanup also proves all nine pages and final empty completion"
     );
     assert_eq!(
         states.into_iter().collect::<BTreeSet<_>>(),

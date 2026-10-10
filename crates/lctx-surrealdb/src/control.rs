@@ -16,8 +16,11 @@ use surrealdb::{
 
 // Failed transactions include NotExecuted frames before the causal error. Inspect every
 // statement so contention remains retryable and permanent refusals retain their actual cause.
-fn checked_transaction(mut response: surrealdb::IndexedResults) -> Result<(), ModelError> {
-    transaction_errors(response.take_errors().into_iter().collect())
+fn checked_transaction(
+    mut response: surrealdb::IndexedResults,
+) -> Result<surrealdb::IndexedResults, ModelError> {
+    transaction_errors(response.take_errors().into_iter().collect())?;
+    Ok(response)
 }
 fn transaction_errors(mut errors: Vec<(usize, surrealdb::Error)>) -> Result<(), ModelError> {
     errors.sort_by_key(|(index, _)| *index);
@@ -579,7 +582,6 @@ pub async fn close_attempt(
         [true] => {
             return release_cleanup_holds(
                 client,
-                &bindings,
                 authorization,
                 vec![RecordId::new("native_attempt", attempt.hex())],
                 false,
@@ -604,7 +606,7 @@ pub async fn close_attempt(
                 break;
             }
             // Keep the product itself until its outgoing ownership has drained.
-            release_cleanup_holds(client, &bindings, authorization, products.clone(), true).await?;
+            release_cleanup_holds(client, authorization, products.clone(), true).await?;
             let mut deletion = product_bindings.clone();
             deletion.insert("products", products);
             effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR $owner.admitted { THROW 'native cleanup product owner'; }; LET $owned=SELECT VALUE id FROM $products WHERE contribution IN $contributions; DELETE $owned RETURN NONE",deletion).await?;
@@ -614,7 +616,6 @@ pub async fn close_attempt(
     // product cleanup, even when concurrent retirement is making progress.
     release_cleanup_holds(
         client,
-        &bindings,
         authorization,
         vec![RecordId::new("native_attempt", attempt.hex())],
         true,
@@ -637,24 +638,141 @@ async fn cleanup_ids(
     response.take(0).map_err(ModelError::codec)
 }
 
+// One visible unresolved operation protects the entire cleanup scope. Each bounded
+// step advances its existing receipt revision; only the final empty proof commits it.
+struct CleanupHolds {
+    operation: ContentHash,
+    bindings: Variables,
+}
+impl CleanupHolds {
+    async fn begin(
+        client: &Surreal<Client>,
+        authorization: TerminalAttempt,
+        owners: Vec<RecordId>,
+        unadmitted: bool,
+    ) -> Result<Self, ModelError> {
+        if authorization.epoch <= 0 {
+            return Err(ModelError::Invalid("native terminal cleanup epoch".into()));
+        }
+        let operation = fresh_identity("cleanup-holds")?;
+        let mut bindings = Variables::new();
+        bindings.insert(
+            "attempt",
+            RecordId::new("native_attempt", authorization.identity.hex()),
+        );
+        bindings.insert("attempt_epoch", authorization.epoch);
+        bindings.insert("owners", owners);
+        bindings.insert("unadmitted", unadmitted);
+        let request = ContentHash::of(
+            &serde_json::to_vec(&("native terminal hold cleanup/v1", &bindings))
+                .map_err(ModelError::codec)?,
+        );
+        bindings.insert("effect", RecordId::new("native_effect", operation.hex()));
+        bindings.insert("request", request.hex());
+        loop {
+            match client.query("BEGIN; LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR ($unadmitted AND $owner.admitted) { THROW 'native cleanup hold owner'; }; CREATE $effect SET attempt=$attempt,request=$request,committed=false,resolved=false,revision=0,epoch=$attempt_epoch RETURN NONE; COMMIT;").bind(bindings.clone()).await {
+                Ok(response) => match checked_transaction(response) {
+                    Ok(_) => return Ok(Self { operation, bindings }),
+                    Err(error) if retryable_transaction(&error) => { tokio::task::yield_now().await; }
+                    Err(error) => return Err(error),
+                },
+                Err(error) => {
+                    let mut completion = lctx_model::domain::completion::Completion::default();
+                    completion.step("native cleanup intent reconciliation", reconcile_effect(client, operation).await.map(|_| ()));
+                    return lctx_model::domain::completion::complete(Err(crate::loader::write_failure(error)), completion);
+                }
+            }
+        }
+    }
+    fn statements() -> [&'static str; 12] {
+        [
+            "BEGIN",
+            "LET $operation=SELECT * FROM ONLY $effect FOR UPDATE",
+            "IF $operation=NONE OR $operation.resolved OR $operation.request!=$request OR $operation.attempt!=$attempt OR $operation.epoch!=$attempt_epoch { THROW 'native cleanup operation fenced'; }",
+            "LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE",
+            "IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR ($unadmitted AND $owner.admitted) { THROW 'native cleanup hold owner'; }",
+            "LET $holds=SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner IN $owners LIMIT 128",
+            "LET $owned=SELECT VALUE id FROM $holds WHERE owner IN $owners",
+            "DELETE $owned RETURN NONE",
+            "LET $done=(array::len($holds)=0)",
+            "UPDATE $effect SET committed=$done,resolved=$done,revision+=1 RETURN NONE",
+            "SELECT VALUE resolved FROM $effect",
+            "COMMIT",
+        ]
+    }
+    async fn reconciled_failure(
+        &self,
+        client: &Surreal<Client>,
+        error: ModelError,
+    ) -> Result<bool, ModelError> {
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step(
+            "native cleanup step reconciliation",
+            reconcile_effect(client, self.operation).await.map(|_| ()),
+        );
+        lctx_model::domain::completion::complete(Err(error), completion)
+    }
+    async fn step(&self, client: &Surreal<Client>) -> Result<bool, ModelError> {
+        let statements = Self::statements();
+        let sql = statements.join(";") + ";";
+        loop {
+            match client.query(sql.clone()).bind(self.bindings.clone()).await {
+                Ok(response) => match checked_transaction(response) {
+                    Ok(mut response) => {
+                        let result = if response.num_statements() != statements.len() {
+                            Err(ModelError::Schema("native cleanup statement inventory"))
+                        } else {
+                            response
+                                .take::<Vec<bool>>(statements.len() - 2)
+                                .map_err(ModelError::codec)
+                                .and_then(|values| match values.as_slice() {
+                                    [done] => Ok(*done),
+                                    _ => Err(ModelError::Schema(
+                                        "native cleanup completion inventory",
+                                    )),
+                                })
+                        };
+                        return match result {
+                            Ok(done) => Ok(done),
+                            Err(error) => self.reconciled_failure(client, error).await,
+                        };
+                    }
+                    Err(error) if retryable_transaction(&error) => {
+                        tokio::task::yield_now().await;
+                    }
+                    Err(error) => {
+                        return self.reconciled_failure(client, error).await;
+                    }
+                },
+                Err(error) => {
+                    return match reconcile_effect(client, self.operation).await {
+                        Ok(true) => Ok(true),
+                        Ok(false) => Err(ModelError::Cause(Box::new(error))),
+                        Err(reconciliation) => {
+                            let mut completion =
+                                lctx_model::domain::completion::Completion::default();
+                            completion
+                                .step("native cleanup step reconciliation", Err(reconciliation));
+                            lctx_model::domain::completion::complete(
+                                Err(crate::loader::write_failure(error)),
+                                completion,
+                            )
+                        }
+                    };
+                }
+            }
+        }
+    }
+}
 async fn release_cleanup_holds(
     client: &Surreal<Client>,
-    attempt: &Variables,
     authorization: TerminalAttempt,
     owners: Vec<RecordId>,
     unadmitted: bool,
 ) -> Result<(), ModelError> {
-    let mut bindings = attempt.clone();
-    bindings.insert("owners", owners);
-    bindings.insert("unadmitted", unadmitted);
-    loop {
-        let holds = cleanup_ids(client,"SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner IN $owners LIMIT 128",bindings.clone()).await?;
-        if holds.is_empty() {
-            return Ok(());
-        }
-        bindings.insert("holds", holds);
-        effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR ($unadmitted AND $owner.admitted) { THROW 'native cleanup hold owner'; }; LET $owned=SELECT VALUE id FROM $holds WHERE owner IN $owners; DELETE $owned RETURN NONE",bindings.clone()).await?;
-    }
+    let cleanup = CleanupHolds::begin(client, authorization, owners, unadmitted).await?;
+    while !cleanup.step(client).await? {}
+    Ok(())
 }
 pub async fn acquire_backup_hold(client: &Surreal<Client>) -> Result<ContentHash, ModelError> {
     let id = fresh_identity("database-backup-hold")?;
@@ -909,6 +1027,273 @@ impl Drop for ReaderPin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Actual SDK transactions exercise partial durable cleanup, reconciliation fencing
+    // of a later uncommitted page, and a fresh scope resuming the remaining ownership.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn terminal_cleanup_scope_fences_partial_pages_and_resumes_with_fresh_intent() {
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+        ))
+        .unwrap();
+        let client = crate::compiler::check_installation(&config).await.unwrap();
+        let attempt = fresh_identity("partial-cleanup-control").unwrap();
+        let unrelated = fresh_identity("partial-cleanup-unrelated").unwrap();
+        begin_attempt(&client, attempt, config.service_generation)
+            .await
+            .unwrap();
+        begin_attempt(&client, unrelated, config.service_generation)
+            .await
+            .unwrap();
+        let owner = RecordId::new("native_attempt", attempt.hex());
+        let other = RecordId::new("native_attempt", unrelated.hex());
+        let reader = crate::NativeReader::private(client.clone());
+        let mut operations = Vec::new();
+        let result = async {
+            let targets = (0..257)
+                .map(|ordinal| {
+                    RecordId::new(
+                        "native_guard",
+                        format!("partial_{}_{}", attempt.hex(), ordinal),
+                    )
+                })
+                .collect::<Vec<_>>();
+            for window in targets.chunks(128) {
+                let rows = window
+                    .iter()
+                    .map(|id| {
+                        let mut row = Object::new();
+                        row.insert("id", id.clone());
+                        row.insert("revision", 0i64);
+                        row.insert("retired", false);
+                        Value::Object(row)
+                    })
+                    .collect();
+                ensure_rows(&client, Some(attempt), rows).await?;
+                hold(&client, Some(attempt), owner.clone(), window.to_vec()).await?;
+            }
+            hold(
+                &client,
+                Some(unrelated),
+                other.clone(),
+                vec![targets[0].clone()],
+            )
+            .await?;
+            let mut vars = Variables::new();
+            vars.insert("attempt", owner.clone());
+            effect(
+                &client,
+                None,
+                "UPDATE $attempt SET state='frozen',revision+=1 RETURN NONE",
+                vars.clone(),
+            )
+            .await?;
+            let epochs: Vec<i64> = reader
+                .query("SELECT VALUE epoch FROM $attempt", vars.clone())
+                .await?;
+            let [epoch] = epochs.as_slice() else {
+                return Err(ModelError::Schema("partial cleanup epoch"));
+            };
+            let authorization = TerminalAttempt {
+                identity: attempt,
+                epoch: *epoch,
+            };
+            let first =
+                CleanupHolds::begin(&client, authorization, vec![owner.clone()], true).await?;
+            operations.push(first.operation);
+            let partial_done = first.step(&client).await?;
+            let partial: Vec<Object> = reader
+                .query_native("SELECT * FROM $effect", first.bindings.clone())
+                .await?;
+            let remaining = cleanup_ids(
+                &client,
+                "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt",
+                vars.clone(),
+            )
+            .await?;
+            let pending = client
+                .as_ref()
+                .clone()
+                .begin()
+                .await
+                .map_err(ModelError::codec)?;
+            let statements = CleanupHolds::statements();
+            let staged = pending
+                .query(statements[1..statements.len() - 1].join(";") + ";")
+                .bind(first.bindings.clone())
+                .await
+                .map_err(ModelError::codec)
+                .and_then(checked_transaction);
+            if let Err(error) = staged {
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.step(
+                    "partial cleanup transaction cancel",
+                    pending
+                        .cancel()
+                        .await
+                        .map(|_| ())
+                        .map_err(ModelError::codec),
+                );
+                return lctx_model::domain::completion::complete(Err(error), completion);
+            }
+            let reconciled = match reconcile_effect(&client, first.operation).await {
+                Ok(value) => value,
+                Err(error) => {
+                    let mut completion = lctx_model::domain::completion::Completion::default();
+                    completion.step(
+                        "partial cleanup transaction cancel",
+                        pending
+                            .cancel()
+                            .await
+                            .map(|_| ())
+                            .map_err(ModelError::codec),
+                    );
+                    return lctx_model::domain::completion::complete(Err(error), completion);
+                }
+            };
+            let late_commit_refused = pending.commit().await.is_err();
+            let fenced_step_refused = first.step(&client).await.is_err();
+            let fenced: Vec<Object> = reader
+                .query_native("SELECT * FROM $effect", first.bindings.clone())
+                .await?;
+            let remaining_after_fence = cleanup_ids(
+                &client,
+                "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt",
+                vars.clone(),
+            )
+            .await?;
+            let fresh =
+                CleanupHolds::begin(&client, authorization, vec![owner.clone()], true).await?;
+            operations.push(fresh.operation);
+            while !fresh.step(&client).await? {}
+            let repeated = reconcile_effect(&client, fresh.operation).await?;
+            let finished: Vec<Object> = reader
+                .query_native("SELECT * FROM $effect", fresh.bindings.clone())
+                .await?;
+            let final_holds = cleanup_ids(
+                &client,
+                "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt",
+                vars.clone(),
+            )
+            .await?;
+            vars.insert("other", other.clone());
+            vars.insert("targets", targets);
+            let retained: Vec<RecordId> = reader
+                .query_native("SELECT VALUE id FROM $targets", vars.clone())
+                .await?;
+            let unrelated_holds = cleanup_ids(
+                &client,
+                "SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$other",
+                vars,
+            )
+            .await?;
+            let ordinary_refused = effect(&client, Some(attempt), "RETURN NONE", Variables::new())
+                .await
+                .is_err();
+            Ok::<_, ModelError>((
+                partial_done,
+                partial,
+                remaining,
+                reconciled,
+                late_commit_refused,
+                fenced_step_refused,
+                fenced,
+                remaining_after_fence,
+                repeated,
+                finished,
+                final_holds,
+                retained,
+                unrelated_holds,
+                ordinary_refused,
+                *epoch,
+                first.bindings,
+                fresh.bindings,
+            ))
+        }
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        for operation in operations {
+            completion.step(
+                "partial cleanup final effect fence",
+                reconcile_effect(&client, operation).await.map(|_| ()),
+            );
+        }
+        completion.step(
+            "partial cleanup terminal owner",
+            close_attempt(&client, attempt, "abandoned").await,
+        );
+        completion.step(
+            "partial cleanup unrelated owner",
+            close_attempt(&client, unrelated, "abandoned").await,
+        );
+        completion.step("partial cleanup reader close", reader.close().await);
+        completion.step(
+            "partial cleanup session close",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        let (
+            partial_done,
+            partial,
+            remaining,
+            reconciled,
+            late_commit_refused,
+            fenced_step_refused,
+            fenced,
+            remaining_after_fence,
+            repeated,
+            finished,
+            final_holds,
+            retained,
+            unrelated_holds,
+            ordinary_refused,
+            epoch,
+            first_bindings,
+            fresh_bindings,
+        ) = lctx_model::domain::completion::complete(result, completion).unwrap();
+        assert!(!partial_done && !reconciled);
+        assert!(late_commit_refused && fenced_step_refused && ordinary_refused);
+        assert_eq!(remaining.len(), 129);
+        assert_eq!(
+            remaining_after_fence
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+            remaining
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        assert!(repeated && final_holds.is_empty());
+        assert_eq!(retained.len(), 257);
+        assert_eq!(unrelated_holds.len(), 1);
+        let check = |rows: Vec<Object>, bindings: &Variables, revision, committed, resolved| {
+            let [row] = rows.as_slice() else {
+                panic!("exact cleanup receipt");
+            };
+            let mut request = bindings.clone();
+            request.remove("effect");
+            request.remove("request");
+            let expected = ContentHash::of(
+                &serde_json::to_vec(&("native terminal hold cleanup/v1", &request)).unwrap(),
+            )
+            .hex();
+            assert_eq!(row.get("id"), bindings.get("effect"));
+            assert_eq!(row.get("attempt"), Some(&Value::RecordId(owner.clone())));
+            assert_eq!(row.get("request"), Some(&Value::String(expected)));
+            assert_eq!(
+                row.get("epoch"),
+                Some(&Value::Number(surrealdb::types::Number::Int(epoch)))
+            );
+            assert_eq!(
+                row.get("revision"),
+                Some(&Value::Number(surrealdb::types::Number::Int(revision)))
+            );
+            assert_eq!(row.get("committed"), Some(&Value::Bool(committed)));
+            assert_eq!(row.get("resolved"), Some(&Value::Bool(resolved)));
+        };
+        check(partial, &first_bindings, 1i64, false, false);
+        check(fenced, &first_bindings, 2i64, false, true);
+        check(finished, &fresh_bindings, 3i64, true, true);
+        assert_ne!(first_bindings.get("effect"), fresh_bindings.get("effect"));
+        assert_eq!(first_bindings.get("request"), fresh_bindings.get("request"));
+    }
     #[test]
     fn transaction_classification_preserves_primary_and_secondary_without_replaying_mixed_errors() {
         let aborted = || {

@@ -63,7 +63,10 @@ attempt prerequisite roots until every product is removed, so interrupted cleanu
 admitted products survive. Remaining ownership rows provide conservative retry progress.
 Cleanup effects use the exact terminal attempt's original epoch, checking owner/state/epoch at
 both durable intent and execution; deleting owned holds/products does not allocate a new global
-installation epoch per page. Ordinary open-attempt and pin authorization remain separate.
+installation epoch per page. A durable hold-cleanup intent spans bounded guarded deletion pages;
+only the final empty-scope proof marks it completed. Reconciliation fences further pages of an
+incomplete operation, while a fresh intent can resume the remaining ownership rows. Partial
+cleanup is not rollback. Ordinary open-attempt and pin authorization remain separate.
 
 A short guarded transition publishes an immutable manifest over admitted views and one executable
 definition epoch. Handles bind semantic/realization identities, publication, exact view set and

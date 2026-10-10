@@ -11,7 +11,7 @@ fenced attempts, checked retained attachment, manifest publication, executable d
 data-only restore, reader pins/retirement and one stable service. Patched gRPC remains initial.
 **passed:** owned installation/check, simultaneous logical attachments, equal-definition retry/drift
 refusal, protected backup/default validation/applied restore and readiness. Current guard-free
-`just ready` rebuilt and installed the native extension. Tooling controls and schema migration
+`just ready` rebuilt the earlier native extension; final-source bridge refresh remains pending. Tooling controls and schema migration
 passed; actual receipts and source boundaries remain in the coordinator. Independent integration
 review accepts examined source subject to remaining runtime acceptance.
 Focused corrections passed ordering/acknowledgement17, exact-view/state-closure controls,
@@ -31,7 +31,9 @@ Grammar-owned comparison correction passed compile, eight pure controls and inde
 Its rerun passed entity-omission refusal, then timed out decoding the next large shared-store dump.
 Terminal-owner cleanup passed its multi-window retention/receipt control. Selected closed-content
 backup preparation passed compile,23 pure controls and independent review;
-full publication/concurrent restore remain pending. Exact named recovery released only verified
+full publication/concurrent restore remain pending after another timeout in unbuffered raw-dump
+spooling. Buffering passed compile/24 pure controls/review; scoped terminal cleanup passed both
+actual interruption and large admitted/unadmitted controls. Named recovery released verified
 failed-test pins; installer stabilization passed and admission is open.
 NativeSession close drains calls, releases its pin and shares terminal results across closers;
 compile/static review passed, actual Python acceptance awaits the final MCP journey. Earlier eight

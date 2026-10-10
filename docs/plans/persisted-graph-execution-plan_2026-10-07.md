@@ -1351,6 +1351,57 @@ pre-connection refusal and variable-length alias allocation. Independent final s
 accepted frozen backup `4da63c7d…`/restore `7299b261…` and publication inventory assertion;
 its alias/header accounting findings and physical-binding multiplicity finding are corrected.
 Actual native publication/restore remains pending; no measured benefit is claimed.
+The actual compaction-source rerun `20261010T055900.127Z-dc35ad`, Nextest
+`4e7b3b21-dc59-4d80-8274-f506d5e733f0`, **failed / timed out**,300.024s after50.32s build.
+Publication admission/readback and the contained-panic cleanup check were reached; valid restore
+was not reached. Marker-to-readback includes39.75s in terminal cleanup. The remaining backup
+timeout is the first whole-dump decode, before compact-output writing: direct unbuffered JSON
+spool writes amplify canonical byte arrays. Bounded buffered spooling and terminal cleanup
+nomination are being investigated without changing deadlines or admission semantics.
+Its retained diagnostic assets are `/tmp/.tmp7jpREQ` (616,021,572-byte engine dump,
+zero-byte compact candidate) and `/tmp/.tmpJYWu00` (partial decode, including180,359 of228,919
+memberships); correction diagnosis/qualification is their named current consumer. They remain
+protected alongside the preceding timeout captures. Explicit read-only diagnostics under owned
+maintenance **passed** (`35084`), retaining exact SQL/plans/counts in service state
+`cleanup-access-diagnostic-37fa9687fc744811b82f6dd1c7cf1dca/read-only.json`.
+The requested publication holds32,584 roots; these observations do not alone attribute elapsed
+time to index choice or establish a measured improvement.
+The matching production buffering correction is implemented in raw table/original-chunk spools
+and selected completed-state assembly. Fixed64KiB buffers are reserved before allocation;
+all returned failures perform explicit checked flushes, disarm implicit Drop retries and retain
+primary/cleanup errors. Native import reads only after successful flush; bytes, ordering, hashes,
+grammar/EOF and cold admission remain unchanged. Final publisher test compile **passed**,0.79s;
+the preceding pure selection plus a final-flush-failure/no-hidden-retry control **passed**,
+24 controls, Nextest `22dcb124-7c24-4ca5-b023-dfda73300818`,0.241s after36.47s build.
+Independent review accepted frozen restore `349100dc…`. Actual corrected native rerun is pending.
+The scoped cleanup replacement is implemented: one durable terminal-owner intent precedes
+bounded128-row guarded nomination/deletion steps, and only an empty nomination commits/resolves
+the scope. Unknown acknowledgement and typed response failures reconcile that exact operation;
+an incomplete scope is fenced, retains partial progress and can be resumed by a fresh intent.
+Original owner/epoch and product-before-prerequisite ordering remain. Production/integration
+compile **passed**,24.14s; initial new unit-test compilation failed on SDK test types, then was
+corrected. Independent review accepted frozen control `28479de19…`/native control `d3a6e288…`.
+The pure transaction classifier **passed**, Nextest `a14dccb3-560a-4e4b-8763-1ae2715b5ed6`,
+one control,0.005s after2m19s build; that build compiled but did not execute the native unit control.
+The new actual interruption control and expanded1025-target admitted cleanup control **passed**:
+`just verify --select store --nextest-args "--lib --test native_control -E
+'test(indexed_abandonment_removes_only_unadmitted_products_and_owned_holds) |
+test(terminal_cleanup_scope_fences_partial_pages_and_resumes_with_fresh_intent)'"`,
+run `20261010T062356.506Z-d37ee4`, Nextest `2c879ffb-3158-4515-ac25-94edeb782872`,
+2 passed,24.243s after5m54s build. This proves actual partial receipt/fencing/fresh resumption and
+large admitted/unadmitted ownership cleanup; it is not a whole-plan pass or speed comparison.
+Run cleanup confirmed no descendants and released its exact attachment. Standard maintenance
+drain safely refused its two remaining pins and kept admission closed. Independent inventory
+review verified only pins `d57d27914f3c9c2dc475be060a15573d8c4f98f5b1b497a781c6f06e35ce23b6`
+and `d70e45cbffe77dcecfb5299fcf3a6f3f678b25b57efabe60f14cbe3fce233bc5` in validation,
+each holding the exact305 published views and publication `64da1b54…`, epochs2724/2727.
+Evidence is `timeout-publication-pin-inventory-0bc6a26be2db4f2b992bfa05908de551/before.json`
+under owned service state, SHA256 `68b715bf776f01505663b928febe80a546508585444e6e2fe7fb5d47d50954aa`;
+the adjacent protected publication inventory SHA256 is
+`ddc0516beedeb23bdbfc0e7acbca645baf97be8dac91f27dad38d315af1ca9a9`.
+Attribution uses the drained73287 baseline, sole subsequent native run and confirmed terminal
+cleanup, not pin age. Exact named recovery **passed** (`41271`), draining/reopening both databases
+without generation/schema changes. No other pins/attempts/effects were released.
 
 Timeout cleanup confirmed empty descendants and released attachment. Exact inventory
 `timeout-publication-pin-inventory-af43660aa09f4c42a685c8da0b97828e/before.json` under owned
