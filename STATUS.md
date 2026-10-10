@@ -24,16 +24,17 @@ The new owned service is installed outside checkouts; existing operator/PSE-arro
 protected evaluation and real-library pilots remain held. Next: finish focused runtime repairs,
 refresh final clients guard-free, then coordinated UP9 acceptance.
 
-**Storage lifecycle plan authored, 2026-10-09:** the [plan §9](docs/plans/storage-lifecycle-management-plan_2026-10-09.md#9-finding-disposition-owner)
+**Storage lifecycle plan refreshed, 2026-10-09:** the [plan §9](docs/plans/storage-lifecycle-management-plan_2026-10-09.md#9-finding-disposition-owner)
 owns scheduled storage F01–F03; the [independent target review](docs/design_review/reviews/design_review_storage-lifecycle-plan_2026-10-09.md)
 accepts the corrected **Proposed / scoped** design. Operator-confirmed choices preserve warm
 caches, detailed profiling and performance settings, and select automatic rules-based lifecycle
 management across repository and shared host assets. Target-review F01/F02 are resolved in the
-Proposed target; operational closure remains open. AF1 retains cleanup/recovery ownership;
-BC3 and current evidence remain protected. Next: SM0 decisions/SM1 observation and the working
-AF1 prerequisite, then producer migration, legacy adoption and qualified automation.
+Proposed target; operational closure remains open. AF1 retains its delivered cleanup/recovery slice.
+The plan now covers persistent-service attachments, native/recovery ownership and the maintenance
+executable's checkout dependency. Next: SM0/SM1 consume AF1/current service observations, then
+producer/dependency migration, legacy adoption and qualified automation. BC3/evidence stay protected.
 Cleanup, archival, configuration/agent-policy implementation and product controls **not_run**;
-this task authors the plan only. Publication **passed:** `just docs`,369pages, zero link errors;
+this scope changes the plan only. Original publication **passed:** `just docs`,369pages, zero link errors;
 scoped `git diff --check` passed. Full `just docs-check` **failed** on the already-stale concurrent
 ADR index, which this task leaves untouched.
 
