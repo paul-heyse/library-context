@@ -17,10 +17,12 @@ use std::{
 const PREPARATION_BYTES_PER_ROW: usize = 768;
 const FUSION_BYTES_PER_ROW: usize = 2048;
 
-/// Answer-affecting native analyzer and BM25 settings belong to the sealed realization.
+/// Answer-affecting analyzer and exact-view BM25 settings belong to the published realization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LexicalPolicy {
+    /// Frozen exact-view/family corpus; distinct analyzed query tokens contribute once.
+    pub scoring: super::Name,
     pub analyzer: super::Name,
     pub definition: ContentHash,
     pub k1: f64,
@@ -36,8 +38,9 @@ pub struct RankingPolicy {
 impl Default for RankingPolicy {
     fn default() -> Self {
         Self {
-            revision: 3,
+            revision: 5,
             lexical: LexicalPolicy {
+                scoring: super::Name::new("view-family-bm25-distinct-terms-v1").expect("scoring policy"),
                 analyzer: super::Name::new("lctx_discovery").expect("bounded analyzer name"),
                 definition: ContentHash::of(b"lctx-discovery/v2:class,camel;lowercase"),
                 k1: 1.5,
@@ -49,7 +52,11 @@ impl Default for RankingPolicy {
 }
 impl RankingPolicy {
     pub fn validate(&self) -> Result<(), ModelError> {
-        if self.revision != 3
+        if self.revision != 5
+            || self.lexical.scoring.as_str() != "view-family-bm25-distinct-terms-v1"
+            || self.lexical.definition != ContentHash::of(b"lctx-discovery/v2:class,camel;lowercase")
+            || self.lexical.analyzer.as_str() != "lctx_discovery"
+            || self.lexical.k1 != 1.5 || self.lexical.b != 0.75
             || self.rrf_k != 60
             || !self.lexical.k1.is_finite()
             || self.lexical.k1 <= 0.0
@@ -84,7 +91,7 @@ pub struct ChannelBinding {
 impl ChannelBinding {
     pub fn lexical(policy: &RankingPolicy, query: &str) -> Result<Self, ModelError> {
         let policy = policy.identity()?;
-        let mut sink = KeySink::new("serving-lexical-channel/v1");
+        let mut sink = KeySink::new("serving-lexical-channel/v2;view-family-bm25-distinct-terms/v1");
         sink.part(b"policy", &policy.0.0);
         sink.part(b"query", query.as_bytes());
         Ok(Self {
@@ -102,7 +109,7 @@ impl ChannelBinding {
         projection: Id<crate::domain::embedding::projection::ProjectionDefinition>,
     ) -> Result<Self, ModelError> {
         let policy = policy.identity()?;
-        let mut sink = KeySink::new("serving-vector-channel/v1");
+        let mut sink = KeySink::new("serving-vector-channel/v2;exact-eligible-cosine/v1");
         sink.part(b"policy", &policy.0.0);
         sink.part(b"spec", &spec.0);
         sink.part(b"query-vector", &query_vector.0);

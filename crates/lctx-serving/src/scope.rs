@@ -7,8 +7,8 @@ use lctx_surrealdb::{NativeReader, batches::CanonicalBatches};
 use std::collections::BTreeSet;
 use surrealdb::types::RecordId;
 
-pub async fn hydrate(
-    reader: &NativeReader,
+pub async fn hydrate<Context>(
+    reader: &NativeReader<Context>,
     roots: Vec<RecordId>,
     inputs: &[ValidationInput],
     budget: &ResourceBudget,
@@ -20,8 +20,8 @@ pub async fn hydrate(
     clippy::mutable_key_type,
     reason = "Graph node IDs are immutable generated string keys; the SDK key union includes unused mutable regex caches"
 )]
-pub async fn hydrate_with(
-    reader: &NativeReader,
+pub async fn hydrate_with<Context>(
+    reader: &NativeReader<Context>,
     roots: Vec<RecordId>,
     inputs: &[ValidationInput],
     owned_fields: &[&str],
@@ -35,8 +35,8 @@ pub async fn hydrate_with(
     clippy::mutable_key_type,
     reason = "Graph node IDs are immutable generated string keys; the SDK key union includes unused mutable regex caches"
 )]
-pub async fn hydrate_with_owners(
-    reader: &NativeReader,
+pub async fn hydrate_with_owners<Context>(
+    reader: &NativeReader<Context>,
     roots: Vec<RecordId>,
     inputs: &[ValidationInput],
     incoming_inputs: &[ValidationInput],
@@ -48,8 +48,8 @@ pub async fn hydrate_with_owners(
     hydrate_prepared_layout(reader, roots, &prepared, budget, None).await
 }
 
-pub(crate) async fn hydrate_prepared_layout(
-    reader: &NativeReader, roots: Vec<RecordId>, prepared: &lctx_surrealdb::scope::PreparedServingScope, budget: &ResourceBudget, cancelled: Option<&(dyn Fn()->bool + Sync)>,
+pub(crate) async fn hydrate_prepared_layout<Context>(
+    reader: &NativeReader<Context>, roots: Vec<RecordId>, prepared: &lctx_surrealdb::scope::PreparedServingScope, budget: &ResourceBudget, cancelled: Option<&(dyn Fn()->bool + Sync)>,
 ) -> Result<CanonicalBatches, ModelError> {
     // The caller owns either request preparation or a viewer lease; roots remain values.
     let mut charge = budget.reserve("native-request-closure", roots.len().saturating_mul(384))?;

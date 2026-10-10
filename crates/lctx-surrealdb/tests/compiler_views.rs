@@ -12,7 +12,7 @@ use lctx_surrealdb::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-async fn fixture_admin(
+async fn fixture_client(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
 ) -> std::sync::Arc<
@@ -20,7 +20,7 @@ async fn fixture_admin(
 > {
     lctx_surrealdb::reader::connect(
         &config.endpoint,
-        &config.root_credentials(),
+        &config.writer_credentials(),
         store.namespace().as_str(),
         store.database().as_str(),
     )
@@ -48,12 +48,6 @@ async fn abandon_known_failure(
     cause: &str,
 ) {
     use lctx_model::domain::{ModelError, completion::*};
-    use lctx_surrealdb::surrealdb::types::Value;
-    let identity = format!(
-        "{}/{}",
-        store.namespace().as_str(),
-        store.database().as_str()
-    );
     let failure = store.abandon().await.unwrap_err();
     let ModelError::Completion(outcome) = failure else {
         panic!("failed operation must survive abandonment: {failure:?}");
@@ -63,7 +57,7 @@ async fn abandon_known_failure(
     assert_eq!(outcome.completion.remote, RemoteState::Confirmed);
     assert_eq!(
         outcome.completion.storage,
-        vec![StorageState::Removed(identity)]
+        vec![]
     );
     assert_eq!(outcome.completion.failures.len(), 1);
     let retained = &outcome.completion.failures[0];
@@ -72,20 +66,12 @@ async fn abandon_known_failure(
         matches!(retained.error.primary(), Some(ModelError::Conflict(actual)) if *actual == cause)
     );
 
-    let client =
-        lctx_surrealdb::reader::authenticated(&config.endpoint, &config.root_credentials(), None)
-            .await
-            .unwrap();
-    client.use_ns(store.namespace().as_str()).await.unwrap();
-    let mut response = client.query("INFO FOR NS;").await.unwrap().check().unwrap();
-    let Value::Object(info) = response.take::<Value>(0).unwrap() else {
-        panic!("namespace information");
-    };
-    let Some(Value::Object(databases)) = info.get("databases") else {
-        panic!("database inventory");
-    };
-    assert!(!databases.contains_key(store.database().as_str()));
-    client.invalidate().await.unwrap();
+    // Abandonment closes only this attempt; the installed database and content remain.
+    let observer = fixture_client(store,config).await;
+    let mut response = observer.query("SELECT VALUE state FROM $attempt").bind(("attempt",lctx_surrealdb::surrealdb::types::RecordId::new("native_attempt",store.attempt().hex()))).await.unwrap().check().unwrap();
+    let states:Vec<String>=response.take(0).unwrap();
+    assert_eq!(states,vec!["abandoned"]);
+    observer.invalidate().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -99,10 +85,10 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<QualityStep>();
     let row = QualityStep {
-        run: serde_json::from_value(serde_json::json!(vec![3u8; 16])).unwrap(),
+        run: serde_json::from_value(serde_json::json!(&store.attempt().0[..16])).unwrap(),
         ordinal: 0,
         value: FiniteF64::new(0.5).unwrap(),
     };
@@ -139,7 +125,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     restored.abandon().await.unwrap();
 
     admin
-        .query("UPDATE compiler_record SET body.value=2.0f")
+        .query("UPDATE compiler_record SET body.value=2.0f WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -153,7 +140,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         Err(ModelError::Conflict("compiler backing canonical body"))
     ));
     admin
-        .query("UPDATE compiler_record SET body.value=0.5f")
+        .query("UPDATE compiler_record SET body.value=0.5f WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -161,7 +149,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let mut bindings = Variables::new();
     bindings.insert("key", "00".repeat(16));
     admin
-        .query("UPDATE compiler_record SET semantic_key=$key")
+        .query("UPDATE compiler_record SET semantic_key=$key WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .bind(bindings)
         .await
         .unwrap()
@@ -178,7 +167,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let mut bindings = Variables::new();
     bindings.insert("key", row.id().hex());
     admin
-        .query("UPDATE compiler_record SET semantic_key=$key")
+        .query("UPDATE compiler_record SET semantic_key=$key WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .bind(bindings)
         .await
         .unwrap()
@@ -251,7 +241,7 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Package>();
     let rows = vec![
         Package {
@@ -281,7 +271,8 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
     store.verify_state().await.unwrap();
 
     let mut response = admin
-        .query("SELECT * FROM compiler_membership ORDER BY semantic_key")
+        .query("SELECT * FROM compiler_membership WHERE contribution=$owner ORDER BY semantic_key")
+        .bind(("owner",RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -294,18 +285,19 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
     let original = payload.remove("id").unwrap();
     let renamed = RecordId::new(
         "compiler_membership",
-        ContentHash::of(b"coherently-renamed-membership").hex(),
+        ContentHash::of(&store.attempt().0).hex(),
     );
     assert_ne!(original, Value::RecordId(renamed.clone()));
     let mut bindings = Variables::new();
-    bindings.insert("original", original);
+    bindings.insert("original", original.clone());
     bindings.insert("renamed", renamed.clone());
     bindings.insert("payload", Value::Object(payload.clone()));
     // Delete before create preserves the unique owner/relation/key index. The immutable
     // payload and contribution claims remain intact; only the physical lookup ID changes.
     admin.query("BEGIN TRANSACTION; DELETE $original; CREATE $renamed CONTENT $payload; COMMIT TRANSACTION;").bind(bindings).await.unwrap().check().unwrap();
     let mut response = admin
-        .query("SELECT * FROM compiler_membership ORDER BY semantic_key")
+        .query("SELECT * FROM compiler_membership WHERE contribution=$owner ORDER BY semantic_key")
+        .bind(("owner",RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -315,7 +307,7 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
     let Value::Object(mut observed) = memberships[0].clone() else {
         panic!("native membership object");
     };
-    assert_eq!(observed.remove("id"), Some(Value::RecordId(renamed)));
+    assert_eq!(observed.remove("id"), Some(Value::RecordId(renamed.clone())));
     assert_eq!(
         observed, payload,
         "renaming preserves every membership claim and backing pointer"
@@ -326,6 +318,9 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
             "compiler membership physical identity"
         ))
     ));
+    let mut restore=Variables::new();restore.insert("original",original);restore.insert("renamed",renamed);restore.insert("payload",Value::Object(payload));
+    admin.query("BEGIN TRANSACTION; DELETE $renamed; CREATE $original CONTENT $payload; COMMIT TRANSACTION;").bind(restore).await.unwrap().check().unwrap();
+    store.verify_state().await.unwrap();
     store.abandon().await.unwrap();
 }
 
@@ -338,7 +333,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Package>();
     let first = Package {
         name: "first".into(),
@@ -421,7 +416,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         "overlapping membership must deduplicate"
     );
     assert_ne!(current[relation.name()].identity, frozen.identity);
-    let mut response=admin.query("SELECT producer,inputs.relation AS predecessors FROM compiler_contribution WHERE producer='b'").await.unwrap().check().unwrap();
+    let mut response=admin.query("SELECT producer,inputs.relation AS predecessors FROM $owner").bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",b.hex()))).await.unwrap().check().unwrap();
     let projected: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(
         projected[0]["predecessors"],
@@ -451,7 +446,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
             .await
             .unwrap();
-    let restored_admin = fixture_admin(&restored, &config).await;
+    let restored_admin = fixture_client(&restored, &config).await;
     // Complete state references canonical families; detached import loads those separately.
     lctx_surrealdb::Loader::new(restored_admin.clone())
         .entities(&[
@@ -527,10 +522,11 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
-    let bytes = (0..(1024 * 1024))
+    let admin = fixture_client(&store, &config).await;
+    let mut bytes = (0..(1024 * 1024))
         .map(|index| (index % 256) as u8)
         .collect::<Vec<_>>();
+    bytes[..32].copy_from_slice(&store.attempt().0);
     let source = SourceArtifact::from_bytes(
         InputRevision::from_entries(vec![]).unwrap().id(),
         "opaque.bin".into(),
@@ -585,7 +581,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     );
     assert!(rows.try_next().await.unwrap().is_none());
     let mut response = admin
-        .query("SELECT count() AS rows FROM original_chunk GROUP ALL")
+        .query("SELECT count() AS rows FROM original_chunk WHERE source=$source GROUP ALL")
+        .bind(("source",lctx_surrealdb::surrealdb::types::RecordId::new("original",lctx_model::domain::graph::EntityId::of(source.id()).0.hex())))
         .await
         .unwrap()
         .check()
@@ -593,7 +590,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     let counts: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(counts, vec![serde_json::json!({"rows":16})]);
     let mut response = admin
-        .query("SELECT VALUE body FROM compiler_record")
+        .query("SELECT VALUE body FROM compiler_record WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -603,7 +601,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     store.verify_state().await.unwrap();
     let state = store.completed_state().await.unwrap();
     admin
-        .query("UPDATE compiler_record SET body.ordinal=1")
+        .query("UPDATE compiler_record SET body.ordinal=1 WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -621,7 +620,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         ))
     ));
     admin
-        .query("UPDATE compiler_record SET body.ordinal=0")
+        .query("UPDATE compiler_record SET body.ordinal=0 WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -629,7 +629,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     assert_eq!(store.completed_state().await.unwrap(), state);
     // Metadata is intact; the independently read physical byte owner must still agree.
     let mut response = admin
-        .query("SELECT * FROM original_chunk ORDER BY start LIMIT 1")
+        .query("SELECT * FROM original_chunk WHERE source=$source ORDER BY start LIMIT 1")
+        .bind(("source",lctx_surrealdb::surrealdb::types::RecordId::new("original",lctx_model::domain::graph::EntityId::of(source.id()).0.hex())))
         .await
         .unwrap()
         .check()
@@ -788,7 +789,7 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Release>();
     let packages = (0..180)
         .map(|index| Package {
@@ -1243,7 +1244,7 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Normalized)
             .await
             .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Package>();
     let first = Package {
         name: "completed".into(),
@@ -1301,13 +1302,12 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         .await
         .unwrap();
     // Mechanical one-hop selection: only a completed source can admit its intrinsic target.
-    let first_id = lctx_model::domain::graph::EntityId::of(first.id());
-    let alias_id = lctx_model::domain::graph::EntityId::of(alias.id());
     let mut variables = Variables::new();
-    variables.insert("source", RecordId::new("entity", first_id.0.hex()));
-    variables.insert("target", RecordId::new("entity", alias_id.0.hex()));
+    variables.insert("source", lctx_surrealdb::loader::entity_payload_id(&Entity::from(first.clone())).unwrap());
+    variables.insert("target", lctx_surrealdb::loader::entity_payload_id(&Entity::from(alias.clone())).unwrap());
     admin
-        .query("CREATE compiler_alias:selection SET source=$source,target=$target")
+        .query("CREATE $id SET source=$source,target=$target")
+        .bind(("id",RecordId::new("compiler_alias",store.attempt().hex())))
         .bind(variables)
         .await
         .unwrap()
@@ -1521,7 +1521,7 @@ async fn membership_prefix_selection_uses_scalar_index_and_exact_owners() {
     let path = std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
     let config = RuntimeConfig::read(&path).unwrap();
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Package>();
     let shared = Package { name: "prefix-shared".into() };
     let absent = Package { name: "prefix-absent".into() };
@@ -1690,7 +1690,8 @@ async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowne
     assert!(matches!(cold.scan_contribution_batches(second, &Relation::of::<Occurrence>(), &budget, 32).await,
         Err(ModelError::Conflict("undeclared contribution output"))));
 
-    let admin = fixture_admin(&cold, &config).await;
+    let admin = fixture_client(&cold, &config).await;
+    let saved_descriptor=descriptor.clone();
     let mut unsupported = descriptor;
     unsupported.outputs.get_mut(relation.name()).unwrap().rows += 1;
     let mut bindings = Variables::new();
@@ -1700,6 +1701,8 @@ async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowne
     assert!(matches!(cold.scan_contribution_batches(second, &relation, &budget, 32).await,
         Err(ModelError::Conflict("completed contribution identity"))),
         "a changed output count cannot manufacture a contribution read authority");
+    let mut restore=Variables::new();restore.insert("id",RecordId::new("compiler_contribution",second.hex()));restore.insert("descriptor",Bytes::from(serde_json::to_vec(&saved_descriptor).unwrap()));
+    admin.query("UPDATE $id SET descriptor=$descriptor RETURN NONE").bind(restore).await.unwrap().check().unwrap();
     admin.invalidate().await.unwrap();
     off.abandon().await.unwrap();
     cold.abandon().await.unwrap();

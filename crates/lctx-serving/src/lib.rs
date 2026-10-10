@@ -59,3 +59,7 @@ pub fn operation_definition() -> lctx_model::domain::ContentHash {
         .encode(&mut sink);
     sink.finish()
 }
+
+#[cfg(test)]
+#[path="../tests/fixtures/scoped.rs"]
+pub(crate) mod scoped_fixture;

@@ -251,10 +251,10 @@ mod native_controls {
         let relation = Relation::of::<Package>();
         let mut rows = vec![
             Package {
-                name: "first".into(),
+                name: format!("first-{}",store.attempt().hex()),
             },
             Package {
-                name: "second".into(),
+                name: format!("second-{}",store.attempt().hex()),
             },
         ];
         rows.sort_by_key(Record::id);
@@ -367,7 +367,7 @@ mod native_controls {
         let config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
         let admin = lctx_surrealdb::reader::connect(
             &config.endpoint,
-            &config.root_credentials(),
+            &config.writer_credentials(),
             store.namespace().as_str(),
             store.database().as_str(),
         )

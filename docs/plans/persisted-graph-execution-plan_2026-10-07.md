@@ -737,7 +737,13 @@ F03 by deleting checks. Additional exposed consumers join the responsible packag
 
 ## 9. Targeted functional verification and completion
 
-**Current execution dependencies, Proposed 2026-10-09:** PC1/PC2's integrated completion/captured-binding contracts are working foundations for PJ0–PJ3. PJ2 replaces PC3's physical enforcement route only after PJ0, and preserves PC4's exact selection/access obligations. PJ3 consumes current retained setup and acknowledged ordering ownership; its mutation-only freeze is distinct from final global drainage. PJ1 runtime/phase controls can proceed independently. PJ2/PJ3 share native and cold/publication editing surfaces even when logically ready in parallel. PC5 SQL unit/request semantics remain selected; no data-only transport is introduced. Integrate PJ2/PJ3 before repeating the populated journey and reuse only valid matching-source/profile acceptance at this coordinator.
+**Current execution dependencies, accepted target 2026-10-09:** UP0–UP9 supersede the private
+database realization while retaining PC/PJ completion, captured-binding, exact selection and
+bounded terminality guarantees. Native content/views and fenced effects precede admitted
+attachment, manifest publication and scoped serving. UP6 replaces ordinary raw SQL restore with
+data-only lowering and fresh logical staging; privileged whole-service recovery remains explicit
+maintenance. UP7 supplies stable validation attachment to the migrated controls. Integrate these
+consumers before UP9's populated journeys and reuse only valid matching-source/profile evidence.
 
 PJ5 and existing PC6/CU6/BC5 consume the resulting native/CLI/cold/MCP controls; no plan's receipt silently closes another plan's obligations. BC3 retains its candidate/default qualification gate and active release route. The earlier operator-deferred timeout receipts remain failed at their original source boundary. The current authorization to execute all remaining GK/GR scope reactivates matching final-source assembled release qualification; it does not establish causal runtime attribution or measured benefit. Authoring alone never activates this gate, and focused passes cannot substitute for it.
 
@@ -775,10 +781,132 @@ Report stopped, failed and not_run evidence honestly. Update STATUS from that ac
 
 ### 9.1 Current execution checkpoint, 2026-10-07
 
-**Unified plan authoring, 2026-10-09:** UP0–UP9 and cross-plan supersession are Proposed;
-source RC01–RC07 are explicitly accepted. This transfers finding ownership and schedules the
-replacement, not runtime closure. No new build, test, service/database operation, cleanup,
-activation or performance receipt is created. Existing receipts below keep their original source.
+**Unified execution in progress, 2026-10-09, baseline `20bc8cf9`.** ADR-0143 supersedes
+ADR-0138/0140 for shared native content, exact published views, admitted attachment and stable
+service ownership. Source changes span UP0–UP8; runtime closure and UP9 remain Open. New owned
+service installation is authorized; existing operator/PSE-arrow state, selection and protected
+inputs are outside this cutover. No fixed service memory cap or test/compiler parallelism cap
+is introduced. Patched gRPC3.3.0 remains the transport.
+
+**passed on intermediate source:** `cargo check --release -p cpg-core --tests`;
+`cargo check --release -p lctx-serving --tests`; `cargo check -p lctx-surrealdb --lib
+--test native --test cache --test projections --profile release`. These are typing checks,
+not persistence or integrated acceptance. Subsequent reuse/partition/retirement refinements
+require refreshed checks. Tooling controls passed with `uv run --no-sync pytest -q
+ tests/scripts/test_surrealdb_fixture.py tests/scripts/test_surrealdb_service.py
+ tests/scripts/test_verify.py tests/scripts/test_worktree.py` (99 controls before the final
+shared cache installation refinement). `just verify --print --select store:rust` resolves the
+stable validation attachment. `just service check` was **blocked**, exit75: the new installation
+was not yet created. The updated release CLI build is required before explicit installation.
+
+Whole-operation portable replay/capture is retired in favor of admitted native attachment.
+Selected fine-grain kernel products retain their distinct portable consumer, partitioned inside
+stable tables. Normalization attachment reconstructs required ephemeral verification owners
+from charged typed reads without canonical ingress. Legacy partial graph controls use scoped
+kernel readers; they do not fabricate admitted publication handles. Actual manifest/admission
+journeys retain their independent obligations. Global definition corruption controls move to
+explicit exclusive maintenance with ordinary native pins, then restore and revalidate definitions.
+These changes do not close source findings or promote historical timeout receipts.
+
+**Integration review corrections, 2026-10-09, Implemented / runtime acceptance pending:**
+exact search occurrences carry selected payload dependencies; immutable view/family lexical
+statistics replace global full-text scores before ranking limits. Publication identity checks
+include endpoint, namespace, database and generation. Restore requires selected payloads to
+exist in the dump even when matching rows are already installed. Whole-service cold recovery
+protects private configuration, credentials, selections and coordination separately from the
+logical content dump. Independent source review accepts those corrections. It exposed two
+remaining lifecycle defects: permanent retirement tombstones also block legitimate recreation,
+and ordinary retained contributions omit prerequisite-view retention. Both are corrected in
+source with original authorization epochs/permanent retired-through watermarks and guarded
+exact input-view holds. The final independent source review also confirmed corrected lexical
+endpoint installation order and approved the examined source subject to runtime controls.
+Fresh resurrection, stale-effect exclusion and retained-dependency controls are required before
+closing Unified F04/F05/F08. No source review is runtime closure.
+
+Additional intermediate typing checks passed: `cargo check --release -p lctx-publisher -p
+cpg-core -p lctx --tests` (9.27s), and the focused serving/publisher tests check after frozen
+lexical statistics. `cargo build --release -p lctx` passed5m41s before the retirement-epoch
+schema correction; it is not the final installer. Stable-service tooling controls now cover
+protected cold backup and exact-installation restore. Actual service installation and UP9
+remain pending; source-specific commands/results are updated here after runtime execution.
+
+**Installer/runtime prerequisite corrections, 2026-10-09:** `cargo build --release -p lctx`
+passed3m28s, guard-free `just sync native` passed1m41s and `just ready` passed. The first
+extension refresh had completed compilation but failed freshness while production sources
+were still changing; the guard-free retry repaired that boundary. Actual new owned-service
+installation then refused before schema SQL because systemd did not accept a quoted
+`EnvironmentFile=` path. The corrected path passed actual `systemd-analyze --user verify`.
+The next installer attempt exposed an index declared before its `content` field; corrected
+declaration ordering was included in a release CLI build that passed1m10s. Retrying the
+partial persistent installation then correctly refused existing declarations. The maintenance
+installer now compares normalized actual definitions, accepts exact matches and creates only
+missing declarations, including cache schemas; conflicting definitions are never overwritten.
+The owned installation remains closed pending that installer build and runtime checks.
+Private failure receipts retain each installer digest and partial-effect boundary.
+
+The focused pure selection (`cargo nextest run --locked --release --no-fail-fast
+--no-tests=fail -p lctx-surrealdb -p cpg-core -p lctx-publisher --lib -E ...`) ran7 controls:
+6 **passed**, the schema snapshot **failed** on the intended payload/anchor/view changes.
+Its corrected `.snap.new` was read and explicitly accepted with `cargo insta accept --snapshot
+lctx_surrealdb__schema__tests__fixed_native_envelopes.snap`; the selected rerun remains pending.
+This is a physical schema migration, not a snapshot-only test repair. Subsequent restore ingress
+also batches by bytes and charges retained decoded canonical rows, rather than accumulating128
+arbitrarily large rows. Affected tests compile (`cargo check --locked --release -p lctx
+-p lctx-publisher -p lctx-serving --tests`,7.77s); actual restore acceptance remains pending.
+
+**passed after repair:** the selected schema control on the accepted snapshot, Nextest
+`e582fd4c-7cd8-4561-b5ea-5858b02254dc`,1 control in0.017s (5m30s including queued build).
+The updated installer CLI (`cargo build --locked --release -p lctx`) passed9m13s including
+artifact-lock queuing and the newly shared parser dependency build. The parser's function-boundary
+and non-DDL refusal control also passed, Nextest `e066ef00-88ee-4b2b-9b85-ebb4c19ebc86`.
+Final focused tooling selection passed123 controls in9.09s, with the four modules named above.
+These passes do not establish actual installation, recovery or product runtime acceptance.
+
+**Owned stable service and recovery, 2026-10-09 — focused Tested:** the explicit installer
+created `library-context-surrealdb.service`, installation
+`58abe9ea-2088-4109-95ab-8440a3749c51`, under the private host state root. Both stable
+`main`/`validation` databases passed readiness with base schema
+`feefd2ea2f71ea348d9fe6bc61df193200e5523ea5eb550ed60c6f8e95349db4`.
+Two concurrent logical attachments shared that installation/generation; both released without
+stopping the service. Under drained explicit native-client maintenance, the actual ignored
+installer equality/retry/drift-refusal control passed, Nextest
+`9f114c00-3a59-4a94-be6b-fb1c795bb1ba`,1 control,0.177s. Protected cold backup, default
+restore validation, explicit applied restore and final readiness passed. The protected private
+qualification archive remains a current evidence consumer outside Git; credentials are never
+published. This was an empty-service structural recovery qualification, not every populated
+semantic audit. Its exact installer identity predates subsequent production repairs; refresh
+that checkpoint after the final CLI build and client drainage before claiming current recovery
+readiness. Preserve the original archive as qualification evidence, not a runtime fallback.
+The final scoped tooling rerun passed123 controls in4.42s; scoped Pyrefly passed. Ruff still
+requires scope-end formatting/import and long-line corrections.
+
+**Actual product controls and repairs, 2026-10-09 — enclosing acceptance Open:** the first
+11 native controls ran2passed/9failed (Nextest `de075531-e6c5-4987-92f2-c1cf866b72f3`).
+SDK transaction checking selected early `NotExecuted` wrappers and concealed real transaction
+errors; native checking now preserves all errors, chooses the real primary and retries only
+confirmed conflict-only failures. Cold backing reconstruction also still used an obsolete
+payload address; it now uses the current model/content address. The next expanded13-control
+run passed7/failed6 (`3cfb6eeb-9432-4885-93a5-a038f69689c7`), exposing actual invalid field-
+expression `FOR UPDATE` targets. Explicit record-ID bindings corrected those targets. The next
+11-control run passed10/failed1 (`3c4c16de-3c3c-40c3-b51d-8bfcbe9c4a71`,4.267s): global
+backup exclusion overlapped an ordinary retirement assertion. Database-wide backup exclusion
+is moving to explicit drained maintenance; ordinary shared-child retention remains concurrent.
+Neither moving the disruptive assertion nor these partial passes closes the lifecycle findings.
+
+The five root core/publication/serving controls ran2passed/3failed, Nextest
+`3dd961c9-27ef-43ea-b9c1-278d52aadecd`,11.493s. Both scoped serving companions passed;
+core/publication exposed logical-versus-attempt-owned producing contribution binding, while
+cold transport retained an obsolete state-format assertion. Corrections are in progress.
+The first four search controls ran1passed/3failed: partial fixtures derived empty binding-root
+scopes instead of using their actual completed-view IDs. Corrected fixtures then exposed a
+retained synthetic-row uniqueness collision and a real10s native query timeout. Fresh synthetic
+negative rows now own unique payloads. The smallest diagnostic rerun attributes the query timeout
+to derived-search actual-row reconciliation, before frozen lexical-statistics construction.
+Indexed exact-scope preparation is being corrected; deadlines and parallelism are unchanged.
+Guard-free final client refresh, remaining focused controls and coordinated UP9 `just qualify`
+are still **not_run** on the replacement final source. No measured speedup or whole-plan closure
+is claimed. A build attempted during an intermediate `IndexedResults` typing correction failed
+before execution; it is not a product-control result.
 
 **NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
 operator-accepted complementary target. Exact bindings, membership access, typed replay,
@@ -1251,9 +1379,10 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-09: unified persistence planned, production not_run.** UP0 decisions/contracts and UP1
-explicit durable attachment are the next new scope; UP2/UP3 deliver the exact shared-content and
-fenced-binding prerequisites before their consumers migrate. Source findings remain Open in §8.
+**2026-10-09: unified persistence implementation in progress.** UP0–UP8 source changes provide
+shared immutable content, exact scoped readers, checked admitted attachment, durable effects,
+manifest publication, data-only restore and stable service/recovery tooling. Integration review
+corrections and actual installation/controls remain in progress. Source findings remain Open in §8.
 The common final acceptance is UP9 with the surviving obligations identified in §7.3. Historical
 timeouts, integrated implementation and bounded passes below are not rewritten or promoted.
 

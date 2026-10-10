@@ -1,173 +1,108 @@
 # SurrealDB operator runbook
 
-**Accepted target / implementation in progress, 2026-10-07:** [Persisted graph execution](plans/persisted-graph-execution-plan_2026-10-07.md) coordinates the new compiler and shared-consumer pivot. The same managed persistent server remains the selected host. PG5/PG7 change compiler/import/restore boundaries and completed-state format; ADR-0138 owns this execution boundary; current acceptance is in STATUS and the persisted plan. Operator runtime actions and real-library pilots remain held during this implementation.
-
-**Implemented / focused Tested route, 2026-10-07; operator selection/adoption held for catalog compilation design revision.** The native server hosts fresh,
-immutable graph snapshots and a separate mutable embedding cache. Compilation writes exact
-completed native state and ordinary publication seals that same database. Explicit external import
-consumes a verified complete export without replaying providers. The
-[persisted execution plan](plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
-owns current functional receipts; earlier receipts remain with the graph/evaluation coordinators. Disposable databases own contract validation.
-Earlier combined execution authorized local operator preparation; its recorded persisted server
-and embedding cache are preserved. No operator-state change is authorized by the current fixture checks. Fresh library compilation stopped without a verdict, and selected-snapshot adoption is held for the [catalog compilation speed review](design_review/reviews/design_review_catalog-compilation-speed_2026-10-07.md). The persistent server and cache remain available; this review did not change service configuration.
+**Accepted target / implementation in progress, 2026-10-09 (ADR-0143).** The
+[unified plan](plans/unified-persistent-surrealdb-plan_2026-10-09.md) replaces private compiler
+databases, sealing and disposable fixtures with one durable service and exact published views.
+The [persisted coordinator](plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+owns current receipts; [STATUS](../STATUS.md) distinguishes implementation from qualification.
+Existing operator stores, client registrations, real-library pilots and selection remain held.
+The newly owned library-context service is a separate explicitly installed target.
 
 ## Server and configuration
 
-Use the reviewed SurrealDB 3.3 server, with persistent RocksDB storage and authentication. The
-owned control fixture runs the native 3.3.0 release binary, byte-identical to `/surreal` in image
-`surrealdb/surrealdb@sha256:681c6c22c287421b5c7d99e0fde79b6e0d32c36c1ddeaab2762a1661cb04cd20`, and
-checks its sha256 and `surreal version` before every start ([pins](pins.md#native-runtime-control);
-`LCTX_SURREAL_BIN` selects the file). It binds an explicit loopback port that a restart keeps; gRPC
-and HTTP use that same port. Configure a 20-second query timeout
-and 10-second transaction timeout. Choose block-cache and write-buffer sizes for the server
-allocation using the actual 3.3 variables `SURREAL_ROCKSDB_BLOCK_CACHE_SIZE`,
-`SURREAL_ROCKSDB_WRITE_BUFFER_SIZE` and `SURREAL_ROCKSDB_MAX_WRITE_BUFFER_NUMBER`.
-Leave allocation room for requests, other engine state and background compaction. The server
-memory threshold is a guard rather than an RSS cap; retain synchronous durability and background
-maintenance. Host-derived defaults can exceed an intended allocation. The owned fixture explicitly sets a 64 MiB block cache, 32 MiB write buffers with at most two buffers, a tracked-memory threshold of half its cap and a user-systemd `MemoryMax` cap (`LCTX_FIXTURE_MEMORY`, default 16 GiB, with an 8 GiB tracked-memory threshold; idle RSS is about 200 MB, so caps below about 250 MB fail at startup). An OOM kill is reported as an infrastructure failure. These are fixture choices, not universal capacity recommendations. Default durable `Every` synchronization is preserved. See `scripts/surrealdb_fixture.py` for the launch
-options, persistent restart and readiness checks. It never inspects the operator store.
+`just service install --installer target/release/lctx` explicitly installs the pinned native
+SurrealDB3.3.0 RocksDB service and schemas. It verifies binary digest/version, creates the owned
+`library-context-surrealdb.service`, and records installation identity, storage and generation at
+`${XDG_STATE_HOME:-~/.local/state}/library-context/surrealdb/installation.json`. Set
+`LCTX_SURREAL_SERVICE_CONFIG` to that manifest when using another selected location. State and
+coordination belong outside checkouts. Neither ordinary commands nor worktrees start a substitute.
 
-Set `SURREAL_GRPC_MAX_MESSAGE_SIZE=128MiB` for this native row contract. SurrealDB3.3 defaults
-to4MiB and advertises that ceiling to the Rust SDK; the SDK takes it by default. Native writes
-target128 rows with the existing8MiB byte target, and an admitted single larger row travels alone
-up to64MiB. Its RPC framing also needs room. This transport ceiling permits indivisible rows;
-it does not increase transaction timeouts or remove native row/byte guards. Configure it before
-starting the managed server; current implementation controls change only their owned fixture.
-The operator deployment remains held. The pinned implementation couples the server's advertised,
-decoding and encoding ceilings in [server configuration](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/server/src/cnf/mod.rs)
-and the [SDK](https://github.com/surrealdb/surrealdb/blob/v3.3.0/surrealdb/src/opt/grpc.rs)
-reconciles them; setting only a client limit cannot raise the server's request ceiling.
+The stable namespace is `library_context`, with `main` and `validation` databases. Main contains
+canonical payloads, exact memberships, manifests, attempts, effects, pins and cache tables.
+Validation contains synthetic test data under the same schema. Tests never inspect/reset main.
+No database per attempt or test, scratch fallback, job/thread cap or fixed memory cap is selected.
+Default engine durability and background maintenance remain enabled. Existing query and transaction
+deadlines remain20s/10s. The128MiB gRPC ceiling accommodates admitted indivisible rows; it does
+not remove bounded native ingress or increase deadlines.
 
-**Inspected, 2026-10-07:** the installed system CLI is visible as `surreal` in a fresh terminal
-and reports `3.3.0`; `surreal start --help` accepts an explicit durable store path and uses best-effort
-planning by default. The pinned 3.3.0 source also enables a cross-transaction definition cache
-(`SURREAL_DATASTORE_CACHE_SIZE`, default 1,000 entries) and a process-shared HNSW vector cache
-(`SURREAL_HNSW_CACHE_SIZE`, default 256 MiB). Retain these caches; size them together with
-RocksDB and request memory for the deployment. The HNSW graph is loaded separately and is not
-bounded by the vector-cache setting. The [index documentation](https://surrealdb.com/docs/reference/query-language/statements/define/indexes)
-describes that distinction. Persistent storage preserves data and indexes across restart;
-in-memory caches warm again. Neither establishes a query-speed claim. Our readers share their
-pinned SDK client, and ranked continuations reuse their retained candidate pool rather than
-rerunning discovery. Caching complements bounded indexed queries; it does not replace removal
-of repeated correlated scans. Current eligibility follows indexed record adjacency before channel
-quotas; lexical winner scores are prepared once in a keyed dictionary. No general result cache or
-duplicate canonical store is required.
+Private `main-runtime.json` and `validation-runtime.json` use database-scoped writer credentials;
+`*-installer.json` files carry Root credentials only for explicit maintenance. All are mode0600.
+Runtime configuration identifies endpoint, namespace/database, service generation, authentication
+scope, credentials, same-database cache tables and selection path. Generation is a full32-byte
+identity, separate from client builds and semantic content. Ordinary readiness verifies the
+installed model/physical schema and generation and never performs DDL.
 
-Request hydration follows keyed record adjacency. Original-evidence incoming ownership uses
-the packet's declared source families; its wider outgoing proof dependencies do not grant
-incoming ownership to unrelated analytical values. Recognized native engine timeouts return
-the typed resource-refusal envelope. A normal response can refuse when its indivisible core,
-coverage and delivery map exceed the budget; use the existing expanded request mode for larger
-packets. The limits remain protective guards rather than a guarantee that every packet fits.
-
-Keep `build/native/runtime.json` outside Git and mode 0600. Its closed fields are:
-
-```json
-{
-  "endpoint": "grpc://127.0.0.1:8000",
-  "username": "installer",
-  "password": "<root installer secret>",
-  "viewer_username": "snapshot_reader",
-  "viewer_password": "<different database reader secret>",
-  "namespace": "lctx",
-  "cache_database": "cache",
-  "selection": "build/native/selected.json"
-}
-```
-
-The root installer creates private databases and their database-scoped VIEWER user. Product
-serving receives only the emitted `selected.serving.json`: endpoint, database VIEWER credentials
-and the absolute path of the single atomic selection file. New sessions read that handle once;
-running sessions retain their pin. Never pass operator runtime configuration to MCP, log secrets, or share a
-mutable SDK database-selection context between readers. The current SDK runtime accepts reviewed
-3.3 engines; another server family requires checking its protocol and physical contracts first.
-
-## Optional compilation products and serving preparation
-
-**Implemented / acceptance in progress, 2026-10-09 (ADR-0140).** Runtime configuration may add
-`reuse` with a distinct `database`, positive `capacity_bytes` and an absolute `lease_directory`.
-For example, a disposable fixture can use:
-
-```json
-"reuse": {
-  "database": "compiler_products",
-  "capacity_bytes": 8589934592,
-  "lease_directory": "/absolute/fixture/compiler-product-leases"
-}
-```
-
-Omission disables persisted product reuse. Explicit `lctx store init` installs this disposable
-schema; ordinary compilation only connects to an already compatible store. Every process sharing
-the database must use the same canonical coordination directory on the managed local host.
-Products are derived data, with no completed-input authority: canonical validation and current
-semantic predicates precede replay into fresh native contributions. Incompatible private formats
-are rebuilt by explicit installation, including obsolete private schema definitions; no old-format
-reader exists. An immutable native coordination-owner receipt survives reset and interrupted
-installation; explicit reset point-fences the old generation before removing tables. Its complete
-DDL/header/quota reset is one native transaction guarded by a persistent administrative generation.
-Compatible explicit installation and retirement rotate this token too. A durable `admin.pending`
-marker blocks cache admission after failed or uncertain administration. Recover by explicit
-fenced installation, which clears it only after confirmed native commit; readonly connection
-does not reconcile uncertain effects. Unknown write outcomes remain
-unacknowledged until exact reconciliation. Leases, quota reservations and generation fences protect
-concurrent publication, eviction and retirement. `NativeProductCache::retire` drains these owners
-before deleting derived state; it does not retire a published snapshot or the embedding cache.
-No operator installation or activation was performed by this implementation.
-
-Native serving now retains optional preparation within one immutable viewer pin. Runtime and
-viewer configurations may supply `serving_limits` using the existing `ResourceLimits` fields;
-omission retains the current defaults. Moka coalesces matching preparation without combining
-request cancellation, deadlines or permissions. Optional retention yields to required work, while
-external borrowers keep their own charge and pin until release. Closing a service drains these
-owners before invalidating its reader. These are structural reuse contracts, not measured speed
-claims.
-
-## Compile, publish and select
+CLI defaults resolve the installed main runtime; `LCTX_COMPILER_RUNTIME_CONFIG` selects a
+validation runtime for managed controls. Explicit `--runtime-config` takes precedence. Missing or
+incompatible state refuses before acquisition and names the repair. VIEWER credentials alone
+are not a capability for one publication in a shared database. Product readers use the trusted
+Rust boundary, exact publication views and durable pins; credentials never enter handles/logs.
+The private serving configuration carries the database principal needed to create and release
+pins. The Rust/PyO3 domain session exposes read operations and never exposes those credentials
+or arbitrary native SQL to product callers.
 
 ```sh
-lctx store --runtime-config build/native/runtime.json init
-lctx store --runtime-config build/native/runtime.json check
-lctx compile fastmcp --through catalog --runtime-config build/native/runtime.json
-# Export complete graph and compiler state from the same native compiler:
-lctx compile fastmcp --through catalog --artifact-only --output build/admitted --runtime-config build/native/runtime.json
-lctx publish-artifact build/admitted --runtime-config build/native/runtime.json
+just service status
+just service check
+just service maintenance --check
+# Explicit disruptive operation, after borrower drainage:
+just service maintenance --restart
+# Revalidate a failed maintenance operation; unresolved ownership stays closed:
+just service maintenance --recover
 ```
 
-Ordinary compilation and publication return an unselected handle. Save that JSON as
-`build/native/handle.json`; selection is a separate action:
+Maintenance closes host and native admission, drains identified borrowers and native effects,
+checks exact service/storage identity, then performs the selected operation. Reopening requires
+native reconciliation and compatibility. Local child cleanup, a missing heartbeat or an empty
+process group cannot establish remote terminality. Unresolved ownership keeps admission closed
+with its recovery route. Never synchronize a native extension while guarded clients are live.
+Disruptive native controls use `just service maintenance --native-clients -- COMMAND`: the
+owner admits only that child, closes and drains it afterward, then revalidates before reopening.
+
+Patched gRPC3.3.0 remains the supported product transport. Progressive rows are provisional until
+checked statement/application completion and physical EOF; late errors and cancellation retain
+their disposition. WS/HTTP alternatives require equivalent streaming, cancellation, terminal-error
+and backup contracts. No transport switch or dependency bump is implied.
+
+## Compilation products and publication
+
+Compilation stages immutable model/codec-qualified payloads under a durable attempt. Full nominal
+anchors and exact view membership resolve graph targets without global nominal-key ambiguity.
+Equal canonical content shares storage; unequal revisions may coexist in different views but
+conflict within one selected view. Original bytes and full generated backing remain authoritative.
+
+A completed contribution is not automatically admitted. After private core admission, compatible
+retained products can attach compact membership pointers to current ownership without canonical
+row replay. Current producer specification, exact dependencies, provenance and semantic premises
+must agree. Optional detached portable products still undergo typed and semantic checks before
+ingress. Optional `reuse` storage uses the configured database with its own tables, quota and
+absolute shared lease directory; it does not create another database. Hash equality grants no
+semantic authority. Mutable caches cannot own published consumed vector values.
+
+Ordinary publication commits an immutable manifest over admitted views and a named executable
+definition epoch. It does not seal the database or re-import its own export. Handles bind publication,
+semantic/realization identity, exact view inventory and service generation. Definitions cannot change
+beneath a pin. New publication does not select it; changing selection affects new sessions only.
+Failure may retain compatible completed work. Unknown effects reconcile by durable operation ID;
+no arbitrary pending task resumes and process exit cannot authorize shared-data deletion.
 
 ```sh
-lctx snapshot --runtime-config build/native/runtime.json select build/native/handle.json
-lctx snapshot --runtime-config build/native/runtime.json show
-lctx snapshot --runtime-config build/native/runtime.json query 'SELECT VALUE id FROM entity LIMIT 5'
-just sync native
-uv run --no-sync python -m lctx_mcp --serving-config build/native/selected.serving.json
+lctx store check
+lctx compile fastmcp --through catalog --runtime-config /absolute/main-runtime.json
+lctx compile fastmcp --through catalog --artifact-only --output build/admitted
+lctx publish-artifact build/admitted
+lctx snapshot select build/native/handle.json
+lctx snapshot show
+# Model-declared relation, scoped to the selected publication; arbitrary SQL is not exposed:
+lctx snapshot query packages --limit 5
 ```
 
-Compilation creates a private STRICT database before producing any output. Immutable completed
-contributions/views and bindings exclude pending rows; original chunks have one physical byte owner.
-Ordinary publication admits and reconciles that same database, builds native roles/search indexes,
-closes operation admission, drains retained work and invalidates its writer before returning a
-read-only handle. Explicit import independently validates graph plus completed state. Failure
-keeps the attempt unselected and removes it; uncertain cleanup reports its owned database name. A transport dump or copied publication
-marker does not establish publication trust.
-
-Every running MCP process pins its complete handle. Selection affects new processes. Restart
-retains persistent content; an answer-affecting definition, index policy or Rust operation change
-requires a fresh realization. The linked service checks its sealed operation implementation.
-Build the native Python extension from the current checkout before starting clients. During
-development, Cargo can build the cdylib and the editable package can load it directly; wheel
-packaging is unnecessary. A previously installed extension may represent an earlier Rust
-operation definition. Drain native workers before replacing the local extension.
-
-`lctx snapshot list` inspects complete publications in the configured namespace. An explicit
-`lctx snapshot audit build/native/handle.json` reconciles canonical content and checks current
-database/table definition inventory against the sealed realization, and compares every derived
-query-visible search/scope/vector/witness row with the shared canonical lowering without writes. This is a cold operator
-action, not per-request corpus accounting. Users/access definitions and live subscriptions are
-outside that fingerprint; SurrealDB 3.3 metadata does not expose the database's STRICT mode.
-Audit therefore does not certify credentials, live subscriptions or database mode. Publication
-itself explicitly creates STRICT databases and a separate read-only viewer.
+These examples document interfaces, not authorization for real-library qualification or selection.
+Build the current native Python extension before clients run. Running clients retain their exact
+handle, pins and charged preparation; close drains owners and releases pins before invalidation.
+`lctx snapshot list` lists manifests in the configured database. `audit HANDLE` independently
+reconciles the selected content/state and trusted definition epoch; it does not certify credentials,
+live subscriptions, unrelated publications or database-wide semantic completeness.
 
 ## Embeddings and native search
 
@@ -189,98 +124,75 @@ request and policy. Analytical exact-neighbor contracts remain separate.
 
 ## Export, restore and retirement
 
-`lctx snapshot export` writes a named input/context projection, with semantic IDs, isolates,
-parallel arcs, lineage, coverage and gaps. It is an analytical export, not a database backup:
+Analytical exports preserve named universe, roles, semantic IDs, isolates, parallel arcs, lineage,
+coverage and declared losses. They are distinct from recovery backups.
 
 ```sh
 lctx snapshot export --projection <name> --input <32-hex-id> --context <32-hex-id> --output graph.json
-```
-
-```sh
-lctx snapshot backup --handle build/native/handle.json --output snapshot.surql
-lctx snapshot restore snapshot.surql
-# After readers stop and this handle is no longer selected:
+lctx snapshot backup --handle build/native/handle.json --output main.surql
+lctx snapshot restore main.surql --publication <64-hex-publication-digest>
 lctx snapshot retire build/native/handle.json --readers-stopped
 ```
 
-Portable backup uses the SDK's terminally checked gRPC file export on the same local authority,
-restricted to canonical entities/assertions, native role arcs, originals and the manifest.
-Derived search tables and executable definitions are reconstructed rather than transported;
-this also avoids SurrealDB 3.3's export/import mismatch for nullable fixed-array search fields.
-Restore imports through the checked HTTP import response into a fresh private staging database,
-reconciles canonical content and performs pure semantic re-admission without providers, reconstructs
-current definitions and derived indexes in a fresh final database, then issues a newly reconciled
-handle. It does not select that handle or inherit imported users and executable authority.
-Never treat imported historical handles as current trust. Before retiring a snapshot, stop and
-drain every known CLI/MCP reader and remove any selection pointing at it. Do not retain rollback
-copies or old-format readers without a current consumer. Other projects' PostgreSQL stores and
-the host PostgreSQL installation are outside this pivot.
+Logical backup uses one terminally checked database snapshot under a retention hold. Canonical
+content, exact completed state and manifests survive; derived search and executable definitions
+are reconstructed. The owned exporter emits one record per statement to preserve finite parsing
+of admitted rows. A multi-manifest dump requires explicit publication selection. The convenience
+restore refuses ambiguity. Its inert recovery metadata references the current protected archive
+when available and names outstanding recovery obligations; that archive is a separate checkpoint.
+Credentials and live runtime authority never enter the logical dump.
+
+`just service backup /absolute/private/service.tar` closes admission, drains borrowers/effects,
+stops only the owned daemon, captures its cold data, pinned binaries, private configuration,
+credentials, selections and canonical coordination, and restarts/revalidates it. The archive is
+mode0600 and must lie outside owned service state. `just service restore ARCHIVE` validates and
+stages without changing live state; `--apply` explicitly restores only the matching owned
+installation/generation under maintenance. Recovery validates asset digests and preserves the
+predecessor until readiness succeeds. Failure keeps admission closed and retains recovery assets.
+
+Restore parses closed literal data locally and lowers it through typed staging, independent
+semantic admission and trusted executable generation. Dump SQL is never sent as Root-authorized
+commands. Imported control records cannot recreate grants, live attempts, fences, pins or visibility.
+Malformed/dynamic data, administrative commands and control-ID injection refuse. Concurrent imports
+receive fresh logical ownership; failure does not remove unrelated shared content.
+
+Retirement refuses selected or pinned publications. The native owner serializes reference changes
+and retirement through exact guard records, rechecks reachability, and protects shared surviving
+content. The `--readers-stopped` declaration is not evidence sufficient to bypass native pins or
+unknown effects. Storage-manager policy delegates to this owner. Worktree removal never deletes
+service storage, canonical payloads or shared caches.
 
 ## Focused controls
 
-`just fixture -- COMMAND` owns one authenticated persistent disposable server, supplies
-`LCTX_SURREAL_TEST_CONFIG` and `LCTX_COMPILER_RUNTIME_CONFIG`, and removes only its own server and
-state (`--keep`, `--attach`, `--list` and `--stop` manage kept servers).
-Fixture-backed verification boundaries (`providers:extract`, `compiler:producer`,
-`compiler:cli`, `store:rust`, `serving:rust`, `serving:mcp`) each receive their own attachment,
-with both variables, through `just verify --select BOUNDARY --nextest-args "-E '<filter>'"` (or
-the `just verify-<family> --command BOUNDARY -- …` shortcuts); `just verify --print …` shows the
-resolved commands without building. `--attach ID` uses a kept fixture, and `serving:mcp` can
-reuse retained content (`--attach ID --serving NAME`, produced by `--retain-serving NAME`); the
-skipped journey is recorded as `not_run` with the content identity. These controls use owned
-persistent fixtures; they do not inspect the operator store. The previously stopped broad compiler
-suite is not restarted. Current native/MCP/programmatic acceptance follows the
-[persisted execution plan](plans/persisted-graph-execution-plan_2026-10-07.md).
-Real FastMCP Catalog/Behavioral compilation, Q1 selection and operator adoption remain held.
+`just fixture -- COMMAND` borrows validation on the installed stable service and supplies
+`LCTX_SURREAL_TEST_CONFIG`, `LCTX_COMPILER_RUNTIME_CONFIG` and a logical attempt identity.
+Command exit releases that borrower; it never stops the daemon or tears down a database.
+`--list` observes ownership; `--recover ID` resolves identified local cleanup without assuming
+remote drainage. Retained serving outputs carry exact handles and content identity.
 
-Logical text is declared by the model field type independently of Arrow storage. Native query
-projections preserve exact `Utf8Text`, including enum fields, and exclude opaque byte/vector
-payloads. The 2026-10-06 field-contract migration changes model schema identity; rebuild artifacts
-and realizations from current inputs rather than retaining an old-format reader.
+Use `just verify --print --select FAMILY:BOUNDARY` to inspect commands and focused selectors
+for implementation. Native Rust/Python/CLI controls share the installed service with independent
+logical ownership and normal available parallelism. Pure model/finite kernels need no database.
+Restart-bearing controls drain the producer, perform explicit exclusive maintenance, then attach
+a fresh consumer. Fresh/cold negative controls execute their intended validation; retained content
+cannot substitute cached success. Infrastructure/readiness blocking is exit75; unexplained process
+endings remain failed with unknown cause.
 
+## Maintenance diagnostics
 
-## Disposable agent diagnostics
-
-**Implemented; focused acceptance 2026-10-09 (ADR-0142).** The fixture owner exposes SQL diagnostics
-and an invocation-scoped native MCP client against its disposable server. These do not register
-a client or change an operator database. `just fixture --help` owns the exact grammar.
+Diagnostics use synthetic validation content on the stable service. SQL and invocation-scoped
+native MCP require explicit maintenance admission:
 
 ```sh
-# Native draft syntax check; valid syntax can still fail schema/type/runtime checks.
 printf 'RETURN 1;\n' | surreal validate --stdin
-# A fresh disposable namespace. SQL is explicitly effectful and may mutate its selected scope.
-printf 'INFO FOR DB;\n' | just fixture --sql -
-# Identify existing live attachment content explicitly (its owner must still hold the lease).
-just fixture --attach FIXTURE --inspect-config /absolute/attachment/runtime.json --sql query.surql
-# Select checked retained serving content instead of guessing a previous namespace.
-just fixture --attach FIXTURE --serving NAME --sql query.surql
-# Fresh local Codex task with this attachment's native HTTP MCP endpoint.
-just fixture --mcp --non-sensitive
+just service maintenance -- just fixture --sql query.surql
+just service maintenance -- just fixture --mcp --non-sensitive
 ```
 
-`--attach FIXTURE` alone creates a new namespace. Existing-content inspection validates the exact
-configuration, server and content owner. SQL output separates transport refusal from indexed
-statement statuses; harness errors omit SQL, bind and credential values. Successful requested
-results remain data, so choose the inspection query accordingly. An unexplained server end is
-`failed` with unknown cause; evidenced OOM/infrastructure refusal is `blocked` (75). Actual child
-exit remains separately recorded by the shared outcome policy. Unresolved command cleanup
-preserves attachment/server recovery records. `just fixture --stop FIXTURE --force` retries the
-selected recovery; `--force` never bypasses identity checks or cleanup confirmation.
-
-MCP uses the existing server's `/mcp`, not `surreal mcp` (which creates another datastore).
-The launcher supplies transport authentication through a child-only environment variable and
-invocation configuration, and holds the attachment until the client exits. Native errors are raw:
-`--non-sensitive` acknowledges that this route is for synthetic/non-sensitive disposable content.
-Retained or operator configurations are not accepted for MCP. Pass the emitted namespace and
-database on every native tool call; admin transport authentication is not a tenant boundary.
-Mixed statements can yield `isError: false` with `has_errors: true`; inspect statement statuses.
-Native result truncation is not full-result evidence. Sanitized HTTP diagnostics remain usable
-when native MCP fails.
-
-**Exercised, 2026-10-09:** disposable native validation, schema/index INFO and bounded EXPLAIN,
-wrong/live scope checks, mixed HTTP statement outcomes and redaction, native MCP auth/refusal and
-mixed results. A fresh installed Codex 0.162.0 app-server client completed initialization and
-reported the fixture's tools, without a model turn or persistent registration. These establish
-diagnostic capability, not product gRPC acceptance, operator adoption or measured effectiveness.
-The [follow-up plan](plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
-owns the scoped receipts and remaining limits.
+Native MCP uses the existing server's `/mcp`, never `surreal mcp` with another datastore. The
+launcher selects validation and passes only database-scoped credentials through child-only routing.
+Main/operator configurations are refused. Native results can contain sensitive data; raw MCP is
+limited to explicitly synthetic, non-sensitive controls. Check every statement status, including
+`has_errors`, and preserve truncation and terminality boundaries. Sanitized harness errors omit SQL,
+bind and credential values. Diagnostic controls establish tooling capability, not product acceptance
+or measured effectiveness. Prior AF receipts retain their original disposable-fixture scope.

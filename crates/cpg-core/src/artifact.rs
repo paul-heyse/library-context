@@ -1059,6 +1059,7 @@ pub async fn verify_restored(
                 manifest_charge.grow(loss.len())?;
             }
         }
+        runtime.native().mark_attempt_admitted().await?;
         Ok::<_, ModelError>(RestoredAdmission {
             workspace: runtime.clone(),
             manifest: manifest.clone(),
@@ -1396,6 +1397,7 @@ pub async fn admit(
                     * (size_of::<Id<lctx_model::domain::source::SourceArtifact>>()
                         + size_of::<Original>()),
             )?;
+            workspace.native().mark_attempt_admitted().await?;
             let artifact = AdmittedArtifact {
                 workspace: workspace.clone(),
                 original_keys,

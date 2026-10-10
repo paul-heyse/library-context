@@ -96,7 +96,7 @@ impl PreparedServingScope {
         let mut walks = Vec::new();
         for edge in program.outgoing_edges() {
             walks.push(format!(
-                "(SELECT VALUE out FROM $frontier->{} WHERE out.semantic_type IN $types)",
+                "(SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views AND node.semantic_type IN $types AND node.anchor IN (SELECT VALUE out FROM {} WHERE in IN $frontier))",
                 edge_table(*edge)
             ));
         }
@@ -117,17 +117,20 @@ impl PreparedServingScope {
                     literal(rule.owner.name())
                 ));
             }
-            walks.push(format!("(SELECT VALUE in FROM $frontier<-{} WHERE in.semantic_type IN $incoming_types AND ({}))",
+            walks.push(format!("(SELECT VALUE in FROM {} WHERE out IN $frontier.anchor AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND in.semantic_type IN $incoming_types AND ({}))",
                 edge_table(*edge), conditions.join(" OR ")));
         }
-        walks.push("(SELECT VALUE id FROM assertion WHERE semantic_type=$distribution_type AND semantic_type IN $types AND scope_keys CONTAINSANY $distribution_keys)".to_owned());
+        walks.push("(SELECT VALUE id FROM assertion WHERE id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type=$distribution_type AND semantic_type IN $types AND scope_keys CONTAINSANY $distribution_keys)".to_owned());
         walks.push("$corpus_ids".into());
         let frontier_sql = format!(
             "RETURN {{\
-            LET $capture_inputs = SELECT VALUE body.{} FROM entity WHERE id IN $frontier AND semantic_type IN $capture_input_types;\
-            LET $source_inputs = SELECT VALUE body.{} FROM entity WHERE id IN $frontier AND semantic_type IN $source_input_types;\
+            LET $selected = array::distinct(array::concat((SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views),(SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views))));\
+            LET $frontier = SELECT VALUE id FROM $selected WHERE id IN $requested_frontier OR anchor IN $requested_frontier;\
+            IF array::len($requested_frontier.filter(|$root| !($root IN $frontier OR $root IN $frontier.anchor)))>0 {{ THROW 'scope root outside exact view'; }};\
+            LET $capture_inputs = SELECT VALUE body.{} FROM entity WHERE id IN $frontier AND id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type IN $capture_input_types;\
+            LET $source_inputs = SELECT VALUE body.{} FROM entity WHERE id IN $frontier AND id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type IN $source_input_types;\
             LET $corpus_keys = {corpus_keys};\
-            LET $capture_corpora = SELECT id, body.{} AS {} FROM assertion WHERE semantic_type=$corpus_type AND scope_keys CONTAINSANY $corpus_keys;\
+            LET $capture_corpora = SELECT id, body.{} AS {} FROM assertion WHERE id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type=$corpus_type AND scope_keys CONTAINSANY $corpus_keys;\
             LET $distribution_keys = {distribution_keys};\
             LET $corpus_ids = IF $corpus_type IN $types THEN $capture_corpora.map(|$c|$c.id) ELSE [] END;\
             RETURN array::distinct(array::concat({})); }};",
@@ -146,17 +149,17 @@ impl PreparedServingScope {
     }
     pub fn frontier_query(&self, frontier: Vec<RecordId>) -> Result<PreparedQuery, ModelError> {
         let mut bindings = self.bindings.clone();
-        bindings.insert("frontier", frontier);
+        bindings.insert("requested_frontier", frontier);
         PreparedQuery::new(bindings, vec![], vec![self.frontier_sql.clone()])
     }
-    pub async fn hydrate(
+    pub async fn hydrate<Context>(
         &self,
-        reader: &NativeReader,
+        reader: &NativeReader<Context>,
         nodes: Vec<RecordId>,
         budget: &ResourceBudget,
     ) -> Result<CanonicalBatches, ModelError> {
         let mut bindings = Variables::new();
-        bindings.insert("nodes", nodes);
+        bindings.insert("requested_nodes", nodes);
         let types: BTreeSet<_> = self
             .program
             .inputs()
@@ -164,9 +167,14 @@ impl PreparedServingScope {
             .map(|input| input.name().to_owned())
             .collect();
         bindings.insert("types", types.into_iter().collect::<Vec<_>>());
-        reader.canonical_batches("RETURN array::concat(\
-            (SELECT 'entity' AS node_kind, canonical FROM $nodes WHERE record::table(id)='entity' AND semantic_type IN $types),\
-            (SELECT 'assertion' AS node_kind, canonical FROM $nodes WHERE record::table(id)='assertion' AND semantic_type IN $types));".into(), bindings, budget).await
+        let selected=reader.selected_node_predicate("id");
+        reader.canonical_batches(format!("RETURN {{\
+            LET $selected=array::distinct(array::concat((SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views),(SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views))));\
+            LET $nodes=SELECT VALUE id FROM $selected WHERE id IN $requested_nodes OR anchor IN $requested_nodes;\
+            IF array::len($requested_nodes.filter(|$root| !($root IN $nodes OR $root IN $nodes.anchor)))>0 {{ THROW 'scope hydration outside exact view'; }};\
+            RETURN array::concat(\
+            (SELECT 'entity' AS node_kind, canonical FROM $nodes WHERE record::table(id)='entity' AND semantic_type IN $types AND ({selected})),\
+            (SELECT 'assertion' AS node_kind, canonical FROM $nodes WHERE record::table(id)='assertion' AND semantic_type IN $types AND ({selected}))); }};"), bindings, budget).await
     }
 }
 

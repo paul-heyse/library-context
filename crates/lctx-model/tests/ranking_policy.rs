@@ -1,13 +1,18 @@
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
     use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
-    SnapshotHandle {
+    let mut handle=SnapshotHandle {
+        publication: lctx_model::domain::ContentHash([0;32]),
+        view: lctx_model::domain::ContentHash([byte;32]),
+        service_generation: lctx_model::domain::ContentHash([byte;32]),
+        definition_epoch: lctx_model::domain::ContentHash([byte;32]),
         semantic: lctx_model::domain::ContentHash([byte; 32]),
         realization: lctx_model::domain::ContentHash([byte; 32]),
         database: DatabaseIdentity {
             namespace: Name::new("lctx").unwrap(),
             database: Name::new(format!("snapshot_{byte}")).unwrap(),
         },
-    }
+    };
+    handle.publication=handle.expected_publication();handle
 }
 use lctx_model::domain::{
     ContentHash, Id, ModelError,
@@ -470,8 +475,9 @@ fn native_analyzer_identity_is_independent_of_fusion_rules() {
     assert_eq!((policy.lexical.k1, policy.lexical.b), (1.5, 0.75));
     let mut changed = policy.clone();
     changed.lexical.definition = ContentHash::of(b"another installed analyzer");
-    assert!(changed.validate().is_ok());
-    assert_ne!(policy.identity().unwrap(), changed.identity().unwrap());
+    assert!(changed.validate().is_err(), "unqualified analyzer cannot reuse the native scorer");
+    assert_eq!(policy.revision, 5);
+    assert_eq!(policy.lexical.scoring.as_str(), "view-family-bm25-distinct-terms-v1");
     changed.rrf_k = 59;
     assert!(changed.validate().is_err());
     changed = policy.clone();

@@ -298,7 +298,6 @@ def ready_environment(target: Path, source: Mapping[str, str]) -> tuple[dict[str
     return env, notes
 
 
-LIVE_UNIT_STATES = ("active", "activating", "reloading", "deactivating")
 SCRIPTS = ROOT / "scripts"
 
 
@@ -344,86 +343,26 @@ def _listing(script: str, args: Sequence[str], key: str, directory: Path) -> lis
     return rows
 
 
-def _unit_description(unit: str) -> str:
-    from surrealdb_fixture import systemd_environment
-
-    result = subprocess.run(
-        ("systemctl", "--user", "show", "-p", "Description", "--value", unit),
-        capture_output=True,
-        text=True,
-        check=False,
-        env=systemd_environment(),
-    )
-    return result.stdout.strip()
-
-
 def live_state(target: Path) -> list[Live]:
-    """Kept or run-owned fixtures and running runs that belong to a checkout.
+    """Logical validation borrowers and running runs that belong to a checkout.
 
     Read through the owning harnesses' own listings (``surrealdb_fixture.py --list``,
-    ``runs.py list``) with their roots relocated to the checkout; an inspection failure raises,
+    ``runs.py list``), filtered to the checkout; an inspection failure raises,
     since unknown is not absent.
     """
     found: list[Live] = []
-    fixtures = target / "build" / "fixtures"
+    # The daemon and canonical content outlive every checkout. Only this checkout's active
+    # logical borrowers can prevent removal, and recovery never stops the shared service.
     for row in _listing(
-        "surrealdb_fixture.py", ("--list", "--json"), "LCTX_FIXTURES_ROOT", fixtures
+        "surrealdb_fixture.py", ("--list", "--json"), "LCTX_FIXTURE_CHECKOUT", target
     ):
-        if row.get("protected"):
-            recover = row.get("kind") in {"kept", "run"} and not (
-                row.get("kind") == "run" and row.get("owner_alive")
-            )
-            found.append(
-                Live(
-                    "unresolved fixture",
-                    row["id"],
-                    f"{row.get('unit', 'unreadable fixture record')}, "
-                    f"cleanup {row.get('cleanup', 'unknown')}",
-                    ("surrealdb_fixture.py", "--stop", row["id"], "--force", "--no-sweep")
-                    if recover
-                    else None,
-                )
-            )
-            continue
-        state = str(row.get("state") or "")
-        if row.get("kind") == "unrecorded":
-            # `systemctl list-units` columns after the unit: LOAD ACTIVE SUB DESCRIPTION.
-            columns = state.split()
-            active = len(columns) > 1 and columns[1] in LIVE_UNIT_STATES
-        else:
-            active = state.split("/")[0] in LIVE_UNIT_STATES
-        if row.get("kind") == "kept" and active:
-            found.append(
-                Live(
-                    "kept fixture",
-                    row["id"],
-                    f"{row['unit']} on port {row.get('port')},"
-                    f" attachments {row.get('attachments')}",
-                    ("surrealdb_fixture.py", "--stop", row["id"], "--force", "--no-sweep"),
-                )
-            )
-        elif row.get("kind") == "run" and row.get("owner_alive"):
-            found.append(
-                Live(
-                    "run-owned fixture",
-                    row["id"],
-                    f"{row['unit']}, launcher pid {row.get('owner')} (cancel its command)",
-                    None,
-                )
-            )
-        elif (
-            row.get("kind") == "unrecorded"
-            and active
-            and f"checkout={target}" in _unit_description(row["unit"])
-        ):
-            found.append(
-                Live(
-                    "unrecorded fixture unit",
-                    row["unit"],
-                    f"its record is gone; stop it with systemctl --user stop {row['unit']}",
-                    None,
-                )
-            )
+        if row.get("protected", True):
+            found.append(Live(
+                "validation attachment", row["id"],
+                f"{row.get('unit', 'shared service')}; cleanup {row.get('cleanup', 'unknown')}",
+                ("surrealdb_fixture.py", "--recover", row["id"])
+                if row.get("kind") == "attachment" and not row.get("owner_alive", True) else None,
+            ))
     runs = target / "build" / "runs"
     for row in _listing("runs.py", ("list", "--json"), "LCTX_RUNS_ROOT", runs):
         if row.get("protected", True) or row.get("owner_live") or row.get("survivors"):
@@ -493,14 +432,14 @@ def remove(
         report(f"worktree-remove: refused ({target} kept); --force discards the work listed above")
         return 1
     if found.live:
-        # Stop through the owners' routes (runs first: a run's fixtures die with its launcher);
+        # Stop through the owners' routes (runs first, then dead logical borrowers);
         # never by deleting their records.
         for item in sorted(found.live, key=lambda live: live.kind != "running run"):
             if item.stop is None:
                 continue
             script, *args = item.stop
-            directory = target / "build" / ("runs" if script == "runs.py" else "fixtures")
-            key = "LCTX_RUNS_ROOT" if script == "runs.py" else "LCTX_FIXTURES_ROOT"
+            directory = target / "build" / "runs" if script == "runs.py" else target
+            key = "LCTX_RUNS_ROOT" if script == "runs.py" else "LCTX_FIXTURE_CHECKOUT"
             result = _harness(script, args, key, directory)
             outcome = (result.stdout.strip() or result.stderr.strip()).splitlines()
             report(

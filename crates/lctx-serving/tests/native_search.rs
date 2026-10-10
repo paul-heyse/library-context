@@ -1,4 +1,4 @@
-//! Actual native candidate queries in a private schema fixture, independent of graph admission.
+//! Actual native candidate kernels over isolated completed views in the stable service.
 use lctx_model::domain::{
     attribution::AnalysisContext,
     catalog::CatalogMember,
@@ -8,12 +8,31 @@ use lctx_model::domain::{
     serving::{ranking::RankingPolicy, *},
     *,
 };
-use lctx_surrealdb::{Credentials, Loader, NativeReader, loader::json_value, reader};
+use lctx_surrealdb::{NativeReader, loader::json_value, reader};
+#[path="fixtures/scoped.rs"] mod scoped;
 use surrealdb::types::{RecordId, Value, Variables};
+fn nonce()->&'static str {static NONCE:std::sync::OnceLock<String>=std::sync::OnceLock::new();NONCE.get_or_init(||format!("{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))}
+fn record(table:&str,key:impl std::fmt::Display)->RecordId {RecordId::new(table,format!("{}-{key}",nonce()))}
 fn id<R: Record>(byte: u8) -> Id<R> {
-    serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
+    let digest=ContentHash::of(format!("{}-{byte}",nonce()).as_bytes());
+    serde_json::from_value(serde_json::json!(&digest.0[..16])).unwrap()
 }
-async fn insert(reader: &NativeReader, table: &str, relation: bool, rows: Vec<Value>) {
+fn selected_views<Context>(reader:&NativeReader<Context>)->Vec<ContentHash>{
+    let vars=reader.view_bindings();let Some(Value::Array(views))=vars.get("lctx_views")else{panic!("explicit fixture views")};
+    views.iter().map(|view|{let Value::RecordId(view)=view else{panic!("view ID")};let surrealdb::types::RecordIdKey::String(hash)=&view.key else{panic!("view hash")};ContentHash(hex::decode(hash).unwrap().try_into().unwrap())}).collect()
+}
+async fn insert<Context>(reader: &NativeReader<Context>, table: &str, relation: bool, mut rows: Vec<Value>) {
+    // Synthetic corruption/control documents own fresh content; canonical positive
+    // fixtures below use normal content-addressed materialization and shared reuse.
+    if table.starts_with("search_") {
+        for row in &mut rows {let Value::Object(row)=row else{panic!("search row")};let Some(Value::String(text))=row.get("text")else{panic!("search text")};let text=format!("{text} {}",nonce());row.insert("digest",json_value(serde_json::to_value(ContentHash::of(text.as_bytes())).unwrap()).unwrap());row.insert("text",text);}
+    }
+    if matches!(table,"lex_occurs"|"vec_occurs"|"vector") {
+        let dependencies:Vec<RecordId>=reader.query("SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views",reader.view_bindings()).await.unwrap();
+        for row in &mut rows {let Value::Object(row)=row else{panic!("kernel row")};row.insert("dependencies",dependencies.clone());
+            if table!="vector" {let mut vars=reader.view_bindings();vars.insert("unit_anchor",row.get("unit_node").unwrap().clone());let payloads:Vec<RecordId>=reader.query("SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views AND node.anchor=$unit_anchor",vars).await.unwrap();let payload=payloads.first().cloned().unwrap_or_else(||record("entity","unselected_unit"));let mut complete=dependencies.clone();complete.push(payload.clone());row.insert("dependencies",complete);row.insert("unit_payload",payload);}
+        }
+    }
     let mut vars = Variables::new();
     vars.insert("rows", rows);
     reader
@@ -34,6 +53,25 @@ fn object(body: serde_json::Value, id: RecordId) -> surrealdb::types::Object {
     obj.insert("id", id);
     obj
 }
+async fn extend(native:&mut NativeReader<()>, fixtures:&mut Vec<scoped::ScopedFixture>, config:&lctx_surrealdb::RuntimeConfig, entities:&[Entity]) {
+    let added=scoped::reader(config,entities,&[]).await.unwrap();
+    let mut views=Vec::new();
+    for reader in [&*native,&added.reader] {
+        let variables=reader.view_bindings();
+        let Some(Value::Array(ids))=variables.get("lctx_views") else {panic!("explicit views")};
+        for id in ids {let Value::RecordId(id)=id else {panic!("view identity")};let surrealdb::types::RecordIdKey::String(id)=&id.key else{panic!("view hash")};views.push(ContentHash(hex::decode(id).unwrap().try_into().unwrap()));}
+    }
+    *native=NativeReader::for_views(native.shared_client(),views);
+    fixtures.push(added);
+}
+async fn freeze(native:&mut NativeReader<()>,fixtures:&mut Vec<scoped::ScopedFixture>,config:&lctx_surrealdb::RuntimeConfig) {
+    let marker=input::InputRevision{manifest:ContentHash::of(format!("{}-lexical-phase-{}",nonce(),fixtures.len()).as_bytes())};
+    extend(native,fixtures,config,&[Entity::from(marker)]).await;
+    let vars=native.view_bindings();let Some(Value::Array(ids))=vars.get("lctx_views")else{panic!("views")};
+    let views=ids.iter().map(|id|{let Value::RecordId(id)=id else{panic!("view")};let surrealdb::types::RecordIdKey::String(id)=&id.key else{panic!("identity")};ContentHash(hex::decode(id).unwrap().try_into().unwrap())}).collect();
+    let loader=lctx_surrealdb::Loader::for_attempt_views(native.shared_client(),fixtures[0].store.attempt(),views);
+    lctx_surrealdb::lexical_stats::materialize(&loader).await.unwrap();
+}
 #[allow(
     clippy::too_many_arguments,
     reason = "The fixture explicitly separates physical endpoints and semantic eligibility witnesses"
@@ -50,8 +88,10 @@ fn occurrence(
 ) -> Value {
     let mut obj = object(
         serde_json::json!({"family":Family::ApiOptions as i16,"unit":unit,"window":id::<SearchWindow>(7),"part":id::<ContentPart>(8),"binding":if member.is_some(){Some(id::<WindowBinding>(9))}else{None},"exact_name":"connect","exact_path":"pkg.connect","exact_option":"timeout","context":context,"member":member,"anchor":null,"input":input,"eligible":true,"occurrence_key":key}),
-        RecordId::new(table, key.to_owned()),
+        record(table,key),
     );
+    obj.insert("scope_input",lctx_surrealdb::prepared::scope_string(&json_value(serde_json::json!(input)).unwrap()));
+    obj.insert("scope_window",lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(id::<SearchWindow>(7)).unwrap()).unwrap()));
     obj.insert("in", source);
     obj.insert("out", out);
     obj.insert(
@@ -66,43 +106,12 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
     use input::{DistributionRole, InputDistribution, InputRevision, Package, Release};
     use lctx_surrealdb::ordered_rows::Candidate;
     use source::{Module, SourceArtifact};
-    let cfg: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable native fixture"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "gn_member_windows";
-    let db = format!("members_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    client
-        .query(format!(
-            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let definitions = "";
-    let loader = Loader::new(client.clone());
-    loader.install(definitions).await.unwrap();
+    let config=scoped::config();
     let input = InputRevision {
-        manifest: ContentHash::of(b"selected physical member input"),
+        manifest: ContentHash::of(format!("selected physical member input {}",nonce()).as_bytes()),
     };
     let other = InputRevision {
-        manifest: ContentHash::of(b"unrelated physical member input"),
+        manifest: ContentHash::of(format!("unrelated physical member input {}",nonce()).as_bytes()),
     };
     let package = Package {
         name: "physical-members".into(),
@@ -160,8 +169,6 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
         Entity::from(other_module),
     ];
     entities.extend(expected.iter().chain(&unrelated).cloned().map(Entity::from));
-    loader.entities(&entities).await.unwrap();
-    loader.entity_references(&entities).await.unwrap();
     let assertions = [
         InputDistribution {
             input: input.id(),
@@ -177,17 +184,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
     .into_iter()
     .map(|row| Assertion::from_record(row).unwrap())
     .collect::<Vec<_>>();
-    loader.assertions(&assertions).await.unwrap();
-    loader.assertion_references(&assertions).await.unwrap();
-    let handle = SnapshotHandle {
-        semantic: ContentHash::of(b"private physical member fixture"),
-        realization: lctx_surrealdb::schema::realization_identity(definitions),
-        database: DatabaseIdentity {
-            namespace: Name::new(ns).unwrap(),
-            database: Name::new(&db).unwrap(),
-        },
-    };
-    let native = NativeReader::new(client.clone(), handle);
+    let native=scoped::reader(&config,&entities,&assertions).await.unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     expected.sort_by_key(Record::id);
     let members = lctx_serving::selection::members(
@@ -215,7 +212,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
         .map(|row| Candidate {
             relation: CatalogMember::NAME.into(),
             key: *row.id().bytes(),
-            node: reader::target_id(Target::Entity(EntityId::of(row.id()))),
+            node: lctx_surrealdb::loader::entity_payload_id(&Entity::from(row.clone())).unwrap(),
             content: None,
         })
         .collect::<Vec<_>>();
@@ -273,7 +270,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
             .await,
         Err(ModelError::Conflict("native candidate backing identity"))
     ));
-    wrong[0].node = RecordId::new("entity", "missing_physical_member");
+    wrong[0].node = record("entity","missing_physical_member");
     assert!(matches!(
         native
             .records_from_candidates::<CatalogMember>(&wrong)
@@ -312,50 +309,11 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
     ));
     drop(members);
     assert_eq!(budget.reserved(), 0);
-    client
-        .query(format!("REMOVE DATABASE {db}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    native.close().await.unwrap();
 }
 #[tokio::test]
 async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_caps() {
-    let cfg: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("LCTX_SURREAL_TEST_CONFIG")
-                .expect("owned disposable SurrealDB fixture required"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "gn_search_controls";
-    let db = format!("channels_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    client
-        .query(format!(
-            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let loader = Loader::new(client.clone());
-    loader
-        .install(&lctx_serving::native_definitions())
-        .await
-        .unwrap();
+    let config=scoped::config();
     let input = id::<input::InputRevision>(1);
     let member = CatalogMember {
         input,
@@ -364,21 +322,9 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         name: "connect".into(),
     };
     let out = reader::target_id(Target::Entity(EntityId::of(member.id())));
-    loader
-        .entities(&[Entity::from(member.clone())])
-        .await
-        .unwrap();
-    let handle = SnapshotHandle {
-        semantic: ContentHash::of(b"private search fixture"),
-        realization: lctx_surrealdb::schema::realization_identity(
-            &lctx_serving::native_definitions(),
-        ),
-        database: DatabaseIdentity {
-            namespace: Name::new(ns).unwrap(),
-            database: Name::new(&db).unwrap(),
-        },
-    };
-    let native = NativeReader::new(client.clone(), handle);
+    let initial=scoped::reader(&config,&[Entity::from(member.clone())],&[]).await.unwrap();
+    let mut native=NativeReader::for_views(initial.reader.shared_client(), selected_views(&initial.reader));
+    let mut fixtures=vec![initial];
     let mut member_vars = Variables::new();
     member_vars.insert(
         "scope",
@@ -421,21 +367,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         title: "brief witness".into(),
     };
     let unit = unit_record.id();
-    loader
-        .entities(&[Entity::from(origin.clone()), Entity::from(unit_record)])
-        .await
-        .unwrap();
-    let mut origin_edge = surrealdb::types::Object::new();
-    origin_edge.insert("id", RecordId::new("reference", "brief_origin"));
-    origin_edge.insert("in", reader::target_id(Target::Entity(EntityId::of(unit))));
-    origin_edge.insert(
-        "out",
-        reader::target_id(Target::Entity(EntityId::of(origin.id()))),
-    );
-    origin_edge.insert("field", "origin");
-    origin_edge.insert("role", 0i64);
-    origin_edge.insert("position", Value::Null);
-    insert(&native, "reference", true, vec![Value::Object(origin_edge)]).await;
+    extend(&mut native,&mut fixtures,&config,&[Entity::from(origin.clone()), Entity::from(unit_record)]).await;
     let inputs = [*input.bytes()];
     let pairs = [(*member.id().bytes(), *good.bytes())];
     let mut docs = vec![];
@@ -448,7 +380,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         } else {
             format!("connect connect connect {n}")
         };
-        let doc = RecordId::new("search_api_options", key.clone());
+        let doc = record("search_api_options", key.clone());
         docs.push(Value::Object(object(
             serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
             doc.clone(),
@@ -464,7 +396,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             if n == 101 { unit } else { id(55) },
         ));
     }
-    let bad = RecordId::new("search_api_options", "other_context");
+    let bad = record("search_api_options", "other_context");
     docs.push(Value::Object(object(serde_json::json!({"text":"connect connect connect","digest":ContentHash::of(b"connect connect connect")}),bad.clone())));
     occurrences.push(occurrence(
         "lex_occurs",
@@ -481,13 +413,14 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         let text = format!("connect unrelated background document {n}");
         docs.push(Value::Object(object(
             serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
-            RecordId::new("search_api_options", format!("background{n:03}")),
+            record("search_api_options", format!("background{n:03}")),
         )));
     }
     insert(&native, "search_api_options", false, docs).await;
     insert(&native, "lex_occurs", true, occurrences).await;
     let policy = RankingPolicy::default();
-    let lexical = lctx_serving::search::lexical(
+    freeze(&mut native,&mut fixtures,&config).await;
+    let lexical = lctx_serving::search::lexical_scoped(
         &native,
         "connect absentterm",
         Family::ApiOptions,
@@ -510,10 +443,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let projection = embedding::projection::ProjectionDefinition::initial(&selected).id();
     let encoder = embedding::EmbeddingSpec::new(&selected).unwrap();
     let spec = encoder.service_hash;
-    loader
-        .entities(&[Entity::from(encoder.clone())])
-        .await
-        .unwrap();
+    extend(&mut native,&mut fixtures,&config,&[Entity::from(encoder.clone())]).await;
     let mut vectors = vec![];
     let mut vec_occurrences = vec![];
     let mut query = vec![0f32; 1024];
@@ -547,11 +477,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             digest: embedding::value::value_digest(&full),
             bytes: EvidenceBytes(embedding::value::encode_vector(&full)),
         };
-        loader
-            .entities(&[Entity::from(full.clone())])
-            .await
-            .unwrap();
-        let source = RecordId::new("vector", key);
+        extend(&mut native,&mut fixtures,&config,&[Entity::from(full.clone())]).await;
+        let source = record("vector", key);
 
         let obj = object(
             serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(input).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":full.id().hex(),"projection_key":key,"embedding":vector}),
@@ -590,7 +517,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     // Nearer vectors in a foreign library cohort cannot enter through an otherwise matching edge.
     for n in 0..300 {
         let key = format!("foreign{n}");
-        let source = RecordId::new("vector", key.clone());
+        let source = record("vector", key.clone());
         vectors.push(Value::Object(object(serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(id::<input::InputRevision>(99)).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":key,"projection_key":key,"embedding":query}),source.clone())));
         vec_occurrences.push(occurrence(
             "vec_occurs",
@@ -605,7 +532,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     }
     insert(&native, "vector", false, vectors).await;
     insert(&native, "vec_occurs", true, vec_occurrences).await;
-    let vector = lctx_serving::search::vector(
+    let vector = lctx_serving::search::vector_scoped(
         &native,
         &query,
         spec,
@@ -626,7 +553,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     assert_eq!(vector[0].occurrence.context, good);
     assert!(vector[0].score.unwrap() < 1.0);
     // Brief eligibility precedes both channel caps and does not materialize a unit inventory.
-    let brief_lexical = lctx_serving::search::lexical(
+    freeze(&mut native,&mut fixtures,&config).await;
+    let brief_lexical = lctx_serving::search::lexical_scoped(
         &native,
         "connect",
         Family::ApiOptions,
@@ -641,7 +569,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     .unwrap();
     assert_eq!(brief_lexical.len(), 1);
     assert_eq!(brief_lexical[0].occurrence.unit, unit);
-    let brief_vector = lctx_serving::search::vector(
+    let brief_vector = lctx_serving::search::vector_scoped(
         &native,
         &query,
         spec,
@@ -669,7 +597,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         recipe: selected.query_recipe(),
         projection,
     };
-    let rescored = lctx_serving::search::rescore_union(&native, &query_value, &lexical, &policy)
+    let rescored = lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy)
         .await
         .unwrap();
     assert_eq!(rescored.len(), 1);
@@ -706,10 +634,11 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         .await
         .unwrap();
     let plan = plan.to_string();
-    assert!(plan.contains("KnnScan"), "{plan}");
+    assert!(!plan.contains("KnnScan"), "exact eligible-vector policy: {plan}");
     assert!(plan.contains("BitmapIndexScan"), "{plan}");
     // Exact spelling is a separate route, including the declared option key.
-    let option = lctx_serving::search::lexical(
+    freeze(&mut native,&mut fixtures,&config).await;
+    let option = lctx_serving::search::lexical_scoped(
         &native,
         "timeout",
         Family::ApiOptions,
@@ -735,16 +664,13 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         .find(|member| reader::target_id(Target::Entity(EntityId::of(member.id()))) > out)
         .expect("stable later target for quota control");
     let beta_out = reader::target_id(Target::Entity(EntityId::of(beta.id())));
-    loader
-        .entities(&[Entity::from(beta.clone())])
-        .await
-        .unwrap();
+    extend(&mut native,&mut fixtures,&config,&[Entity::from(beta.clone())]).await;
     let mut crowd_docs = Vec::new();
     let mut crowd_occurrences = Vec::new();
     for n in 0..1400u32 {
         let key = format!("quota{n:04}");
         let text = format!("beta pkg quota_option crowded window {n}");
-        let source = RecordId::new("search_api_options", key.clone());
+        let source = record("search_api_options", key.clone());
         crowd_docs.push(Value::Object(object(
             serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
             source.clone(),
@@ -770,7 +696,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         );
         crowd_occurrences.push(row);
     }
-    let source = RecordId::new("search_api_options", "quota_exact");
+    let source = record("search_api_options", "quota_exact");
     let text = "independent literal-only route";
     crowd_docs.push(Value::Object(object(
         serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
@@ -784,7 +710,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         *input.bytes(),
         Some(beta.id()),
         good,
-        id(25),
+        unit,
     );
     let Value::Object(ref mut body) = row else {
         panic!("occurrence")
@@ -803,8 +729,9 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         (*member.id().bytes(), *good.bytes()),
         (*beta.id().bytes(), *good.bytes()),
     ];
+    freeze(&mut native,&mut fixtures,&config).await;
     for query in ["beta", "pkg.beta", "quota_option"] {
-        let admitted = lctx_serving::search::lexical(
+        let admitted = lctx_serving::search::lexical_scoped(
             &native,
             query,
             Family::ApiOptions,
@@ -832,7 +759,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     // A second selected-policy value for the same exact primary witness refuses arbitration.
     let mut response = native
         .client()
-        .query("SELECT * FROM vector:excluded")
+        .query("SELECT * FROM $source").bind({let mut vars=Variables::new();vars.insert("source",record("vector","excluded"));vars})
         .await
         .unwrap()
         .check()
@@ -841,7 +768,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let Value::Object(mut competing) = competing.remove(0) else {
         panic!("vector object")
     };
-    let source = RecordId::new("vector", "competing");
+    let source = record("vector", "competing");
     competing.insert("id", source.clone());
     competing.insert("projection_key", "competing");
     insert(&native, "vector", false, vec![Value::Object(competing)]).await;
@@ -862,32 +789,48 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     )
     .await;
     assert!(
-        lctx_serving::search::rescore_union(&native, &query_value, &lexical, &policy)
+        lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy)
             .await
             .is_err(),
         "competing canonical full winners must refuse"
     );
-    client
-        .query(
-            "DEFINE FUNCTION OVERWRITE fn::lctx_operation_definition() { RETURN 'incompatible'; };",
-        )
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let service = lctx_serving::NativeService::new(native, ResourceLimits::default()).unwrap();
-    let refusal = service
-        .execute("find_operations", r#"{"library":"unqueried"}"#)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        refusal.public_failure(),
-        PublicFailure::new(FailureKind::Incompatible)
-    );
-    client
-        .query(format!("REMOVE DATABASE {db}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    native.close().await.unwrap();
+    for fixture in fixtures {fixture.close().await.unwrap();}
+}
+
+/// Actual canonical windows share a nominal Unit while payload versions remain isolated.
+async fn lexical_fixture(config:&lctx_surrealdb::RuntimeConfig,input:Id<input::InputRevision>,context:Id<AnalysisContext>,texts:&[String])->(scoped::ScopedFixture,lctx_surrealdb::Loader,Vec<Unit>) {
+ use retrieval::*;
+ let origin=Origin::Brief{brief:id(200)};
+ let mut entities=vec![Entity::from(origin.clone())];let mut units=Vec::new();
+ for (n,text) in texts.iter().enumerate(){
+  let digest=ContentHash::of(text.as_bytes());let corpus=CorpusText{family:Family::ApiOptions,rendering_version:RENDER_VERSION,digest,text:text.as_str().into()};
+  let unit=Unit{input,context:if n==0{context}else{serde_json::from_value(serde_json::json!(&ContentHash::of(format!("{}-{n}",context.hex()).as_bytes()).0[..16])).unwrap()},family:Family::ApiOptions,origin:origin.id(),corpus:corpus.id(),title:"lexical fixture".into()};
+  let part=ContentPart{unit:unit.id(),ordinal:0,purpose:PartPurpose::Primary,scope:None,qualification:None,digest,text:text.as_str().into()};
+  let window=SearchWindow{definition:id(201),unit:unit.id(),ordinal:0,corpus:corpus.id(),digest,text:text.as_str().into(),input_text:text.as_str().into(),tokenizer:None,encoded_digest:embedding::value::input_hash(text),tokens:None,availability:WindowAvailability::TokenizerUnavailable};
+  let link=WindowPart{window:window.id(),ordinal:0,part:part.id(),start:0,end:text.len() as i64};
+  entities.extend([Entity::from(corpus),Entity::from(unit.clone()),Entity::from(part),Entity::from(window),Entity::from(link)]);units.push(unit);
+ }
+ let fixture=scoped::reader(config,&entities,&[]).await.unwrap();let views=selected_views(&fixture.reader);
+ let loader=lctx_surrealdb::Loader::for_attempt_views(fixture.reader.shared_client(),fixture.store.attempt(),views);
+ lctx_surrealdb::derived_search::materialize_search(&loader).await.unwrap();(fixture,loader,units)
+}
+#[tokio::test]
+async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_same_unit(){
+ let config=scoped::config();let input=id(210);let context=id(211);let policy=RankingPolicy::default();
+ let atexts=["needle needle precise", "needle lengthy ordinary context many additional unrelated tokens", "ordinary background one", "other background two", "background three", "background four"].map(|s|format!("{s} {}",nonce()));
+ let (a,aloader,aunits)=lexical_fixture(&config,input,context,&atexts).await;
+ let before=lctx_serving::search::lexical_scoped(&a.reader,"needle",Family::ApiOptions,&[*input.bytes()],None,false,lctx_serving::search::UnitScope::All,10,&policy).await.unwrap();
+ assert_eq!(before.len(),2);assert!(before.iter().all(|r|r.score.unwrap()>0.0));assert!(before[0].score>before[1].score);
+ let btexts=(0..24).map(|n|format!("needle unrelated {n} {}",nonce())).collect::<Vec<_>>();
+ let (b,bloader,_)=lexical_fixture(&config,id(212),id(213),&btexts).await;
+ let mut changed=atexts.clone();changed[0]=format!("replacement absent word {}",nonce());
+ let (new,newloader,newunits)=lexical_fixture(&config,input,context,&changed).await;
+ assert_eq!(aunits[0].id(),newunits[0].id(),"same nominal Unit; distinct corpus/window payloads");
+ let after=lctx_serving::search::lexical_scoped(&a.reader,"needle",Family::ApiOptions,&[*input.bytes()],None,false,lctx_serving::search::UnitScope::All,10,&policy).await.unwrap();
+ assert_eq!(before.iter().map(|r|(&r.occurrence,r.score)).collect::<Vec<_>>(),after.iter().map(|r|(&r.occurrence,r.score)).collect::<Vec<_>>(),"pinned scores and order survive unrelated and changed-window insertions");
+ let absent=lctx_serving::search::lexical_scoped(&new.reader,"needle",Family::ApiOptions,&[*input.bytes()],None,false,lctx_serving::search::UnitScope::All,10,&policy).await.unwrap();assert!(absent.iter().all(|r|r.occurrence.unit!=aunits[0].id()),"old same-anchor window must not leak");assert_eq!(absent.len(),1);
+ let duplicate=lctx_serving::search::lexical_scoped(&a.reader,"needle needle",Family::ApiOptions,&[*input.bytes()],None,false,lctx_serving::search::UnitScope::All,10,&policy).await.unwrap();assert_eq!(before.iter().map(|r|r.score).collect::<Vec<_>>(),duplicate.iter().map(|r|r.score).collect::<Vec<_>>(),"distinct analyzed query terms contribute once");
+ for loader in [&aloader,&bloader,&newloader]{lctx_surrealdb::derived_search::reconcile_search(loader).await.unwrap();}
+ a.close().await.unwrap();b.close().await.unwrap();new.close().await.unwrap();
 }

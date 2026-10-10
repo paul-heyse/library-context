@@ -254,7 +254,7 @@ codex -c 'mcp_servers.fixture_probe.url="http://127.0.0.1:1/mcp"' \
 help and local adapter source constrain applicability. For authoring, live server availability, actual Basic
 authentication, tool schema/exposure, source-to-installed adapter equivalence and client lifetime
 were **not_run**. Subsequent disposable implementation observations are recorded in §9 and
-[the diagnostic guide](../surrealdb.md#disposable-agent-diagnostics); adapter provenance beyond the
+[the diagnostic guide](../surrealdb.md#maintenance-diagnostics); adapter provenance beyond the
 installed scratch request remains unqualified. Native gRPC stream-terminal acceptance remains with product owners; HTTP/MCP
 diagnostic success cannot substitute for it.
 
@@ -429,7 +429,7 @@ group ID, and reap only after confirmation; a lost pin refuses signaling. F01 is
 and independently closed: current fixture/attachment locks freeze writers, reread identities and
 govern recovery, sweeping and deletion; unresolved/unreadable evidence remains protected.
 Native HTTP/MCP and scratch semantic
-observations are described in §4/§10 and [the diagnostic guide](../surrealdb.md#disposable-agent-diagnostics).
+observations are described in §4/§10 and [the diagnostic guide](../surrealdb.md#maintenance-diagnostics).
 No process-skill change is retained. Comprehensive repo tests, product qualification and measured
 effectiveness remain **not_run** under the operator's scope.
 

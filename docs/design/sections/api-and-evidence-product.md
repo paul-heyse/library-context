@@ -30,7 +30,7 @@ retained product sequence and findings. New behavior remains **Proposed** unless
 and scoped acceptance are identified. Logical contracts lower from `lctx-model`; SQL and Python
 are not independent semantic authorities.
 
-> Decision: ADR-0071, ADR-0085, ADR-0138
+> Decision: ADR-0071, ADR-0085, ADR-0143
 
 <a id="section-14-1"></a>
 
@@ -116,7 +116,7 @@ qualification; no general incremental engine or Measured benefit is claimed.
 Deployment metadata, safe negative examples, version alignment and deterministic candidate
 comparison serve the same product contract rather than expanding general analysis scope.
 
-> Decision: ADR-0140, ADR-0139, ADR-0138
+> Decision: ADR-0143, ADR-0139
 
 <a id="section-14-3"></a>
 
@@ -330,7 +330,7 @@ its final limit; bounded ranking never claims exhaustiveness.
 
 ## §14.8 Retrieval units, witnesses and ranking
 
-> Decision: ADR-0131, ADR-0085, ADR-0138, ADR-0114
+> Decision: ADR-0131, ADR-0085, ADR-0143, ADR-0114
 
 **Implemented graph-native retrieval, 2026-10-06.** Fusion and winning-witness decisions remain
 one model operation over library numerical scores. Native realization derives vector indexes
@@ -650,4 +650,4 @@ migrated ER contracts and native prerequisite repair. PR6 retains separately aut
 and comparative work; its parity prerequisite cannot block the primary finite loop. The forward
 plan retains earlier receipts without promoting them to replacement qualification.
 
-> Decision: ADR-0071, ADR-0138, ADR-0131, ADR-0085, ADR-0073
+> Decision: ADR-0071, ADR-0143, ADR-0131, ADR-0085, ADR-0073

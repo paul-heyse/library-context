@@ -4,59 +4,38 @@ use lctx_model::domain::serving::{ResourceLimits, SnapshotHandle};
 use lctx_surrealdb::surrealdb::{
     Surreal,
     engine::remote::grpc::Client,
-    types::{SerdeWrapper, SurrealValue, Value},
+    types::{SerdeWrapper, SurrealValue},
 };
 use lctx_surrealdb::{NativeReader, RuntimeConfig};
 use std::{path::Path, sync::Arc, time::Duration};
 
-pub const DEFAULT_CONFIG: &str = "build/native/runtime.json";
+pub fn default_config()->std::path::PathBuf {
+    if let Some(path)=std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG") {return path.into();}
+    if let Some(path)=std::env::var_os("LCTX_SURREAL_SERVICE_CONFIG") {
+        return std::path::PathBuf::from(path).with_file_name("main-runtime.json");
+    }
+    let root=std::env::var_os("XDG_STATE_HOME").map(std::path::PathBuf::from)
+        .unwrap_or_else(||std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"));
+    root.join("library-context/surrealdb/main-runtime.json")
+}
 
 pub fn config(path: &Path) -> anyhow::Result<RuntimeConfig> {
     RuntimeConfig::read(path)
         .with_context(|| format!("native runtime configuration {}", path.display()))
 }
 
-/// Establish version, authentication and the explicit configured control database before acquisition.
+/// Observe the installed generation before acquisition. This never provisions storage.
 pub async fn ready(config: &RuntimeConfig) -> anyhow::Result<Arc<Surreal<Client>>> {
     tokio::time::timeout(deadline(), async {
-        let client = lctx_surrealdb::reader::authenticated(
-            &config.endpoint, &config.root_credentials(), None,
-        ).await?;
-        require_version(&client).await?;
-        // Root USE can implicitly create storage. Readiness requires an installed control
-        // database and must not create operator state as a side effect of a failed compile.
-        require_member(&client, "INFO FOR ROOT", "namespaces", config.namespace.as_str()).await?;
-        client.use_ns(config.namespace.as_str()).await?;
-        require_member(&client, "INFO FOR NS", "databases", config.cache_database.as_str()).await?;
-        client.use_db(config.cache_database.as_str()).await?;
-        client.query("INFO FOR DB").await?.check()?;
-        Ok(client)
+        Ok(lctx_surrealdb::compiler::check_installation(config).await?)
     })
     .await
     .context("native runtime readiness deadline exceeded")?
 }
 
-async fn require_member(client:&Surreal<Client>,sql:&str,group:&str,name:&str)->anyhow::Result<()> {
-    let mut response=client.query(sql).await?.check()?;
-    let value:Value=response.take(0)?;
-    let Value::Object(object)=value else{anyhow::bail!("native readiness inventory unavailable");};
-    let Some(Value::Object(members))=object.get(group) else{anyhow::bail!("native readiness inventory unavailable");};
-    anyhow::ensure!(members.contains_key(name),"native runtime storage is not installed; run store install explicitly");
-    Ok(())
-}
-
 fn deadline() -> Duration {
     Duration::from_millis(ResourceLimits::default().request_deadline_ms)
 }
-async fn require_version(client: &Surreal<Client>) -> anyhow::Result<String> {
-    let version = client.version().await?.to_string();
-    anyhow::ensure!(
-        version.starts_with("3.3."),
-        "native runtime requires SurrealDB 3.3"
-    );
-    Ok(version)
-}
-
 pub(crate) fn operation_error(error:anyhow::Error)->lctx_model::domain::ModelError {
     match error.downcast::<lctx_model::domain::ModelError>() {Ok(error)=>error,Err(error)=>lctx_model::domain::ModelError::Cause(error.into_boxed_dyn_error())}
 }
@@ -78,12 +57,12 @@ pub async fn publish(
         lctx_publisher::publish(&export,config,&lctx_serving::native_definitions()).await
     }.await;
     let mut completion=workspace.drain_report().await;
-    if let Ok(handle)=&result {completion.committed("sealed unselected database",serde_json::to_string(handle)?);}
+    if let Ok(handle)=&result {completion.committed("published unselected manifest",serde_json::to_string(handle)?);}
     if result.is_err() || !completion.failures.is_empty() {
         native.fail();
         if !result.as_ref().err().is_some_and(lctx_model::domain::ModelError::has_committed_effect) && result.is_err() {
             if result.as_ref().err().is_none_or(lctx_model::domain::ModelError::permits_storage_cleanup) {completion.step("import abandon",native.abandon().await);}
-            else {completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(native.database().as_str().into()));}
+            else {completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(format!("attempt:{}",native.attempt().hex())));}
         }
     }
     lctx_model::domain::completion::complete(result,completion).map_err(Into::into)
@@ -101,7 +80,7 @@ pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<
     let handle = handle(config, path)?;
     Ok(tokio::time::timeout(
         deadline(),
-        NativeReader::connect(&config.endpoint, &config.viewer_credentials(), handle),
+        NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle),
     )
     .await
     .context("snapshot readiness deadline exceeded")??)
@@ -110,29 +89,42 @@ pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<
 pub async fn select(config: &RuntimeConfig, path: &Path) -> anyhow::Result<SnapshotHandle> {
     let guard = config.lock_selection().await?;
     let reader = pin(config, Some(path)).await?;
-    config.select_locked(reader.handle(), &guard)?;
-    Ok(reader.handle().clone())
+    let result=config.select_locked(reader.handle(), &guard).map(|()|reader.handle().clone()).map_err(Into::into);
+    finish_reader(&reader,result).await
+}
+
+pub async fn show(config:&RuntimeConfig,path:Option<&Path>)->anyhow::Result<lctx_publisher::inspection::SnapshotDetails>{
+    let reader=pin(config,path).await?;
+    let result=lctx_publisher::inspection::show(&reader).await.map_err(Into::into);
+    finish_reader(&reader,result).await
 }
 
 pub async fn query(
     config: &RuntimeConfig,
     path: Option<&Path>,
-    sql: &str,
+    relation: &str,
+    limit: usize,
 ) -> anyhow::Result<serde_json::Value> {
-    let reader = pin(config, path).await?;
-    tokio::time::timeout(deadline(), async {
-        // Only a database VIEWER is used. The checked response includes every statement, and
-        // this process owns this dedicated session for the entire query.
-        let mut response = reader.client().query(sql).await?.check()?;
-        let mut results = Vec::with_capacity(response.num_statements());
-        for index in 0..response.num_statements() {
-            let value: Value = response.take(index)?;
-            results.push(SerdeWrapper::<serde_json::Value>::from_value(value)?.0);
+    if limit==0 {return Err(crate::Refused("query limit must be positive".into()).into());}
+    let model=lctx_model::domain::model()?;
+    if model.relation(relation).is_none() {return Err(crate::Refused("query requires a model-declared relation".into()).into());}
+    let reader=pin(config,path).await?;
+    let result=tokio::time::timeout(deadline(),async {
+        let mut stream=reader.relation_bodies(relation,limit)?;
+        let mut rows=Vec::new();
+        while let Some(value)=stream.next().await? {
+            rows.push(SerdeWrapper::<serde_json::Value>::from_value(value)?.0);
         }
-        Ok(serde_json::Value::Array(results))
-    })
-    .await
-    .context("snapshot query deadline exceeded")?
+        Ok::<_,anyhow::Error>(serde_json::Value::Array(rows))
+    }).await.context("snapshot query deadline exceeded");
+    finish_reader(&reader,result.and_then(|value|value)).await
+}
+
+async fn finish_reader<T>(reader:&NativeReader,result:anyhow::Result<T>)->anyhow::Result<T> {
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    completion.step("published reader pin release",reader.close().await);
+    completion.step("published reader session close",reader.client().invalidate().await.map_err(lctx_model::domain::ModelError::codec));
+    lctx_model::domain::completion::complete(result.map_err(operation_error),completion).map_err(Into::into)
 }
 
 pub async fn export(
@@ -146,6 +138,7 @@ pub async fn export(
         return Err(crate::Refused("projection destination already exists".into()).into());
     }
     let reader = pin(config, handle).await?;
+    let result=async {
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
     let projection = tokio::time::timeout(
         deadline(),
@@ -169,6 +162,8 @@ pub async fn export(
         .persist_noclobber(output)
         .map_err(|error| error.error)?;
     Ok(())
+    }.await;
+    finish_reader(&reader,result).await
 }
 
 pub async fn tool(
@@ -181,26 +176,23 @@ pub async fn tool(
     lctx_model::domain::serving::decode_request(tool, raw, &limits)?;
     let reader = pin(config, path).await?;
     let service = lctx_serving::NativeService::new(reader.clone(), limits)?;
-    let result = service.execute(tool, raw).await;
+    let result = service.execute(tool, raw).await.map_err(anyhow::Error::from);
     service.close().await;
-    let mut completion = lctx_model::domain::completion::Completion::default();
-    completion.step("tool reader close",reader.client().invalidate().await.map_err(lctx_model::domain::ModelError::codec));
-    Ok(lctx_model::domain::completion::complete(result.map_err(|error|lctx_model::domain::ModelError::Cause(Box::new(error))),completion)?)
+    drop(service);
+    finish_reader(&reader,result).await
 }
 
-/// Explicitly initialize only the namespace/control database named by the runtime configuration.
+/// Explicit maintenance installation, never called by ordinary compilation or readiness.
 pub async fn install(config: &RuntimeConfig) -> anyhow::Result<()> {
     tokio::time::timeout(deadline(), async {
-        let client = lctx_surrealdb::reader::authenticated(
-            &config.endpoint,&config.root_credentials(),None,
-        ).await?;
-        require_version(&client).await?;
-        client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`",config.namespace.as_str())).await?.check()?;
-        client.use_ns(config.namespace.as_str()).await?;
-        client.query(format!("DEFINE DATABASE IF NOT EXISTS `{}` STRICT",config.cache_database.as_str())).await?.check()?;
-        client.use_db(config.cache_database.as_str()).await?;
+        anyhow::ensure!(config.authentication == lctx_surrealdb::config::AuthenticationScope::Root,
+            "installation requires explicit maintenance credentials");
+        lctx_surrealdb::compiler::install_shared(config, &lctx_serving::native_definitions()).await?;
+        let client = lctx_surrealdb::compiler::check_installation(config).await?;
         lctx_surrealdb::NativeEmbeddingCache::install(client).await?;
         lctx_surrealdb::NativeProductCache::install(config).await?;
+        lctx_publisher::install_definitions(config,&lctx_serving::native_definitions()).await?;
+        lctx_surrealdb::compiler::open_admission(config).await?;
         Ok(())
     })
     .await
@@ -217,17 +209,20 @@ pub async fn backup(
     lctx_publisher::backup::backup(config, &selected, output).await?;
     Ok(())
 }
-pub async fn restore(config: &RuntimeConfig, input: &Path) -> anyhow::Result<SnapshotHandle> {
-    Ok(lctx_publisher::backup::restore(config, input, &lctx_serving::native_definitions()).await?)
+pub async fn restore(config: &RuntimeConfig, input: &Path, publication: Option<lctx_model::domain::ContentHash>) -> anyhow::Result<SnapshotHandle> {
+    let definitions=lctx_serving::native_definitions();
+    Ok(match publication {
+        Some(publication)=>lctx_publisher::backup::restore_publication(config,input,publication,&definitions).await?,
+        None=>lctx_publisher::backup::restore(config,input,&definitions).await?,
+    })
 }
 pub async fn retire(
     config: &RuntimeConfig,
     path: &Path,
     readers_stopped: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<lctx_model::domain::completed::RetirementProgress> {
     let snapshot = handle(config, Some(path))?;
-    lctx_publisher::backup::retire(config, &snapshot, readers_stopped).await?;
-    Ok(())
+    Ok(lctx_publisher::backup::retire(config, &snapshot, readers_stopped).await?)
 }
 
 pub async fn list(config: &RuntimeConfig) -> anyhow::Result<Vec<SnapshotHandle>> {

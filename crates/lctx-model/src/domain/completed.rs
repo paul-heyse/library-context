@@ -98,7 +98,33 @@ pub struct DependencySelection {
     pub keys: Option<BTreeSet<TypedRowKey>>,
 }
 
-pub const STATE_FORMAT_VERSION: u32 = 2;
+pub const STATE_FORMAT_VERSION: u32 = 3;
+
+/// Physical addresses qualify the complete nominal identity and semantic payload with the
+/// executable model and codec. Nominal identity alone is never a mutable storage address.
+pub fn payload_address(model: ContentHash, relation: &str, nominal: &[u8], content: ContentHash) -> ContentHash {
+    let mut sink=KeySink::new("native-immutable-payload/v1");
+    model.encode(&mut sink); sink.part(b"codec", b"canonical-native-json/v1");
+    relation.to_string().encode(&mut sink); sink.part(b"nominal",nominal); content.encode(&mut sink); sink.finish()
+}
+pub fn attempt_contribution(attempt: ContentHash, spec: ContentHash) -> ContentHash {
+    let mut sink=KeySink::new("native-attempt-contribution/v1"); attempt.encode(&mut sink); spec.encode(&mut sink); sink.finish()
+}
+pub fn attempt_binding(attempt: ContentHash, binding: ContentHash) -> ContentHash {
+    let mut sink=KeySink::new("native-attempt-binding/v1"); attempt.encode(&mut sink); binding.encode(&mut sink); sink.finish()
+}
+pub fn binding_inventory_identity(bindings:&[CompletedBinding])->Result<ContentHash,ModelError>{
+    let mut ordered=bindings.iter().collect::<Vec<_>>();ordered.sort_by_key(|binding|binding.key());
+    if ordered.windows(2).any(|pair|pair[0].key()==pair[1].key()){return Err(ModelError::Conflict("duplicate publication binding"));}
+    let mut sink=KeySink::new("native-publication-view/v1");
+    for binding in ordered {binding.validate()?;binding.key().encode(&mut sink);binding.view.identity.encode(&mut sink);binding.configuration.encode(&mut sink);}Ok(sink.finish())
+}
+
+/// Native owner retirement decisions are explicit; the storage manager may consume these
+/// reasons but cannot decide that authoritative content is disposable by age.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetirementEligibility { pub eligible: bool, pub reasons: Vec<String> }
 /// The first transport record is format authority, never a descriptor or state row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -152,4 +178,15 @@ impl CompletedBinding {
         let mut sink=KeySink::new("compiler-binding-key/v1");
         self.source.relation().to_string().encode(&mut sink);self.boundary.encode(&mut sink);sink.finish()
     }
+}
+
+/// A bounded native reachability retirement pass; remaining roots can be retried explicitly.
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetirementProgress {
+    pub identity:ContentHash,
+    pub retired:u64,
+    pub examined:u64,
+    pub remaining:Vec<String>,
+    pub retained:Vec<String>,
 }

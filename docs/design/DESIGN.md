@@ -64,16 +64,17 @@ scenarios/deployment, typed retrieval, agent usability and comparative confirmat
 Earlier product receipts retain their recorded boundaries; they do not qualify the reconstructed
 pipeline. Remaining research is activated only by an exposed claim or a named product task.
 
-**Accepted current increment / implementation in progress, 2026-10-07:**
-[Persisted graph execution](../plans/persisted-graph-execution-plan_2026-10-07.md) replaces
-store-free compilation with native completed inputs and direct sealing, and consolidates matching
-inefficiencies across consumers. ADR-0138 records the selected execution boundaries in
-§B3/§B7/§B12. Exact graph meanings remain model-owned; native contributions/views and retained
-bindings own completed inputs. The same database is sealed after admission; explicit external
-transport independently validates complete graph and retained state. STATUS and the plan own
-current functional acceptance. Earlier graph-native receipts retain their dates and scope.
-This execution uses targeted functional controls; operator adoption and real-library performance
-measurement remain separate.
+**Accepted current increment / implementation in progress, 2026-10-09 (ADR-0143):**
+[Unified persistence](../plans/unified-persistent-surrealdb-plan_2026-10-09.md) supersedes private
+compiler databases and database sealing. One stable service hosts `main` and `validation`.
+Immutable model-qualified payloads, nominal anchors and exact view memberships serve compiler
+and published consumers. Durable attempts own pending contributions and effects; manifests
+publish admitted views with pinned executable definitions. Checked attachment reuses compatible
+admitted content with current provenance. Cold imports remain independently admitted. Native
+reachability, durable reader pins and retirement protect shared content. STATUS and the persisted
+coordinator own current acceptance; earlier receipts retain their dates and scopes. Patched gRPC
+remains the initial transport, with alternatives conditional on complete protocol contracts.
+Operator adoption and real-library performance measurement remain separate.
 
 This is a hard pivot: remove replaced runtime/code at its ownership boundary, rebuild from pinned
 inputs, and retain no compatibility reader, ID bridge, intermediate PostgreSQL repair or dual write.
@@ -88,7 +89,7 @@ workspace feature unification, a CLI-only Hakari crate and shared intermediates 
 locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
 imported dependencies O3 with sccache. **Accepted target, 2026-10-08:** qualify O1/incremental/debug-zero/LTO-off local tests with assertions and overflow checks enabled, then install the test default and retire the temporary candidate. Verification remains release until qualification; optimized production/oracle/extension acceptance and assembled qualification remain explicit release work. Commands, artifact paths and reruns share one resolved profile. The [compilation-cost plan](../plans/rust-compilation-costs-plan_2026-10-08.md) owns the transition and its open findings. Build and test
 execution use available CPU parallelism; concurrency failures are corrected in production or test
-code. Owned native fixtures default to 16 GiB, with an 8 GiB tracked-memory threshold. No wheel
+code. Shared service installation selects no fixed memory, job or thread caps. No wheel
 project is selected. **Accepted verification target, 2026-10-04 (ADR-0126):** agents run compile
 checks and focused affected contract families during implementation, then affected controls and
 applicable non-functional leaves at functional scope completion. A shared model/receipt/trust/
@@ -107,7 +108,8 @@ after an environment change. **Accepted, implementation in progress (2026-10-07,
 - **Maintenance may be scoped.** When whole-tree maintenance would rewrite another agent's uncommitted
   work, `just turn-end --paths …` scopes formatting and generators to the turn's paths.
   The turn reports any skipped step. The default operator store is inspected
-only by explicit operator action; qualification owns disposable store configuration.
+only by explicit operator action; qualification borrows the installed validation responsibility
+with logical attempt isolation (ADR-0143).
 
 **Implemented / Tested at focused scope, 2026-10-09:** managed discovery and execution hold effective
 shared resource ownership before readiness observation and throughout use; explicit preparation
@@ -117,7 +119,7 @@ is recoverable and protected from pruning/removal. Historical records are read w
 selected explicit recovery may upgrade a released record under its owner lock without losing
 original fields, exits or captures. Full file logs are authoritative and detachable display cannot
 block supervision. Fixture diagnostics reuse identified content and native protocols, with raw
-MCP output limited to non-sensitive disposable contexts. The
+MCP output limited to non-sensitive validation contexts under explicit maintenance. The
 [agent-effectiveness plan](../plans/agent-effectiveness-followup-plan_2026-10-09.md) owns the dated
 controls and operator-scoped acceptance. Product qualification and measured effectiveness are separate.
 
@@ -137,7 +139,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0138, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0137, ADR-0040, ADR-0126, ADR-0109, ADR-0113, ADR-0134
+> Decision: ADR-0143, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0137, ADR-0040, ADR-0126, ADR-0109, ADR-0113, ADR-0134
 
 <a id="section-1-3"></a>
 
@@ -316,7 +318,7 @@ response defines a schema. Codebooks remain append-only; snapshot changes are ex
 Semantic compatibility uses canonical declarations and policy/invariant revisions, separately from
 implementation provenance and physical realization. Original bytes remain authoritative.
 
-> Decision: ADR-0138, ADR-0085, ADR-0088, ADR-0073
+> Decision: ADR-0143, ADR-0085, ADR-0088, ADR-0073
 
 <a id="section-b3"></a>
 
@@ -340,7 +342,7 @@ provider/logical preparation and compatible typed inputs. Independent checks ret
 state, complete negative domains and current semantic acceptance. Physical sharing follows
 exact immutable premises and operational ownership, not alias or prior validity alone.
 
-> Decision: ADR-0141, ADR-0140, ADR-0139, ADR-0138, ADR-0126
+> Decision: ADR-0141, ADR-0143, ADR-0139, ADR-0126
 
 <a id="section-b4"></a>
 
@@ -440,17 +442,19 @@ rendered text and presentation limits cannot strengthen it.
 
 ### §B7 Separate admitted content from its native realization
 
-**Implemented / targeted verification in progress, 2026-10-07 (ADR-0138).** Compilation owns one
-private strict native database through admission and direct sealing. The publisher checks actual
-stored content/state, ready indexes and executable definitions after drainage, ends writable
-ownership and verifies VIEWER reconnect before an unselected handle. Detached external import
-retains independent admission. Publication does not select; readers pin a complete realization.
+**Accepted target / implementation in progress, 2026-10-09 (ADR-0143).** Compilation writes
+attempt-owned memberships over immutable content in shared storage. Admission freezes and checks
+exact completed views; publication atomically commits a manifest rather than sealing a database.
+A published handle binds content, exact views, service generation and executable-definition epoch.
+Definition installation is maintenance-owned and cannot replace a pinned epoch. External imports
+and data-only restore retain independent semantic admission. Publication does not select.
 
-**Implemented / focused Tested, 2026-10-09 (ADR-0141); coordinated acceptance open.** Local contribution visibility waits for its actual
-producing descendants, with a native-owned terminal handoff. Final content freeze, admission,
-seal and abandonment retain global failure propagation, drainage and remote certainty.
+Local contribution completion drains its producing descendants before descriptor visibility.
+Final freeze, admission, publication and abandonment retain failure propagation, drainage and
+remote certainty. Durable operation identities reconcile unknown acknowledgement; process exit
+alone cannot authorize cleanup or arbitrary pending-work continuation.
 
-> Decision: ADR-0141, ADR-0138
+> Decision: ADR-0141, ADR-0143
 
 <a id="section-b8"></a>
 
@@ -505,7 +509,7 @@ Production behavioral solving still uses declared bounded models/atoms/Merkle no
 DNF; general production theory solving needs its separate concrete trigger. §B11's no-generative
 compilation/query-output guarantees remain. Live optional models/tooling need their actual activation.
 
-> Decision: ADR-0130, ADR-0138, ADR-0106, ADR-0045, ADR-0085
+> Decision: ADR-0130, ADR-0143, ADR-0106, ADR-0045, ADR-0085
 
 <a id="section-b11"></a>
 
@@ -527,13 +531,14 @@ templates and extractive selection; the generative-model trigger remains **Propo
 
 ### §B12 One semantic graph and derived projections
 
-**Implemented / targeted verification in progress, 2026-10-07 (ADR-0138).** One native immutable
-payload authority serves core compilation and published queries. Complete-state memberships,
-dependencies and necessary backing survive transport; graph-family and state identities remain
-separate within aggregate content. Arrow spill, prepared topology, indexes and export projections
-are derived. Projection contracts retain exact universe, roles, multiplicity, lineage and losses.
+**Accepted target / implementation in progress, 2026-10-09 (ADR-0143).** One native immutable
+payload authority serves compilation and publication across attempts and worktrees. Nominal
+anchors identify entities without granting existence in a view. Exact memberships resolve each
+selected nominal key to one payload; conflicting selected payloads fail. Full generated backing,
+original bytes and typed graph roles survive transport. Arrow spill, prepared topology, search
+indexes and export projections remain derived. Native ownership governs reachability and pins.
 
-> Decision: ADR-0138, ADR-0131
+> Decision: ADR-0143, ADR-0131
 
 <a id="section-b13"></a>
 
@@ -546,7 +551,7 @@ Python stays a thin FastMCP adapter with no second classifier. Resources/cursors
 executable realization. Native deadlines/cancellation and response limits retain honest partial
 outcomes; no fictitious exact engine-work ceiling is exposed. Activation remains stopped until Q1.
 
-> Decision: ADR-0138, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0131
+> Decision: ADR-0143, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0131
 
 <a id="section-b14"></a>
 
@@ -570,7 +575,7 @@ schedules wholesale replacement, not compatibility with it.
 - Current service/checkpoint locks remain; paths do not define values. Pure/fake controls establish
   seams only. Actual native/live usability, precision, quality and Q1 are separate evidence boundaries.
 
-> Decision: ADR-0131, ADR-0138
+> Decision: ADR-0131, ADR-0143
 
 ---
 

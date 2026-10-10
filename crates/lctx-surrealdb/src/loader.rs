@@ -1,4 +1,4 @@
-//! Checked bulk writes into a private database. This loader never publishes a handle.
+//! Checked immutable bulk writes. This loader never publishes a handle.
 use crate::{codec, reader::target_id};
 use lctx_model::domain::{
     ContentHash, Key, KeySink, ModelError,
@@ -11,13 +11,43 @@ use surrealdb::{
     types::{Bytes, Object, RecordId, SurrealValue, ToSql, Value, Variables},
 };
 
+fn installation_definitions(sql:&str)->Result<Vec<String>,ModelError>{
+    use surrealdb_sql::{Expr,TopLevelExpr,statements::DefineStatement};
+    surrealdb_syn::parse(sql).map_err(ModelError::codec)?.expressions.into_iter().map(|statement|{
+        match &statement {
+            TopLevelExpr::Expr(Expr::Define(definition)) if matches!(definition.as_ref(),DefineStatement::Table(_)|DefineStatement::Field(_)|DefineStatement::Index(_)|DefineStatement::Analyzer(_)|DefineStatement::Function(_))=>Ok(statement.to_sql()),
+            _=>Err(ModelError::Schema("installation declaration grammar")),
+        }
+    }).collect()
+}
+
 pub struct Loader {
     client: Arc<Surreal<Client>>,
+    views:Option<Vec<ContentHash>>,
+    attempt:Option<ContentHash>,
+}
+pub fn payload_id(table:&str,relation:&str,nominal:&[u8],content:ContentHash)->Result<RecordId,ModelError>{
+    static MODEL:std::sync::OnceLock<Result<ContentHash,String>>=std::sync::OnceLock::new();
+    let model=MODEL.get_or_init(||lctx_model::domain::model().map(|model|model.digest()).map_err(|error|error.to_string())).as_ref().map_err(|error|ModelError::Invalid(error.clone()))?;
+    Ok(RecordId::new(table,lctx_model::domain::completed::payload_address(*model,relation,nominal,content).hex()))
+}
+pub fn entity_payload_id(row:&Entity)->Result<RecordId,ModelError>{
+    let views=codec::entity_views(std::slice::from_ref(row))?;
+    payload_id("entity",&views[0].semantic_type,&row.id().0.0,row.content())
+}
+pub fn assertion_payload_id(row:&Assertion)->Result<RecordId,ModelError>{
+    let views=codec::assertion_views(std::slice::from_ref(row))?;
+    payload_id("assertion",&views[0].semantic_type,&row.id().0.0,row.content())
 }
 impl Loader {
     pub fn new(client: Arc<Surreal<Client>>) -> Self {
-        Self { client }
+        Self { client, views:None,attempt:None }
     }
+    pub fn for_views(client:Arc<Surreal<Client>>,views:Vec<ContentHash>)->Self {Self{client,views:Some(views),attempt:None}}
+    pub fn for_attempt_views(client:Arc<Surreal<Client>>,attempt:ContentHash,views:Vec<ContentHash>)->Self {Self{client,views:Some(views),attempt:Some(attempt)}}
+    pub fn reader(&self)->crate::NativeReader<()> {match &self.views {Some(views)=>crate::NativeReader::for_views(self.client.clone(),views.clone()),None=>crate::NativeReader::private(self.client.clone())}}
+    pub fn view_ids(&self)->Option<&[ContentHash]> {self.views.as_deref()}
+    pub fn attempt_id(&self)->Option<ContentHash>{self.attempt}
     pub fn client(&self) -> &Surreal<Client> {
         &self.client
     }
@@ -27,27 +57,21 @@ impl Loader {
     pub async fn install(&self, native_definitions: &str) -> Result<(), ModelError> {
         self.install_declarations(&crate::schema::canonical_schema(), "canonical schema")
             .await?;
-        // Executable function definitions may contain semicolons and remain one checked query.
-        self.client
-            .query(native_definitions)
-            .await
-            .map_err(write_failure)?
-            .check()
-            .map_err(|error| ModelError::codec(format!("native function definitions: {error}")))?;
+        self.install_declarations(native_definitions, "native function definitions").await?;
         Ok(())
     }
-    /// Only repository-generated finite declarations use this path, never arbitrary SQL or
-    /// function bodies. Coarse ordered windows retain every statement's native error check.
+    /// Explicit installation reconciles only repository-generated declarations. Existing
+    /// definitions must match exactly; neither a retry nor a new client may overwrite them.
+    /// Parse statement boundaries so function bodies retain their internal semicolons.
     pub(crate) async fn install_declarations(
         &self,
         schema: &str,
         phase: &str,
     ) -> Result<(), ModelError> {
-        let statements = schema
-            .split(';')
-            .filter(|statement| !statement.trim().is_empty())
-            .collect::<Vec<_>>();
-        for (window, chunk) in statements.chunks(32).enumerate() {
+        let statements = installation_definitions(schema)?;
+        let actual = self.installation_inventory().await?;
+        let missing = statements.iter().filter(|statement|!actual.contains(*statement)).cloned().collect::<Vec<_>>();
+        for (window, chunk) in missing.chunks(32).enumerate() {
             let context = |error| {
                 ModelError::codec(format!(
                     "{phase} declaration window {} (statements {}-{}): {error}",
@@ -63,7 +87,29 @@ impl Loader {
                 .check()
                 .map_err(context)?;
         }
+        let actual = self.installation_inventory().await?;
+        if statements.iter().any(|statement|!actual.contains(statement)) {
+            return Err(ModelError::Conflict("installed native declaration readback"));
+        }
         Ok(())
+    }
+    async fn installation_inventory(&self) -> Result<std::collections::BTreeSet<String>, ModelError> {
+        async fn info(client:&Surreal<Client>,sql:String)->Result<Object,ModelError>{
+            let mut response=client.query(sql).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            let value:Value=response.take(0).map_err(ModelError::codec)?;
+            let Value::Object(object)=value else{return Err(ModelError::Schema("installation definition inventory"));};Ok(object)
+        }
+        fn collect(inventory:&mut std::collections::BTreeSet<String>,object:&Object,group:&str)->Result<(),ModelError>{
+            let Some(Value::Object(definitions))=object.get(group) else{return Err(ModelError::Schema("installation definition group"));};
+            for value in definitions.values(){let Value::String(sql)=value else{return Err(ModelError::Schema("installation definition text"));};inventory.extend(installation_definitions(sql)?);}
+            Ok(())
+        }
+        let db=info(&self.client,"INFO FOR DB".into()).await?;
+        let mut inventory=std::collections::BTreeSet::new();
+        for group in ["functions","analyzers","tables"]{collect(&mut inventory,&db,group)?;}
+        let Some(Value::Object(tables))=db.get("tables") else{return Err(ModelError::Schema("installation table inventory"));};
+        for name in tables.keys(){let escaped=name.replace('`',"\\`");let table=info(&self.client,format!("INFO FOR TABLE `{escaped}`")).await?;for group in ["fields","indexes"]{collect(&mut inventory,&table,group)?;}}
+        Ok(inventory)
     }
     pub(crate) async fn insert(
         &self,
@@ -74,22 +120,17 @@ impl Loader {
         if rows.is_empty() {
             return Ok(());
         }
+        let _=(table,relation);
         for rows in NativeWindows::new(rows) {
-            let mut bindings = Variables::new();
-            bindings.insert("rows", rows?);
-            let sql = format!(
-                "INSERT {}INTO {table} $rows RETURN NONE",
-                if relation { "RELATION " } else { "" }
-            );
-            self.client
-                .query(sql)
-                .bind(bindings)
-                .await
-                .map_err(write_failure)?
-                .check()
-                .map_err(|error| {
-                    ModelError::codec(format!("native bulk {table} insert: {error}"))
-                })?;
+            let rows=rows?;
+            let anchors=rows.iter().filter_map(|row|if let Value::Object(row)=row {row.get("anchor")}else{None}).filter_map(|anchor|if let Value::RecordId(id)=anchor {let target=match id.table.as_str(){"entity_anchor"=>Target::Entity(lctx_model::domain::graph::EntityId(ContentHash(hex::decode(match &id.key {surrealdb::types::RecordIdKey::String(key)=>key,_=>return None}).ok()?.try_into().ok()?))),"assertion_anchor"=>Target::Assertion(lctx_model::domain::graph::AssertionId(ContentHash(hex::decode(match &id.key {surrealdb::types::RecordIdKey::String(key)=>key,_=>return None}).ok()?.try_into().ok()?))),_=>return None};Some(anchor_value(target))}else{None}).collect();
+            crate::control::ensure_rows(&self.client,self.attempt,anchors).await?;
+            crate::control::ensure_rows(&self.client,self.attempt,rows.clone()).await?;
+            if let Some(attempt)=self.attempt {
+                let owner=RecordId::new("native_attempt",attempt.hex());let mut references=Vec::new();
+                for row in &rows {if let Value::Object(row)=row {if let Some(Value::RecordId(id))=row.get("id") {references.push((owner.clone(),id.clone()));for field in ["anchor","in","out","unit_node","source"] {if let Some(Value::RecordId(target))=row.get(field){references.push((id.clone(),target.clone()));}}}}}
+                crate::control::hold_many(&self.client,Some(attempt),references).await?;
+            }
         }
         Ok(())
     }
@@ -195,7 +236,7 @@ impl Loader {
     pub async fn entity_references(&self, rows: &[Entity]) -> Result<(), ModelError> {
         let mut pending = ReferenceWrites::default();
         for row in rows {
-            let source = target_id(Target::Entity(row.id()));
+            let source = entity_payload_id(row)?;
             for (position, reference) in codec::entity_references(row).into_iter().enumerate() {
                 let target = lctx_model::domain::graph::reference_target(&reference)?.0;
                 let endpoint = external_value(&target)?;
@@ -216,7 +257,7 @@ impl Loader {
     pub async fn assertion_references(&self, rows: &[Assertion]) -> Result<(), ModelError> {
         let mut pending = ReferenceWrites::default();
         for row in rows {
-            let source = target_id(Target::Assertion(row.id()));
+            let source = assertion_payload_id(row)?;
             for participant in &row.participants {
                 let endpoint = external_value(&participant.target)?;
                 let value = edge(
@@ -385,9 +426,7 @@ impl Loader {
     }
 }
 fn external_value(target: &Target) -> Result<Option<Value>, ModelError> {
-    if !matches!(target, Target::External { .. }) {
-        return Ok(None);
-    }
+    if !matches!(target, Target::External { .. }) { return Ok(Some(anchor_value(target.clone()))); }
     let mut object = Object::new();
     object.insert("id", target_id(target.clone()));
     object.insert(
@@ -395,6 +434,11 @@ fn external_value(target: &Target) -> Result<Option<Value>, ModelError> {
         Bytes::from(serde_json::to_vec(target).map_err(ModelError::codec)?),
     );
     Ok(Some(Value::Object(object)))
+}
+pub(crate) fn anchor_value(target:Target)->Value {
+    let id=target_id(target);
+    let mut row=Object::new();row.insert("id",id.clone());row.insert("family",id.table.as_str().trim_end_matches("_anchor").to_string());
+    row.insert("nominal",match &id.key {surrealdb::types::RecordIdKey::String(key)=>key.clone(),_=>unreachable!("generated anchor")});Value::Object(row)
 }
 fn graph_value(
     table: &str,
@@ -406,7 +450,7 @@ fn graph_value(
     view: codec::RecordView,
 ) -> Result<Value, ModelError> {
     crate::adapter::physical_row(
-        RecordId::new(table, id.hex()),
+        payload_id(table,&view.semantic_type,&id.0,content)?,
         content,
         canonical,
         Some((kind, subtype)),
@@ -699,6 +743,35 @@ pub fn write_failure(error: surrealdb::Error) -> ModelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor="multi_thread")]
+    #[ignore="requires explicit owned-service maintenance installer credentials"]
+    async fn checked_installer_retries_equal_definitions_and_refuses_drift() {
+        let path=std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("explicit validation maintenance installer configuration");
+        let config=crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        assert_eq!(config.authentication,crate::AuthenticationScope::Root);
+        let client=crate::compiler::check_installation(&config).await.unwrap();
+        let loader=Loader::new(client.clone());
+        let table=format!("installer_control_{}",crate::control::fresh_identity("installer-retry-control").unwrap().hex());
+        let schema=format!("DEFINE TABLE {table} SCHEMAFULL; DEFINE FIELD value ON {table} TYPE string;");
+        let result=async {
+            loader.install_declarations(&schema,"installer retry control").await?;
+            loader.install_declarations(&schema,"installer retry control").await?;
+            if loader.install_declarations(&schema.replace("TYPE string","TYPE int"),"installer drift control").await.is_ok(){return Err(ModelError::Conflict("installer accepted conflicting definition"));}
+            let actual=loader.installation_inventory().await?;
+            if installation_definitions(&schema)?.iter().any(|definition|!actual.contains(definition)){return Err(ModelError::Conflict("installer changed existing definition"));}
+            Ok::<(),ModelError>(())
+        }.await;
+        client.query(format!("REMOVE TABLE {table}")).await.unwrap().check().unwrap();
+        result.unwrap();
+    }
+    #[test]
+    fn installation_parses_function_boundaries_and_refuses_effect_programs() {
+        let definitions=installation_definitions("DEFINE TABLE install_control SCHEMAFULL; DEFINE FUNCTION fn::install_control() { LET $value=1; RETURN $value; };").unwrap();
+        assert_eq!(definitions.len(),2);
+        assert!(definitions[1].contains("RETURN $value"));
+        assert!(installation_definitions("DEFINE TABLE install_control SCHEMAFULL; DELETE install_control;").is_err());
+        assert!(installation_definitions("USE DB other;").is_err());
+    }
     #[test]
     fn canonical_windows_reuse_bytes_and_flush_before_body_lowering() {
         let rows = vec!["a".repeat(8), "b".repeat(8), "c".repeat(8)];

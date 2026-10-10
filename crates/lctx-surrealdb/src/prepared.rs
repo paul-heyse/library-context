@@ -30,6 +30,7 @@ impl PreparedQuery {
     pub fn result_positions(&self)->&[usize] {&self.results}
     pub fn expected_terminals(&self)->usize {self.terminals}
     pub fn into_request(self)->(String,Variables) {(self.sql,self.bindings)}
+    pub fn with_bindings(mut self,bindings:Variables)->Self {self.bindings.extend(bindings);self}
     pub fn stream(self,client:&std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>)->Result<crate::reader::NativeRows,ModelError> {
         let Self{sql,bindings,results,terminals}=self;
         // SDK Surreal::clone creates an independent session and replays authentication.

@@ -6,11 +6,12 @@ use lctx_model::domain::{
     input::{CorpusLibrary, DistributionRole, InputDistribution, InputRevision, Package, Release},
     resources::ResourceBudget,
     retrieval::{CorpusText, Family, Origin, RENDER_VERSION, Unit},
-    serving::{DatabaseIdentity, Name, SnapshotHandle},
     source::{Module, SourceArtifact},
     *,
 };
-use lctx_surrealdb::{Credentials, Loader, NativeReader, reader};
+use lctx_surrealdb::reader;
+#[path="fixtures/scoped.rs"]
+mod scoped;
 
 fn decode<R: Record>(batches: &lctx_surrealdb::batches::CanonicalBatches) -> Vec<R> {
     batches
@@ -23,30 +24,7 @@ fn decode<R: Record>(batches: &lctx_surrealdb::batches::CanonicalBatches) -> Vec
 
 #[tokio::test]
 async fn canonical_input_companions_retain_corpus_distribution_without_retired_scalars() {
-    let cfg: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable native fixture"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let namespace = "gn_companion_controls";
-    let database = format!("companions_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        namespace,
-        &database,
-    )
-    .await
-    .unwrap();
-    client.query(format!("DEFINE NAMESPACE IF NOT EXISTS {namespace}; DEFINE DATABASE OVERWRITE {database} STRICT;")).await.unwrap().check().unwrap();
-    let loader = Loader::new(client.clone());
-    loader.install("").await.unwrap();
+    let config=scoped::config();
     let library = InputRevision {
         manifest: ContentHash::of(b"selected library input"),
     };
@@ -123,8 +101,6 @@ async fn canonical_input_companions_retain_corpus_distribution_without_retired_s
         Entity::from(member.clone()),
         Entity::from(unit.clone()),
     ];
-    loader.entities(&entities).await.unwrap();
-    loader.entity_references(&entities).await.unwrap();
     let companion = CorpusLibrary {
         corpus: corpus.id(),
         library: library.id(),
@@ -155,20 +131,10 @@ async fn canonical_input_companions_retain_corpus_distribution_without_retired_s
         Assertion::from_record(corpus_distribution.clone()).unwrap(),
         Assertion::from_record(foreign_distribution).unwrap(),
     ];
-    loader.assertions(&assertions).await.unwrap();
-    loader.assertion_references(&assertions).await.unwrap();
-    let handle = SnapshotHandle {
-        semantic: ContentHash::of(b"private companion fixture"),
-        realization: lctx_surrealdb::schema::realization_identity(""),
-        database: DatabaseIdentity {
-            namespace: Name::new(namespace).unwrap(),
-            database: Name::new(&database).unwrap(),
-        },
-    };
-    let native = NativeReader::new(client.clone(), handle);
+    let native=scoped::reader(&config,&entities,&assertions).await.unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     // Current SCHEMAFULL rows contain canonical body.input and scope_keys, never scope_input.
-    let retired:Vec<bool>=native.query("SELECT VALUE scope_input IS NONE FROM entity WHERE semantic_type IN ['source_artifacts','catalog_members','retrieval_units']",surrealdb::types::Variables::new()).await.unwrap();
+    let retired:Vec<bool>=native.query(format!("SELECT VALUE scope_input IS NONE FROM entity WHERE semantic_type IN ['source_artifacts','catalog_members','retrieval_units'] AND ({})",native.selected_node_predicate("id")),surrealdb::types::Variables::new()).await.unwrap();
     assert_eq!(retired.len(), 4);
     assert!(retired.iter().all(|absent| *absent));
     for include_corpus in [false, true] {
@@ -220,52 +186,14 @@ async fn canonical_input_companions_retain_corpus_distribution_without_retired_s
             );
         }
     }
-    client
-        .query(format!("REMOVE DATABASE {database}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    native.close().await.unwrap();
 }
 
 #[tokio::test]
-async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_reader_database() {
+async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_view() {
     use lctx_model::domain::serving_scope::ServingScopeProgram;
     use lctx_surrealdb::scope::PreparedServingScope;
-    let cfg: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable native fixture"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let namespace = "gn_shared_serving_scope_controls";
-    let database_a = format!("reader_a_{}", std::process::id());
-    let database_b = format!("reader_b_{}", std::process::id());
-    let client_a = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        namespace,
-        &database_a,
-    )
-    .await
-    .unwrap();
-    let client_b = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        namespace,
-        &database_b,
-    )
-    .await
-    .unwrap();
-    for (client, database) in [(&client_a, &database_a), (&client_b, &database_b)] {
-        client.query(format!("DEFINE NAMESPACE IF NOT EXISTS {namespace}; DEFINE DATABASE OVERWRITE {database} STRICT;")).await.unwrap().check().unwrap();
-        Loader::new(client.clone()).install("").await.unwrap();
-    }
+    let config=scoped::config();
     let package_a = Package {
         name: "shared-template-reader-a".into(),
     };
@@ -280,42 +208,8 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_reader
         package: package_b.id(),
         version: "1".into(),
     };
-    for (client, entities) in [
-        (
-            &client_a,
-            vec![
-                Entity::from(package_a.clone()),
-                Entity::from(release_a.clone()),
-            ],
-        ),
-        (
-            &client_b,
-            vec![
-                Entity::from(package_b.clone()),
-                Entity::from(release_b.clone()),
-            ],
-        ),
-    ] {
-        let loader = Loader::new(client.clone());
-        loader.entities(&entities).await.unwrap();
-        loader.entity_references(&entities).await.unwrap();
-    }
-    let handle = |database: &str, semantic: &[u8]| SnapshotHandle {
-        semantic: ContentHash::of(semantic),
-        realization: lctx_surrealdb::schema::realization_identity(""),
-        database: DatabaseIdentity {
-            namespace: Name::new(namespace).unwrap(),
-            database: Name::new(database).unwrap(),
-        },
-    };
-    let native_a = NativeReader::new(
-        client_a.clone(),
-        handle(&database_a, b"private scope reader a"),
-    );
-    let native_b = NativeReader::new(
-        client_b.clone(),
-        handle(&database_b, b"private scope reader b"),
-    );
+    let native_a=scoped::reader(&config,&[Entity::from(package_a.clone()),Entity::from(release_a.clone())],&[]).await.unwrap();
+    let native_b=scoped::reader(&config,&[Entity::from(package_b.clone()),Entity::from(release_b.clone())],&[]).await.unwrap();
     let budget = ResourceBudget::fixed(2 << 20).unwrap();
     let inputs = [
         ValidationInput::of::<Release>(&["id"]),
@@ -331,11 +225,11 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_reader
     let baseline = budget.reserved();
     // The same prepared metadata is reused across readers and again after another reader ran.
     // Both frontier execution and canonical hydration are submitted through the supplied reader.
+    assert!(native_b.query_prepared::<Vec<surrealdb::types::RecordId>>(prepared.frontier_query(vec![root_a.clone()]).unwrap()).await.is_err(),"foreign roots are refused before native traversal");
     let observed: Result<Vec<_>, ModelError> = async {
         let mut observations = Vec::new();
         for (native, root) in [
             (&native_a, &root_a),
-            (&native_b, &root_a),
             (&native_b, &root_b),
             (&native_a, &root_a),
         ] {
@@ -361,19 +255,12 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_reader
     drop(prepared);
     drop(root_charge);
     let released = budget.reserved();
-    for (client, database) in [(&client_a, &database_a), (&client_b, &database_b)] {
-        client
-            .query(format!("REMOVE DATABASE {database}"))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-    }
-    assert_ne!(native_a.handle().database, native_b.handle().database);
-    assert_ne!(native_a.handle().semantic, native_b.handle().semantic);
+    assert_eq!(native_a.store.database(),native_b.store.database());
+    assert_ne!(native_a.store.attempt(),native_b.store.attempt());
+    native_a.close().await.unwrap();
+    native_b.close().await.unwrap();
     let observed = observed.unwrap();
-    let package_id =
-        |package: &Package| reader::target_id(Target::Entity(EntityId::of(package.id())));
+    let package_id = |package:&Package| lctx_surrealdb::loader::entity_payload_id(&Entity::from(package.clone())).unwrap();
     assert_eq!(
         observed
             .iter()
@@ -381,11 +268,10 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_reader
             .collect::<Vec<_>>(),
         vec![
             vec![package_id(&package_a)],
-            vec![],
             vec![package_id(&package_b)],
             vec![package_id(&package_a)]
         ],
-        "frontier discovery follows the supplied reader database"
+        "frontier discovery follows the supplied exact reader view"
     );
     let (mut packages, mut releases) = (Vec::new(), Vec::new());
     for (_, selected_packages, selected_releases) in observed {
@@ -396,7 +282,6 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_reader
         packages,
         vec![
             vec![package_a.clone()],
-            vec![],
             vec![package_b],
             vec![package_a]
         ]
@@ -405,7 +290,6 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_reader
         releases,
         vec![
             vec![release_a.clone()],
-            vec![],
             vec![release_b],
             vec![release_a]
         ]

@@ -152,7 +152,7 @@ pub(crate) fn compiler_relations() -> &'static [Relation] {
 }
 /// Original bytes have their own physical owner; all other private families retain declared fields.
 pub fn compiler_record_schema() -> String {
-    let mut sql="DEFINE TABLE compiler_record SCHEMAFULL; DEFINE FIELD semantic_type ON compiler_record TYPE string; DEFINE FIELD semantic_key ON compiler_record TYPE string; DEFINE FIELD content ON compiler_record TYPE string; DEFINE FIELD canonical ON compiler_record TYPE bytes; DEFINE FIELD body ON compiler_record TYPE object FLEXIBLE; DEFINE INDEX compiler_record_key ON compiler_record FIELDS semantic_type,semantic_key UNIQUE;".to_string();
+    let mut sql="DEFINE TABLE compiler_record SCHEMAFULL; DEFINE FIELD semantic_type ON compiler_record TYPE string; DEFINE FIELD semantic_key ON compiler_record TYPE string; DEFINE FIELD content ON compiler_record TYPE string; DEFINE FIELD canonical ON compiler_record TYPE bytes; DEFINE FIELD body ON compiler_record TYPE object FLEXIBLE; DEFINE INDEX compiler_record_key ON compiler_record FIELDS semantic_type,semantic_key;".to_string();
     sql.push_str(&scope_schema("compiler_record"));
     sql
 }
@@ -170,7 +170,7 @@ fn scope_schema(table: &str) -> String {
 pub fn canonical_schema() -> String {
     let mut sql = String::new();
     for table in ["entity", "assertion"] {
-        sql.push_str(&format!("DEFINE TABLE {table} TYPE NORMAL SCHEMAFULL; DEFINE FIELD semantic_type ON {table} TYPE string; DEFINE FIELD semantic_key ON {table} TYPE string; DEFINE FIELD kind ON {table} TYPE int; DEFINE FIELD subtype ON {table} TYPE int | null; DEFINE FIELD content ON {table} TYPE string; DEFINE FIELD canonical ON {table} TYPE bytes; DEFINE FIELD body ON {table} TYPE object FLEXIBLE; DEFINE INDEX semantic_key ON {table} FIELDS semantic_type,semantic_key UNIQUE;"));
+        sql.push_str(&format!("DEFINE TABLE {table} TYPE NORMAL SCHEMAFULL; DEFINE FIELD semantic_type ON {table} TYPE string; DEFINE FIELD semantic_key ON {table} TYPE string; DEFINE FIELD anchor ON {table} TYPE record<entity_anchor | assertion_anchor>; DEFINE FIELD kind ON {table} TYPE int; DEFINE FIELD subtype ON {table} TYPE int | null; DEFINE FIELD content ON {table} TYPE string; DEFINE INDEX anchor_payload ON {table} FIELDS anchor,content; DEFINE FIELD canonical ON {table} TYPE bytes; DEFINE FIELD body ON {table} TYPE object FLEXIBLE; DEFINE INDEX semantic_key ON {table} FIELDS semantic_type,semantic_key; DEFINE TABLE {table}_anchor SCHEMAFULL; DEFINE FIELD family ON {table}_anchor TYPE string; DEFINE FIELD nominal ON {table}_anchor TYPE string; DEFINE INDEX anchor_nominal ON {table}_anchor FIELDS nominal UNIQUE;"));
     }
     // Whole semantic IDs are atomic index keys. Array indexes flatten each byte and cannot
     // implement whole-ID IN selection; retain canonical typed arrays in body unchanged.
@@ -178,9 +178,9 @@ pub fn canonical_schema() -> String {
         sql.push_str(&scope_schema(table));
     }
     for (table, input) in [("participant", "assertion"), ("reference", "entity")] {
-        sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity | assertion | external ENFORCED SCHEMAFULL; DEFINE FIELD field ON {table} TYPE string; DEFINE FIELD role ON {table} TYPE int; DEFINE FIELD position ON {table} TYPE int | null; DEFINE INDEX incoming ON {table} FIELDS out,field,in; DEFINE INDEX outgoing ON {table} FIELDS in,field,out,position;"));
+        sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity_anchor | assertion_anchor | external ENFORCED SCHEMAFULL; DEFINE FIELD field ON {table} TYPE string; DEFINE FIELD role ON {table} TYPE int; DEFINE FIELD position ON {table} TYPE int | null; DEFINE INDEX incoming ON {table} FIELDS out,field,in; DEFINE INDEX outgoing ON {table} FIELDS in,field,out,position;"));
     }
-    sql.push_str("DEFINE TABLE external TYPE NORMAL SCHEMAFULL; DEFINE FIELD canonical ON external TYPE bytes; DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD source ON original_chunk TYPE record<original>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS source,start UNIQUE; DEFINE TABLE publication TYPE NORMAL SCHEMAFULL; DEFINE FIELD handle ON publication TYPE string; DEFINE FIELD manifest ON publication TYPE bytes;");
+    sql.push_str("DEFINE TABLE external TYPE NORMAL SCHEMAFULL; DEFINE FIELD canonical ON external TYPE bytes; DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD source ON original_chunk TYPE record<original>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS source,start UNIQUE; DEFINE TABLE publication TYPE NORMAL SCHEMAFULL; DEFINE FIELD handle ON publication TYPE string; DEFINE FIELD manifest ON publication TYPE bytes; DEFINE FIELD views ON publication TYPE bytes; DEFINE FIELD definition_epoch ON publication TYPE string;");
     sql
 }
 pub fn realization_identity(native_definitions: &str) -> ContentHash {

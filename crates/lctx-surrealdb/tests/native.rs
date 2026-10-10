@@ -5,22 +5,23 @@ use lctx_model::domain::{
     },
     graph::{Entity, EntityId, Target},
     input::{Package, Release},
-    serving::{DatabaseIdentity, Name, SnapshotHandle},
     *,
 };
 use lctx_surrealdb::{
     Credentials, Loader, NativeEmbeddingCache, NativeReader, RecordSelection, reader,
 };
 use surrealdb::types::{Bytes, Value, Variables};
+#[path = "fixtures/scoped.rs"]
+mod scoped;
 fn config() -> serde_json::Value {
     let path = std::env::var("LCTX_SURREAL_TEST_CONFIG")
-        .expect("owned disposable SurrealDB configuration is required");
+        .expect("installed validation configuration is required");
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 #[tokio::test]
 async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_drainage() {
     let cfg = config();
-    let credentials = Credentials::Root {
+    let credentials = Credentials::Database {
         username: cfg["admin_user"].as_str().unwrap().into(),
         password: cfg["admin_password"].as_str().unwrap().into(),
     };
@@ -74,60 +75,16 @@ async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_
 }
 #[tokio::test]
 async fn native_codec_graph_search_and_immutable_winners() {
-    let cfg = config();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "gn_controls";
-    let db = format!("native_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    client
-        .query(format!(
-            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let loader = Loader::new(client.clone());
-    loader
-        .install(&lctx_surrealdb::materialization::native_definitions())
-        .await
-        .unwrap();
+    let config = scoped::config();
+    let nonce = tempfile::NamedTempFile::new().unwrap();
+    let scope = nonce.path().display().to_string();
     let package = Package {
-        name: "native-fixture".into(),
+        name: format!("native-fixture-{scope}"),
     };
     let release = Release {
         package: package.id(),
         version: "1".into(),
     };
-    loader
-        .entities(&[Entity::from(package.clone()), Entity::from(release.clone())])
-        .await
-        .unwrap();
-    loader
-        .entity_references(&[Entity::from(release.clone())])
-        .await
-        .unwrap();
-    let handle = SnapshotHandle {
-        semantic: ContentHash::of(b"fixture"),
-        realization: lctx_surrealdb::schema::realization_identity(
-            &lctx_surrealdb::materialization::native_definitions(),
-        ),
-        database: DatabaseIdentity {
-            namespace: Name::new(ns).unwrap(),
-            database: Name::new(&db).unwrap(),
-        },
-    };
-    let reader = NativeReader::new(client.clone(), handle);
     // This graph-capable proof owner is outside mandatory Catalog publication.
     // Nominal endpoints are codec inputs; this control asserts no semantic admission.
     let premise = analysis::analytic::AnalysisDerivationPremise {
@@ -157,10 +114,9 @@ async fn native_codec_graph_search_and_immutable_winners() {
         native_view[0].semantic_key,
         hex::encode(premise.id().bytes())
     );
-    loader
-        .assertions(std::slice::from_ref(&assertion))
-        .await
-        .unwrap();
+    let fixture = scoped::reader(&config,&[Entity::from(package.clone()),Entity::from(release.clone())],std::slice::from_ref(&assertion)).await.unwrap();
+    let reader = &fixture.reader;
+    let client = reader.shared_client();
     assert_eq!(
         reader
             .records::<analysis::analytic::AnalysisDerivationPremise>(RecordSelection::Keys(vec![
@@ -193,21 +149,22 @@ async fn native_codec_graph_search_and_immutable_winners() {
         reader::target_id(Target::Entity(EntityId::of(package.id()))),
     );
     let adjacency: Vec<String> = reader
-        .query("SELECT VALUE semantic_type FROM $key<-reference<-entity", b)
+        .query(format!("SELECT VALUE in.semantic_type FROM reference WHERE out=$key AND ({})",reader.selected_node_predicate("in")), b)
         .await
         .unwrap();
     assert_eq!(adjacency, vec!["releases"]);
     // Raw SQL preserves flexible bodies; independent admission owns semantic closure.
-    client.query("CREATE entity:bad CONTENT {semantic_type:'packages',semantic_key:'bad',kind:29,subtype:null,content:'bad',canonical:b\"00\",scope_keys:[],body:{__type:'packages',name:'bad',extra:1}};").await.unwrap().check().unwrap();
-    client
-        .query("DELETE entity:bad")
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let enforced=client.query("RELATE assertion:absent->participant:dangling->entity:absent CONTENT {field:'missing',role:0,position:null};").await.unwrap().check();
+    let mut bindings = Variables::new();
+    bindings.insert("id",surrealdb::types::RecordId::new("entity",format!("malformed_{}",ContentHash::of(scope.as_bytes()).hex())));
+    bindings.insert("anchor",reader::target_id(Target::Entity(EntityId::of(package.id()))));
+    client.query("CREATE $id CONTENT {anchor:$anchor,semantic_type:'packages',semantic_key:'bad',kind:29,subtype:null,content:'bad',canonical:b\"00\",scope_keys:[],body:{__type:'packages',name:'bad',extra:1}};").bind(bindings.clone()).await.unwrap().check().unwrap();
+    client.query("DELETE $id").bind(bindings).await.unwrap().check().unwrap();
+    let mut bindings = Variables::new();
+    bindings.insert("source",surrealdb::types::RecordId::new("assertion",format!("absent_{}",ContentHash::of(scope.as_bytes()).hex())));
+    bindings.insert("target",surrealdb::types::RecordId::new("entity_anchor",format!("absent_{}",ContentHash::of(scope.as_bytes()).hex())));
+    let enforced=client.query("RELATE $source->participant->$target CONTENT {field:'missing',role:0,position:null};").bind(bindings).await.unwrap().check();
     assert!(enforced.is_err());
-    let cache = NativeEmbeddingCache::install(client.clone()).await.unwrap();
+    let cache = NativeEmbeddingCache::connect(client.clone()).await.unwrap();
     let spec: Spec = serde_json::from_slice(include_bytes!(
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
@@ -215,7 +172,7 @@ async fn native_codec_graph_search_and_immutable_winners() {
     let mut vector = vec![0f32; usize::try_from(spec.dimensions).unwrap()];
     vector[0] = 1.;
     let first = CacheValue {
-        input_hash: ContentHash::of(b"text"),
+        input_hash: ContentHash::of(scope.as_bytes()),
         vector: vector.clone(),
         admitted_tokens: 3,
     };
@@ -251,12 +208,8 @@ async fn native_codec_graph_search_and_immutable_winners() {
         .await
         .unwrap();
     assert_eq!(winner[&first.input_hash].vector, first.vector);
-    client
-        .query(format!("REMOVE DATABASE {db}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    drop(cache);
+    fixture.close().await.unwrap();
 }
 
 /// Flexible native bodies preserve logical text, bytes and explicit inactive NULL fields.
@@ -266,31 +219,9 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
         retrieval::{CorpusText, Family, RENDER_VERSION, Unit},
         value::Literal,
     };
-    let cfg = config();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "gn_controls";
-    let db = format!("text_codec_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    client
-        .query(format!(
-            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let loader = Loader::new(client.clone());
-    loader.install("").await.unwrap();
+    let config = scoped::config();
+    let nonce = tempfile::NamedTempFile::new().unwrap();
+    let key = ContentHash::of(nonce.path().to_string_lossy().as_bytes());
     let text = "Scenario intent=Demonstration\n```python\nconnect('雪')\n```\n";
     let corpus = CorpusText {
         family: Family::Scenario,
@@ -303,7 +234,7 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
         input: serde_json::from_value(serde_json::to_value([1u8; 16]).unwrap()).unwrap(),
         context: serde_json::from_value(serde_json::to_value([2u8; 16]).unwrap()).unwrap(),
         family: Family::Scenario,
-        origin: serde_json::from_value(serde_json::to_value([3u8; 16]).unwrap()).unwrap(),
+        origin: serde_json::from_value(serde_json::to_value(&key.0[..16]).unwrap()).unwrap(),
         corpus: corpus.id(),
         title: "Usage scenario 雪".into(),
     };
@@ -313,29 +244,13 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
     let opaque = Literal::Bytes {
         value: EvidenceBytes(vec![0xff, 0, 0x80]),
     };
-    loader
-        .entities(&[
-            Entity::from(corpus.clone()),
-            Entity::from(unit.clone()),
-            Entity::from(string.clone()),
-            Entity::from(opaque.clone()),
-        ])
-        .await
-        .unwrap();
-    let native = NativeReader::new(
-        client.clone(),
-        SnapshotHandle {
-            semantic: ContentHash::of(b"text-codec-control"),
-            realization: lctx_surrealdb::schema::realization_identity(""),
-            database: DatabaseIdentity {
-                namespace: Name::new(ns).unwrap(),
-                database: Name::new(&db).unwrap(),
-            },
-        },
-    );
+    let fixture = scoped::reader(&config,&[Entity::from(corpus.clone()),Entity::from(unit.clone()),Entity::from(string.clone()),Entity::from(opaque.clone())],&[]).await.unwrap();
+    let native = &fixture.reader;
+    let client = native.shared_client();
+    let loader = Loader::new(client.clone());
     let texts: Vec<String> = native
         .query(
-            "SELECT VALUE body.text FROM entity WHERE semantic_type='retrieval_corpus_texts'",
+            format!("SELECT VALUE body.text FROM entity WHERE semantic_type='retrieval_corpus_texts' AND ({})",native.selected_node_predicate("id")),
             Variables::new(),
         )
         .await
@@ -343,7 +258,7 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
     assert_eq!(texts, vec![text.to_owned()]);
     let titles: Vec<String> = native
         .query(
-            "SELECT VALUE body.title FROM entity WHERE semantic_type='retrieval_units'",
+            format!("SELECT VALUE body.title FROM entity WHERE semantic_type='retrieval_units' AND ({})",native.selected_node_predicate("id")),
             Variables::new(),
         )
         .await
@@ -354,8 +269,9 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
     let mut response = native
         .client()
         .query(
-            "SELECT VALUE body FROM entity WHERE semantic_type='literal_values' ORDER BY subtype",
+            format!("SELECT VALUE body FROM entity WHERE semantic_type='literal_values' AND ({}) ORDER BY subtype",native.selected_node_predicate("id")),
         )
+        .bind(native.view_bindings())
         .await
         .unwrap()
         .check()
@@ -400,7 +316,7 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
     let mut bindings = Variables::new();
     bindings.insert(
         "id",
-        reader::target_id(Target::Entity(EntityId::of(unit.id()))),
+        lctx_surrealdb::loader::entity_payload_id(&Entity::from(unit.clone())).unwrap(),
     );
     client
         .query("UPDATE $id SET body.unexpected=1;")
@@ -413,10 +329,5 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
         loader.ensure_entities(&[Entity::from(unit)]).await.is_err(),
         "complete envelope comparison rejects raw flexible body drift"
     );
-    client
-        .query(format!("REMOVE DATABASE {db}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    fixture.close().await.unwrap();
 }

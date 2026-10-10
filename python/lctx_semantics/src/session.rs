@@ -1,4 +1,5 @@
-//! Read-only native operation session. The Python adapter never receives writer credentials.
+//! Read-only domain session. Rust retains the private database principal needed for durable
+//! reader pins; Python receives no credentials or arbitrary native-query operation.
 use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader, config::ViewerConfig};
 use pyo3::prelude::*;

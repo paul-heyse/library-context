@@ -40,9 +40,22 @@ fn table(family: Family) -> &'static str {
     }
 }
 fn reader(loader: &Loader) -> Result<NativeReader<()>, ModelError> {
-    Ok(NativeReader::private(loader.shared_client()))
+    Ok(loader.reader())
 }
 
+/// Exact payload dependency eligibility shared by materialization reconciliation and serving.
+pub fn selected_occurrence_predicate<Context>(reader:&NativeReader<Context>,expression:&str)->String {
+    if reader.view_bindings().get("lctx_views").is_none(){return "true".into();}
+    format!("array::len({expression}.dependencies)>0 AND {expression}.dependencies ALLINSIDE array::distinct(array::concat((SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views),(SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views))))")
+}
+fn typed_payload<R:Record>(row:&R)->Result<RecordId,ModelError>{
+    let relation=Relation::of::<R>();let batch=R::encode(std::slice::from_ref(row))?;
+    match crate::adapter::select(R::NAME)?.graph(&batch)?.into_iter().next().flatten() {
+        Some(crate::adapter::GraphRow::Entity(row))=>crate::loader::entity_payload_id(&row),
+        Some(crate::adapter::GraphRow::Assertion(row))=>crate::loader::assertion_payload_id(&row),
+        None=>{let body=crate::codec::batch_bodies(&relation,&batch)?.into_iter().next().ok_or(ModelError::Schema("derived dependency body"))?;crate::loader::payload_id("compiler_record",R::NAME,row.id().bytes(),ContentHash::of(&serde_json::to_vec(&body).map_err(ModelError::codec)?))},
+    }
+}
 struct Expected {
     pending: Vec<Option<SortedRows>>,
     ordered: Vec<Option<OrderedRows>>,
@@ -80,8 +93,12 @@ impl Expected {
     async fn reconcile(&mut self, reader: &NativeReader<()>) -> Result<(), ModelError> {
         for (index, table) in TABLES.iter().enumerate() {
             let mut actual = reader.query_stream(
-                format!("SELECT * FROM {table} ORDER BY id"),
-                Variables::new(),
+                format!("SELECT * FROM {table} WHERE {} ORDER BY id",match *table {
+                    "lex_occurs"|"vec_occurs"=>selected_occurrence_predicate(reader,"$this"),
+                    "vector"=>format!("id IN (SELECT VALUE in FROM vec_occurs WHERE {})",selected_occurrence_predicate(reader,"$this")),
+                    _=>format!("id IN (SELECT VALUE in FROM lex_occurs WHERE {})",selected_occurrence_predicate(reader,"$this")),
+                }),
+                reader.view_bindings(),
                 1,
             )?;
             self.finish(index)?.reconcile(&mut actual).await?;
@@ -128,27 +145,8 @@ impl<'a> Batch<'a> {
         if self.rows.is_empty() {
             return Ok(());
         }
-        let mut bindings = Variables::new();
-        bindings.insert("rows", std::mem::take(&mut self.rows));
-        let loader = self
-            .loader
-            .ok_or(ModelError::Schema("derived write owner"))?;
-        loader
-            .client()
-            .query(format!(
-                "INSERT {}IGNORE INTO {} $rows RETURN NONE",
-                if self.table.ends_with("occurs") {
-                    "RELATION "
-                } else {
-                    ""
-                },
-                self.table
-            ))
-            .bind(bindings)
-            .await
-            .map_err(crate::loader::write_failure)?
-            .check()
-            .map_err(ModelError::codec)?;
+        let loader=self.loader.ok_or(ModelError::Schema("derived write owner"))?;
+        loader.insert(self.table,std::mem::take(&mut self.rows),self.table.ends_with("occurs")).await?;
         self.bytes = 0;
         Ok(())
     }
@@ -257,7 +255,9 @@ impl Basic {
             .filter(|part| part.purpose == PartPurpose::Primary)
     }
 }
+#[derive(serde::Serialize)]
 struct LoweredProjection {
+    dependencies:Vec<RecordId>,
     id: Id<ProjectedValue>,
     value: Id<FullValue>,
     encoder: Id<EmbeddingSpec>,
@@ -267,20 +267,13 @@ struct LoweredProjection {
     tokens: i64,
     embedding: Vec<f32>,
 }
-fn vector_id(projection: Id<ProjectedValue>, unit: &Unit) -> RecordId {
-    RecordId::new(
-        "vector",
-        format!(
-            "{}_{}_{:02}",
-            projection.hex(),
-            unit.input.hex(),
-            unit.family as i16
-        ),
-    )
+fn vector_id(projection:&LoweredProjection,unit:&Unit)->Result<RecordId,ModelError>{
+    Ok(RecordId::new("vector",ContentHash::of(&serde_json::to_vec(&("native-vector/v2",projection,unit.input,unit.family)).map_err(ModelError::codec)?).hex()))
 }
 fn cohort_row(p: &LoweredProjection, unit: &Unit) -> Result<Value, ModelError> {
     let mut row = Object::new();
-    row.insert("id", vector_id(p.id, unit));
+    row.insert("id", vector_id(p, unit)?);
+    row.insert("dependencies",p.dependencies.clone());
     row.insert("encoder_hash", p.encoder_hash.hex());
     row.insert("policy_key", p.policy.hex());
     row.insert("library_input", scope_string(&crate_json(unit.input)?));
@@ -342,6 +335,7 @@ async fn lower_vectors(
             prepared.insert(
                 p.id(),
                 LoweredProjection {
+                    dependencies:vec![typed_payload(p)?,typed_payload(full)?,typed_payload(encoder)?,typed_payload(policy)?],
                     id: p.id(),
                     value: full.id(),
                     encoder: full.encoder,
@@ -406,7 +400,10 @@ struct Companions {
     options: Index<catalog::CatalogOption>,
     members: Index<catalog::CatalogMember>,
     artifacts: Index<source::SourceArtifact>,
-    names: BTreeMap<Id<catalog::CatalogOption>, String>,
+    names: BTreeMap<Id<catalog::CatalogOption>, OptionName>,
+    original_rows:Index<OriginalAnchor>,
+    maps:Index<WindowSourceMap>,
+    vectors:BTreeMap<(String,String,i16),(RecordId,Vec<RecordId>)>,
     anchors: BTreeMap<(Id<SearchWindow>, Id<ContentPart>), Id<OriginalAnchor>>,
     uses: Index<RetrievalEmbeddingUse>,
 }
@@ -491,7 +488,9 @@ impl Companions {
             "semantic_key",
         )?;
         let mut anchors = BTreeMap::new();
+        let mut original_rows=Index::new();
         while let Some(anchor) = rows.next().await? {
+            original_rows.insert(anchor.id(),anchor.clone());
             anchors
                 .entry((anchor.unit, anchor.original))
                 .and_modify(|id: &mut Id<OriginalAnchor>| *id = (*id).min(anchor.id()))
@@ -510,7 +509,13 @@ impl Companions {
                 }
             }
         }
-        let uses = scoped(reader, "window", b.windows.keys().copied()).await?;
+        let uses:Index<RetrievalEmbeddingUse> = scoped(reader, "window", b.windows.keys().copied()).await?;
+        let projections=uses.values().filter_map(|row|row.projection.map(|id|id.hex())).collect::<BTreeSet<_>>();
+        let mut vars=reader.view_bindings();vars.insert("projections",projections.into_iter().collect::<Vec<_>>());
+        let selected=selected_occurrence_predicate(reader,"$this");
+        let values:Vec<Object>=reader.query_native(format!("SELECT id,projection_key,library_input,family,dependencies FROM vector WHERE projection_key IN $projections AND ({selected})"),vars).await?;
+        let mut vectors=BTreeMap::new();for row in values {let (Some(Value::RecordId(id)),Some(Value::String(projection)),Some(Value::String(input)),Some(Value::Number(surrealdb::types::Number::Int(family))),Some(Value::Array(dependencies)))=(row.get("id"),row.get("projection_key"),row.get("library_input"),row.get("family"),row.get("dependencies")) else{return Err(ModelError::Schema("exact vector cohort"));};let dependencies=dependencies.iter().map(|value|if let Value::RecordId(id)=value{Ok(id.clone())}else{Err(ModelError::Schema("vector dependency"))}).collect::<Result<Vec<_>,_>>()?;if vectors.insert((projection.clone(),input.clone(),*family as i16),(id.clone(),dependencies)).is_some(){return Err(ModelError::Conflict("competing exact vector cohort"));}}
+
         Ok(Self {
             bindings,
             subjects,
@@ -519,15 +524,17 @@ impl Companions {
             members,
             artifacts,
             names,
+            original_rows,maps,vectors,
             anchors: supports,
             uses,
         })
     }
 }
+struct OptionName {value:String,dependencies:Vec<RecordId>}
 async fn option_names(
     reader: &NativeReader<()>,
     options: &Index<catalog::CatalogOption>,
-) -> Result<BTreeMap<Id<catalog::CatalogOption>, String>, ModelError> {
+) -> Result<BTreeMap<Id<catalog::CatalogOption>, OptionName>, ModelError> {
     use catalog::CatalogOptionSubject as Subject;
     use normalized::{
         callables::SignatureSlot,
@@ -590,15 +597,18 @@ async fn option_names(
     };
     let mut result = BTreeMap::new();
     for option in options.values() {
+        let mut dependencies=vec![typed_payload(need(&subjects,option.subject)?)?];
+        let mut parameter_name=|id|->Result<String,ModelError>{let parameter=need(&parameters,id)?;let shape=need(&shapes,parameter.shape)?;dependencies.push(typed_payload(parameter)?);dependencies.push(typed_payload(shape)?);name(id)};
         let value = match need(&subjects, option.subject)? {
-            Subject::Field { field } => need(&fields, *field)?.name.as_str().to_owned(),
-            Subject::Parameter { slot } => name(need(&slots, *slot)?.parameter)?,
+            Subject::Field { field } => {let field=need(&fields,*field)?;dependencies.push(typed_payload(field)?);field.name.as_str().to_owned()},
+            Subject::Parameter { slot } => {let slot=need(&slots,*slot)?;let parameter=slot.parameter;let slot_payload=typed_payload(slot)?;let value=parameter_name(parameter)?;dependencies.push(slot_payload);value},
             Subject::SourceParameter { parameter } => match need(&entities, *parameter)? {
-                ParameterEntity::NativeSlot { parameter, .. } => name(*parameter)?,
+                ParameterEntity::NativeSlot { parameter: id, .. } => {let value=parameter_name(*id)?;dependencies.push(typed_payload(need(&entities,*parameter)?)?);value},
                 ParameterEntity::Source { .. } => {
                     let mut names = BTreeSet::new();
                     for link in links.values().filter(|link| link.entity == *parameter) {
-                        let n = name(link.parameter)?;
+                        let n = parameter_name(link.parameter)?;
+                        // Dependency accumulation happens after the closure borrow ends.
                         if !n.is_empty() {
                             names.insert(n);
                         }
@@ -612,7 +622,8 @@ async fn option_names(
                 }
             },
         };
-        result.insert(option.id(), value);
+        if let Subject::SourceParameter{parameter}=need(&subjects,option.subject)? {dependencies.push(typed_payload(need(&entities,*parameter)?)?);for link in links.values().filter(|link|link.entity==*parameter){dependencies.push(typed_payload(link)?);}}
+        dependencies.sort();dependencies.dedup();result.insert(option.id(),OptionName{value,dependencies});
     }
     Ok(result)
 }
@@ -686,6 +697,7 @@ async fn lower(
                         part,
                         None,
                         &c,
+                        &b,
                     )
                     .await?;
                 } else {
@@ -699,6 +711,7 @@ async fn lower(
                             part,
                             Some(binding),
                             &c,
+                            &b,
                         )
                         .await?;
                     }
@@ -723,6 +736,7 @@ async fn emit_witness(
     part: &ContentPart,
     binding: Option<&WindowBinding>,
     c: &Companions,
+    b: &Basic,
 ) -> Result<(), ModelError> {
     let mut option_key = String::new();
     let mut source_path = String::new();
@@ -734,7 +748,7 @@ async fn emit_witness(
                     .names
                     .get(option)
                     .ok_or(ModelError::Schema("option name"))?
-                    .clone();
+                    .value.clone();
                 Some(need(&c.options, *option)?.member)
             }
             Subject::Definition { entity } => match need(&c.origins, unit.origin)? {
@@ -766,6 +780,12 @@ async fn emit_witness(
         (String::new(), source_path)
     };
     let anchor = c.anchors.get(&(window.id(), part.id())).copied();
+    let mut dependencies=vec![typed_payload(unit)?,typed_payload(window)?,typed_payload(part)?,typed_payload(need(&c.origins,unit.origin)?)?];
+    for link in b.links.values().filter(|link|link.window==window.id() && link.part==part.id()){dependencies.push(typed_payload(link)?);}
+    if let Some(binding)=binding {dependencies.push(typed_payload(binding)?);let subject=need(&c.subjects,binding.subject)?;dependencies.push(typed_payload(subject)?);match subject {Subject::Option{option}=>{dependencies.push(typed_payload(need(&c.options,*option)?)?);dependencies.extend(c.names.get(option).ok_or(ModelError::Schema("option name dependencies"))?.dependencies.clone());},Subject::Source{artifact}=>dependencies.push(typed_payload(need(&c.artifacts,*artifact)?)?),_=>{}}}
+    if let Some(member)=member{dependencies.push(typed_payload(need(&c.members,member)?)?);}
+    if let Some(anchor)=anchor{dependencies.push(typed_payload(need(&c.original_rows,anchor)?)?);for map in c.maps.values().filter(|map|map.window==window.id() && map.part==Some(part.id())){dependencies.push(typed_payload(map)?);}}
+    dependencies.sort();dependencies.dedup();
     let witness = Witness {
         unit,
         window,
@@ -777,7 +797,9 @@ async fn emit_witness(
         path,
         option_key,
     };
-    let mut identity = KeySink::new("native-search-occurrence/v2");
+    let mut identity = KeySink::new("native-search-occurrence/v3");
+    identity.part(b"dependencies",&serde_json::to_vec(&dependencies).map_err(ModelError::codec)?);
+    identity.part(b"names",&serde_json::to_vec(&(&witness.name,&witness.path,&witness.option_key)).map_err(ModelError::codec)?);
     unit.id().encode(&mut identity);
     window.id().encode(&mut identity);
     part.id().encode(&mut identity);
@@ -788,6 +810,7 @@ async fn emit_witness(
         &key,
         RecordId::new(table(unit.family), window.digest.hex()),
         &witness,
+        &dependencies,
     )?;
     expected.emit("lex_occurs", row.clone())?;
     lexical.emit(row).await?;
@@ -798,28 +821,36 @@ async fn emit_witness(
         let projection = consumed
             .projection
             .ok_or(ModelError::Schema("available projection"))?;
-        let row = occurrence(
-            "vec_occurs",
-            &format!("{key}_{}", projection.hex()),
-            vector_id(projection, unit),
-            &witness,
-        )?;
+        let (vector,vector_dependencies)=c.vectors.get(&(projection.hex(),scope_string(&crate_json(unit.input)?),unit.family as i16)).ok_or(ModelError::Schema("selected exact vector cohort"))?;
+        let mut vector_dependencies=vector_dependencies.clone();vector_dependencies.extend(dependencies.clone());vector_dependencies.push(typed_payload(consumed)?);vector_dependencies.sort();vector_dependencies.dedup();let vector_key=ContentHash::of(&serde_json::to_vec(&(&key,&vector_dependencies,vector)).map_err(ModelError::codec)?).hex();
+        let row=occurrence("vec_occurs",&vector_key,vector.clone(),&witness,&vector_dependencies)?;
         expected.emit("vec_occurs", row.clone())?;
         vectors.emit(row).await?;
     }
     Ok(())
 }
+#[derive(Debug)]
+struct SearchPhaseFailure {phase:&'static str,cause:ModelError}
+impl std::fmt::Display for SearchPhaseFailure {
+ fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {write!(f,"{}: {}",self.phase,self.cause)}
+}
+impl std::error::Error for SearchPhaseFailure {
+ fn source(&self)->Option<&(dyn std::error::Error+'static)>{Some(&self.cause)}
+}
+fn phase<T>(phase:&'static str,result:Result<T,ModelError>)->Result<T,ModelError>{result.map_err(|cause|ModelError::Cause(Box::new(SearchPhaseFailure{phase,cause})))}
 pub async fn materialize_search(loader: &Loader) -> Result<(), ModelError> {
     let reader = reader(loader)?;
     let mut expected = Expected::new()?;
-    lower(&reader, &mut expected, Some(loader)).await?;
-    expected.reconcile(&reader).await
+    phase("derived search canonical lowering",lower(&reader, &mut expected, Some(loader)).await)?;
+    phase("derived search actual-row reconciliation",expected.reconcile(&reader).await)?;
+    phase("frozen lexical statistics construction",crate::lexical_stats::materialize(loader).await)
 }
 pub async fn reconcile_search(loader: &Loader) -> Result<(), ModelError> {
     let reader = reader(loader)?;
     let mut expected = Expected::new()?;
-    lower(&reader, &mut expected, None).await?;
-    expected.reconcile(&reader).await
+    phase("derived search independent cold lowering",lower(&reader, &mut expected, None).await)?;
+    phase("derived search cold actual-row reconciliation",expected.reconcile(&reader).await)?;
+    phase("frozen lexical statistics cold comparison",crate::lexical_stats::reconcile(loader).await)
 }
 fn crate_json<T: serde::Serialize>(value: T) -> Result<Value, ModelError> {
     crate::loader::json_value(serde_json::to_value(value).map_err(ModelError::codec)?)
@@ -840,6 +871,7 @@ fn occurrence(
     key: &str,
     input: RecordId,
     w: &Witness<'_>,
+    dependencies:&[RecordId],
 ) -> Result<Value, ModelError> {
     let out = w
         .member
@@ -847,6 +879,8 @@ fn occurrence(
         .unwrap_or_else(|| target_id(Target::Entity(EntityId::of(w.unit.id()))));
     let mut row = Object::new();
     row.insert("id", RecordId::new(table, key));
+    row.insert("dependencies",dependencies.to_vec());
+    row.insert("unit_payload",typed_payload(w.unit)?);
     row.insert("in", input);
     row.insert("out", out);
     row.insert("family", w.unit.family as i16);

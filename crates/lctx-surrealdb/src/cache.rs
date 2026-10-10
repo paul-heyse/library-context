@@ -1,4 +1,4 @@
-//! Immutable shared embedding winners, hosted outside private snapshot databases.
+//! Immutable shared embedding winners in the installed native database.
 use lctx_model::domain::{
     ContentHash, Infrastructure, ModelError,
     embedding::{
@@ -23,13 +23,17 @@ pub struct NativeEmbeddingCache {
 }
 impl NativeEmbeddingCache {
     pub async fn install(client: Arc<Surreal<Client>>) -> Result<Self, ModelError> {
-        install_with_conflict_retry(|| async {
-            let mut response = client.query("DEFINE TABLE IF NOT EXISTS embedding_cache TYPE NORMAL SCHEMAFULL; DEFINE FIELD IF NOT EXISTS spec ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS input ON embedding_cache TYPE string; DEFINE FIELD IF NOT EXISTS definition ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS tokens ON embedding_cache TYPE int ASSERT $value >= 0; DEFINE FIELD IF NOT EXISTS bytes ON embedding_cache TYPE bytes; DEFINE FIELD IF NOT EXISTS digest ON embedding_cache TYPE string; DEFINE INDEX IF NOT EXISTS winner ON embedding_cache FIELDS spec,input UNIQUE;").await?;
-            // A batch may contain several failures. A conflict does not authorize replay
-            // when another statement failed for an unclassified or permanent reason.
-            Ok(response.take_errors().into_values().collect())
-        }).await?;
+        crate::Loader::new(client.clone()).install_declarations("DEFINE TABLE embedding_cache TYPE NORMAL SCHEMAFULL; DEFINE FIELD spec ON embedding_cache TYPE string; DEFINE FIELD input ON embedding_cache TYPE string; DEFINE FIELD definition ON embedding_cache TYPE bytes; DEFINE FIELD tokens ON embedding_cache TYPE int ASSERT $value >= 0; DEFINE FIELD bytes ON embedding_cache TYPE bytes; DEFINE FIELD digest ON embedding_cache TYPE string; DEFINE INDEX winner ON embedding_cache FIELDS spec,input UNIQUE;", "embedding cache schema").await?;
         Ok(Self { client })
+    }
+    /// Ordinary callers observe the installed table and never install schema.
+    pub async fn connect(client:Arc<Surreal<Client>>)->Result<Self,ModelError> {
+        let mut response=client.query("INFO FOR DB").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let inventory:surrealdb::types::Value=response.take(0).map_err(ModelError::codec)?;
+        let surrealdb::types::Value::Object(inventory)=inventory else{return Err(ModelError::Schema("embedding cache inventory"));};
+        let Some(surrealdb::types::Value::Object(tables))=inventory.get("tables") else{return Err(ModelError::Schema("embedding cache tables"));};
+        if !tables.contains_key("embedding_cache") {return Err(ModelError::Invalid("embedding cache is not installed; run just service install".into()));}
+        Ok(Self{client})
     }
     async fn read(
         &self,
@@ -267,31 +271,6 @@ impl EmbeddingCache for NativeEmbeddingCache {
 // constructed at a time. The caller-supplied proposals and final trait result remain caller-sized.
 const BATCH_ROWS: usize = 128;
 const CONFLICT_ATTEMPTS: usize = 8;
-// Every install statement is IF NOT EXISTS, so a definite conflict permits reissuing
-// the whole inventory even when an earlier statement committed. Unknown acknowledgements
-// and permanent failures do not permit replay. Cancellation remains with the caller.
-async fn install_with_conflict_retry<F, Fut>(mut install: F) -> Result<(), ModelError>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<Vec<surrealdb::Error>, surrealdb::Error>>,
-{
-    for _ in 0..CONFLICT_ATTEMPTS {
-        let errors = match install().await {
-            Ok(errors) => errors,
-            Err(error) => vec![error],
-        };
-        if errors.is_empty() {
-            return Ok(());
-        }
-        if let Some(error) = errors.into_iter().find(|error| !retryable_conflict(error)) {
-            return Err(ModelError::codec(error));
-        }
-    }
-    Err(ModelError::infrastructure(
-        Infrastructure::Contention,
-        "embedding cache installation conflict retry limit exhausted",
-    ))
-}
 struct Attempt<'a> {
     winners: BTreeMap<ContentHash, CacheValue>,
     missing: Vec<&'a CacheValue>,
@@ -330,29 +309,14 @@ fn uncertain_transport(error: &surrealdb::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Credentials, reader};
+    use crate::{RuntimeConfig, compiler::check_installation};
 
     async fn fixture(label: &str) -> (NativeEmbeddingCache, String) {
-        let path =
-            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned persistent fixture required");
-        let config: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        let database = format!("cache_internal_{label}_{}", std::process::id());
-        let client = reader::connect(
-            config["grpc_endpoint"].as_str().unwrap(),
-            &Credentials::Root {
-                username: config["admin_user"].as_str().unwrap().into(),
-                password: config["admin_password"].as_str().unwrap().into(),
-            },
-            "cache_controls",
-            &database,
-        )
-        .await
-        .unwrap();
-        (
-            NativeEmbeddingCache::install(client).await.unwrap(),
-            database,
-        )
+        let config = RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("installed validation runtime"))).unwrap();
+        let client = check_installation(&config).await.unwrap();
+        let nonce = tempfile::NamedTempFile::new().unwrap();
+        let scope = format!("{label}:{}", nonce.path().display());
+        (NativeEmbeddingCache::connect(client).await.unwrap(), scope)
     }
     fn spec() -> Spec {
         serde_json::from_slice(include_bytes!(
@@ -360,23 +324,16 @@ mod tests {
         ))
         .unwrap()
     }
-    fn candidate(label: &str) -> CacheValue {
+    fn candidate(scope: &str, label: &str) -> CacheValue {
         let mut vector = vec![0.0; spec().dimensions as usize];
         vector[0] = 1.0;
         CacheValue {
-            input_hash: ContentHash::of(label.as_bytes()),
+            input_hash: ContentHash::of(format!("{scope}:{label}").as_bytes()),
             vector,
             admitted_tokens: 3,
         }
     }
-    async fn close(cache: NativeEmbeddingCache, database: String) {
-        cache
-            .client
-            .query(format!("REMOVE DATABASE {database}"))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
+    async fn close(cache: NativeEmbeddingCache, _scope: String) {
         cache.client.invalidate().await.unwrap();
     }
     #[test]
@@ -409,86 +366,10 @@ mod tests {
         )));
     }
     #[tokio::test]
-    async fn installation_retries_only_definite_conflicts_then_succeeds() {
-        let mut attempts = 0;
-        install_with_conflict_retry(|| {
-            attempts += 1;
-            std::future::ready(Ok(match attempts {
-                1 => vec![surrealdb::Error::query(
-                    "typed conflict".into(),
-                    QueryError::TransactionConflict,
-                )],
-                2 => vec![surrealdb::Error::query(ROCKSDB_BUSY_CONFLICT.into(), None)],
-                _ => vec![],
-            }))
-        })
-        .await
-        .unwrap();
-        assert_eq!(attempts, 3, "success terminates installation replay");
-    }
-    #[tokio::test]
-    async fn installation_does_not_retry_permanent_unknown_or_uncertain_failures() {
-        for error in [
-            surrealdb::Error::validation("bad definition".into(), None),
-            surrealdb::Error::query("unclassified transaction conflict".into(), None),
-            surrealdb::Error::internal(ROCKSDB_BUSY_CONFLICT.into()),
-            surrealdb::Error::connection("uncertain install acknowledgement".into(), None),
-        ] {
-            let expected = error.to_string();
-            let mut failure = Some(error);
-            let mut attempts = 0;
-            let result = install_with_conflict_retry(|| {
-                attempts += 1;
-                std::future::ready(Err(failure
-                    .take()
-                    .expect("nonretryable install is issued once")))
-            })
-            .await;
-            assert!(matches!(result, Err(ModelError::Codec(detail)) if detail == expected));
-            assert_eq!(attempts, 1);
-        }
-        let permanent = surrealdb::Error::validation("permanent later statement".into(), None);
-        let expected = permanent.to_string();
-        let mut failure = Some(permanent);
-        let mut attempts = 0;
-        let result = install_with_conflict_retry(|| {
-            attempts += 1;
-            std::future::ready(Ok(vec![
-                surrealdb::Error::query("typed conflict".into(), QueryError::TransactionConflict),
-                failure
-                    .take()
-                    .expect("a permanent batch failure refuses replay"),
-            ]))
-        })
-        .await;
-        assert!(matches!(result, Err(ModelError::Codec(detail)) if detail == expected));
-        assert_eq!(
-            attempts, 1,
-            "a conflict cannot conceal a permanent batch failure"
-        );
-    }
-    #[tokio::test]
-    async fn installation_reports_contention_after_the_finite_conflict_limit() {
-        let mut attempts = 0;
-        let result = install_with_conflict_retry(|| {
-            attempts += 1;
-            std::future::ready(Ok(vec![surrealdb::Error::query(
-                "typed conflict".into(),
-                QueryError::TransactionConflict,
-            )]))
-        })
-        .await;
-        assert_eq!(attempts, CONFLICT_ATTEMPTS);
-        assert!(matches!(result, Err(ModelError::Infrastructure {
-            class: Infrastructure::Contention,
-            detail,
-        }) if detail == "embedding cache installation conflict retry limit exhausted"));
-    }
-    #[tokio::test]
     async fn lost_acknowledgement_reconciles_actual_committed_winner_without_replay() {
         let (cache, database) = fixture("ack").await;
         let spec = spec();
-        let first = candidate("committed");
+        let first = candidate(&database, "committed");
         cache
             .admit(&spec, std::slice::from_ref(&first))
             .await
@@ -513,7 +394,7 @@ mod tests {
             encode_vector(&attempt.winners[&first.input_hash].vector),
             encode_vector(&first.vector)
         );
-        let missing = candidate("absent");
+        let missing = candidate(&database, "absent");
         assert!(
             cache
                 .reconcile_attempt(
@@ -552,23 +433,21 @@ mod tests {
     #[tokio::test]
     async fn rocksdb_grpc_commit_conflict_has_the_source_confirmed_retryable_reason() {
         let (cache, database) = fixture("conflict").await;
-        cache
-            .client
-            .query("CREATE cache_conflict:one SET value=0")
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
+        let owned = candidate(&database, "commit-conflict");
+        cache.admit(&spec(), std::slice::from_ref(&owned)).await.unwrap();
+        let id = winner_id(&spec().hash().hex(), owned.input_hash);
         let first = cache.client.as_ref().clone().begin().await.unwrap();
         let second = cache.client.as_ref().clone().begin().await.unwrap();
         first
-            .query("UPDATE cache_conflict:one SET value=1")
+            .query("UPDATE $id SET tokens=4")
+            .bind(("id", id.clone()))
             .await
             .unwrap()
             .check()
             .unwrap();
         second
-            .query("UPDATE cache_conflict:one SET value=2")
+            .query("UPDATE $id SET tokens=5")
+            .bind(("id", id))
             .await
             .unwrap()
             .check()

@@ -15,7 +15,7 @@ selected boundary that has that tool). ``BOUNDARIES`` is the only catalogue: pla
 
 Readiness observes and never synchronizes (ADR-0134): a missing prerequisite is ``blocked`` with
 its repair route. Fixture-backed boundaries each get an owned native SurrealDB attachment
-(``surrealdb_fixture``); ``--attach ID`` uses a kept fixture instead. Outcomes are ``passed``,
+(``surrealdb_fixture``); all boundaries share the installed service with logical attempts. Outcomes are ``passed``,
 ``failed``, ``blocked`` or ``not_run``; ``blocked`` needs evidence (a failed readiness
 observation, evidenced fixture infrastructure failure, an actual launch error). Interruption is
 the run's termination, never an outcome. Execution always runs under a run handle (``runs.py``):
@@ -765,8 +765,6 @@ def resolve(
             raise PlanError("qualify refuses inherited CARGO_PROFILE_* configuration overrides")
     if not scoped:
         raise PlanError("select at least one boundary: --select FAMILY[:BOUNDARY]")
-    if (options.serving or options.retain_serving) and not options.attach:
-        raise PlanError("--serving/--retain-serving need a kept fixture: --attach ID")
     common_nextest = [a for s in shared for a in s.nextest_args]
     common_pytest = [a for s in shared for a in s.pytest_args]
     common_profiles = [s.cargo_profile for s in shared if s.cargo_profile is not None]
@@ -1118,7 +1116,13 @@ def _run_steps(
             identity = attachment.record_serving(options.retain_serving, planned_step.argv)
             result["fixture"]["serving_retained"] = identity
         if step.restart_after and attachment is not None:
+            previous_attempt = attachment.id
             attachment.restart()
+            # Restart drains/releases the producer borrower, performs maintenance alone, and
+            # opens a fresh ordinary consumer borrower. Persisted serving paths remain valid.
+            env = attachment.environment(env)
+            result["fixture"].setdefault("attempts", [previous_attempt]).append(attachment.id)
+            result["fixture"]["attachment"] = attachment.id
     return done("passed", "")
 
 
@@ -1195,23 +1199,7 @@ def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -
 def real_fixture(options: Options) -> Iterator[Any]:
     import surrealdb_fixture as sf
 
-    if options.attach is None:
-        with sf.fixture(report=lambda message: print(message, flush=True)) as attachment:
-            yield attachment
-        return
     server = sf.Server.open(options.attach)
-    if server.kind != "kept":
-        raise sf.FixtureBlocked("record", f"{options.attach} is not a kept fixture")
-    ended = server.exited()
-    if ended is not None:
-        raise (
-            server.oom("before attaching")
-            if ended == "oom-kill"
-            else sf.FixtureBlocked(
-                "readiness", f"kept fixture {server.id} is not running ({ended})"
-            )
-        )
-    server.ready()
     attachment = sf.Attachment.create(server)
     try:
         yield attachment
@@ -1252,9 +1240,9 @@ def describe(plan: Sequence[Planned], observations: Mapping[str, Any], options: 
         fixture = None
         if boundary.fixture:
             fixture = (
-                f"kept fixture {options.attach} (new attachment)"
+                f"installed service {options.attach} (logical validation attempt)"
                 if options.attach
-                else "run-owned native SurrealDB (one per boundary)"
+                else "installed native SurrealDB (shared validation, logical attempt)"
             )
         rows.append(
             {
@@ -1472,7 +1460,7 @@ def parser() -> argparse.ArgumentParser:
     top.add_argument("--qualify", action="store_true", help="every boundary and leaf")
     top.add_argument("--cli", action="store_true", help="store: build and exercise the native CLI")
     top.add_argument("--cargo-config", action="append", default=[], metavar="KEY=VALUE")
-    top.add_argument("--attach", metavar="FIXTURE", help="use a kept fixture (just fixture --keep)")
+    top.add_argument("--attach", metavar="INSTALLATION", help="require an exact installed service ID")
     serving = top.add_mutually_exclusive_group()
     serving.add_argument("--serving", metavar="NAME", help="serving:mcp reuses retained content")
     serving.add_argument("--retain-serving", metavar="NAME", help="serving:mcp retains its content")

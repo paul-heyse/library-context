@@ -2,13 +2,26 @@
 use cpg_core::artifact::VerifiedExport;
 use futures::TryStreamExt;
 use lctx_model::domain::{
-    KeySink, ModelError,
+    ModelError,
     completion::{Completion, RemoteState, StorageState, complete},
-    serving::{Name, SnapshotHandle},
+    serving::SnapshotHandle,
 };
-use lctx_surrealdb::{Loader, RuntimeConfig, reader};
+use lctx_surrealdb::RuntimeConfig;
 mod native_publication;
 use native_publication::{Admission, Publication};
+/// Install additive immutable executable definitions under explicit root maintenance authority.
+/// Normal compilation/publication only verifies this epoch and cannot create schema or users.
+pub async fn install_definitions(config:&RuntimeConfig,blueprint:&str)->Result<(),ModelError>{
+    if config.authentication!=lctx_surrealdb::AuthenticationScope::Root {return Err(ModelError::Conflict("definition installation requires root maintenance authority"));}
+    let client=lctx_surrealdb::reader::connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await?;
+    let result=async {
+        lctx_surrealdb::control::check_installation(&client,config.service_generation).await?;
+        let loader=lctx_surrealdb::Loader::new(client.clone());
+        crate::definitions::install_epoch(&loader,blueprint).await.map(|_|())
+    }.await;
+    let mut completion=Completion::default();completion.step("definition installation session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    complete(result,completion)
+}
 pub async fn publish(
     export: &VerifiedExport,
     config: &RuntimeConfig,
@@ -59,7 +72,7 @@ pub async fn publish(
     let mut completion = Completion::default();
     if result.is_err() {
         completion.step(
-            "private publication session invalidation",
+            "publication session invalidation",
             publication.invalidate().await,
         );
     }
@@ -118,7 +131,7 @@ pub async fn seal_completed(
     let mut completion = Completion::default();
     if result.is_err() {
         completion.step(
-            "private publication session invalidation",
+            "publication session invalidation",
             publication.invalidate().await,
         );
     }
@@ -141,152 +154,11 @@ async fn publication_completion<T>(
                 completion.remote = RemoteState::Unknown;
                 completion
                     .storage
-                    .push(StorageState::Orphan(native.database().as_str().into()));
+                    .push(StorageState::Orphan(format!("native_attempt:{}",native.attempt().hex())));
             }
         }
     }
     completion
-}
-
-pub(crate) struct PrivatePublication {
-    pub(crate) loader: Loader,
-    pub(crate) database: Name,
-}
-pub(crate) async fn begin(config: &RuntimeConfig) -> Result<PrivatePublication, ModelError> {
-    let mut identity = KeySink::new("native-database-attempt/v1");
-    identity.part(
-        b"clock",
-        &std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(ModelError::codec)?
-            .as_nanos()
-            .to_le_bytes(),
-    );
-    identity.part(b"process", &std::process::id().to_le_bytes());
-    let database = format!("snapshot_{}", identity.finish().hex());
-    let client = reader::authenticated(&config.endpoint, &config.root_credentials(), None).await?;
-    let attempt = PrivatePublication {
-        loader: Loader::new(client),
-        database: Name::new(database).map_err(ModelError::codec)?,
-    };
-    let mut creation_attempted = false;
-    let setup = async {
-        let version = attempt
-            .loader
-            .client()
-            .version()
-            .await
-            .map_err(ModelError::codec)?
-            .to_string();
-        if !version.starts_with("3.3.") {
-            return Err(ModelError::Invalid(
-                "native realization requires reviewed SurrealDB 3.3 engine".into(),
-            ));
-        }
-        attempt
-            .loader
-            .client()
-            .query(format!(
-                "DEFINE NAMESPACE IF NOT EXISTS `{}`",
-                config.namespace.as_str()
-            ))
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        attempt
-            .loader
-            .client()
-            .use_ns(config.namespace.as_str())
-            .await
-            .map_err(ModelError::codec)?;
-        creation_attempted = true;
-        attempt
-            .loader
-            .client()
-            .query(format!(
-                "DEFINE DATABASE `{}` STRICT",
-                attempt.database.as_str()
-            ))
-            .await
-            .map_err(lctx_surrealdb::loader::write_failure)?
-            .check()
-            .map_err(ModelError::codec)?;
-        attempt
-            .loader
-            .client()
-            .use_db(attempt.database.as_str())
-            .await
-            .map_err(ModelError::codec)?;
-        Ok(())
-    }
-    .await;
-    if setup.is_err() {
-        let mut completion = Completion::default();
-        if creation_attempted
-            && setup
-                .as_ref()
-                .err()
-                .is_some_and(|error| !error.permits_storage_cleanup())
-        {
-            completion.remote = RemoteState::Unknown;
-            completion
-                .storage
-                .push(StorageState::Orphan(attempt.database.as_str().into()));
-            completion.step(
-                "publication setup session invalidation",
-                attempt
-                    .loader
-                    .client()
-                    .invalidate()
-                    .await
-                    .map_err(|error| ModelError::Cause(Box::new(error))),
-            );
-        } else if creation_attempted {
-            completion.step("publication setup abandon", abandon(&attempt).await);
-        } else {
-            completion.step(
-                "publication setup session invalidation",
-                attempt
-                    .loader
-                    .client()
-                    .invalidate()
-                    .await
-                    .map_err(|error| ModelError::Cause(Box::new(error))),
-            );
-        }
-        complete(setup, completion)?;
-    }
-    Ok(attempt)
-}
-pub(crate) async fn abandon(attempt: &PrivatePublication) -> Result<(), ModelError> {
-    let result = async {
-        attempt
-            .loader
-            .client()
-            .query(format!(
-                "REMOVE DATABASE IF EXISTS `{}`",
-                attempt.database.as_str()
-            ))
-            .await
-            .map_err(lctx_surrealdb::loader::write_failure)?
-            .check()
-            .map_err(|error| ModelError::Cause(Box::new(error)))?;
-        Ok::<(), ModelError>(())
-    }
-    .await;
-    let mut completion = Completion::default();
-    completion.cleanup(attempt.database.as_str(), result);
-    completion.step(
-        "publication abandon session invalidation",
-        attempt
-            .loader
-            .client()
-            .invalidate()
-            .await
-            .map_err(|error| ModelError::Cause(Box::new(error))),
-    );
-    complete(Ok(()), completion)
 }
 
 mod search;
@@ -294,6 +166,7 @@ pub use search::{materialize_search, reconcile_search};
 
 pub mod backup;
 mod backup_import;
+mod restore;
 
 mod definitions;
 pub(crate) use definitions::verify_realization;

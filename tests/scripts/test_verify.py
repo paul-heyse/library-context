@@ -511,8 +511,8 @@ def test_qualify_refuses_reuse_and_filters_and_selects_everything():
     plan = verify.resolve([], Options(qualify=True))
     assert [p.boundary.id for p in plan] == [b.id for b in verify.BOUNDARIES]
     assert any(p.boundary.family == "leaf" for p in plan)
-    with pytest.raises(PlanError, match="kept fixture"):
-        plan_of("--select", "serving:mcp", "--serving", "x")
+    retained = plan_of("--select", "serving:mcp", "--serving", "x")
+    assert retained[0].boundary.fixture  # Stable installation no longer needs a kept fixture.
 
 
 def test_rerun_repeats_only_failed_blocked_and_unreached_boundaries(tmp_path, monkeypatch):

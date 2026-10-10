@@ -9,6 +9,8 @@ publish.workspace = true
 [dependencies]
 lctx-model = { path = "../lctx-model" }
 surrealdb = { version = "=3.3.0", default-features = false, features = ["protocol-grpc", "protocol-http", "rustls"] }
+surrealdb-syn.workspace = true
+surrealdb-sql.workspace = true
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

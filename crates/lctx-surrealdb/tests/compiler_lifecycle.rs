@@ -9,7 +9,7 @@ use lctx_model::domain::{
 use lctx_surrealdb::{RuntimeConfig, compiler::NativeCompilerStore};
 use std::collections::{BTreeMap, BTreeSet};
 
-async fn fixture_admin(
+async fn fixture_client(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
 ) -> std::sync::Arc<
@@ -17,7 +17,7 @@ async fn fixture_admin(
 > {
     lctx_surrealdb::reader::connect(
         &config.endpoint,
-        &config.root_credentials(),
+        &config.writer_credentials(),
         store.namespace().as_str(),
         store.database().as_str(),
     )
@@ -69,12 +69,13 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
         )
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
-    let cold = NativeCompilerStore::from_existing(
-        admin,
-        store.namespace().clone(),
-        store.database().clone(),
-    );
+    let admin = fixture_client(&store, &config).await;
+    let view=views[relation.name()].clone();
+    let binding=lctx_model::domain::completed::CompletedBinding {
+        source:lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&relation,specification.model,&view).unwrap(),
+        view,boundary:None,configuration:None,
+    };
+    let cold = NativeCompilerStore::from_publication(admin,store.namespace().clone(),store.database().clone(),vec![binding]).await.unwrap();
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(32 << 20).unwrap();
     let mut registration =
         Box::pin(cold.scan_rows(&views[relation.name()], &relation, None, None, &budget));
@@ -203,7 +204,7 @@ async fn final_content_freeze_preserves_reads_and_reuses_complete_canonical_runs
     assert_eq!(budget.reserved(), 0);
 }
 #[tokio::test(flavor = "multi_thread")]
-async fn final_content_freeze_rejects_actual_pending_owner_on_cold_store() {
+async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
@@ -225,11 +226,7 @@ async fn final_content_freeze_rejects_actual_pending_owner_on_cold_store() {
         })
         .await
         .unwrap();
-    let cold = NativeCompilerStore::from_existing(
-        fixture_admin(&store, &config).await,
-        store.namespace().clone(),
-        store.database().clone(),
-    );
+    let cold=store.clone();
     assert!(cold.contributions().await.unwrap().is_empty());
     assert!(cold.freeze_content().await.is_err());
     assert!(

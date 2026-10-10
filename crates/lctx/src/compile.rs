@@ -106,7 +106,7 @@ pub async fn compile(
         })
         .transpose()?;
     let cache = if upper.as_ref().is_some_and(|upper| upper.embedder.is_some()) {
-        Some(Arc::new(lctx_surrealdb::NativeEmbeddingCache::install(crate::newnative::ready(&runtime).await?).await?)
+        Some(Arc::new(lctx_surrealdb::NativeEmbeddingCache::connect(crate::newnative::ready(&runtime).await?).await?)
             as Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>)
     } else {None};
     let environment = envs.join(name);
@@ -155,7 +155,7 @@ pub async fn compile(
     let result = result.map_err(crate::newnative::operation_error);
     let mut completion = workspace.drain_report().await;
     if let Some(identity) = committed {
-        completion.committed("sealed unselected database", identity);
+        completion.committed("published unselected manifest", identity);
     }
     if artifact_target || result.is_err() || !completion.failures.is_empty() {
         store.fail();
@@ -175,7 +175,7 @@ pub async fn compile(
                 completion
                     .storage
                     .push(lctx_model::domain::completion::StorageState::Orphan(
-                        store.database().as_str().into(),
+                        format!("attempt:{}",store.attempt().hex()),
                     ));
             }
         }

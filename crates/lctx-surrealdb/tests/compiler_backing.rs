@@ -1,4 +1,4 @@
-//! Actual native ownership for private model-declared projection backing.
+//! Actual native ownership for attempt-scoped model-declared projection backing.
 use lctx_model::domain::{
     ContentHash, EvidenceBytes, Id, ModelError, Record, Relation,
     admission::Frontier,
@@ -11,7 +11,7 @@ use lctx_model::domain::{
 use lctx_surrealdb::{RuntimeConfig, compiler::NativeCompilerStore};
 use std::collections::{BTreeMap, BTreeSet};
 
-async fn fixture_admin(
+async fn fixture_client(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
 ) -> std::sync::Arc<
@@ -19,7 +19,7 @@ async fn fixture_admin(
 > {
     lctx_surrealdb::reader::connect(
         &config.endpoint,
-        &config.root_credentials(),
+        &config.writer_credentials(),
         store.namespace().as_str(),
         store.database().as_str(),
     )
@@ -32,13 +32,7 @@ async fn abandon_acknowledged_write_failure(
     config: &RuntimeConfig,
     original: &ModelError,
 ) {
-    use lctx_model::domain::completion::{LocalState, RemoteState, StorageState};
-    use lctx_surrealdb::surrealdb::types::Value;
-    let identity = format!(
-        "{}/{}",
-        store.namespace().as_str(),
-        store.database().as_str()
-    );
+    use lctx_model::domain::completion::{LocalState, RemoteState};
     let result = store.abandon().await;
     let failure = result.expect_err("acknowledged write failure remains in the cleanup receipt");
     let ModelError::Completion(outcome) = &failure else {
@@ -52,7 +46,7 @@ async fn abandon_acknowledged_write_failure(
     assert_eq!(outcome.completion.remote, RemoteState::Confirmed);
     assert_eq!(
         outcome.completion.storage,
-        vec![StorageState::Removed(identity)]
+        vec![]
     );
     assert!(outcome.completion.committed.is_empty());
     assert_eq!(
@@ -81,28 +75,11 @@ async fn abandon_acknowledged_write_failure(
             "cleanup retains the same owned cause"
         );
     }
-    // A fresh namespace-only session observes actual removal without selecting/recreating the database.
-    let observer =
-        lctx_surrealdb::reader::authenticated(&config.endpoint, &config.root_credentials(), None)
-            .await
-            .unwrap();
-    observer.use_ns(store.namespace().as_str()).await.unwrap();
-    let mut response = observer
-        .query("INFO FOR NS;")
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let Value::Object(info) = response.take::<Value>(0).unwrap() else {
-        panic!("namespace information");
-    };
-    let Some(Value::Object(databases)) = info.get("databases") else {
-        panic!("database inventory");
-    };
-    assert!(
-        !databases.contains_key(store.database().as_str()),
-        "independent inventory confirms removal"
-    );
+    // Abandonment closes only this attempt; the installed database and content remain.
+    let observer = fixture_client(store,config).await;
+    let mut response = observer.query("SELECT VALUE state FROM $attempt").bind(("attempt",lctx_surrealdb::surrealdb::types::RecordId::new("native_attempt",store.attempt().hex()))).await.unwrap().check().unwrap();
+    let states:Vec<String>=response.take(0).unwrap();
+    assert_eq!(states,vec!["abandoned"]);
     observer.invalidate().await.unwrap();
 }
 
@@ -114,9 +91,9 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     let store = NativeCompilerStore::begin(&config, Frontier::Normalized)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let assessment: Id<ProjectionSourceAssessment> =
-        serde_json::from_value(serde_json::json!(vec![9u8; 16])).unwrap();
+        serde_json::from_value(serde_json::json!(&store.attempt().0[..16])).unwrap();
     let header = snapshot::header(assessment, snapshot::CHUNK_BYTES).unwrap();
     let mut payload = vec![0xff; snapshot::CHUNK_BYTES];
     payload[..3].copy_from_slice(&[0xff, 0, 0x80]);
@@ -226,7 +203,8 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     restored.abandon().await.unwrap();
     use lctx_surrealdb::surrealdb::types::{Bytes, Number, Value, Variables};
     let mut response = admin
-        .query("SELECT * FROM compiler_record WHERE semantic_type='projection_snapshot_chunks'")
+        .query("SELECT * FROM compiler_record WHERE semantic_type='projection_snapshot_chunks' AND id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -301,11 +279,12 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .check()
         .unwrap();
     assert_eq!(store.completed_state().await.unwrap(), state);
-    let mut conflicting = chunk;
+    let mut conflicting = chunk.clone();
     conflicting.payload = EvidenceBytes(vec![1, 2, 3]);
     let mut next = spec;
     next.producer = "conflicting-projection-backing".into();
     let contribution = store.begin_contribution(next).await.unwrap();
+    store.write_batch(&contribution,&chunk_relation,&ProjectionSnapshotChunk::encode(&[chunk]).unwrap()).await.unwrap();
     let result = store
         .write_batch(
             &contribution,
@@ -317,7 +296,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     assert!(
         matches!(
             failure.primary(),
-            Some(ModelError::Conflict("native same-key payload"))
+            Some(ModelError::Conflict("native membership same-key payload"))
         ),
         "exact physical conflict primary: {failure:?}"
     );
@@ -335,10 +314,10 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     let store = NativeCompilerStore::begin(&config, Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<QualityStep>();
     let row = QualityStep {
-        run: serde_json::from_value(serde_json::json!(vec![3u8; 16])).unwrap(),
+        run: serde_json::from_value(serde_json::json!(&store.attempt().0[..16])).unwrap(),
         ordinal: 0,
         value: FiniteF64::new(0.0).unwrap(),
     };
@@ -371,7 +350,8 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         .await
         .unwrap();
     let mut response = admin
-        .query("SELECT * FROM compiler_record")
+        .query("SELECT * FROM compiler_record WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
+        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
         .await
         .unwrap()
         .check()
@@ -381,6 +361,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         panic!("quality backing row");
     };
     assert!(rows.is_empty());
+    let saved=altered.clone();
     let id = altered.get("id").unwrap().clone();
     let Some(Value::Object(body)) = altered.get_mut("body") else {
         panic!("quality backing body");
@@ -390,7 +371,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     altered.insert("canonical", Bytes::from(canonical.clone()));
     altered.insert("content", ContentHash::of(&canonical).hex());
     let mut bindings = Variables::new();
-    bindings.insert("id", id);
+    bindings.insert("id", id.clone());
     bindings.insert("row", Value::Object(altered));
     admin
         .query("UPDATE $id CONTENT $row RETURN NONE")
@@ -410,6 +391,9 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         store.completed_state().await,
         Err(ModelError::Conflict("compiler backing declared body"))
     ));
+    let mut restore=Variables::new();restore.insert("id",id);restore.insert("row",Value::Object(saved));
+    admin.query("UPDATE $id CONTENT $row RETURN NONE").bind(restore).await.unwrap().check().unwrap();
+    store.verify_state().await.unwrap();
     store.abandon().await.unwrap();
 }
 
@@ -426,9 +410,9 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
     let store = NativeCompilerStore::begin(&config, Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_admin(&store, &config).await;
+    let admin = fixture_client(&store, &config).await;
     let artifact: Id<SourceArtifact> =
-        serde_json::from_value(serde_json::to_value([5u8; 16]).unwrap()).unwrap();
+        serde_json::from_value(serde_json::to_value(&store.attempt().0[..16]).unwrap()).unwrap();
     let good = ArtifactChunk {
         artifact,
         ordinal: 0,
@@ -472,23 +456,18 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
         ),
         "exact acknowledged range primary: {failure:?}"
     );
-    for table in [
-        "original",
-        "original_chunk",
-        "compiler_record",
-        "compiler_membership",
+    for (table,predicate) in [
+        ("original","id=$source"),
+        ("original_chunk","source=$source"),
+        ("compiler_record","id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)"),
+        ("compiler_membership","contribution=$owner"),
     ] {
-        let mut response = admin
-            .query(format!("SELECT * FROM {table}"))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-        let rows: Vec<Value> = response.take(0).unwrap();
-        assert!(
-            rows.is_empty(),
-            "later invalid range must precede every effect in {table}"
-        );
+        let mut bindings=lctx_surrealdb::surrealdb::types::Variables::new();
+        bindings.insert("source",lctx_surrealdb::surrealdb::types::RecordId::new("original",lctx_model::domain::graph::EntityId::of(artifact).0.hex()));
+        bindings.insert("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex()));
+        let mut response=admin.query(format!("SELECT * FROM {table} WHERE {predicate}")).bind(bindings).await.unwrap().check().unwrap();
+        let rows:Vec<Value>=response.take(0).unwrap();
+        assert!(rows.is_empty(),"later invalid range must precede every owned effect in {table}");
     }
     abandon_acknowledged_write_failure(&store, &config, &failure).await;
     admin.invalidate().await.unwrap();

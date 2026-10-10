@@ -1,67 +1,28 @@
-//! Grammar-owned whole import units, aggregated into bounded HTTP requests.
-use lctx_model::domain::{
-    ModelError,
-    resources::{MAX_ROW_BYTES, TRANSFER_BYTES, TRANSFER_ROWS},
-};
-use lctx_surrealdb::loader::write_failure;
-use lctx_surrealdb::surrealdb::types::ToSql;
+//! Bounded grammar-owned decoding. Imported SQL is data and is never submitted to a server.
+use lctx_model::domain::{ModelError, resources::{MAX_ROW_BYTES, TRANSFER_BYTES}};
+use lctx_surrealdb::surrealdb::types::{Bytes, Number, Object, RecordId, RecordIdKey, ToSql, Value};
+use surrealdb_sql::{Data, Expr, Literal, TopLevelExpr};
 use std::io::Read;
 
-pub(crate) async fn import(
-    client: &lctx_surrealdb::surrealdb::Surreal<
-        lctx_surrealdb::surrealdb::engine::remote::http::Client,
-    >,
-    input: &std::path::Path,
-) -> Result<(), ModelError> {
-    send(
-        client,
-        Requests::new(std::fs::File::open(input).map_err(ModelError::codec)?),
-    )
-    .await
-}
+/// Canonical row limits count decoded bytes. Native SQL also carries the canonical byte
+/// envelope and escaped typed fields. The installed exporter emits one record per statement;
+/// this allowance covers those encodings rather than multiplying by a whole export batch.
+pub(crate) const MAX_DUMP_RECORD_BYTES:usize=MAX_ROW_BYTES*16;
 
-async fn send<R: Read>(
-    client: &lctx_surrealdb::surrealdb::Surreal<
-        lctx_surrealdb::surrealdb::engine::remote::http::Client,
-    >,
-    mut requests: Requests<R>,
-) -> Result<(), ModelError> {
-    use std::io::{Seek, Write};
-    let mut request = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
-    let result = async {
-        while let Some(sql) = requests.next_request()? {
-            request
-                .as_file_mut()
-                .set_len(0)
-                .map_err(ModelError::codec)?;
-            request.rewind().map_err(ModelError::codec)?;
-            request
-                .write_all(sql.as_bytes())
-                .map_err(ModelError::codec)?;
-            request.flush().map_err(ModelError::codec)?;
-            drop(sql);
-            // Import checks the HTTP terminal response and returned statement errors. A failure
-            // stops here even if later independent units in this request already had private effects.
-            client.import(request.path()).await.map_err(write_failure)?;
-        }
-        Ok(())
-    }
-    .await;
-    let mut completion = lctx_model::domain::completion::Completion::default();
-    completion.cleanup(
-        request.path().display().to_string(),
-        request
-            .close()
-            .map_err(|error| ModelError::Cause(Box::new(error))),
-    );
-    lctx_model::domain::completion::complete(result, completion)
-}
+/// Only immutable content and claimed completed descriptors can enter ordinary restore.
+/// Runtime attempts, effects, pins, installation, users and access records are excluded.
+pub(crate) const DATA_TABLES: &[&str] = &[
+    "entity", "assertion", "original", "original_chunk", "publication",
+    "compiler_contribution", "compiler_membership", "compiler_view", "compiler_record",
+    "compiler_binding", "compiler_alias",
+];
+pub(crate) const DERIVED_TABLES: &[&str] = &["participant", "reference", "external", "entity_anchor", "assertion_anchor", "compiler_view_member", "lexical_document", "lexical_member", "lexical_term", "lexical_corpus"];
 
-const PREFIX: &str = "OPTION IMPORT;\n";
-
-struct Unit {
-    sql: String,
-    statements: usize,
+#[derive(Debug)]
+pub(crate) enum Item {
+    /// Definition text is retained only for comparison with installed definitions.
+    Definition(String),
+    Rows(Vec<Value>),
 }
 
 struct Units<R> {
@@ -133,337 +94,151 @@ impl<R: Read> Units<R> {
             }
         }
     }
-    fn next_unit(&mut self) -> Result<Option<Unit>, ModelError> {
-        use surrealdb_sql::TopLevelExpr;
-        let mut sql = String::new();
-        let mut statements = 0;
-        let mut transaction = false;
-        let mut source_bytes = 0usize;
+}
+
+pub(crate) struct DataDump<R> { units: Units<R>, transaction: bool, finished: bool }
+impl<R: Read> DataDump<R> {
+    pub(crate) fn new(input: R) -> Self {
+        Self { units: Units::new(input, MAX_DUMP_RECORD_BYTES), transaction: false, finished: false }
+    }
+    pub(crate) fn next(&mut self) -> Result<Option<Item>, ModelError> {
+        if self.finished { return Ok(None); }
         loop {
-            let Some((statement, bytes)) = self.statement()? else {
-                if !self.initial_import {
-                    return Err(ModelError::Schema("dump initial OPTION IMPORT"));
-                }
-                if transaction {
-                    return Err(ModelError::Schema("dump incomplete transaction"));
-                }
+            let Some((statement, _)) = self.units.statement()? else {
+                self.finished = true;
+                if !self.units.initial_import { return Err(ModelError::Schema("dump initial OPTION IMPORT")); }
+                if self.transaction { return Err(ModelError::Schema("dump incomplete transaction")); }
                 return Ok(None);
             };
-            if !self.initial_import {
-                if !matches!(&statement, TopLevelExpr::Option(option) if option.name.as_str() == "IMPORT" && option.what)
-                {
+            if !self.units.initial_import {
+                if !matches!(&statement, TopLevelExpr::Option(option) if option.name.as_str()=="IMPORT" && option.what) {
                     return Err(ModelError::Schema("dump initial OPTION IMPORT"));
                 }
-                self.initial_import = true;
+                self.units.initial_import = true;
                 continue;
             }
-            if matches!(&statement, TopLevelExpr::Option(_)) {
-                return Err(ModelError::Schema(
-                    "dump duplicate or noninitial import option",
-                ));
-            }
-            let terminal = matches!(&statement, TopLevelExpr::Commit | TopLevelExpr::Cancel);
-            match &statement {
-                TopLevelExpr::Begin if transaction => {
-                    return Err(ModelError::Schema("dump nested transaction"));
-                }
-                TopLevelExpr::Begin => transaction = true,
-                TopLevelExpr::Commit | TopLevelExpr::Cancel if !transaction => {
-                    return Err(ModelError::Schema("dump transaction end without BEGIN"));
-                }
-                _ => {}
-            }
-            statements += 1;
-            if statements > TRANSFER_ROWS {
-                return Err(ModelError::Limit {
-                    owner: "restore-import",
-                    limit: "transaction statements",
-                    observed: statements,
-                    bound: TRANSFER_ROWS,
-                });
-            }
-            source_bytes = source_bytes.saturating_add(bytes);
-            if source_bytes > self.max_bytes {
-                return Err(self.limit("transaction bytes", source_bytes));
-            }
-            // Serialize one AST at a time; do not retain a transaction AST beside its SQL.
-            sql.push_str(&statement.to_sql());
-            sql.push_str(";\n");
-            let request_bytes = PREFIX.len().saturating_add(sql.len());
-            if request_bytes > self.max_bytes {
-                return Err(self.limit("request bytes", request_bytes));
-            }
-            if !transaction || terminal {
-                return Ok(Some(Unit { sql, statements }));
-            }
+            return match statement {
+                // Export transactions confer no transaction or runtime authority. Their grammar is
+                // checked locally; every imported value is still admitted independently.
+                TopLevelExpr::Begin if !self.transaction => { self.transaction=true; continue; },
+                TopLevelExpr::Commit if self.transaction => { self.transaction=false; continue; },
+                TopLevelExpr::Expr(Expr::Define(definition)) => {
+                    use surrealdb_sql::statements::DefineStatement;
+                    match definition.as_ref() {
+                        DefineStatement::Table(_) | DefineStatement::Field(_) | DefineStatement::Index(_)
+                        | DefineStatement::Analyzer(_) | DefineStatement::Function(_) => Ok(Some(Item::Definition(definition.to_sql()))),
+                        _ => Err(ModelError::Schema("dump executable administrative definition")),
+                    }
+                },
+                TopLevelExpr::Expr(Expr::Insert(insert)) => {
+                    if insert.into.is_some() || insert.ignore || insert.update.is_some()
+                        || insert.output.is_some() || !matches!(insert.timeout, Expr::Literal(Literal::None)) {
+                        return Err(ModelError::Schema("dump unsupported INSERT form"));
+                    }
+                    let Data::SingleExpression(Expr::Literal(Literal::Array(rows))) = insert.data else {
+                        return Err(ModelError::Schema("dump literal INSERT array"));
+                    };
+                    let mut result=Vec::with_capacity(rows.len());
+                    for row in rows {
+                        let value=literal(row)?;
+                        let Value::Object(object)=&value else { return Err(ModelError::Schema("dump record object")); };
+                        let Some(Value::RecordId(id))=object.get("id") else { return Err(ModelError::Schema("dump literal record identity")); };
+                        if !DATA_TABLES.contains(&id.table.as_str()) && !DERIVED_TABLES.contains(&id.table.as_str()) {
+                            return Err(ModelError::Schema("dump table outside immutable content inventory"));
+                        }
+                        if insert.relation != ["participant","reference"].contains(&id.table.as_str()) {
+                            return Err(ModelError::Schema("dump record relation kind"));
+                        }
+                        // Derived edges are discarded. Their body is never executable and native
+                        // admission regenerates every role from canonical typed values.
+                        if DATA_TABLES.contains(&id.table.as_str()) { result.push(value); }
+                    }
+                    Ok(Some(Item::Rows(result)))
+                },
+                _ => Err(ModelError::Schema("dump unsupported executable statement")),
+            };
         }
     }
 }
 
-pub(crate) struct Requests<R> {
-    units: Units<R>,
-    lookahead: Option<Unit>,
-    target_bytes: usize,
-    max_statements: usize,
-}
-impl<R: Read> Requests<R> {
-    pub(crate) fn new(input: R) -> Self {
-        Self::bounded(input, TRANSFER_BYTES, TRANSFER_ROWS, MAX_ROW_BYTES)
-    }
-    fn bounded(input: R, target_bytes: usize, max_statements: usize, max_bytes: usize) -> Self {
-        Self {
-            units: Units::new(input, max_bytes),
-            lookahead: None,
-            target_bytes,
-            max_statements,
-        }
-    }
-    pub(crate) fn next_request(&mut self) -> Result<Option<String>, ModelError> {
-        let mut request = String::from(PREFIX);
-        let mut statements = 0;
-        loop {
-            let unit = match self.lookahead.take() {
-                Some(unit) => Some(unit),
-                None => self.units.next_unit()?,
+fn literal(expr: Expr) -> Result<Value, ModelError> {
+    let value=match expr {
+        Expr::Literal(value)=>value,
+        Expr::Prefix{op,expr}=>{
+            let Expr::Literal(value)=*expr else{return Err(ModelError::Schema("dump nonliteral numeric prefix"));};
+            match (op,value) {
+                (surrealdb_sql::PrefixOperator::Positive,value @ (Literal::Integer(_)|Literal::Float(_)|Literal::Decimal(_)))=>value,
+                (surrealdb_sql::PrefixOperator::Negate,Literal::Integer(value))=>Literal::Integer(value.checked_neg().ok_or(ModelError::Schema("dump integer overflow"))?),
+                (surrealdb_sql::PrefixOperator::Negate,Literal::Float(value))=>Literal::Float(-value),
+                (surrealdb_sql::PrefixOperator::Negate,Literal::Decimal(value))=>Literal::Decimal(-value),
+                _=>return Err(ModelError::Schema("dump unsupported prefix")),
+            }
+        },
+        _=>return Err(ModelError::Schema("dump nonliteral expression")),
+    };
+    Ok(match value {
+        Literal::None => Value::None,
+        Literal::Null => Value::Null,
+        Literal::Bool(v) => Value::Bool(v),
+        Literal::Integer(v) => Value::Number(Number::Int(v)),
+        Literal::Float(v) if v.is_finite() => Value::Number(Number::Float(v)),
+        Literal::Decimal(v) => Value::Number(Number::Decimal(v)),
+        Literal::String(v) => Value::String(v.to_string()),
+        Literal::Bytes(v) => Value::Bytes(Bytes::from(v.to_vec())),
+        Literal::Array(v) => Value::Array(v.into_iter().map(literal).collect::<Result<Vec<_>,_>>()?.into()),
+        Literal::Object(entries) => {
+            let mut object=Object::new();
+            for entry in entries {
+                let key=entry.key.to_string();
+                if object.insert(key, literal(entry.value)?).is_some() { return Err(ModelError::Schema("dump duplicate object field")); }
+            }
+            Value::Object(object)
+        },
+        Literal::RecordId(id) => {
+            let key=match id.key {
+                surrealdb_sql::RecordIdKeyLit::String(v)=>RecordIdKey::String(v.to_string()),
+                surrealdb_sql::RecordIdKeyLit::Number(v)=>RecordIdKey::Number(v),
+                _=>return Err(ModelError::Schema("dump noncanonical record key")),
             };
-            let Some(unit) = unit else {
-                break;
-            };
-            if unit.statements > self.max_statements {
-                return Err(ModelError::Limit {
-                    owner: "restore-import",
-                    limit: "request statements",
-                    observed: unit.statements,
-                    bound: self.max_statements,
-                });
-            }
-            if statements > 0
-                && (request.len().saturating_add(unit.sql.len()) > self.target_bytes
-                    || statements + unit.statements > self.max_statements)
-            {
-                self.lookahead = Some(unit);
-                break;
-            }
-            statements += unit.statements;
-            request.push_str(&unit.sql);
-            // The unit's complete prefixed serialization already passed the hard bound.
-            // An oversize whole unit travels alone, without reading the next unit.
-            if request.len() >= self.target_bytes || statements == self.max_statements {
-                break;
-            }
-        }
-        Ok((statements > 0).then_some(request))
-    }
+            Value::RecordId(RecordId::new(id.table.to_string(),key))
+        },
+        // The current native export contract needs no executable casts, dynamic keys,
+        // closures or nonfinite numeric values. Unsupported literal families are refused.
+        _=>return Err(ModelError::Schema("dump unsupported literal family")),
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn collect(mut requests: Requests<&[u8]>) -> Result<Vec<String>, ModelError> {
-        let mut result = Vec::new();
-        while let Some(request) = requests.next_request()? {
-            result.push(request);
-        }
-        Ok(result)
+    fn decode(sql: &str) -> Result<Vec<Item>,ModelError> {
+        let mut dump=DataDump::new(sql.as_bytes()); let mut result=Vec::new();
+        while let Some(item)=dump.next()? {result.push(item);} Ok(result)
     }
     #[test]
-    fn restore_import_units_preserve_language_and_transaction_boundaries() {
-        struct Chunks<'a>(&'a [u8]);
-        impl Read for Chunks<'_> {
-            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-                let n = out.len().min(7).min(self.0.len());
-                out[..n].copy_from_slice(&self.0[..n]);
-                self.0 = &self.0[n..];
-                Ok(n)
-            }
-        }
-        let dump = format!(
-            "-- dump\nOPTION IMPORT; DEFINE TABLE example SCHEMALESS; DEFINE FUNCTION fn::sentinel() {{ LET $x = '{}é;still literal'; RETURN $x; }}; BEGIN; INSERT INTO example [{{id: example:a, text: 'value;with;semicolons'}}]; COMMIT; BEGIN; INSERT INTO example [{{id: example:b}}]; CANCEL; DEFINE TABLE final SCHEMALESS; -- end",
-            "x".repeat(65536)
-        );
-        let mut units = Units::new(Chunks(dump.as_bytes()), 128 * 1024);
-        let mut found = Vec::new();
-        while let Some(unit) = units.next_unit().unwrap() {
-            found.push(unit);
-        }
-        assert_eq!(
-            found.iter().map(|u| u.statements).collect::<Vec<_>>(),
-            [1, 1, 3, 3, 1]
-        );
-        assert!(found[1].sql.contains("é;still literal"));
-        assert!(found[2].sql.starts_with("BEGIN;\n") && found[2].sql.ends_with("COMMIT;\n"));
-        assert!(found[3].sql.ends_with("CANCEL;\n"));
-        let requests = collect(Requests::new(dump.as_bytes())).unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].matches(PREFIX).count(), 1);
+    fn restore_decodes_native_literals_without_evaluating_definitions() {
+        let items=decode(r#"OPTION IMPORT; DEFINE FUNCTION fn::never_execute() { THROW 'sentinel'; }; INSERT [{id:entity:abc,canonical:b"61623B63",body:{text:'é;literal',values:[1,2.5f,-1,-0.5f,+2,NULL,NONE]}}];"#).unwrap();
+        assert!(matches!(&items[0],Item::Definition(v) if v.contains("sentinel")));
+        let Item::Rows(rows)=&items[1] else {panic!("rows")};
+        assert_eq!(rows.len(),1);
+        assert_eq!(rows[0].to_sql().contains("é;literal"),true);
     }
     #[test]
-    fn restore_import_units_refuse_bad_tails_modes_and_oversized_transactions() {
-        for dump in [
-            "",
-            "RETURN 1;",
-            "OPTION IMPORT = FALSE;",
-            "OPTION IMPORT; OPTION IMPORT;",
-            "OPTION IMPORT; BEGIN; RETURN 1;",
-            "OPTION IMPORT; BEGIN; BEGIN; COMMIT;",
-            "OPTION IMPORT; COMMIT;",
-            "OPTION IMPORT; CANCEL;",
-            "OPTION IMPORT; RETURN 'truncated",
-            "OPTION IMPORT; RETURN 1; INSERT INTO example [{broken: }];",
-        ] {
-            assert!(
-                collect(Requests::new(dump.as_bytes())).is_err(),
-                "accepted {dump}"
-            );
+    fn restore_rejects_arbitrary_effects_and_control_identity_injection() {
+        for sql in ["USE NS other DB other;", "RETURN 1;", "THROW 'x';", "DEFINE USER root ON ROOT PASSWORD 'x' ROLES OWNER;", "INSERT [{id:native_pin:borrowed}];", "INSERT [{id:entity:x,body:rand::uuid()}];", "INSERT IGNORE [{id:entity:x}];", "INSERT INTO entity [{id:entity:x}];", "INSERT [{id:entity:rand()}];", "INSERT [{id:entity:x,body:{x:1,x:2}}];", "BEGIN;", "COMMIT;", "CANCEL;"] {
+            assert!(decode(&format!("OPTION IMPORT; {sql}")).is_err(),"accepted {sql}");
         }
-        let maximum = format!(
-            "OPTION IMPORT; BEGIN; {} COMMIT;",
-            "RETURN 1;".repeat(TRANSFER_ROWS - 2)
-        );
-        let accepted = collect(Requests::new(maximum.as_bytes())).unwrap();
-        assert_eq!(accepted.len(), 1);
-        assert_eq!(accepted[0].matches("RETURN 1;").count(), TRANSFER_ROWS - 2);
-        let dump = format!(
-            "OPTION IMPORT; BEGIN; {} COMMIT;",
-            "RETURN 1;".repeat(TRANSFER_ROWS - 1)
-        );
-        assert!(matches!(
-            collect(Requests::new(dump.as_bytes())),
-            Err(ModelError::Limit {
-                limit: "transaction statements",
-                ..
-            })
-        ));
-        let dump = format!("OPTION IMPORT; RETURN '{}';", "x".repeat(300));
-        assert!(collect(Requests::bounded(dump.as_bytes(), 128, TRANSFER_ROWS, 256)).is_err());
     }
     #[test]
-    fn restore_requests_count_controls_and_preserve_order() {
-        let dump = b"OPTION IMPORT; RETURN 1; BEGIN; RETURN 2; COMMIT; RETURN 3; RETURN 4;";
-        let requests = collect(Requests::bounded(dump, 4096, 4, 8192)).unwrap();
-        assert_eq!(
-            requests,
-            [
-                "OPTION IMPORT;\nRETURN 1;\nBEGIN;\nRETURN 2;\nCOMMIT;\n",
-                "OPTION IMPORT;\nRETURN 3;\nRETURN 4;\n"
-            ]
-        );
-        let dump = format!("OPTION IMPORT; {}", "RETURN 1;".repeat(TRANSFER_ROWS + 1));
-        let requests = collect(Requests::new(dump.as_bytes())).unwrap();
-        assert_eq!(requests.len(), 2);
-        assert_eq!(requests[0].matches("RETURN 1;").count(), TRANSFER_ROWS);
-        assert_eq!(requests[1].matches("RETURN 1;").count(), 1);
+    fn malformed_tail_is_refused_after_provisional_data_without_remote_effects() {
+        let mut dump=DataDump::new(b"OPTION IMPORT; INSERT [{id:entity:x}]; INSERT [{bad: }];".as_slice());
+        assert!(matches!(dump.next().unwrap(),Some(Item::Rows(_))));
+        assert!(dump.next().is_err());
     }
     #[test]
-    fn restore_requests_include_prefix_and_separators_in_exact_byte_edges() {
-        let dump = b"OPTION IMPORT; RETURN 1; RETURN 2;";
-        let one = "OPTION IMPORT;\nRETURN 1;\n".len();
-        let two = one + "RETURN 2;\n".len();
-        assert_eq!(
-            collect(Requests::bounded(dump, two, TRANSFER_ROWS, two))
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(
-            collect(Requests::bounded(dump, two - 1, TRANSFER_ROWS, two))
-                .unwrap()
-                .len(),
-            2
-        );
-        let dump = b"OPTION IMPORT; RETURN 1;";
-        assert_eq!(
-            collect(Requests::bounded(dump, one - 1, TRANSFER_ROWS, one)).unwrap(),
-            ["OPTION IMPORT;\nRETURN 1;\n"]
-        );
-        assert!(collect(Requests::bounded(dump, one - 1, TRANSFER_ROWS, one - 1)).is_err());
-        assert!(
-            collect(Requests::new(b"OPTION IMPORT;".as_slice()))
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn restore_requests_distinguish_returned_failure_from_uncertain_transport() {
-        use lctx_surrealdb::surrealdb::Error;
-        let known = write_failure(Error::query("checked statement refusal".into(), None));
-        assert!(known.permits_storage_cleanup());
-        assert!(
-            matches!(known.primary(), Some(ModelError::Cause(cause)) if cause.downcast_ref::<Error>().is_some_and(Error::is_query))
-        );
-        let unknown = write_failure(Error::internal("SDK HTTP body read interrupted".into()));
-        assert!(!unknown.permits_storage_cleanup());
-        let ModelError::Completion(outcome) = unknown else {
-            panic!("write certainty")
-        };
-        assert_eq!(
-            outcome.completion.local,
-            lctx_model::domain::completion::LocalState::Terminal
-        );
-        assert_eq!(
-            outcome.completion.remote,
-            lctx_model::domain::completion::RemoteState::Unknown
-        );
-    }
-
-    #[tokio::test]
-    async fn native_failed_import_keeps_later_effects_private_and_submits_no_following_request() {
-        use lctx_surrealdb::surrealdb::types::Value;
-        let config = lctx_surrealdb::RuntimeConfig::read(&std::path::PathBuf::from(
-            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
-        ))
-        .unwrap();
-        for dump in [
-            "OPTION IMPORT; DEFINE TABLE import_probe SCHEMALESS; THROW 'import-sentinel'; CREATE import_probe:within; CREATE import_probe:following;",
-            "OPTION IMPORT; DEFINE TABLE import_probe SCHEMALESS; CREATE import_probe:within; THROW 'import-sentinel'; CREATE import_probe:following;",
-            "OPTION IMPORT; DEFINE TABLE import_probe SCHEMALESS; CREATE import_probe:before; RETURN 1; THROW 'import-sentinel'; CREATE import_probe:within; RETURN 1; CREATE import_probe:following;",
-        ] {
-            let staging = crate::begin(&config).await.unwrap();
-            let client = crate::backup::http(&config, staging.database.as_str())
-                .await
-                .unwrap();
-            let result = send(
-                &client,
-                Requests::bounded(dump.as_bytes(), TRANSFER_BYTES, 3, MAX_ROW_BYTES),
-            )
-            .await;
-            let failure = result.unwrap_err();
-            assert!(failure.to_string().contains("import-sentinel"));
-            assert!(
-                failure.permits_storage_cleanup(),
-                "checked refusal is distinct from lost acknowledgement"
-            );
-            let mut observed = client.query("RETURN record::exists(import_probe:within); RETURN record::exists(import_probe:following);").await.unwrap().check().unwrap();
-            assert!(
-                observed.take::<Option<bool>>(0).unwrap().unwrap(),
-                "later independent unit ran inside failed request"
-            );
-            assert!(
-                !observed.take::<Option<bool>>(1).unwrap().unwrap(),
-                "following request must never execute"
-            );
-            crate::abandon(&staging).await.unwrap();
-            let info = client
-                .query("INFO FOR NS;")
-                .await
-                .unwrap()
-                .check()
-                .unwrap()
-                .take::<Option<Value>>(0)
-                .unwrap()
-                .unwrap();
-            let Value::Object(info) = info else {
-                panic!("namespace info")
-            };
-            let Some(Value::Object(databases)) = info.get("databases") else {
-                panic!("namespace databases")
-            };
-            assert!(
-                !databases.contains_key(staging.database.as_str()),
-                "failed private staging was removed"
-            );
-            client.invalidate().await.unwrap();
-        }
+    fn chunked_parser_preserves_quoted_semicolons_and_utf8() {
+        struct Chunks<'a>(&'a [u8]); impl Read for Chunks<'_> {fn read(&mut self,out:&mut[u8])->std::io::Result<usize>{let n=out.len().min(3).min(self.0.len());out[..n].copy_from_slice(&self.0[..n]);self.0=&self.0[n..];Ok(n)}}
+        let mut dump=DataDump::new(Chunks(r#"OPTION IMPORT; INSERT [{id:entity:x,canonical:b"00",body:{text:'é;é'}}];"#.as_bytes()));
+        assert!(matches!(dump.next().unwrap(),Some(Item::Rows(_)))); assert!(dump.next().unwrap().is_none());
     }
 }

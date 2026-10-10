@@ -143,13 +143,13 @@ async fn classify_inner(reader: &NativeReader, members: &Members, selection: &se
 
 /// Exact native root selection uses normalized capture identity and canonical member paths.
 /// A path constraint is resolved against the module spelling and the member's own path.
-pub async fn members(
-    reader: &NativeReader,
+pub async fn members<Context>(
+    reader: &NativeReader<Context>,
     library: Option<&Name>,
     operation: Option<&OperationSelector>,
     budget: &ResourceBudget,
 ) -> Result<Members, ModelError> {
-    let mut vars = Variables::new();
+    let mut vars = reader.view_bindings();
     vars.insert("library", library.map(|s| s.as_str().to_owned()));
     vars.insert(
         "member",
@@ -225,13 +225,13 @@ pub async fn members(
 /// These branches stream compact discovery rows without union, distinct or ordering state.
 /// Package spelling is residual policy; physical endpoints drive both reverse branches.
 fn library_packages_sql() -> &'static str {
-    "SELECT VALUE id FROM entity WITH INDEX semantic_key WHERE semantic_type='packages' AND ($library=NONE OR $library=NULL OR body.name=$library);"
+    "SELECT VALUE id FROM entity WITH INDEX semantic_key WHERE id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type='packages' AND ($library=NONE OR $library=NULL OR body.name=$library);"
 }
 fn library_releases_sql() -> &'static str {
-    "SELECT VALUE in FROM reference WITH INDEX incoming WHERE out=$package AND field='package';"
+    "SELECT VALUE in FROM reference WITH INDEX incoming WHERE out=$package.anchor AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND field='package';"
 }
 fn library_inputs_sql() -> &'static str {
-    "SELECT VALUE in.body.input FROM participant WITH INDEX incoming WHERE out=$release AND field='release' AND in.semantic_type='input_distributions' AND in.body.role=0;"
+    "SELECT VALUE in.body.input FROM participant WITH INDEX incoming WHERE out=$release.anchor AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND field='release' AND in.semantic_type='input_distributions' AND in.body.role=0;"
 }
 
 async fn settle_discovery<T>(
@@ -246,8 +246,8 @@ async fn settle_discovery<T>(
     domain::completion::complete(result, completion)
 }
 
-async fn collect_library_candidates(
-    reader: &NativeReader,
+async fn collect_library_candidates<Context>(
+    reader: &NativeReader<Context>,
     vars: &mut Variables,
     mut packages: NativeRows,
     sorted: &mut lctx_surrealdb::acknowledged_candidates::AsyncCandidateSort,
@@ -335,7 +335,7 @@ async fn collect_library_candidates(
 /// Candidate extraction has one indexed equality branch and no native union/order state.
 /// The path predicate is owned by the finite member operation, never request SQL.
 pub fn member_candidates_sql() -> &'static str {
-    "SELECT semantic_key,id AS node FROM entity WITH INDEX by_scope WHERE semantic_type='catalog_members' AND scope_keys CONTAINS $scope AND ($member=NONE OR $member=NULL OR semantic_key=$member) AND ($path=NONE OR $path=NULL OR array::concat(string::split((SELECT VALUE out.body.qualified_name FROM reference WITH INDEX outgoing WHERE in=$parent.id AND field='access')[0],'.'),body.path)=$path);"
+    "SELECT semantic_key,id AS node FROM entity WITH INDEX by_scope WHERE id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type='catalog_members' AND scope_keys CONTAINS $scope AND ($member=NONE OR $member=NULL OR semantic_key=$member) AND ($path=NONE OR $path=NULL OR { LET $member_node=id; LET $member_path=body.path; LET $access=SELECT VALUE out FROM reference WITH INDEX outgoing WHERE in=$member_node AND field='access'; LET $module=SELECT VALUE node.body.qualified_name FROM compiler_view_member WHERE view IN $lctx_views AND node.anchor IN $access; RETURN array::concat(string::split($module[0],'.'),$member_path)=$path; });"
 }
 
 #[cfg(test)]
@@ -460,42 +460,12 @@ mod streamed_library_tests {
         input::{DistributionRole, InputDistribution, InputRevision, Package, Release},
         source::{Module, SourceArtifact},
     };
-    use lctx_surrealdb::{Credentials, Loader, reader};
+    use lctx_surrealdb::reader;
 
     #[tokio::test]
     async fn native_library_discovery_preserves_complete_eligibility_and_drains_late_upstream_failure()
      {
-        let cfg: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(
-                std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned disposable native fixture"),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let ns = "gn_library_discovery";
-        let db = format!("discovery_{}", std::process::id());
-        let credentials = Credentials::Root {
-            username: cfg["admin_user"].as_str().unwrap().into(),
-            password: cfg["admin_password"].as_str().unwrap().into(),
-        };
-        let client = reader::connect(
-            cfg["grpc_endpoint"].as_str().unwrap(),
-            &credentials,
-            ns,
-            &db,
-        )
-        .await
-        .unwrap();
-        client
-            .query(format!(
-                "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-            ))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-        let loader = Loader::new(client.clone());
-        loader.install("").await.unwrap();
+        let config=crate::scoped_fixture::config();
         let package = Package {
             name: "discovery-selected".into(),
         };
@@ -549,8 +519,6 @@ mod streamed_library_tests {
             inputs.push(input);
             members.push(member);
         }
-        loader.entities(&entities).await.unwrap();
-        loader.entity_references(&entities).await.unwrap();
         let assertions = [
             InputDistribution {
                 input: inputs[0].id(),
@@ -581,19 +549,7 @@ mod streamed_library_tests {
         .into_iter()
         .map(|row| Assertion::from_record(row).unwrap())
         .collect::<Vec<_>>();
-        loader.assertions(&assertions).await.unwrap();
-        loader.assertion_references(&assertions).await.unwrap();
-        let native = NativeReader::new(
-            client.clone(),
-            SnapshotHandle {
-                semantic: ContentHash::of(b"library discovery fixture"),
-                realization: lctx_surrealdb::schema::realization_identity(""),
-                database: DatabaseIdentity {
-                    namespace: Name::new(ns).unwrap(),
-                    database: Name::new(&db).unwrap(),
-                },
-            },
-        );
+        let native=crate::scoped_fixture::reader(&config,&entities,&assertions).await.unwrap();
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let library = Name::new("discovery-selected").unwrap();
         let mut expected = members[..2].to_vec();
@@ -640,7 +596,7 @@ mod streamed_library_tests {
         }
         assert_eq!(budget.reserved(), 0);
         for library in [surrealdb::types::Value::None, surrealdb::types::Value::Null] {
-            let mut vars = Variables::new();
+            let mut vars = native.view_bindings();
             vars.insert("library", library);
             let mut packages = native
                 .query_stream(library_packages_sql(), vars, 1)
@@ -678,7 +634,7 @@ mod streamed_library_tests {
                 )),
             ),
         ] {
-            let mut vars = Variables::new();
+            let mut vars = native.view_bindings();
             vars.insert(binding, value);
             let plan: serde_json::Value = native
                 .query(format!("{} EXPLAIN", sql.trim_end_matches(';')), vars)
@@ -701,7 +657,7 @@ mod streamed_library_tests {
         }
         // The real parent stream emits a package, allowing all descendants to submit
         // candidates, before its later terminal fails. It cannot seal sorted output.
-        let mut vars = Variables::new();
+        let mut vars = native.view_bindings();
         vars.insert("library", library.as_str().to_owned());
         vars.insert("member", surrealdb::types::Value::Null);
         vars.insert("path", surrealdb::types::Value::Null);
@@ -732,11 +688,6 @@ mod streamed_library_tests {
         );
         sorted.drain().await.unwrap();
         assert_eq!(budget.reserved(), 0);
-        client
-            .query(format!("REMOVE DATABASE {db}"))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
+        native.close().await.unwrap();
     }
 }

@@ -1,4 +1,4 @@
-//! Private native compiler authority. Completed memberships, rather than a publication handle,
+//! Attempt-scoped native compiler authority in one durable shared database. Completed memberships, rather than a publication handle,
 //! govern reads. Canonical graph payloads and query fields are immutable mechanical forms.
 use crate::{
     Loader, RuntimeConfig,
@@ -129,6 +129,9 @@ fn read_predicate_bytes(predicate: &NativePredicate) -> usize {
 pub struct NativeCompilerStore {
     pub(crate) client: Arc<Surreal<Client>>,
     database: d::serving::Name,
+    attempt: ContentHash,
+    generation: ContentHash,
+    published_bindings:Mutex<Option<Vec<CompletedBinding>>>,
     namespace: d::serving::Name,
     endpoint: Option<String>,
     specifications: Mutex<BTreeMap<ContentHash, (ContributionSpec, bool)>>,
@@ -228,6 +231,7 @@ struct DescendantBinding {
 tokio::task_local! {
     static PRODUCING_WORK: ProducingBinding;
     static DESCENDANT_WORK: DescendantBinding;
+    static WRITING_CONTRIBUTION: ContentHash;
 }
 /// Native-owned producing work for exactly one store and contribution. This is an
 /// execution lifetime, not semantic membership or a transferable completion assertion.
@@ -474,12 +478,222 @@ impl std::fmt::Debug for NativeCompilerStore {
 }
 
 pub fn compiler_schema() -> String {
-    "DEFINE TABLE compiler_contribution SCHEMAFULL; DEFINE FIELD spec ON compiler_contribution TYPE bytes; DEFINE FIELD descriptor ON compiler_contribution TYPE option<bytes>; DEFINE FIELD completed ON compiler_contribution TYPE bool; DEFINE FIELD logical ON compiler_contribution TYPE option<string>; DEFINE INDEX logical_contribution ON compiler_contribution FIELDS logical UNIQUE; DEFINE TABLE compiler_membership SCHEMAFULL; DEFINE FIELD contribution ON compiler_membership TYPE record<compiler_contribution>; DEFINE FIELD relation ON compiler_membership TYPE string; DEFINE FIELD semantic_key ON compiler_membership TYPE string; DEFINE FIELD node ON compiler_membership TYPE record<entity | assertion | compiler_record>; DEFINE FIELD content ON compiler_membership TYPE string; DEFINE INDEX contribution_rows ON compiler_membership FIELDS contribution,relation,semantic_key UNIQUE; DEFINE INDEX member_keys ON compiler_membership FIELDS relation,semantic_key,contribution; DEFINE TABLE compiler_view SCHEMAFULL; DEFINE FIELD descriptor ON compiler_view TYPE bytes; DEFINE TABLE compiler_binding SCHEMAFULL; DEFINE FIELD descriptor ON compiler_binding TYPE bytes; DEFINE TABLE compiler_alias SCHEMAFULL; DEFINE FIELD source ON compiler_alias TYPE record<entity>; DEFINE FIELD target ON compiler_alias TYPE record<entity>; DEFINE INDEX alias_source ON compiler_alias FIELDS source,target UNIQUE;".to_string()+"DEFINE FIELD producer ON compiler_contribution TYPE string; DEFINE FIELD profile ON compiler_contribution TYPE string; DEFINE FIELD model ON compiler_contribution TYPE string; DEFINE FIELD implementation ON compiler_contribution TYPE string; DEFINE FIELD configuration ON compiler_contribution TYPE option<string|null>; DEFINE FIELD inputs ON compiler_contribution TYPE array<record<compiler_view>>; DEFINE FIELD outputs ON compiler_contribution TYPE array<string>; DEFINE FIELD outcome ON compiler_contribution TYPE option<int>; DEFINE INDEX contribution_inputs ON compiler_contribution FIELDS inputs; DEFINE FIELD relation ON compiler_view TYPE string; DEFINE FIELD contributions ON compiler_view TYPE array<string>; DEFINE FIELD rows ON compiler_view TYPE int; DEFINE FIELD relation ON compiler_binding TYPE string; DEFINE FIELD boundary ON compiler_binding TYPE option<string|null>; DEFINE FIELD view ON compiler_binding TYPE record<compiler_view>; DEFINE INDEX binding_view ON compiler_binding FIELDS view;"+&crate::schema::compiler_record_schema()
+    "DEFINE TABLE compiler_contribution SCHEMAFULL; DEFINE FIELD spec ON compiler_contribution TYPE bytes; DEFINE FIELD descriptor ON compiler_contribution TYPE option<bytes>; DEFINE FIELD completed ON compiler_contribution TYPE bool; DEFINE FIELD logical ON compiler_contribution TYPE option<string>; DEFINE INDEX logical_contribution ON compiler_contribution FIELDS logical; DEFINE FIELD attempt ON compiler_contribution TYPE record<native_attempt>; DEFINE TABLE compiler_membership SCHEMAFULL; DEFINE FIELD contribution ON compiler_membership TYPE record<compiler_contribution>; DEFINE FIELD relation ON compiler_membership TYPE string; DEFINE FIELD semantic_key ON compiler_membership TYPE string; DEFINE FIELD node ON compiler_membership TYPE record<entity | assertion | compiler_record>; DEFINE FIELD content ON compiler_membership TYPE string; DEFINE INDEX contribution_rows ON compiler_membership FIELDS contribution,relation,semantic_key UNIQUE; DEFINE INDEX member_keys ON compiler_membership FIELDS relation,semantic_key,contribution; DEFINE TABLE compiler_view SCHEMAFULL; DEFINE FIELD descriptor ON compiler_view TYPE bytes; DEFINE TABLE compiler_binding SCHEMAFULL; DEFINE FIELD descriptor ON compiler_binding TYPE bytes; DEFINE FIELD attempt ON compiler_binding TYPE record<native_attempt>; DEFINE TABLE compiler_alias SCHEMAFULL; DEFINE FIELD source ON compiler_alias TYPE record<entity>; DEFINE FIELD target ON compiler_alias TYPE record<entity>; DEFINE INDEX alias_source ON compiler_alias FIELDS source,target UNIQUE;".to_string()+"DEFINE FIELD producer ON compiler_contribution TYPE string; DEFINE FIELD profile ON compiler_contribution TYPE string; DEFINE FIELD model ON compiler_contribution TYPE string; DEFINE FIELD implementation ON compiler_contribution TYPE string; DEFINE FIELD configuration ON compiler_contribution TYPE option<string|null>; DEFINE FIELD inputs ON compiler_contribution TYPE array<record<compiler_view>>; DEFINE FIELD outputs ON compiler_contribution TYPE array<string>; DEFINE FIELD outcome ON compiler_contribution TYPE option<int>; DEFINE INDEX contribution_inputs ON compiler_contribution FIELDS inputs; DEFINE FIELD relation ON compiler_view TYPE string; DEFINE FIELD contributions ON compiler_view TYPE array<string>; DEFINE FIELD rows ON compiler_view TYPE int; DEFINE FIELD relation ON compiler_binding TYPE string; DEFINE FIELD boundary ON compiler_binding TYPE option<string|null>; DEFINE FIELD view ON compiler_binding TYPE record<compiler_view>; DEFINE INDEX binding_view ON compiler_binding FIELDS view;"+&crate::schema::compiler_record_schema()
 }
 
+/// Explicit maintenance installation only. Ordinary compiler attachment never defines schema.
+pub async fn install_shared(config:&RuntimeConfig,native_definitions:&str)->Result<(),ModelError>{
+    if !matches!(config.authentication,crate::AuthenticationScope::Root){return Err(ModelError::Invalid("native installation requires installer authority".into()));}
+    let client=reader::authenticated(&config.endpoint,&config.writer_credentials(),None).await?;
+    client.query(format!("DEFINE NAMESPACE IF NOT EXISTS `{}`",config.namespace.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    client.use_ns(config.namespace.as_str()).await.map_err(ModelError::codec)?;
+    client.query(format!("DEFINE DATABASE IF NOT EXISTS `{}` STRICT",config.database.as_str())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    client.use_db(config.database.as_str()).await.map_err(ModelError::codec)?;
+    let loader=Loader::new(client.clone());
+    loader.install_declarations(crate::control::schema(),"native durable control schema").await?;
+    loader.install(native_definitions).await?;
+    loader.install_declarations(&compiler_schema(),"compiler shared state schema").await?;
+    loader.install_declarations(VIEW_SCHEMA,"exact completed view mapping schema").await?;
+    let mut bindings=Variables::new();bindings.insert("generation",config.service_generation.hex());bindings.insert("schema",base_schema_identity().hex());
+    client.query("UPSERT native_installation:current SET generation=$generation,schema=$schema,schema_version=3,admission_open=false RETURN NONE").bind(bindings).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;Ok(())
+}
+pub async fn check_installation(config:&RuntimeConfig)->Result<Arc<Surreal<Client>>,ModelError>{
+    let client=reader::connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await?;
+    let version=client.version().await.map_err(ModelError::codec)?.to_string();
+    if !version.starts_with("3.3.0"){return Err(ModelError::Invalid("shared native store requires pinned SurrealDB 3.3.0".into()));}
+    crate::control::check_installation(&client,config.service_generation).await?;Ok(client)
+}
+pub fn base_schema_identity()->ContentHash {ContentHash::of(format!("{}{}{}{}",crate::schema::canonical_schema(),compiler_schema(),crate::control::schema(),VIEW_SCHEMA).as_bytes())}
+pub async fn close_admission(config:&RuntimeConfig)->Result<(),ModelError>{maintenance_admission(config,false).await}
+pub async fn open_admission(config:&RuntimeConfig)->Result<(),ModelError>{maintenance_admission(config,true).await}
+async fn maintenance_admission(config:&RuntimeConfig,open:bool)->Result<(),ModelError>{
+    if !matches!(config.authentication,crate::AuthenticationScope::Root){return Err(ModelError::Invalid("native maintenance requires installer authority".into()));}
+    let client=check_installation(config).await?;
+    if open {crate::control::check_pending_effects(&client).await?;}
+    client.query("UPDATE native_installation:current SET admission_open=$open,admission_revision=(admission_revision ?? 0)+1 RETURN NONE").bind(("open",open)).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;Ok(())
+}
+pub async fn drain_installation(config:&RuntimeConfig)->Result<(),ModelError>{
+    if !matches!(config.authentication,crate::AuthenticationScope::Root){return Err(ModelError::Invalid("native maintenance requires installer authority".into()));}
+    let client=check_installation(config).await?;
+    let mut response=client.query("SELECT VALUE admission_open FROM native_installation:current").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let open:Vec<bool>=response.take(0).map_err(ModelError::codec)?;if open!=vec![false]{return Err(ModelError::Conflict("maintenance admission must close before drainage"));}
+    loop {let mut response=client.query("SELECT VALUE id FROM native_attempt WHERE state='open' LIMIT 128").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let attempts:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;if attempts.is_empty(){break;}crate::control::effect(&client,None,"UPDATE $attempts SET state='maintenance_fenced',revision+=1 RETURN NONE",{let mut bindings=Variables::new();bindings.insert("attempts",attempts);bindings}).await?;}
+    crate::control::drain_effects(&client).await?;
+    let mut response=client.query("SELECT VALUE id FROM native_pin WHERE released=false LIMIT 1; SELECT VALUE id FROM native_backup_hold WHERE active=true LIMIT 1").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let pins:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;let backups:Vec<RecordId>=response.take(1).map_err(ModelError::codec)?;if !pins.is_empty() || !backups.is_empty(){return Err(ModelError::Conflict("native readers or backup holds remain live"));}Ok(())
+}
+/// Normalize runtime ownership for the portable format. Payload addresses are unchanged.
+pub fn normalize_transport_row(table:&str,value:&Value,owners:&BTreeMap<RecordId,ContributionSpec>)->Result<Value,ModelError>{
+    let mut row=value_object(value).ok_or(ModelError::Schema("portable state object"))?.clone();
+    let zero=ContentHash([0;32]);
+    match table {
+        "compiler_contribution"=>{let descriptor:CompletedContribution=decode_descriptor(value)?;row.insert("id",RecordId::new(table,attempt_contribution(zero,descriptor.spec.identity()?).hex()));row.insert("attempt",RecordId::new("native_attempt",zero.hex()));},
+        "compiler_binding"=>{let binding:CompletedBinding=decode_descriptor(value)?;row.insert("id",RecordId::new(table,attempt_binding(zero,binding.key()).hex()));row.insert("attempt",RecordId::new("native_attempt",zero.hex()));},
+        "compiler_membership"=>{let Some(Value::RecordId(source))=row.get("contribution") else{return Err(ModelError::Schema("portable membership owner"));};let spec=owners.get(source).ok_or(ModelError::Conflict("portable membership owner"))?;let owner=attempt_contribution(zero,spec.identity()?);let Some(Value::String(relation))=row.get("relation") else{return Err(ModelError::Schema("portable membership relation"));};let Some(Value::String(key))=row.get("semantic_key") else{return Err(ModelError::Schema("portable membership key"));};row.insert("id",membership_id(owner,relation,&decode_nominal_key(key)?));row.insert("contribution",RecordId::new("compiler_contribution",owner.hex()));},
+        _=>{},
+    }
+    Ok(Value::Object(row))
+}
+pub const VIEW_SCHEMA:&str="DEFINE TABLE compiler_view_member SCHEMAFULL; DEFINE FIELD view ON compiler_view_member TYPE record<compiler_view>; DEFINE FIELD relation ON compiler_view_member TYPE string; DEFINE FIELD semantic_key ON compiler_view_member TYPE string; DEFINE FIELD node ON compiler_view_member TYPE record<entity | assertion | compiler_record>; DEFINE FIELD content ON compiler_view_member TYPE string; DEFINE INDEX view_key ON compiler_view_member FIELDS view,relation,semantic_key UNIQUE; DEFINE INDEX view_nodes ON compiler_view_member FIELDS view,node;";
+
 impl NativeCompilerStore {
-    pub fn producing_scope(self: &Arc<Self>, contribution: ContentHash, budget: &ResourceBudget) -> Result<ProducingScope, ModelError> {
+    /// Read-only exact publication context. This imports no runtime attempt ownership and
+    /// creates no database or schema; pins belong to the published reader owner.
+    pub async fn from_publication(client:Arc<Surreal<Client>>,namespace:d::serving::Name,database:d::serving::Name,bindings:Vec<CompletedBinding>)->Result<Arc<Self>,ModelError>{
+        binding_inventory_identity(&bindings)?;
+        let store=Self::from_existing(client,namespace,database);
+        *store.published_bindings.lock().map_err(|_|ModelError::Conflict("published bindings"))?=Some(bindings.clone());
+        store.state_closure().await?;
+        Ok(store)
+    }
+    /// State transport is the dependency closure of the binding inventory, rather than
+    /// every intermediate view observed while the attempt was being constructed.
+    async fn state_closure(self:&Arc<Self>)->Result<(BTreeMap<ContentHash,CompletedView>,std::collections::BTreeSet<ContentHash>),ModelError>{
+        let mut queue=self.bindings_inner().await?.into_iter().map(|binding|binding.view).collect::<Vec<_>>();
+        let mut views=BTreeMap::new();let mut owners=std::collections::BTreeSet::new();
+        while let Some(view)=queue.pop(){
+            if let Some(old)=views.get(&view.identity){if old!=&view{return Err(ModelError::Conflict("state view descriptor collision"));}continue;}
+            self.registered_view(&view).await?;
+            for owner in self.view_owners(&view)? {
+                if !owners.insert(owner){continue;}
+                let mut stream=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM $owner WHERE completed=true").bind(("owner",RecordId::new("compiler_contribution",owner.hex()))).stream_items().map_err(ModelError::codec)?,1)?)?;
+                let row=stream.next().await?.ok_or(ModelError::Conflict("state dependency contributor"))?;validate_state_row("compiler_contribution",&row)?;
+                if stream.next().await?.is_some(){return Err(ModelError::Conflict("duplicate state dependency contributor"));}
+                let descriptor:CompletedContribution=decode_descriptor(&row)?;
+                if !view.contributions.contains(&descriptor.identity()?){return Err(ModelError::Conflict("state dependency contributor identity"));}
+                for input in descriptor.spec.inputs {
+                    let mut stream=self.track_rows(NativeRows::new(self.client.query("SELECT * FROM $view").bind(("view",RecordId::new("compiler_view",input.view().hex()))).stream_items().map_err(ModelError::codec)?,1)?)?;
+                    let row=stream.next().await?.ok_or(ModelError::Conflict("state dependency view"))?;validate_state_row("compiler_view",&row)?;
+                    if stream.next().await?.is_some(){return Err(ModelError::Conflict("duplicate state dependency view"));}
+                    let dependency:CompletedView=decode_descriptor(&row)?;
+                    if dependency.identity!=input.view() || dependency.relation!=input.relation() || input.rows()<0 || dependency.rows!=input.rows() as u64 {return Err(ModelError::Conflict("state dependency view metadata"));}
+                    queue.push(dependency);
+                }
+            }
+            views.insert(view.identity,view);
+        }
+        Ok((views,owners))
+    }
+    async fn state_bindings(self:&Arc<Self>)->Result<Variables,ModelError>{
+        let (views,owners)=self.state_closure().await?;
+        let mut bindings=Variables::new();bindings.insert("state_attempt",RecordId::new("native_attempt",self.attempt.hex()));
+        bindings.insert("state_owners",owners.into_iter().map(|owner|RecordId::new("compiler_contribution",owner.hex())).collect::<Vec<_>>());
+        bindings.insert("state_views",views.into_keys().map(|view|RecordId::new("compiler_view",view.hex())).collect::<Vec<_>>());Ok(bindings)
+    }
+    fn state_query(&self,table:&str)->String{
+        let predicate=match table {
+            "compiler_contribution"=>"id IN $state_owners AND completed=true",
+            "compiler_membership"=>"contribution IN $state_owners AND contribution.completed=true",
+            "compiler_view"=>"id IN $state_views",
+            "compiler_record"=>"id IN (SELECT VALUE node FROM compiler_membership WHERE contribution IN $state_owners AND contribution.completed=true)",
+            "compiler_binding"=>"attempt=$state_attempt",
+            "compiler_alias"=>"source IN (SELECT VALUE node FROM compiler_membership WHERE contribution IN $state_owners AND contribution.completed=true)",
+            _=>"false",
+        };format!("SELECT * FROM {table} WHERE {predicate} ORDER BY id")
+    }
+    async fn portable_state_rows(self:&Arc<Self>,table:&str)->Result<AsyncOrderedRows,ModelError>{
+        let budget=ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
+        let mut sorted=AsyncPhysicalSort::new_registered(&budget,self.blocking_owner()?,self.blocking_observer()?).await?;
+        if table=="compiler_binding" {
+            for binding in self.bindings_inner().await? {let mut row=Object::new();row.insert("id",RecordId::new("compiler_binding",attempt_binding(ContentHash([0;32]),binding.key()).hex()));row.insert("attempt",RecordId::new("native_attempt",ContentHash([0;32]).hex()));row.insert("descriptor",Bytes::from(serde_json::to_vec(&binding).map_err(ModelError::codec)?));for (key,value) in binding_projection(&binding){row.insert(key,value);}sorted.push(Value::Object(row)).await?;}
+        } else {
+            let mut portable_owners=BTreeMap::new();
+            if table=="compiler_membership" {
+                let mut response=self.client.query(self.state_query("compiler_contribution")).bind(self.state_bindings().await?).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                let owners:Vec<Value>=response.take(0).map_err(ModelError::codec)?;
+                for value in owners {let row=value_object(&value).ok_or(ModelError::Schema("portable owner"))?;let Some(Value::RecordId(id))=row.get("id") else{return Err(ModelError::Schema("portable owner identity"));};let descriptor:CompletedContribution=decode_descriptor(&value)?;portable_owners.insert(id.clone(),descriptor.spec);}
+            }
+            let mut source=self.track_rows(NativeRows::new(self.client.query(self.state_query(table)).bind(self.state_bindings().await?).stream_items().map_err(ModelError::codec)?,1)?.with_row_bytes(d::resources::MAX_ROW_BYTES))?;
+            while let Some(value)=source.next_native().await? {let mut row=value_object(&value).ok_or(ModelError::Schema("portable state row"))?.clone();
+                row=value_object(&normalize_transport_row(table,&Value::Object(row),&portable_owners)?).ok_or(ModelError::Schema("portable normalized row"))?.clone();
+                sorted.push(Value::Object(row)).await?;
+            }
+        }
+        sorted.finish().await
+    }
+    async fn registered_or_install_view(self:&Arc<Self>,view:&CompletedView)->Result<(),ModelError>{
+        let mut row=Object::new();row.insert("id",RecordId::new("compiler_view",view.identity.hex()));row.insert("descriptor",Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?));for (field,value) in view_projection(view)?{row.insert(field,value);}
+        crate::control::ensure_rows(&self.client,Some(self.attempt),vec![Value::Object(row)]).await?;
+        self.remember_view(view)?;
+        let budget=ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
+        let prepared=self.prepare_memberships(view,&budget).await?;
+        let mut ordered=AsyncOrderedCandidates::new_registered(prepared,&budget,self.blocking_owner()?,self.blocking_observer()?).await?;
+        let mut count=0u64;
+        loop {
+            let candidates=ordered.next_batch(crate::loader::NATIVE_WINDOW_ROWS).await?;if candidates.is_empty(){break;}
+            let mut rows=Vec::with_capacity(candidates.len());let mut nodes=Vec::with_capacity(candidates.len());
+            for candidate in candidates {
+                let mut sink=KeySink::new("native-view-member/v1");view.identity.encode(&mut sink);candidate.relation.encode(&mut sink);sink.part(b"key",&candidate.key);
+                let mut row=Object::new();row.insert("id",RecordId::new("compiler_view_member",sink.finish().hex()));row.insert("view",RecordId::new("compiler_view",view.identity.hex()));row.insert("relation",candidate.relation);row.insert("semantic_key",hex::encode(candidate.key));row.insert("node",candidate.node.clone());row.insert("content",candidate.content.ok_or(ModelError::Schema("exact view content"))?.hex());nodes.push(candidate.node);if let Some(Value::RecordId(id))=row.get("id"){nodes.push(id.clone());}rows.push(Value::Object(row));count+=1;
+            }
+            crate::control::ensure_rows(&self.client,Some(self.attempt),rows).await?;
+            crate::control::hold(&self.client,Some(self.attempt),RecordId::new("compiler_view",view.identity.hex()),nodes).await?;
+        }
+        if count!=view.rows{return Err(ModelError::Conflict("exact view cardinality"));}
+        let owner=RecordId::new("compiler_view",view.identity.hex());
+        let contributors=self.view_owners(view)?.into_iter().map(|id|RecordId::new("compiler_contribution",id.hex())).collect();
+        crate::control::hold(&self.client,Some(self.attempt),owner,contributors).await?;
+        crate::control::hold(&self.client,Some(self.attempt),RecordId::new("native_attempt",self.attempt.hex()),vec![RecordId::new("compiler_view",view.identity.hex())]).await
+    }
+
+    /// Only admission of the complete current semantic boundary makes retained products eligible.
+    pub async fn mark_attempt_admitted(self:&Arc<Self>)->Result<(),ModelError>{
+        let mut revision=self.client.query("SELECT VALUE revision FROM $attempt").bind(("attempt",RecordId::new("native_attempt",self.attempt.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let revision:Vec<i64>=revision.take(0).map_err(ModelError::codec)?;let [revision]=revision.as_slice() else{return Err(ModelError::Conflict("native admission attempt"));};
+        let bindings=self.bindings().await?;let inventory=binding_inventory_identity(&bindings)?;
+        let mut bindings=Variables::new();bindings.insert("attempt",RecordId::new("native_attempt",self.attempt.hex()));bindings.insert("view",inventory.hex());bindings.insert("revision",*revision);
+        crate::control::effect(&self.client,None,"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner.state!='open' OR $owner.revision!=$revision { THROW 'native admission inventory raced'; }; IF $owner.admitted AND $owner.admitted_view!=$view { THROW 'native admission inventory changed'; }; UPDATE $attempt SET admitted=true,admitted_view=$view,revision+=1 RETURN NONE",bindings).await
+    }
+    pub async fn retain_product_identity(self:&Arc<Self>,request:ContentHash,contribution:ContentHash)->Result<(),ModelError>{
+        self.completed_contribution(contribution).await?;
+        let mut row=Object::new();row.insert("id",RecordId::new("native_product",format!("{}_{}",request.hex(),self.attempt.hex())));row.insert("request",request.hex());row.insert("contribution",RecordId::new("compiler_contribution",contribution.hex()));
+        let mut bindings=Variables::new();bindings.insert("row",row);
+        crate::control::effect(&self.client,Some(self.attempt),"UPSERT $row.id CONTENT $row RETURN NONE",bindings).await?;
+        crate::control::hold(&self.client,Some(self.attempt),RecordId::new("native_product",format!("{}_{}",request.hex(),self.attempt.hex())),vec![RecordId::new("compiler_contribution",contribution.hex())]).await
+    }
+    pub async fn attach_retained_product(self:&Arc<Self>,request:ContentHash,spec:&ContributionSpec)->Result<Option<(ContentHash,BTreeMap<String,CompletedView>,CompletedContribution)>,ModelError>{
+        let mut lookup=Variables::new();lookup.insert("request",request.hex());
+        let mut response=self.client.query("SELECT contribution.* AS stored FROM native_product WHERE request=$request AND contribution.completed=true AND contribution.attempt.admitted=true ORDER BY id LIMIT 1").bind(lookup).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;let Some(row)=rows.first() else{return Ok(None);};
+        let source=value_object(row).and_then(|row|row.get("stored")).ok_or(ModelError::Schema("retained admitted contribution"))?;
+        validate_state_row("compiler_contribution",source)?;
+        let descriptor:CompletedContribution=decode_descriptor(source)?;
+        if &descriptor.spec!=spec{return Ok(None);}
+        self.validate_inputs(&spec.inputs).await?;
+        let physical=attempt_contribution(self.attempt,spec.identity()?);
+        let source_id=value_object(source).and_then(|row|row.get("id")).cloned().ok_or(ModelError::Schema("retained contribution identity"))?;
+        let Value::RecordId(source_record)=&source_id else{return Err(ModelError::Schema("retained contribution record"));};
+        crate::control::hold(&self.client,Some(self.attempt),RecordId::new("native_attempt",self.attempt.hex()),vec![source_record.clone()]).await?;
+        let mut bindings=Variables::new();bindings.insert("source",source_id.clone());bindings.insert("target",RecordId::new("compiler_contribution",physical.hex()));bindings.insert("spec",Bytes::from(serde_json::to_vec(spec).map_err(ModelError::codec)?));
+        // Attach the immutable descriptor and membership pointers, never canonical row replay.
+        crate::control::effect(&self.client,Some(self.attempt),"LET $source=SELECT * FROM ONLY $source FOR UPDATE; LET $source_attempt_id=$source.attempt; LET $source_attempt=SELECT * FROM ONLY $source_attempt_id FOR UPDATE; IF !$source.completed OR !$source_attempt.admitted OR $source.spec!=$spec { THROW 'retained admission changed'; }; CREATE $target CONTENT object::extend($source,{id:$target,attempt:$__attempt,completed:false}) RETURN NONE",bindings).await?;
+        self.hold_contribution_inputs(physical,spec).await?;
+        // Normalize copied memberships to the deterministic exact-owner identities in bounded
+        // windows. This transfer copies compact pointers only; payloads remain shared.
+        let mut select=Variables::new();select.insert("source",source_id);let mut members=NativeRows::new(self.client.query("SELECT relation,semantic_key,node,content FROM compiler_membership WHERE contribution=$source ORDER BY relation,semantic_key").bind(select).stream_items().map_err(ModelError::codec)?,1)?;
+        let mut pending=Vec::new();while let Some(value)=members.next().await? {let mut row=value_object(&value).ok_or(ModelError::Schema("retained membership"))?.clone();let Some(Value::String(relation))=row.get("relation") else{return Err(ModelError::Schema("retained membership relation"));};let Some(Value::String(key))=row.get("semantic_key") else{return Err(ModelError::Schema("retained membership key"));};row.insert("id",membership_id(physical,relation,&decode_nominal_key(key)?));row.insert("contribution",RecordId::new("compiler_contribution",physical.hex()));pending.push(Value::Object(row));if pending.len()==crate::loader::NATIVE_WINDOW_ROWS {self.retain_attached_members(physical,std::mem::take(&mut pending)).await?;}}
+        self.retain_attached_members(physical,pending).await?;
+        let mut finish=Variables::new();finish.insert("target",RecordId::new("compiler_contribution",physical.hex()));
+        crate::control::effect(&self.client,Some(self.attempt),"UPDATE $target SET completed=true RETURN NONE",finish).await?;
+        self.specifications.lock().map_err(|_|ModelError::Conflict("native contribution owner"))?.insert(physical,(spec.clone(),true));self.remember_contributor(descriptor.identity()?,physical)?;
+        let mut views=BTreeMap::new();for (relation,output) in &descriptor.outputs{let view=CompletedView::new(relation.clone(),std::collections::BTreeSet::from([descriptor.identity()?]),output.rows)?;self.registered_or_install_view(&view).await?;views.insert(relation.clone(),view);}
+        Ok(Some((physical,views,descriptor)))
+    }
+    async fn hold_contribution_inputs(&self,contribution:ContentHash,spec:&ContributionSpec)->Result<(),ModelError>{
+        let owner=RecordId::new("compiler_contribution",contribution.hex());
+        let mut references=vec![(RecordId::new("native_attempt",self.attempt.hex()),owner.clone())];
+        references.extend(spec.inputs.iter().map(|input|(owner.clone(),RecordId::new("compiler_view",input.view().hex()))));
+        crate::control::hold_many(&self.client,Some(self.attempt),references).await
+    }
+    async fn retain_attached_members(&self,contribution:ContentHash,rows:Vec<Value>)->Result<(),ModelError>{
+        let owner=RecordId::new("compiler_contribution",contribution.hex());let mut references=Vec::new();
+        for row in &rows {let row=value_object(row).ok_or(ModelError::Schema("attached member"))?;for field in ["id","node"] {if let Some(Value::RecordId(id))=row.get(field){references.push((owner.clone(),id.clone()));}}}
+        crate::control::ensure_rows_owned(&self.client,Some(self.attempt),Some(contribution),rows).await?;
+        crate::control::hold_many(&self.client,Some(self.attempt),references).await
+    }
+    /// Producers identify their specification before registration. The native scope binds
+    /// that identity to this attempt's physical contribution, just like begin_contribution.
+    pub fn producing_scope(self: &Arc<Self>, specification: ContentHash, budget: &ResourceBudget) -> Result<ProducingScope, ModelError> {
         self.check_failed()?;
+        let contribution=attempt_contribution(self.attempt,specification);
         let mut scopes = self.producing_scopes.lock().map_err(|_| ModelError::Conflict("native producing scopes"))?;
         let scope = match scopes.entry(contribution) {
             std::collections::btree_map::Entry::Occupied(entry) => entry.get().clone(),
@@ -515,104 +729,16 @@ impl NativeCompilerStore {
         config: &RuntimeConfig,
         frontier: Frontier,
     ) -> Result<Arc<Self>, ModelError> {
-        let mut sink = KeySink::new("private-native-attempt/v1");
-        sink.part(
-            b"clock",
-            &std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(ModelError::codec)?
-                .as_nanos()
-                .to_le_bytes(),
-        );
-        sink.part(b"process", &std::process::id().to_le_bytes());
-        let database = d::serving::Name::new(format!("snapshot_{}", sink.finish().hex()))
-            .map_err(ModelError::codec)?;
-        let client =
-            reader::authenticated(&config.endpoint, &config.root_credentials(), None).await?;
-        let mut creation_attempted = false;
-        let setup = async {
-            let version = client
-                .version()
-                .await
-                .map_err(ModelError::codec)?
-                .to_string();
-            if !version.starts_with("3.3.") {
-                return Err(ModelError::Invalid(
-                    "native compiler requires reviewed SurrealDB3.3".into(),
-                ));
-            }
-            client
-                .query(format!(
-                    "DEFINE NAMESPACE IF NOT EXISTS `{}`",
-                    config.namespace.as_str()
-                ))
-                .await
-                .map_err(ModelError::codec)?
-                .check()
-                .map_err(ModelError::codec)?;
-            client
-                .use_ns(config.namespace.as_str())
-                .await
-                .map_err(ModelError::codec)?;
-            creation_attempted = true;
-            client
-                .query(format!("DEFINE DATABASE `{}` STRICT", database.as_str()))
-                .await
-                .map_err(crate::loader::write_failure)?
-                .check()
-                .map_err(|error| {
-                    ModelError::codec(format!("native compiler database creation: {error}"))
-                })?;
-            client
-                .use_db(database.as_str())
-                .await
-                .map_err(ModelError::codec)?;
-            Loader::new(client.clone()).install("").await?;
-            Loader::new(client.clone())
-                .install_declarations(&compiler_schema(), "compiler state schema")
-                .await?;
-            Ok::<(), ModelError>(())
-        }
-        .await;
-        if let Err(error) = setup {
-            let mut completion = d::completion::Completion::default();
-            if creation_attempted && !error.permits_storage_cleanup() {
-                completion.remote = d::completion::RemoteState::Unknown;
-                completion
-                    .storage
-                    .push(d::completion::StorageState::Orphan(format!(
-                        "{}/{}",
-                        config.namespace.as_str(),
-                        database.as_str()
-                    )));
-            } else if creation_attempted {
-                let cleanup = async {
-                    client
-                        .query(format!("REMOVE DATABASE IF EXISTS `{}`", database.as_str()))
-                        .await
-                        .map_err(crate::loader::write_failure)?
-                        .check()
-                        .map_err(|error| ModelError::Cause(Box::new(error)))?;
-                    Ok::<(), ModelError>(())
-                }
-                .await;
-                completion.cleanup(
-                    format!("{}/{}", config.namespace.as_str(), database.as_str()),
-                    cleanup,
-                );
-            }
-            completion.step(
-                "setup session invalidation",
-                client
-                    .invalidate()
-                    .await
-                    .map_err(|error| ModelError::Cause(Box::new(error))),
-            );
-            return d::completion::complete(Err(error), completion);
-        }
+        let database=config.database.clone();
+        let client=check_installation(config).await?;
+        let attempt=crate::control::fresh_identity("compiler-attempt")?;
+        crate::control::begin_attempt(&client,attempt,config.service_generation).await?;
         Ok(Arc::new(Self {
             client,
             database,
+            attempt,
+            generation: config.service_generation,
+            published_bindings:Mutex::new(None),
             namespace: config.namespace.clone(),
             endpoint: Some(config.endpoint.clone()),
             specifications: Mutex::default(),
@@ -639,6 +765,9 @@ impl NativeCompilerStore {
         Arc::new(Self {
             client,
             database,
+            attempt: crate::control::fresh_identity("detached-native-attempt").expect("system clock"),
+            generation: ContentHash::of(b"detached-unadmitted"),
+            published_bindings:Mutex::new(None),
             namespace,
             endpoint: None,
             specifications: Mutex::default(),
@@ -654,20 +783,6 @@ impl NativeCompilerStore {
             runtime: tokio::runtime::Handle::current(),
             frontier: Mutex::new(Frontier::Facts),
         })
-    }
-    pub async fn install_state_schema(self: &Arc<Self>) -> Result<(), ModelError> {
-        let lease = self.admit_mutation("install_state_schema", true)?;
-        let result = lease.within(self.install_state_schema_inner()).await;
-        let result = lease.finish_with(result);
-        if result.is_err() {
-            self.fail();
-        }
-        result
-    }
-    async fn install_state_schema_inner(self: &Arc<Self>) -> Result<(), ModelError> {
-        Loader::new(self.client.clone())
-            .install_declarations(&compiler_schema(), "compiler state schema")
-            .await
     }
     pub fn set_frontier(&self, frontier: Frontier) -> Result<(), ModelError> {
         let lease = self.admit_mutation("set_frontier", false)?;
@@ -722,7 +837,7 @@ impl NativeCompilerStore {
             };
             let descriptor: CompletedContribution =
                 serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-            if descriptor.spec.identity()? != id {
+            if attempt_contribution(self.attempt,descriptor.spec.identity()?) != id && !self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor owner"))?.values().any(|known|*known==id) {
                 return Err(ModelError::Conflict(
                     "completed native contribution identity",
                 ));
@@ -743,8 +858,8 @@ impl NativeCompilerStore {
             let mut pending = self.track_rows(NativeRows::new(
                 self.client
                     .query(
-                        "SELECT VALUE id FROM compiler_contribution WHERE completed=false LIMIT 1",
-                    )
+                        "SELECT VALUE id FROM compiler_contribution WHERE attempt=$attempt AND completed=false LIMIT 1",
+                    ).bind(("attempt",RecordId::new("native_attempt",self.attempt.hex())))
                     .stream_items()
                     .map_err(ModelError::codec)?,
                 1,
@@ -817,6 +932,8 @@ impl NativeCompilerStore {
     pub fn check_publication_target(&self, config: &RuntimeConfig) -> Result<(), ModelError> {
         if self.endpoint.as_deref() != Some(config.endpoint.as_str())
             || self.namespace != config.namespace
+            || self.database != config.database
+            || self.generation != config.service_generation
         {
             return Err(ModelError::Conflict("native publication target"));
         }
@@ -870,11 +987,11 @@ impl NativeCompilerStore {
     }
     pub async fn import_entities(&self, rows: &[d::graph::Entity]) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_entities", true)?;
-        lease.finish_with(Loader::new(self.client.clone()).entities(rows).await)
+        lease.finish_with(Loader::for_attempt_views(self.client.clone(),self.attempt,vec![]).entities(rows).await)
     }
     pub async fn import_assertions(&self, rows: &[d::graph::Assertion]) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_assertions", true)?;
-        lease.finish_with(Loader::new(self.client.clone()).assertions(rows).await)
+        lease.finish_with(Loader::for_attempt_views(self.client.clone(),self.attempt,vec![]).assertions(rows).await)
     }
     pub async fn import_original_stream(
         &self,
@@ -885,7 +1002,7 @@ impl NativeCompilerStore {
     ) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_original_stream", true)?;
         lease.finish_with(
-            Loader::new(self.client.clone())
+            Loader::for_attempt_views(self.client.clone(),self.attempt,vec![])
                 .original_stream(source, content, length, input)
                 .await,
         )
@@ -900,7 +1017,7 @@ impl NativeCompilerStore {
     ) -> Result<Vec<CompletedContribution>, ModelError> {
         let mut rows = self.track_rows(NativeRows::new(
             self.client
-                .query("SELECT * FROM compiler_contribution WHERE completed=true ORDER BY logical")
+                .query(self.state_query("compiler_contribution")).bind(self.state_bindings().await?)
                 .stream_items()
                 .map_err(ModelError::codec)?,
             1,
@@ -1041,36 +1158,14 @@ impl NativeCompilerStore {
             crate::loader::NATIVE_WINDOW_ROWS * 512,
         )?;
         let mut frontier = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
-        let mut owners = self.track_rows(NativeRows::new(
-            self.client
-                .query("SELECT VALUE id FROM compiler_contribution WHERE completed=true")
-                .stream_items()
-                .map_err(ModelError::codec)?,
-            1,
-        )?)?;
-        while let Some(owner) = owners.next_native().await? {
-            let Value::RecordId(owner) = owner else {
-                return Err(ModelError::Schema("canonical contribution owner"));
-            };
-            let mut bindings = Variables::new();
-            bindings.insert("owner", owner);
-            let mut members=self.track_rows(NativeRows::new(self.client.query("SELECT node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner").bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
-            while let Some(member) = members.next_native().await? {
-                let Some(Value::RecordId(node)) =
-                    value_object(&member).and_then(|row| row.get("node"))
-                else {
-                    return Err(ModelError::Schema("canonical membership pointer"));
-                };
-                if node.table.as_str() != table {
-                    continue;
-                }
-                frontier.push(node.clone());
-                if frontier.len() == crate::loader::NATIVE_WINDOW_ROWS {
-                    self.expand_graph_frontier(&mut sorted, &frontier, entities)
-                        .await?;
-                    frontier.clear();
-                }
-            }
+        let roots=self.bindings_inner().await?.into_iter().filter(|binding|binding.boundary.is_none()).map(|binding|RecordId::new("compiler_view",binding.view.identity.hex())).collect::<Vec<_>>();
+        let mut bindings=Variables::new();bindings.insert("views",roots);
+        let mut members=self.track_rows(NativeRows::new(self.client.query("SELECT node FROM compiler_view_member WHERE view IN $views ORDER BY node").bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
+        while let Some(member)=members.next_native().await? {
+            let Some(Value::RecordId(node))=value_object(&member).and_then(|row|row.get("node")) else{return Err(ModelError::Schema("canonical membership pointer"));};
+            if node.table.as_str()!=table{continue;}
+            frontier.push(node.clone());
+            if frontier.len()==crate::loader::NATIVE_WINDOW_ROWS {self.expand_graph_frontier(&mut sorted,&frontier,entities).await?;frontier.clear();}
         }
         if !frontier.is_empty() {
             self.expand_graph_frontier(&mut sorted, &frontier, entities)
@@ -1146,9 +1241,9 @@ impl NativeCompilerStore {
         frontier: &[RecordId],
         entities: bool,
     ) -> Result<(), ModelError> {
-        for node in frontier {
-            sorted.push(pointer_row(node.clone())).await?;
-        }
+        let mut bindings=Variables::new();bindings.insert("nodes",frontier.to_vec());
+        let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT id,anchor FROM $nodes").bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
+        while let Some(value)=rows.next_native().await? {let object=value_object(&value).ok_or(ModelError::Schema("canonical payload anchor"))?;let Some(Value::RecordId(anchor))=object.get("anchor") else{return Err(ModelError::Schema("canonical payload anchor"));};let Some(Value::RecordId(node))=object.get("id") else{return Err(ModelError::Schema("canonical payload pointer"));};let mut pointer=Object::new();pointer.insert("id",anchor.clone());pointer.insert("payload",node.clone());sorted.push(Value::Object(pointer)).await?;}
         if entities {
             let mut bindings = Variables::new();
             bindings.insert("sources", frontier.to_vec());
@@ -1161,11 +1256,13 @@ impl NativeCompilerStore {
                 if alias.table.as_str() != "entity" {
                     return Err(ModelError::Conflict("canonical alias family"));
                 }
-                sorted.push(pointer_row(alias)).await?;
+                let mut variables=Variables::new();variables.insert("node",alias.clone());let mut response=self.client.query("SELECT VALUE anchor FROM $node").bind(variables).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let anchors:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;let [anchor]=anchors.as_slice() else{return Err(ModelError::Schema("canonical alias anchor"));};let mut pointer=Object::new();pointer.insert("id",anchor.clone());pointer.insert("payload",alias);sorted.push(Value::Object(pointer)).await?;
             }
         }
         Ok(())
     }
+    pub fn attempt(&self) -> ContentHash { self.attempt }
+    pub fn generation(&self) -> ContentHash { self.generation }
     pub fn database(&self) -> &d::serving::Name {
         &self.database
     }
@@ -1446,30 +1543,8 @@ impl NativeCompilerStore {
     }
     pub async fn abandon(&self) -> Result<(), ModelError> {
         let mut completion = self.drain_report().await;
-        let identity = format!("{}/{}", self.namespace.as_str(), self.database.as_str());
-        if completion.local == d::completion::LocalState::Terminal
-            && completion.remote == d::completion::RemoteState::Confirmed
-            && completion.committed.is_empty()
-        {
-            let cleanup = async {
-                self.client
-                    .query(format!(
-                        "REMOVE DATABASE IF EXISTS `{}`",
-                        self.database.as_str()
-                    ))
-                    .await
-                    .map_err(crate::loader::write_failure)?
-                    .check()
-                    .map_err(|error| ModelError::Cause(Box::new(error)))?;
-                Ok(())
-            }
-            .await;
-            completion.cleanup(identity, cleanup);
-        } else {
-            completion
-                .storage
-                .push(d::completion::StorageState::Orphan(identity));
-        }
+        // Abandon releases this attempt only; shared immutable completed data survives.
+        completion.step("native attempt abandonment",crate::control::close_attempt(&self.client,self.attempt,"abandoned").await);
         completion.step(
             "native session invalidation",
             self.client
@@ -1557,7 +1632,7 @@ impl NativeCompilerStore {
     ) -> Result<ContentHash, ModelError> {
         self.check_failed()?;
         self.validate_inputs(&spec.inputs).await?;
-        let id = spec.identity()?;
+        let id = attempt_contribution(self.attempt,spec.identity()?);
         {
             let mut specifications = self
                 .specifications
@@ -1575,19 +1650,15 @@ impl NativeCompilerStore {
             Bytes::from(serde_json::to_vec(&spec).map_err(ModelError::codec)?),
         );
         row.insert("completed", false);
+        row.insert("attempt",RecordId::new("native_attempt",self.attempt.hex()));
         for (field, value) in contribution_projection(&spec) {
             row.insert(field, value);
         }
         let mut b = Variables::new();
         b.insert("row", row);
         let write = async {
-            self.client
-                .query("INSERT INTO compiler_contribution $row RETURN NONE")
-                .bind(b)
-                .await
-                .map_err(crate::loader::write_failure)?
-                .check()
-                .map_err(ModelError::codec)?;
+            crate::control::effect(&self.client,Some(self.attempt),"IF $__owner.admitted { THROW 'native attempt canonical content admitted'; }; CREATE $row.id CONTENT $row RETURN NONE",b).await?;
+            self.hold_contribution_inputs(id,&spec).await?;
             Ok::<(), ModelError>(())
         }
         .await;
@@ -1615,7 +1686,7 @@ impl NativeCompilerStore {
     ) -> BoxFuture<'a, Result<(), ModelError>> {
         async move {
             let lease = self.admit_mutation("write_batch", true)?;
-            let result = lease.within(self.write_batch_inner(contribution, relation, batch)).await;
+            let result = WRITING_CONTRIBUTION.scope(*contribution,lease.within(self.write_batch_inner(contribution, relation, batch))).await;
             let result = lease.finish_with(result);
             if result.is_err() {
                 self.fail();
@@ -1702,12 +1773,12 @@ impl NativeCompilerStore {
                     if let Some(GraphRow::Entity(source)) = row {
                         source
                             .canonical_place_endpoint()
-                            .map(|target| (source.id(), target))
+                            .map(|target|crate::loader::entity_payload_id(source).map(|physical|(physical,target)))
                     } else {
                         None
                     }
                 })
-                .collect::<Vec<_>>()
+                .collect::<Result<Vec<_>,_>>()?
         } else {
             Vec::new()
         };
@@ -1717,14 +1788,14 @@ impl NativeCompilerStore {
             let key = hex::encode(ids.value(i));
             let (node, content, canonical, kind, subtype) = match graph {
                 Some(GraphRow::Entity(row)) => (
-                    RecordId::new("entity", row.id().0.hex()),
+                    crate::loader::entity_payload_id(&row)?,
                     row.content(),
                     serde_json::to_vec(&row).map_err(ModelError::codec)?,
                     Some(row.kind() as i64),
                     row.subtype(),
                 ),
                 Some(GraphRow::Assertion(row)) => (
-                    RecordId::new("assertion", row.id().0.hex()),
+                    crate::loader::assertion_payload_id(&row)?,
                     row.content(),
                     serde_json::to_vec(&row).map_err(ModelError::codec)?,
                     Some(row.kind as i64),
@@ -1732,11 +1803,8 @@ impl NativeCompilerStore {
                 ),
                 None => {
                     let bytes = serde_json::to_vec(&body).map_err(ModelError::codec)?;
-                    let mut sink = KeySink::new("compiler-backing-key/v1");
-                    relation.name().to_string().encode(&mut sink);
-                    sink.part(b"key", ids.value(i));
                     (
-                        RecordId::new("compiler_record", sink.finish().hex()),
+                        crate::loader::payload_id("compiler_record",relation.name(),ids.value(i),ContentHash::of(&bytes))?,
                         ContentHash::of(&bytes),
                         bytes,
                         None,
@@ -1785,7 +1853,7 @@ impl NativeCompilerStore {
         )?;
         let mut aliases = Vec::new();
         for ((source, target), view) in native_aliases.into_iter().zip(alias_values) {
-            let node = RecordId::new("entity", target.id().0.hex());
+            let node = crate::loader::entity_payload_id(&target)?;
             let physical = crate::adapter::physical_row(
                 node.clone(),
                 target.content(),
@@ -1799,11 +1867,11 @@ impl NativeCompilerStore {
                 return Err(ModelError::Conflict("native alias payload"));
             }
             let mut sink = KeySink::new("native-place-alias/v1");
-            source.0.encode(&mut sink);
-            target.id().0.encode(&mut sink);
+            sink.part(b"source",&serde_json::to_vec(&source).map_err(ModelError::codec)?);
+            sink.part(b"target",&serde_json::to_vec(&node).map_err(ModelError::codec)?);
             let mut alias = Object::new();
             alias.insert("id", RecordId::new("compiler_alias", sink.finish().hex()));
-            alias.insert("source", RecordId::new("entity", source.0.hex()));
+            alias.insert("source", source);
             alias.insert("target", node);
             aliases.push(Value::Object(alias));
         }
@@ -1829,74 +1897,16 @@ impl NativeCompilerStore {
     }
 
     async fn ensure_physical_rows(self: &Arc<Self>, rows: Vec<Value>) -> Result<(), ModelError> {
-        // Read only bounded candidate physical IDs; compare full canonical payloads, not digest
-        // alone. Derived schema/index fields are not a second editable semantic payload.
         for window in crate::loader::NativeWindows::new(rows) {
-            let mut nodes = BTreeMap::new();
-            for row in window? {
-                let id = value_object(&row)
-                    .and_then(|object| object.get("id"))
-                    .ok_or(ModelError::Schema("native payload id"))?
-                    .to_sql();
-                nodes.insert(id, row);
-            }
-            let mut b = Variables::new();
-            b.insert(
-                "ids",
-                nodes
-                    .values()
-                    .map(|v| {
-                        value_object(v)
-                            .and_then(|o| o.get("id"))
-                            .cloned()
-                            .ok_or(ModelError::Schema("native payload id"))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            );
-            let mut response = self
-                .client
-                .query("SELECT * FROM $ids")
-                .bind(b)
-                .await
-                .map_err(|error| {
-                    ModelError::codec(format!("compiler physical candidate read: {error}"))
-                })?
-                .check()
-                .map_err(|error| {
-                    ModelError::codec(format!("compiler physical candidate read: {error}"))
-                })?;
-            let existing: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
-            for stored in existing {
-                let object =
-                    value_object(&stored).ok_or(ModelError::Schema("stored native row"))?;
-                let id = object
-                    .get("id")
-                    .ok_or(ModelError::Schema("stored native row id"))?
-                    .to_sql();
-                if let Some(expected) = nodes.remove(&id) {
-                    let expected =
-                        value_object(&expected).ok_or(ModelError::Schema("expected native row"))?;
-                    if serde_json::to_vec(expected).map_err(ModelError::codec)?
-                        != serde_json::to_vec(object).map_err(ModelError::codec)?
-                    {
-                        return Err(ModelError::Conflict("native same-key payload"));
-                    }
-                }
-            }
-            for table in ["entity", "assertion", "compiler_record"] {
-                let rows = nodes
-                    .values()
-                    .filter(|v| {
-                        value_object(v)
-                            .and_then(|o| o.get("id"))
-                            .is_some_and(|id| id.to_sql().starts_with(&format!("{table}:")))
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                Loader::new(self.client.clone())
-                    .insert(table, rows, false)
-                    .await?;
-            }
+            let rows=window?;
+            let anchors=rows.iter().filter_map(|row|value_object(row).and_then(|row|row.get("anchor"))).filter_map(|value|if let Value::RecordId(id)=value {let mut anchor=Object::new();anchor.insert("id",id.clone());anchor.insert("family",id.table.as_str().trim_end_matches("_anchor").to_string());if let RecordIdKey::String(key)=&id.key {anchor.insert("nominal",key.clone());Some(Value::Object(anchor))}else{None}}else{None}).collect();
+            crate::control::ensure_rows_owned(&self.client,Some(self.attempt),WRITING_CONTRIBUTION.try_with(|id|*id).ok(),anchors).await?;
+            crate::control::ensure_rows_owned(&self.client,Some(self.attempt),WRITING_CONTRIBUTION.try_with(|id|*id).ok(),rows.clone()).await?;
+            let ids=rows.iter().filter_map(|row|value_object(row).and_then(|row|row.get("id")).and_then(|id|if let Value::RecordId(id)=id {Some(id.clone())}else{None})).collect::<Vec<_>>();
+            let owner=WRITING_CONTRIBUTION.try_with(|id|RecordId::new("compiler_contribution",id.hex())).unwrap_or_else(|_|RecordId::new("native_attempt",self.attempt.hex()));
+            crate::control::hold(&self.client,Some(self.attempt),owner,ids).await?;
+            let references=rows.iter().filter_map(value_object).flat_map(|row|{let owner=row.get("id").and_then(|id|if let Value::RecordId(id)=id {Some(id.clone())}else{None});["anchor","in","out","source"].into_iter().filter_map(move |field|{let owner=owner.clone()?;let Value::RecordId(object)=row.get(field)? else{return None;};Some((owner,object.clone()))})}).collect();
+            crate::control::hold_many(&self.client,Some(self.attempt),references).await?;
         }
         Ok(())
     }
@@ -1943,74 +1953,18 @@ impl NativeCompilerStore {
         rows: Vec<Value>,
         conflict: &'static str,
     ) -> Result<(), ModelError> {
-        if rows.is_empty() {
-            return Ok(());
-        }
-        let mut candidates = BTreeMap::new();
-        for row in rows {
-            let id = value_object(&row)
-                .and_then(|row| row.get("id"))
-                .ok_or(ModelError::Schema("immutable row key"))?
-                .to_sql();
-            if let Some(previous) = candidates.insert(id, row.clone())
-                && previous != row
-            {
-                return Err(ModelError::Conflict(conflict));
-            }
-        }
-        for window in crate::loader::NativeWindows::new(candidates.into_values().collect()) {
-            let mut candidates = BTreeMap::new();
-            for row in window? {
-                let id = value_object(&row)
-                    .and_then(|row| row.get("id"))
-                    .ok_or(ModelError::Schema("immutable row key"))?
-                    .to_sql();
-                candidates.insert(id, row);
-            }
-            let ids = candidates
-                .values()
-                .map(|row| {
-                    value_object(row)
-                        .expect("checked object")
-                        .get("id")
-                        .expect("checked key")
-                        .clone()
-                })
-                .collect::<Vec<_>>();
-            let mut b = Variables::new();
-            b.insert("ids", ids);
-            let mut result = self
-                .client
-                .query("SELECT * FROM $ids")
-                .bind(b)
-                .await
-                .map_err(|error| {
-                    ModelError::codec(format!(
-                        "compiler immutable {table} candidate read: {error}"
-                    ))
-                })?
-                .check()
-                .map_err(|error| {
-                    ModelError::codec(format!(
-                        "compiler immutable {table} candidate read: {error}"
-                    ))
-                })?;
-            let actual: Vec<Value> = result.take(0).map_err(ModelError::codec)?;
-            for row in actual {
-                let id = value_object(&row)
-                    .and_then(|row| row.get("id"))
-                    .ok_or(ModelError::Schema("stored immutable row key"))?
-                    .to_sql();
-                if candidates.remove(&id) != Some(row) {
-                    return Err(ModelError::Conflict(conflict));
-                }
-            }
-            Loader::new(self.client.clone())
-                .insert(table, candidates.into_values().collect(), false)
-                .await?;
+        let _= (table,conflict);
+        for window in crate::loader::NativeWindows::new(rows) {
+            let rows=window?;
+            crate::control::ensure_rows_owned(&self.client,Some(self.attempt),WRITING_CONTRIBUTION.try_with(|id|*id).ok(),rows.clone()).await?;
+            let owner=WRITING_CONTRIBUTION.try_with(|id|RecordId::new("compiler_contribution",id.hex())).unwrap_or_else(|_|RecordId::new("native_attempt",self.attempt.hex()));
+            let ids=rows.iter().filter_map(|row|value_object(row).and_then(|row|row.get("id"))).filter_map(|value|if let Value::RecordId(id)=value {Some(id.clone())}else{None}).collect();crate::control::hold(&self.client,Some(self.attempt),owner,ids).await?;
+            if table=="original_chunk" {let references=rows.iter().filter_map(value_object).filter_map(|row|match (row.get("id"),row.get("source")){(Some(Value::RecordId(id)),Some(Value::RecordId(source)))=>Some((source.clone(),id.clone())),_=>None}).collect();crate::control::hold_many(&self.client,Some(self.attempt),references).await?;}
+
         }
         Ok(())
     }
+
     pub async fn complete_contribution(
         self: &Arc<Self>,
         id: ContentHash,
@@ -2070,8 +2024,23 @@ impl NativeCompilerStore {
             .get(&id)
             .cloned()
             .ok_or(ModelError::Conflict("unknown native contribution"))?;
+        self.hold_contribution_inputs(id,&spec).await?;
         if completed {
-            return Err(ModelError::Conflict("duplicate contribution completion"));
+            let descriptor=self.completed_contribution(id).await?;
+            if descriptor.outcome!=outcome.code(){return Err(ModelError::Conflict("retained contribution outcome"));}
+            let mut views=BTreeMap::new();
+            for relation in outputs {
+                let singleton=self.contribution_view_inner(id,relation).await?;
+                let mut contributions=previous.get(relation.name()).map(|view|view.contributions.clone()).unwrap_or_default();contributions.extend(singleton.contributions);
+                let candidate=CompletedView::new(relation.name().into(),contributions,0)?;
+                let budget=ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
+                let prepared=self.prepare_memberships(&candidate,&budget).await?;
+                let mut ordered=AsyncOrderedCandidates::new_registered(prepared,&budget,self.blocking_owner()?,self.blocking_observer()?).await?;
+                let mut count=0u64;loop {let rows=ordered.next_batch(crate::loader::NATIVE_WINDOW_ROWS).await?;if rows.is_empty(){break;}count+=rows.len() as u64;}
+                let view=CompletedView::new(candidate.relation,candidate.contributions,count)?;
+                self.registered_or_install_view(&view).await?;views.insert(relation.name().to_string(),view);
+            }
+            return Ok(views);
         }
         let prior_ids = outputs
             .iter()
@@ -2167,13 +2136,7 @@ impl NativeCompilerStore {
         );
         b.insert("logical", logical.hex());
         b.insert("outcome", outcome.code());
-        let response=self.client.query("UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true WHERE completed=false RETURN VALUE completed").bind(b).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
-        let mut response = response;
-        let success: Vec<bool> = response.take(0).map_err(ModelError::codec)?;
-        if success != vec![true] {
-            self.fail();
-            return Err(ModelError::Conflict("native completion transition"));
-        }
+        crate::control::effect(&self.client,Some(self.attempt),"LET $owner=SELECT * FROM ONLY $id FOR UPDATE; IF $owner.completed OR $owner.attempt != $__attempt { THROW 'native contribution completion fenced'; }; UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true RETURN NONE",b).await?;
         self.specifications
             .lock()
             .map_err(|_| ModelError::Conflict("native contribution owner"))?
@@ -2196,25 +2159,7 @@ impl NativeCompilerStore {
                 .checked_add(new)
                 .ok_or(ModelError::Schema("native union count overflow"))?;
             let view = CompletedView::new(relation.name().into(), contributions, count)?;
-            let mut row = Object::new();
-            row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
-            row.insert(
-                "descriptor",
-                Bytes::from(serde_json::to_vec(&view).map_err(ModelError::codec)?),
-            );
-            for (field, value) in view_projection(&view)? {
-                row.insert(field, value);
-            }
-            let mut b = Variables::new();
-            b.insert("row", row);
-            self.client
-                .query("UPSERT $row.id CONTENT $row RETURN NONE")
-                .bind(b)
-                .await
-                .map_err(crate::loader::write_failure)?
-                .check()
-                .map_err(ModelError::codec)?;
-            self.remember_view(&view)?;
+            self.registered_or_install_view(&view).await?;
             views.insert(relation.name().to_string(), view);
         }
         Ok(views)
@@ -2257,7 +2202,7 @@ impl NativeCompilerStore {
         let [row] = rows.as_slice() else { return Err(ModelError::Conflict("missing completed contribution")); };
         validate_state_row("compiler_contribution", row)?;
         let descriptor: CompletedContribution = decode_descriptor(row)?;
-        if descriptor.spec.identity()? != id { return Err(ModelError::Conflict("completed contribution identity")); }
+        if attempt_contribution(self.attempt,descriptor.spec.identity()?) != id && !self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor owner"))?.values().any(|known|*known==id) { return Err(ModelError::Conflict("completed contribution identity")); }
         let logical = descriptor.identity()?;
         let output = descriptor.outputs.get(relation.name()).ok_or(ModelError::Conflict("undeclared contribution output"))?;
         self.remember_contributor(logical, id)?;
@@ -2374,7 +2319,8 @@ impl NativeCompilerStore {
         let mut backing = self.track_rows(
             NativeRows::new(
                 self.client
-                    .query("SELECT * FROM compiler_record ORDER BY id")
+                    .query(self.state_query("compiler_record"))
+                    .bind(self.state_bindings().await?)
                     .stream_items()
                     .map_err(ModelError::codec)?,
                 1,
@@ -2390,7 +2336,7 @@ impl NativeCompilerStore {
             admit_backing_row(&mut pending, &mut pending_bytes, row)?;
         }
         validate_backing_batch(&pending)?;
-        let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT VALUE id FROM compiler_membership WHERE node.semantic_type IS NONE OR node.semantic_type != relation OR node.semantic_key != semantic_key OR node.content != content OR contribution.completed != true LIMIT 1").stream_items().map_err(ModelError::codec)?,1)?)?;
+        let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT VALUE id FROM compiler_membership WHERE contribution IN $state_owners AND (node.semantic_type IS NONE OR node.semantic_type != relation OR node.semantic_key != semantic_key OR node.content != content OR contribution.completed != true) LIMIT 1").bind(self.state_bindings().await?).stream_items().map_err(ModelError::codec)?,1)?)?;
         if rows.next().await?.is_some() {
             return Err(ModelError::Conflict(
                 "completed membership backing/visibility",
@@ -2398,7 +2344,8 @@ impl NativeCompilerStore {
         }
         let mut descriptors = self.track_rows(NativeRows::new(
             self.client
-                .query("SELECT * FROM compiler_contribution ORDER BY id")
+                .query(self.state_query("compiler_contribution"))
+                .bind(self.state_bindings().await?)
                 .stream_items()
                 .map_err(ModelError::codec)?,
             1,
@@ -2427,7 +2374,7 @@ impl NativeCompilerStore {
             let mut variables = Variables::new();
             variables.insert(
                 "contribution",
-                RecordId::new("compiler_contribution", contribution.spec.identity()?.hex()),
+                value_object(&row).and_then(|row|row.get("id")).cloned().ok_or(ModelError::Schema("audited contribution identity"))?,
             );
             let mut members=self.track_rows(NativeRows::new(self.client.query("SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WHERE contribution=$contribution ORDER BY relation,semantic_key").bind(variables).stream_items().map_err(ModelError::codec)?,1)?)?;
             while let Some(row) = members.next().await? {
@@ -2575,27 +2522,19 @@ impl NativeCompilerStore {
             "logical",
             logical.iter().map(ContentHash::hex).collect::<Vec<_>>(),
         );
-        let mut response = self
-            .client
-            .query(
-                "SELECT * FROM compiler_contribution WHERE completed=true AND logical IN $logical",
-            )
-            .bind(bindings)
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        let rows: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+        // Repeated compatible attempts may retain many physical copies of one logical
+        // descriptor. Validate every copy without materializing that entire result set.
+        let mut rows=self.track_rows(NativeRows::new(self.client.query(
+            "SELECT * FROM compiler_contribution WHERE completed=true AND logical IN $logical",
+        ).bind(bindings).stream_items().map_err(ModelError::codec)?,1)?)?;
         let mut completed = BTreeMap::new();
-        for row in rows {
+        while let Some(row)=rows.next().await? {
             validate_state_row("compiler_contribution", &row)?;
             let descriptor = decode_descriptor::<CompletedContribution>(&row)?;
-            if completed
-                .insert(descriptor.identity()?, descriptor)
-                .is_some()
-            {
-                return Err(ModelError::Conflict("duplicate completed view contributor"));
-            }
+            let logical=descriptor.identity()?;
+            let physical=value_object(&row).and_then(|row|row.get("id")).and_then(|id|if let Value::RecordId(id)=id {if let RecordIdKey::String(key)=&id.key {hex::decode(key).ok().and_then(|bytes|bytes.try_into().ok()).map(ContentHash)}else{None}}else{None}).ok_or(ModelError::Schema("completed contributor identity"))?;
+            if let Some(old)=completed.get(&logical) {if old!=&descriptor{return Err(ModelError::Conflict("completed contributor identity collision"));}} else {completed.insert(logical,descriptor);}
+            self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor owner"))?.entry(logical).or_insert(physical);
         }
         if completed.len() != logical.len() || logical.iter().any(|id| !completed.contains_key(id))
         {
@@ -2610,9 +2549,6 @@ impl NativeCompilerStore {
                 }
             }
         }
-        for (logical, descriptor) in completed {
-            self.remember_contributor(logical, descriptor.spec.identity()?)?;
-        }
         Ok(())
     }
 
@@ -2625,13 +2561,7 @@ impl NativeCompilerStore {
             .known_contributors
             .lock()
             .map_err(|_| ModelError::Conflict("native contributor owner"))?;
-        if let Some(old) = known.insert(logical, physical)
-            && old != physical
-        {
-            return Err(ModelError::Conflict(
-                "completed contributor identity collision",
-            ));
-        }
+        known.insert(logical,physical);
         Ok(())
     }
     fn view_owners(&self, view: &CompletedView) -> Result<Vec<ContentHash>, ModelError> {
@@ -2683,11 +2613,12 @@ impl NativeCompilerStore {
         binding.validate()?;
         self.registered_view(&binding.view).await?;
         let mut row = Object::new();
-        row.insert("id", RecordId::new("compiler_binding", binding.key().hex()));
+        row.insert("id", RecordId::new("compiler_binding", attempt_binding(self.attempt,binding.key()).hex()));
         row.insert(
             "descriptor",
             Bytes::from(serde_json::to_vec(&binding).map_err(ModelError::codec)?),
         );
+        row.insert("attempt",RecordId::new("native_attempt",self.attempt.hex()));
         for (field, value) in binding_projection(&binding) {
             row.insert(field, value);
         }
@@ -2695,7 +2626,7 @@ impl NativeCompilerStore {
         b.insert("row", row);
         if binding.boundary.is_some() {
             let mut lookup = Variables::new();
-            lookup.insert("id", RecordId::new("compiler_binding", binding.key().hex()));
+            lookup.insert("id", RecordId::new("compiler_binding", attempt_binding(self.attempt,binding.key()).hex()));
             let mut response = self
                 .client
                 .query("SELECT * FROM $id")
@@ -2716,13 +2647,8 @@ impl NativeCompilerStore {
                 return Ok(());
             }
         }
-        self.client
-            .query("UPSERT $row.id CONTENT $row RETURN NONE")
-            .bind(b)
-            .await
-            .map_err(crate::loader::write_failure)?
-            .check()
-            .map_err(ModelError::codec)?;
+        crate::control::effect(&self.client,Some(self.attempt),"IF $__owner.admitted { THROW 'native binding inventory admitted'; }; UPSERT $row.id CONTENT $row RETURN NONE; UPDATE $__attempt SET revision+=1 RETURN NONE",b).await?;
+        crate::control::hold(&self.client,Some(self.attempt),RecordId::new("native_attempt",self.attempt.hex()),vec![RecordId::new("compiler_view",binding.view.identity.hex())]).await?;
         Ok(())
     }
     pub async fn bindings(self: &Arc<Self>) -> Result<Vec<CompletedBinding>, ModelError> {
@@ -2731,9 +2657,10 @@ impl NativeCompilerStore {
         lease.finish_with(result)
     }
     async fn bindings_inner(self: &Arc<Self>) -> Result<Vec<CompletedBinding>, ModelError> {
+        if let Some(bindings)=self.published_bindings.lock().map_err(|_|ModelError::Conflict("published bindings"))?.clone(){return Ok(bindings);}
         let mut stream = self.track_rows(NativeRows::new(
             self.client
-                .query("SELECT * FROM compiler_binding ORDER BY id")
+                .query("SELECT * FROM compiler_binding WHERE attempt=$attempt ORDER BY id").bind(("attempt",RecordId::new("native_attempt",self.attempt.hex())))
                 .stream_items()
                 .map_err(ModelError::codec)?,
             1,
@@ -2759,25 +2686,7 @@ impl NativeCompilerStore {
         lease.finish_with(result)
     }
     async fn views_inner(self: &Arc<Self>) -> Result<Vec<CompletedView>, ModelError> {
-        let mut rows = self.track_rows(NativeRows::new(
-            self.client
-                .query("SELECT * FROM compiler_view ORDER BY id")
-                .stream_items()
-                .map_err(ModelError::codec)?,
-            1,
-        )?)?;
-        let mut views = Vec::new();
-        while let Some(row) = rows.next().await? {
-            validate_state_row("compiler_view", &row)?;
-            let object = value_object(&row).ok_or(ModelError::Schema("native completed view"))?;
-            let Some(Value::Bytes(bytes)) = object.get("descriptor") else {
-                return Err(ModelError::Schema("native completed view descriptor"));
-            };
-            let view: CompletedView = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-            view.validate()?;
-            views.push(view);
-        }
-        Ok(views)
+        Ok(self.state_closure().await?.0.into_values().collect())
     }
     pub async fn completed_state(self: &Arc<Self>) -> Result<CompletedStateIdentity, ModelError> {
         let lease = self.admit(false, "completed_state", false)?;
@@ -2805,23 +2714,15 @@ impl NativeCompilerStore {
         validate_backing: bool,
     ) -> Result<CompletedStateIdentity, ModelError> {
         self.wait_scans().await?;
-        let mut sink = KeySink::new("native-completed-state/v2");
+        let mut sink = KeySink::new("native-completed-state/v3");
         let mut counts = [0u64; 6];
         for (i, table) in STATE_TABLES.iter().enumerate() {
             table.to_string().encode(&mut sink);
-            let mut rows = self.track_rows(
-                NativeRows::new(
-                    self.client
-                        .query(format!("SELECT * FROM {table} ORDER BY id"))
-                        .stream_items()
-                        .map_err(ModelError::codec)?,
-                    1,
-                )?
-                .with_row_bytes(d::resources::MAX_ROW_BYTES),
-            )?;
+            let mut rows = self.portable_state_rows(table).await?;
             let mut pending = Vec::new();
             let mut pending_bytes = 0;
-            while let Some(row) = rows.next().await? {
+            loop {
+                let window=rows.next_batch(1).await?;let Some(row)=window.into_iter().next() else{break;};
                 validate_state_row(table, &row)?;
                 sink.part(
                     b"row",
@@ -2867,17 +2768,9 @@ impl NativeCompilerStore {
             .map_err(ModelError::codec)?;
         file.write_all(b"\n").map_err(ModelError::codec)?;
         for table in STATE_TABLES {
-            let mut rows = self.track_rows(
-                NativeRows::new(
-                    self.client
-                        .query(format!("SELECT * FROM {table} ORDER BY id"))
-                        .stream_items()
-                        .map_err(ModelError::codec)?,
-                    1,
-                )?
-                .with_row_bytes(d::resources::MAX_ROW_BYTES),
-            )?;
-            while let Some(row) = rows.next().await? {
+            let mut rows = self.portable_state_rows(table).await?;
+            loop {
+                let window=rows.next_batch(1).await?;let Some(row)=window.into_iter().next() else{break;};
                 serde_json::to_writer(
                     &mut file,
                     &StateRow {
@@ -2996,7 +2889,18 @@ impl NativeCompilerStore {
             self.insert_state_batch(pending_table.expect("nonempty state batch"), pending)
                 .await?;
         }
+        let imported=self.specifications.lock().map_err(|_|ModelError::Conflict("import contribution ownership"))?.iter().map(|(id,(spec,_))|(*id,spec.clone())).collect::<Vec<_>>();
+        // Targets may occur later in the portable table order. All inserted rows already
+        // have attempt holds; establish exact dependency and payload links once present.
+        for (id,spec) in &imported {self.hold_contribution_inputs(*id,spec).await?;
+            let owner=RecordId::new("compiler_contribution",id.hex());let mut rows=self.track_rows(NativeRows::new(self.client.query("SELECT VALUE node FROM compiler_membership WHERE contribution=$owner ORDER BY id").bind(("owner",owner.clone())).stream_items().map_err(ModelError::codec)?,1)?)?;let mut refs=Vec::new();
+            while let Some(value)=rows.next().await? {let Value::RecordId(node)=value else{return Err(ModelError::Schema("import membership target"));};refs.push((owner.clone(),node));if refs.len()==crate::loader::NATIVE_WINDOW_ROWS {crate::control::hold_many(&self.client,Some(self.attempt),std::mem::take(&mut refs)).await?;}}
+            crate::control::hold_many(&self.client,Some(self.attempt),refs).await?;
+        }
+        let imported=imported.into_iter().map(|(id,_)|id).collect::<Vec<_>>();
+        for window in imported.chunks(crate::loader::NATIVE_WINDOW_ROWS) {let mut bindings=Variables::new();bindings.insert("owners",window.iter().map(|id|RecordId::new("compiler_contribution",id.hex())).collect::<Vec<_>>());crate::control::effect(&self.client,Some(self.attempt),"UPDATE $owners SET completed=true RETURN NONE",bindings).await?;}
         self.verify_state_inner().await?;
+        for view in self.views_inner().await? {self.registered_or_install_view(&view).await?;}
         if &self.state_identity_inner(false).await? != expected {
             self.fail();
             return Err(ModelError::Conflict("completed state transport identity"));
@@ -3014,9 +2918,29 @@ impl NativeCompilerStore {
         if *table == "compiler_record" {
             validate_backing_batch(&rows)?;
         }
-        Loader::new(self.client.clone())
-            .insert(table, rows, false)
-            .await
+        let mut rebound=Vec::with_capacity(rows.len());
+        for value in rows {
+            let mut row=value_object(&value).ok_or(ModelError::Schema("import state object"))?.clone();
+            if *table=="compiler_contribution" {
+                let descriptor:CompletedContribution=decode_descriptor(&value)?;let id=attempt_contribution(self.attempt,descriptor.spec.identity()?);
+                row.insert("id",RecordId::new(*table,id.hex()));row.insert("attempt",RecordId::new("native_attempt",self.attempt.hex()));row.insert("completed",false);
+                self.specifications.lock().map_err(|_|ModelError::Conflict("import contribution ownership"))?.insert(id,(descriptor.spec.clone(),true));self.remember_contributor(descriptor.identity()?,id)?;
+            } else if *table=="compiler_membership" {
+                let Some(Value::RecordId(owner))=row.get("contribution") else{return Err(ModelError::Schema("import membership owner"));};
+                let target=self.specifications.lock().map_err(|_|ModelError::Conflict("import contribution ownership"))?.iter().find_map(|(id,(spec,_))|{let portable=attempt_contribution(ContentHash([0;32]),spec.identity().ok()?);if owner.key==RecordIdKey::String(portable.hex()){Some(*id)}else{None}}).ok_or(ModelError::Conflict("import membership owner"))?;
+                let Some(Value::String(relation))=row.get("relation") else{return Err(ModelError::Schema("import membership relation"));};let Some(Value::String(key))=row.get("semantic_key") else{return Err(ModelError::Schema("import membership key"));};
+                row.insert("id",membership_id(target,relation,&decode_nominal_key(key)?));row.insert("contribution",RecordId::new("compiler_contribution",target.hex()));
+            } else if *table=="compiler_binding" {let binding:CompletedBinding=decode_descriptor(&value)?;row.insert("id",RecordId::new(*table,attempt_binding(self.attempt,binding.key()).hex()));row.insert("attempt",RecordId::new("native_attempt",self.attempt.hex()));}
+            if *table=="compiler_view" {let view:CompletedView=decode_descriptor(&value)?;self.remember_view(&view)?;}
+            rebound.push(Value::Object(row));
+        }
+        let attempt=RecordId::new("native_attempt",self.attempt.hex());let mut holds=Vec::new();
+        for row in &rebound {let object=value_object(row).ok_or(ModelError::Schema("import state object"))?;let Some(Value::RecordId(id))=object.get("id") else{return Err(ModelError::Schema("import state identity"));};holds.push((attempt.clone(),id.clone()));
+            if *table=="compiler_membership" {let (Some(Value::RecordId(owner)),Some(Value::RecordId(node)))=(object.get("contribution"),object.get("node")) else{return Err(ModelError::Schema("import state membership"));};holds.push((owner.clone(),id.clone()));let _=node;}
+            if *table=="compiler_alias" {let (Some(Value::RecordId(source)),Some(Value::RecordId(target)))=(object.get("source"),object.get("target")) else{return Err(ModelError::Schema("import state alias"));};holds.push((source.clone(),id.clone()));holds.push((id.clone(),target.clone()));}
+        }
+        crate::control::ensure_rows(&self.client,Some(self.attempt),rebound).await?;
+        crate::control::hold_many(&self.client,Some(self.attempt),holds).await
     }
     pub async fn scan_rows(
         self: &Arc<Self>,
@@ -3761,7 +3685,7 @@ impl GraphRows {
                     {
                         return Err(ModelError::Conflict("canonical graph pointer order"));
                     }
-                    return Ok(Some(row));
+                    let mut row=row;if let Value::Object(object)=&mut row{object.remove("__graph_order");}return Ok(Some(row));
                 }
                 if !self.expected.is_empty() {
                     return Err(ModelError::Conflict("missing canonical graph backing"));
@@ -3777,7 +3701,7 @@ impl GraphRows {
             }
             for pointer in pointers {
                 let Some(Value::RecordId(node)) =
-                    value_object(&pointer).and_then(|row| row.get("id"))
+                    value_object(&pointer).and_then(|row| row.get("payload").or_else(||row.get("id")))
                 else {
                     return Err(ModelError::Schema("canonical ordered pointer"));
                 };
@@ -3791,7 +3715,7 @@ impl GraphRows {
                         NativeRows::new(
                             self.store
                                 .client
-                                .query(format!("SELECT {} FROM $nodes ORDER BY id", self.fields))
+                                .query(format!("SELECT {},anchor.nominal AS __graph_order FROM $nodes ORDER BY __graph_order", self.fields))
                                 .bind(bindings)
                                 .stream_items()
                                 .map_err(ModelError::codec)?,
@@ -3804,11 +3728,7 @@ impl GraphRows {
         }
     }
 }
-fn pointer_row(node: RecordId) -> Value {
-    let mut row = Object::new();
-    row.insert("id", node);
-    Value::Object(row)
-}
+
 fn decode_candidate(row: Value, relation: &str) -> Result<Candidate, ModelError> {
     let object = value_object(&row).ok_or(ModelError::Schema("native compact candidate"))?;
     let Some(Value::String(actual)) = object.get("relation") else {
@@ -3898,7 +3818,7 @@ fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBacking
         let descriptor: CompletedContribution =
             serde_json::from_slice(bytes).map_err(ModelError::codec)?;
         if object.get("logical") != Some(&Value::String(descriptor.identity()?.hex()))
-            || id.key != surrealdb::types::RecordIdKey::String(descriptor.spec.identity()?.hex())
+            || object.get("attempt").and_then(|value|if let Value::RecordId(attempt)=value {if let RecordIdKey::String(key)=&attempt.key {hex::decode(key).ok().and_then(|bytes|bytes.try_into().ok()).map(ContentHash)} else{None}}else{None}).is_none_or(|attempt| id.key != RecordIdKey::String(attempt_contribution(attempt,descriptor.spec.identity().expect("validated specification")).hex()))
         {
             return Err(ModelError::Conflict("completed contribution identity"));
         }
@@ -3959,7 +3879,8 @@ fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBacking
         let descriptor: CompletedBinding =
             serde_json::from_slice(bytes).map_err(ModelError::codec)?;
         descriptor.validate()?;
-        if id.key != surrealdb::types::RecordIdKey::String(descriptor.key().hex()) {
+        let attempt=object.get("attempt").and_then(|value|if let Value::RecordId(attempt)=value {if let RecordIdKey::String(key)=&attempt.key {hex::decode(key).ok().and_then(|bytes|bytes.try_into().ok()).map(ContentHash)} else{None}}else{None}).ok_or(ModelError::Schema("native binding attempt"))?;
+        if id.key != surrealdb::types::RecordIdKey::String(attempt_binding(attempt,descriptor.key()).hex()) {
             return Err(ModelError::Conflict("completed binding key"));
         }
         check_projection(object, binding_projection(&descriptor))?;
@@ -4055,12 +3976,9 @@ fn validate_compiler_backing(
         // recomputes ordinary-record nominal keys through the model callback.
         (key, None)
     };
-    let mut sink = KeySink::new("compiler-backing-key/v1");
-    name.encode(&mut sink);
-    sink.part(b"key", &key);
     if row.get("semantic_type") != Some(&Value::String(name.clone()))
         || row.get("semantic_key") != Some(&Value::String(hex::encode(key)))
-        || *id != RecordId::new("compiler_record", sink.finish().hex())
+        || *id != crate::loader::payload_id("compiler_record",name,&key,ContentHash::of(serde_json::to_vec(&Value::Object(body.clone())).map_err(ModelError::codec)?.as_slice()))?
     {
         return Err(ModelError::Conflict("compiler backing typed identity"));
     }
@@ -4308,11 +4226,8 @@ fn validate_backing_batch(rows: &[Value]) -> Result<(), ModelError> {
                 return Err(ModelError::Conflict("compiler backing typed identity"));
             }
             let canonical = serde_json::to_vec(&body).map_err(ModelError::codec)?;
-            let mut sink = KeySink::new("compiler-backing-key/v1");
-            name.to_string().encode(&mut sink);
-            sink.part(b"key", ids.value(index));
             let expected = crate::adapter::physical_row(
-                RecordId::new("compiler_record", sink.finish().hex()),
+                crate::loader::payload_id("compiler_record",name,ids.value(index),ContentHash::of(&canonical))?,
                 ContentHash::of(&canonical),
                 canonical,
                 None,
@@ -5187,10 +5102,7 @@ mod compiler_scope_tests {
         .pop()
         .unwrap();
         let canonical = serde_json::to_vec(&body).unwrap();
-        let mut sink = KeySink::new("compiler-backing-key/v1");
-        relation.name().to_string().encode(&mut sink);
-        sink.part(b"key", record.id().bytes());
-        let id = RecordId::new("compiler_record", sink.finish().hex());
+        let id = crate::loader::payload_id("compiler_record",relation.name(),record.id().bytes(),ContentHash::of(&canonical)).unwrap();
         let mut row = Object::new();
         row.insert("id", id.clone());
         row.insert("semantic_type", relation.name().to_string());

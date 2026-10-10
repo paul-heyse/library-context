@@ -12,7 +12,7 @@ use cpg_core::{
 use lctx_model::domain::{admission::Frontier, serving::*, stages::Profile, *};
 use lctx_serving::NativeService;
 use lctx_surrealdb::phase::{Phase, Terminal};
-use lctx_surrealdb::{NativeReader, RecordSelection, RuntimeConfig, reader};
+use lctx_surrealdb::{NativeReader, RecordSelection, RuntimeConfig};
 use std::{io::Write, os::unix::fs::OpenOptionsExt, sync::Arc};
 use tracing::{Instrument, instrument::WithSubscriber};
 
@@ -197,24 +197,20 @@ async fn call(
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign_cursor_refusal() {
+    catalog_journey(false).await;
+}
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires exclusive just service maintenance --native-clients"]
+async fn published_service_refuses_executable_epoch_drift_before_library_lookup() {
+    assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),"exclusive maintenance owner required");
+    catalog_journey(true).await;
+}
+async fn catalog_journey(check_epoch_drift:bool) {
     journey("catalog_ten_tools", async {
     let setup_phase = Phase::begin("journey_setup");
-    let file = std::env::var("LCTX_SURREAL_TEST_CONFIG")
-        .expect("owned disposable SurrealDB fixture required");
-    let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
-    let scratch = tempfile::tempdir().unwrap();
-    let config = RuntimeConfig {
-        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
-        username: fixture["admin_user"].as_str().unwrap().into(),
-        password: fixture["admin_password"].as_str().unwrap().into(),
-        viewer_username: "serving_fixture".into(),
-        viewer_password: format!("serving-fixture-{}", std::process::id()),
-        namespace: Name::new("gn_serving_journeys").unwrap(),
-        cache_database: Name::new("cache").unwrap(),
-        reuse: None,
-        serving_limits: None,
-        selection: scratch.path().join("selection.json"),
-    };
+    let scratch=tempfile::tempdir().unwrap();
+    let mut config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
+    config.selection=scratch.path().join("selection.json");
     let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
         .await
         .unwrap();
@@ -270,7 +266,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     assert!(!config.selection.exists());
     let reader = NativeReader::connect(
         &config.endpoint,
-        &config.viewer_credentials(),
+        &config.writer_credentials(),
         handle.clone(),
     )
     .await
@@ -438,6 +434,21 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     }
     let tools_phase = Phase::begin("tool_groups");
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
+    if check_epoch_drift {
+        let path=std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer configuration");
+        let installer=RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        assert_eq!(installer.database,config.database);
+        assert_eq!(installer.service_generation,config.service_generation);
+        let admin=lctx_surrealdb::reader::connect(&installer.endpoint,&installer.writer_credentials(),installer.namespace.as_str(),installer.database.as_str()).await.unwrap();
+        let function=handle.operation_definition_function();
+        admin.query(format!("DEFINE FUNCTION OVERWRITE {function}() {{ RETURN 'incompatible'; }} PERMISSIONS FULL;")).await.unwrap().check().unwrap();
+        let refusal=service.execute("find_operations",r#"{"library":"unqueried"}"#).await;
+        // Restore before asserting, including when the refusal itself regresses.
+        admin.query(format!("DEFINE FUNCTION OVERWRITE {function}() {{ RETURN '{}'; }} PERMISSIONS FULL;",lctx_serving::operation_definition().hex())).await.unwrap().check().unwrap();
+        admin.invalidate().await.unwrap();
+        assert_eq!(refusal.unwrap_err().public_failure(),PublicFailure::new(FailureKind::Incompatible));
+        lctx_publisher::inspection::audit(&config,&handle,&lctx_serving::native_definitions()).await.unwrap();
+    }
     let missing = service
         .execute("browse_library", r#"{"library":"absent-library"}"#)
         .await
@@ -489,28 +500,10 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         next["supported"]["items"][0]["member"],
         find["supported"]["items"][0]["member"]
     );
-    let mut foreign = handle.clone();
-    foreign.realization = ContentHash::of(b"foreign executable");
-    let foreign_client = reader::connect(
-        &config.endpoint,
-        &config.viewer_credentials(),
-        config.namespace.as_str(),
-        handle.database.database.as_str(),
-    )
-    .await
-    .unwrap();
-    let foreign_reader = NativeReader::new(foreign_client, foreign);
-    let foreign_service = NativeService::new(foreign_reader, ResourceLimits::default()).unwrap();
-    assert!(
-        foreign_service
-            .execute(
-                "find_operations",
-                &serde_json::json!({"library":library,"page":{"size":1,"cursor":token}})
-                    .to_string()
-            )
-            .await
-            .is_err()
-    );
+    let mut foreign:Cursor=serde_json::from_slice(&hex::decode(&token).unwrap()).unwrap();
+    foreign.binding.snapshot.realization=ContentHash::of(b"foreign executable");
+    let refused=service.execute("find_operations",&serde_json::json!({"library":library,"page":{"size":1,"cursor":foreign.encode().unwrap().as_str()}}).to_string()).await.unwrap_err();
+    assert_eq!(refused.public_failure(),PublicFailure::new(FailureKind::Incompatible));
     let browse = call(
         &service,
         "browse_library",
@@ -659,13 +652,13 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         .await
         .unwrap();
     let restored =
-        lctx_publisher::backup::restore(&config, &backup, &lctx_serving::native_definitions())
+        lctx_publisher::backup::restore_publication(&config, &backup, handle.publication, &lctx_serving::native_definitions())
             .await
             .unwrap();
     assert_eq!(restored.semantic, handle.semantic);
     let restored_reader = NativeReader::connect(
         &config.endpoint,
-        &config.viewer_credentials(),
+        &config.writer_credentials(),
         restored.clone(),
     )
     .await
@@ -727,11 +720,15 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     lctx_publisher::inspection::audit(&config, &restored, &lctx_serving::native_definitions())
         .await
         .unwrap();
+    restored_reader.close().await.unwrap();
     restored_reader.client().invalidate().await.unwrap();
     drop(restored_reader);
-    lctx_publisher::backup::retire(&config, &restored, true)
-        .await
-        .unwrap();
+    if restored != handle {
+        lctx_publisher::backup::retire(&config, &restored, true).await.unwrap();
+    }
+    service.close().await;
+    drop(service);
+    reader.close().await.unwrap();
     let retained = std::env::var("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG").ok();
     if let Some(path) = retained {
         let selection = std::path::Path::new(&path).with_extension("selected.json");
@@ -747,8 +744,8 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
         selected.sync_all().unwrap();
         let viewer = lctx_surrealdb::config::ViewerConfig {
             endpoint: config.endpoint.clone(),
-            username: config.viewer_username.clone(),
-            password: config.viewer_password.clone(),
+            username: config.username.clone(),
+            password: config.password.clone(),
             selection,
             serving_limits: None,
         };
@@ -762,23 +759,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
             .write_all(&serde_json::to_vec(&viewer).unwrap())
             .unwrap();
     } else {
-        let admin = reader::connect(
-            &config.endpoint,
-            &config.root_credentials(),
-            config.namespace.as_str(),
-            handle.database.database.as_str(),
-        )
-        .await
-        .unwrap();
-        admin
-            .query(format!(
-                "REMOVE DATABASE `{}`",
-                handle.database.database.as_str()
-            ))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
+        lctx_publisher::backup::retire(&config,&handle,true).await.unwrap();
     }
     }).await;
 }
@@ -787,24 +768,9 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
 async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     journey("browse_scopes", async {
     let setup_phase = Phase::begin("journey_setup");
-    let fixture: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned fixture required"))
-            .unwrap(),
-    )
-    .unwrap();
-    let scratch = tempfile::tempdir().unwrap();
-    let config = RuntimeConfig {
-        endpoint: fixture["grpc_endpoint"].as_str().unwrap().into(),
-        username: fixture["admin_user"].as_str().unwrap().into(),
-        password: fixture["admin_password"].as_str().unwrap().into(),
-        viewer_username: "scope_viewer".into(),
-        viewer_password: "owned-scope-viewer".into(),
-        namespace: Name::new("gn_remediation_scopes").unwrap(),
-        cache_database: Name::new("cache").unwrap(),
-        reuse: None,
-        serving_limits: None,
-        selection: scratch.path().join("selection.json"),
-    };
+    let scratch=tempfile::tempdir().unwrap();
+    let mut config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
+    config.selection=scratch.path().join("selection.json");
     let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
         .await
         .unwrap();
@@ -895,7 +861,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
             .await
             .unwrap();
-    let reader = NativeReader::connect(&config.endpoint, &config.viewer_credentials(), handle)
+    let reader = NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
         .await
         .unwrap();
     let sources = reader
@@ -1234,5 +1200,8 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         "changed operation request"
     );
     tools_phase.finish(Terminal::Passed);
+    service.close().await;
+    drop(service);
+    reader.close().await.unwrap();
     }).await;
 }

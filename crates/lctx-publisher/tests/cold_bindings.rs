@@ -8,7 +8,6 @@ use lctx_model::domain::{
         AnalysisContext, CoverageStatus, FactFamily, Provider, ProviderCoverage, ProviderRun,
     },
     completed::{CompletedBinding, CompletedView, ContributionSpec},
-    graph::{Assertion, Entity},
     input::InputRevision,
     producer_contract::{CapturedSourceBinding, ConfigurationBinding},
     source::CoverageScope,
@@ -297,7 +296,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     let expected_bindings = source.native().bindings().await.unwrap();
     let export = tempfile::NamedTempFile::new().unwrap();
     let state = source.native().export_state(export.path()).await.unwrap();
-    assert_eq!(state.format_version, 2);
+    assert_eq!(state.format_version, 3);
     let obsolete = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(
         obsolete.path(),
@@ -329,15 +328,13 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         outcome.completion.remote,
         lctx_model::domain::completion::RemoteState::Confirmed
     );
-    assert!(
-        outcome
-            .completion
-            .storage
-            .iter()
-            .any(|state| matches!(state,
-        lctx_model::domain::completion::StorageState::Removed(identity)
-        if identity.ends_with(refused.native().database().as_str())))
-    );
+    assert!(outcome.completion.storage.is_empty(),"abandonment must not remove shared storage");
+    let inspector=lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
+    let attempt=lctx_surrealdb::surrealdb::types::RecordId::new("native_attempt",refused.native().attempt().hex());
+    let mut response=inspector.query("SELECT VALUE state FROM $attempt; SELECT VALUE id FROM native_hold WHERE owner=$attempt").bind(("attempt",attempt)).await.unwrap().check().unwrap();
+    let states:Vec<String>=response.take(0).unwrap();assert_eq!(states,["abandoned"]);
+    let holds:Vec<lctx_surrealdb::surrealdb::types::RecordId>=response.take(1).unwrap();assert!(holds.is_empty(),"refused attempt must release only its outgoing holds");
+    inspector.invalidate().await.unwrap();
     assert!(outcome.completion.failures.iter().any(|failure| {
         failure.step == "import_state"
             && failure
@@ -347,36 +344,11 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     }));
 
     let restored = workspace(&config).await;
-    assert_ne!(source.native().database(), restored.native().database());
-    // Canonical graph payload is loaded independently; native transport supplies the exact
-    // contributions, dependencies, views and membership rather than re-executing a producer.
-    let admin = lctx_surrealdb::reader::connect(
-        &config.endpoint,
-        &config.root_credentials(),
-        restored.native().namespace().as_str(),
-        restored.native().database().as_str(),
-    )
-    .await
-    .unwrap();
-    let loader = lctx_surrealdb::Loader::new(admin);
-    let mut entities = vec![
-        Entity::from(input),
-        Entity::from(context),
-        Entity::from(scope),
-    ];
-    entities.extend(providers.into_iter().map(Entity::from));
-    entities.extend(runs.into_iter().map(Entity::from));
-    loader.entities(&entities).await.unwrap();
-    let assertions = families
-        .into_iter()
-        .map(|row| Assertion::from_record(row).unwrap())
-        .chain(
-            coverage
-                .into_iter()
-                .map(|row| Assertion::from_record(row).unwrap()),
-        )
-        .collect::<Vec<_>>();
-    loader.assertions(&assertions).await.unwrap();
+    assert_eq!(source.native().database(), restored.native().database());
+    assert_ne!(source.native().attempt(),restored.native().attempt());
+    // Shared immutable canonical payload survives attempt closure. Import independently
+    // validates the transported descriptors/membership against those retained actual bytes;
+    // it does not replay providers or mutate a separate database.
     restored
         .native()
         .import_state(export.path(), &state)

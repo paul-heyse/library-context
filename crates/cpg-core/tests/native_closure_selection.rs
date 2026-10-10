@@ -20,7 +20,7 @@ async fn fixture_admin(
 > {
     lctx_surrealdb::reader::connect(
         &config.endpoint,
-        &config.root_credentials(),
+        &config.writer_credentials(),
         store.namespace().as_str(),
         store.database().as_str(),
     )
@@ -442,10 +442,10 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
         .unwrap();
     let admin = fixture_admin(&store, &config).await;
     let package = Package {
-        name: "selected".into(),
+        name: format!("selected-{}",store.attempt().hex()),
     };
     let unrelated = Package {
-        name: "unrelated".into(),
+        name: format!("unrelated-{}",store.attempt().hex()),
     };
     let mut releases = (0..TRANSFER_ROWS + 3)
         .map(|index| Release {

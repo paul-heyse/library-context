@@ -1,208 +1,89 @@
-//! Explicit current-namespace inspection. No registry, history or routine content rehashing.
-use lctx_model::domain::{
-    ModelError,
-    graph::{Manifest, semantic_contract},
-    serving::SnapshotHandle,
-};
-use lctx_surrealdb::surrealdb::{
-    Surreal,
-    engine::remote::grpc::{Client, Grpc},
-    opt::auth::Root,
-    types::{Bytes, SerdeWrapper, SurrealValue, Value},
-};
-use lctx_surrealdb::{Loader, NativeReader, RuntimeConfig, reader};
-use std::sync::Arc;
+//! Exact publication inspection. A database can hold many unrelated immutable publications.
+use lctx_model::domain::{ModelError, graph::{Manifest,semantic_contract}, completed::{CompletedBinding,CompletedContribution,CompletedView}, serving::SnapshotHandle};
+use lctx_surrealdb::{Loader,NativeReader,RuntimeConfig,reader,surrealdb::{Surreal,engine::remote::grpc::Client,types::{Bytes,SurrealValue,RecordId,Variables}}};
 
-/// Current exact completed dependencies, intended for inspection and future invalidation
-/// planning. These describe retained products; they do not schedule cross-run execution.
 #[derive(serde::Serialize)]
 pub struct SnapshotDetails {
     pub handle:SnapshotHandle,
     pub manifest:Manifest,
-    pub contributions:Vec<lctx_model::domain::completed::CompletedContribution>,
-    pub views:Vec<lctx_model::domain::completed::CompletedView>,
-    pub bindings:Vec<lctx_model::domain::completed::CompletedBinding>,
+    pub contributions:Vec<CompletedContribution>,
+    pub views:Vec<CompletedView>,
+    pub bindings:Vec<CompletedBinding>,
 }
-pub async fn show(reader:&NativeReader)->Result<SnapshotDetails,ModelError> {
-    let (handle,manifest)=marker(reader.client()).await?.ok_or(ModelError::Schema("published snapshot marker"))?;
-    if &handle!=reader.handle(){return Err(ModelError::Conflict("pinned inspection handle"));}
-    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(reader.shared_client(),handle.database.namespace.clone(),handle.database.database.clone());
-    Ok(SnapshotDetails {handle,manifest,contributions:native.contributions().await?,views:native.views().await?,bindings:native.bindings().await?})
-}
-
-async fn metadata(client: &Surreal<Client>, sql: &str) -> Result<serde_json::Value, ModelError> {
-    let mut result = client
-        .query(sql)
-        .await
-        .map_err(ModelError::codec)?
-        .check()
-        .map_err(ModelError::codec)?;
-    let value: Value = result.take(0).map_err(ModelError::codec)?;
-    SerdeWrapper::<serde_json::Value>::from_value(value)
-        .map(|v| v.0)
-        .map_err(ModelError::codec)
-}
-
 #[derive(SurrealValue)]
-#[surreal(crate = "lctx_surrealdb::surrealdb::types")]
-struct Marker {
-    handle: String,
-    manifest: Bytes,
+#[surreal(crate="lctx_surrealdb::surrealdb::types")]
+pub(crate) struct Marker {pub handle:String,pub manifest:Bytes,pub views:Bytes}
+fn decode(row:Marker)->Result<(SnapshotHandle,Manifest,Vec<CompletedBinding>),ModelError>{
+    let handle:SnapshotHandle=serde_json::from_slice(&hex::decode(&row.handle).map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+    if hex::encode(serde_json::to_vec(&handle).map_err(ModelError::codec)?)!=row.handle{return Err(ModelError::Conflict("canonical publication handle"));}
+    handle.validate_identity()?;
+    let manifest=Manifest::decode(&row.manifest)?;
+    let views:Vec<CompletedBinding>=serde_json::from_slice(&row.views).map_err(ModelError::codec)?;
+    if manifest.content()!=handle.semantic || crate::native_publication::view_identity(&views)?!=handle.view{return Err(ModelError::Conflict("publication exact manifest/view"));}
+    Ok((handle,manifest,views))
 }
-
-async fn marker(
-    client: &Surreal<Client>,
-) -> Result<Option<(SnapshotHandle, Manifest)>, ModelError> {
-    let info = metadata(client, "INFO FOR DB").await?;
-    if !info
-        .get("tables")
-        .and_then(serde_json::Value::as_object)
-        .ok_or(ModelError::Schema("database table inventory"))?
-        .contains_key("publication")
-    {
-        return Ok(None);
-    }
-    let mut result = client
-        .query("SELECT handle,manifest FROM publication:current")
-        .await
-        .map_err(ModelError::codec)?
-        .check()
-        .map_err(ModelError::codec)?;
-    let markers: Vec<Marker> = result.take(0).map_err(ModelError::codec)?;
-    if markers.is_empty() {
-        return Ok(None);
-    }
-    let row = markers
-        .first()
-        .filter(|_| markers.len() == 1)
-        .ok_or(ModelError::Schema("publication marker inventory"))?;
-    let handle: SnapshotHandle =
-        serde_json::from_slice(&hex::decode(&row.handle).map_err(ModelError::codec)?)
-            .map_err(ModelError::codec)?;
-    if hex::encode(serde_json::to_vec(&handle).map_err(ModelError::codec)?) != row.handle {
-        return Err(ModelError::Conflict("canonical publication handle"));
-    }
-    let manifest = Manifest::decode(&row.manifest)?;
-    manifest.validate()?;
-    if manifest.content() != handle.semantic {
-        return Err(ModelError::Conflict("publication semantic manifest"));
-    }
-    Ok(Some((handle, manifest)))
+pub(crate) async fn marker(client:&Surreal<Client>,handle:&SnapshotHandle)->Result<(Manifest,Vec<CompletedBinding>),ModelError>{
+    let mut vars=Variables::new();vars.insert("publication",RecordId::new("publication",handle.publication.hex()));
+    let mut response=client.query("SELECT handle,manifest,views FROM $publication").bind(vars).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let mut rows:Vec<Marker>=response.take(0).map_err(ModelError::codec)?;
+    if rows.len()!=1{return Err(ModelError::Schema("exact publication inventory"));}
+    let (actual,manifest,views)=decode(rows.remove(0))?;
+    if &actual!=handle{return Err(ModelError::Conflict("pinned publication handle"));}
+    Ok((manifest,views))
 }
-
-/// Enumerate surviving complete publications in the configured namespace, excluding control
-/// storage and private attempts without a marker. This is a live listing, not an audit/history.
-pub async fn list(config: &RuntimeConfig) -> Result<Vec<SnapshotHandle>, ModelError> {
-    let client = Surreal::new::<Grpc>(
-        config
-            .endpoint
-            .strip_prefix("grpc://")
-            .ok_or(ModelError::Schema("managed gRPC endpoint"))?,
-    )
-    .await
-    .map_err(ModelError::codec)?;
-    client
-        .signin(Root {
-            username: config.username.clone(),
-            password: config.password.clone(),
-        })
-        .await
-        .map_err(ModelError::codec)?;
-    // Avoid use_db entirely on the enumeration session, and do not create a missing namespace.
-    let root = metadata(&client, "INFO FOR ROOT").await?;
-    if !root
-        .get("namespaces")
-        .and_then(serde_json::Value::as_object)
-        .ok_or(ModelError::Schema("namespace inventory"))?
-        .contains_key(config.namespace.as_str())
-    {
-        return Ok(vec![]);
-    }
-    client
-        .use_ns(config.namespace.as_str())
-        .await
-        .map_err(ModelError::codec)?;
-    let namespace = metadata(&client, "INFO FOR NS").await?;
-    let names = namespace
-        .get("databases")
-        .and_then(serde_json::Value::as_object)
-        .ok_or(ModelError::Schema("namespace database inventory"))?;
-    let contract = semantic_contract(&lctx_model::domain::model()?);
-    let mut handles = Vec::new();
-    for database in names.keys().filter(|name| {
-        name.starts_with("snapshot_") && name.as_str() != config.cache_database.as_str()
-    }) {
-        // Every point has its own session; namespace selection never changes on a reader.
-        let point = reader::connect(
-            &config.endpoint,
-            &config.root_credentials(),
-            config.namespace.as_str(),
-            database,
-        )
-        .await?;
-        if let Some((handle, manifest)) = marker(&point).await? {
-            if handle.database.namespace != config.namespace
-                || handle.database.database.as_str() != database
-            {
-                return Err(ModelError::Conflict("listed publication database"));
-            }
-            if manifest.semantic_contract != contract {
-                return Err(ModelError::Conflict("listed publication semantic contract"));
-            }
-            NativeReader::connect(
-                &config.endpoint,
-                &config.viewer_credentials(),
-                handle.clone(),
-            )
-            .await?;
-            handles.push(handle);
+pub async fn show(reader:&NativeReader)->Result<SnapshotDetails,ModelError>{
+    let handle=reader.handle().clone();
+    let (manifest,bindings)=marker(reader.client(),&handle).await?;
+    let logical=bindings.iter().flat_map(|binding|binding.view.contributions.iter().map(|id|id.hex())).collect::<std::collections::BTreeSet<_>>();
+    let mut vars=Variables::new();vars.insert("logical",logical.into_iter().collect::<Vec<_>>());
+    let mut response=reader.client().query("SELECT VALUE descriptor FROM compiler_contribution WHERE completed=true AND logical IN $logical ORDER BY logical").bind(vars).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let descriptors:Vec<Bytes>=response.take(0).map_err(ModelError::codec)?;
+    let mut exact=std::collections::BTreeMap::new();
+    for bytes in descriptors {
+        let contribution:CompletedContribution=serde_json::from_slice(&bytes).map_err(ModelError::codec)?;
+        let identity=contribution.identity()?;
+        if let Some(previous)=exact.insert(identity,(bytes.clone(),contribution)) {
+            if previous.0!=bytes {return Err(ModelError::Conflict("logical contribution descriptor collision"));}
         }
     }
-    Ok(handles)
+    let contributions=exact.into_values().map(|(_,contribution)|contribution).collect();
+    let views=bindings.iter().map(|binding|binding.view.clone()).collect();
+    Ok(SnapshotDetails{handle,manifest,contributions,views,bindings})
 }
-
-/// A deliberate cold audit reuses the publication authorities. It does not replay semantic
-/// producers, select a snapshot, install metadata or mutate canonical/derived content.
-/// The shared effective inventory excludes users/access definitions and live subscriptions;
-/// SurrealDB 3.3 INFO cannot report STRICT. Those properties are not certified by this audit.
-pub async fn audit(
-    config: &RuntimeConfig,
-    handle: &SnapshotHandle,
-    native_definitions: &str,
-) -> Result<(), ModelError> {
-    if handle.database.namespace != config.namespace {
-        return Err(ModelError::Conflict("audit namespace"));
-    }
-    NativeReader::connect(
-        &config.endpoint,
-        &config.viewer_credentials(),
-        handle.clone(),
-    )
-    .await?;
-    let client = reader::connect(
-        &config.endpoint,
-        &config.root_credentials(),
-        config.namespace.as_str(),
-        handle.database.database.as_str(),
-    )
-    .await?;
-    let (stored, manifest) = marker(&client)
-        .await?
-        .ok_or(ModelError::Schema("audit publication marker"))?;
-    if &stored != handle {
-        return Err(ModelError::Conflict("audit publication handle"));
-    }
-    if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
-        return Err(ModelError::Conflict("audit semantic contract"));
-    }
-    let loader = Loader::new(Arc::clone(&client));
-    loader.reconcile(&manifest).await?;
-    let native=lctx_surrealdb::compiler::NativeCompilerStore::from_existing(client.clone(),config.namespace.clone(),handle.database.database.clone());
-    if native.completed_state().await? != manifest.completed_state {return Err(ModelError::Conflict("audit completed state"));}
-    native.verify_state().await?;
-    crate::search::reconcile_search(&loader).await?;
-    if crate::verify_realization(&loader, native_definitions).await? != handle.realization {
-        return Err(ModelError::Conflict("audit current realization"));
-    }
-    Ok(())
+/// List immutable manifests inside the installed database; no namespace/database enumeration.
+pub async fn list(config:&RuntimeConfig)->Result<Vec<SnapshotHandle>,ModelError>{
+    let client=reader::connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await?;
+    lctx_surrealdb::control::check_installation(&client,config.service_generation).await?;
+    let result=async{
+        let mut response=client.query("SELECT handle,manifest,views FROM publication ORDER BY id").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let rows:Vec<Marker>=response.take(0).map_err(ModelError::codec)?;
+        let mut result=Vec::with_capacity(rows.len());
+        let contract=semantic_contract(&lctx_model::domain::model()?);
+        for row in rows {let(handle,manifest,_)=decode(row)?;
+            if handle.database.namespace!=config.namespace || handle.database.database!=config.database || handle.service_generation!=config.service_generation || manifest.semantic_contract!=contract{return Err(ModelError::Conflict("listed publication realization"));}
+            result.push(handle);
+        }Ok(result)
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("publication listing session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    lctx_model::domain::completion::complete(result,completion)
+}
+pub async fn audit(config:&RuntimeConfig,handle:&SnapshotHandle,native_definitions:&str)->Result<(),ModelError>{
+    if handle.database.namespace!=config.namespace || handle.database.database!=config.database || handle.service_generation!=config.service_generation{return Err(ModelError::Conflict("audit installation identity"));}
+    let reader=NativeReader::connect(&config.endpoint,&config.writer_credentials(),handle.clone()).await?;
+    let result=async {
+        let (manifest,bindings)=marker(reader.client(),handle).await?;
+        if manifest.semantic_contract!=semantic_contract(&lctx_model::domain::model()?){return Err(ModelError::Conflict("audit semantic contract"));}
+        let compiler=lctx_surrealdb::compiler::NativeCompilerStore::from_publication(reader.shared_client(),config.namespace.clone(),config.database.clone(),bindings.clone()).await?;
+        compiler.verify_state().await?;
+        if compiler.completed_state().await?!=manifest.completed_state {return Err(ModelError::Conflict("audit exact completed state"));}
+        let loader=Loader::for_views(reader.shared_client(),bindings.iter().filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect());
+        loader.reconcile(&manifest).await?;
+        crate::search::reconcile_search(&loader).await?;
+        if crate::verify_realization(&loader,native_definitions).await?!=handle.realization{return Err(ModelError::Conflict("audit pinned realization"));}
+        Ok(())
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    completion.step("audit reader pin release",reader.close().await);
+    completion.step("audit session invalidation",reader.client().invalidate().await.map_err(ModelError::codec));
+    lctx_model::domain::completion::complete(result,completion)
 }

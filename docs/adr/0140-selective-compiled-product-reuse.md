@@ -1,10 +1,10 @@
 ---
 id: ADR-0140
 title: Reuse pure compiled products through fresh native ownership
-status: accepted
+status: superseded
 date: 2026-10-09
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0143
 design: ["§B3", "§14.2", "§15.1", "§15.10"]
 evidence: Proposed
 revisit: A complete dependency domain or current semantic owner cannot be reconstructed without repeating the entire eligible operation.

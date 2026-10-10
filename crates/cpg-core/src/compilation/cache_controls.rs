@@ -1,15 +1,14 @@
-//! Tiny real-provider compilation matrix; optional reuse never replaces current admission.
+//! Independent recomputation versus admitted shared-content attachment with real providers.
 use super::*;
 use crate::{artifact, workspace::{CheckedInputs, WorkspaceOptions}};
 use cpg_extract::{acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput};
 use futures::TryStreamExt;
-use lctx_model::domain::{analysis::sources::SourceSnapshot, graph::Manifest, serving::Name};
-use std::{collections::BTreeSet, io::Write, path::Path, sync::{Mutex, atomic::{AtomicU64, Ordering}}};
+use lctx_model::domain::{analysis::sources::SourceSnapshot, graph::Manifest};
+use std::{collections::BTreeSet, io::Write, path::Path, sync::Mutex};
 use tracing::instrument::WithSubscriber;
 
 const ORIGINAL: &[u8] = b"def identity(value: int) -> int:\n    return value\n";
 const CHANGED: &[u8] = b"def identity(value: int) -> int:\n    return value\n\ndef extra() -> int:\n    return 1\n";
-static NEXT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Default)]
 struct CapturedLog(Arc<Mutex<Vec<u8>>>);
@@ -69,7 +68,7 @@ async fn independent_oracle(workspace: &Workspace, expected: &[u8], names: &[&st
 }
 async fn run(
     config: &lctx_surrealdb::RuntimeConfig, input: &Path, profile: Profile, frontier: Frontier,
-    cache: Option<Arc<lctx_surrealdb::NativeProductCache>>, expected: &[u8], names: &[&str],
+    reuse_admitted: bool, expected: &[u8], names: &[&str],
 ) -> Receipt {
     let log = CapturedLog::default();
     let writer = log.clone();
@@ -81,7 +80,7 @@ async fn run(
         let setup = lctx_surrealdb::phase::Phase::begin("reuse_control_setup");
         let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(config, frontier).await.unwrap();
         let workspace = Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default(), native).unwrap();
-        workspace.set_product_cache(cache).unwrap();
+        workspace.set_admitted_product_reuse(reuse_admitted).unwrap();
         let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
             CapturedInput::capture(input, &["api.py".into()], workspace.budget()).unwrap(), "reuse-control",
         )], cpg_extract::native_context::NativeContextConfig::committed(profile, workspace.budget()).unwrap()));
@@ -120,46 +119,32 @@ fn equivalent(expected: &Receipt, actual: &Receipt) {
     assert!(expected.checked.require_subset(&actual.workspace, expected.checked.inputs()).is_err(),
         "equal values do not grant a previous physical attempt's checked authority");
 }
-fn reused(receipt: &Receipt) -> bool { receipt.hit_log.contains("compiled product reused with fresh ingress") }
+fn reused(receipt: &Receipt) -> bool { receipt.hit_log.contains("admitted compiled product attached") }
 async fn matrix(profile: Profile, frontier: Frontier) {
-    let mut config = lctx_surrealdb::RuntimeConfig::read(Path::new(
-        &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable native fixture"))).unwrap();
-    let scratch = tempfile::tempdir().unwrap();
-    config.reuse = Some(lctx_surrealdb::ReuseConfig {
-        database: Name::new(format!("compiler_matrix_{}_{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))).unwrap(),
-        capacity_bytes: 256 << 20, lease_directory: scratch.path().join("leases"),
-    });
+    let config = lctx_surrealdb::RuntimeConfig::read(Path::new(
+        &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
     let input = tempfile::tempdir().unwrap();
     std::fs::write(input.path().join("api.py"), ORIGINAL).unwrap();
     eprintln!("reuse matrix {}/{}: off",profile.name(),frontier.name());
-    let off = run(&config, input.path(), profile, frontier, None, ORIGINAL, &["identity"]).await;
+    let off = run(&config, input.path(), profile, frontier, false, ORIGINAL, &["identity"]).await;
     assert!(!reused(&off));
-    let cache = Arc::new(lctx_surrealdb::NativeProductCache::install(&config).await.unwrap().unwrap());
     eprintln!("reuse matrix {}/{}: cold",profile.name(),frontier.name());
-    let cold = run(&config, input.path(), profile, frontier, Some(cache.clone()), ORIGINAL, &["identity"]).await;
+    let cold = run(&config, input.path(), profile, frontier, false, ORIGINAL, &["identity"]).await;
     equivalent(&off, &cold);
-    assert!(!reused(&cold), "isolated cold store must not report a whole-stage replay");
-    let stage = Normalization::Entities.declaration(profile);
-    let candidate = cold.workspace.producer(&stage, profile, cold.workspace.stage_inputs(&stage, profile).unwrap());
-    let request = candidate.product_request().unwrap();
-    assert!(cache.lookup(&request, cold.workspace.budget()).await.unwrap().is_some(),
-        "the cold compiler must retain a real eligible normalization product");
-    drop(candidate);
+    assert!(!reused(&cold), "independent cold compilation must not attach retained work");
     eprintln!("reuse matrix {}/{}: warm",profile.name(),frontier.name());
-    let warm = run(&config, input.path(), profile, frontier, Some(cache.clone()), ORIGINAL, &["identity"]).await;
+    let warm = run(&config, input.path(), profile, frontier, true, ORIGINAL, &["identity"]).await;
     equivalent(&off, &warm);
-    assert!(reused(&warm), "actual warm replay event missing: {}", warm.hit_log);
-    drop(cache);
-    let reloaded = Arc::new(lctx_surrealdb::NativeProductCache::connect(&config).await.unwrap().unwrap());
+    assert!(reused(&warm), "actual warm admitted attachment missing: {}", warm.hit_log);
     eprintln!("reuse matrix {}/{}: reload",profile.name(),frontier.name());
-    let reload = run(&config, input.path(), profile, frontier, Some(reloaded.clone()), ORIGINAL, &["identity"]).await;
+    let reload = run(&config, input.path(), profile, frontier, true, ORIGINAL, &["identity"]).await;
     equivalent(&off, &reload);
-    assert!(reused(&reload), "actual reopened-store replay event missing: {}", reload.hit_log);
+    assert!(reused(&reload), "actual reopened-store admitted attachment missing: {}", reload.hit_log);
     std::fs::write(input.path().join("api.py"), CHANGED).unwrap();
     eprintln!("reuse matrix {}/{}: changed",profile.name(),frontier.name());
-    let changed = run(&config, input.path(), profile, frontier, Some(reloaded), CHANGED, &["identity", "extra"]).await;
+    let changed = run(&config, input.path(), profile, frontier, true, CHANGED, &["identity", "extra"]).await;
     eprintln!("reuse matrix {}/{}: changed_off",profile.name(),frontier.name());
-    let changed_off = run(&config, input.path(), profile, frontier, None, CHANGED, &["identity", "extra"]).await;
+    let changed_off = run(&config, input.path(), profile, frontier, false, CHANGED, &["identity", "extra"]).await;
     equivalent(&changed_off, &changed);
     assert_ne!(off.manifest.content(), changed.manifest.content(), "matching input insertion must change the final result");
     for receipt in [off, cold, warm, reload, changed, changed_off] { receipt.workspace.native().abandon().await.unwrap(); }

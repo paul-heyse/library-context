@@ -17,15 +17,40 @@ pub struct DatabaseIdentity {
 )]
 #[serde(deny_unknown_fields)]
 pub struct SnapshotHandle {
+    /// Immutable publication identity, never a database-wide current marker.
+    pub publication: ContentHash,
     pub semantic: ContentHash,
     pub realization: ContentHash,
+    /// Exact ordered completed-view inventory admitted by this publication.
+    pub view: ContentHash,
+    /// Installed physical storage/schema generation, independent of client build provenance.
+    pub service_generation: ContentHash,
+    /// Immutable answer-affecting executable definition epoch.
+    pub definition_epoch: ContentHash,
     pub database: DatabaseIdentity,
+}
+impl SnapshotHandle {
+    pub fn expected_publication(&self)->ContentHash {
+        let mut sink=KeySink::new("native-publication/v2");
+        self.semantic.encode(&mut sink);self.realization.encode(&mut sink);self.view.encode(&mut sink);
+        self.service_generation.encode(&mut sink);self.definition_epoch.encode(&mut sink);sink.finish()
+    }
+    pub fn validate_identity(&self)->Result<(),crate::domain::ModelError>{
+        if self.publication!=self.expected_publication(){return Err(crate::domain::ModelError::Conflict("publication identity derivation"));}Ok(())
+    }
+    /// Names are fixed trusted operation names; the epoch is a full content address.
+    pub fn operation_definition_function(&self)->String {format!("fn::lctx_e{}_operation_definition",self.definition_epoch.hex())}
+    pub fn library_roots_function(&self)->String {format!("fn::lctx_e{}_library_roots",self.definition_epoch.hex())}
 }
 impl Key for SnapshotHandle {
     fn encode(&self, sink: &mut KeySink) {
-        sink.part(b"snapshot-handle/v1", &[]);
+        sink.part(b"snapshot-handle/v2", &[]);
+        self.publication.encode(sink);
         self.semantic.encode(sink);
         self.realization.encode(sink);
+        self.view.encode(sink);
+        self.service_generation.encode(sink);
+        self.definition_epoch.encode(sink);
         sink.part(b"namespace", self.database.namespace.as_str().as_bytes());
         sink.part(b"database", self.database.database.as_str().as_bytes());
     }

@@ -1,4 +1,4 @@
-//! Optional pure products replay through the same current contribution and native typed ingress.
+//! Admitted operation products attach memberships; selected kernel products retain typed values.
 use super::*;
 use lctx_model::domain::{Key,KeySink,compilation_product::*};
 use lctx_surrealdb::surrealdb::types::Value;
@@ -17,6 +17,16 @@ impl ProductCandidate {
 }
 
 impl Workspace {
+    /// Select an independent recomputation control before producing any completed output.
+    /// It retains current admission and may still retain its completed content for later use.
+    pub fn set_admitted_product_reuse(&self,enabled:bool)->Result<(),ModelError> {
+        self.writable()?;
+        if !self.completed.lock().map_err(|_|poisoned())?.is_empty() {
+            return Err(ModelError::Conflict("reuse policy after completed output"));
+        }
+        self.admitted_product_reuse.store(enabled,Ordering::Release);
+        Ok(())
+    }
     /// Installation is an explicit store/fixture operation; ordinary attempts only connect.
     pub fn set_product_cache(&self,cache:Option<Arc<lctx_surrealdb::NativeProductCache>>)->Result<(),ModelError> {
         self.writable()?;
@@ -27,7 +37,6 @@ impl Workspace {
     }
 }
 struct ReplayWriter {relation:Relation,contribution:bool}
-type PreparedReplay = ProductCandidate;
 impl ErasedWriter for ReplayWriter {
     fn as_any_mut(&mut self)->&mut dyn Any {self}
     fn close(self:Box<Self>,_model:Arc<ValidatedModel>,_budget:ResourceBudget)->BoxFuture<'static,Result<PendingRelation,ModelError>> {
@@ -52,75 +61,69 @@ impl ProducerOutput {
             profile:self.profile.name().into(),parameters:vec![],dependencies,outputs:self.allowed.iter().map(|s|(*s).into()).collect()};
         request.validate()?;Ok(request)
     }
-    /// Miss arms terminal capture; hit writes data through fresh ordinary contributions.
+    /// Miss arms terminal retention; admitted native hits attach current memberships.
     pub(crate) fn reuse_product(&self)->BoxFuture<'_,Result<Option<ProviderOutcome>,ModelError>> {
-        self.reuse_product_checked_async(|_|async {Ok(())}.boxed())
+        self.reuse_product_inner(false, |_|async {Ok(())}.boxed())
     }
     pub(crate) fn reuse_product_checked_async<'a,F>(&'a self,check:F)->BoxFuture<'a,Result<Option<ProviderOutcome>,ModelError>> where F:FnOnce(Arc<ProductCandidate>)->BoxFuture<'a,Result<(),ModelError>>+Send+'a {
+        self.reuse_product_inner(true, check)
+    }
+    fn reuse_product_inner<'a,F>(&'a self,prepare_owner:bool,check:F)->BoxFuture<'a,Result<Option<ProviderOutcome>,ModelError>> where F:FnOnce(Arc<ProductCandidate>)->BoxFuture<'a,Result<(),ModelError>>+Send+'a {
         async move {
             self.check()?;
-            let Some(cache)=self.workspace.product_cache()? else{return Ok(None)};
             let request=self.product_request()?;
-            let cache_read=cache.clone();let lookup=request.clone();let budget=self.workspace.budget.clone();
-            let leased=self.workspace.native_call(async move{cache_read.lookup(&lookup,&budget).await}).await?;
-            if let Some(leased)=leased {
-                let product=leased.product();
-                let prepared = match decode_product_rows(product, &self.workspace.model, self.workspace.budget(), self.workspace.options.batch_rows) {
-                    Ok(candidate) => {
-                        let candidate = Arc::new(candidate);
-                        check(candidate.clone()).await.and_then(|()| Arc::try_unwrap(candidate)
-                            .map_err(|_| ModelError::Conflict("cached predicate retained replay candidate")))
-                    },
-                    Err(error) => Err(error),
-                };
-                if let Err(error)=prepared {
-                    if !crate::sql::product_fallback_allowed(&error) {
-                        return Err(error);
+            let inventory=self.allowed.iter().map(|name| {
+                self.workspace.model.relation(name).cloned().ok_or(ModelError::Schema("retained output relation"))
+            }).collect::<Result<Vec<_>,_>>()?;
+            if !self.writers.lock().map_err(|_|poisoned())?.is_empty()
+                || self.contribution.lock().map_err(|_|poisoned())?.is_some() {
+                return Err(ModelError::Conflict("product lookup after output started"));
+            }
+            let native=self.workspace.native.clone();
+            let identity=request.identity()?;
+            let spec=self.contribution_spec();
+            let retained=if self.workspace.admitted_product_reuse.load(Ordering::Acquire) {
+                self.workspace.native_call(async move {native.attach_retained_product(identity,&spec).await}).await?
+            } else {None};
+            if let Some((id,_,descriptor))=retained {
+                // Persisted admission does not carry ephemeral Rust verification owners.
+                // Reconstruct those only for consumers that require them, without ingress.
+                if prepare_owner {
+                    let mut charge=self.workspace.budget.reserve("admitted-product-application",0)?;
+                    let mut sections=Vec::with_capacity(inventory.len());
+                    for relation in &inventory {
+                        let mut stream=self.workspace.native.scan_contribution_batches(id,relation,self.workspace.budget(),self.workspace.options.batch_rows).await?;
+                        let mut batches=Vec::new();
+                        while let Some(batch)=stream.try_next().await.map_err(crate::sql::model_error)? {
+                            self.workspace.cancellation.check()?;
+                            charge.try_resize(charge.size().saturating_add(lctx_model::domain::logical_batch_bytes(&batch)?).saturating_add(4096))?;
+                            batches.push(batch);
+                        }
+                        sections.push((relation.clone(),batches));
                     }
-                    tracing::warn!(%error,operation=self.name,"discarding semantically invalid derived product");
-                    drop(leased);
-                    if !matches!(error.primary(),Some(ModelError::Resource{..}|ModelError::Limit{..})) {
-                        let invalidate=request.clone();let cache=cache.clone();
-                        self.workspace.native_call(async move{cache.invalidate(&invalidate).await}).await?;
-                    }
-                } else {
-                    let outcome=match product.outcome {ProductOutcome::Complete=>ProviderOutcome::Complete,ProductOutcome::NotRequested=>ProviderOutcome::NotRequested};
-                    // All cache-only allocations/admission happen before mutation. Once owned
-                    // typed batches exist, release cache leases/bytes before native ingress.
-                    drop(leased);
-                    self.replay_product_rows(prepared.expect("checked prepared replay")).await?;
-                    tracing::debug!(operation=self.name,"compiled product reused with fresh ingress");
-                    return Ok(Some(outcome));
+                    check(Arc::new(ProductCandidate{sections,_charge:charge})).await?;
                 }
+                let mut writers=self.writers.lock().map_err(|_|poisoned())?;
+                if !writers.is_empty() || self.contribution.lock().map_err(|_|poisoned())?.is_some() {
+                    return Err(ModelError::Conflict("retained product output already started"));
+                }
+                for relation in inventory {
+                    writers.insert(relation.name(),Box::new(ReplayWriter {
+                        contribution:lctx_model::domain::stages::is_epoch_shared(relation.name()),relation,
+                    }));
+                }
+                *self.contribution.lock().map_err(|_|poisoned())?=Some(id);
+                let outcome=match descriptor.outcome {
+                    code if code==ProviderOutcome::Complete as i16=>ProviderOutcome::Complete,
+                    code if code==ProviderOutcome::NotRequested as i16=>ProviderOutcome::NotRequested,
+                    _=>return Err(ModelError::Conflict("retained product outcome")),
+                };
+                tracing::debug!(operation=self.name,"admitted compiled product attached");
+                return Ok(Some(outcome));
             }
-            *self.product_capture.lock().map_err(|_|poisoned())?=Some(request);Ok(None)
+            *self.product_capture.lock().map_err(|_|poisoned())?=Some(request.clone());
+            Ok(None)
         }.boxed()
-    }
-    async fn replay_product_rows(&self,prepared:PreparedReplay)->Result<(),ModelError> {
-        let ProductCandidate{sections,_charge}=prepared;
-        // Prepare the complete writer inventory and its allocations before native
-        // registration. No optional-product fallback is permitted after that first effect.
-        let scope = self.producing_scope()?;
-        {
-            let mut writers = self.writers.lock().map_err(|_| poisoned())?;
-            if sections.iter().any(|(relation, _)| writers.contains_key(relation.name())) {
-                return Err(ModelError::Conflict("cached output already declared"));
-            }
-            for (relation, _) in &sections {
-                writers.insert(relation.name(), Box::new(ReplayWriter {
-                    contribution: lctx_model::domain::stages::is_epoch_shared(relation.name()), relation: relation.clone(),
-                }));
-            }
-        }
-        let registration = self.registration_request();
-        let producer = registration.await?;
-        for (relation,batches) in sections {
-            self.workspace.cancellation.check()?;
-            for batch in batches {
-                let native=self.workspace.native.clone();let relation=relation.clone();let scope=scope.clone();
-                self.workspace.native_call(async move{scope.run(native.write_batch(&producer,&relation,&batch)).await}).await?;
-            }
-        }Ok(())
     }
 }
 /// One canonical typed-body/global-order check shared by whole-stage and selected products.
@@ -164,28 +167,11 @@ impl Workspace {
         }
     }
     async fn retain_product_owned(&self,request:ProductRequest,id:ContentHash,outcome:ProviderOutcome)->Result<(),ModelError> {
-        let Some(cache)=self.product_cache()? else{return Ok(())};
-        let outcome=match outcome {ProviderOutcome::Complete=>ProductOutcome::Complete,ProviderOutcome::NotRequested=>ProductOutcome::NotRequested,_=>return Ok(())};
-        let mut retained=self.budget.reserve("compiled-product-capture",0)?;
-        let mut sections=Vec::new();
-        for name in &request.outputs {
-            let relation=self.model.relation(name).ok_or(ModelError::Schema("product capture relation"))?.clone();
-            let mut stream=self.native.scan_contribution_batches(id,&relation,self.budget(),self.options.batch_rows).await?;
-            let mut values=Vec::new();
-            while let Some(batch)=stream.try_next().await.map_err(crate::sql::model_error)? {
-                self.cancellation.check()?;
-                let bytes=lctx_model::domain::logical_batch_bytes(&batch)?.saturating_mul(8).saturating_add(1024);
-                if let Err(error)=retained.try_resize(retained.size().saturating_add(bytes)) {
-                    if matches!(error,ModelError::Resource{..}) {tracing::debug!(%error,"optional product retention unavailable");return Ok(())}return Err(error);
-                }
-                values.extend(canonical_bodies(&relation,&batch)?);
-            }
-            let bytes=serde_json::to_vec(&values).map_err(ModelError::codec)?;
-            sections.push(ProductSection{name:name.clone(),rows:values.len() as u64,bytes});
-        }
-        let product=PortableProduct{request,outcome,sections};
-        let budget=self.budget.clone();
-        self.native_call(async move{let _retained=retained;cache.insert(&product,&budget).await.map(|_|())}).await
+        let identity=request.identity()?;
+        let native=self.native.clone();
+        self.native_call(async move{native.retain_product_identity(identity,id).await}).await?;
+        let _=outcome;
+        Ok(())
     }
 }
 fn canonical_bodies(relation:&Relation,batch:&RecordBatch)->Result<Vec<Value>,ModelError> {
@@ -201,22 +187,18 @@ fn canonical_bodies(relation:&Relation,batch:&RecordBatch)->Result<Vec<Value>,Mo
 #[cfg(test)]
 mod controls {
     use super::*;
-    use lctx_model::domain::{admission::Frontier,input::Package,serving::Name};
-    static NEXT:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);
-    async fn setup()->(lctx_surrealdb::RuntimeConfig,tempfile::TempDir,Arc<lctx_surrealdb::NativeProductCache>) {
-        let mut config=lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(&std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"))).unwrap();
-        let scratch=tempfile::tempdir().unwrap();
-        config.reuse=Some(lctx_surrealdb::ReuseConfig{database:Name::new(format!("core_products_{}_{}",std::process::id(),NEXT.fetch_add(1,Ordering::Relaxed))).unwrap(),capacity_bytes:16<<20,lease_directory:scratch.path().join("leases")});
-        let cache=Arc::new(lctx_surrealdb::NativeProductCache::install(&config).await.unwrap().unwrap());
-        (config,scratch,cache)
+    use lctx_model::domain::{admission::Frontier,input::Package};
+    fn config()->lctx_surrealdb::RuntimeConfig {
+        lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(&std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap()
     }
-    async fn workspace(config:&lctx_surrealdb::RuntimeConfig,cache:Arc<lctx_surrealdb::NativeProductCache>)->Arc<Workspace> {
+    async fn workspace(config:&lctx_surrealdb::RuntimeConfig)->Arc<Workspace> {
         let native=lctx_surrealdb::compiler::NativeCompilerStore::begin(config,Frontier::Facts).await.unwrap();
-        let workspace=Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),WorkspaceOptions{memory_bytes:32<<20,..Default::default()},native).unwrap();
-        workspace.set_product_cache(Some(cache)).unwrap();workspace
+        Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),WorkspaceOptions{memory_bytes:32<<20,..Default::default()},native).unwrap()
     }
     fn output(workspace:&Arc<Workspace>,operation:&'static str)->ProducerOutput {
-        workspace.output(operation,Profile::Catalog,ContentHash::of(b"pure-test/v1"),workspace.inputs(operation,Profile::Catalog,[]).unwrap(),[Package::NAME])
+        static IMPLEMENTATION:std::sync::OnceLock<ContentHash>=std::sync::OnceLock::new();
+        let implementation=*IMPLEMENTATION.get_or_init(||lctx_surrealdb::control::fresh_identity("product-control").unwrap());
+        workspace.output(operation,Profile::Catalog,implementation,workspace.inputs(operation,Profile::Catalog,[]).unwrap(),[Package::NAME])
     }
     #[test]
     fn optional_capture_preserves_typed_refusal_and_unknown_native_disposition() {
@@ -248,53 +230,33 @@ mod controls {
         assert!(validate_product_rows(&product,&model,&budget,1).is_err());assert_eq!(budget.reserved(),0);
     }
     #[tokio::test]
-    async fn product_reopen_replays_fresh_contributions_not_old_owners() {
-        let (config,_scratch,cache)=setup().await;
-        let first=workspace(&config,cache).await;
-        let produced=output(&first,"pure-package");assert!(produced.reuse_product().await.unwrap().is_none());
-        produced.declare_async::<Package>().await.unwrap();produced.push(Package{name:"expected".into()}).await.unwrap();produced.finish(ProviderOutcome::Complete).await.unwrap();
+    async fn native_admission_gates_attachment_and_current_ownership() {
+        let config=config();
+        let first=workspace(&config).await;
+        let produced=output(&first,"pure-package");
+        assert!(produced.reuse_product().await.unwrap().is_none());
+        produced.declare_async::<Package>().await.unwrap();
+        produced.push(Package{name:"expected".into()}).await.unwrap();
+        produced.finish(ProviderOutcome::Complete).await.unwrap();
+        let unadmitted=workspace(&config).await;
+        assert!(output(&unadmitted,"pure-package").reuse_product().await.unwrap().is_none(),"completion alone grants no admitted attachment");
+        unadmitted.native().abandon().await.unwrap();
+        // This native ownership control exercises the admission gate. Full semantic admission
+        // is established independently by the real-provider compilation matrices.
+        first.native().mark_attempt_admitted().await.unwrap();
         let old=first.inputs("old",Profile::Catalog,[Package::NAME]).unwrap();
-        let reloaded=Arc::new(lctx_surrealdb::NativeProductCache::connect(&config).await.unwrap().unwrap());
-        let second=workspace(&config,reloaded).await;let hit=output(&second,"pure-package");
-        assert!(matches!(hit.reuse_product().await.unwrap(),Some(ProviderOutcome::Complete)));hit.finish(ProviderOutcome::Complete).await.unwrap();
+        let second=workspace(&config).await;
+        let hit=output(&second,"pure-package");
+        assert!(matches!(hit.reuse_product().await.unwrap(),Some(ProviderOutcome::Complete)));
+        hit.finish(ProviderOutcome::Complete).await.unwrap();
         let new=second.inputs("new",Profile::Catalog,[Package::NAME]).unwrap();
         assert_eq!(first.relation(Package::NAME).unwrap().view_identity(),second.relation(Package::NAME).unwrap().view_identity());
         assert!(old.require_subset(&second,&new).is_err());
-        let native=second.native().clone();let mut rows=native.scan_batches(second.relation(Package::NAME).unwrap().view(),&Relation::of::<Package>(),None,None,second.budget(),32).await.unwrap();
-        let batch=rows.try_next().await.unwrap().unwrap();assert_eq!(Package::decode(&batch).unwrap(),vec![Package{name:"expected".into()}]);assert!(rows.try_next().await.unwrap().is_none());
+        let native=second.native().clone();
+        let mut rows=native.scan_batches(second.relation(Package::NAME).unwrap().view(),&Relation::of::<Package>(),None,None,second.budget(),32).await.unwrap();
+        let batch=rows.try_next().await.unwrap().unwrap();
+        assert_eq!(Package::decode(&batch).unwrap(),vec![Package{name:"expected".into()}]);
+        assert!(rows.try_next().await.unwrap().is_none());
         first.native().abandon().await.unwrap();second.native().abandon().await.unwrap();
-    }
-    #[tokio::test]
-    async fn optional_capture_pressure_preserves_completed_native_output() {
-        let (config,_scratch,cache)=setup().await;
-        let workspace=workspace(&config,cache.clone()).await;
-        workspace.set_product_cache(None).unwrap();
-        let produced=output(&workspace,"pressure-package");
-        let request=produced.product_request().unwrap();
-        produced.declare_async::<Package>().await.unwrap();
-        produced.push(Package{name:"completed".into()}).await.unwrap();
-        produced.finish(ProviderOutcome::Complete).await.unwrap();
-        let contributions=workspace.native().contributions().await.unwrap();
-        let id=contributions[0].spec.identity().unwrap();
-        workspace.set_product_cache(Some(cache.clone())).unwrap();
-        let pressure=workspace.budget().reserve("required-current-work",
-            workspace.budget().limit()-workspace.budget().reserved()-1024).unwrap();
-        workspace.retain_product(request.clone(),id,ProviderOutcome::Complete).await.unwrap();
-        assert_eq!(workspace.relation(Package::NAME).unwrap().rows(),1);
-        drop(pressure);
-        assert!(cache.lookup(&request,workspace.budget()).await.unwrap().is_none());
-        workspace.native().abandon().await.unwrap();
-    }
-    #[tokio::test]
-    async fn product_semantic_corruption_falls_back_before_fresh_ingress() {
-        let (config,_scratch,cache)=setup().await;let workspace=workspace(&config,cache.clone()).await;
-        let produced=output(&workspace,"corrupt-package");
-        let request=produced.product_request().unwrap();
-        let corrupt=PortableProduct{request,outcome:ProductOutcome::Complete,sections:vec![ProductSection{name:Package::NAME.into(),rows:1,bytes:b"[]".to_vec()}]};
-        assert!(cache.insert(&corrupt,workspace.budget()).await.unwrap());
-        assert!(produced.reuse_product().await.unwrap().is_none());
-        produced.declare_async::<Package>().await.unwrap();produced.push(Package{name:"fresh".into()}).await.unwrap();produced.finish(ProviderOutcome::Complete).await.unwrap();
-        assert_eq!(workspace.relation(Package::NAME).unwrap().rows(),1);
-        workspace.native().abandon().await.unwrap();
     }
 }

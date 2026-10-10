@@ -445,6 +445,10 @@ mod tests {
     }
     fn handle() -> SnapshotHandle {
         SnapshotHandle {
+            publication: lctx_model::domain::ContentHash::of(b"fixture-publication"),
+            view: lctx_model::domain::ContentHash::of(b"fixture-view"),
+            service_generation: lctx_model::domain::ContentHash::of(b"fixture-service_generation"),
+            definition_epoch: lctx_model::domain::ContentHash::of(b"fixture-definition_epoch"),
             semantic: ContentHash::of(b"semantic"),
             realization: ContentHash::of(b"physical"),
             database: DatabaseIdentity {

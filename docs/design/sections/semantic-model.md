@@ -12,7 +12,7 @@ remote certainty and private/committed effects while workflow owners execute cle
 The [correction plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md) owns the
 complete contracts and current migration; acceptance remains with its coordinator.
 
-> Decision: ADR-0138
+> Decision: ADR-0143
 
 **Implemented / acceptance in progress, 2026-10-08 (ADR-0137).** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.
 
@@ -22,7 +22,7 @@ complete contracts and current migration; acceptance remains with its coordinato
 The [persisted graph execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md)
 owns this hard pivot and its focused acceptance. One Rust-owned graph governs semantic entities,
 assertions, roles, source correspondence, conditions, obligations and derivations. Compilation
-uses exact immutable completed views in one managed native database and seals that same admitted
+uses exact immutable completed views over shared native content and publishes a manifest over the admitted
 realization. Typed Arrow records remain computation/transport views. Prior receipts retain their
 original boundary; current focused acceptance does not establish whole-plan qualification or measured speed.
 
@@ -50,13 +50,13 @@ consumption enters the artifact and reconstructs without a service. Query-only c
 invalidate unchanged document values.
 Native persistent cache and serving are implemented. Operator activation remains separately authorized.
 
-ADR-0138 replaces earlier compilation placement and publication-roundtrip mechanisms. Earlier cited decisions
+ADR-0143 supersedes private database sealing and replay-only reuse while preserving earlier typed admission guarantees. Earlier cited decisions
 retain their typed semantic, ownership, coverage and product obligations. Previous PostgreSQL
 receipts bound that implementation only. The coordinator records native
 runtime evidence separately; real-library acceptance and Measured performance do not follow
 from this architectural decision.
 
-> Decision: ADR-0131, ADR-0138, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
+> Decision: ADR-0131, ADR-0143, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 
@@ -70,15 +70,17 @@ is an explicit external effect. Python owns transport and presentation.
 
 The compiler writes bounded canonical-first native values and pending contribution memberships.
 Completed views bind exact inputs and exclude pending output. Shared-vocabulary contributions
-reuse identical values, reject same-key different payloads and freeze immutable membership at
+reuse identical values, reject same-key different payloads within one view and freeze immutable membership at
 semantic boundaries. Native indexed selection and declared-field Arrow streams supply domain
 kernels; scoped preparation and spillable DataFusion remain available where their operation fits.
 Original bytes have one bounded original-chunk owner. Retained contribution dependencies and
 current/frozen bindings serve inspection and complete transport. **Implemented / acceptance in
-progress, 2026-10-09:** selective pure products use an explicitly configured disposable native
-cache. Complete exact or freshly selected domains determine compatible entries. Typed canonical
-data and current semantic predicates precede fresh contribution ownership; portable products
-carry no private owner hints. Complete nominal topology identities separate pure value from
+progress, 2026-10-09:** admitted whole-operation products attach retained immutable content under
+checked current ownership; they do not replay canonical rows. Selected finite kernel products
+retain a logically partitioned cache inside the installed database. Complete exact or freshly
+selected domains determine compatible entries. Typed canonical data and current semantic
+predicates precede fresh kernel ownership; portable products carry no private owner hints.
+Complete nominal topology identities separate pure value from
 fresh provenance; current SCC schedules execute once per prepared graph.
 Behavioral Local/Base/Body/SourceCall remain fresh where full semantic validation would repeat
 the production kernels and add cache overhead. The graph/reuse
@@ -90,11 +92,11 @@ their actual Local, execution, Model, source-call or vector predecessors. Projec
 is shared where its topology and lifetime permit. Catalog availability does not require optional
 analytics or brief seeds.
 
-Native graph access is used during compilation; publication seals the same admitted database.
+Native graph access is used during compilation; publication records an immutable manifest over exact admitted views in shared storage.
 `lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
-records targeted functional controls; broad assembled qualification is not_run by user direction.
+records targeted functional controls and the authorized final UP9 assembled qualification boundary.
 
-> Decision: ADR-0140, ADR-0139, ADR-0138, ADR-0085, ADR-0117, ADR-0105, ADR-0108
+> Decision: ADR-0143, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -124,7 +126,7 @@ analyses after normalization. The companion is an identity alias, without qualif
 normalization evidence. Facts retain their actual vocabulary without normalized records. Detached import retains the actual
 records and requires complete endpoint membership; it never synthesizes missing companions.
 
-> Decision: ADR-0138, ADR-0085
+> Decision: ADR-0143, ADR-0085
 
 <a id="section-15-3"></a>
 
@@ -753,7 +755,7 @@ materialization identity binds the retained schedule to its exact graph without 
 model/runtime owner shares interned programs across attempts. This does not imply whole-graph
 hydration, general value-cutoff scheduling or measured benefit.
 
-> Decision: ADR-0140, ADR-0139, ADR-0138
+> Decision: ADR-0143, ADR-0139
 
 **Compiler projection realization (Implemented / user-accepted, 2026-10-05).**
 Typed endpoint roles and named projection policies supply structure. Independent vertex inventories
@@ -807,15 +809,28 @@ repartitioning; conservative cardinality estimates guide partition benefit while
 parallelism remains available for substantial work. Selected cardinality stays inexact, including
 empty selections, so planning cannot erase native authority checks through exact aggregate statistics.
 
-**Implemented / focused acceptance in progress, 2026-10-09 (ADR-0138).** The compiler owns one private STRICT native database from its first output. Model-owned contribution specifications declare producer/code/settings and exact consumed views; immutable completed memberships and current/frozen semantic-boundary bindings define readable inputs. Pending contributions cannot widen a completed view. Completion validates local shape, canonical keys, reference closure, outcomes and applicable cross-element invariants; unchanged exact premises retain their validated status. Shared vocabulary unions exact nominal keys with full-payload conflict checks.
+**Accepted target / implementation in progress, 2026-10-09 (ADR-0143).** Compilation attaches
+to an installed compatible shared database. A durable fenced attempt owns pending contributions,
+exact completed bindings and operation effects. Model/codec-qualified immutable payloads carry
+full canonical bytes; separate nominal anchors and role edges preserve graph meaning. Compact
+completed-view membership resolves selected keys without global nominal lookup. The generated
+backing inventory includes originals, projection chunks and nongraph intermediates. View-local
+conflicting payloads are refused; independent cold reconstruction compares complete envelopes.
 
-Canonical graph payloads and complete generated native bodies share one immutable value owner. A single declaration-derived inventory governs non-graph compiler backing across schema, writes, scans and bounded cold model regeneration. It preserves projection headers/chunks and other required intermediate fields; no manually maintained type whitelist owns coverage. Regenerated canonical bytes, full nominal keys and retained content must agree at external exposure. ArtifactChunk exposes the existing original_chunk bytes through typed metadata rather than copying original bytes into compiler backing. Native selected/projected scans and bulk Arrow/DataFusion compute serve each operation's physical demand. Pure model kernels remain usable without a server. Cancellation drains submitted writes and reader transports before an owned attempt is removed.
+Final admission closes current content mutation and checks descriptors and frozen bindings against
+the Workspace. Core privately constructs the store/manifest-bound admission owners. Only admitted
+retained products may attach without canonical replay; their exact request and current producer
+specification must agree, and the current attempt acquires its own membership ownership. Detached
+portable products still require canonical/semantic checks and typed ingress. Completion alone,
+a hash hit or an imported runtime record grants no admission authority.
 
-**Implemented finalization, 2026-10-09 (ADR-0138); targeted acceptance in progress.** Native families retain fixed SCHEMAFULL envelopes and flexible object bodies. Declaration-selected synchronous adapters validate complete typed bodies and derive supplied scopes before a bounded write window has effects. Independent cold admission reconstructs and compares complete physical envelopes; arbitrary private raw SQL does not establish semantic validity. Unrelated vocabulary no longer expands each existing row's native body or scope program.
-
-Final admission closes content mutation and drains accepted mutators under the Workspace completion gate. Actual native descriptors and current/frozen bindings must agree with the completed Workspace before compilation attestation and semantic admission. Reads remain open. Normal compilation and restored-manifest admission keep separate provenance. Frozen authority prepares complete alias-aware compact entity/assertion runs once; independent charged cursors retain scratch through terminal workers and their last consumer. Preparation never replaces hydration or independent validation. Compiler-owned admin sessions have no unrestricted client escape. Core privately constructs store/manifest-bound admission owners; publisher accepts only these, owns its private effect session under native guards, and keeps the marker writer private. Derived publication and one final seal remain available after content closure; physical freeze alone grants neither. Already admitted read descendants complete during final drainage. Acknowledged committed identity survives caller cancellation in the retained owner.
-
-Ordinary compile admits and seals this same database; it does not write and re-import its own portable artifact. The explicit `--artifact-only --output <directory>` route also requires native runtime readiness and exports graph, originals and complete retained contribution/view/binding state. External import/restore independently checks semantic/reference/state closure. Failed or cancelled attempts expose no complete publication; restart from pinned captures rather than resume arbitrary pending state. Publication remains separate from selection, and serving handles pin both semantic content and executable realization.
+Publication commits an immutable manifest over exact admitted views and a pinned executable
+definition epoch. It does not seal or copy the shared database. Reader pins and recovery holds
+protect referenced content; native guarded reachability controls retirement. Failure may retain
+compatible completed prerequisites. Unknown effects reconcile through durable identities before
+cleanup; no arbitrary pending task resumes. Explicit exports retain semantic state and originals,
+and data-only restore creates fresh ownership under independent admission. Imported attempts,
+fences, pins and publication markers cannot activate themselves.
 
 Facts availability binds its profile and exact completed acquisition, scope, coverage, provider,
 invocation, family and context views. Independent declared obligations use those captured producer
@@ -826,7 +841,7 @@ attributed outcomes. The execution plan owns current focused evidence for this c
 
 The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 
-> Decision: ADR-0141, ADR-0138, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
+> Decision: ADR-0141, ADR-0143, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 
@@ -839,17 +854,17 @@ fences new flights/retries, drains submitted owners and external leases, then in
 
 **Implemented / focused Tested native serving, 2026-10-06.** Rust owns operation meaning, predicate-specific
 selection, scope and uncertainty. SurrealQL functions/native queries realize fixed evidence paths,
-eligible-occurrence retrieval and coarse hydration. A server pins one complete sealed realization;
+eligible-occurrence retrieval and coarse hydration. A server pins one exact published view and executable-definition epoch;
 resources and continuations cannot silently switch it. Exact originals and consumed vectors are
 content-authoritative; indexes are derived. Shared text/vector identity does not collapse semantic
 occurrences or channel witnesses. Complex authoritative kernels remain in Rust where appropriate.
 
 The [native serving plan](../../plans/graph-native-serving-plan_2026-10-05.md) owns implementation.
-The pivot removes PostgreSQL-serving effects. The accepted persisted target directly seals ordinary compilation; explicit imports retain their independent verification boundary. MCP dispatch consumes one fixed native snapshot through NativeSession. Rust
+The pivot removes PostgreSQL-serving effects. The accepted shared-content target publishes exact admitted views from ordinary compilation; explicit imports retain their independent verification boundary. MCP dispatch consumes one fixed native snapshot through NativeSession. Rust
 schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-> Decision: ADR-0141, ADR-0138, ADR-0114, ADR-0116
+> Decision: ADR-0141, ADR-0143, ADR-0114, ADR-0116
 
 <a id="section-15-13"></a>
 

@@ -2,13 +2,14 @@
 use lctx_model::domain::{
     graph::{Assertion, Entity, FamilyHasher, GraphFamily, Manifest},
     input::{Package, Release},
-    serving::{DatabaseIdentity, Name, SnapshotHandle},
     *,
 };
 use lctx_surrealdb::surrealdb::types::{RecordId, Value, Variables};
-use lctx_surrealdb::{Credentials, Loader, NativeReader, reader};
+use lctx_surrealdb::{Loader, NativeReader};
+#[path = "fixtures/scoped.rs"]
+mod scoped;
 
-async fn physical_row(reader: &NativeReader, bindings: Variables) -> Value {
+async fn physical_row(reader: &NativeReader<()>, bindings: Variables) -> Value {
     let mut rows = reader
         .query_stream("SELECT * FROM $id", bindings, 1)
         .unwrap();
@@ -50,60 +51,21 @@ fn assert_compact_index_plan(plan: &str, index: &str) {
         );
     }
 }
-async fn candidate_plan_controls(native: &NativeReader, release: &Release) {
+async fn candidate_plan_controls(native: &NativeReader<()>, fixture: &scoped::ScopedFixture, release: &Release) {
     use lctx_surrealdb::prepared::{PreparedQuery, scope_constant};
-    use lctx_surrealdb::surrealdb::types::{Bytes, Object};
-    // Install the actual compiler declaration inventory; these controls exercise physical
-    // access only, independently of completed-view admission and provider qualification.
-    native
-        .client()
-        .query(lctx_surrealdb::compiler::compiler_schema())
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
     let record = analytics::QualityStep {
-        run: serde_json::from_value(serde_json::to_value([7u8; 16]).unwrap()).unwrap(),
+        run: serde_json::from_value(serde_json::to_value(&fixture.store.attempt().0[..16]).unwrap()).unwrap(),
         ordinal: 0,
         value: FiniteF64::new(0.5).unwrap(),
     };
     let relation = Relation::of::<analytics::QualityStep>();
-    let body = lctx_surrealdb::codec::batch_bodies(
-        &relation,
-        &analytics::QualityStep::encode(std::slice::from_ref(&record)).unwrap(),
-    )
-    .unwrap()
-    .pop()
-    .unwrap();
-    let canonical = serde_json::to_vec(&body).unwrap();
-    let mut sink = KeySink::new("compiler-backing-key/v1");
-    relation.name().to_string().encode(&mut sink);
-    sink.part(b"key", record.id().bytes());
-    let mut row = Object::new();
-    row.insert("id", RecordId::new("compiler_record", sink.finish().hex()));
-    row.insert("semantic_type", relation.name().to_string());
-    row.insert("semantic_key", hex::encode(record.id().bytes()));
-    row.insert("body", body);
-    row.insert("canonical", Bytes::from(canonical.clone()));
-    row.insert("content", ContentHash::of(&canonical).hex());
-    let body = row.get("body").unwrap().clone();
-    lctx_surrealdb::reconciliation::add_scope_fields(
-        &mut row,
-        &body,
-        relation.name(),
-        lctx_surrealdb::schema::ScopeTable::CompilerRecord,
-    )
-    .unwrap();
-    let mut bindings = Variables::new();
-    bindings.insert("row", row);
-    native
-        .client()
-        .query("INSERT INTO compiler_record $row RETURN NONE")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    let contribution=fixture.store.begin_contribution(completed::ContributionSpec {
+        captured_binding:None,producer:"candidate-plan-quality".into(),profile:stages::Profile::Catalog,
+        model:ContentHash::of(b"candidate-plan-model"),implementation:ContentHash::of(b"candidate-plan-code"),configuration:None,
+        inputs:vec![],outputs:std::collections::BTreeSet::from([relation.name().into()]),
+    }).await.unwrap();
+    fixture.store.write_batch(&contribution,&relation,&analytics::QualityStep::encode(std::slice::from_ref(&record)).unwrap()).await.unwrap();
+    fixture.store.complete_contribution(contribution,stages::ProviderOutcome::Complete,std::slice::from_ref(&relation),&std::collections::BTreeMap::new()).await.unwrap();
     for (table, relation, field, value) in [
         (
             "entity",
@@ -123,7 +85,7 @@ async fn candidate_plan_controls(native: &NativeReader, release: &Release) {
             "compiler_record",
             analytics::QualityStep::NAME,
             "run",
-            Value::from_t(vec![7i64; 16]),
+            lctx_surrealdb::loader::json_value(serde_json::to_value(record.run).unwrap()).unwrap(),
         ),
     ] {
         let mut bindings = Variables::new();
@@ -154,25 +116,7 @@ async fn candidate_plan_controls(native: &NativeReader, release: &Release) {
         assert!(rows.next().await.unwrap().is_some());
         assert!(rows.next().await.unwrap().is_none());
     }
-    let owner = RecordId::new("compiler_contribution", "plan_owner");
-    let node = reader::target_id(graph::Target::Entity(graph::EntityId::of(release.id())));
-    let mut row = Object::new();
-    row.insert("id", RecordId::new("compiler_membership", "plan_member"));
-    row.insert("contribution", owner.clone());
-    row.insert("relation", Release::NAME);
-    row.insert("semantic_key", hex::encode(release.id().bytes()));
-    row.insert("node", node);
-    row.insert("content", ContentHash::of(b"plan membership").hex());
-    let mut bindings = Variables::new();
-    bindings.insert("row", row);
-    native
-        .client()
-        .query("INSERT INTO compiler_membership $row RETURN NONE")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    let owner = RecordId::new("compiler_contribution",fixture.contribution.hex());
     let mut bindings = Variables::new();
     bindings.insert("owner", owner);
     bindings.insert("relation", Release::NAME);
@@ -193,51 +137,11 @@ async fn candidate_plan_controls(native: &NativeReader, release: &Release) {
 
 #[tokio::test]
 async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() {
-    let cfg: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned persistent fixture"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "stream_controls";
-    let db = format!("reconciliation_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    client
-        .query(format!(
-            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let loader = Loader::new(client.clone());
-    loader
-        .install(&lctx_surrealdb::materialization::native_definitions())
-        .await
-        .unwrap();
-    let native = NativeReader::new(
-        client.clone(),
-        SnapshotHandle {
-            semantic: ContentHash::of(b"fixture"),
-            realization: ContentHash::of(b"fixture"),
-            database: DatabaseIdentity {
-                namespace: Name::new(ns).unwrap(),
-                database: Name::new(&db).unwrap(),
-            },
-        },
-    );
+    let config=scoped::config();
+    let client=lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
+    let nonce=tempfile::NamedTempFile::new().unwrap();
+    let scope=ContentHash::of(nonce.path().to_string_lossy().as_bytes());
+    let native=NativeReader::private(client.clone());
     let prepared = lctx_surrealdb::prepared::PreparedQuery::new(
         Variables::new(),
         vec!["LET $constant=7".into()],
@@ -359,15 +263,16 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     );
 
     let package = Package {
-        name: "scope-fixture".into(),
+        name: format!("scope-fixture-{}",scope.hex()),
     };
     let release = Release {
         package: package.id(),
         version: "1".into(),
     };
-    let bytes = (0..70000)
+    let mut bytes = (0..70000)
         .map(|position| (position % 251) as u8)
         .collect::<Vec<_>>();
+    bytes[..32].copy_from_slice(&scope.0);
     let input = input::InputRevision::from_entries(vec![input::ManifestEntry {
         path: "original.py".into(),
         content: ContentHash::of(&bytes),
@@ -397,22 +302,15 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         }),
     ];
     entities.sort_by_key(Entity::id);
+    let fixture=scoped::reader(&config,&entities,std::slice::from_ref(&assertion)).await.unwrap();
+    let native=&fixture.reader;
+    let client=native.shared_client();
+    let loader=Loader::for_attempt_views(client.clone(),fixture.store.attempt(),fixture.views.clone());
     loader.entities(&entities[..1]).await.unwrap();
     loader.ensure_entities(&entities).await.unwrap();
     loader.ensure_entities(&entities).await.unwrap();
-    loader.entity_references(&entities).await.unwrap();
-    loader
-        .ensure_assertions(&[assertion.clone(), assertion.clone()])
-        .await
-        .unwrap();
-    loader
-        .ensure_assertions(std::slice::from_ref(&assertion))
-        .await
-        .unwrap();
-    loader
-        .assertion_references(std::slice::from_ref(&assertion))
-        .await
-        .unwrap();
+    loader.ensure_assertions(&[assertion.clone(),assertion.clone()]).await.unwrap();
+    loader.ensure_assertions(std::slice::from_ref(&assertion)).await.unwrap();
     assert_eq!(
         native
             .records::<Release>(lctx_surrealdb::RecordSelection::Scope {
@@ -423,7 +321,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
             .unwrap(),
         vec![release.clone()]
     );
-    candidate_plan_controls(&native, &release).await;
+    candidate_plan_controls(native, &fixture, &release).await;
 
     loader
         .original_stream(
@@ -494,7 +392,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     let mut assertion_bindings = Variables::new();
     assertion_bindings.insert(
         "id",
-        reader::target_id(graph::Target::Assertion(assertion.id())),
+        lctx_surrealdb::loader::assertion_payload_id(&assertion).unwrap(),
     );
     let saved_assertion = physical_row(&native, assertion_bindings.clone()).await;
     assertion_bindings.insert("saved", saved_assertion.clone());
@@ -558,7 +456,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     let mut bindings = Variables::new();
     bindings.insert(
         "id",
-        reader::target_id(graph::Target::Entity(graph::EntityId::of(release.id()))),
+        lctx_surrealdb::loader::entity_payload_id(&Entity::from(release.clone())).unwrap(),
     );
     let before = physical_row(&native, bindings.clone()).await;
     bindings.insert("saved", before.clone());
@@ -631,50 +529,18 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         .check()
         .unwrap();
     loader.reconcile(&manifest).await.unwrap();
-    client
-        .query(format!("REMOVE DATABASE {db}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    client.invalidate().await.unwrap();
+    fixture.close().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
     use lctx_surrealdb::surrealdb::types::{Bytes, Object};
-    let cfg: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned persistent fixture"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "pj2_envelopes";
-    let db = format!("reconstruct_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    client
-        .query(format!(
-            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let loader = Loader::new(client.clone());
-    loader.install("").await.unwrap();
-    let original_bytes = vec![0xff, 0, 0x80];
+    let config=scoped::config();
+    let client=lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
+    let nonce=tempfile::NamedTempFile::new().unwrap();
+    let scope=ContentHash::of(nonce.path().to_string_lossy().as_bytes());
+    let mut original_bytes = vec![0xff,0,0x80];
+    original_bytes.extend_from_slice(&scope.0);
     let input = input::InputRevision::from_entries(vec![input::ManifestEntry {
         path: "envelope.py".into(),
         content: ContentHash::of(&original_bytes),
@@ -691,10 +557,10 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
     };
     let entities = vec![
         Entity::from(value::Literal::Bytes {
-            value: EvidenceBytes(vec![0xff, 0, 0x80]),
+            value: EvidenceBytes(original_bytes.clone()),
         }),
         Entity::from(Package {
-            name: "envelope-control".into(),
+            name: format!("envelope-control-{}",scope.hex()),
         }),
         Entity::from(input),
         Entity::from(artifact),
@@ -733,9 +599,10 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
             embeddings: vec![],
         }
     };
-    loader.reconcile(&manifest_for(&[])).await.unwrap();
-    loader.entities(&entities).await.unwrap();
-    loader.entity_references(&entities).await.unwrap();
+    Loader::for_views(client.clone(),vec![]).reconcile(&manifest_for(&[])).await.unwrap();
+    let fixture=scoped::reader(&config,&entities,&[]).await.unwrap();
+    let client=fixture.reader.shared_client();
+    let loader=Loader::for_attempt_views(client.clone(),fixture.store.attempt(),fixture.views.clone());
     loader
         .original_stream(
             original.source.0,
@@ -748,7 +615,7 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
     let mut manifest = manifest_for(&entities);
     manifest.originals = vec![original.clone()];
     loader.reconcile(&manifest).await.unwrap();
-    let id = reader::target_id(graph::Target::Entity(entities[0].id()));
+    let id = lctx_surrealdb::loader::entity_payload_id(&entities[0]).unwrap();
     let mut bindings = Variables::new();
     bindings.insert("id", id);
     let mut response = client
@@ -825,7 +692,7 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
         loader.reconcile(&manifest).await.unwrap();
     }
     let chunk_id = RecordId::new("original_chunk", format!("{}_0", original.source.0.hex()));
-    let wrong_id = RecordId::new("original_chunk", "corrupted_identity");
+    let wrong_id = RecordId::new("original_chunk",format!("corrupted_{}",scope.hex()));
     let mut chunk_bindings = Variables::new();
     chunk_bindings.insert("id", chunk_id);
     chunk_bindings.insert("wrong", wrong_id.clone());
@@ -863,8 +730,105 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
         .check()
         .unwrap();
     loader.reconcile(&manifest).await.unwrap();
+    fixture.close().await.unwrap();
+}
+
+#[tokio::test(flavor="multi_thread")]
+#[ignore = "requires exclusive just service maintenance --native-clients"]
+async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance() {
+    let installer_path=std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("validation maintenance installer configuration");
+    let installer=lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(&installer_path)).unwrap();
+    assert_eq!(installer.database.as_str(),"validation");
+    let config=scoped::config();
+    let client=lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
+    let nonce=tempfile::NamedTempFile::new().unwrap();
+    let scope=ContentHash::of(nonce.path().to_string_lossy().as_bytes());
+    let mut original_bytes = vec![0xff,0,0x80];
+    original_bytes.extend_from_slice(&scope.0);
+    let input = input::InputRevision::from_entries(vec![input::ManifestEntry {
+        path: "envelope.py".into(),
+        content: ContentHash::of(&original_bytes),
+        byte_len: original_bytes.len() as i64,
+    }])
+    .unwrap();
+    let artifact =
+        source::SourceArtifact::from_bytes(input.id(), "envelope.py".into(), &original_bytes)
+            .unwrap();
+    let original = graph::Original {
+        source: graph::EntityId::of(artifact.id()),
+        content: artifact.content,
+        byte_len: original_bytes.len() as u64,
+    };
+    let entities = vec![
+        Entity::from(value::Literal::Bytes {
+            value: EvidenceBytes(original_bytes.clone()),
+        }),
+        Entity::from(Package {
+            name: format!("envelope-control-{}",scope.hex()),
+        }),
+        Entity::from(input),
+        Entity::from(artifact),
+    ];
+    let manifest_for = |entities: &[Entity]| {
+        let mut ordered = entities.to_vec();
+        ordered.sort_by_key(Entity::id);
+        let mut entity_family = FamilyHasher::new(GraphFamily::Entities);
+        for entity in ordered {
+            entity_family.push(entity.id().0, entity.content()).unwrap();
+        }
+        Manifest {
+            admission_contract: ContentHash::of(b"fixture-admission"),
+            format_version: graph::ARTIFACT_FORMAT_VERSION,
+            completed_state: completed::CompletedStateIdentity {
+                format_version: completed::STATE_FORMAT_VERSION,
+                contributions: 0,
+                memberships: 0,
+                backing_rows: 0,
+                content: ContentHash::of(b"fixture-empty-state"),
+            },
+            frontier: admission::Frontier::Facts,
+            profile: stages::Profile::Catalog,
+            captures: vec![],
+            semantic_contract: ContentHash::of(b"fixture"),
+            producers: vec![],
+            settings: ContentHash::of(b"fixture"),
+            families: vec![
+                entity_family.finish(),
+                FamilyHasher::new(GraphFamily::Assertions).finish(),
+            ],
+            required_outcomes: vec![],
+            outcomes: vec![],
+            originals: vec![],
+            projections: vec![],
+            embeddings: vec![],
+        }
+    };
+    Loader::for_views(client.clone(),vec![]).reconcile(&manifest_for(&[])).await.unwrap();
+    let fixture=scoped::reader(&config,&entities,&[]).await.unwrap();
+    let client=fixture.reader.shared_client();
+    let loader=Loader::for_attempt_views(client.clone(),fixture.store.attempt(),fixture.views.clone());
+    loader
+        .original_stream(
+            original.source.0,
+            original.content,
+            original.byte_len,
+            &mut original_bytes.as_slice(),
+        )
+        .await
+        .unwrap();
+    let mut manifest = manifest_for(&entities);
+    manifest.originals = vec![original.clone()];
+    loader.reconcile(&manifest).await.unwrap();
+
+    let admin=lctx_surrealdb::reader::connect(&installer.endpoint,&installer.writer_credentials(),installer.namespace.as_str(),installer.database.as_str()).await.unwrap();
+    let mut chunk_bindings=Variables::new();
+    chunk_bindings.insert("id",RecordId::new("original_chunk",format!("{}_0",original.source.0.hex())));
+    let mut response=client.query("SELECT * FROM $id").bind(chunk_bindings.clone()).await.unwrap().check().unwrap();
+    let rows:Vec<Value>=response.take(0).unwrap();
+    let [saved]=rows.as_slice() else {panic!("one owned original chunk");};
+    chunk_bindings.insert("saved",saved.clone());
     // Simulate an imported auxiliary envelope with a separately declared extra field.
-    client
+    admin
         .query("DEFINE FIELD extra ON original_chunk TYPE option<int>; UPDATE $id SET extra=1;")
         .bind(chunk_bindings.clone())
         .await
@@ -883,11 +847,8 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
         .check()
         .unwrap();
     loader.reconcile(&manifest).await.unwrap();
-    client
-        .query(format!("REMOVE DATABASE {db}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    client.invalidate().await.unwrap();
+
+    admin.query("REMOVE FIELD extra ON original_chunk;").await.unwrap().check().unwrap();
+    admin.invalidate().await.unwrap();
+    fixture.close().await.unwrap();
 }

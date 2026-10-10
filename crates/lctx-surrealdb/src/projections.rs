@@ -59,15 +59,37 @@ pub struct NativeProjection {
     budget: ResourceBudget,
 }
 
-impl NativeProjection {
-    /// Serialize nominal vertices/arcs and exact model-owned side records, with the pin and
-    /// admitted projection contract. No petgraph node or edge index crosses this boundary.
+/// Exact completed-view kernel result. It establishes no publication authority.
+pub struct ScopedProjection {
+    pub source: ProjectionInput,
+    pub graph: MaterializedGraph,
+    pub coverage: Rows<ProviderCoverage>,
+    budget: ResourceBudget,
+}
+impl ScopedProjection {
     pub fn write_json(&self, writer: impl Write) -> Result<(), ModelError> {
+        write_projection_json(None,None,None,&self.source,&self.graph,&self.coverage,&self.budget,writer)
+    }
+}
+impl NativeProjection {
+    /// The published wrapper retains the exact manifest and executable definition authority.
+    pub fn write_json(&self, writer: impl Write) -> Result<(), ModelError> {
+        write_projection_json(Some(&self.snapshot),Some(&self.manifest),Some(&self.definition),&self.source,&self.graph,&self.coverage,&self.budget,writer)
+    }
+}
+fn write_projection_json(
+    snapshot: Option<&SnapshotHandle>, manifest: Option<&Manifest>, definition: Option<&ProjectionDefinition>,
+    source: &ProjectionInput, graph: &MaterializedGraph, coverage: &Rows<ProviderCoverage>,
+    budget: &ResourceBudget, writer: impl Write,
+) -> Result<(), ModelError> {
         #[derive(Serialize)]
         struct Export<'a> {
-            snapshot: &'a SnapshotHandle,
-            manifest: &'a Manifest,
-            definition: &'a ProjectionDefinition,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            snapshot: Option<&'a SnapshotHandle>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            manifest: Option<&'a Manifest>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            definition: Option<&'a ProjectionDefinition>,
             specification: serde_json::Value,
             key: ProjectionKey,
             assessment: ProjectionSourceAssessment,
@@ -78,51 +100,49 @@ impl NativeProjection {
             source_coverage: Vec<&'a ProjectionSourceCoverage>,
             coverage: Vec<&'a ProviderCoverage>,
         }
-        let _held = self.budget.reserve(
+        let _held = budget.reserve(
             "native-projection-export-view",
-            self.graph
+            graph
                 .vertex_count()
                 .saturating_mul(size_of::<&EntityRef>())
-                .saturating_add(self.graph.arc_count().saturating_mul(size_of::<Arc>()))
+                .saturating_add(graph.arc_count().saturating_mul(size_of::<Arc>()))
                 .saturating_add(
-                    self.source
+                    source
                         .subjects()
                         .count()
                         .saturating_mul(size_of::<&ProjectionGapSubject>()),
                 )
                 .saturating_add(
-                    self.source
+                    source
                         .gaps()
                         .count()
                         .saturating_mul(size_of::<&ProjectionGap>()),
                 )
-                .saturating_add(self.coverage.len().saturating_mul(
+                .saturating_add(coverage.len().saturating_mul(
                     size_of::<&ProviderCoverage>() + size_of::<&ProjectionSourceCoverage>(),
                 )),
         )?;
         let spec =
-            lctx_model::domain::analysis::ProjectionDefinition::builtin(self.graph.key().name);
+            lctx_model::domain::analysis::ProjectionDefinition::builtin(graph.key().name);
         serde_json::to_writer(writer, &Export {
-            snapshot: &self.snapshot, manifest: &self.manifest, definition: &self.definition,
+            snapshot, manifest, definition,
             specification: serde_json::json!({"name":spec.name,"version":spec.version,"policy":spec.policy}),
-            key: self.graph.key(), assessment: self.source.assessment(),
-            vertices: self.graph.entities().collect(), arcs: self.graph.arcs().collect(),
-            gap_subjects: self.source.subjects().collect(), gaps: self.source.gaps().collect(),
-            source_coverage: self.source.coverage().collect(), coverage: self.coverage.iter().collect(),
+            key: graph.key(), assessment: source.assessment(),
+            vertices: graph.entities().collect(), arcs: graph.arcs().collect(),
+            gap_subjects: source.subjects().collect(), gaps: source.gaps().collect(),
+            source_coverage: source.coverage().collect(), coverage: coverage.iter().collect(),
         }).map_err(ModelError::codec)
     }
-}
 
 pub async fn materialize(
     reader: &NativeReader,
     key: ProjectionKey,
     budget: &ResourceBudget,
 ) -> Result<NativeProjection, ModelError> {
+    let mut bindings = Variables::new();
+    bindings.insert("publication", RecordId::new("publication", reader.handle().publication.hex()));
     let manifest_bytes: Vec<Bytes> = reader
-        .query(
-            "SELECT VALUE manifest FROM publication:current",
-            Variables::new(),
-        )
+        .query("SELECT VALUE manifest FROM $publication", bindings)
         .await?;
     let manifest = Manifest::decode(
         manifest_bytes
@@ -144,6 +164,17 @@ pub async fn materialize(
     {
         return Err(ModelError::Conflict("named projection definition"));
     }
+    let scoped = materialize_kernel(reader,key,budget).await?;
+    Ok(NativeProjection {snapshot:reader.handle().clone(),manifest,definition,source:scoped.source,graph:scoped.graph,coverage:scoped.coverage,budget:scoped.budget})
+}
+
+/// Materialize a finite completed-view graph using its model-owned source assessment.
+/// The caller supplies actual typed completed records, never a synthetic publication marker.
+pub async fn materialize_scoped(reader:&NativeReader<()>,key:ProjectionKey,budget:&ResourceBudget)->Result<ScopedProjection,ModelError> {
+    materialize_kernel(reader,key,budget).await
+}
+async fn materialize_kernel<Context>(reader:&NativeReader<Context>,key:ProjectionKey,budget:&ResourceBudget)->Result<ScopedProjection,ModelError> {
+    if reader.view_bindings().get("lctx_views").is_none() {return Err(ModelError::Conflict("projection requires exact completed views"));}
     let expected_key = ProjectionSourceAssessment {
         input: key.input,
         context: key.context,
@@ -186,23 +217,15 @@ pub async fn materialize(
         )?;
     }
     let graph = MaterializedGraph::build(&source, budget)?;
-    Ok(NativeProjection {
-        snapshot: reader.handle().clone(),
-        manifest,
-        definition,
-        source,
-        graph,
-        coverage,
-        budget: budget.clone(),
-    })
+    Ok(ScopedProjection {source,graph,coverage,budget:budget.clone()})
 }
 
 #[allow(
     clippy::mutable_key_type,
     reason = "Sealed native records use string IDs; SDK regex caches are not present and IDs are never mutated"
 )]
-async fn hydrate(
-    reader: &NativeReader,
+async fn hydrate<Context>(
+    reader: &NativeReader<Context>,
     key: ProjectionKey,
     budget: &ResourceBudget,
 ) -> Result<CanonicalBatches, ModelError> {
@@ -228,19 +251,17 @@ async fn hydrate(
         "LET $__projection_input_scopes = $types.map(|$type| $type+'|input|'+<string>$input)".into(),
         format!("LET $__projection_context_scope = {}",crate::prepared::scope_constant("$symbols","context","$context")),
     ];
-    let roots: Vec<RecordId> = reader.query_prepared(crate::prepared::PreparedQuery::new(bindings,preparation,vec!["RETURN array::concat(\
-        (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
-        (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
-        (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND scope_keys CONTAINS $__projection_context_scope))".into()])?).await?;
-    // Input sum records (for example CoverageScope::Input) use arm-prefixed physical
-    // columns. Their logical input reference is authoritative native adjacency, so include
-    // the exact capture as an ownership anchor rather than guessing those columns.
     let capture = crate::reader::target_id(lctx_model::domain::graph::Target::Entity(
         lctx_model::domain::graph::EntityId::of(key.input),
     ));
+    bindings.insert("capture", capture);
+    let selected_entity=reader.selected_node_predicate("id");
+    let roots: Vec<RecordId> = reader.query_prepared(crate::prepared::PreparedQuery::new(bindings,preparation,vec![format!("RETURN array::concat(\
+        (SELECT VALUE id FROM entity WHERE ({selected_entity}) AND (anchor=$capture OR (semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)))),\
+        (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND ({selected_entity}) AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
+        (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND ({selected_entity}) AND scope_keys CONTAINS $__projection_context_scope))")])?).await?;
     let mut seen = BTreeSet::new();
-    let mut frontier: Vec<_> = std::iter::once(capture)
-        .chain(roots)
+    let mut frontier: Vec<_> = roots.into_iter()
         .filter(|id| seen.insert(id.clone()))
         .collect();
     let mut charge = budget.reserve(
@@ -260,9 +281,10 @@ async fn hydrate(
                 serde_json::to_value(key.context).map_err(ModelError::codec)?,
             )?,
         );
-        let next: Vec<RecordId> = reader.query("RETURN array::distinct(array::concat(\
-            (SELECT VALUE in FROM reference WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context)),\
-            (SELECT VALUE in FROM participant WHERE out IN $frontier AND field IN $fields AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context))));", vars).await?;
+        let selected=reader.selected_node_predicate("in");
+        let next: Vec<RecordId> = reader.query(format!("RETURN array::distinct(array::concat(\
+            (SELECT VALUE in FROM reference WHERE out IN (SELECT VALUE anchor FROM $frontier) AND field IN $fields AND ({selected}) AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context)),\
+            (SELECT VALUE in FROM participant WHERE out IN (SELECT VALUE anchor FROM $frontier) AND field IN $fields AND ({selected}) AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context))));"), vars).await?;
         frontier = next
             .into_iter()
             .filter(|id| seen.insert(id.clone()))
@@ -274,9 +296,10 @@ async fn hydrate(
         let mut vars = Variables::new();
         vars.insert("frontier", frontier);
         vars.insert("types", types.iter().cloned().collect::<Vec<_>>());
-        let next: Vec<RecordId> = reader.query("RETURN array::distinct(array::concat(\
-            (SELECT VALUE out FROM reference WHERE in IN $frontier AND out.semantic_type IN $types),\
-            (SELECT VALUE out FROM participant WHERE in IN $frontier AND out.semantic_type IN $types)));", vars).await?;
+        let selected=reader.selected_node_predicate("id");
+        let next: Vec<RecordId> = reader.query(format!("RETURN array::concat(\
+            (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND ({selected}) AND anchor IN array::concat((SELECT VALUE out FROM reference WHERE in IN $frontier),(SELECT VALUE out FROM participant WHERE in IN $frontier))),\
+            (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND ({selected}) AND anchor IN array::concat((SELECT VALUE out FROM reference WHERE in IN $frontier),(SELECT VALUE out FROM participant WHERE in IN $frontier))));"), vars).await?;
         frontier = next
             .into_iter()
             .filter(|id| seen.insert(id.clone()))

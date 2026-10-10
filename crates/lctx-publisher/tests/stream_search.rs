@@ -9,10 +9,11 @@ use lctx_model::domain::{
 };
 use lctx_publisher::{materialize_search, reconcile_search};
 use lctx_surrealdb::surrealdb::types::{RecordId, Value, Variables};
-use lctx_surrealdb::{Credentials, Loader, reader};
-fn id<R: Record>(byte: u8) -> Id<R> {
-    serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
-}
+use lctx_surrealdb::{Loader,RuntimeConfig};
+#[path="../../lctx-serving/tests/fixtures/scoped.rs"] mod scoped;
+fn nonce()->&'static str {static NONCE:std::sync::OnceLock<String>=std::sync::OnceLock::new();NONCE.get_or_init(||format!("{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))}
+fn id<R: Record>(byte: u8) -> Id<R> {let digest=ContentHash::of(format!("{}-{byte}",nonce()).as_bytes());serde_json::from_value(serde_json::json!(&digest.0[..16])).unwrap()}
+
 async fn execute(loader: &Loader, sql: impl Into<String>, bindings: Variables) {
     loader
         .client()
@@ -26,7 +27,11 @@ async fn execute(loader: &Loader, sql: impl Into<String>, bindings: Variables) {
 async fn rows(loader: &Loader, table: &str) -> Vec<Value> {
     let mut response = loader
         .client()
-        .query(format!("SELECT * FROM {table} ORDER BY id"))
+        .query(format!("SELECT * FROM {table} WHERE {} ORDER BY id",match table {
+            "lex_occurs"|"vec_occurs"=>lctx_surrealdb::derived_search::selected_occurrence_predicate(&loader.reader(),"$this"),
+            "vector"=>format!("id IN (SELECT VALUE in FROM vec_occurs WHERE {})",lctx_surrealdb::derived_search::selected_occurrence_predicate(&loader.reader(),"$this")),
+            _=>format!("id IN (SELECT VALUE in FROM lex_occurs WHERE {})",lctx_surrealdb::derived_search::selected_occurrence_predicate(&loader.reader(),"$this")),
+        })).bind(loader.reader().view_bindings())
         .await
         .unwrap()
         .check()
@@ -55,38 +60,16 @@ async fn restore(loader: &Loader, row: &Value, relation: bool) {
 }
 #[tokio::test]
 async fn streamed_witnesses_and_complete_read_only_cold_audit() {
-    let cfg: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(
-            std::env::var("LCTX_SURREAL_TEST_CONFIG").expect("owned persistent fixture"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "stream_controls";
-    let db = format!("search_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    let loader = Loader::new(client.clone());
-    execute(
-        &loader,
-        format!("DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"),
-        Variables::new(),
-    )
-    .await;
-    loader
-        .install(&lctx_surrealdb::materialization::native_definitions())
-        .await
-        .unwrap();
+    streamed_control(false).await;
+}
+#[tokio::test]
+#[ignore="requires explicit exclusive maintenance admission"]
+async fn installed_scope_definition_drift_is_detected_read_only(){
+    assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),"run through just service maintenance --native-clients");
+    streamed_control(true).await;
+}
+async fn streamed_control(maintenance:bool){
+    let config=scoped::config();
     let spec: Spec = serde_json::from_slice(include_bytes!(
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
@@ -99,7 +82,8 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
     ];
     let document = embedding::DocumentRecipe::new(&spec).unwrap();
     let policy = embedding::projection::ProjectionDefinition::initial(&spec);
-    let text = "discover exact native evidence";
+    let text_owner=format!("discover exact native evidence {}",nonce());
+    let text=text_owner.as_str();
     let digest = ContentHash::of(text.as_bytes());
     let mut entities = specifications
         .iter()
@@ -301,8 +285,15 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
             }));
         }
     }
-    loader.entities(&entities).await.unwrap();
-    loader.assertions(&assertions).await.unwrap();
+    let fixture=scoped::reader(&config,&entities,&assertions).await.unwrap();
+    let vars=fixture.reader.view_bindings();let Some(Value::Array(selected))=vars.get("lctx_views")else{panic!("explicit fixture views")};
+    let views=selected.iter().map(|view|{let Value::RecordId(view)=view else{panic!("view ID")};let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash)=&view.key else{panic!("view hash")};ContentHash(hex::decode(hash).unwrap().try_into().unwrap())}).collect::<Vec<_>>();
+    let loader=Loader::for_attempt_views(fixture.reader.shared_client(),fixture.store.attempt(),views.clone());
+    let privileged=if maintenance {
+        let installer=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer config"))).unwrap();
+        let client=lctx_surrealdb::reader::connect(&installer.endpoint,&installer.writer_credentials(),installer.namespace.as_str(),installer.database.as_str()).await.unwrap();
+        Some(Loader::for_views(client,views))
+    }else{None};
     // This physical-lowering fixture has deliberately partial canonical rows.
     // Sparse canonical scope keys support its frontiers; full graph closure is
     // exercised by the separate admitted publication journey.
@@ -337,6 +328,20 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         );
     }
     reconcile_search(&loader).await.unwrap();
+    // Frozen lexical statistics are reconciled by actual payload, without repairing corruption.
+    for (table,change) in [("lexical_corpus","documents=documents+1"),("lexical_term","df=df+1"),("lexical_document","length=length+1"),("lexical_member","family=99")] {
+        let scope=lctx_surrealdb::lexical_stats::scope_identity(&loader.reader()).unwrap();let mut bind=Variables::new();bind.insert("scope",scope.hex());
+        let predicate=if table=="lexical_document" {"id IN (SELECT VALUE in FROM lexical_member WHERE scope=$scope)"}else{"scope=$scope"};
+        let saved:Vec<Value>=loader.reader().query(format!("SELECT * FROM {table} WHERE {predicate} ORDER BY id LIMIT 1"),bind).await.unwrap();let saved=saved[0].clone();
+        let mut vars=Variables::new();vars.insert("id",saved.as_object().unwrap().get("id").unwrap().clone());vars.insert("saved",saved.clone());
+        execute(&loader,format!("UPDATE $id SET {change}"),vars.clone()).await;
+        assert!(reconcile_search(&loader).await.is_err(),"changed immutable {table}");
+        let before:Value=loader.reader().query("SELECT * FROM ONLY $id",vars.clone()).await.unwrap();
+        assert!(reconcile_search(&loader).await.is_err());
+        let after:Value=loader.reader().query("SELECT * FROM ONLY $id",vars.clone()).await.unwrap();assert_eq!(before,after,"cold refusal stays read-only");
+        execute(&loader,"UPDATE $id CONTENT $saved",vars).await;
+        reconcile_search(&loader).await.unwrap();
+    }
     // Full rows, not just counts/IDs: every family refuses deletion, extra row and changed payload.
     for table in tables {
         let family_rows = rows(&loader, table).await;
@@ -375,7 +380,7 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
             }
         }
         let mut extra = object.clone();
-        extra.insert("id", RecordId::new(table, "extra"));
+        extra.insert("id", RecordId::new(table,format!("{}-extra",nonce())));
         if table.starts_with("search_") {
             extra.insert("digest", vec![0i64; 32]);
         } else if table == "vector" {
@@ -385,9 +390,17 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         }
         let extra = Value::Object(extra);
         restore(&loader, &extra, table.ends_with("occurs")).await;
+        let extra_edge=if !table.ends_with("occurs") {
+            let template=if table=="vector" {&vectors[0]}else{&lexical[0]};
+            let mut edge=template.as_object().unwrap().clone();
+            let name=if table=="vector"{"vec_occurs"}else{"lex_occurs"};
+            let id=RecordId::new(name,format!("{}-extra-{table}",nonce()));edge.insert("id",id.clone());edge.insert("in",extra.as_object().unwrap().get("id").unwrap().clone());edge.insert("occurrence_key",format!("{}-extra-{table}",nonce()));
+            restore(&loader,&Value::Object(edge),true).await;Some(id)
+        }else{None};
         assert!(reconcile_search(&loader).await.is_err(), "extra {table}");
         let mut extra_bind = Variables::new();
         extra_bind.insert("id", extra.as_object().unwrap().get("id").unwrap().clone());
+        if let Some(id)=extra_edge {let mut vars=Variables::new();vars.insert("id",id);execute(&loader,"DELETE $id",vars).await;}
         execute(&loader, "DELETE $id", extra_bind).await;
         let changes = if table.starts_with("search_") {
             vec!["text='changed'"]
@@ -427,6 +440,7 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
             original.insert("saved", saved.clone());
             execute(&loader, "UPDATE $id CONTENT $saved", original).await;
         }
+        if !maintenance {reconcile_search(&loader).await.unwrap();continue;}
         let (scope_field, source_field) = if table.starts_with("search_") {
             ("scope_digest", "digest")
         } else if table == "vector" {
@@ -435,7 +449,7 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         } else {
             ("scope_context", "context")
         };
-        execute(&loader, format!("DEFINE FIELD OVERWRITE {scope_field} ON {table} TYPE string; UPDATE $id SET {scope_field}='wrong persisted scope'; DEFINE FIELD OVERWRITE {scope_field} ON {table} TYPE string VALUE <string>{source_field};"), bind.clone()).await;
+        execute(privileged.as_ref().unwrap(), format!("DEFINE FIELD OVERWRITE {scope_field} ON {table} TYPE string; UPDATE $id SET {scope_field}='wrong persisted scope'; DEFINE FIELD OVERWRITE {scope_field} ON {table} TYPE string VALUE <string>{source_field};"), bind.clone()).await;
         assert!(
             reconcile_search(&loader).await.is_err(),
             "persisted scope drift in {table}"
@@ -448,5 +462,7 @@ async fn streamed_witnesses_and_complete_read_only_cold_audit() {
         execute(&loader, "UPDATE $id CONTENT $saved", original).await;
         reconcile_search(&loader).await.unwrap();
     }
-    execute(&loader, format!("REMOVE DATABASE {db}"), Variables::new()).await;
+    if let Some(privileged)=privileged {privileged.client().invalidate().await.unwrap();}
+    fixture.close().await.unwrap();
+    loader.client().invalidate().await.unwrap();
 }

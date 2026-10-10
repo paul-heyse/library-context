@@ -40,14 +40,14 @@ impl Loader {
     pub async fn reconcile(&self, manifest: &Manifest) -> Result<(), ModelError> {
         manifest.validate()?;
         let mut expected = crate::ordered_rows::SortedRows::new()?;
-        let reader = crate::NativeReader::private(self.shared_client());
+        let reader = self.reader();
         for (table, family) in [
             ("entity", GraphFamily::Entities),
             ("assertion", GraphFamily::Assertions),
         ] {
             let mut rows = reader.query_stream(
-                format!("SELECT * FROM {table} ORDER BY id"),
-                Variables::new(),
+                format!("SELECT * FROM {table} WHERE ({}) ORDER BY anchor.nominal",reader.selected_node_predicate("id")),
+                reader.view_bindings(),
                 1,
             )?;
             let mut hasher = FamilyHasher::new(family);
@@ -162,7 +162,7 @@ impl Loader {
                         )
                     };
                     let physical = crate::adapter::physical_row(
-                        RecordId::new(table, key.hex()),
+                        crate::loader::payload_id(table,&view.semantic_type,&key.0,content)?,
                         content,
                         canonical,
                         Some((kind, subtype)),
@@ -191,9 +191,11 @@ impl Loader {
                 ));
             }
         }
-        let mut actual = reader.query_stream("SELECT * FROM external ORDER BY id; SELECT * FROM participant ORDER BY id; SELECT * FROM reference ORDER BY id", Variables::new(), 3)?;
+        let source=reader.selected_node_predicate("in");
+        let external=format!("SELECT * FROM external WHERE id IN array::concat((SELECT VALUE out FROM participant WHERE ({source})),(SELECT VALUE out FROM reference WHERE ({source}))) ORDER BY id; SELECT * FROM participant WHERE ({source}) ORDER BY id; SELECT * FROM reference WHERE ({source}) ORDER BY id");
+        let mut actual = reader.query_stream(external, reader.view_bindings(), 3)?;
         expected.finish()?.reconcile(&mut actual).await?;
-        if table_count(self, "original").await? != manifest.originals.len() as u64 {
+        if self.view_ids().is_none() && table_count(self, "original").await? != manifest.originals.len() as u64 {
             return Err(ModelError::Conflict("native original inventory"));
         }
         let mut original_chunks = 0;
@@ -239,7 +241,7 @@ impl Loader {
                 return Err(ModelError::Conflict("native original readback"));
             }
         }
-        if table_count(self, "original_chunk").await? != original_chunks {
+        if self.view_ids().is_none() && table_count(self, "original_chunk").await? != original_chunks {
             return Err(ModelError::Conflict("native original chunk inventory"));
         }
         Ok(())
@@ -272,6 +274,14 @@ impl<Context> crate::NativeReader<Context> {
         if ranges.is_empty() {
             return Ok(vec![]);
         }
+        self.authorize_original_ranges(ranges)?;
+        let mut eligible=self.view_bindings();
+        if eligible.get("lctx_views").is_some() {
+            let anchors=ranges.iter().map(|(source,_,_)|crate::reader::target_id(Target::Entity(*source))).collect::<Vec<_>>();
+            eligible.insert("anchors",anchors.clone());
+            let found:Vec<RecordId>=self.query_native(format!("SELECT VALUE anchor FROM entity WHERE anchor IN $anchors AND ({})",self.selected_node_predicate("id")),eligible).await?;
+            if anchors.iter().any(|anchor|!found.contains(anchor)){return Err(ModelError::Conflict("original source outside exact view"));}
+        }
         let (sources, physical) = physical_original_ranges(ranges)?;
         if physical.is_empty() {
             return Ok(ranges.iter().map(|_| vec![]).collect());
@@ -285,15 +295,7 @@ impl<Context> crate::NativeReader<Context> {
                 .collect::<Vec<_>>(),
         );
         let sql = "SELECT * FROM $chunks ORDER BY source,start";
-        let mut response = self
-            .client()
-            .query(sql)
-            .bind(vars)
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        let chunks: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+        let chunks:Vec<Value>=self.query_native(sql,vars).await?;
         let chunks = index_original_chunks(chunks, &physical)?;
         ranges
             .iter()

@@ -36,6 +36,7 @@ pub(crate) fn model_error(error:datafusion::error::DataFusionError)->lctx_model:
 }
 
 /// Inspect shared provider errors without losing native uncertainty hidden by wrapper errors.
+#[cfg(test)]
 pub(crate) fn product_fallback_allowed(error:&lctx_model::domain::ModelError)->bool {
     fn allowed(error:&(dyn std::error::Error+'static))->bool {
         use lctx_model::domain::ModelError;

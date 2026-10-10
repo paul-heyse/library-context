@@ -98,7 +98,7 @@ real-provider fixtures, served round trips) are kept separate from derived valid
 `ORDER BY`; every `row_number()` ends in a unique tie-break; every cast in validation code uses
 `safe: false`.
 
-> Decision: ADR-0138, ADR-0117, ADR-0015
+> Decision: ADR-0143, ADR-0117, ADR-0015
 
 ### §8.1 Independent oracles (the validation lane)
 
@@ -157,7 +157,7 @@ and an owned persistent fixture.
 The stored-vector reference compares exhaustive full4096 and deliberate1024 projection with an
 independent scalar F64 control and canonical ties. Supplied candidate-union diagnostics and controlled
 stage injections identify observed losses without claiming production task success. A private
-native replay adapter pins the existing VIEWER snapshot, exhausts one declared eligible cohort
+native replay adapter pins the exact published view through the private native owner, exhausts one declared eligible cohort
 up to256 stored rows, and compares actual indexed HNSW nominations with those retained full bytes
 without inference. Oversized or incomplete populations refuse rather than becoming exhaustive
 references. Its selected runtime acceptance remains pending. Development optimization remains under frozen meanings; no production classification

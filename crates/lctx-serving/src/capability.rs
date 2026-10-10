@@ -236,41 +236,9 @@ mod controls {
     use super::*;
     #[tokio::test]
     async fn union_preparation_keeps_each_briefs_documents_separate() {
-        use lctx_surrealdb::{Credentials, Loader, reader};
         use synthesis::briefs::{Brief, BriefDocument, RENDERING_VERSION, ReviewStatus};
-        let cfg: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(
-                std::env::var("LCTX_SURREAL_TEST_CONFIG")
-                    .expect("owned disposable native fixture required"),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let db = format!("capability_union_{}", std::process::id());
-        let ns = "gn_capability_controls";
-        let client = reader::connect(
-            cfg["grpc_endpoint"].as_str().unwrap(),
-            &Credentials::Root {
-                username: cfg["admin_user"].as_str().unwrap().into(),
-                password: cfg["admin_password"].as_str().unwrap().into(),
-            },
-            ns,
-            &db,
-        )
-        .await
-        .unwrap();
-        client
-            .query(format!(
-                "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-            ))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-        let loader = Loader::new(client.clone());
-        loader.install(&crate::native_definitions()).await.unwrap();
+        let config=crate::scoped_fixture::config();
         let mut assertions = Vec::new();
-        let mut documents = Vec::new();
         let mut briefs = Vec::new();
         for (byte, text) in [(1u8, "first brief"), (2, "second independent brief")] {
             let brief = Brief {
@@ -292,42 +260,22 @@ mod controls {
             })
             .unwrap();
             assertions.push(document.clone());
-            documents.push(document);
             briefs.push((brief, text));
         }
-        loader.assertions(&assertions).await.unwrap();
-        // Brief seeds are intentionally absent in this packet-only cohort fixture.
-        // Retain the real document-to-brief ownership edges used by union hydration.
-        loader.assertion_references(&documents).await.unwrap();
-        let handle = SnapshotHandle {
-            semantic: ContentHash::of(b"partial brief fixture"),
-            realization: lctx_surrealdb::schema::realization_identity(&crate::native_definitions()),
-            database: DatabaseIdentity {
-                namespace: Name::new(ns).unwrap(),
-                database: Name::new(&db).unwrap(),
-            },
-        };
-        let native = NativeReader::new(client.clone(), handle);
+        let native=crate::scoped_fixture::reader(&config,&[],&assertions).await.unwrap();
         let budget = ResourceBudget::fixed(32 * 1024 * 1024).unwrap();
         let limits=ResourceLimits::default();
         let queries=std::sync::Arc::new(tokio::sync::Semaphore::new(1));
         let cpu=std::sync::Arc::new(tokio::sync::Semaphore::new(1));
-        let cache=crate::preparation::PreparedCache::new(native.handle().clone(), &budget, &limits, queries.clone(),cpu.clone()).unwrap();
+        let cache=crate::preparation::PreparedCache::for_scope(&native.reader, &budget, &limits, queries.clone(),cpu.clone()).unwrap();
         let admission=crate::preparation::RequestAdmission::new(queries,cpu,tokio::time::Instant::now()+std::time::Duration::from_secs(30),std::time::Duration::from_secs(1)).await.unwrap();
         let preparation=crate::preparation::Preparation{cache:&cache,admission:&admission};
         {
-        let data = hydrate(
-            &native,
-            &preparation,
-            &briefs
-                .iter()
-                .map(|(brief, _)| brief.id())
-                .collect::<Vec<_>>(),
-            &budget,
-        )
-        .await
-        .unwrap();
-        let repeated = hydrate(&native, &preparation, &briefs.iter().map(|(brief,_)|brief.id()).collect::<Vec<_>>(), &budget).await.unwrap();
+        let inputs=CapabilityPacket::binding().lowered().sources.iter().map(|relation|ValidationInput::of_relation(relation,&["id"])).collect::<Vec<_>>();
+        let mut fields=crate::scope::OWNED_FIELDS.to_vec();fields.extend(["brief","claim","derivation"]);
+        let roots=briefs.iter().map(|(brief,_)|graph::target_for_row(derivation::RowRef::of(brief.id())).map(target_id)).collect::<Result<Vec<_>,_>>().unwrap();
+        let data=preparation.hydrate_scope(&native.reader,roots.clone(),&inputs,&inputs,&fields).await.unwrap();
+        let repeated=preparation.hydrate_scope(&native.reader,roots,&inputs,&inputs,&fields).await.unwrap();
         assert!(data.shares_value(&repeated), "same pinned semantic closure must skip native hydration");
         drop(repeated);
         let data=CanonicalPrepared::new(&data,&budget);
@@ -349,11 +297,6 @@ mod controls {
         }
         cache.close().await;
         assert_eq!(budget.reserved(),0,"closed viewer releases preparation after all borrowers");
-        client
-            .query(format!("REMOVE DATABASE {db}"))
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
+        native.close().await.unwrap();
     }
 }

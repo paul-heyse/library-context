@@ -220,23 +220,23 @@ def test_removal_refuses_live_fixture_and_running_run_naming_them(repo, tmp_path
     target = base / "live"
     process, owner = _live_owner(tmp_path)
     try:
-        fixture = target / "build" / "fixtures" / "f00dfeed01"
+        import surrealdb_service as service
+        state = tmp_path / "service"
+        fixture = state / "attachments" / "f00dfeed-0000-4000-8000-000000000001"
         fixture.mkdir(parents=True)
-        (fixture / "record.json").write_text(
-            json.dumps(
-                {
-                    "schema": 1,
-                    "id": "f00dfeed01",
-                    "kind": "run",
-                    "checkout": str(target),
-                    "unit": "lctx-fixture-f00dfeed01.scope",
-                    "port": 41234,
-                    "memory_max": 1 << 30,
-                    "created": "2026-10-08T00:00:00+00:00",
-                    "owner": owner,
-                }
-            )
-        )
+        service.private_json(state / "installation.json", {
+            "schema": 1, "phase": "ready", "installation_id": "00000000-0000-4000-8000-000000000001",
+            "service_generation": list(range(32)), "unit": service.UNIT,
+            "namespace": service.NAMESPACE, "databases": list(service.DATABASES), "export_batch_size":service.EXPORT_BATCH_SIZE,
+            "state_root": str(state), "endpoint": "http://127.0.0.1:29000",
+            "grpc_endpoint": "grpc://127.0.0.1:29000",
+            "binary": {"path": "/tools/surreal", "sha256": service.BINARY_SHA256, "version": service.VERSION},
+        })
+        monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(state / "installation.json"))
+        (fixture / "record.json").write_text(json.dumps({
+            "id": "f00dfeed-0000-4000-8000-000000000001", "fixture": "00000000-0000-4000-8000-000000000001", "checkout": str(target),
+            "owner": owner, "released": False,
+        }))
         run = target / "build" / "runs" / "20261008T000000Z-ab12cd"
         run.mkdir(parents=True)
         (run / "record.json").write_text(
@@ -255,10 +255,10 @@ def test_removal_refuses_live_fixture_and_running_run_naming_them(repo, tmp_path
         )
         lines: list[str] = []
         assert worktree.remove("live", root=repo, base=base, report=lines.append) == 1
-        assert any("live: run-owned fixture f00dfeed01" in line for line in lines), lines
+        assert any("live: validation attachment f00dfeed-0000-4000-8000-000000000001" in line for line in lines), lines
         assert any(f"live: running run {run.name}: just verify-serving" in line for line in lines)
         assert (fixture / "record.json").is_file() and (run / "record.json").is_file()
-        # A run-owned fixture has no stop route here: even --force refuses rather than orphan it.
+        # A live logical borrower has no recovery route: --force cannot orphan it.
         lines.clear()
         stops: list[tuple] = []
         real = worktree._harness
@@ -273,7 +273,7 @@ def test_removal_refuses_live_fixture_and_running_run_naming_them(repo, tmp_path
         assert worktree.remove("live", force=True, root=repo, base=base, report=lines.append) == 1
         monkeypatch.setattr(worktree, "_harness", real)
         assert stops == [("runs.py", "cancel", run.name)]
-        assert any("still live: run-owned fixture f00dfeed01" in line for line in lines)
+        assert any("still live: validation attachment f00dfeed-0000-4000-8000-000000000001" in line for line in lines)
         assert target.exists() and (fixture / "record.json").is_file()
     finally:
         process.kill()
@@ -287,62 +287,32 @@ def test_removal_refuses_live_fixture_and_running_run_naming_them(repo, tmp_path
     assert worktree.remove("live", force=True, root=repo, base=base, report=lambda _: None) == 0
 
 
-def test_force_stops_kept_fixtures_through_their_route_before_removal(repo, tmp_path, monkeypatch):
+def test_force_recovers_dead_attachment_without_stopping_shared_service(repo, tmp_path, monkeypatch):
     base = tmp_path / "wt"
-    worktree.create("kept", root=repo, base=base, prepare=False, report=lambda _: None)
-    target = base / "kept"
-    rows = {
-        "surrealdb_fixture.py": [
-            {
-                "id": "k1",
-                "kind": "kept",
-                "unit": "lctx-fixture-k1.service",
-                "state": "active/success",
-                "port": 40001,
-                "attachments": "0/1",
-            },
-            {
-                "id": "k2",
-                "kind": "kept",
-                "unit": "lctx-fixture-k2.service",
-                "state": "gone",
-                "port": 40002,
-                "attachments": "0/0",
-            },
-            {
-                "id": None,
-                "kind": "unrecorded",
-                "unit": "lctx-fixture-other.service",
-                "state": "loaded active running lctx fixture other",
-            },
-        ],
-        "runs.py": [{"id": "r1", "state": "completed", "argv": ["true"], "protected": False}],
-    }
-    calls: list[tuple] = []
-
+    worktree.create("shared", root=repo, base=base, prepare=False, report=lambda _: None)
+    target = base / "shared"
+    rows = {"surrealdb_fixture.py": [
+        {"id": "a1", "kind": "attachment", "unit": "library-context-surrealdb.service",
+         "state": "gone", "owner_alive": False, "protected": True, "cleanup": "unresolved"},
+        {"id": "a2", "kind": "attachment", "unit": "library-context-surrealdb.service",
+         "state": "gone", "owner_alive": False, "protected": False, "cleanup": "confirmed"}],
+        "runs.py": []}
+    calls = []
     def listing(script, args, key, directory):
         assert directory.is_relative_to(target)
+        if script == "surrealdb_fixture.py":
+            assert key == "LCTX_FIXTURE_CHECKOUT" and directory == target
         return rows[script]
-
     def harness(script, args, key, directory):
         calls.append((script, *args))
-        assert (target / "build").parent.exists()  # the tree still exists while stopping
-        rows["surrealdb_fixture.py"][0]["state"] = "gone"
-        return subprocess.CompletedProcess(args, 0, "fixture k1: stopped\n", "")
-
+        assert target.exists()
+        rows["surrealdb_fixture.py"][0]["protected"] = False
+        return subprocess.CompletedProcess(args, 0, "attempt recovered", "")
     monkeypatch.setattr(worktree, "_listing", listing)
     monkeypatch.setattr(worktree, "_harness", harness)
-    monkeypatch.setattr(worktree, "_unit_description", lambda unit: "checkout=/elsewhere")
-    lines: list[str] = []
-    assert worktree.remove("kept", root=repo, base=base, report=lines.append) == 1
-    assert [line for line in lines if line.startswith("live:")] == [
-        "live: kept fixture k1: lctx-fixture-k1.service on port 40001, attachments 0/1"
-    ]
-    rows["surrealdb_fixture.py"][0]["state"] = "active/success"
-    lines.clear()
-    assert worktree.remove("kept", force=True, root=repo, base=base, report=lines.append) == 0
-    assert calls == [("surrealdb_fixture.py", "--stop", "k1", "--force", "--no-sweep")]
-    assert "stopped kept fixture k1: fixture k1: stopped" in lines
+    assert worktree.remove("shared", root=repo, base=base, report=lambda _: None) == 1
+    assert worktree.remove("shared", force=True, root=repo, base=base, report=lambda _: None) == 0
+    assert calls == [("surrealdb_fixture.py", "--recover", "a1")]
     assert not target.exists()
 
 
@@ -357,7 +327,7 @@ def test_unknown_fixture_state_is_not_absent(repo, tmp_path, monkeypatch):
     assert (base / "unknown").exists()
 
 
-@pytest.mark.parametrize("kind", ["run", "kept", "incomplete"])
+@pytest.mark.parametrize("kind", ["attachment", "incomplete"])
 def test_ended_fixture_with_unresolved_cleanup_protects_worktree(repo, tmp_path, monkeypatch, kind):
     base = tmp_path / "wt"
     worktree.create("protected", root=repo, base=base, prepare=False, report=lambda _: None)

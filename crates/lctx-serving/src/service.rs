@@ -122,7 +122,7 @@ impl NativeService {
                     let actual: String = self
                         .reader
                         .query(
-                            "RETURN fn::lctx_operation_definition();",
+                            format!("RETURN {}();", self.reader.handle().operation_definition_function()),
                             Default::default(),
                         )
                         .await

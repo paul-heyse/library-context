@@ -8,7 +8,6 @@ use lctx_surrealdb::{
     batches::CanonicalNode,
     reader::target_id,
 };
-use surrealdb::types::Variables;
 pub async fn get(
     reader: &NativeReader,
     preparation: &crate::preparation::Preparation<'_>,
@@ -542,14 +541,14 @@ async fn derivations(
     b: &ResourceBudget,
 ) -> Result<SectionPage<DerivationStep>, ModelError> {
     let root = target_id(crate::originals::target(&range.source)?);
-    let mut vars = Variables::new();
+    let mut vars = reader.view_bindings();
     vars.insert("root", root);
     // Resolve this source's adjacent owners once, then fetch only their canonical records.
     // Incoming entity owners are not assertion derivations.
     let nodes:Vec<CanonicalNode>=reader.query("RETURN {\
         LET $nodes = array::distinct(array::concat(\
-            (SELECT VALUE in FROM $root<-participant),\
-            (SELECT VALUE in FROM $root<-reference)));\
+            (SELECT VALUE in FROM participant WHERE out=$root AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)),\
+            (SELECT VALUE in FROM reference WHERE out=$root AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views))));\
         RETURN SELECT 'assertion' AS node_kind, canonical FROM $nodes WHERE record::table(id)='assertion';\
         };",vars).await?;
     let _charge = b.reserve(

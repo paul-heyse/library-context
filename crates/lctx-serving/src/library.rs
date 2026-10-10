@@ -5,7 +5,7 @@ use lctx_model::domain::{
     serving::{LibraryAdmissionData, LibraryDomainPacket, Name, PreparedLibraryDomains},
 };
 use lctx_surrealdb::NativeReader;
-use surrealdb::types::{RecordId, Variables};
+use surrealdb::types::RecordId;
 pub async fn resolve(
     reader: &NativeReader,
     name: Option<&Name>,
@@ -17,10 +17,10 @@ pub(crate) async fn resolve_prepared(reader: &NativeReader, name: Option<&Name>,
     resolve_inner(reader, name, budget, Some(preparation)).await
 }
 async fn resolve_inner(reader: &NativeReader, name: Option<&Name>, budget: &ResourceBudget, preparation: Option<&crate::preparation::Preparation<'_>>) -> Result<Vec<LibraryDomainPacket>, ModelError> {
-    let mut vars = Variables::new();
+    let mut vars = reader.view_bindings();
     vars.insert("name", name.map(|n| n.as_str().to_owned()));
     let roots: Vec<RecordId> = reader
-        .query("RETURN fn::lctx_library_roots($name);", vars)
+        .query(format!("RETURN {}($name, $lctx_views);",reader.handle().library_roots_function()), vars)
         .await?;
     let cached;
     let fresh;

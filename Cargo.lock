@@ -4104,6 +4104,8 @@ dependencies = [
  "serde",
  "serde_json",
  "surrealdb",
+ "surrealdb-sql",
+ "surrealdb-syn",
  "tempfile",
  "tokio",
  "tracing",

@@ -1,11 +1,12 @@
 # Unified persistent SurrealDB: shared content and scoped execution
 
-**Proposed / Interface-checked foundations · 2026-10-09.** The operator explicitly accepted
-source-review RC01–RC07 on2026-10-09. This document designs and schedules the target; it does
-not install a service, change production contracts, activate an operator store or establish
-runtime qualification. The [persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
-owns scheduled findings; its §9.1 owns actual execution receipts. This companion owns the
-unified target and UP0–UP9 packages, not another status or retention ledger.
+**Accepted target / implementation in progress · 2026-10-09.** The operator explicitly
+accepted source-review RC01–RC07. ADR-0143 records the superseding contracts; source changes
+implement shared content, scoped ownership and stable service integration. Installation,
+runtime controls and integrated UP9 acceptance remain in progress. The
+[persisted coordinator §8/§9.1](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns scheduled findings and actual receipts. This companion owns the unified target and
+UP0–UP9 packages, not another status or retention ledger.
 
 ## 1. Outcome, baseline and assessed foundations
 
@@ -212,6 +213,10 @@ to arbitrary native SQL/MCP clients. Every compiled read, evidence range, resour
 consumes the pinned manifest/view resolver. A serialized handle identifies content/realization;
 it is not a reusable runtime permission. Replace the current database-equals-snapshot assumption
 in SnapshotHandle/NativeReader, CLI, PyO3/MCP and evaluator adapters together.
+The private serving configuration uses the database principal needed for durable pin acquisition
+and release. Product callers receive domain reads, never this principal or arbitrary native SQL.
+Installer retries compare actual normalized declarations, skip exact matches and create only
+missing definitions; conflicting existing definitions refuse without overwrite.
 
 Select immutable named definition epochs in the same stable database. Install new function/index
 names rather than overwrite old meanings; compare actual definitions instead of trusting IF NOT
@@ -226,6 +231,14 @@ post-limit filtering is not equivalent. Until an approximate path establishes th
 use an explicitly identified exact eligible-vector operation under its own policy identity,
 with bounded transfer/compute where needed. Never silently substitute a different search policy
 or publish an unqualified approximate path. Preserve ranking fidelity and all required inputs.
+
+Integration review identified a second isolation dependency: a shared full-text index changes
+global BM25 statistics as unrelated content arrives. Its MATCHES predicate therefore nominates
+only; immutable corpus, term-frequency and document-length statistics are scoped to the exact
+published views and family. Ranking v5 scores with those frozen statistics before ORDER/LIMIT,
+uses distinct analyzed query terms, and reconciles the stored statistics during cold admission.
+Occurrence identity and eligibility include exact payload dependencies rather than nominal unit
+anchors alone. Pinned-A/unrelated-B controls establish both eligibility and ranking isolation.
 
 Application snapshots are explicit immutable ordinary records, not engine temporal history.
 The selected backup route is streamed logical export of `main` under a native retention hold

@@ -189,13 +189,13 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     let config = lctx_surrealdb::RuntimeConfig::read(&config_path).unwrap();
     let admin = lctx_surrealdb::reader::connect(
         &config.endpoint,
-        &config.root_credentials(),
+        &config.writer_credentials(),
         restored.native().namespace().as_str(),
         restored.native().database().as_str(),
     )
     .await
     .unwrap();
-    lctx_surrealdb::Loader::new(admin)
+    lctx_surrealdb::Loader::for_attempt_views(admin,restored.native().attempt(),vec![])
         .entities(&[
             Entity::from(captured_supplier.clone()),
             Entity::from(package()),

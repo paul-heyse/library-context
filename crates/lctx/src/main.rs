@@ -99,14 +99,14 @@ enum Cmd {
     /// Publish an exported trusted compiler artifact without selecting it.
     PublishArtifact {
         artifact: PathBuf,
-        #[arg(long, default_value = newnative::DEFAULT_CONFIG)]
+        #[arg(long, default_value_os_t = newnative::default_config())]
         runtime_config: PathBuf,
         #[arg(long, default_value_t = lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)]
         memory_bytes: usize,
     },
     /// Read or explicitly select a complete immutable snapshot handle.
     Snapshot {
-        #[arg(long, global = true, default_value = newnative::DEFAULT_CONFIG)]
+        #[arg(long, global = true, default_value_os_t = newnative::default_config())]
         runtime_config: PathBuf,
         #[command(subcommand)]
         command: SnapshotCommand,
@@ -120,12 +120,12 @@ enum Cmd {
         request: PathBuf,
         #[arg(long)]
         handle: Option<PathBuf>,
-        #[arg(long, default_value = newnative::DEFAULT_CONFIG)]
+        #[arg(long, default_value_os_t = newnative::default_config())]
         runtime_config: PathBuf,
     },
     /// Explicit initialization or readiness of the configured native control database.
     Store {
-        #[arg(long, global = true, default_value = newnative::DEFAULT_CONFIG)]
+        #[arg(long, global = true, default_value_os_t = newnative::default_config())]
         runtime_config: PathBuf,
         #[command(subcommand)]
         command: StoreCommand,
@@ -155,7 +155,12 @@ enum SnapshotCommand {
         handle: Option<PathBuf>,
     },
     /// Restore a trusted current-format SQL dump into a fresh, unselected published snapshot.
-    Restore { input: PathBuf },
+    Restore {
+        input: PathBuf,
+        /// Publication digest to recover from a multi-publication backup.
+        #[arg(long,value_parser=content_hash)]
+        publication: Option<lctx_model::domain::ContentHash>,
+    },
     /// Retire an unselected snapshot after every known reader process has been stopped.
     Retire {
         handle: PathBuf,
@@ -186,9 +191,11 @@ enum SnapshotCommand {
         #[arg(long)]
         handle: Option<PathBuf>,
     },
-    /// Execute checked SurrealQL under the database VIEWER grant.
+    /// Read model-declared relation bodies within one exact published view.
     Query {
-        sql: String,
+        relation: String,
+        #[arg(long,default_value_t=100)]
+        limit: usize,
         #[arg(long)]
         handle: Option<PathBuf>,
     },
@@ -198,6 +205,12 @@ enum SnapshotCommand {
 enum StoreCommand {
     Init,
     Check,
+    /// Maintenance-only durable effect reconciliation and drainage barrier.
+    Drain,
+    /// Maintenance-only fencing of native borrower admission.
+    CloseAdmission,
+    /// Reopen native borrowers after checked maintenance recovery.
+    OpenAdmission,
 }
 
 #[derive(Subcommand, Debug)]
@@ -223,6 +236,16 @@ fn refused(error: &anyhow::Error) -> bool {
     error
         .chain()
         .any(|cause| cause.is::<Refused>() || cause.is::<lctx_model::domain::serving::WireError>())
+}
+
+fn content_hash(raw:&str)->Result<lctx_model::domain::ContentHash,String> {
+    if raw.len()!=64 {return Err("content digest must contain 64 hexadecimal digits".into());}
+    let mut bytes=[0u8;32];
+    for (index,pair) in raw.as_bytes().chunks_exact(2).enumerate() {
+        let pair=std::str::from_utf8(pair).map_err(|_|"content digest must be hexadecimal")?;
+        bytes[index]=u8::from_str_radix(pair,16).map_err(|_|"content digest must be hexadecimal")?;
+    }
+    Ok(lctx_model::domain::ContentHash(bytes))
 }
 
 fn nominal_id<T>(raw: &str) -> Result<lctx_model::domain::Id<T>, String> {
@@ -509,7 +532,7 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
     let native_path = std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(crate::newnative::DEFAULT_CONFIG));
+        .unwrap_or_else(crate::newnative::default_config);
     let native_config = crate::newnative::config(&native_path)?;
     let native = runtime.block_on(lctx_surrealdb::compiler::NativeCompilerStore::begin(
         &native_config,
@@ -770,7 +793,7 @@ fn run() -> anyhow::Result<()> {
                 return Err(Refused("artifact destination already exists".into()).into());
             }
             let runtime_config =
-                runtime_config.unwrap_or_else(|| PathBuf::from(newnative::DEFAULT_CONFIG));
+                runtime_config.unwrap_or_else(newnative::default_config);
             let target = if artifact_only {
                 compile::Target::Artifact(
                     output
@@ -852,19 +875,16 @@ fn run() -> anyhow::Result<()> {
                         serde_json::to_string_pretty(&serde_json::json!({"output":output}))?
                     );
                 }
-                SnapshotCommand::Restore { input } => {
-                    let handle = runtime.block_on(newnative::restore(&config, &input))?;
+                SnapshotCommand::Restore { input, publication } => {
+                    let handle = runtime.block_on(newnative::restore(&config, &input, publication))?;
                     println!("{}", serde_json::to_string_pretty(&handle)?);
                 }
                 SnapshotCommand::Retire {
                     handle,
                     readers_stopped,
                 } => {
-                    runtime.block_on(newnative::retire(&config, &handle, readers_stopped))?;
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({"retired":handle}))?
-                    );
+                    let progress=runtime.block_on(newnative::retire(&config, &handle, readers_stopped))?;
+                    println!("{}",serde_json::to_string_pretty(&progress)?);
                 }
                 SnapshotCommand::Export {
                     projection,
@@ -898,13 +918,12 @@ fn run() -> anyhow::Result<()> {
                     println!("{}", serde_json::to_string_pretty(&selected)?);
                 }
                 SnapshotCommand::Show { handle } => {
-                    let reader = runtime.block_on(newnative::pin(&config, handle.as_deref()))?;
-                    let details = runtime.block_on(lctx_publisher::inspection::show(&reader))?;
+                    let details=runtime.block_on(newnative::show(&config,handle.as_deref()))?;
                     println!("{}", serde_json::to_string_pretty(&details)?);
                 }
-                SnapshotCommand::Query { sql, handle } => {
+                SnapshotCommand::Query { relation, limit, handle } => {
                     let response =
-                        runtime.block_on(newnative::query(&config, handle.as_deref(), &sql))?;
+                        runtime.block_on(newnative::query(&config, handle.as_deref(), &relation, limit))?;
                     println!("{}", serde_json::to_string_pretty(&response)?);
                 }
             }
@@ -933,6 +952,15 @@ fn run() -> anyhow::Result<()> {
                 StoreCommand::Init => runtime.block_on(newnative::install(&config))?,
                 StoreCommand::Check => {
                     runtime.block_on(newnative::ready(&config))?;
+                }
+                StoreCommand::Drain => {
+                    runtime.block_on(lctx_surrealdb::compiler::drain_installation(&config))?;
+                }
+                StoreCommand::CloseAdmission => {
+                    runtime.block_on(lctx_surrealdb::compiler::close_admission(&config))?;
+                }
+                StoreCommand::OpenAdmission => {
+                    runtime.block_on(lctx_surrealdb::compiler::open_admission(&config))?;
                 }
             }
             println!(

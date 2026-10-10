@@ -22,6 +22,8 @@ pub struct SearchDocument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SearchOccurrence {
+    pub dependencies:Vec<RecordId>,
+    pub unit_payload:RecordId,
     pub id: RecordId,
     pub r#in: RecordId,
     pub out: RecordId,
@@ -45,6 +47,7 @@ pub struct SearchOccurrence {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SearchVector {
+    pub dependencies:Vec<RecordId>,
     pub id: RecordId,
     pub encoder_hash: String,
     pub policy_key: String,
@@ -67,7 +70,7 @@ pub fn native_definitions() -> String {
     ] {
         sql.push_str(&format!("DEFINE TABLE {table} SCHEMAFULL;\nDEFINE FIELD text ON {table} TYPE string;\nDEFINE FIELD digest ON {table} TYPE array<int,32>;\nDEFINE FIELD scope_digest ON {table} TYPE string VALUE <string>digest;\nDEFINE INDEX exact_text ON {table} FIELDS scope_digest UNIQUE;\nDEFINE INDEX lexical ON {table} FIELDS text FULLTEXT ANALYZER lctx_discovery BM25(1.5,0.75);\n"));
     }
-    sql.push_str("DEFINE TABLE vector SCHEMAFULL;\nDEFINE FIELD encoder_hash ON vector TYPE string;\nDEFINE FIELD policy_key ON vector TYPE string;\nDEFINE FIELD library_input ON vector TYPE string;\nDEFINE FIELD family ON vector TYPE int;\nDEFINE FIELD full_key ON vector TYPE string;\nDEFINE FIELD projection_key ON vector TYPE string;\nDEFINE FIELD embedding ON vector TYPE array<float,1024>;\nDEFINE INDEX cohort ON vector FIELDS projection_key,library_input,family UNIQUE;\nDEFINE INDEX encoder_scope ON vector FIELDS encoder_hash;\nDEFINE INDEX policy_scope ON vector FIELDS policy_key;\nDEFINE INDEX library_scope ON vector FIELDS library_input;\nDEFINE INDEX family_scope ON vector FIELDS family;\nDEFINE INDEX neighbor ON vector FIELDS embedding HNSW DIMENSION 1024 DIST COSINE TYPE F32;\n");
+    sql.push_str("DEFINE TABLE vector SCHEMAFULL;\nDEFINE FIELD encoder_hash ON vector TYPE string;\nDEFINE FIELD policy_key ON vector TYPE string;\nDEFINE FIELD library_input ON vector TYPE string;\nDEFINE FIELD family ON vector TYPE int;\nDEFINE FIELD full_key ON vector TYPE string;\nDEFINE FIELD projection_key ON vector TYPE string;\nDEFINE FIELD dependencies ON vector TYPE array<record<entity|assertion|compiler_record>>;\nDEFINE FIELD embedding ON vector TYPE array<float,1024>;\nDEFINE INDEX cohort ON vector FIELDS projection_key,library_input,family;\nDEFINE INDEX encoder_scope ON vector FIELDS encoder_hash;\nDEFINE INDEX policy_scope ON vector FIELDS policy_key;\nDEFINE INDEX library_scope ON vector FIELDS library_input;\nDEFINE INDEX family_scope ON vector FIELDS family;\nDEFINE INDEX neighbor ON vector FIELDS embedding HNSW DIMENSION 1024 DIST COSINE TYPE F32;\n");
     for (table, input) in [
         (
             "lex_occurs",
@@ -80,8 +83,9 @@ pub fn native_definitions() -> String {
         } else {
             "occurrence_key"
         };
-        sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity ENFORCED SCHEMAFULL;\nDEFINE FIELD family ON {table} TYPE int;\nDEFINE FIELD unit ON {table} TYPE array<int,16>;\nDEFINE FIELD unit_node ON {table} TYPE record<entity>;\nDEFINE FIELD window ON {table} TYPE array<int,16>;\nDEFINE FIELD part ON {table} TYPE array<int,16>;\nDEFINE FIELD binding ON {table} TYPE option<array<int,16>|null>;\nDEFINE FIELD exact_name ON {table} TYPE string;\nDEFINE FIELD exact_path ON {table} TYPE string;\nDEFINE FIELD exact_option ON {table} TYPE string;\nDEFINE INDEX exact_name ON {table} FIELDS exact_name;\nDEFINE INDEX exact_path ON {table} FIELDS exact_path;\nDEFINE INDEX exact_option ON {table} FIELDS exact_option;\nDEFINE FIELD context ON {table} TYPE array<int,16>;\nDEFINE FIELD input ON {table} TYPE array<int,16>;\nDEFINE FIELD member ON {table} TYPE option<array<int,16>|null>;\nDEFINE FIELD anchor ON {table} TYPE option<array<int,16>|null>;\nDEFINE FIELD eligible ON {table} TYPE bool;\nDEFINE FIELD occurrence_key ON {table} TYPE string;\nDEFINE FIELD scope_input ON {table} TYPE string VALUE <string>input;\nDEFINE FIELD scope_member ON {table} TYPE string VALUE <string>member;\nDEFINE FIELD scope_context ON {table} TYPE string VALUE <string>context;\nDEFINE INDEX occurrence ON {table} FIELDS {occurrence_fields} UNIQUE;\nDEFINE INDEX eligible_input ON {table} FIELDS eligible,scope_input,family,scope_member,scope_context;\nDEFINE INDEX document_occurrences ON {table} FIELDS in,eligible,scope_input,scope_member,scope_context,occurrence_key;\nDEFINE INDEX target_occurrences ON {table} FIELDS out,family,occurrence_key;\nDEFINE FIELD scope_window ON {table} TYPE string VALUE <string>window;\nDEFINE INDEX window_occurrences ON {table} FIELDS scope_window,eligible;\n"));
+        sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity_anchor ENFORCED SCHEMAFULL;\nDEFINE FIELD family ON {table} TYPE int;\nDEFINE FIELD unit ON {table} TYPE array<int,16>;\nDEFINE FIELD unit_node ON {table} TYPE record<entity_anchor>;\nDEFINE FIELD unit_payload ON {table} TYPE record<entity>;\nDEFINE FIELD dependencies ON {table} TYPE array<record<entity|assertion|compiler_record>>;\nDEFINE FIELD window ON {table} TYPE array<int,16>;\nDEFINE FIELD part ON {table} TYPE array<int,16>;\nDEFINE FIELD binding ON {table} TYPE option<array<int,16>|null>;\nDEFINE FIELD exact_name ON {table} TYPE string;\nDEFINE FIELD exact_path ON {table} TYPE string;\nDEFINE FIELD exact_option ON {table} TYPE string;\nDEFINE INDEX exact_name ON {table} FIELDS exact_name;\nDEFINE INDEX exact_path ON {table} FIELDS exact_path;\nDEFINE INDEX exact_option ON {table} FIELDS exact_option;\nDEFINE FIELD context ON {table} TYPE array<int,16>;\nDEFINE FIELD input ON {table} TYPE array<int,16>;\nDEFINE FIELD member ON {table} TYPE option<array<int,16>|null>;\nDEFINE FIELD anchor ON {table} TYPE option<array<int,16>|null>;\nDEFINE FIELD eligible ON {table} TYPE bool;\nDEFINE FIELD occurrence_key ON {table} TYPE string;\nDEFINE FIELD scope_input ON {table} TYPE string VALUE <string>input;\nDEFINE FIELD scope_member ON {table} TYPE string VALUE <string>member;\nDEFINE FIELD scope_context ON {table} TYPE string VALUE <string>context;\nDEFINE INDEX occurrence ON {table} FIELDS {occurrence_fields} UNIQUE;\nDEFINE INDEX eligible_input ON {table} FIELDS eligible,scope_input,family,scope_member,scope_context;\nDEFINE INDEX document_occurrences ON {table} FIELDS in,eligible,scope_input,scope_member,scope_context,occurrence_key;\nDEFINE INDEX target_occurrences ON {table} FIELDS out,family,occurrence_key;\nDEFINE FIELD scope_window ON {table} TYPE string VALUE <string>window;\nDEFINE INDEX window_occurrences ON {table} FIELDS scope_window,eligible;\n"));
     }
+    sql.push_str(&crate::lexical_stats::definitions());
     sql
 }
 

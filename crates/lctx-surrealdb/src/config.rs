@@ -1,11 +1,19 @@
 //! Operator runtime configuration and explicit selection of a complete published handle.
 use crate::Credentials;
 use lctx_model::domain::{
-    ModelError,
+    ContentHash, ModelError,
     serving::{Name, SnapshotHandle, ResourceLimits},
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+/// Installation is the only caller allowed to carry a root principal. Ordinary clients
+/// authenticate inside their installed database and cannot create sibling databases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthenticationScope {
+    Root,
+    Database,
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
@@ -19,10 +27,13 @@ pub struct RuntimeConfig {
     pub viewer_username: String,
     pub viewer_password: String,
     pub namespace: Name,
+    pub database: Name,
+    pub service_generation: ContentHash,
+    pub authentication: AuthenticationScope,
     pub cache_database: Name,
     pub selection: PathBuf,
 }
-/// Explicit disposable derived-product store, distinct from embedding and snapshot databases.
+/// Optional portable products share the installed database but retain their own table/lifetime.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReuseConfig {
@@ -32,8 +43,8 @@ pub struct ReuseConfig {
 }
 impl ReuseConfig {
     pub fn validate(&self, runtime: &RuntimeConfig) -> Result<(), ModelError> {
-        if self.database == runtime.cache_database || self.capacity_bytes == 0 || self.capacity_bytes > i64::MAX as u64 || !self.lease_directory.is_absolute() {
-            return Err(ModelError::Invalid("reuse requires a separate database, positive capacity and absolute coordination directory".into()));
+        if self.database != runtime.database || self.capacity_bytes == 0 || self.capacity_bytes > i64::MAX as u64 || !self.lease_directory.is_absolute() {
+            return Err(ModelError::Invalid("reuse requires the installed database, positive capacity and absolute coordination directory".into()));
         }
         Ok(())
     }
@@ -59,14 +70,23 @@ impl RuntimeConfig {
                 "native database credentials required".into(),
             ));
         }
+        if !matches!(cfg.database.as_str(), "main" | "validation")
+            || cfg.cache_database != cfg.database
+        {
+            return Err(ModelError::Invalid("runtime requires stable main or validation storage".into()));
+        }
         if let Some(reuse) = &cfg.reuse { reuse.validate(&cfg)?; }
         if let Some(limits) = &cfg.serving_limits { limits.validate()?; }
         Ok(cfg)
     }
-    pub fn root_credentials(&self) -> Credentials {
-        Credentials::Root {
-            username: self.username.clone(),
-            password: self.password.clone(),
+    pub fn writer_credentials(&self) -> Credentials {
+        match self.authentication {
+            AuthenticationScope::Root => Credentials::Root {
+                username: self.username.clone(), password: self.password.clone(),
+            },
+            AuthenticationScope::Database => Credentials::Database {
+                username: self.username.clone(), password: self.password.clone(),
+            },
         }
     }
     pub fn viewer_credentials(&self) -> Credentials {
@@ -174,8 +194,10 @@ impl RuntimeConfig {
         let viewer = ViewerConfig {
             serving_limits: self.serving_limits.clone(),
             endpoint: self.endpoint.clone(),
-            username: self.viewer_username.clone(),
-            password: self.viewer_password.clone(),
+            // The trusted Rust reader writes durable pins. A native VIEWER principal cannot
+            // do that; this private configuration never becomes a public snapshot capability.
+            username: self.username.clone(),
+            password: self.password.clone(),
             selection: selection.clone(),
         };
         let serving_path = self.selection.with_extension("serving.json");
@@ -266,7 +288,10 @@ mod selection_controls {
             viewer_username: "viewer".into(),
             viewer_password: "viewer-private".into(),
             namespace: Name::new("fixture").unwrap(),
-            cache_database: Name::new("cache").unwrap(),
+            database: Name::new("validation").unwrap(),
+            service_generation: ContentHash::of(b"fixture-installation"),
+            authentication: AuthenticationScope::Database,
+            cache_database: Name::new("validation").unwrap(),
             selection: root.join("selected.json"),
         }
     }
@@ -274,6 +299,10 @@ mod selection_controls {
         SnapshotHandle {
             semantic: ContentHash::of(label.as_bytes()),
             realization: ContentHash::of(b"realization"),
+            publication: ContentHash::of(label.as_bytes()),
+            view: ContentHash::of(label.as_bytes()),
+            service_generation: ContentHash::of(b"fixture-installation"),
+            definition_epoch: ContentHash::of(b"definitions"),
             database: DatabaseIdentity {
                 namespace: Name::new("fixture").unwrap(),
                 database: Name::new(label).unwrap(),
@@ -288,6 +317,7 @@ mod selection_controls {
         let new = handle("new");
         cfg.select(&old).unwrap();
         let viewer = ViewerConfig::read(&cfg.selection.with_extension("serving.json")).unwrap();
+        assert_eq!(viewer.username,cfg.username,"trusted readers require the pin-writing principal");
         let pinned = viewer.selected().unwrap();
         let held = cfg.lock_selection().await.unwrap();
         let competitor = config(scratch.path());

@@ -1,4 +1,4 @@
-//! Validate portable normalization rows against current immutable inputs before typed ingress.
+//! Reconstruct normalization verification owners from retained typed rows and current inputs.
 //! Shared owner predicates mint the fresh application; cached bytes never carry authority.
 use super::*;
 use crate::{consumed_rows::ClosureTable, workspace::ProductCandidate};
@@ -81,8 +81,7 @@ pub(super) async fn bindings(
 #[cfg(test)]
 mod controls {
     use super::*;
-    use lctx_model::domain::{admission::Frontier, compilation_product::*, normalized::receiver, serving::Name};
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    use lctx_model::domain::{admission::Frontier, compilation_product::*, normalized::receiver, };
     fn section<R: Record>(rows: &[R]) -> ProductSection {
         let batch = R::encode(rows).unwrap();
         let mut bodies = lctx_surrealdb::codec::batch_bodies(&Relation::of::<R>(), &batch).unwrap();
@@ -94,21 +93,13 @@ mod controls {
     }
     #[tokio::test]
     async fn normalization_cached_receiver_predicate_rejection_precedes_ingress() {
-        let mut config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(
+        let config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(
             &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"))).unwrap();
-        let scratch = tempfile::tempdir().unwrap();
-        config.reuse = Some(lctx_surrealdb::ReuseConfig {
-            database: Name::new(format!("normalization_products_{}_{}", std::process::id(),
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))).unwrap(),
-            capacity_bytes: 16 << 20, lease_directory: scratch.path().join("leases"),
-        });
-        let cache = Arc::new(lctx_surrealdb::NativeProductCache::install(&config).await.unwrap().unwrap());
         let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
         let model = Arc::new(lctx_model::domain::model().unwrap());
         let workspace = Workspace::new(model.clone(), crate::workspace::WorkspaceOptions {
             memory_bytes: 64 << 20, ..Default::default()
         }, native).unwrap();
-        workspace.set_product_cache(Some(cache.clone())).unwrap();
         let stage = receiver::stage(Profile::Catalog);
         let facts = workspace.output("normalization-cache-premises", Profile::Catalog, ContentHash::of(b"fixture/v1"),
             workspace.inputs("normalization-cache-premises", Profile::Catalog, []).unwrap(),
@@ -139,15 +130,14 @@ mod controls {
         let mut sections = vec![section(&[bad]), section::<receiver::ReceiverEvidence>(&[]), section::<receiver::ReceiverPremise>(&[])];
         sections.sort_by(|left, right| left.name.cmp(&right.name));
         let bad = PortableProduct { request: request.clone(), outcome: ProductOutcome::Complete, sections };
-        assert!(cache.insert(&bad, workspace.budget()).await.unwrap());
         // The candidate is perfectly typed/canonical; only current receiver semantics reject it.
         crate::workspace::validate_product_rows(&bad, &model, workspace.budget(), resources::TRANSFER_ROWS).unwrap();
+        let candidate=Arc::new(crate::workspace::decode_product_rows(&bad,&model,workspace.budget(),resources::TRANSFER_ROWS).unwrap());
+        assert!(super::receivers(&access,&workspace,&candidate).await.is_err(),"typed rows alone do not establish receiver authority");
+        drop(candidate);
         super::super::receivers_produced(access, output, &workspace, &model).await.unwrap();
         assert_eq!(workspace.relation(receiver::ReceiverAssessment::NAME).unwrap().rows(), 0,
             "a rejected candidate must leave no ingress rows before fresh empty production");
-        let replaced = cache.lookup(&request, workspace.budget()).await.unwrap().unwrap();
-        assert!(replaced.product().sections.iter().all(|section| section.rows == 0));
-        drop(replaced);
         workspace.native().abandon().await.unwrap();
     }
 }

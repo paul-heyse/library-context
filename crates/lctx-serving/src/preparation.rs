@@ -76,11 +76,16 @@ impl Drop for InsertionOwner { fn drop(&mut self) {
     };
     drop(removed);self.lifecycle.changed.notify_waiters();
 } }
-struct ValueLease { lifecycle: Arc<Lifecycle>, _pin: SnapshotHandle }
+#[derive(Clone,PartialEq,serde::Serialize)]
+enum PreparationIdentity {
+    Publication(SnapshotHandle),
+    #[cfg(test)] CompilerViews(surrealdb::types::Variables),
+}
+struct ValueLease { lifecycle: Arc<Lifecycle>, _pin: PreparationIdentity }
 impl Drop for ValueLease { fn drop(&mut self) { let mut s=self.lifecycle.state.lock().expect("preparation lifecycle");s.values-=1;self.lifecycle.changed.notify_waiters(); } }
 /// One viewer and one immutable handle. Eviction never releases a borrower's charge.
 pub(crate) struct PreparedCache {
-    pin: SnapshotHandle,
+    pin: PreparationIdentity,
     capacity: u64,
     lifecycle: Arc<Lifecycle>,
     budget: ResourceBudget,
@@ -90,6 +95,13 @@ pub(crate) struct PreparedCache {
 }
 impl PreparedCache {
     pub(crate) fn new(pin: SnapshotHandle, shared:&ResourceBudget, limits:&ResourceLimits, queries:Arc<Semaphore>, cpu:Arc<Semaphore>)->Result<Arc<Self>,ModelError> {
+        Self::with_identity(PreparationIdentity::Publication(pin),shared,limits,queries,cpu)
+    }
+    #[cfg(test)]
+    pub(crate) fn for_scope(reader:&lctx_surrealdb::NativeReader<()>,shared:&ResourceBudget,limits:&ResourceLimits,queries:Arc<Semaphore>,cpu:Arc<Semaphore>)->Result<Arc<Self>,ModelError> {
+        Self::with_identity(PreparationIdentity::CompilerViews(reader.view_bindings()),shared,limits,queries,cpu)
+    }
+    fn with_identity(pin:PreparationIdentity,shared:&ResourceBudget,limits:&ResourceLimits,queries:Arc<Semaphore>,cpu:Arc<Semaphore>)->Result<Arc<Self>,ModelError> {
         let budget=ResourceBudget::scoped(shared, limits.preparation_bytes as usize)?;
         let capacity=limits.preparation_bytes.div_ceil(1024).min(u64::from(u32::MAX)-1);
         let lifecycle=Arc::new(Lifecycle {state:Mutex::new(State {retention:Some(Self::empty_cache(capacity)),..Default::default()}),changed:Notify::new()});
@@ -271,7 +283,15 @@ impl RequestAdmission {
 pub(crate) struct Preparation<'a> { pub(crate) cache:&'a Arc<PreparedCache>, pub(crate) admission:&'a RequestAdmission }
 impl Preparation<'_> {
     pub(crate) async fn hydrate(&self,reader:&lctx_surrealdb::NativeReader,roots:Vec<surrealdb::types::RecordId>,inputs:&[ValidationInput],incoming:&[ValidationInput],fields:&[&str])->Result<PreparedBatches,ModelError>{
-        if reader.handle()!=&self.cache.pin{return Err(ModelError::Conflict("viewer preparation pin"));}
+        if self.cache.pin!=PreparationIdentity::Publication(reader.handle().clone()){return Err(ModelError::Conflict("viewer preparation pin"));}
+        self.hydrate_exact(reader,roots,inputs,incoming,fields).await
+    }
+    #[cfg(test)]
+    pub(crate) async fn hydrate_scope(&self,reader:&lctx_surrealdb::NativeReader<()>,roots:Vec<surrealdb::types::RecordId>,inputs:&[ValidationInput],incoming:&[ValidationInput],fields:&[&str])->Result<PreparedBatches,ModelError>{
+        if self.cache.pin!=PreparationIdentity::CompilerViews(reader.view_bindings()){return Err(ModelError::Conflict("compiler preparation exact views"));}
+        self.hydrate_exact(reader,roots,inputs,incoming,fields).await
+    }
+    async fn hydrate_exact<Context:Clone+Send+Sync+'static>(&self,reader:&lctx_surrealdb::NativeReader<Context>,roots:Vec<surrealdb::types::RecordId>,inputs:&[ValidationInput],incoming:&[ValidationInput],fields:&[&str])->Result<PreparedBatches,ModelError>{
         self.admission.suspend().await;
         let result=async {
             let layoutkey=self.cache.available_key("layout",&[],inputs,incoming,fields).await?;
@@ -313,7 +333,7 @@ mod controls {
     fn make_cache()->(Arc<PreparedCache>,ResourceBudget) {
         let shared=ResourceBudget::fixed(1<<20).unwrap();
         let limits=ResourceLimits{shared_bytes:1<<20,preparation_bytes:1<<19,request_bytes:1<<18,..Default::default()};
-        let pin=SnapshotHandle{semantic:ContentHash::of(b"semantic"),realization:ContentHash::of(b"realization"),database:DatabaseIdentity{namespace:Name::new("ns").unwrap(),database:Name::new("snapshot").unwrap()}};
+        let pin=SnapshotHandle{publication:ContentHash::of(b"publication"),view:ContentHash::of(b"view"),service_generation:ContentHash::of(b"generation"),definition_epoch:ContentHash::of(b"epoch"),semantic:ContentHash::of(b"semantic"),realization:ContentHash::of(b"realization"),database:DatabaseIdentity{namespace:Name::new("ns").unwrap(),database:Name::new("snapshot").unwrap()}};
         (PreparedCache::new(pin,&shared,&limits,Arc::new(Semaphore::new(1)),Arc::new(Semaphore::new(1))).unwrap(),shared)
     }
     fn key(cache:&PreparedCache)->ExactPreparedKey {cache.key("test",&[],&[],&[],&[]).unwrap()}
@@ -334,7 +354,7 @@ mod controls {
             cache.key("layout",&[root],&inputs,&inputs,&["member"]).unwrap(),
         ] {assert!(a!=other);}
         let (mut foreign,_)=make_cache();
-        Arc::get_mut(&mut foreign).unwrap().pin.database.database=Name::new("other").unwrap();
+        let PreparationIdentity::Publication(pin)=&mut Arc::get_mut(&mut foreign).unwrap().pin else{panic!("publication key")};pin.database.database=Name::new("other").unwrap();
         assert!(a!=foreign.key("closure",&[surrealdb::types::RecordId::new("entity","a")],&inputs,&inputs,&["member"]).unwrap());
     }
     #[tokio::test]

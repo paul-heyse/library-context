@@ -1,10 +1,10 @@
 ---
 id: ADR-0138
 title: Validate typed native ingress and freeze final content for reusable canonical preparation
-status: accepted
+status: superseded
 date: 2026-10-09
 supersedes: [ADR-0128, ADR-0133, ADR-0135]
-superseded-by: null
+superseded-by: ADR-0143
 design: ["§1.2", "§B2", "§B3", "§B7", "§B12", "§B13", "§4", "§5", "§6", "§15"]
 evidence: Proposed
 revisit: A supported semantic writer requires database-only closed-body rejection, independent pre-final overlap is required, or native placement or SQL staging transport ceases to serve its current consumer.

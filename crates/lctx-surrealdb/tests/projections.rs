@@ -1,7 +1,7 @@
 //! Real native ownership selection with source isolates, a self-loop and coverage gaps.
 use lctx_model::domain::{
     attribution::{AnalysisContext, CoverageStatus, FactFamily, ProviderCoverage},
-    graph::{Assertion, Entity, Manifest, ProjectionDefinition},
+    graph::{Assertion, Entity},
     input::{InputRevision, ManifestEntry},
     normalized::entities::{CallableEntity, CallableKind, EntityRef, OccurrenceOwnership},
     projection::{
@@ -9,42 +9,15 @@ use lctx_model::domain::{
         normalization::{ProjectionData, ProjectionKey, describe},
     },
     resources::ResourceBudget,
-    serving::{DatabaseIdentity, Name, SnapshotHandle},
     source::{CoverageScope, Occurrence, OccurrenceRole, SourceArtifact, SyntaxKind},
     *,
 };
-use lctx_surrealdb::{Credentials, Loader, NativeReader, reader};
-use surrealdb::types::{Bytes, Variables};
+#[path = "fixtures/scoped.rs"]
+mod scoped;
 
 #[tokio::test]
 async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
-    let path = std::env::var("LCTX_SURREAL_TEST_CONFIG")
-        .expect("owned disposable SurrealDB configuration required");
-    let cfg: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    let credentials = Credentials::Root {
-        username: cfg["admin_user"].as_str().unwrap().into(),
-        password: cfg["admin_password"].as_str().unwrap().into(),
-    };
-    let ns = "gn_controls";
-    let db = format!("projection_{}", std::process::id());
-    let client = reader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        ns,
-        &db,
-    )
-    .await
-    .unwrap();
-    client
-        .query(format!(
-            "DEFINE NAMESPACE IF NOT EXISTS {ns}; DEFINE DATABASE OVERWRITE {db} STRICT;"
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let loader = Loader::new(client.clone());
-    loader.install("").await.unwrap();
+    let config = scoped::config();
     let budget = ResourceBudget::fixed(64 << 20).unwrap();
     let context = AnalysisContext {
         python_version: "3.14.7".into(),
@@ -168,66 +141,9 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
         .unwrap();
     assertions.push(Assertion::from_record(coverage).unwrap());
     assertions.push(Assertion::from_record(expected.assessment()).unwrap());
-    loader.entities(&entities).await.unwrap();
-    loader.entity_references(&entities).await.unwrap();
-    loader.assertions(&assertions).await.unwrap();
-    loader.assertion_references(&assertions).await.unwrap();
-    let definition = ProjectionDefinition {
-        name: "DefinitionContainment".into(),
-        definition: analysis::ProjectionDefinition::builtin(key.name).content_digest(),
-        source_membership: ContentHash::of(b"fixture-selected-projection-inputs"),
-        declared_losses: vec!["fixture declared loss".into()],
-    };
-    let manifest = Manifest {
-        admission_contract: ContentHash::of(b"fixture admission contract"),
-        format_version: graph::ARTIFACT_FORMAT_VERSION,
-        completed_state: lctx_model::domain::completed::CompletedStateIdentity {
-            format_version: lctx_model::domain::completed::STATE_FORMAT_VERSION,
-            contributions: 0, memberships: 0, backing_rows: 0,
-            content: ContentHash::of(b"fixture-empty-completed-state"),
-        },
-        frontier: admission::Frontier::Normalized,
-        profile: stages::Profile::Catalog,
-        captures: vec![graph::EntityId::of(input.id())],
-        semantic_contract: ContentHash::of(b"fixture-contract"),
-        producers: vec![],
-        settings: ContentHash::of(b"fixture-settings"),
-        families: vec![],
-        required_outcomes: vec![],
-        outcomes: vec![],
-        originals: vec![],
-        projections: vec![definition.clone()],
-        embeddings: vec![],
-    };
-    let handle = SnapshotHandle {
-        semantic: manifest.content(),
-        realization: lctx_surrealdb::schema::realization_identity(""),
-        database: DatabaseIdentity {
-            namespace: Name::new(ns).unwrap(),
-            database: Name::new(&db).unwrap(),
-        },
-    };
-    let mut bindings = Variables::new();
-    bindings.insert("handle", hex::encode(serde_json::to_vec(&handle).unwrap()));
-    bindings.insert(
-        "manifest",
-        Bytes::from(serde_json::to_vec(&manifest).unwrap()),
-    );
-    client
-        .query("CREATE publication:current CONTENT {handle:$handle,manifest:$manifest}")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let reader = NativeReader::connect(
-        cfg["grpc_endpoint"].as_str().unwrap(),
-        &credentials,
-        handle.clone(),
-    )
-    .await
-    .unwrap();
-    let projection = lctx_surrealdb::projections::materialize(&reader, key, &budget)
+    let fixture = scoped::reader(&config,&entities,&assertions).await.unwrap();
+    let reader = &fixture.reader;
+    let projection = lctx_surrealdb::projections::materialize_scoped(&reader, key, &budget)
         .await
         .unwrap();
     projection.graph.matches(&expected).unwrap();
@@ -249,11 +165,10 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
     let mut exported = vec![];
     projection.write_json(&mut exported).unwrap();
     let json: serde_json::Value = serde_json::from_slice(&exported).unwrap();
-    assert_eq!(json["snapshot"], serde_json::to_value(handle).unwrap());
-    assert_eq!(
-        json["definition"],
-        serde_json::to_value(definition).unwrap()
-    );
+    assert!(json.get("snapshot").is_none());
+    assert!(json.get("manifest").is_none());
+    assert!(json.get("definition").is_none());
+    assert_eq!(json["assessment"],serde_json::to_value(expected.assessment()).unwrap());
     assert_eq!(json["vertices"].as_array().unwrap().len(), 4);
     assert_eq!(json["arcs"].as_array().unwrap().len(), 3);
     assert_eq!(json["gaps"].as_array().unwrap().len(), 4);
@@ -263,14 +178,9 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
         name: ProjectionName::PublicExposure,
     };
     assert!(
-        lctx_surrealdb::projections::materialize(&reader, missing, &budget)
+        lctx_surrealdb::projections::materialize_scoped(&reader, missing, &budget)
             .await
             .is_err()
     );
-    client
-        .query(format!("REMOVE DATABASE {db}"))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    fixture.close().await.unwrap();
 }

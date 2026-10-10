@@ -134,10 +134,14 @@ verify-tooling *args:
 qualify:
     @uv run --no-project --offline --no-python-downloads python scripts/verify.py qualify
 
-# Disposable native SurrealDB fixtures (D2): `-- CMD` runs CMD with LCTX_SURREAL_TEST_CONFIG and
-# LCTX_COMPILER_RUNTIME_CONFIG on a run-owned server; `--keep [-- CMD]` | `--attach ID -- CMD` |
-# `--stop ID` | `--restart ID` | `--list [--json]` | `--sweep`. Sweeps dead owners at start
-# (`--no-sweep`); `--memory`/LCTX_FIXTURE_MEMORY sets the cap (default 16G). Exit 75 is blocked.
+# One durable pinned native SurrealDB service. Installation and maintenance are explicit;
+# check/status never start a server or repair state. Credentials remain in host-private files.
+[positional-arguments]
+service *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/surrealdb_service.py "$@"
+
+# Attach a fresh logical validation attempt to the installed service; no scratch databases.
+# Missing/incompatible installation exits 75 with its explicit repair route.
 [positional-arguments]
 fixture *args:
     @uv run --no-project --offline --no-python-downloads python scripts/surrealdb_fixture.py "$@"
