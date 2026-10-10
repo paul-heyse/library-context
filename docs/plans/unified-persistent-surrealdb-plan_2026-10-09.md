@@ -1,7 +1,9 @@
 # Unified persistent SurrealDB: shared content and scoped execution
 
 **Accepted target / implementation in progress · 2026-10-09.** The operator explicitly
-accepted source-review RC01–RC07. ADR-0143 records the superseding contracts; source changes
+accepted source-review RC01–RC07. ADR-0143 originally recorded the superseding contracts;
+[ADR-0145](../adr/0145-holistic-state-ownership.md) now owns their surviving guarantees and
+the holistic backup/history refinements. Source changes
 implement shared content, scoped ownership and stable service integration. The owned service
 is installed and empty-service recovery is focused Tested. Product runtime repairs and integrated
 UP9 acceptance remain in progress. The
@@ -15,6 +17,13 @@ selection, phased retirement, qualified terminal-history compaction, selected co
 and charged active state. UP acceptance remains open; coordinator §8/§9.1 owns disposition/receipts.
 
 ## 1. Outcome, baseline and assessed foundations
+
+**SurrealDB architecture refinement, Proposed,2026-10-10:** the
+[architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
+supplies SA0–SA9. UP1 gains complete installed transitions, atomic native progress and a checked
+mixed-state successor; UP5 gains relation-aware reads, table-source/exact lexical nomination and
+batched per-node eligibility/hydration; UP8 gains bounded lifecycle crossings. SA9 joins HS11/UP9's
+single final-source acceptance. Source IDs/dispositions and actual receipts remain in the coordinator.
 
 Use one durable, authenticated library-context SurrealDB service across compilation, publication,
 serving, verification and agent worktrees. Ordinary clients attach to installed compatible state;
@@ -106,6 +115,13 @@ drain existing ones, verify the exact service/storage identity, then act. An emp
 or a missing client heartbeat alone is not proof of remote-effect termination. Reopening admission
 requires readiness and generation revalidation. Ordinary tests/compiler workers keep their normal
 available parallelism.
+
+Installed-upgrade recovery follows architecture companion §3/SA0–SA3: preserve original native
+migration/credential identities and completed publications, independently identify migration-only
+progress, atomically checkpoint data pages, and reconcile unreceipted partial work through a fenced
+successor. Existing absent/intent-only replacement is insufficient for an advanced unpublished scope.
+This is not UP3 arbitrary pending-work resume or a refresh of old effect authority. Ordinary attachment
+still refuses incompatibility; only the exact owned maintenance route may adopt supported mixed states.
 
 ## 4. Shared immutable content and exact native graphs
 
@@ -399,6 +415,13 @@ selected or deleted while authoring this document; execution must name the exact
 protected content and maintenance boundary before cutover.
 
 ## 9. Library fit, bounded investigations and future change
+
+Architecture companion §7/SA8 reconciles overlapping transport, native modeling, cache/lifetime,
+engine, coordination, legacy-release and notification avenues. SA0/SA2 select native page progress
+under existing host planning; SA5/SA6 qualify actual selective FULLTEXT/occurrence routes. These
+questions use their existing UP/HS/NE owners and shared acceptance, not duplicate registers or blanket
+overlap deferrals. Definition mismatches/readiness, exact-vector policy and independent recovery
+remain required. Conditional WS adoption preserves accepted UP-RC07; patched gRPC remains initial.
 
 The locked SDK/engine API is3.3.0 with the narrow gRPC terminal backport. Cached published core
 and storage source is version-matched evidence, not installed-server identity. Context7 discovery

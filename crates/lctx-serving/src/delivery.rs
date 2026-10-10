@@ -772,13 +772,13 @@ fn ranked_tail(request: &Request, response: &mut Response) -> Result<bool, WireE
 }
 /// Shared fresh/resumed-page entry point. Core/signatures/interpretation are never pruned.
 /// The actual Python transport additionally admits the complete JSON-RPC envelope and metadata.
-pub fn finalize(request: &Request, response: &mut Response) -> Result<(), WireError> {
+pub fn finalize(request: &Request, response: &mut Response, limits: &ResourceLimits) -> Result<(), WireError> {
     if request.tool() != response.tool() {
         return Err(WireError::Invalid("delivery request/response route".into()));
     }
     check_context(request, response)?;
     // Leave transport framing/IDs room; actual transport admission remains authoritative.
-    let limit = ResourceLimits::default()
+    let limit = limits
         .response_bytes(request.page().expanded)
         .saturating_sub(1024) as usize;
     loop {
@@ -1084,7 +1084,7 @@ mod packing_tests {
             extent: SelectionExtent::Ranked { returned: 3 },
             ranking: rankings,
         });
-        finalize(&request, &mut response).unwrap();
+        finalize(&request, &mut response, &ResourceLimits::default()).unwrap();
         assert!(
             response.mcp_result_len().unwrap()
                 <= ResourceLimits::default().response_bytes(false) as usize - 1024

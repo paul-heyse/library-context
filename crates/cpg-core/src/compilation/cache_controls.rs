@@ -137,6 +137,19 @@ async fn run(
     expected: &[u8],
     names: &[&str],
 ) -> Receipt {
+    run_with_analytics(config, input, profile, frontier, reuse_admitted, expected, names, false).await
+}
+#[allow(clippy::too_many_arguments, reason = "Focused control keeps the compile selection, cache decision and independent source oracle explicit")]
+async fn run_with_analytics(
+    config: &lctx_surrealdb::RuntimeConfig,
+    input: &Path,
+    profile: Profile,
+    frontier: Frontier,
+    reuse_admitted: bool,
+    expected: &[u8],
+    names: &[&str],
+    analytic: bool,
+) -> Receipt {
     let log = CapturedLog::default();
     let writer = log.clone();
     let dispatch = tracing::Dispatch::new(
@@ -176,9 +189,11 @@ async fn run(
             )
             .unwrap(),
         ));
+        let mut settings = settings();
+        settings.pagerank = analytic;
         let prepared = PreparedCompilation::new(
             frontier,
-            settings(),
+            settings,
             captured.config().catalog(),
             None,
             workspace.budget(),
@@ -438,4 +453,25 @@ async fn catalog_compiler_cache_off_cold_hit_reload_and_changed_source_are_equiv
 #[tokio::test(flavor = "multi_thread")]
 async fn behavioral_compiler_cache_off_cold_hit_reload_and_changed_source_are_equivalent() {
     matrix(Profile::Behavioral, Frontier::Analysis).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn optional_analytic_preparation_cold_and_warm_preserve_exact_outputs() {
+    let config = lctx_surrealdb::RuntimeConfig::read(Path::new(
+        &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+    )).unwrap();
+    let input = tempfile::tempdir().unwrap();
+    std::fs::write(input.path().join("api.py"), ORIGINAL).unwrap();
+    // Two attempts, rather than the full invalidation matrix: selected optional Analytic
+    // extends graph lifetime after Structural, and warm attachment can remove consumers.
+    let cold = run_with_analytics(&config, input.path(), Profile::Catalog, Frontier::Analysis,
+        false, ORIGINAL, &["identity"], true).await;
+    let warm = run_with_analytics(&config, input.path(), Profile::Catalog, Frontier::Analysis,
+        true, ORIGINAL, &["identity"], true).await;
+    assert!(!reused(&cold));
+    assert!(reused(&warm), "actual warm admitted attachment missing: {}", warm.hit_log);
+    equivalent(&cold, &warm);
+    for receipt in [cold, warm] {
+        receipt.workspace.native().abandon().await.unwrap();
+    }
 }

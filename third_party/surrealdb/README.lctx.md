@@ -7,7 +7,7 @@ its upstream source revision is `238bfeb11f5725bebed370167656748df8067595`.
 The standalone Cargo.lock and Cargo cache markers are omitted. Upstream license
 texts and the remaining published source are retained.
 
-The local change is confined to `src/engine/remote/grpc.rs`. On a successful
+The physical terminal change is in `src/engine/remote/grpc.rs`. On a successful
 application `QueryResponse::End`, export `DataTrailer`, or subscription `End`,
 the SDK now retains and polls the tonic stream through its checked transport
 EOF. A late gRPC status or protobuf error remains an error. Additional payload
@@ -26,3 +26,12 @@ execution plan, not in this provenance file.
 
 Remove this patch when a qualified published SDK provides checked physical
 completion for these paths. Do not edit the shared Cargo registry cache.
+
+The HS7 logical-export adapter additionally exposes borrowed `Transaction::cancel_ref` and
+`invalidate_session`. They use the original router, session and transaction ID so failed
+rollback acknowledgement cannot discard the only exact-session finalization handle. Export
+retains the transaction through checked query EOF, explicit cancellation and invalidation.
+`Surreal::clone` creates another session and is not a substitute. These methods do not make
+static source feasibility a qualified composed snapshot-export result.
+
+The external transaction adapter also exposes `Begin::retain_on_error`, retaining the exact consumed exporter session for explicit invalidation when the begin RPC fails. No dependency revision or ordinary clone semantics changed. Runtime composition is qualified by the consumer snapshot/cancel controls, separately from source review.

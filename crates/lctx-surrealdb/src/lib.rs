@@ -8,6 +8,7 @@ pub use cache::NativeEmbeddingCache;
 pub mod config;
 pub mod prepared;
 pub mod reader;
+pub mod selection;
 pub use config::{AuthenticationScope, ReuseConfig, RuntimeConfig};
 pub mod acknowledged_candidates;
 pub mod batches;
@@ -25,6 +26,7 @@ pub mod projections;
 pub mod compiler;
 pub mod compiler_provider;
 pub mod control;
+pub mod upgrade;
 mod projected_arrow;
 
 pub mod derived_search;

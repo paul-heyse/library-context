@@ -45,8 +45,6 @@ from harness import (
     write_json_atomic,
 )
 from surrealdb_service import (
-    BINARY_SHA256,
-    VERSION,
     FixtureBlocked,
     FixtureFailed,
     Installation,
@@ -147,8 +145,17 @@ def _git(*args: str) -> str:
     return result.stdout.decode(errors="replace").strip() if result.returncode == 0 else ""
 
 
-def source_inputs() -> dict[str, str]:
-    """The checkout's producing inputs: HEAD and a digest of the uncommitted difference."""
+def _server_identity(installation: Installation) -> dict[str, str]:
+    service._installed_binary(installation)
+    binary = installation.record["binary"]
+    identity = {"version": binary["version"], "binary_sha256": binary["sha256"]}
+    if generation := binary.get("generation"):
+        identity["generation"] = generation["identity"]
+    return identity
+
+
+def source_inputs(installation: Installation) -> dict[str, Any]:
+    """The producing checkout and exact verified installed server identity."""
     diff = subprocess.run(
         ["git", "-C", str(ROOT), "diff", "HEAD", "--binary"],
         capture_output=True,
@@ -157,7 +164,8 @@ def source_inputs() -> dict[str, str]:
     ).stdout
     untracked = _git("ls-files", "--others", "--exclude-standard")
     digest = hashlib.sha256(diff + b"\0" + untracked.encode()).hexdigest()
-    return {"head": _git("rev-parse", "HEAD"), "uncommitted_sha256": digest}
+    return {"head": _git("rev-parse", "HEAD"), "uncommitted_sha256": digest,
+            "server": _server_identity(installation)}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -219,7 +227,11 @@ def substrate_readiness(
     try:
         installation = Installation.load(env)
         installation.check(allow_maintenance=service.maintenance_owned(installation))
-        return Readiness(requirement, True, f"installed {installation.id} {VERSION}")
+        server = _server_identity(installation)
+        detail = f"installed {installation.id} {server['version']} sha256={server['binary_sha256']}"
+        if generation := server.get("generation"):
+            detail += f" generation={generation}"
+        return Readiness(requirement, True, detail)
     except FixtureBlocked as error:
         return Readiness(requirement, False, error.detail, error.repair)
 
@@ -471,7 +483,7 @@ class Attachment:
                 "admin_password": cfg["password"],
                 "installation_id": server.id,
                 "service_generation": server.record["service_generation"],
-                "server": {"version": VERSION, "binary_sha256": BINARY_SHA256},
+                "server": _server_identity(server.installation),
             }
             attachment = cls(
                 server, attachment_id, directory, config, _lock=lock, _borrow=ownership
@@ -584,16 +596,17 @@ class Attachment:
         handle = read_json(selection)
         if not isinstance(handle, dict):
             raise FixtureBlocked("serving", "producer did not write its handle")
+        inputs = source_inputs(self.server.installation)
         identity = {
             "name": name,
             "fixture": self.server.id,
-            "inputs": {**source_inputs(), "command": list(command)},
+            "inputs": {**inputs, "command": list(command)},
             "configuration": {
                 "path": str(viewer),
                 "sha256": file_sha256(viewer),
                 "selection": str(selection),
                 "selection_sha256": file_sha256(selection),
-                "server": {"version": VERSION, "binary_sha256": BINARY_SHA256},
+                "server": inputs["server"],
             },
             "content": {
                 "handle": handle,
@@ -614,7 +627,7 @@ class Attachment:
     def use_serving(self, name: str) -> dict[str, Any]:
         identity = serving_available(self.server, name)
         self.extra_env["LCTX_NATIVE_SERVING_CONFIG"] = identity["configuration"]["path"]
-        current = source_inputs()
+        current = source_inputs(self.server.installation)
         reuse = {
             "name": name,
             "content": identity["content"],

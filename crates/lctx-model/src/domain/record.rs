@@ -786,6 +786,14 @@ impl<R: Record> Batch<R> {
     pub fn arrow(&self) -> &RecordBatch {
         &self.arrow
     }
+    /// Move the encoded kernel batch and its reservation to the next owner. Typed rows have
+    /// no consumer after this handoff; release them before settling on the retained Arrow bytes.
+    pub fn into_arrow(self) -> Result<(RecordBatch, Box<dyn Reservation>), ModelError> {
+        let Self { rows, arrow, mut reservation } = self;
+        drop(rows);
+        reservation.try_resize(arrow.get_array_memory_size())?;
+        Ok((arrow, reservation))
+    }
     /// Bytes this batch currently holds against its attempt budget.
     pub fn reserved(&self) -> usize {
         self.reservation.size()

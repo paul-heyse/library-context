@@ -136,9 +136,12 @@ async fn canonical_input_companions_retain_corpus_distribution_without_retired_s
         .unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     // Current SCHEMAFULL rows contain canonical body.input and scope_keys, never scope_input.
-    let retired:Vec<bool>=native.query(format!("SELECT VALUE scope_input IS NONE FROM entity WHERE semantic_type IN ['source_artifacts','catalog_members','retrieval_units'] AND ({})",native.selected_node_predicate("id")),surrealdb::types::Variables::new()).await.unwrap();
-    assert_eq!(retired.len(), 4);
-    assert!(retired.iter().all(|absent| *absent));
+    let mut rows=native.selected_payload_rows("entity", "semantic_type IN ['source_artifacts','catalog_members','retrieval_units']",surrealdb::types::Variables::new(),vec![],"id",None).unwrap();
+    let mut retired=Vec::new();
+    while let Some(value)=rows.next().await.unwrap(){let surrealdb::types::Value::Object(row)=value else{panic!("canonical entity row")};retired.push(row.get("scope_input").is_none_or(|value|matches!(value,surrealdb::types::Value::None)));}
+    rows.drain_transport().await.unwrap();
+    assert_eq!(retired.len(),4);
+    assert!(retired.into_iter().all(|absent|absent));
     for include_corpus in [false, true] {
         let mut inputs = vec![
             ValidationInput::of::<SourceArtifact>(&["id"]),
@@ -246,10 +249,7 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
     // The same prepared metadata is reused across readers and again after another reader ran.
     // Both frontier execution and canonical hydration are submitted through the supplied reader.
     assert!(
-        native_b
-            .query_prepared_native::<Vec<surrealdb::types::RecordId>>(
-                prepared.frontier_query(vec![root_a.clone()]).unwrap()
-            )
+        prepared.frontier(&native_b, vec![root_a.clone()], &budget)
             .await
             .is_err(),
         "foreign roots are refused before native traversal"
@@ -262,9 +262,7 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
             (&native_a, &root_a),
         ] {
             let request_charge = budget.reserve("shared-reader-scope-request", 1024)?;
-            let next: Vec<surrealdb::types::RecordId> = native
-                .query_prepared_native(prepared.frontier_query(vec![root.clone()])?)
-                .await?;
+            let next = prepared.frontier(native, vec![root.clone()], &budget).await?;
             let mut nodes = vec![root.clone()];
             nodes.extend(next.iter().cloned());
             let batches = prepared.hydrate(native, nodes, &budget).await?;
@@ -318,4 +316,24 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
     );
     assert_eq!(after_requests, baseline);
     assert_eq!(released, 0);
+}
+
+#[tokio::test]
+async fn indexed_absent_library_and_foreign_package_preserve_empty_exact_roots() {
+    let config=scoped::config();
+    let package=Package{name:"present-library".into()};
+    let foreign=Package{name:"foreign-library".into()};
+    let native=scoped::reader(&config,&[Entity::from(package)],&[]).await.unwrap();
+    let other=scoped::reader(&config,&[Entity::from(foreign)],&[]).await.unwrap();
+    let budget=ResourceBudget::fixed(2<<20).unwrap();
+    for name in ["absent-library","foreign-library"] {
+        assert!(lctx_surrealdb::scope::library_roots(&native,Some(name),&budget).await.unwrap().is_empty());
+    }
+    let mut bindings=surrealdb::types::Variables::new();
+    let missing=Package{name:"absent-library".into()};
+    bindings.insert("key",hex::encode(missing.id().bytes()));bindings.insert("name",missing.name);
+    let plan:String=native.query("EXPLAIN SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type='packages' AND semantic_key=$key AND body.name=$name",bindings).await.unwrap();
+    assert!(plan.contains("semantic_key"),"named library lookup must use exact nominal index: {plan}");
+    assert_eq!(budget.reserved(),0,"candidate scratch has no retained owner after request");
+    other.close().await.unwrap();native.close().await.unwrap();
 }

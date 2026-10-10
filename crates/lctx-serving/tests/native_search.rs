@@ -129,6 +129,7 @@ async fn extend(
     config: &lctx_surrealdb::RuntimeConfig,
     entities: &[Entity],
 ) {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let added = scoped::reader(config, entities, &[]).await.unwrap();
     let mut views = Vec::new();
     for reader in [&*native, &added.reader] {
@@ -146,7 +147,7 @@ async fn extend(
             views.push(ContentHash(hex::decode(id).unwrap().try_into().unwrap()));
         }
     }
-    *native = NativeReader::for_views(native.shared_client(), views);
+    *native = NativeReader::for_views(native.shared_client(), views).with_budget(&native_read_budget);
     fixtures.push(added);
 }
 async fn freeze(
@@ -154,6 +155,7 @@ async fn freeze(
     fixtures: &mut Vec<scoped::ScopedFixture>,
     config: &lctx_surrealdb::RuntimeConfig,
 ) {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let marker = input::InputRevision {
         manifest: ContentHash::of(
             format!("{}-lexical-phase-{}", nonce(), fixtures.len()).as_bytes(),
@@ -180,7 +182,7 @@ async fn freeze(
         native.shared_client(),
         fixtures[0].store.attempt(),
         views,
-    );
+    ).with_budget(&native_read_budget);
     lctx_surrealdb::lexical_stats::materialize(&loader)
         .await
         .unwrap();
@@ -441,6 +443,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
 }
 #[tokio::test]
 async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_caps() {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let config = scoped::config();
     let input = id::<input::InputRevision>(1);
     let member = CatalogMember {
@@ -456,7 +459,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let mut native = NativeReader::for_views(
         initial.reader.shared_client(),
         selected_views(&initial.reader),
-    );
+    ).with_budget(&native_read_budget);
     let mut fixtures = vec![initial];
     let mut member_vars = Variables::new();
     member_vars.insert(
@@ -569,12 +572,16 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::All,
         100,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(lexical.len(), 1);
     assert_eq!(lexical[0].occurrence.context, good);
     assert_eq!(lexical[0].score, Some(0.0));
+    let tiny_search=ResourceBudget::fixed(4096).unwrap();
+    let refused=lctx_serving::search::lexical_scoped(&native,"connect absentterm",Family::ApiOptions,&inputs,Some(&pairs),true,lctx_serving::search::UnitScope::All,100,&policy,&tiny_search).await;
+    assert!(refused.is_err(),"populated native search must pay the selected request pool");
+    assert_eq!(tiny_search.reserved(),0,"checked failure drains request-owned native and ranking state");
     let selected: embedding::Spec = serde_json::from_slice(include_bytes!(
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
@@ -697,7 +704,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::All,
         100,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(vector.len(), 1);
@@ -715,7 +722,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::BriefOrigins,
         1,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(brief_lexical.len(), 1);
@@ -734,7 +741,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::BriefOrigins,
         1,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(brief_vector.len(), 1);
@@ -749,7 +756,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         projection,
     };
     let rescored =
-        lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy)
+        lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy,&search_budget())
             .await
             .unwrap();
     assert_eq!(rescored.len(), 1);
@@ -774,12 +781,12 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     );
     explain.insert("member_mode", true);
     explain.insert("brief_origins", false);
-    explain.insert("units", Value::Null);
+    explain.insert("documents", vec![record("vector", "explain-exact-source")]);
     let plan: serde_json::Value = native
         .query_prepared(
             lctx_surrealdb::prepared::PreparedQuery::new(
                 explain,
-                lctx_serving::search::vector_selection_preparation(&native),
+                vec![],
                 vec![format!(
                     "{} EXPLAIN",
                     lctx_serving::search::vector_selection_sql(128).unwrap()
@@ -810,7 +817,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::All,
         128,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(option.len(), 1);
@@ -909,7 +916,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             lctx_serving::search::UnitScope::All,
             1024,
             &policy,
-        )
+        &search_budget(),)
         .await
         .unwrap();
         assert_eq!(
@@ -962,7 +969,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     )
     .await;
     assert!(
-        lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy)
+        lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy,&search_budget())
             .await
             .is_err(),
         "competing canonical full winners must refuse"
@@ -980,6 +987,7 @@ async fn lexical_fixture(
     context: Id<AnalysisContext>,
     texts: &[String],
 ) -> (scoped::ScopedFixture, lctx_surrealdb::Loader, Vec<Unit>) {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use retrieval::*;
     let origin = Origin::Brief { brief: id(200) };
     let mut entities = vec![Entity::from(origin.clone())];
@@ -1051,7 +1059,7 @@ async fn lexical_fixture(
         fixture.reader.shared_client(),
         fixture.store.attempt(),
         views,
-    );
+    ).with_budget(&native_read_budget);
     lctx_surrealdb::derived_search::materialize_search(&loader)
         .await
         .unwrap();
@@ -1083,7 +1091,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(before.len(), 2);
@@ -1093,6 +1101,14 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         .map(|n| format!("needle unrelated {n} {}", nonce()))
         .collect::<Vec<_>>();
     let (b, bloader, _) = lexical_fixture(&config, id(212), id(213), &btexts).await;
+    let common = lctx_serving::search::lexical_scoped(
+        &b.reader, "NEEDLE absent_query_term", Family::ApiOptions,
+        &[*id::<lctx_model::domain::input::InputRevision>(212).bytes()], None, false,
+        lctx_serving::search::UnitScope::All, 32, &policy,
+    &search_budget(),).await.unwrap();
+    assert_eq!(common.len(),24,"OR match uses the frozen analyzer terms even with an unmatched query term");
+    assert!(common.iter().all(|row| row.score == Some(0.0)),"zero IDF is a real match, not absence");
+
     let mut changed = atexts.clone();
     changed[0] = format!("replacement absent word {}", nonce());
     let (new, newloader, newunits) = lexical_fixture(&config, input, context, &changed).await;
@@ -1111,7 +1127,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(
@@ -1135,7 +1151,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert!(
@@ -1153,7 +1169,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    )
+    &search_budget(),)
     .await
     .unwrap();
     assert_eq!(
@@ -1170,3 +1186,5 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
     b.close().await.unwrap();
     new.close().await.unwrap();
 }
+
+fn search_budget()->ResourceBudget {ResourceBudget::fixed(64*1024*1024).unwrap()}

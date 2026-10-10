@@ -29,6 +29,15 @@ These corrections refine NE1–NE4/NE9; prior source acceptance does not establi
 
 ## 1. Outcome, baseline and assessed foundations
 
+**SurrealDB architecture refinement, Proposed,2026-10-10:** the
+[architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
+adds operation-valid catalog preparation (SA4), per-node membership and selective limited relations
+(SA5), native lexical/exact nomination and batched occurrence hydration (SA6), and guarded lifecycle
+sets (SA7). They refine NE2/NE9 and HS4/UP5 rather than restart exact-binding/admission work.
+Migration SA1–SA3 owns its own native journal beneath the existing host owner; NE's refusal of a
+second compiler progress ledger does not forbid that atomic upgrade contract. SA8 links NE0/NE7
+transport/cache investigations, and SA9 joins the same HS11/UP9 final-source acceptance.
+
 Make necessary native work follow actual immutable membership and compatible physical inputs,
 while separate logical roots, independent checks and fresh native effects retain their owners.
 The resulting compiler resolves declared inputs once, prepares compatible access once, and
@@ -406,7 +415,8 @@ receipts below are neither rerun nor promoted by this planning update.
 During implementation, compile checks and minimal revealing affected controls establish correct
 behavior and its first-principles value. Resolve recipes/filters with `just verify --print`, select
 actual targets and use cached release-profile Rust. Pure model/finite controls need no database.
-Native controls use owned disposable fixtures. Verification observes readiness and does not sync;
+Native controls borrow the installed validation service with logical isolation, following UP7;
+disruptive cases acquire exact maintenance ownership. Verification observes readiness and does not sync;
 refresh native Python only when needed, in a guard-free interval.
 
 | Required scenario | Revealing independent distinction |

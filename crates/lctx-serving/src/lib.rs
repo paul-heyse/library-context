@@ -10,7 +10,6 @@ pub use lctx_surrealdb::materialization;
 /// Complete executable operation policy installed and sealed by the publisher.
 pub fn native_definitions() -> String {
     let mut sql = materialization::native_definitions();
-    sql.push_str(library::native_definitions());
     sql.push_str(&format!(
         "DEFINE FUNCTION fn::lctx_operation_definition() {{ RETURN '{}'; }};\n",
         operation_definition().hex()

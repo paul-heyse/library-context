@@ -1,0 +1,17 @@
+{
+  "archive_sha256": "3ead115d8a4f3917c1ae9c3db0aa4dd56251841864ef8637329969f8e5145dd3",
+  "archive_url": "https://static.crates.io/crates/diskann/diskann-0.56.0.crate",
+  "change": "Pass &B explicitly via Arc::as_ref to set_chunk<B: Batch>, preserving the captured Arc ownership and unchanged normalized Cargo.toml/dependency graph. Locally reviewed source repair; not an upstream backport.",
+  "manifest_sha256": "8338e7bdfa612d0643fd877d056fc48985e8a6cc654c795cc4e8b01ffeffcc20",
+  "name": "diskann",
+  "original_file_sha256": "447f0ebe97b3e76da553c33ce9cc1e53c88abb33f0842523465a99e12e22e288",
+  "override": "paths",
+  "patch_file": "diskann-batch-borrow.patch",
+  "patch_sha256": "eaaa0904e7b2e1b574c3445cae529c641de95d609b9d739ecb5f36a6580a9783",
+  "patched_file": "src/graph/index.rs",
+  "patched_file_sha256": "bc249f7ff70cf343b3a648f9b38935eae4ee039f279fba82e68624df222de951",
+  "schema": 1,
+  "upstream_commit": "860cf47bc11b6c2b938818773831a9374553d976",
+  "upstream_repository": "https://github.com/microsoft/DiskANN",
+  "version": "0.56.0"
+}

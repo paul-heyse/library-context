@@ -320,7 +320,7 @@ pub fn ranked<T: serde::Serialize>(
     request: &Request,
     snapshot: &SnapshotHandle,
     channels: &ChannelState,
-    retained: &crate::ranked_results::RankedResults,
+    retained: &mut crate::ranked_results::RankedRequest<'_>,
 ) -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
     retained.page(values, request, snapshot, channels)
 }

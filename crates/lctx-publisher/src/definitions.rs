@@ -14,7 +14,7 @@ use surrealdb_sql::{
 pub(crate) fn epoch_identity(blueprint: &str) -> ContentHash {
     let mut key = KeySink::new("native-definition-epoch/v1");
     key.part(b"blueprint", blueprint.as_bytes());
-    key.part(b"view-relative-library", LIBRARY_BODY.as_bytes());
+    key.part(b"view-relative-library", b"indexed-library-root-adapter/v1");
     key.part(b"vector-policy", b"exact-eligible-cosine/v1");
     key.finish()
 }
@@ -26,27 +26,7 @@ pub(crate) fn function_name(epoch: ContentHash, name: &str) -> String {
     )
 }
 
-// The selected payloads and nominal targets have deliberately distinct identities.
-const LIBRARY_BODY: &str = r#"{
- LET $selected=SELECT VALUE node FROM compiler_view_member WHERE view IN $views;
- LET $packages=SELECT VALUE id FROM entity WHERE id IN $selected AND semantic_type='packages' AND ($name=NONE OR $name=NULL OR body.name=$name);
- LET $releases=SELECT VALUE in FROM reference WHERE in IN $selected AND field='package' AND out IN $packages.anchor;
- LET $distributions=SELECT VALUE in FROM participant WHERE in IN $selected AND field='release' AND out IN $releases.anchor AND in.semantic_type='input_distributions' AND in.body.role=0;
- LET $input_anchors=SELECT VALUE out FROM participant WHERE in IN $distributions AND field='input';
- LET $inputs=SELECT VALUE node FROM compiler_view_member WHERE view IN $views AND node.anchor IN $input_anchors;
- LET $corpora=SELECT VALUE in FROM participant WHERE in IN $selected AND field='library' AND out IN $inputs.anchor AND in.semantic_type='corpus_libraries';
- LET $corpus_anchors=SELECT VALUE out FROM participant WHERE in IN $corpora AND field='corpus';
- LET $corpus_inputs=SELECT VALUE node FROM compiler_view_member WHERE view IN $views AND node.anchor IN $corpus_anchors;
- LET $all_inputs=array::distinct(array::concat($inputs,$corpus_inputs));
- LET $runs=SELECT VALUE in FROM reference WHERE in IN $selected AND out IN $all_inputs.anchor AND field='input' AND in.semantic_type='provider_runs';
- LET $sources=SELECT VALUE in FROM reference WHERE in IN $selected AND out IN $all_inputs.anchor AND field='input' AND in.semantic_type='source_artifacts';
- LET $modules=SELECT VALUE in FROM reference WHERE in IN $selected AND out IN $sources.anchor AND field='source' AND in.semantic_type='modules';
- LET $scope_targets=array::distinct(array::concat($all_inputs,$releases,$sources,$modules));
- LET $scopes=SELECT VALUE in FROM reference WHERE in IN $selected AND out IN $scope_targets.anchor AND field IN ['input','release','artifact','module'] AND in.semantic_type='coverage_scopes';
- LET $coverage=array::distinct(array::concat((SELECT VALUE in FROM participant WHERE in IN $selected AND out IN $runs.anchor AND field='run' AND in.semantic_type='provider_coverage'),(SELECT VALUE in FROM participant WHERE in IN $selected AND out IN $scopes.anchor AND field='scope' AND in.semantic_type='provider_coverage')));
- RETURN array::distinct(array::concat($distributions,$inputs,$corpora,$corpus_inputs,$runs,$coverage));
-}"#;
-fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), ModelError> {
+pub(crate) fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), ModelError> {
     lctx_surrealdb::materialization::validate_native_definitions(blueprint)?;
     let epoch = epoch_identity(blueprint);
     let mut base = Vec::new();
@@ -60,14 +40,7 @@ fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), ModelError> {
                 DefineStatement::Function(function) => {
                     function.name = function_name(epoch, function.name.as_str()).into();
                     function.kind = DefineKind::Default;
-                    let sql = if function.name.as_str().ends_with("_library_roots") {
-                        format!(
-                            "DEFINE FUNCTION fn::{}($name: option<string|null>, $views: array<record<compiler_view>>) {LIBRARY_BODY} PERMISSIONS FULL",
-                            function.name
-                        )
-                    } else {
-                        definition.to_sql()
-                    };
+                    let sql = definition.to_sql();
                     functions.push(normalize(&sql)?);
                 }
                 _ => base.push(normalize(&definition.to_sql())?),
@@ -81,7 +54,7 @@ fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), ModelError> {
     }
     Ok((base, functions))
 }
-fn normalize(sql: &str) -> Result<String, ModelError> {
+pub(crate) fn normalize(sql: &str) -> Result<String, ModelError> {
     let parsed = surrealdb_syn::parse(sql).map_err(ModelError::codec)?;
     if parsed.expressions.len() != 1 {
         return Err(ModelError::Schema("single definition inventory"));
@@ -89,6 +62,7 @@ fn normalize(sql: &str) -> Result<String, ModelError> {
     Ok(parsed.expressions[0].to_sql())
 }
 async fn info(loader: &Loader, sql: String) -> Result<Object, ModelError> {
+    loader.check_read_admission()?;
     let mut response = loader
         .client()
         .query(sql)
@@ -170,15 +144,19 @@ pub(crate) async fn verify_epoch(
     loader: &Loader,
     blueprint: &str,
 ) -> Result<ContentHash, ModelError> {
-    let (base, functions) = expected(blueprint)?;
     let actual = inventory(loader).await?;
-    let mut key = KeySink::new("native-view-realization/v1");
+    loader.check_read_admission()?;
     let version = loader
         .client()
         .version()
         .await
         .map_err(ModelError::codec)?
         .to_string();
+    verify_inventory(blueprint, &version, &actual)
+}
+pub(crate) fn verify_inventory(blueprint: &str, version: &str, actual: &BTreeSet<String>) -> Result<ContentHash, ModelError> {
+    let (base, functions) = expected(blueprint)?;
+    let mut key = KeySink::new("native-view-realization/v1");
     if !version.starts_with("3.3.") {
         return Err(ModelError::Conflict("reviewed native engine family"));
     }

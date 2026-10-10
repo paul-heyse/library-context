@@ -29,20 +29,6 @@ pub(crate) fn physical_work_bytes(value: &Value, frame: usize) -> usize {
         .saturating_add(size_of::<Entry<RecordId>>())
 }
 
-/// Portable transport separately bounds encoded frames and native rows. A merge
-/// keeps three work heads alongside the acknowledged input and singleton frame.
-pub(crate) fn portable_ordering_budget() -> Result<ResourceBudget, ModelError> {
-    let row = lctx_model::domain::resources::MAX_ROW_BYTES;
-    let work = row
-        .saturating_mul(4)
-        .saturating_add(size_of::<Entry<RecordId>>());
-    ResourceBudget::fixed(
-        work.saturating_mul(4)
-            .saturating_add(row)
-            .saturating_add(4 * RUN_BYTES),
-    )
-}
-
 /// A complete relation-qualified nominal identity and its actual stored backing pointer.
 /// Scope branches and exact contributors may repeat this tuple, but cannot disagree on node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -518,6 +504,7 @@ impl<A: Adapter> Ordered<A> {
 
 pub struct SortedRows(Sorter<Physical>);
 impl SortedRows {
+    #[cfg(test)]
     pub fn new() -> Result<Self, ModelError> {
         Self::with_run_bytes(RUN_BYTES)
     }
@@ -535,6 +522,7 @@ impl SortedRows {
         sorter.row_bytes = row_bytes;
         Ok(Self(sorter))
     }
+    #[cfg(test)]
     pub fn with_run_bytes(limit: usize) -> Result<Self, ModelError> {
         Sorter::new(limit, None).map(Self)
     }
@@ -550,11 +538,85 @@ pub struct OrderedRows(Ordered<Physical>);
 #[derive(Clone)]
 pub struct PreparedRows(Arc<Run<Physical>>);
 impl PreparedRows {
+    /// Build once over the admitted immutable run. Only offsets grow with row count,
+    /// on disk; readers binary-seek exact native keys with constant resident work.
+    pub fn point_index(&self, budget: &ResourceBudget) -> Result<PreparedPointRows, ModelError> {
+        let mut offsets = None;
+        let mut count = 0u64;
+        if let Some(file) = &self.0.file {
+            let _work = budget.reserve(OWNER, self.0.bounds.work + 2 * IO_BYTES)?;
+            let mut input = BufReader::with_capacity(IO_BYTES, file.reopen().map_err(ModelError::codec)?);
+            let output = NamedTempFile::new_in(self.0._directory.path()).map_err(ModelError::codec)?;
+            let mut writer = BufWriter::with_capacity(IO_BYTES, output.reopen().map_err(ModelError::codec)?);
+            loop {
+                let offset = input.stream_position().map_err(ModelError::codec)?;
+                let Some(_row) = read::<Physical>(&mut input, self.0.bounds)? else { break; };
+                writer.write_all(&offset.to_le_bytes()).map_err(ModelError::codec)?;
+                count = count.checked_add(1).ok_or(ModelError::Schema("point index length"))?;
+            }
+            writer.flush().map_err(ModelError::codec)?;
+            offsets = Some(output);
+        }
+        let retained = budget.reserve(OWNER, size_of::<PointIndex>() + self.0._directory.path().as_os_str().len())?;
+        Ok(PreparedPointRows(Arc::new(PointIndex { run: self.0.clone(), offsets, count, _retained: retained })))
+    }
     pub fn cursor(&self) -> Result<OrderedRows, ModelError> {
         Ordered::open(self.0.clone()).map(OrderedRows)
     }
     pub fn cursor_with_budget(&self, budget: &ResourceBudget) -> Result<OrderedRows, ModelError> {
         Ordered::open_in(self.0.clone(), Some(budget.clone())).map(OrderedRows)
+    }
+}
+struct PointIndex {
+    run: Arc<Run<Physical>>,
+    offsets: Option<NamedTempFile>,
+    count: u64,
+    _retained: Box<dyn Reservation>,
+}
+/// Exact lookup owner over a collision-checked sorted physical run.
+#[derive(Clone)]
+pub struct PreparedPointRows(Arc<PointIndex>);
+pub struct PointRows {
+    index: Arc<PointIndex>,
+    offsets: Option<File>,
+    rows: Option<File>,
+    _retained: Box<dyn Reservation>,
+    #[cfg(test)]
+    probes: usize,
+}
+impl PreparedPointRows {
+    pub fn cursor(&self, budget: &ResourceBudget) -> Result<PointRows, ModelError> {
+        let retained = budget.reserve(OWNER, size_of::<PointRows>() + self.0.run.bounds.work)?;
+        Ok(PointRows {
+            index: self.0.clone(),
+            offsets: self.0.offsets.as_ref().map(NamedTempFile::reopen).transpose().map_err(ModelError::codec)?,
+            rows: self.0.run.file.as_ref().map(NamedTempFile::reopen).transpose().map_err(ModelError::codec)?,
+            _retained: retained,
+            #[cfg(test)]
+            probes: 0,
+        })
+    }
+}
+impl PointRows {
+    pub fn contains(&mut self, wanted: &RecordId) -> Result<bool, ModelError> {
+        let (Some(offsets), Some(rows)) = (&mut self.offsets, &mut self.rows) else { return Ok(false); };
+        let mut low = 0u64;
+        let mut high = self.index.count;
+        while low < high {
+            let middle = low + (high - low) / 2;
+            offsets.seek(SeekFrom::Start(middle.checked_mul(8).ok_or(ModelError::Schema("point index offset"))?)).map_err(ModelError::codec)?;
+            let mut offset = [0; 8]; offsets.read_exact(&mut offset).map_err(ModelError::codec)?;
+            rows.seek(SeekFrom::Start(u64::from_le_bytes(offset))).map_err(ModelError::codec)?;
+            let row = read::<Physical>(rows, self.index.run.bounds)?.ok_or(ModelError::Schema("point index missing row"))?;
+            #[cfg(test)]
+            { self.probes += 1; }
+            match row.key.cmp(wanted) {
+                std::cmp::Ordering::Equal => return Ok(true),
+                std::cmp::Ordering::Less => low = middle + 1,
+                std::cmp::Ordering::Greater => high = middle,
+            }
+        }
+        Ok(false)
     }
 }
 impl OrderedRows {
@@ -572,7 +634,7 @@ impl OrderedRows {
         &mut self,
         actual: &mut crate::reader::NativeRows,
     ) -> Result<(), ModelError> {
-        loop {
+        let result = async { loop {
             match (self.next_row()?, actual.next().await?) {
                 (None, None) => return Ok(()),
                 (Some(expected), Some(actual))
@@ -584,7 +646,10 @@ impl OrderedRows {
                     ));
                 }
             }
-        }
+        } }.await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step("ordered actual comparison drainage", actual.drain_transport().await);
+        lctx_model::domain::completion::complete(result, completion)
     }
 }
 
@@ -841,6 +906,29 @@ mod tests {
         drop(second);
         assert_eq!(budget.reserved(), 0);
         assert!(!directory.exists());
+    }
+    #[test]
+    fn disk_point_index_bounds_each_repeated_probe_and_retains_its_run() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let mut sort = SortedRows::with_budget(&budget).unwrap();
+        let directory = sort.0.directory.path().to_owned();
+        for n in (0..4096).rev() { sort.push(row(&format!("{n:04}"), Value::Null)).unwrap(); }
+        let prepared = sort.finish().unwrap().into_prepared();
+        let index = prepared.point_index(&budget).unwrap();
+        let retained = budget.reserved();
+        assert!(retained < 4096, "resident owner metadata must not contain a key per row");
+        let mut points = index.cursor(&budget).unwrap();
+        drop(prepared); drop(index);
+        assert!(directory.exists());
+        for key in ["4095", "0000", "2048", "4096", "-absent", "0000", "4095"] {
+            let before = points.probes;
+            let expected = !matches!(key, "4096" | "-absent");
+            assert_eq!(points.contains(&RecordId::new("test", key)).unwrap(), expected);
+            assert!(points.probes - before <= 13, "each window must seek, never scan preceding rows");
+        }
+        assert!(!points.contains(&RecordId::new("other", "0000")).unwrap());
+        drop(points);
+        assert!(!directory.exists()); assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn sdk_serde_preserves_binary_record_ids_null_absence_and_signed_zero() {

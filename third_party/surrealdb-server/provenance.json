@@ -1,0 +1,25 @@
+{
+  "build_metadata": "lctx.timeout-stack.1",
+  "change": "Replace the dropped evaluator TreeStack in both transaction-timeout branches before cancellation and the next statement. No query or transaction timeout changes.",
+  "cli_version": "3.3.0+lctx.timeout-stack.1 for linux on x86_64",
+  "features": [
+    "default",
+    "cjk"
+  ],
+  "http_version": "surrealdb-3.3.0+lctx.timeout-stack.1",
+  "issue": "https://github.com/surrealdb/surrealdb/issues/7302",
+  "original_file_sha256": "4e3ebd499d735cd1e68b304b5e3a0879ac33bc9f13a0c4fc92f1795d025221d4",
+  "patch_file": "timeout-tree-stack.patch",
+  "patch_sha256": "96ee7aeb1c733baba3b57e4850cbc8b3b5db69650252111ecf3e751b7a39988a",
+  "patched_file": "surrealdb/core/src/dbs/executor.rs",
+  "patched_file_sha256": "281d6cac3fefbc1f207129a830bb37b9a58a69400405dc95312003b1b732c425",
+  "platform": "x86_64-unknown-linux-gnu",
+  "reference_fix": "https://github.com/surrealdb/surrealdb/pull/7342",
+  "schema": 1,
+  "toolchain": "nightly-2026-09-29",
+  "upstream_commit": "238bfeb11f5725bebed370167656748df8067595",
+  "upstream_lock_sha256": "6ec3773437dcad1ce1e354398f8a2f7ead00e185f9ff7afc187655670a0dbbd5",
+  "upstream_manifest_sha256": "8aad98c90b8a7989a64068d81014f129d16336f14c2e9c19bfc620392c930b06",
+  "upstream_repository": "https://github.com/surrealdb/surrealdb.git",
+  "upstream_version": "3.3.0"
+}

@@ -155,6 +155,7 @@ impl ProducerOutput {
             }
             let native = self.workspace.native.clone();
             let identity = request.identity()?;
+            let budget = self.workspace.budget().clone();
             let spec = self.contribution_spec();
             let retained = if self
                 .workspace
@@ -163,7 +164,7 @@ impl ProducerOutput {
             {
                 self.workspace
                     .native_call(
-                        async move { native.attach_retained_product(identity, &spec).await },
+                        async move { native.attach_retained_product(identity, &spec, &budget).await },
                     )
                     .await?
             } else {

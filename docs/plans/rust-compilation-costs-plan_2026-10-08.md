@@ -455,12 +455,12 @@ unchanged. The current capture does not justify blanket LLVM-pass disabling or a
 A residual PHI tail required retained IR and function attribution; the subsequent retained-IR
 assessment below distinguishes the simplified reproducer from the actual compiler.
 
-Raw evidence and derived artifacts remain under
-`build/runs/20261008T181813.329Z-ddd158/compile-profile/`: `units/` owns raw captures and reports;
+Derived reports and provenance are retained under
+`build/runs/20261008T181813.329Z-ddd158/compile-profile-reports/`: `units/` retains the decoded reports;
 `assessment/compiler-attribution.json` owns source-attributed pass comparisons,
 `assessment/sampled-windows.json` owns the repeated native-window observations, and
 `assessment/decoder-receipts.json` owns the successful interrupted-profile conversion receipts.
-Summaries omit unfinished event scopes. Instrumentation itself has overhead, including86.31s
+The operator authorized retirement of obsolete raw samples on2026-10-10 after independent report/receipt preservation; [storage plan §10](storage-lifecycle-management-plan_2026-10-09.md#10-current-checkpoint) owns that effect and its receipts. Summaries omit unfinished event scopes. Instrumentation itself has overhead, including86.31s
 of completed query-string allocation in the normal summary; the measured durations cannot be
 presented as an uninstrumented compile baseline. The following correction is now integrated; F01–F04 remain open at §9 because broader operational
 qualification, default installation and optimized acceptance have not been completed.
@@ -550,7 +550,7 @@ reconciles these observations with domain ownership and library fit. It requires
 the enclosing physical composition for A4; typed record/codec leaves and synchronous kernels
 remain useful boundaries. No full compile-time or runtime improvement is claimed.
 
-Derived receipts and the attribution script live under the comparison's `compile-profile/assessment/`:
+Derived receipts and the attribution script live under the comparison's `compile-profile-reports/assessment/`:
 `correction-comparison.json`, `correction_attribution.py`, `remaining-tail-inference.json` and
 normal/harness final self reports. The source capture binds the preserved dirty BC/PC tree.
 **In progress:** selected actual native/core/C1 controls, run `20261008T202337.170Z-114602`.
@@ -604,7 +604,7 @@ links were added; those later additions do not change the reviewed target or pac
 
 **passed (2026-10-08):** final core/model all-test compile check and 13 actual focused candidate controls (run `20261008T225434.109Z-fe57d0`). The final actual-settings compiler capture `20261008T225117.998Z-e84d9b` completed normal/harness and seven integration targets, exit0 in2m51s, without changing available parallelism or profiles. Parent/child/drop assessment is complete with29 explicit match rules per product and no attributed relocated runaway; native release qualification remains open. These are bounded diagnostic/runtime receipts, not BC3 installation, F01 closure or whole-workspace speed measurements.
 
-The prior native run `20261008T202337.170Z-114602` was cancelled with operator authorization; it produced no test verdict. First CU capture `20261008T224204.565Z-5a9f8e` completed normal codegen, then filesystem exhaustion interrupted remaining products. Raw closed evidence is retained; the operator freed storage before the replacement. Its run-local assessment distinguishes source versions, partial harness, filtered timelines and overlapping pass durations. Current native/PC acceptance consumes only matching final-source/profile receipts.
+The prior native run `20261008T202337.170Z-114602` was cancelled with operator authorization; it produced no test verdict. First CU capture `20261008T224204.565Z-5a9f8e` completed normal codegen, then filesystem exhaustion interrupted remaining products. Closed diagnostic reports and provenance remain retained; the operator subsequently authorized obsolete raw retirement on2026-10-10, owned by the storage plan §10. The operator freed storage before the replacement. Its run-local assessment distinguishes source versions, partial harness, filtered timelines and overlapping pass durations. Current native/PC acceptance consumes only matching final-source/profile receipts.
 
 **Integrated-source follow-up, 2026-10-08:** companion §7 records the64GiB/automatic-partition ordinary defaults, selected-read allocation/order and definite-conflict repairs,757 model plus17 compiler/12 store/3 codec-cancellation passing controls, and the confirmed native SDK-value conversion correction (both actual serving controls reran passed). Capture `20261009T003236.093Z-dfb25d` passed all nine products, exact readers and14 closed perf reports; normal/harness95.578s/161.839s are instrumented diagnostics with changed source/CGU workloads. Four required Behavioral stage controls still timed out at300s; the assembled release run completed with failures. CU6/BC3/BC5 and F01 remain open. No matching-source assembled acceptance, whole-build speed claim or default installation follows from the focused repairs.
 

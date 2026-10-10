@@ -8,6 +8,7 @@ import os
 import sys
 import uuid
 from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
 
@@ -66,8 +67,84 @@ def installed(tmp_path, monkeypatch):
         service.private_json(root / f"{database}-runtime.json", cfg)
     monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(root / "installation.json"))
     monkeypatch.setattr(service.Installation, "check", lambda self, **kw: {"outcome": "passed"})
+    monkeypatch.setattr(service, "verify_binary", lambda env: Path(env["LCTX_SURREAL_BIN"]))
     monkeypatch.setattr(service, "_run_installer", lambda *a, **kw: None)
     return fx.Server(service.Installation.load())
+
+
+def install_fake_patched_generation(installed, tmp_path):
+    import surrealdb_server as server
+    from storage_service import prepare_server
+    selected = server.recipe(cpu_count=7)
+    provenance = server.build_provenance(installed.directory, selected,
+        "rustc 1.99.0-nightly\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu",
+        "cargo 1.99.0-nightly", cache_record_sha256="a" * 64)
+    executable = tmp_path / "fake-reviewed-server"
+    executable.write_text("#!/bin/sh\nprintf '" + selected["pin"]["cli_version"] + "\\n'\n")
+    executable.chmod(0o700)
+    generation = prepare_server(installed.directory, executable, provenance)
+    installed.record["binary"] = service._generation_binary(generation)
+    service.private_json(installed.directory / "installation.json", installed.record)
+    return generation
+
+
+def complete_retained_output(attachment):
+    viewer = attachment.retain_serving("retained")
+    selection = viewer.parent / "selected.json"
+    service.private_json(selection, {"semantic": "immutable-semantic", "realization": "immutable-view"})
+    service.private_json(viewer, {"selection": str(selection)})
+    return attachment.record_serving("retained", ["producer"])
+
+
+@pytest.mark.parametrize("patched", [False, True])
+def test_attachment_retained_inputs_and_readiness_report_verified_actual_server(installed, tmp_path, patched, capfd):
+    generation = install_fake_patched_generation(installed, tmp_path) if patched else None
+    binary = installed.record["binary"]
+    expected = {"version": binary["version"], "binary_sha256": binary["sha256"]}
+    if generation:
+        expected["generation"] = generation["identity"]
+        assert binary["sha256"] != service.BINARY_SHA256
+        assert binary["version"] != service.VERSION
+    attachment = fx.Attachment.create(installed)
+    try:
+        assert attachment.config["server"] == expected
+        identity = complete_retained_output(attachment)
+        assert identity["configuration"]["server"] == identity["inputs"]["server"] == expected
+        readiness = fx.substrate_readiness()
+        assert readiness.ready
+        assert expected["version"] in readiness.detail and expected["binary_sha256"] in readiness.detail
+        if generation:
+            assert generation["identity"] in readiness.detail
+    finally:
+        attachment.release()
+
+
+def test_retained_publication_reuse_records_current_server_change_without_replay(installed, tmp_path, capfd):
+    producer = fx.Attachment.create(installed)
+    try:
+        identity = complete_retained_output(producer)
+    finally:
+        producer.release()
+    immutable = (installed.directory / "serving/retained/identity.json").read_bytes()
+    generation = install_fake_patched_generation(installed, tmp_path)
+    consumer = fx.Attachment.create(installed)
+    try:
+        reuse = consumer.use_serving("retained")
+        assert reuse["inputs_changed_since_production"]
+        assert reuse["current_inputs"]["server"]["generation"] == generation["identity"]
+        assert reuse["skipped_obligations"][0]["produced_at"]["server"] == identity["inputs"]["server"]
+        assert reuse["content"] == identity["content"]
+        assert (installed.directory / "serving/retained/identity.json").read_bytes() == immutable
+    finally:
+        consumer.release()
+
+
+def test_attachment_refuses_unverified_owned_server_identity(installed, tmp_path, capfd):
+    install_fake_patched_generation(installed, tmp_path)
+    installed.record["binary"]["sha256"] = "d" * 64
+    with pytest.raises(service.FixtureBlocked, match="owned generation"):
+        fx.Attachment.create(installed)
+    assert not service.borrowers(installed.installation)
 
 
 def test_missing_installation_blocks_without_provisioning(tmp_path, monkeypatch):

@@ -133,6 +133,7 @@ async fn syntax_failure_and_no_document_scope_have_distinct_availability() {
 
 #[tokio::test]
 async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     for profile in Profile::ALL {
         let resources=budget();
         let capture=captured(b"def f(x):\n    \"\"\"Return x.\"\"\"\n    return x\n",true,profile,&resources);
@@ -141,7 +142,7 @@ async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
             .into_iter().filter(|provider|[cpg_extract::acquisition::ACQUIRE,cpg_extract::pyrefly_stage::PYREFLY,cpg_extract::document_parser::DOCUMENTS,cpg_extract::assembly::ASSEMBLE].contains(&provider.declaration(profile).name)).collect();
         cpg_core::facts::compile_facts(&workspace,&capture,profile,providers,Default::default()).await.unwrap();
         assert!(!rows::<lctx_model::domain::documents::PassageObservation>(&workspace).is_empty());
-        let completed=workspace.native().contributions().await.unwrap();
+        let completed=workspace.native().contributions(&native_operation_budget).await.unwrap();
         let predecessor=completed.iter().find(|row|row.spec.producer==cpg_extract::pyrefly_stage::PYREFLY).unwrap();
         let documents=completed.iter().find(|row|row.spec.producer==cpg_extract::document_parser::DOCUMENTS).unwrap();
         let relation=lctx_model::domain::syntax::DeclarationObservation::NAME;
@@ -149,7 +150,7 @@ async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
         let view=workspace.completed::<lctx_model::domain::syntax::DeclarationObservation>().unwrap();
         assert_eq!(source.view(),view.view_identity());
         assert!(view.view().contributions.contains(&predecessor.identity().unwrap()));
-        let native=workspace.native().completed_state().await.unwrap();
+        let native=workspace.native().completed_state(&native_operation_budget).await.unwrap();
         assert_eq!(native.contributions,4);
         workspace.drain().await.unwrap();
     }

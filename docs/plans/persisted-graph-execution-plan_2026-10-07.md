@@ -544,11 +544,61 @@ native publication/MCP/Python/restore obligations. BC3 and SM8 retain separate e
 No current failed receipt is waived or promoted. The unverified audit worktree candidate is
 not integrated by authoring; this change performs no production or native operation.
 
+### 7.5 SurrealDB architecture and capability refinement, 2026-10-10
+
+The [architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
+develops SA0–SA9 from the new review. Review RC01 and supplemental SA-RC04 were explicitly
+accepted on2026-10-10: complete compatible migration states, atomic native page progress and a
+checked successor for partially translated unpublished scopes. Conditional transport/coordination
+choices carry forward UP-RC07/holistic-RC03, not new mandates. SA0 schedules decision/owner/runbook
+changes before dependent effects; accepted ADR text stays immutable.
+
+SA1–SA3 complete the legacy transition, add independently identified migration-only progress and
+reconcile current validation without reopening completed main or fabricating predecessor receipts.
+The overlay preserves the completed runtime target only while ordinary runtime behavior is independent
+of it. SA4 reuses operation-valid catalog preparation; SA5 supplies per-node membership and ordered
+limited relation reads; SA6 combines table-source FULLTEXT and exact-match nomination with batched
+occurrence eligibility/hydration and frozen scoring. SA7 batches guarded lifecycle crossings.
+SA8 gives every review investigation a consumer, decision/evidence route and trigger. These packages
+replace conflicting open replay/full-frontier/scalar routes, retaining independent admission, pins,
+finality, reference/era protection and all surviving HS/UP/NE/PC/GK/GR obligations.
+
+SA9 joins HS11/UP9's single final-source acceptance; SA-F01–SA-F07 remain Open below. Optional
+transport/guard changes do not delay established corrections. Actual installed recovery requires its
+owned preflight and maintenance; plan authoring changes no service, database or production source.
+
 ## 8. Sole finding disposition
+
+### SurrealDB architecture/capability findings transferred on 2026-10-10
+
+The [source review](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md)
+retains F01–F07 and its dated **Revise** judgment. SA aliases disambiguate those stable source IDs.
+All seven are **Open / scheduled**; the companion owns target contracts, not another disposition
+table. Accepted rule choices and plan-target acceptance establish no implementation/runtime closure.
+
+| Source finding / disposition | Responsible component / packages | Required closure evidence |
+|---|---|---|
+| <a id="SA-F01"></a>[F01](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F01) — **Open** | Native upgrade/control; SA0/SA1/SA9 | Complete field/intermediate-state contract; populated legacy rows missing new fields, malformed late row and actual final invariants; ambiguous jobs remain protected/non-executable. |
+| <a id="SA-F02"></a>[F02](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F02) — **Open** | Native upgrade/host successor; SA0/SA2/SA3/SA9 | Atomic effects/progress and unknown-ack reconciliation across every pass/nested cursor; compatible identity/verifier reuse; current mixed-state adoption with completed main preserved and unfenced/foreign states refused. |
+| <a id="SA-F03"></a>[F03](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F03) — **Open** | Loader/publisher definitions; SA4/SA9; UP1/5 | One valid operation capture/DDL plan, targeted invalidation/readback, all desired index readiness and retained independent backup/cold checks; no stale cross-operation trust. |
+| <a id="SA-F04"></a>[F04](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F04) — **Open** | Native selected reader; SA5/SA9; HS4/NE2/UP5 | Relation-aware limited access avoids unrelated preparation; independent global ordering/dedup/eligibility controls with multiple views, aliases, conflicting revisions, empty relation and late qualifying member. |
+| <a id="SA-F05"></a>[F05](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F05) — **Open** | Native lexical/serving; SA6/SA9; HS4/UP5 | Complete table-source plus exact-branch nomination, analyzer/zero-IDF cases, eligibility before quota and exact frozen ranking unaffected by unrelated publications; composed native plan qualified. |
+| <a id="SA-F06"></a>[F06](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F06) — **Open** | Native membership/occurrences; SA5/SA6/SA9; NE2/UP5 | Per-node answers and window-level all-dependency eligibility/batched payload hydration; shared/missing dependencies, aliases/provenance, conflicts and cancellation/finality/charges remain exact. |
+| <a id="SA-F07"></a>[F07](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F07) — **Open** | Native history/retirement/cleanup; SA2/SA7/SA9; HS5/6/UP8 | Bounded set crossings preserve per-item guards/effect budgets/atomic progress; protected candidates, high degree, incarnation race and lost acknowledgement; explicit references/horizons still gate disposal. |
+
+Review §10's nine avenues are routed in companion §7 and SA0/SA5–SA8. Conditional/deferred
+capability choices retain their named trigger; results use §9.1, not a parallel investigation ledger.
+
+**Independent architecture-plan finding,2026-10-10:**
+
+| Source finding / disposition | Responsible component / packages | Closure evidence |
+|---|---|---|
+| <a id="SA-PLAN-F01"></a>[Plan F01](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md#F01) — **Closed, Proposed target only** | Native preflight/progress; SA0/SA1/SA2 | Amended companion §3.1/§3.2/SA2 and interruption controls put preflight in the existing durable protocol, bind predicate/source-form/enumeration and closed exclusive-effects validity, preserve compatible prefixes and invalidate relevant changes. Independent follow-up accepts the amended target; original Revise/F01 remains in the review. SA-F01/SA-F02 runtime obligations remain Open. |
 
 ### Holistic state-management findings transferred on 2026-10-10
 
-This is the sole current disposition of HS-F01–HS-F10: all **Open / scheduled**. The
+This is the sole current disposition of HS-F01–HS-F10. HS-F09 is **Closed / focused Tested**;
+the other findings remain **Open / scheduled**. The
 [companion](holistic-state-management-plan_2026-10-10.md) owns contracts, dependencies and
 investigations; source review retains its dated Revise assessment. Accepted RC01–RC03 and plan
 publication do not establish implementation or closure. Each row requires its own evidence;
@@ -564,8 +614,21 @@ HS-F06 capture sharing does not close HS-F10, and indexing alone does not close 
 | <a id="HS-F06"></a>[HS-F06](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F06) — **Open** | Native/publisher audit; HS3; NE4, PC3/6 | One operation-owned exact selection/capture through verify/checksum/completed-state, without repeated closure construction or circular actual-state/cold oracle; isolated patch alone is no evidence. |
 | <a id="HS-F07"></a>[HS-F07](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F07) — **Open** | Compiler driver; HS8; GK4/6, GR3/4, NE4, UP4/8 | Graph/binding ownership ends at last actual optional/cache-hit consumer; outputs/universe/order unchanged; no new huge coroutine. |
 | <a id="HS-F08"></a>[HS-F08](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F08) — **Open** | Serving ranked state; HS9; UP5/8, GK5/GR5 | Incrementally charged pending construction and immutable live borrowers; replay outside map lock; eviction, pressure, close, cancellation and final-pack failures preserve charges/pins/outcomes. |
-| <a id="HS-F09"></a>[HS-F09](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F09) — **Open** | Serving selected limits; HS2; UP5, GK5 | Configured-large and configured-small continuation decode use selected policy; actual final envelope admission/cursor bindings unchanged. |
+| <a id="HS-F09"></a>[HS-F09](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F09) — **Closed / focused Tested, 2026-10-10** | Serving selected limits; HS2; UP5, GK5 | Selected policy reaches continuation decode and actual final MCP-envelope admission; configured128KiB allowance accepts the legal large page while smaller allowance and envelope duplication refuse correctly. `ranked_results::tests::selected_large_decode_and_final_envelope_admission_are_both_preserved` and cursor-binding controls passed in67-control run `20261010T171523.785Z-9388db` (§9.1); bounded independent source review accepted the policy path. HS2 requires pure controls; native/whole-plan acceptance remains separate. |
 | <a id="HS-F10"></a>[HS-F10](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F10) — **Open** | Publisher/native audit finalizer; HS1; PC1, UP5/6/9 | Read owner exists before fallible preparation and joins all admitted tails before pin/session release, including cancellation/early failure; primary and secondary uncertainty preserved. |
+
+**Assembled implementation findings, 2026-10-10:**
+
+The [independent assembled assessment](../design_review/reviews/design_review_holistic-state-management-integrated_2026-10-10.md)
+is **Revise** on the source associated with candidate `155544` and compile receipt `155539`.
+These refinements remain within ADR-0145's accepted target. Original review IDs stay F01–F03;
+the aliases below identify their sole scheduled disposition without replacing those IDs.
+
+| Source finding / disposition | Responsible component / packages | Required closure evidence |
+|---|---|---|
+| <a id="HS-I-F01"></a>[Integrated F01](../design_review/reviews/design_review_holistic-state-management-integrated_2026-10-10.md#F01) — **Closed at Implemented/source-inspected strength, 2026-10-10** | Native selection/reader and sparse consumers; HS4 | Bounded independent follow-up accepts first-request finite indexed membership/reverse-alias probes before hydration. Global preparation is absent from sparse startup. Missing/alias/conflicting-revision and actual-plan controls are implemented; execution remains an HS-F02 obligation. |
+| <a id="HS-I-F02"></a>[Integrated F02](../design_review/reviews/design_review_holistic-state-management-integrated_2026-10-10.md#F02) — **Closed at Implemented/source-inspected strength, 2026-10-10** | Model recovery declaration and native/dump adapters; HS3/HS7 | Independent bounded follow-up accepts exhaustive family declaration, native codec and actual export/import/restore dispatch, including actual derived claims. Every-family controls are implemented, not yet executed. HS-F01/HS-F04 retain independent cold/missing/extra-claim runtime obligations. The original principal Revise assessment is preserved; its bounded repair follow-up accepts all three source repairs without implying functional qualification. |
+| <a id="HS-I-F03"></a>[Integrated F03](../design_review/reviews/design_review_holistic-state-management-integrated_2026-10-10.md#F03) — **Closed at Implemented/source-inspected strength, 2026-10-10** | Native reader preparation, serving/admin operation budgets; HS4/HS9 | Bounded independent follow-up accepts supplied shared/request pools, retained pool identity and removal of private production pools. Pressure/release/live-borrower controls are implemented; runtime acceptance remains with HS-F02/HS-F08. |
 
 **Independent target-plan finding, 2026-10-10:**
 
@@ -830,6 +893,103 @@ paths are deleted, and targeted actual native/MCP/evaluator journeys plus affect
 Report stopped, failed and not_run evidence honestly. Update STATUS from that actual boundary.
 
 ### 9.1 Current execution checkpoint, 2026-10-07
+
+**SurrealDB architecture plan authoring,2026-10-10.** The
+[companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) integrates all seven
+source findings and nine avenues. Static library/owner inspection selects a native migration-only
+overlay, complete intermediate states, a fenced reconciliation successor, selective typed/native
+nomination and bounded lifecycle sets. All are Proposed; no production/service/database/test action
+was performed for authoring. The
+[independent target review](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
+accepts the amended Proposed target after finding/correcting uncheckpointed preflight replay;
+SA-PLAN-F01 has target-only closure in §8. Publication `just docs-check` **passed**,2026-10-10,
+385 canonical pages/zero link errors, including the independent review and disposition anchors.
+`just verify --help` **passed** for current command discovery; it confirms `--qualify --cli`
+remains supported, preserving explicit CLI assertions. Product builds/tests, database/planner probes,
+dependency changes and service actions are **not_run** for this documentation-only scope.
+
+**Holistic HS0–HS11 implementation in progress, 2026-10-10, baseline `125e74f5`.**
+[ADR-0145](../adr/0145-holistic-state-ownership.md) carries forward unified guarantees and
+supersedes ADR-0143's conflicting backup/history/lifecycle choices. Source changes implement
+shared recoverable closure, one audit capture/terminal owner, bounded exact native selection,
+phased retirement and explicit issuance/outcome horizons, selected snapshot backup, compiler
+last-consumer release and charged ranked borrowers. Native control format4 uses an explicit
+journaled migration; public portable format3 is unchanged. These changes remain uncommitted
+and integrated acceptance is Open. No measured benefit or finding closure is implied.
+
+| Current HS execution evidence, 2026-10-10 | Actual outcome and boundary |
+|---|---|
+| Owned service recovery `just service maintenance --recover --reconcile-database validation --reconcile-pin 53ed517b44415588c0ed31aa78fd8dc04df1e54de0418d67d40bf4e539164876` | **passed** after repairing failed-unit startup handling; both owned databases ready and maintenance released. Exact abandoned validation pin reconciled only after actual attachment/command drainage. Operator/PSE state untouched. Installed format remains3 pending the explicit candidate migration. |
+| `uv run --no-sync pytest -q tests/scripts/test_surrealdb_service.py tests/scripts/test_storage_service.py` | **passed**,69 controls on the original host source. Subsequent replacement/diagnostic correction: `uv run --no-sync pytest -o addopts='' -q tests/scripts/test_surrealdb_service.py tests/scripts/test_storage_service.py` **passed**,99 controls in6.48s, executor receipt2026-10-10. Includes credential rotation/restart ordering, immutable successor/crash boundaries, predecessor protection and private failure diagnostics; no actual format4 migration is implied. |
+| `just run --background --label hs-model-controls -- cargo nextest run --locked --cargo-profile release -p lctx-model --lib -E 'test(conditions::entry::produced::actual_entry_controls)'` | **passed**,3 controls,247 skipped, run `20261010T145631.955Z-fca7bd`, Nextest `a475b71a-8059-4421-98b9-41ef5b5e91d2`. Exact charged lazy entry hydration/borrow lifetime only. Preceding source failed two Arc field type checks, corrected without payload cloning. |
+| `cargo nextest run --locked --cargo-profile release -p lctx-model --lib -E 'test(recovery_closure::) \| test(conditions::entry::produced::actual_entry_controls)'` | **passed**,5 controls,247 skipped, run `20261010T162158.332Z-fe134a`, Nextest `145e9e5f-432e-4de2-a18d-7289aea28ef6`;2m16 build,0.005s bodies. Model recovery declaration plus charged lazy-hydration controls on the repaired family source. |
+| Touched all-test compile checks | **failed** intermediate integrations, latest `20261010T154210.254Z-824062`: restore expectation/caller signatures; repaired. Earlier typed SDK/value/context errors repaired; final-source check pending. No native test body has run on format4. |
+| Candidate `cargo build --locked --release -p lctx` | Initial `20261010T152240.746Z-6d6831` **failed** on removed export; source repaired. Replacement `20261010T155544.458Z-bc5009` **passed**,7m14. This candidate precedes the assembled reader/family/budget corrections. Build/storage owners retain artifacts; no shared-cache clean or concurrency caps. |
+| Explicit owned upgrade `just service maintenance --upgrade-installer target/release/lctx` | `20261010T160641.778Z-298929` **failed** during the main native migration after confirmed borrower drainage, credential rotation and daemon restart. Admission remains closed behind the exact private journal/candidate. Exact-candidate diagnostic resume also failed before publication; its strict indexed-field diagnosis and explicit successor correction are recorded below. Neither migration nor restored readiness is claimed. |
+| Coherent all-test compile `cargo check --locked --release -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p cpg-core -p lctx --tests` | **passed**, `20261010T155539.375Z-74bc8d`,3m12. Exact pre-assembled-review source only; new sparse/family/budget corrections require a subsequent check. |
+| Pure revealing selection `cargo nextest run --locked --cargo-profile release -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p lctx-model --lib -E …` | `20261010T154644.635Z-8fa42d` **failed** during a stale cross-crate API integration build; no body executed. Replaced source must be checked and rerun. |
+| Independent source reviews | Bounded control/host/finality and active-state corrections were accepted by implementation reviewers at source-inspected strength. The subsequent assembled design/target review is **Revise**: sparse access hydrates all selected content, family dispatch remains split and selected preparation uses an independent pool. The dated bounded repair follow-up now accepts first-request sparse probes, exhaustive dispatch and composed budgets in the frozen source; original Revise is preserved. Functional/native qualification remains open. |
+| `cargo check --locked --release -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p cpg-core -p lctx --tests` | **failed**, run `20261010T162755.703Z-56c28b`,3m38s: one compiler-lifecycle test caller omitted its new existing-budget argument. No test bodies ran; a source-specific correction/rerun follows. |
+| Final repaired test-target check `cargo check --locked --release -p lctx-surrealdb -p lctx-publisher -p lctx-serving -p cpg-core -p lctx --tests` | **passed**, `20261010T163414.286Z-857f59`,5.55s. The preceding1s rerun `20261010T163336.125Z-6a9890` failed on borrowed recovery-table comparison, corrected by destructuring the declared table reference. No behavior/acceptance weakened. |
+| Repaired installer `cargo build --locked --release -p lctx` | **passed**, `20261010T163332.588Z-1b9615`,7m42s; immutable candidate `c53ae14c0fcdc215f7edfce3e87b587982fa9c681f6ddc22796f0d643897f19b`. Final repaired production source; composed backup test was added separately and its target check passed `20261010T164003.381Z-512207`,1.90s. |
+| Explicit successor migration `just service maintenance --replace-upgrade-installer /home/paul/library-context/target/release/lctx` | **failed**, `20261010T164226.788Z-647eff`: main scope migrated/checkpointed, validation triggered server SIGABRT at16:42:52UTC (journal local12:42:52). Pinned reblessive stack asserted unresolved futures left2/right0; private native failure diagnostic retained under exact successor `f852a3496d656b81d5720100a2b9cfa93b6c91d8f45ec8c3a95654c396735435`. Client h2 failure is a consequence, not evidence of a transport-only cause. Host marker remains3/admission closed; same immutable candidate resume and bounded native investigation follow. |
+| Exact same-candidate native migration resume | **failed**, `20261010T164531.903Z-88d611`,31s, reproduced server assertion while validation journal remained `intent`. Main stays exact target4; validation exact source3. Pinned executor/reblessive source and upstream issue7302/draft PR7342 support transaction-timeout cancellation as the failure mechanism; no released fixed server exists. Execution-only asynchronous index installation/readiness and a separately owned exact3.3.0 two-branch server correction are in progress; limits unchanged. |
+| Pure revealing controls (four libraries) | **failed composite**, `20261010T163436.019Z-942046`, Nextest `e975c735-62ad-40ab-9d8f-db616ea8af4e`:64run,62passed/2failed,325skipped,0.393s bodies after12m10s build/lock wait. Family-export control exposed a tiny-row maximum1GiB encoding reservation; alias-pressure control no longer exhausted the shared pool after spool release. Actual-size preallocation and explicit shared-pool pressure are being corrected. Remaining62 include sparse first-request/budget, ranked retention, audit cancellation and compiler lifetime controls; no native acceptance implied. |
+| Published-scope same-target repair recovery | **passed**,114 mocked host/storage controls in8.95s, owner receipt2026-10-10. Independent source review accepts separate immutable host operation/original native operation, exact completed-scope skip, identical complete target requirement and absent/intent-only unpublished scopes. Actual replacement remains pending the rebuilt candidate. |
+| Owned exact3.3.0 server build tooling | **passed**, `uv run --no-sync pytest -o addopts='' -q tests/scripts/test_surrealdb_server.py tests/scripts/test_storage_service.py`,15 pure controls in1.01s on the corrected source, executor receipt2026-10-10. Exact upstream commit/lock, two timeout-branch stack resets, complete default+CJK features, unchanged runtime limits and immutable source/build/executable provenance are implemented and independently source-accepted. Owned acquisition/build `20261010T170720.437Z-aead72` verified source, then failed on the locked DiskANN borrow defect recorded below. Service adoption and native timeout regression remain **not_run**. |
+| Actual-size literal-export admission and installer readiness | Implemented/source-accepted,2026-10-10: closed literal-family validation precedes conservative actual-value SQL admission; recursive record-key sizing allocates no SQL. Shared-pool pressure control is explicit after parsing. Corrected all-test check `20261010T170340.901Z-db2755` **passed**,4m09s including package-cache wait, confirmed cleanup. Installer build `20261010T170350.087Z-dc8bd4` **passed**,10m31s, confirmed cleanup; candidate `53f28eeb61887c168fdd2ecb35a662d8aea35b1bfd7b53779b5b290992f14369`. Read-only `store schema` comparison proves its complete target equals predecessor `c53ae14c…`, schema4 `0870158e2d5568650845dd61f61884384c44315071f0b0dc402d02994a4798da`. Pure rerun `20261010T171523.785Z-9388db` passed67 controls, recorded below. No native closure is implied. |
+| Patched-server first build prerequisite failure | **failed**, `20261010T170720.437Z-aead72`,12m21s, confirmed cleanup. DiskANN0.56.0 failed type checking: a generic `Batch` argument receives `&Arc<B>` instead of `&B`. Artifacts are preserved. The selected local one-line `Arc::as_ref` source correction uses a checksum-verified owned crate and Cargo paths override, retaining the upstream lock/manifest graph. A successor recipe will explicitly borrow the compatible mutable warm caches under exclusive admission; original recipe/failure/source remain protected. No upstream backport or feature/version/runtime-limit change is claimed. |
+| Corrected pure revealing selection | **passed**, `20261010T171523.785Z-9388db`, Nextest `29f2bf0c-c994-42f3-ace2-d3e4301e7ef1`:67 passed,325 skipped,0.379s bodies after4m40s build. This adds index lowering/readiness and actual-size literal admission to the earlier64 controls and closes both source-specific pure failures. No native or whole-plan acceptance implied. |
+| Patched-server host handoff | **passed**,148 mocked host/storage/server controls in18.67s, executor receipt2026-10-10. Independent source assessment accepts frozen service `220b8f4642482a1264647dda184de9c03c89e605ddf0228325a734824629662c` and storage bridge `20e6848d…`: immutable handoff, exact crash resume, mixed-scope native operation/checkpoints/credentials preserved, exact readiness, cold archive support without source caches and predecessor dependency retention. Actual adoption remains pending; the subsequent DiskANN build-provenance delta requires separate source assessment and affected host rerun. |
+| Current native Python extension `just sync native` | **passed**, `20261010T172051.632Z-3eb13e`,1m57s, confirmed cleanup. The guarded owner refreshed only the stale locked editable native package after Rust controls drained. This establishes environment readiness, not Python/native product acceptance. |
+| Native integration binary preparation | `cargo nextest list --locked --cargo-profile release -p lctx-surrealdb -p lctx-publisher -p lctx-serving --tests`, `20261010T172812.108Z-69e4d1`, **failed** on two `Value::from(i64)` calls in the new ignored timeout regression. Explicit native numeric values correct that test-only construction; rerun `20261010T173319.807Z-8b6d54` **passed**,2m55s, confirmed cleanup. No test bodies or database effects are implied. |
+| Exact server dependency metadata preflight | `uv run --no-sync python scripts/surrealdb_server.py --service-directory /home/paul/.local/state/library-context/surrealdb metadata`, `20261010T172854.910Z-4175e2`, **blocked** on an uncached locked `asn1-rs0.7.2` manifest/download because the preflight unnecessarily passed `--offline`. Exact owned source acquisition/patch verification reached metadata. Network-enabled metadata retains `--locked`, unchanged lock digest and exact owned DiskANN path selection. No dependency upgrade or server adoption is implied. |
+| Server source override qualification/build | **passed**, locked metadata `20261010T173605.150Z-dec4a4`,1s, confirmed cleanup: exact owned DiskANN0.56.0 selected, upstream lock digest unchanged. Final source `ceb8818357d1e2695dcd051da892bc12ead4a374b1d4f4da77a8d45f5dfdb998` independently source-accepted after network-only preflight correction;23 pure server/storage controls passed1.71s. Actual server build `20261010T173627.265Z-57c000` is running with successor recipe `97d1c9b9…`, borrowing original protected warm caches. Adoption/native regression remain **not_run**. |
+| Final host/server source composition | **passed**,154 mocked host/storage/server controls in17.51s: `uv run --no-sync pytest -o addopts='' -q tests/scripts/test_surrealdb_service.py tests/scripts/test_storage_service.py tests/scripts/test_surrealdb_server.py`, executor receipt2026-10-10. Final host source unchanged `220b8f46…`; successor provenance fixture covers cache lineage/override retention and cold restore without warm assets. Independent bounded follow-up in the integrated review accepts these exact source deltas. A further static fixture receipt defect—official binary constants instead of actual installed server identity—is being corrected before adoption. |
+| Generation-aware validation receipts | Fixture readiness, attachments, retained output and reuse observations now project the canonical validated installed server identity, preserving compatible immutable content reuse. First combined run184passed/1failed on a stale fake readiness binary; the corrected explicit test mock leaves production validation strict. `uv run --no-sync pytest -o addopts='' -q tests/scripts/test_surrealdb_fixture.py tests/scripts/test_surrealdb_service.py tests/scripts/test_storage_service.py tests/scripts/test_surrealdb_server.py` **passed**,185 controls in25.60s, executor receipt2026-10-10; fixture source `ddd402b9…`. Actual patched-server adoption remains pending. |
+| Reviewed automatic continuation | `20261010T174350.233Z-05d48c` validated the successful/cleaned exact server build `20261010T173627.265Z-57c000` and passed explicit server handoff. Same-target validation migration then **failed**, exit1/confirmed cleanup at19:02:54UTC,2026-10-10; final readiness was not reached. Immutable installer `53f28eeb…` reported `native_retirement.root_count`: expected `int`, found `NONE`, followed by cancelled-transaction/COMMIT errors. Main's completed format4 checkpoint remains; validation remains format3 and admission closed. No cancellation, candidate substitution, runtime-limit change or admission bypass occurred. The [architecture/capability review](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md#F01) diagnoses the transition contract; native correction/resume awaits subsequent planning. |
+| Compiler/extractor integration binary preparation | `cargo nextest list --locked --cargo-profile release -p cpg-core -p cpg-extract --tests` **passed**, `20261010T174513.901Z-e26c30`,5m56s, confirmed cleanup. This establishes final-source test-target compilation/listability with ordinary parallelism; no provider/native test body or compiler matrix outcome is implied. |
+| Actual patched-server build and handoff | **passed**, build `20261010T173627.265Z-57c000`,17m23s, confirmed cleanup. Immutable server generation `405f6c02ddfe12c004b04deab6bd91fd1458ed1c3ba247c05baa4a5396d5e206`, binary SHA256 `710229df33346fdf9733ef86d46e31874f0cacc2691529327e19e6534477b8ed`, CLI `3.3.0+lctx.timeout-stack.1 for linux on x86_64`. Reviewed handoff in continuation `20261010T174350.233Z-05d48c` passed, preserving the pending native operation and closed admission. The later validation translation failure is recorded above; main checkpoint remains complete. Actual timeout regression and product qualification remain pending. |
+| Native migration progress inspection | **passed** read-only inspection under the existing owned maintenance,2026-10-10: validation journal reached `declarations`; sampled live-effect/attempt/hold/retirement indexes report `ready`. Their initial populations include263,628 effects and112,753 ownership holds. Original native operation `f852a349…` and credential operation `6a2a7221…` are preserved by host successor `1a38343323ff109decdf3e9668582081f8d393573020df1b466e0a2f1524fda1`. The daemon remains active during protected legacy translation; counts are not a throughput or completed-migration claim. |
+| Authentication observer limitation | `20261010T154633.463Z-503808` **failed**, exit1/confirmed cleanup after2h07m: its long-lived Python process had imported the pre-handoff descriptor contract and refused the new owned-server descriptor before checking old credentials. Pre-upgrade JWT invalidation is unqualified, also subject to token-expiry confounding. Replacement five-principal old-password control `20261010T175849.443Z-d018be` waits for final format4. A separate maintenance-only production-helper control will use freshly authenticated, still-unexpired tokens; no expired-token observation will be promoted to signing-key proof. |
+| Migration verification origin reuse | Implemented/source-accepted,2026-10-10: each existing128-row verification page owns exact `RecordId` maps for terminal-attempt and contribution origins. First lookup still reads actual native state; repeated owners borrow that observation, preserving validation order, missing/foreign origin errors and the closed, exclusively owned cutover premise. No translated row is its own oracle and no cache survives a page. Executor `cargo check --release -p lctx-surrealdb --lib` **passed**,2.19s; frozen source `ecd7801eda9b72e56288d1cb06dc7d7b8dec938b0684a03350b5443b167546f4`. Independent bounded review accepts the delta. Running immutable `53f28eeb…` migration remains untouched; new CLI build `20261010T181615.177Z-0bb164` and affected pure rerun `20261010T181621.984Z-8c7077` are pending. No measured causal or native closure claim. |
+| Memoized-source preparation and independent source acceptance | **passed**,2026-10-10: CLI build `20261010T181615.177Z-0bb164`,2m35s, confirmed cleanup, SHA256 `2377be30f1d0c015e89e3553379489ee1a6b5c9147c1435512e537174db94c90`; read-only complete `store schema` equality against then-migrating immutable `53f28eeb…` passed. An initial comparison against the host's still-previous installer correctly lacked the new subcommand; no native effect occurred. Affected pure selection `20261010T181621.984Z-8c7077` passed3 controls/128skipped, Nextest `afe9201c-7519-4271-8618-17f01afca6e1`,0.006s bodies/3m45s preparation. Guarded `just sync native`, `20261010T181953.930Z-48c928`, passed with confirmed cleanup. The independent integrated review accepts assembled HS0–HS10 at Implemented/source-inspected strength; actual G5/HS11 remain open. Native sequences `20261010T181816.092Z-d35925` and `20261010T182220.387Z-e52348` **failed at prerequisite waits**, exit1/confirmed cleanup at19:02:58/19:03:04UTC after migration failure. Their native test bodies are **not_run**; compilation/listability is not runtime acceptance. |
+| Native migration diagnosis and schema correction | Exact-candidate resume `20261010T160810.384Z-299f8a` **failed**,3s, identifying strict control DDL's undeclared indexed `id`. Read-only inspection confirmed main's predecessor native journal at `intent`, validation's journal table absent, and both exact source3/current-generation markers closed. Explicit string-key declarations cover all13 id-bearing indexes across seven control tables and compiler bindings; independent pinned-source/identity review accepts the correction at Implemented/source-inspected strength. A new target/candidate needs an explicit pre-translation successor, not mutation of the failed journal. |
+
+
+**HS10 bounded investigation outcomes, source-inspected 2026-10-10.** Historical generic
+concat errors do not identify their exact originating statement; no unsupported attribution is
+made. Established complete-array and repeated-selection paths are corrected independently of
+that attribution. Model `ProducedEntries::get` has repeated real consumers: charged immutable
+per-entry lazy hydration is implemented and its three revealing controls passed above. No current
+production repeated-compilation consumer injects `Workspace::with_program_runtime`; cross-attempt
+interner injection remains unwarranted until such a compatible consumer appears. SCC materialization
+is once per graph, so additional retained scratch waits for a real repeated-SCC consumer; last-consumer
+release proceeds independently. Portable section ingress now consumes Arrow ownership and drops
+typed overlap; no new product format or global cache is introduced. Missing-library semantics,
+native planner behavior, selected transaction snapshot behavior, and immutable executable-epoch
+coexistence retain their explicit current-source functional/native controls; source reasoning does
+not close those runtime obligations. HS6's separate inventory below gates destructive history work.
+
+
+**HS6 consumer inventory, source-established 2026-10-10; qualification pending.** Attempt
+issuance captures generation/era before identity allocation; original retry uses `begin_attempt_in`.
+Effect intents/reconciliation retain exact request digest, original owner era/epoch and named caller
+outcomes. Pins, maintenance backup holds and retirement invocations capture issuance before identity
+allocation; guarded inserts and both hold ends obey retiring incarnation/watermark exclusion.
+Closing attempts remain indexed preterminal borrowers until exact product/root cleanup finishes.
+An interrupted retirement registration blocks the cut; registered retirement and finite cleanup
+obligations recover only through explicit distinct successors with original cutoff/epoch/branch and
+remaining scope. Collector checkpoints retain their original horizon/cursor and cannot borrow a new
+era. Live lineage dependencies protect predecessor jobs across repeated successors. Rich history
+also remains protected by exact caller/recovery/evidence/migration references, unresolved effects,
+incoming/outgoing holds and contributor/binding provenance. Legacy translation preserves every rich
+outcome behind a migration consumer and protects ambiguous retirement jobs; collection never grants
+legacy jobs current incarnations. Storage delegates these decisions to native control. No automatic
+collection, age-based release, filesystem purge or consumer-reference release is enabled. The
+explicit history evidence token will identify source-matching inventory plus actual delayed-intent,
+pre-obligation crash, successor and reference controls; it is not inferred from successful migration.
+
 
 **Unified execution in progress, 2026-10-09, baseline `20bc8cf9`.** ADR-0143 supersedes
 ADR-0138/0140 for shared native content, exact published views, admitted attachment and stable
@@ -2181,7 +2341,8 @@ contracts. No new dependency, backend or server configuration is selected in thi
 | LIGHTWEIGHT / `+collect` / import shortcut | Not replacements for attributed exact relationships, full-key closure or checked loading. Preserve the source review's capability limits. |
 | Native storage caches/durability | Reuse managed RocksDB/shared native caches and Every durability; no application block cache or weaker sync policy. |
 | Embedded primary store / raw Arrow protocol | Not selected: second lifecycle or unstable core/new protocol scope without a current requirement. Remote persisted host already serves compiler and consumers. |
-| GQL, MCP, SurrealKit, live/changefeeds and extra frontends | No demonstrated role in the required corrections. Revisit only for an actual consumer; no new migration/coordination service for fresh generated databases. |
+| Installed migration planning / SurrealKit | SA0/SA2 assess the actual installed-upgrade consumer. Select existing frozen host planning plus native atomic page progress; SurrealKit's separately marked rollout steps do not replace that protocol. Reopen its generic planning for a named consumer removing more machinery. No new migration service for fresh generated databases. |
+| GQL, MCP, live/changefeeds and extra frontends | No new consumer established. SA8 retains explicit notification/graph-operation triggers; durable outcomes remain authority. |
 
 Native persistence/direct sealing remains selected. The scope compiler can replace physical
 routes where its owned operation is better served by graph or relational kernels; the correction
@@ -2209,13 +2370,24 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-10: holistic correction target documented; production execution paused.** The
+**2026-10-10: SurrealDB architecture correction plan Proposed; execution next.** The
+[architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) §3
+defines the complete transition/progress/checked-successor target. SA0–SA3 precede the next owned
+installed migration attempt; ready catalog/access work uses its own actual prerequisites. SA findings
+remain Open in §8. Document acceptance does not close native/product acceptance.
+
+**2026-10-10: holistic corrections implemented; integrated qualification interrupted.** The
 [companion](holistic-state-management-plan_2026-10-10.md) adds HS0–HS11 to the combined UP/NE/PC/GK/GR
-target (§7.4); HS findings are Open in §8. Source-supported selected backup and phased retirement
-routes are Proposed. History deletion depends on working issuance fences and qualified horizons.
-Existing unified source is implemented with scoped passes; final publication/MCP failures and
-blocked Python follow-up retain their exact §9.1 receipts. HS11 joins UP9 acceptance once.
-No authoring result promotes those receipts, closes qualification or changes a service/store.
+target (§7.4); HS findings remain Open in §8 pending their actual acceptance. ADR-0145 and the
+owners carry implemented selected backup, phased retirement and original issuance/outcome
+contracts; history deletion still requires separately qualified horizons. All-test compilation,
+the corrected installer and67 pure controls passed (§9.1). The owned migration published main4
+but validation remains3 behind closed admission. The exact patched server and its locked
+dependency correction were built and adopted; continuation `20261010T174350.233Z-05d48c` failed
+at19:02:54UTC on the omitted mandatory retirement field. Current source does not have a qualified
+mixed-state recovery route; SA1–SA3 provide it without changing original native authority.
+Publication/MCP and earlier failed composites retain their receipts.
+HS11 joins UP9 acceptance once; no source review or bounded pass closes whole-plan qualification.
 
 **2026-10-09: GK0–GK6/GR0–GR5 integrated, Implemented / focused Tested; enclosing qualification open.**
 ADR-0139 and the architectural owners install model-owned relation scope compilation, canonical

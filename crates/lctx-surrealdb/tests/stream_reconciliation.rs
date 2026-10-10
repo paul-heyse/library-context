@@ -230,6 +230,7 @@ async fn candidate_plan_controls(
     release: &Release,
     expected_members: usize,
 ) {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_surrealdb::prepared::{PreparedQuery, scope_constant};
     let record = analytics::QualityStep {
         run: serde_json::from_value(
@@ -265,12 +266,10 @@ async fn candidate_plan_controls(
         .unwrap();
     fixture
         .store
-        .complete_contribution(
-            contribution,
+        .complete_contribution(contribution,
             stages::ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &std::collections::BTreeMap::new(),
-        )
+            &std::collections::BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     for (table, relation, field, value) in [
@@ -429,6 +428,7 @@ async fn root_native_query_cancellation_drains_before_fresh_checked_query() {
 
 #[tokio::test]
 async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let config = scoped::config();
     let client = lctx_surrealdb::compiler::check_installation(&config)
         .await
@@ -560,7 +560,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         client.clone(),
         fixture.store.attempt(),
         fixture.views.clone(),
-    );
+    ).with_budget(&native_read_budget);
     loader.entities(&entities[..1]).await.unwrap();
     loader.ensure_entities(&entities).await.unwrap();
     loader.ensure_entities(&entities).await.unwrap();
@@ -880,6 +880,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
 
 #[tokio::test(flavor = "multi_thread")]
 async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_surrealdb::surrealdb::types::{Bytes, Object};
     let config = scoped::config();
     let client = lctx_surrealdb::compiler::check_installation(&config)
@@ -947,7 +948,7 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
             embeddings: vec![],
         }
     };
-    Loader::for_views(client.clone(), vec![])
+    Loader::for_views(client.clone(), vec![]).with_budget(&native_read_budget)
         .reconcile(&manifest_for(&[]))
         .await
         .unwrap();
@@ -957,7 +958,7 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
         client.clone(),
         fixture.store.attempt(),
         fixture.views.clone(),
-    );
+    ).with_budget(&native_read_budget);
     loader
         .original_stream(
             original.source.0,
@@ -1091,6 +1092,7 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires exclusive just service maintenance --native-clients"]
 async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance() {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let installer_path = std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
         .expect("validation maintenance installer configuration");
     let installer =
@@ -1162,7 +1164,7 @@ async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance
             embeddings: vec![],
         }
     };
-    Loader::for_views(client.clone(), vec![])
+    Loader::for_views(client.clone(), vec![]).with_budget(&native_read_budget)
         .reconcile(&manifest_for(&[]))
         .await
         .unwrap();
@@ -1172,7 +1174,7 @@ async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance
         client.clone(),
         fixture.store.attempt(),
         fixture.views.clone(),
-    );
+    ).with_budget(&native_read_budget);
     loader
         .original_stream(
             original.source.0,

@@ -35,6 +35,7 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
         producer: &str,
         rows: &[R],
     ) -> lctx_model::domain::completed::CompletedView {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
         let relation = Relation::of::<R>();
         let spec = ContributionSpec {
             captured_binding: None,
@@ -52,12 +53,10 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
             .await
             .unwrap();
         store
-            .complete_contribution(
-                contribution,
+            .complete_contribution(contribution,
                 ProviderOutcome::Complete,
                 &[relation],
-                &BTreeMap::new(),
-            )
+                &BTreeMap::new(), &native_operation_budget)
             .await
             .unwrap()
             .remove(R::NAME)
@@ -247,6 +246,7 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
         producer: &str,
         rows: &[R],
     ) -> lctx_model::domain::completed::CompletedView {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
         let relation = Relation::of::<R>();
         let spec = ContributionSpec {
             captured_binding: None,
@@ -264,12 +264,10 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
             .await
             .unwrap();
         store
-            .complete_contribution(
-                contribution,
+            .complete_contribution(contribution,
                 ProviderOutcome::Complete,
                 &[relation],
-                &BTreeMap::new(),
-            )
+                &BTreeMap::new(), &native_operation_budget)
             .await
             .unwrap()
             .remove(R::NAME)
@@ -434,6 +432,7 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn native_closure_windows_projection_pin_and_stream_lifetime() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
@@ -496,12 +495,10 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(
-            contribution,
+        .complete_contribution(contribution,
             ProviderOutcome::Complete,
             &[package_relation.clone(), release_relation.clone()],
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     let pending = Release {

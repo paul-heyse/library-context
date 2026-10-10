@@ -93,6 +93,7 @@ async fn workspace(config: &RuntimeConfig) -> Arc<Workspace> {
 
 #[tokio::test]
 async fn foreign_captured_bindings_admit_before_and_after_independent_native_transport() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let config = RuntimeConfig::read(&std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
     ))
@@ -239,7 +240,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             .collect();
         let completed = source
             .native()
-            .complete_contribution(pending, ProviderOutcome::Complete, &outputs, &previous)
+            .complete_contribution(pending, ProviderOutcome::Complete, &outputs, &previous, &native_operation_budget)
             .await
             .unwrap();
         for relation in &outputs {
@@ -292,12 +293,12 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         admitted.empty_universe(FactFamily::Syntax),
         Some(Availability::NoScope)
     );
-    let mut expected_contributions = source.native().contributions().await.unwrap();
+    let mut expected_contributions = source.native().contributions(&native_operation_budget).await.unwrap();
     expected_contributions.sort_by_key(|row| row.identity().unwrap());
     let mut expected_bindings = source.native().bindings().await.unwrap();
     expected_bindings.sort_by_key(CompletedBinding::key);
     let export = tempfile::NamedTempFile::new().unwrap();
-    let state = source.native().export_state(export.path()).await.unwrap();
+    let state = source.native().export_state(export.path(), &native_operation_budget).await.unwrap();
     assert_eq!(state.format_version, 3);
     let obsolete = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(
@@ -308,7 +309,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     let refused = workspace(&config).await;
     let error = refused
         .native()
-        .import_state(obsolete.path(), &state)
+        .import_state(obsolete.path(), &state, &native_operation_budget)
         .await
         .unwrap_err();
     assert!(
@@ -366,7 +367,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     // it does not replay providers or mutate a separate database.
     restored
         .native()
-        .import_state(export.path(), &state)
+        .import_state(export.path(), &state, &native_operation_budget)
         .await
         .unwrap();
     restored.restore(Profile::Catalog).await.unwrap();
@@ -379,13 +380,13 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     );
     // Attempt-specific physical record order is not portable authority. Compare every
     // descriptor byte in logical identity order without deduplicating repeated rows.
-    let mut actual_contributions = restored.native().contributions().await.unwrap();
+    let mut actual_contributions = restored.native().contributions(&native_operation_budget).await.unwrap();
     actual_contributions.sort_by_key(|row| row.identity().unwrap());
     assert_eq!(actual_contributions, expected_contributions);
     let mut actual_bindings = restored.native().bindings().await.unwrap();
     actual_bindings.sort_by_key(CompletedBinding::key);
     assert_eq!(actual_bindings, expected_bindings);
-    assert_eq!(restored.native().completed_state().await.unwrap(), state);
+    assert_eq!(restored.native().completed_state(&native_operation_budget).await.unwrap(), state);
     for name in [
         "input_revisions",
         "source_artifacts",

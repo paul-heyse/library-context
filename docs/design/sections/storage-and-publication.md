@@ -1,6 +1,6 @@
 # Storage and publication
 
-**Accepted shared-content target / implementation in progress, 2026-10-09 (ADR-0143).**
+**Accepted shared-content target / implementation in progress, 2026-10-09 (ADR-0145).**
 The [unified plan](../../plans/unified-persistent-surrealdb-plan_2026-10-09.md) develops durable
 service attachment, immutable payloads/exact views, manifest publication, admitted reuse and
 native pin-safe retirement. The persisted coordinator owns actual receipts. Prior private-database
@@ -19,7 +19,7 @@ DDL, constructed rows, independent imported-value reconciliation and realization
 together; the [correction plan PC3–PC4](../../plans/persisted-execution-corrections-plan_2026-10-07.md#4-one-native-demand-interpretation-and-bounded-candidate-execution)
 owns implementation and actual planner qualification.
 
-> Decision: ADR-0143
+> Decision: ADR-0145
 
 **Implemented compiler and published native projections, 2026-10-05.** Named projection contracts specify their
 completed source, semantic roles, contexts, vertex universe, direction, multiplicity, weights,
@@ -32,18 +32,18 @@ publication handle. Indexed native selection and projected Arrow streams feed mo
 semantic/vector predecessors. Published export uses scoped native queries and terminally successful
 responses under the same projection contract. External destinations remain consumer-triggered.
 
-> Decision: ADR-0143, ADR-0103, ADR-0044, ADR-0085
+> Decision: ADR-0145, ADR-0103, ADR-0044, ADR-0085
 
 ## §6 Persistence and publication
 
-**Accepted target / implementation in progress, 2026-10-09 (ADR-0143).** One managed service
+**Accepted target / implementation in progress, 2026-10-09 (ADR-0145).** One managed service
 hosts `main` and `validation`. Explicit maintenance installs compatible schemas and credentials;
 ordinary clients only attach. Tests use logical attempts and publications in validation, with no
 scratch service or per-test database fallback. Compiler, store, publisher and serving retain their
 existing semantic responsibilities. Patched gRPC preserves progressive streaming, cancellation
 and checked physical terminality. Optional transports must preserve those contracts.
 
-> Decision: ADR-0143
+> Decision: ADR-0145
 
 ### §6.1 Admitted content and native publication
 
@@ -83,12 +83,13 @@ Definitions are installed under immutable epoch names. Ordinary publication
 cannot install DDL, mutate unrelated content or replace another publication's functions. Selection
 remains explicit. Later cleanup failure preserves an acknowledged committed publication.
 
-Logical backup uses the native engine's single whole-main read transaction and the requested
-publication's reader pin. A completed engine dump is grammar-decoded once and compacted to the
-requested manifest's complete dependency/payload/original closure before atomic logical-output
-publication. Shared preparation describes claimed input, not admission; every restore freshly
-prepares and independently admits its own data. Physical engine export still transfers/spools
-whole-database table data, an explicit growth cost of this initial route.
+**Accepted target, 2026-10-10 (ADR-0145); implementation/qualification open.** Logical
+backup resolves the requested publication's model-declared recoverable closure through bounded
+indexed windows or exact batches within one explicit transaction-bound snapshot and reader pin.
+Manifest and definition comparison metadata use that same transaction. The typed data-only writer
+publishes staged output only after statement/outer terminals, physical EOF and explicit transaction
+cancellation; it does not spool unrelated main content. Shared selection is not shared admission:
+every restore independently checks actual typed data, originals and completed semantics.
 RocksDB snapshot reads retain concurrently retired rows; unrelated retirement need not wait for
 logical export. Protected cold service recovery retains exclusive
 maintenance and drainage. Restore treats its input as data, never as
@@ -106,18 +107,22 @@ Native reachability owns publication roots, admitted reusable content, active at
 and recovery holds. Retirement and pin acquisition serialize on exact guard records. Collection
 rechecks reachability and full identity under guards; local manager policy delegates rather than
 performing its own database deletion. Shared surviving content is never removed by attempt cleanup.
-Retirement nominates bounded windows and streams each eligible owner's indexed children into
-durable work before releasing the parent. Retained parents keep their subtree without descending
-it. Final effects recheck exact queue identity, guard revision, incoming holds and backup exclusion;
-changed guards remain pending for fresh preparation. Every child stream checks all statement
-terminals and transport EOF before parent release.
-Completed contributors retain exact prerequisite views as well as their output payloads. Durable
-attempt/effect/pin authorization epochs and permanent retired-through watermarks permit a later
-valid lifecycle to recreate identical content while excluding delayed earlier operations, even
-after reactivation. Logical content backups reference separately protected cold-service recovery
+**Accepted lifecycle target, 2026-10-10 (ADR-0145); qualification open.** Native-control
+version 4 captures issuance era before submission and retains original owner epochs through retry.
+Permanent closed-through fencing, outcome references and native guards have distinct lifetimes.
+Fresh retirement invocations claim exact incarnations, atomically nominate bounded outgoing-hold
+pages and finalize only after an empty proof. Retiring objects reject both hold ends and reactivation.
+Same-era resume retains authority; post-cut maintenance successors reconcile predecessors and claim
+only durable remaining scope, preserving original cutoffs and completed pages. Indexed live-state
+observation precedes drained-maintenance history collection. Referenced attempts, unresolved work,
+necessary outcomes, guards and watermarks remain protected; age or a resolved flag is insufficient.
+Compiler/audit selection follows one model closure declaration with native/dump adapters, while
+actual stored rows and cold admission remain independent checks. An audit owns its read owner,
+pin and session until admitted tails drain, including failed preparation and cancellation.
+Logical content backups reference separately protected cold-service recovery
 assets; recovery metadata is not authority to restore live clients or execute imported commands.
 
-> Decision: ADR-0143, ADR-0088, ADR-0126
+> Decision: ADR-0145, ADR-0088, ADR-0126
 
 ### §6.2 Readers
 
@@ -146,9 +151,30 @@ Published readers use a trusted Rust boundary to pin exact published views and i
 cannot change beneath a pinned handle. Streamed results remain provisional until terminal success.
 A partial diagnostic subgraph reports its boundary and cannot claim global compiler completeness.
 
-> Decision: ADR-0141, ADR-0143, ADR-0126
+> Decision: ADR-0141, ADR-0145, ADR-0126
 
 ### §6.3 Schema evolution
+
+**Accepted recovery refinement / source-inspected, 2026-10-10; native qualification open.**
+An explicit installer replacement follows owned-daemon restart/drainage and immutable predecessor
+inventory. Unpublished scopes require exact closed source markers and absent/intent-only native
+journals; potentially translated unpublished scope refuses replacement. Before any publication,
+a successor may select a corrected target with a new native operation. Once a scope is published,
+the complete candidate target must remain identical. Only an exact closed current-generation target
+marker, matching published native journal and durable completed-scope checkpoint allow that scope
+to be preserved and skipped. A distinct immutable host plan/executable/operation retains the original
+native migration operation for remaining intent-only scopes. It never refreshes native authority or
+reruns proven completed work. Credentials, predecessor evidence and private diagnostics remain
+protected; durable successor creation precedes maintenance-owner transfer. Ordinary attachment and
+same-candidate retry cannot silently substitute an executable.
+
+Index application may use execution-only concurrent construction without changing canonical schema
+identity. Catalog presence alone does not establish usability: every desired index, including one
+present on a retry, must report terminal readiness before installation advances. Unknown/error states
+keep admission closed. The known3.3.0 executor timeout-stack defect requires a narrowly patched,
+exactly identified server generation; batching alone is not a server correctness fix. Source, locked
+build recipe, patch and executable provenance belong to the existing native executable owner; PSE
+assets remain external and unchanged. Runtime limits and compiler/test parallelism remain unchanged.
 
 **Implemented physical lowering / focused Tested, 2026-10-09.** Fixed top-level SCHEMAFULL fields, unique indexes and enforced role edges remain database obligations. Flexible semantic object bodies and supplied scope fields are produced by selected declaration-derived adapters, preserving missing/NULL, bytes/text, local sums, originals and aliases. Complete independent expected-row reconstruction rejects extra envelope/body/scope content and coherent corruption. Standalone arbitrary raw-SQL body rejection is deliberately lost; supported ingress and exposure remain fail-closed. Physical definition identity changes together with DDL and lowering; semantic artifact/contribution formats remain unchanged.
 
@@ -157,7 +183,7 @@ engine coercions do not define semantic identity. Snapshot changes are explicit 
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0143, ADR-0087, ADR-0048
+> Decision: ADR-0145, ADR-0087, ADR-0048
 
 ### §6.4 Serving realizations
 
@@ -167,13 +193,13 @@ SurrealQL is the only executor; Python remains a thin adapter. Complex kernels c
 batched inputs. Search eligibility precedes channel limits; exact analytical neighbors remain a
 separate contract from approximate discovery. Resources and continuations pin complete realization.
 
-> Decision: ADR-0143, ADR-0071, ADR-0131, ADR-0049
+> Decision: ADR-0145, ADR-0071, ADR-0131, ADR-0049
 
 <a id="section-6-5"></a>
 
 ### §6.5 Services and capability adoption
 
-**Accepted target / implementation in progress, 2026-10-09 (ADR-0143).** One stable local
+**Accepted target / implementation in progress, 2026-10-09 (ADR-0145).** One stable local
 SurrealDB3.3 RocksDB service serves main and validation. Host state and coordination live outside
 checkouts. Install/check/status/maintenance distinguish observation from privileged mutation;
 maintenance excludes borrowers and requires actual drainage plus identity revalidation. No fixed
@@ -188,4 +214,4 @@ consumer. Historical runs/operation records are retired rather than reconstructe
 The [operator runbook](../../surrealdb.md) documents configuration, publication and explicit selection.
 Operator reconstruction, live vectors and activation belong to separately authorized Q1 work.
 
-> Decision: ADR-0143, ADR-0073, ADR-0131
+> Decision: ADR-0145, ADR-0073, ADR-0131

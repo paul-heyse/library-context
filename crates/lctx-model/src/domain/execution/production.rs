@@ -477,8 +477,8 @@ fn evaluate_selected_produced(
         }
         let checked = match actual_local {
             Some(actual) => actual.entry(witness, source, budget)?,
-            None => EntryValueWitness::derive_for(entry, witness.request(), source, budget)?
-                .map_err(|_| ModelError::Invalid("base stored Use entry replay refused".into()))?,
+            None => std::sync::Arc::new(EntryValueWitness::derive_for(entry, witness.request(), source, budget)?
+                .map_err(|_| ModelError::Invalid("base stored Use entry replay refused".into()))?),
         };
         if checked.witness() != witness {
             return Err(ModelError::Invalid("base stored Use entry changed".into()));
@@ -489,7 +489,7 @@ fn evaluate_selected_produced(
         )?;
         entry_proofs.push(checked);
     }
-    let refs = entry_proofs.iter().collect::<Vec<_>>();
+    let refs = entry_proofs.iter().map(std::sync::Arc::as_ref).collect::<Vec<_>>();
     for row in data.occurrences.iter().filter(|row| {
         selected.is_none_or(|selected| row.id() == selected)
             && is_expression(row.syntax_kind)

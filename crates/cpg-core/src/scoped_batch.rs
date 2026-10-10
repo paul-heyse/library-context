@@ -248,6 +248,7 @@ mod native_controls {
         Vec<Package>,
     ) {
         let store = crate::test_native::store();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
         let relation = Relation::of::<Package>();
         let mut rows = vec![
             Package {
@@ -281,10 +282,10 @@ mod native_controls {
                 ProviderOutcome::Complete,
                 std::slice::from_ref(&relation),
                 &BTreeMap::new(),
+                &budget,
             )
             .await
             .unwrap();
-        let budget = ResourceBudget::fixed(64 << 20).unwrap();
         let session = SessionContext::new();
         session
             .register_table(

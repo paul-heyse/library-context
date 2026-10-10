@@ -46,7 +46,7 @@ impl analysis::support::DerivedEvidence for ModelTransferWitness {
 }
 pub struct CheckedModelTransfer {
     pub(super) witness: ModelTransferWitness,
-    pub(super) entry: DerivedEntryValue,
+    pub(super) entry: std::sync::Arc<DerivedEntryValue>,
     pub(super) root: PlaceRoot,
     pub(super) place: Place,
     pub(super) branch: TransferBranch<transfer::model::TransferKey>,
@@ -171,7 +171,7 @@ impl CheckedModelTransfer {
             None => {
                 match EntryValueWitness::derive_for(entry_data, witness.request(), source, budget)?
                 {
-                    Ok(value) => value,
+                    Ok(value) => std::sync::Arc::new(value),
                     Err(reason) => return Ok(Err(reason)),
                 }
             }

@@ -223,3 +223,5 @@ Python 3.12 syntax inspection passed. Full `just docs-check` **failed** before p
 already-stale concurrent ADR index. That unrelated generated file was not regenerated or staged
 by this review. This failure does not establish a product defect or negate the scoped publication
 check.
+
+**2026-10-10 disposition:** the operator authorized obsolete raw retirement for these five captures while retaining reports, assessments, provenance and run receipts. Independent report bundles are preserved under each run’s `compile-profile-reports/`; the sizes above are historical observations. Actual cleanup is recorded by [storage plan §10](../../../plans/storage-lifecycle-management-plan_2026-10-09.md#10-current-checkpoint).

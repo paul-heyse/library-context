@@ -644,7 +644,7 @@ macro_rules! local_semantic_outputs {
         }
     };
 }
-/// Actual owner values retained as compact receipts, without native flow rows or decoded BDDs.
+/// Actual owner values retained as compact receipts, with charged lazy immutable entry borrows.
 pub struct ProducedLocal {
     entries: conditions::entry::produced::ProducedEntries,
     stability: conditions::stability::ProducedStability,
@@ -661,7 +661,7 @@ impl ProducedLocal {
         witness: &EntryValueWitness,
         source: &EntryAccessSource,
         budget: &resources::ResourceBudget,
-    ) -> Result<DerivedEntryValue, ModelError> {
+    ) -> Result<std::sync::Arc<DerivedEntryValue>, ModelError> {
         self.entries.get(witness, source, budget)
     }
     pub fn require_entry(

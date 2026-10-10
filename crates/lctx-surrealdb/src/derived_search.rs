@@ -1,5 +1,5 @@
 //! One terminally checked lowering for private construction and read-only cold reconciliation.
-use crate::surrealdb::types::{Object, RecordId, Value, Variables};
+use crate::surrealdb::types::{Object, RecordId, SurrealValue, Value, Variables};
 use crate::{
     Loader, NativeReader, RecordSelection,
     ordered_rows::{OrderedRows, SortedRows},
@@ -43,57 +43,105 @@ fn reader(loader: &Loader) -> Result<NativeReader<()>, ModelError> {
     Ok(loader.reader())
 }
 
-/// Resolve immutable view payloads once per request, before evaluating candidate rows.
-pub fn prepare_selected_payloads<Context>(
-    reader: &NativeReader<Context>,
-    preparation: &mut Vec<String>,
-) -> String {
-    if reader.view_bindings().get("lctx_views").is_none() {
-        return "true".into();
-    }
-    if !preparation
-        .iter()
-        .any(|statement| statement.starts_with("LET $lctx_selected_payloads ="))
-    {
-        preparation.push("LET $lctx_selected_nodes = SELECT VALUE node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views".into());
-        preparation.push("LET $lctx_selected_payloads = array::distinct(array::concat($lctx_selected_nodes,(SELECT VALUE target FROM compiler_alias WITH INDEX alias_source WHERE source IN $lctx_selected_nodes)))".into());
-    }
-    "array::len($this.dependencies)>0 AND $this.dependencies ALLINSIDE $lctx_selected_payloads"
-        .into()
+/// Complete selected occurrence stream. Unit payload windows use the installed equality
+/// index; dependency eligibility is evaluated before the caller's ranking/quota policy.
+pub fn selected_occurrences<Context>(
+    reader: &NativeReader<Context>, table: &str, predicate: &str, bindings: Variables, budget: &resources::ResourceBudget,
+) -> Result<crate::reader::NativeRows, ModelError> {
+    if bindings.get("input_keys").is_some() || bindings.get("window_keys").is_some() {
+        indexed_occurrence_rows(reader, table, predicate, bindings, budget)
+    } else { occurrence_rows(reader, table, predicate, bindings, true, budget) }
 }
-/// Point sources selected through indexed payload candidates, including unexpected actual rows.
-pub struct ExactOccurrences {
-    pub lexical: String,
-    pub vector: String,
-    pub documents: String,
-    pub vectors: String,
-    pub payloads: Option<&'static str>,
+/// Serving nominations use existing input/window indexes. Exact dependency checks run
+/// before payload hydration, without preparing the complete publication membership.
+fn indexed_occurrence_rows<Context>(reader: &NativeReader<Context>, table: &str, predicate: &str, bindings: Variables, budget: &resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
+    if !matches!(table, "lex_occurs" | "vec_occurs") { return Err(ModelError::Schema("indexed occurrence family")); }
+    let index = if bindings.get("window_keys").is_some() { "window_occurrences" } else { "eligible_input" };
+    let reader = reader.transport_reader(); let table = table.to_owned(); let predicate = predicate.to_owned(); let budget = budget.clone();
+    crate::reader::NativeRows::owned(move |sender| async move {
+        let mut sorted = SortedRows::with_budget(&budget)?;
+        let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(bindings, vec![], vec![format!("SELECT id,unit_payload,dependencies FROM {table} WITH INDEX {index} WHERE ({predicate})")])?)?;
+        let result = async {
+            while let Some(row) = rows.next().await? {
+                if sender.is_closed() { rows.cancel_delivery(); break; }
+                let _scratch = budget.reserve("indexed occurrence nomination", crate::loader::native_bytes(&row).saturating_mul(4))?;
+                let object = Object::from_value(row).map_err(ModelError::codec)?;
+                let mut dependencies = Vec::<RecordId>::from_value(object.get("dependencies").cloned().ok_or(ModelError::Schema("occurrence dependencies"))?).map_err(ModelError::codec)?;
+                if dependencies.is_empty() { continue; }
+                dependencies.push(RecordId::from_value(object.get("unit_payload").cloned().ok_or(ModelError::Schema("occurrence unit payload"))?).map_err(ModelError::codec)?);
+                dependencies.sort(); dependencies.dedup();
+                if reader.selected_candidate_ids(&dependencies, &budget).await?.len() != dependencies.len() { continue; }
+                let id = RecordId::from_value(object.get("id").cloned().ok_or(ModelError::Schema("occurrence identity"))?).map_err(ModelError::codec)?;
+                let mut payload = reader.stream_prepared(crate::prepared::PreparedQuery::new(Variables::from_iter([("node".into(), id.into_value())]), vec![], vec!["SELECT * FROM $node".into()])?)?;
+                let result = async { while let Some(row) = payload.next().await? { sorted.push(row)?; } Ok(()) }.await;
+                let mut terminal = completion::Completion::default(); terminal.step("indexed occurrence payload drainage", payload.drain_transport().await); completion::complete(result, terminal)?;
+            } Ok(())
+        }.await;
+        let mut terminal = completion::Completion::default(); terminal.step("indexed occurrence nomination drainage", rows.drain_transport().await); completion::complete(result, terminal)?;
+        let mut sorted = sorted.finish()?; while let Some(row) = sorted.next_row()? { if sender.send(row).await.is_err() { break; } } Ok(())
+    })
 }
-pub fn prepare_exact_occurrences<Context>(
-    reader: &NativeReader<Context>,
-    preparation: &mut Vec<String>,
-) -> ExactOccurrences {
-    let predicate = prepare_selected_payloads(reader, preparation);
-    if predicate == "true" {
-        return ExactOccurrences {
-            lexical: "lex_occurs".into(),
-            vector: "vec_occurs".into(),
-            documents: "(SELECT VALUE in FROM lex_occurs)".into(),
-            vectors: "(SELECT VALUE in FROM vec_occurs)".into(),
-            payloads: None,
-        };
-    }
-    for (table, name) in [("lex_occurs", "lex"), ("vec_occurs", "vec")] {
-        preparation.push(format!("LET $lctx_selected_{name}_occurrences = SELECT VALUE id FROM {table} WITH INDEX exact_unit_payload WHERE unit_payload IN $lctx_selected_payloads AND ({predicate})"));
-    }
-    preparation.push("LET $lctx_selected_documents = array::distinct(SELECT VALUE in FROM $lctx_selected_lex_occurrences)".into());
-    preparation.push("LET $lctx_selected_vectors = array::distinct(SELECT VALUE in FROM $lctx_selected_vec_occurrences)".into());
-    ExactOccurrences {
-        lexical: "$lctx_selected_lex_occurrences".into(),
-        vector: "$lctx_selected_vec_occurrences".into(),
-        documents: "$lctx_selected_documents".into(),
-        vectors: "$lctx_selected_vectors".into(),
-        payloads: Some("$lctx_selected_payloads"),
+fn occurrence_rows<Context>(
+    reader: &NativeReader<Context>, table: &str, predicate: &str, bindings: Variables, eligible: bool, budget: &resources::ResourceBudget,
+) -> Result<crate::reader::NativeRows, ModelError> {
+    if !matches!(table, "lex_occurs" | "vec_occurs") { return Err(ModelError::Schema("selected occurrence family")); }
+    let client = reader.shared_client(); let cancellation = reader.read_cancellation();
+    let selection = reader.selection_preparation();
+    let table = table.to_owned(); let predicate = predicate.to_owned(); let budget = budget.clone();
+    crate::reader::NativeRows::owned(move |sender| async move {
+        let mut sorted = SortedRows::with_budget(&budget)?;
+        let _input = budget.reserve("selected occurrence input", BATCH_BYTES)?;
+        let selected = selection.await?;
+        let mut cursor = selected.as_ref().map(|selected| selected.pointers_with_budget(&budget)).transpose()?;
+        loop {
+            if sender.is_closed() { return Ok(()); }
+            let mut batch_charge = budget.reserve("selected occurrence pointers", BATCH_ROWS * std::mem::size_of::<RecordId>())?;
+            let mut vars = bindings.clone();
+            let sql = if let Some(cursor) = &mut cursor {
+                let mut nodes = Vec::with_capacity(BATCH_ROWS);
+                while nodes.len() < BATCH_ROWS {
+                    let Some(row) = cursor.next_row()? else { break; };
+                    batch_charge.try_resize(batch_charge.size().saturating_add(crate::loader::native_bytes(&row)))?;
+                    let Value::Object(row) = row else { return Err(ModelError::Schema("selected occurrence pointer")); };
+                    let node = RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("selected occurrence node"))?).map_err(ModelError::codec)?;
+                    if node.table.as_str() == "entity" { nodes.push(node); }
+                }
+                if nodes.is_empty() { break; }
+                vars.insert("nodes", nodes);
+                format!("SELECT * FROM {table} WITH INDEX exact_unit_payload WHERE unit_payload IN $nodes AND ({predicate})")
+            } else { format!("SELECT * FROM {table} WHERE ({predicate})") };
+            if sender.is_closed() { return Ok(()); }
+            let mut rows = crate::prepared::PreparedQuery::new(vars, vec![], vec![sql])?.stream_cancellable(&client, cancellation.as_ref())?;
+            let result = async { while let Some(row) = rows.next().await? {
+                let _scratch = budget.reserve("selected occurrence decoded scratch", crate::loader::native_bytes(&row).saturating_mul(8))?;
+                if eligible { if let Some(selected) = &selected {
+                    let Value::Object(object) = &row else { return Err(ModelError::Schema("selected occurrence")); };
+                    let dependencies = Vec::<RecordId>::from_value(object.get("dependencies").cloned().ok_or(ModelError::Schema("selected occurrence dependencies"))?).map_err(ModelError::codec)?;
+                    if dependencies.is_empty() || !selected.contains_all_with_budget(&dependencies, &budget)? { continue; }
+                } }
+                sorted.push(row)?;
+            } Ok(()) }.await;
+            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("selected occurrence indexed drainage", rows.drain_transport().await);
+            lctx_model::domain::completion::complete(result, terminal)?;
+            if cursor.is_none() { break; }
+        }
+        let mut rows = sorted.finish()?;
+        while let Some(row) = rows.next_row()? { if sender.send(row).await.is_err() { break; } }
+        Ok(())
+    })
+}
+#[cfg(test)]
+mod occurrence_budget_tests {
+    use super::*;
+    #[tokio::test]
+    async fn occurrence_preparation_refuses_unadmitted_input_before_native_access() {
+        let budget = resources::ResourceBudget::fixed(BATCH_BYTES / 2).unwrap();
+        let reader = NativeReader::for_views(std::sync::Arc::new(crate::surrealdb::Surreal::init()), vec![]).with_budget(&budget);
+        let mut rows = selected_occurrences(&reader, "lex_occurs", "true", Variables::new(), &budget).unwrap();
+        let error = rows.next().await.unwrap_err();
+        assert!(matches!(error.primary(), Some(ModelError::Resource { .. })), "budget refusal must precede access to the unconnected native client: {error}");
+        rows.drain_transport().await.unwrap(); drop(rows);
+        assert_eq!(budget.reserved(), 0);
     }
 }
 fn typed_payload<R: Record>(row: &R) -> Result<RecordId, ModelError> {
@@ -122,14 +170,16 @@ fn typed_payload<R: Record>(row: &R) -> Result<RecordId, ModelError> {
     }
 }
 struct Expected {
+    budget: resources::ResourceBudget,
     pending: Vec<Option<SortedRows>>,
     ordered: Vec<Option<OrderedRows>>,
 }
 impl Expected {
-    fn new() -> Result<Self, ModelError> {
+    fn new(budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
         Ok(Self {
+            budget: budget.clone(),
             pending: (0..7)
-                .map(|_| SortedRows::new().map(Some))
+                .map(|_| SortedRows::with_budget(budget).map(Some))
                 .collect::<Result<_, _>>()?,
             ordered: (0..7).map(|_| None).collect(),
         })
@@ -156,70 +206,57 @@ impl Expected {
         Ok(self.ordered[index].as_mut().expect("ordered family"))
     }
     async fn reconcile(&mut self, reader: &NativeReader<()>) -> Result<(), ModelError> {
-        if reader.view_bindings().get("lctx_views").is_some() {
-            let mut preparation = Vec::new();
-            let selected = prepare_exact_occurrences(reader, &mut preparation);
-            let query = crate::prepared::PreparedQuery::new(
-                Variables::new(),
-                preparation,
-                vec![format!(
-                    "SELECT * FROM array::distinct(array::concat({},{},{},{})) ORDER BY id",
-                    selected.lexical, selected.vector, selected.documents, selected.vectors
-                )],
-            )?;
-            let mut actual = reader.stream_prepared(query)?;
-            let result = async {
-                let mut indices = (0..TABLES.len()).collect::<Vec<_>>();
-                indices.sort_by_key(|index| TABLES[*index]);
-                for index in indices {
-                    while let Some(expected) = self.finish(index)?.next_row()? {
-                        let Some(row) = actual.next().await? else {
-                            return Err(ModelError::Serving(
-                                lctx_model::domain::serving::FailureKind::Corrupt,
-                            ));
-                        };
-                        if serde_json::to_vec(&expected).map_err(ModelError::codec)?
-                            != serde_json::to_vec(&row).map_err(ModelError::codec)?
-                        {
-                            return Err(ModelError::Serving(
-                                lctx_model::domain::serving::FailureKind::Corrupt,
-                            ));
-                        }
-                    }
+        let mut actual = actual_search_rows(reader, &self.budget)?;
+        let result = async {
+            let mut indices = (0..TABLES.len()).collect::<Vec<_>>(); indices.sort_by_key(|index| TABLES[*index]);
+            for index in indices { while let Some(expected) = self.finish(index)?.next_row()? {
+                let row = actual.next().await?.ok_or(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))?;
+                if serde_json::to_vec(&expected).map_err(ModelError::codec)? != serde_json::to_vec(&row).map_err(ModelError::codec)? {
+                    return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt));
                 }
-                if actual.next().await?.is_some() {
-                    return Err(ModelError::Serving(
-                        lctx_model::domain::serving::FailureKind::Corrupt,
-                    ));
-                }
-                Ok(())
-            }
-            .await;
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step(
-                "derived actual rows transport drain",
-                actual.drain_transport().await,
-            );
-            return lctx_model::domain::completion::complete(result, completion);
-        }
-        for (index, table) in TABLES.iter().enumerate() {
-            let mut actual = reader.query_stream(
-                format!(
-                    "SELECT * FROM {table} WHERE {} ORDER BY id",
-                    match *table {
-                        "lex_occurs" | "vec_occurs" => "true",
-                        "vector" => "id IN (SELECT VALUE in FROM vec_occurs)",
-                        _ => "id IN (SELECT VALUE in FROM lex_occurs)",
-                    }
-                ),
-                reader.view_bindings(),
-                1,
-            )?;
-            self.finish(index)?.reconcile(&mut actual).await?;
-        }
-        Ok(())
+            } }
+            if actual.next().await?.is_some() { return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)); }
+            Ok(())
+        }.await;
+        let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("derived actual rows transport drainage", actual.drain_transport().await);
+        lctx_model::domain::completion::complete(result, completion)
     }
 }
+pub fn actual_search_rows<Context>(reader: &NativeReader<Context>, budget: &resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
+    // Actual-state nomination deliberately retains bad dependency lists and unexpected rows.
+    // The independent cold lowering, rather than eligibility filtering, diagnoses them.
+    let budget = budget.clone();
+    let mut lexical = occurrence_rows(reader, "lex_occurs", "true", Variables::new(), false, &budget)?;
+    let mut vectors = occurrence_rows(reader, "vec_occurs", "true", Variables::new(), false, &budget)?;
+    let client = reader.shared_client(); let cancellation = reader.read_cancellation();
+    crate::reader::NativeRows::owned(move |sender| async move {
+        let mut actual = SortedRows::with_budget(&budget)?; let mut documents = SortedRows::with_budget(&budget)?;
+        for rows in [&mut lexical, &mut vectors] {
+            let result = async { while let Some(row) = rows.next().await? {
+                let Value::Object(object) = &row else { return Err(ModelError::Schema("actual search occurrence")); };
+                let document = RecordId::from_value(object.get("in").cloned().ok_or(ModelError::Schema("actual search document"))?).map_err(ModelError::codec)?;
+                let mut pointer = Object::new(); pointer.insert("id", document); documents.push(Value::Object(pointer))?; actual.push(row)?;
+            } Ok(()) }.await;
+            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("actual search occurrence drainage", rows.drain_transport().await);
+            lctx_model::domain::completion::complete(result, terminal)?;
+        }
+        let mut documents = documents.finish()?;
+        loop {
+            let mut ids = Vec::new(); while ids.len() < BATCH_ROWS { let Some(row) = documents.next_row()? else { break; };
+                let Value::Object(row) = row else { return Err(ModelError::Schema("actual search document pointer")); };
+                ids.push(RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("actual search document id"))?).map_err(ModelError::codec)?);
+            }
+            if ids.is_empty() { break; }
+            let mut vars = Variables::new(); vars.insert("ids", ids);
+            let mut rows = crate::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT * FROM $ids".into()])?.stream_cancellable(&client, cancellation.as_ref())?;
+            let result = async { while let Some(row) = rows.next().await? { actual.push(row)?; } Ok(()) }.await;
+            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("actual search document drainage", rows.drain_transport().await);
+            lctx_model::domain::completion::complete(result, terminal)?;
+        }
+        let mut actual = actual.finish()?; while let Some(row) = actual.next_row()? { if sender.send(row).await.is_err() { break; } } Ok(())
+    })
+}
+
 struct Batch<'a> {
     loader: Option<&'a Loader>,
     table: &'static str,
@@ -616,10 +653,9 @@ impl Companions {
             })
             .collect::<Result<Vec<_>, ModelError>>()?;
         vars.insert("scopes", scopes);
-        let mut rows = reader.record_stream::<OriginalAnchor>(
-            "scope_keys CONTAINSANY $scopes AND body.original IN $originals",
-            vars,
-            "semantic_key",
+        vars.insert("type", OriginalAnchor::NAME.to_owned());
+        let mut rows = reader.record_stream_candidates::<OriginalAnchor>(
+            crate::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT id FROM entity WITH INDEX by_scope WHERE semantic_type=$type AND scope_keys CONTAINSANY $scopes AND body.original IN $originals".into()])?, "semantic_key",
         )?;
         let mut anchors = BTreeMap::new();
         let mut original_rows = Index::new();
@@ -649,11 +685,22 @@ impl Companions {
             .values()
             .filter_map(|row| row.projection.map(|id| id.hex()))
             .collect::<BTreeSet<_>>();
-        let mut vars = reader.view_bindings();
-        vars.insert("projections", projections.into_iter().collect::<Vec<_>>());
-        let mut preparation = Vec::new();
-        let selected = prepare_selected_payloads(reader, &mut preparation);
-        let values:Vec<Object>=reader.query_prepared_native(crate::prepared::PreparedQuery::new(vars,preparation,vec![format!("SELECT id,projection_key,library_input,family,dependencies FROM vector WITH INDEX cohort WHERE projection_key IN $projections AND ({selected})")])?).await?;
+        let selected = reader.prepare_selection().await?;
+        let mut values = Vec::new();
+        for projection in projections {
+            let mut vars = Variables::new(); vars.insert("projection", projection);
+            let mut rows = reader.query_stream("SELECT id,projection_key,library_input,family,dependencies FROM vector WITH INDEX cohort WHERE projection_key=$projection", vars, 1)?;
+            let result = async { while let Some(row) = rows.next().await? {
+                let object = Object::from_value(row).map_err(ModelError::codec)?;
+                if let Some(selected) = &selected {
+                    let dependencies = Vec::<RecordId>::from_value(object.get("dependencies").cloned().ok_or(ModelError::Schema("vector dependency"))?).map_err(ModelError::codec)?;
+                    if dependencies.is_empty() || !selected.contains_all(&dependencies)? { continue; }
+                }
+                values.push(object);
+            } Ok(()) }.await;
+            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("vector companion cohort drainage", rows.drain_transport().await);
+            lctx_model::domain::completion::complete(result, terminal)?;
+        }
         let mut vectors = BTreeMap::new();
         for row in values {
             let (
@@ -1134,11 +1181,16 @@ impl std::error::Error for SearchPhaseFailure {
     }
 }
 fn phase<T>(phase: &'static str, result: Result<T, ModelError>) -> Result<T, ModelError> {
-    result.map_err(|cause| ModelError::Cause(Box::new(SearchPhaseFailure { phase, cause })))
+    result.map_err(|cause| {
+        let mut completion = completion::Completion::default();
+        if !cause.permits_storage_cleanup() { completion.remote = completion::RemoteState::Unknown; }
+        completion::complete::<()>(Err(ModelError::Cause(Box::new(SearchPhaseFailure { phase, cause }))), completion).unwrap_err()
+    })
 }
 pub async fn materialize_search(loader: &Loader) -> Result<(), ModelError> {
     let reader = reader(loader)?;
-    let mut expected = Expected::new()?;
+    let budget = loader.read_budget()?;
+    let mut expected = Expected::new(&budget)?;
     phase(
         "derived search canonical lowering",
         lower(&reader, &mut expected, Some(loader)).await,
@@ -1154,7 +1206,8 @@ pub async fn materialize_search(loader: &Loader) -> Result<(), ModelError> {
 }
 pub async fn reconcile_search(loader: &Loader) -> Result<(), ModelError> {
     let reader = reader(loader)?;
-    let mut expected = Expected::new()?;
+    let budget = loader.read_budget()?;
+    let mut expected = Expected::new(&budget)?;
     phase(
         "derived search independent cold lowering",
         lower(&reader, &mut expected, None).await,

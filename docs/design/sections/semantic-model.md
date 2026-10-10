@@ -12,7 +12,7 @@ remote certainty and private/committed effects while workflow owners execute cle
 The [correction plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md) owns the
 complete contracts and current migration; acceptance remains with its coordinator.
 
-> Decision: ADR-0143
+> Decision: ADR-0145
 
 **Implemented / acceptance in progress, 2026-10-08 (ADR-0137).** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.
 
@@ -50,13 +50,13 @@ consumption enters the artifact and reconstructs without a service. Query-only c
 invalidate unchanged document values.
 Native persistent cache and serving are implemented. Operator activation remains separately authorized.
 
-ADR-0143 supersedes private database sealing and replay-only reuse while preserving earlier typed admission guarantees. Earlier cited decisions
+ADR-0145 supersedes private database sealing and replay-only reuse while preserving earlier typed admission guarantees. Earlier cited decisions
 retain their typed semantic, ownership, coverage and product obligations. Previous PostgreSQL
 receipts bound that implementation only. The coordinator records native
 runtime evidence separately; real-library acceptance and Measured performance do not follow
 from this architectural decision.
 
-> Decision: ADR-0131, ADR-0143, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
+> Decision: ADR-0131, ADR-0145, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 
@@ -96,7 +96,7 @@ Native graph access is used during compilation; publication records an immutable
 `lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
 records targeted functional controls and the authorized final UP9 assembled qualification boundary.
 
-> Decision: ADR-0143, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108
+> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -126,7 +126,7 @@ analyses after normalization. The companion is an identity alias, without qualif
 normalization evidence. Facts retain their actual vocabulary without normalized records. Detached import retains the actual
 records and requires complete endpoint membership; it never synthesizes missing companions.
 
-> Decision: ADR-0143, ADR-0085
+> Decision: ADR-0145, ADR-0085
 
 <a id="section-15-3"></a>
 
@@ -755,7 +755,7 @@ materialization identity binds the retained schedule to its exact graph without 
 model/runtime owner shares interned programs across attempts. This does not imply whole-graph
 hydration, general value-cutoff scheduling or measured benefit.
 
-> Decision: ADR-0143, ADR-0139
+> Decision: ADR-0145, ADR-0139
 
 **Compiler projection realization (Implemented / user-accepted, 2026-10-05).**
 Typed endpoint roles and named projection policies supply structure. Independent vertex inventories
@@ -768,7 +768,14 @@ and evidence that remain in the semantic graph.
 
 Algorithms borrow branded native visit views over shared prepared topology. Explicit completed-input
 selectors preserve the required Facts, Local, Model or later semantic view; they are static dependency
-metadata, without persisted read permits or generations. The cumulative driver owns graph lifetimes
+metadata, without persisted read permits or generations.
+
+**Accepted ownership refinement, 2026-10-10 (ADR-0145); qualification open.** Prepared
+graphs and bindings follow actual remaining selected consumers, including optional stages and
+cache hits, and release before later unrelated stages. Repeated entry-diagram hydration borrows
+an exact immutable charged value locally; it does not introduce a global cache validity authority.
+
+The cumulative driver owns graph lifetimes
 and the common attempt budget across Structural, Summary and selected Analytic consumers.
 Dispatch expansion precedes the graph build on every fresh collection.
 **Implemented / focused-Tested, 2026-10-01:** projection version 3 gives source callable
@@ -809,7 +816,7 @@ repartitioning; conservative cardinality estimates guide partition benefit while
 parallelism remains available for substantial work. Selected cardinality stays inexact, including
 empty selections, so planning cannot erase native authority checks through exact aggregate statistics.
 
-**Accepted target / implementation in progress, 2026-10-09 (ADR-0143).** Compilation attaches
+**Accepted target / implementation in progress, 2026-10-09 (ADR-0145).** Compilation attaches
 to an installed compatible shared database. A durable fenced attempt owns pending contributions,
 exact completed bindings and operation effects. Model/codec-qualified immutable payloads carry
 full canonical bytes; separate nominal anchors and role edges preserve graph meaning. Compact
@@ -841,7 +848,7 @@ attributed outcomes. The execution plan owns current focused evidence for this c
 
 The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 
-> Decision: ADR-0141, ADR-0143, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
+> Decision: ADR-0141, ADR-0145, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 
@@ -864,7 +871,7 @@ The pivot removes PostgreSQL-serving effects. The accepted shared-content target
 schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-> Decision: ADR-0141, ADR-0143, ADR-0114, ADR-0116
+> Decision: ADR-0141, ADR-0145, ADR-0114, ADR-0116
 
 <a id="section-15-13"></a>
 

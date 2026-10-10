@@ -39,27 +39,14 @@ impl Loader {
     )]
     pub async fn reconcile(&self, manifest: &Manifest) -> Result<(), ModelError> {
         manifest.validate()?;
-        let mut expected = crate::ordered_rows::SortedRows::new()?;
+        let budget = self.read_budget()?;
+        let mut expected = crate::ordered_rows::SortedRows::with_budget(&budget)?;
         let reader = self.reader();
         for (table, family) in [
             ("entity", GraphFamily::Entities),
             ("assertion", GraphFamily::Assertions),
         ] {
-            let mut preparation = Vec::new();
-            let source = reader
-                .selected_record_source(&mut preparation, None)
-                .unwrap_or(table);
-            let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(
-                Variables::new(),
-                preparation,
-                vec![
-                // Anchors share one table per family and their fixed-width keys are the
-                // canonical nominal hashes. Order the stored value, without a dereference.
-                format!(
-                    "SELECT * FROM {source} WHERE record::table(id)='{table}' ORDER BY anchor,id"
-                ),
-                ],
-            )?)?;
+            let mut rows = reader.selected_payload_rows(table, "true", Variables::new(), vec![], "anchor,id", None)?;
             let mut hasher = FamilyHasher::new(family);
             let limits = lctx_model::domain::batching::TransferLimits::default();
             let mut pending = rows.next().await?;
@@ -201,30 +188,7 @@ impl Loader {
                 ));
             }
         }
-        let mut preparation = Vec::new();
-        let results = if let Some(source) = reader.selected_record_source(&mut preparation, None) {
-            // Nominate every actual outgoing role, including unexpected IDs/fields/roles.
-            // Expected-row IDs must never constrain this independent integrity readback.
-            preparation.push(format!("LET $lctx_participants = SELECT VALUE id FROM participant WITH INDEX outgoing WHERE in IN {source}"));
-            preparation.push(format!("LET $lctx_references = SELECT VALUE id FROM reference WITH INDEX outgoing WHERE in IN {source}"));
-            preparation.push("LET $lctx_external = array::distinct(SELECT VALUE out FROM array::concat($lctx_participants,$lctx_references) WHERE record::table(out)='external')".into());
-            vec![
-                "SELECT * FROM $lctx_external ORDER BY id".into(),
-                "SELECT * FROM $lctx_participants ORDER BY id".into(),
-                "SELECT * FROM $lctx_references ORDER BY id".into(),
-            ]
-        } else {
-            vec![
-                "SELECT * FROM external WHERE id IN array::concat((SELECT VALUE out FROM participant),(SELECT VALUE out FROM reference)) ORDER BY id".into(),
-                "SELECT * FROM participant ORDER BY id".into(),
-                "SELECT * FROM reference ORDER BY id".into(),
-            ]
-        };
-        let mut actual = reader.stream_prepared(crate::prepared::PreparedQuery::new(
-            Variables::new(),
-            preparation,
-            results,
-        )?)?;
+        let mut actual = actual_roles(&reader, &budget)?;
         expected.finish()?.reconcile(&mut actual).await?;
         if self.view_ids().is_none()
             && table_count(self, "original").await? != manifest.originals.len() as u64
@@ -236,6 +200,7 @@ impl Loader {
             let source = RecordId::new("original", original.source.0.hex());
             let mut bind = Variables::new();
             bind.insert("source", source.clone());
+            self.check_read_admission()?;
             let mut response = self
                 .client()
                 .query("SELECT * FROM $source")
@@ -255,6 +220,7 @@ impl Loader {
                 let mut bind = Variables::new();
                 bind.insert("source", source.clone());
                 bind.insert("start", position);
+                self.check_read_admission()?;
                 let mut response=self.client().query("SELECT * FROM original_chunk WHERE source=$source AND start >= $start ORDER BY start LIMIT 128").bind(bind).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
                 let chunks: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
                 if chunks.is_empty() {
@@ -281,6 +247,47 @@ impl Loader {
         }
         Ok(())
     }
+}
+/// Actual outgoing rows are nominated by selected sources, never by expected role IDs.
+pub fn actual_roles<Context>(reader: &crate::NativeReader<Context>, budget: &lctx_model::domain::resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
+    let selection = reader.selection_preparation(); let client = reader.shared_client(); let cancellation = reader.read_cancellation(); let budget = budget.clone();
+    crate::reader::NativeRows::owned(move |sender| async move {
+        let selection = selection.await?;
+        let mut actual = crate::ordered_rows::SortedRows::with_budget(&budget)?;
+        let mut external = crate::ordered_rows::SortedRows::with_budget(&budget)?;
+        for table in ["participant", "reference"] {
+            let mut rows = if let Some(selection) = &selection { selection.outgoing(table)? } else {
+                crate::prepared::PreparedQuery::new(Variables::new(), vec![], vec![format!("SELECT * FROM {table}")])?.stream_cancellable(&client, cancellation.as_ref())?
+            };
+            let result = async { while let Some(row) = rows.next().await? {
+                let Value::Object(object) = &row else { return Err(ModelError::Schema("actual native role")); };
+                if let Some(Value::RecordId(out)) = object.get("out") {
+                    if out.table.as_str() == "external" {
+                        let mut pointer = surrealdb::types::Object::new(); pointer.insert("id", out.clone()); external.push(Value::Object(pointer))?;
+                    }
+                }
+                actual.push(row)?;
+            } Ok(()) }.await;
+            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("actual role drainage", rows.drain_transport().await);
+            lctx_model::domain::completion::complete(result, terminal)?;
+        }
+        let mut external = external.finish()?;
+        loop {
+            let mut ids = Vec::new(); while ids.len() < 128 { let Some(row) = external.next_row()? else { break; };
+                let Value::Object(row) = row else { return Err(ModelError::Schema("actual external pointer")); };
+                ids.push(RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("actual external id"))?).map_err(ModelError::codec)?);
+            }
+            if ids.is_empty() { break; }
+            let mut vars = Variables::new(); vars.insert("ids", ids);
+            let mut rows = crate::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT * FROM $ids".into()])?.stream_cancellable(&client, cancellation.as_ref())?;
+            let result = async { while let Some(row) = rows.next().await? { actual.push(row)?; } Ok(()) }.await;
+            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("actual external drainage", rows.drain_transport().await);
+            lctx_model::domain::completion::complete(result, terminal)?;
+        }
+        let mut actual = actual.finish()?;
+        while let Some(row) = actual.next_row()? { if sender.send(row).await.is_err() { break; } }
+        Ok(())
+    })
 }
 #[derive(SurrealValue)]
 #[surreal(crate = "surrealdb::types")]
@@ -317,15 +324,17 @@ impl<Context> crate::NativeReader<Context> {
                 .map(|(source, _, _)| crate::reader::target_id(Target::Entity(*source)))
                 .collect::<Vec<_>>();
             eligible.insert("anchors", anchors.clone());
-            let found: Vec<RecordId> = self
-                .query_native(
-                    format!(
-                        "SELECT VALUE anchor FROM entity WHERE anchor IN $anchors AND ({})",
-                        self.selected_node_predicate("id")
-                    ),
-                    eligible,
-                )
-                .await?;
+            let mut candidates = self.stream_prepared(crate::prepared::PreparedQuery::new(eligible, vec![], vec!["SELECT id,anchor FROM entity WITH INDEX anchor_payload WHERE anchor IN $anchors".into()])?)?;
+            let mut found = Vec::new();
+            let result = async {
+                while let Some(row) = candidates.next().await? {
+                    let Value::Object(row) = row else { return Err(ModelError::Schema("original candidate object")); };
+                    let node = RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("original candidate identity"))?).map_err(ModelError::codec)?;
+                    if !self.selected_candidate_ids(&[node], &self.resource_budget()?).await?.is_empty() { found.push(RecordId::from_value(row.get("anchor").cloned().ok_or(ModelError::Schema("original candidate anchor"))?).map_err(ModelError::codec)?); }
+                }
+                Ok(())
+            }.await;
+            let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("original candidate drainage", candidates.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
             if anchors.iter().any(|anchor| !found.contains(anchor)) {
                 return Err(ModelError::Conflict("original source outside exact view"));
             }
@@ -396,6 +405,7 @@ pub fn add_scope_fields(
 }
 
 pub async fn table_count(loader: &Loader, table: &str) -> Result<u64, ModelError> {
+    loader.check_read_admission()?;
     let mut response = loader
         .client()
         .query(format!("SELECT count() AS total FROM {table} GROUP ALL"))

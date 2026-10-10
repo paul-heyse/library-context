@@ -69,6 +69,12 @@ fn id_literal<R>(id: Id<R>) -> datafusion::logical_expr::Expr {
 }
 
 impl PreparedGraphs {
+    /// Retire projections whose final possible consumer has completed in this schedule.
+    /// Topology and SCC reservations belong to each projection and drop here. The small
+    /// collection/index allowance remains charged until the collection itself is released.
+    pub(crate) fn retain(&mut self, names: &BTreeSet<ProjectionName>) {
+        self.graphs.retain(|projection| names.contains(&projection.graph.key().name));
+    }
     /// Borrow normalization-owned admission, retaining only the exact graph source descriptors.
     /// Each consumer must still declare those immutable streams. Selection is explicit; missing
     /// selected snapshots refuse without rerunning predecessor admission or graph construction.

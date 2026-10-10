@@ -83,6 +83,52 @@ def absolute(path: str | Path) -> Path:
     return Path(os.path.abspath(Path(path).expanduser()))
 
 
+class ReferenceSnapshot(Sequence[tuple[Path, str]]):
+    """Operation-local documents and lazily resolved citation targets."""
+
+    def __init__(self, documents: Sequence[tuple[Path, str]], roots: Sequence[Path]):
+        self.documents = tuple(documents)
+        self.roots = tuple(roots)
+        self._tokens: dict[int, list[tuple[str, str]]] = {}
+        self._targets: dict[int, list[tuple[tuple[Path, frozenset[Path]], ...]]] = {}
+
+    def __len__(self) -> int:
+        return len(self.documents)
+
+    def __getitem__(self, index):
+        return self.documents[index]
+
+    def targets(self, index: int) -> Iterator[tuple[Path, frozenset[Path]]]:
+        if index not in self._tokens:
+            _, text = self.documents[index]
+            self._tokens[index] = re.findall(r"\]\(([^)]+)\)|`([^`\n]+)`", text)
+            self._targets[index] = []
+        cached = self._targets[index]
+        source = self.documents[index][0]
+        for position, (markdown, code) in enumerate(self._tokens[index]):
+            if position == len(cached):
+                cached.append(self._resolve(source, markdown, code))
+            yield from cached[position]
+
+    def _resolve(self, source: Path, markdown: str, code: str):
+        from urllib.parse import unquote, urlsplit
+
+        candidate = (markdown or code).strip().strip("<>")
+        if not candidate or any(char in candidate for char in "\n\r"):
+            return ()
+        link = urlsplit(candidate)
+        if link.scheme or link.netloc:
+            return ()
+        name = unquote(link.path)
+        if not name or name in {".", ".."} or (" " in name and not markdown):
+            return ()
+        resolved = [absolute(base / name) for base in (source.parent, *self.roots)]
+        return tuple(
+            (target, frozenset(target.parents))
+            for target in resolved if target != Path(target.anchor)
+        )
+
+
 def state_root(env: Mapping[str, str] | None = None) -> Path:
     source = os.environ if env is None else env
     return absolute(
@@ -780,7 +826,7 @@ class Storage:
                 f"storage: enqueue failed; content kept for catch-up: {object_id}", file=sys.stderr
             )
 
-    def references(self) -> list[tuple[Path, str]]:
+    def references(self) -> ReferenceSnapshot:
         """Current tracked references once per operation; no raw outputs or private configs."""
         import subprocess
 
@@ -807,14 +853,21 @@ class Storage:
                     references.append((path, path.read_text()))
                 except OSError, UnicodeError:
                     references.append((repo, "__unreadable_participant__"))
-        return references
+        return self.prepare_references(references)
+
+    def prepare_references(self, references: Sequence[tuple[Path, str]]) -> ReferenceSnapshot:
+        roots = (self.root, *(Path(p) for p in self.host.get("repositories", [])))
+        if isinstance(references, ReferenceSnapshot) and references.roots == roots:
+            return references
+        return ReferenceSnapshot(references, roots)
 
     def disposition(
         self,
         row: dict,
         *,
         records: list[dict] | None = None,
-        references: list[tuple[Path, str]] | None = None,
+        references: Sequence[tuple[Path, str]] | None = None,
+        known_scopes: set[Path] | None = None,
         clock: dt.datetime | None = None,
         check_children: bool = True,
     ) -> dict:
@@ -888,54 +941,44 @@ class Storage:
         if deadlines and max(deadlines) + dt.timedelta(days=row["grace_days"]) > clock:
             reasons.append("post-release grace period has not expired")
         if references is not None:
-            known_scopes = {
-                Path(record["path"])
-                for record in (self.records() if records is None else records)
-                if not record.get("retired_at")
-            }
-            for source, text in references:
+            if records is None:
+                records = self.records()
+            if known_scopes is None:
+                known_scopes = {
+                    Path(record["path"]) for record in records if not record.get("retired_at")
+                }
+            references = self.prepare_references(references)
+            parents = frozenset(path.parents)
+            # These repeated profile components name tooling, not a particular capture.
+            # IDs, full paths and resolved citations still identify the exact lifetime.
+            basename_alias = len(path.name) >= 12 and not (
+                row["owner"]["kind"] == "profile"
+                and path.name in {"compile-profile", "compile-profile-reports"}
+            )
+            for index, (source, text) in enumerate(references):
                 if text.startswith("__"):
                     reasons.append(f"consumer coverage unavailable: {source}")
                 elif (
                     row["id"] in text
                     or str(path) in text
-                    or (path.name in text and len(path.name) >= 12)
+                    or (basename_alias and path.name in text)
                 ):
                     reasons.append(f"current tracked reference: {source}")
                 else:
-                    from urllib.parse import unquote, urlsplit
-
-                    targets = re.findall(r"\]\(([^)]+)\)|`([^`\n]+)`", text)
-                    for markdown, code in targets:
-                        candidate = (markdown or code).strip().strip("<>")
-                        if not candidate or any(char in candidate for char in "\n\r"):
-                            continue
-                        link = urlsplit(candidate)
-                        if link.scheme or link.netloc:
-                            continue
-                        name = unquote(link.path)
-                        if not name or name in {".", ".."} or (" " in name and not markdown):
-                            continue
-                        roots = [
-                            source.parent,
-                            self.root,
-                            *(Path(p) for p in self.host.get("repositories", [])),
-                        ]
-                        resolved = [absolute(base / name) for base in roots]
-                        resolved = [target for target in resolved if target != Path(target.anchor)]
-                        # A broad documentation mention of /tmp or build/ is not an
-                        # evidence consumer. Ancestor citations protect descendants only
-                        # when that ancestor is itself a declared lifetime.
-                        if any(
-                            target == path
-                            or path in target.parents
-                            or (target in path.parents and target in known_scopes)
-                            for target in resolved
-                        ):
-                            reasons.append(f"current tracked reference: {source}")
-                            break
+                    # Broad mentions protect descendants only when the cited ancestor
+                    # remains a declared lifetime in this decision's current records.
+                    if any(
+                        target == path
+                        or path in target_parents
+                        or (target in parents and target in known_scopes)
+                        for target, target_parents in references.targets(index)
+                    ):
+                        reasons.append(f"current tracked reference: {source}")
         if check_children:
-            for child in self.records() if records is None else records:
+            if records is None:
+                records = self.records()
+            by_id = None
+            for child in records:
                 if child["id"] == row["id"] or child.get("retired_at"):
                     continue
                 other = Path(child["path"])
@@ -945,10 +988,8 @@ class Storage:
                     reasons.append(f"descendant must retire independently first: {child['id']}")
                 elif other in path.parents:
                     # Sharing a root requires a declared ancestor owner, never accidental overlaps.
-                    by_id = {
-                        record["id"]: record
-                        for record in (self.records() if records is None else records)
-                    }
+                    if by_id is None:
+                        by_id = {record["id"]: record for record in records}
                     ancestors = set()
                     parent = row.get("parent")
                     while parent and parent not in ancestors and parent in by_id:
@@ -996,11 +1037,19 @@ class Storage:
         except OSError, Blocked, KeyError, TypeError:
             return False
 
-    def plan(self, ids: Sequence[str] = ()) -> dict:
-        rows = [self.get(i) for i in ids] if ids else self.records()
-        refs = self.references()
+    def plan(
+        self, ids: Sequence[str] = (), *, references: Sequence[tuple[Path, str]] | None = None
+    ) -> dict:
+        rows = [self.get(i) for i in ids] if ids else None
+        refs = self.prepare_references(self.references() if references is None else references)
         all_rows = self.records()
-        return self.envelope([self.disposition(r, records=all_rows, references=refs) for r in rows])
+        if rows is None:
+            rows = all_rows
+        known_scopes = {Path(row["path"]) for row in all_rows if not row.get("retired_at")}
+        return self.envelope([
+            self.disposition(r, records=all_rows, references=refs, known_scopes=known_scopes)
+            for r in rows
+        ])
 
     def envelope(
         self,
@@ -1023,7 +1072,9 @@ class Storage:
             ],
         }
 
-    def retire(self, object_id: str, *, references: list[tuple[Path, str]] | None = None) -> dict:
+    def retire(
+        self, object_id: str, *, references: Sequence[tuple[Path, str]] | None = None
+    ) -> dict:
         initial = self.get(object_id)
         path = Path(initial["path"])
         if initial.get("retired_at"):
@@ -1136,9 +1187,9 @@ class Storage:
         return {"id": row["id"], "action": "retired", "path": row["path"]}
 
     def sweep(self, ids: Sequence[str] = ()) -> dict:
-        refs = self.references()
+        refs = self.prepare_references(self.references())
         decisions = sorted(
-            self.plan(ids)["dispositions"],
+            self.plan(ids, references=refs)["dispositions"],
             key=lambda row: len(Path(row["path"]).parts),
             reverse=True,
         )
@@ -1159,7 +1210,7 @@ class Storage:
         self.trim_metadata(refs)
         return result
 
-    def trim_metadata(self, references: list[tuple[Path, str]]) -> None:
+    def trim_metadata(self, references: Sequence[tuple[Path, str]]) -> None:
         """Only manager-owned closed receipts expire; unknown journals never do."""
         clock = dt.datetime.now(dt.UTC)
         with self.metadata():

@@ -48,36 +48,24 @@ async fn execute(loader: &Loader, sql: impl Into<String>, bindings: Variables) {
 }
 async fn rows(loader: &Loader, table: &str) -> Vec<Value> {
     let reader = loader.reader();
-    let mut preparation = Vec::new();
-    let exact =
-        lctx_surrealdb::derived_search::prepare_exact_occurrences(&reader, &mut preparation);
-    let source = match table {
-        "lex_occurs" => exact.lexical,
-        "vec_occurs" => exact.vector,
-        "vector" => exact.vectors,
-        _ => exact.documents,
-    };
-    let mut vars = reader.view_bindings();
-    vars.insert("table", table.to_string());
-    let mut stream = reader
-        .stream_prepared(
-            lctx_surrealdb::prepared::PreparedQuery::new(
-                vars,
-                preparation,
-                vec![format!(
-                    "SELECT * FROM {source} WHERE record::table(id)=$table ORDER BY id"
-                )],
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    let mut rows = Vec::new();
+    let occurrence_table = if table == "vector" || table == "vec_occurs" { "vec_occurs" } else { "lex_occurs" };
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(64 << 20).unwrap();
+    let mut stream = lctx_surrealdb::derived_search::selected_occurrences(&reader, occurrence_table, "true", Variables::new(), &budget).unwrap();
+    let mut rows = Vec::new(); let mut sources = std::collections::BTreeSet::new();
     while let Some(row) = stream.next().await.unwrap() {
-        rows.push(row);
+        if table == occurrence_table { rows.push(row); } else { sources.insert(row.as_object().unwrap().get("in").unwrap().as_record().unwrap().clone()); }
     }
     stream.drain_transport().await.unwrap();
-    rows
+    let sources = sources.into_iter().collect::<Vec<_>>();
+    for sources in sources.chunks(128) {
+        let mut vars = Variables::new(); vars.insert("sources", sources.to_vec()); vars.insert("table", table.to_owned());
+        let mut stream = reader.query_stream("SELECT * FROM $sources WHERE record::table(id)=$table ORDER BY id", vars, 1).unwrap();
+        while let Some(row) = stream.next().await.unwrap() { rows.push(row); }
+        stream.drain_transport().await.unwrap();
+    }
+    rows.sort_by_key(|row| row.as_object().unwrap().get("id").unwrap().clone()); rows
 }
+
 async fn restore(loader: &Loader, row: &Value, relation: bool) {
     let mut bind = Variables::new();
     bind.insert("rows", vec![row.clone()]);
@@ -138,6 +126,7 @@ async fn installed_scope_definition_drift_is_detected_read_only() {
     streamed_control(AuditTarget::Definitions).await;
 }
 async fn streamed_control(target: AuditTarget) {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let identity = FixtureIdentity::new();
     let maintenance = matches!(target, AuditTarget::Definitions);
     let started = std::time::Instant::now();
@@ -383,7 +372,7 @@ async fn streamed_control(target: AuditTarget) {
         fixture.reader.shared_client(),
         fixture.store.attempt(),
         views.clone(),
-    );
+    ).with_budget(&native_read_budget);
     let privileged = if maintenance {
         let installer = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
@@ -398,7 +387,7 @@ async fn streamed_control(target: AuditTarget) {
         )
         .await
         .unwrap();
-        Some(Loader::for_views(client, views))
+        Some(Loader::for_views(client, views).with_budget(&native_read_budget))
     } else {
         None
     };

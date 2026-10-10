@@ -118,7 +118,7 @@ pub async fn populate(
     let manifest = Manifest {
         admission_contract: workspace.admitted_facts_async(profile).await?.contract,
         format_version: ARTIFACT_FORMAT_VERSION,
-        completed_state: workspace.native().completed_state().await?,
+        completed_state: workspace.native().completed_state(workspace.budget()).await?,
         frontier,
         profile,
         captures,
@@ -138,7 +138,7 @@ pub async fn populate(
 
 pub(crate) async fn producer_inventory(workspace:&Workspace,charge:&mut charged::StateCharge)->Result<Vec<ProducerImplementation>,ModelError>{
     let mut producers = BTreeMap::new();
-    for contribution in workspace.native().contributions().await? {
+    for contribution in workspace.native().contributions(workspace.budget()).await? {
         let spec=contribution.spec;
         let configuration=spec.configuration.ok_or_else(||invalid(format!("{} has no declared producer configuration",spec.producer)))?;
         let value=ProducerImplementation{contract:spec.captured_binding.as_ref().map(|binding|binding.contract),producer:spec.producer,implementation:spec.implementation,configuration};

@@ -1,0 +1,22 @@
+--- a/surrealdb/core/src/dbs/executor.rs
++++ b/surrealdb/core/src/dbs/executor.rs
+@@ -1446,6 +1446,9 @@
+ 				{
+ 					Ok(res) => res,
+ 					Err(_) => {
++						// Timeout drops the evaluator before its TreeStack is unwound.
++						// Never reuse that stack for the next statement in this batch.
++						self.stack = TreeStack::new();
+ 						let _ = txn.cancel().await;
+ 						bail!(DatastoreError::TransactionTimedout(timeout.into()))
+ 					}
+@@ -1580,6 +1583,9 @@
+ 				{
+ 					Ok(result) => result,
+ 					Err(_) => {
++						// Timeout drops the evaluator before its TreeStack is unwound.
++						// Never reuse that stack for the next statement in this batch.
++						self.stack = TreeStack::new();
+ 						let _ = txn.cancel().await;
+ 						let timed_out_count = self.results.len().saturating_sub(start_results);
+ 						for res in &mut self.results[start_results..] {

@@ -269,7 +269,7 @@ impl Inspect<'_> {
                 else {
                     continue;
                 };
-                proof
+                std::sync::Arc::new(proof)
             };
             if selected.is_some() {
                 return Ok(None);

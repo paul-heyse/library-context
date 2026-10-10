@@ -124,6 +124,7 @@ async fn abandon_acknowledged_write_failure(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
@@ -174,12 +175,10 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(
-            contribution,
+        .complete_contribution(contribution,
             ProviderOutcome::Complete,
             &[header_relation.clone(), chunk_relation.clone()],
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     for relation in [&header_relation, &chunk_relation] {
@@ -216,7 +215,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .collect::<Vec<_>>();
     assert_eq!(actual, vec![chunk.clone()]);
     let file = tempfile::NamedTempFile::new().unwrap();
-    let state = store.export_state(file.path()).await.unwrap();
+    let state = store.export_state(file.path(), &native_operation_budget).await.unwrap();
     assert_eq!(state.backing_rows, 2);
     assert!(
         std::fs::read_to_string(file.path())
@@ -228,8 +227,8 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     let restored = NativeCompilerStore::begin(&config, Frontier::Normalized)
         .await
         .unwrap();
-    restored.import_state(file.path(), &state).await.unwrap();
-    assert_eq!(restored.completed_state().await.unwrap(), state);
+    restored.import_state(file.path(), &state, &native_operation_budget).await.unwrap();
+    assert_eq!(restored.completed_state(&native_operation_budget).await.unwrap(), state);
     let batches = restored
         .scan_batches(
             &views[ProjectionSnapshot::NAME],
@@ -288,7 +287,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .unwrap();
     assert!(
         matches!(
-            store.verify_state().await,
+            store.verify_state(&native_operation_budget).await,
             Err(ModelError::Conflict("compiler backing typed identity"))
         ),
         "coherent canonical/body/content changes cannot bypass full nominal-key validation"
@@ -315,7 +314,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .unwrap();
     assert!(
         matches!(
-            store.verify_state().await,
+            store.verify_state(&native_operation_budget).await,
             Err(ModelError::Conflict("compiler backing typed identity"))
         ),
         "stored nominal keys are independently recomputed"
@@ -330,7 +329,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .unwrap()
         .check()
         .unwrap();
-    assert_eq!(store.completed_state().await.unwrap(), state);
+    assert_eq!(store.completed_state(&native_operation_budget).await.unwrap(), state);
     let mut conflicting = chunk.clone();
     conflicting.payload = EvidenceBytes(vec![1, 2, 3]);
     let mut next = spec;
@@ -380,6 +379,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::{FiniteF64, analytics::QualityStep};
     use lctx_surrealdb::surrealdb::types::{Bytes, Number, ToSql, Value};
     let path =
@@ -416,12 +416,10 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         .await
         .unwrap();
     let views = store
-        .complete_contribution(
-            contribution,
+        .complete_contribution(contribution,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     let view = views[relation.name()].clone();
@@ -434,7 +432,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         })
         .await
         .unwrap();
-    let state = store.completed_state().await.unwrap();
+    let state = store.completed_state(&native_operation_budget).await.unwrap();
     assert_eq!(state.contributions, 1);
     assert_eq!(state.memberships, 1);
     assert_eq!(state.backing_rows, 1);
@@ -488,8 +486,8 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
             .bind(("id", membership_id.clone())).bind(("node", negative_node.clone()))
             .bind(("content", content.hex())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let changed: Vec<Value> = mutation.take(0).map_err(ModelError::codec)?;
-        let verification = store.verify_state().await;
-        let completed = store.completed_state().await;
+        let verification = store.verify_state(&native_operation_budget).await;
+        let completed = store.completed_state(&native_operation_budget).await;
         Ok::<_, ModelError>((changed, verification, completed))
     }.await;
     let mut finality = lctx_model::domain::completion::Completion::default();
@@ -539,7 +537,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         "coherent negative-zero independent verification before membership checks: {verification:?}");
     assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing declared body"))),
         "coherent negative-zero completed state before membership checks: {completed:?}");
-    store.verify_state().await.unwrap();
+    store.verify_state(&native_operation_budget).await.unwrap();
     store.abandon().await.unwrap();
     admin.invalidate().await.unwrap();
 }

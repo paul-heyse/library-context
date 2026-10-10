@@ -36,6 +36,8 @@ impl NativeService {
             queries.clone(),
             cpu.clone(),
         )?;
+        let reader = reader.with_budget(&shared);
+        let retained = crate::ranked_results::RankedResults::new(&shared);
         Ok(Self {
             shared,
             queries,
@@ -44,12 +46,13 @@ impl NativeService {
             reader,
             limits,
             definition: OnceCell::new(),
-            retained: crate::ranked_results::RankedResults::default(),
+            retained,
         })
     }
     /// Fence requests, drain initializer owners and release preparation before client invalidation.
     pub async fn close(&self) {
         self.prepared.close().await;
+        self.retained.clear();
     }
     pub fn request_deadline_ms(&self) -> u64 {
         self.limits.request_deadline_ms
@@ -139,11 +142,12 @@ impl NativeService {
         let _request_charge = budget
             .reserve("native-request-wire", raw.len().saturating_mul(2))
             .map_err(failure)?;
+        let reader = self.reader.clone().with_request_budget(&budget);
+        let mut ranked = self.retained.request(&budget);
         tokio::time::timeout_at(deadline, async {
             self.definition
                 .get_or_try_init(|| async {
-                    let actual: String = self
-                        .reader
+                    let actual: String = reader
                         .query(
                             format!(
                                 "RETURN {}();",
@@ -162,11 +166,10 @@ impl NativeService {
                 })
                 .await?;
             if let Some(mut response) =
-                self.retained
-                    .resume(&request, self.handle(), vector.as_ref())?
+                ranked.resume(&request, self.handle(), vector.as_ref(), &self.limits)?
             {
-                crate::delivery::finalize(&request, &mut response)?;
-                self.retained.complete(&mut response)?;
+                crate::delivery::finalize(&request, &mut response, &self.limits)?;
+                ranked.complete(&mut response);
                 let bytes = response.encode_json(
                     &budget,
                     self.limits.response_bytes(request.page().expanded) as usize,
@@ -194,8 +197,7 @@ impl NativeService {
                 )
                 .map_err(failure)?;
             let vector_state = if let Some(v) = &vector {
-                let specs = self
-                    .reader
+                let specs = reader
                     .records::<embedding::EmbeddingSpec>(RecordSelection::Keys(vec![
                         *Id::<embedding::EmbeddingSpec>::of(&embedding::EmbeddingSpecKey {
                             service_hash: v.spec,
@@ -222,8 +224,7 @@ impl NativeService {
                         "query embedding specification or rendered input mismatch".into(),
                     ));
                 }
-                let policies = self
-                    .reader
+                let policies = reader
                     .records::<embedding::projection::ProjectionDefinition>(RecordSelection::Keys(
                         vec![*v.projection.bytes()],
                     ))
@@ -257,27 +258,28 @@ impl NativeService {
             };
             crate::pagination::validate(&request, self.handle(), &channels)?;
             let mut response = crate::operations::dispatch(
-                &self.reader,
+                &reader,
                 &preparation,
                 &request,
                 &channels,
                 vector.as_ref(),
                 &self.limits,
-                &self.retained,
+                &mut ranked,
                 &budget,
             )
             .await
             .map_err(failure)?;
-            crate::delivery::finalize(&request, &mut response)?;
-            self.retained.complete(&mut response)?;
+            crate::delivery::finalize(&request, &mut response, &self.limits)?;
+            ranked.complete(&mut response);
             let bytes = response.encode_json(
                 &budget,
                 self.limits.response_bytes(request.page().expanded) as usize,
             )?;
-            self.retained.attach(&bytes)?;
+            ranked.attach(&bytes)?;
             if tokio::time::Instant::now() >= deadline {
                 return Err(WireError::ResourceRefused("request deadline".into()));
             }
+            ranked.publish()?;
             Ok(bytes)
         })
         .await

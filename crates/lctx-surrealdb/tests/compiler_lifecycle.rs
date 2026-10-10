@@ -27,6 +27,7 @@ async fn fixture_client(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
@@ -61,12 +62,10 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(
-            id,
+        .complete_contribution(id,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     let admin = fixture_client(&store, &config).await;
@@ -82,12 +81,10 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
         boundary: None,
         configuration: None,
     };
-    let cold = NativeCompilerStore::from_publication(
-        admin,
+    let cold = NativeCompilerStore::from_publication(admin,
         store.namespace().clone(),
         store.database().clone(),
-        vec![binding],
-    )
+        vec![binding], &native_operation_budget)
     .await
     .unwrap();
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(32 << 20).unwrap();
@@ -125,6 +122,7 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn final_content_freeze_preserves_reads_and_reuses_complete_canonical_runs() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
@@ -161,15 +159,13 @@ async fn final_content_freeze_preserves_reads_and_reuses_complete_canonical_runs
         .await
         .unwrap();
     store
-        .complete_contribution(
-            owner,
+        .complete_contribution(owner,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
-    let inventory = store.freeze_content().await.unwrap();
+    let inventory = store.freeze_content(&native_operation_budget).await.unwrap();
     assert_eq!(inventory.contributions.len(), 1);
     assert_eq!(
         inventory.contributions[0],
@@ -219,6 +215,7 @@ async fn final_content_freeze_preserves_reads_and_reuses_complete_canonical_runs
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
@@ -241,8 +238,8 @@ async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
         .await
         .unwrap();
     let cold = store.clone();
-    assert!(cold.contributions().await.unwrap().is_empty());
-    let freeze = match cold.freeze_content().await {
+    assert!(cold.contributions(&native_operation_budget).await.unwrap().is_empty());
+    let freeze = match cold.freeze_content(&native_operation_budget).await {
         Err(error) => error,
         Ok(_) => panic!("pending content must reject final freeze"),
     };
@@ -332,6 +329,7 @@ async fn acknowledged_setup_authentication_failure_has_a_failed_phase_terminal()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn native_producing_completion_waits_own_rows_without_waiting_unrelated_reader() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::{analysis::sources::SourceSnapshot, resources::ResourceBudget};
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
@@ -367,12 +365,10 @@ async fn native_producing_completion_waits_own_rows_without_waiting_unrelated_re
         .await
         .unwrap();
     let views = store
-        .complete_contribution(
-            id,
+        .complete_contribution(id,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     let frozen = &views[relation.name()];
@@ -403,6 +399,7 @@ async fn native_producing_completion_waits_own_rows_without_waiting_unrelated_re
         ProviderOutcome::Complete,
         std::slice::from_ref(&relation),
         &views,
+        &budget,
     ));
     assert!(
         futures::poll!(&mut completion).is_pending(),

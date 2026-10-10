@@ -2,14 +2,14 @@
 use crate::surrealdb::types::{Object, RecordId, RecordIdKey, SurrealValue, Value};
 use crate::{
     Loader, NativeReader,
-    derived_search::prepare_exact_occurrences,
+    derived_search::selected_occurrences,
     ordered_rows::{OrderedRows, SortedRows},
     prepared::PreparedQuery,
 };
 use lctx_model::domain::{
     ContentHash, KeySink, ModelError,
     completion::{Completion, complete},
-    resources::{DEFAULT_MEMORY_BYTES, ResourceBudget},
+    resources::ResourceBudget,
 };
 use std::collections::BTreeMap;
 const TABLES: [&str; 4] = [
@@ -142,12 +142,35 @@ struct Expected {
     scope: ContentHash,
     budget: ResourceBudget,
 }
+// A complete actual nomination stream feeds a charged identity spool, followed by
+// bounded point batches. Duplicate occurrences never multiply corpus documents.
+fn documents<Context>(reader: &NativeReader<Context>, mut nominees: crate::reader::NativeRows, analyzed: bool, budget: &ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
+    let reader = reader.transport_reader(); let budget = budget.clone();
+    crate::reader::NativeRows::owned(move |sender| async move {
+        let mut ids = SortedRows::with_budget(&budget)?;
+        let result = async { while let Some(value) = nominees.next().await? {
+            let value = object(value)?;
+            let source = RecordId::from_value(value.get("in").cloned().ok_or(ModelError::Schema("lexical nominee source"))?).map_err(ModelError::codec)?;
+            ids.push(Value::Object(row(source)))?;
+        } Ok(()) }.await;
+        let mut terminal = Completion::default(); terminal.step("lexical nomination drainage", nominees.drain_transport().await); complete(result, terminal)?;
+        let mut ids = ids.finish()?;
+        loop {
+            let mut batch = Vec::new(); while batch.len() < 128 { let Some(value) = ids.next_row()? else { break; }; batch.push(RecordId::from_value(object(value)?.get("id").cloned().ok_or(ModelError::Schema("lexical source identity"))?).map_err(ModelError::codec)?); }
+            if batch.is_empty() { break; }
+            let mut vars = surrealdb::types::Variables::new(); vars.insert("documents", batch);
+            let sql = if analyzed { "SELECT id,text,search::analyze('lctx_discovery',text) AS tokens FROM $documents ORDER BY id" } else { "SELECT * FROM $documents ORDER BY id" };
+            let mut docs = reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![sql.into()])?)?;
+            let result = async { while let Some(value) = docs.next().await? { if sender.send(value).await.is_err() { break; } } Ok(()) }.await;
+            let mut terminal = Completion::default(); terminal.step("lexical source batch drainage", docs.drain_transport().await); complete(result, terminal)?;
+        }
+        Ok(())
+    })
+}
 async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
     let reader = loader.reader();
     let scope = scope_identity(&reader)?;
-    let budget = ResourceBudget::fixed(DEFAULT_MEMORY_BYTES)?;
-    let mut preparation = Vec::new();
-    let exact = prepare_exact_occurrences(&reader, &mut preparation);
+    let budget = loader.read_budget()?;
     let mut expected = (0..4)
         .map(|_| SortedRows::with_budget(&budget))
         .collect::<Result<Vec<_>, _>>()?;
@@ -156,14 +179,9 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
         let mut count = 0u64;
         let mut total = 0u64;
         let mut terms = SortedRows::with_budget(&budget)?;
-        let mut family_preparation = preparation.clone();
-        family_preparation.push(format!("LET $lctx_lexical_documents=array::distinct(SELECT VALUE in FROM {} WHERE eligible=true AND family={family})",exact.lexical));
-        let sql = "SELECT id,text,search::analyze('lctx_discovery',text) AS tokens FROM $lctx_lexical_documents ORDER BY id";
-        let mut docs = reader.stream_prepared(PreparedQuery::new(
-            reader.view_bindings(),
-            family_preparation,
-            vec![sql.into()],
-        )?)?;
+        let mut vars = surrealdb::types::Variables::new(); vars.insert("family", family);
+        let nominees = selected_occurrences(&reader, "lex_occurs", "eligible=true AND family=$family", vars, &budget)?;
+        let mut docs = documents(&reader, nominees, true, &budget)?;
         let lowered:Result<(),ModelError>=async {
   while let Some(doc)=docs.next().await? {
    let charge=budget.reserve("lexical statistics document",serde_json::to_vec(&doc).map_err(ModelError::codec)?.len().saturating_mul(12))?;
@@ -239,23 +257,15 @@ async fn check(loader: &Loader, expected: &mut Expected) -> Result<(), ModelErro
     for (index, table) in TABLES.iter().enumerate() {
         let mut vars = reader.view_bindings();
         vars.insert("scope", expected.scope.hex());
-        let mut preparation = Vec::new();
-        let result = if index == 0 {
-            // Nominate all actual scoped members, independently of expected rows, so
-            // unexpected documents remain visible to the complete comparison below.
-            preparation.push("LET $lctx_lexical_docs = array::distinct(SELECT VALUE in FROM lexical_member WITH INDEX scoped_document WHERE scope=$scope)".into());
-            "SELECT * FROM $lctx_lexical_docs ORDER BY id".into()
+        let mut actual = if index == 0 {
+            let nominees = reader.stream_prepared(PreparedQuery::new(vars, vec![], vec!["SELECT in FROM lexical_member WITH INDEX scoped_document WHERE scope=$scope ORDER BY id".into()])?)?;
+            documents(&reader, nominees, false, &expected.budget)?
         } else {
             let scope_index = match *table {
-                "lexical_member" => "scoped_document",
-                "lexical_term" => "scoped_term",
-                "lexical_corpus" => "scoped_corpus",
-                _ => return Err(ModelError::Schema("lexical scope index")),
+                "lexical_member" => "scoped_document", "lexical_term" => "scoped_term", "lexical_corpus" => "scoped_corpus", _ => return Err(ModelError::Schema("lexical scope index")),
             };
-            format!("SELECT * FROM {table} WITH INDEX {scope_index} WHERE scope=$scope ORDER BY id")
+            reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![format!("SELECT * FROM {table} WITH INDEX {scope_index} WHERE scope=$scope ORDER BY id")])?)?
         };
-        let mut actual =
-            reader.stream_prepared(PreparedQuery::new(vars, preparation, vec![result])?)?;
         expected.rows[index].rewind()?;
         let compared = async {
             loop {

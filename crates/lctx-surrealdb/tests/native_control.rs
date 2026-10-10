@@ -17,6 +17,407 @@ fn config() -> RuntimeConfig {
     ))
     .unwrap()
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn phased_retirement_charges_actual_edges_and_fences_both_hold_ends_until_finalization() {
+    let cfg=config();
+    let client=lctx_surrealdb::compiler::check_installation(&cfg).await.unwrap();
+    let nonce=control::fresh_identity("phased-retirement-control").unwrap();
+    let parent=RecordId::new("native_guard",format!("phased_parent_{}",nonce.hex()));
+    let other=RecordId::new("native_guard",format!("phased_other_{}",nonce.hex()));
+    let children=(0..17).map(|n|RecordId::new("native_guard",format!("phased_child_{}_{n}",nonce.hex()))).collect::<Vec<_>>();
+    let values=std::iter::once(parent.clone()).chain(std::iter::once(other.clone())).chain(children.iter().cloned()).map(|id|{
+        let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)
+    }).collect::<Vec<_>>();
+    control::ensure_rows(&client,None,values.clone()).await.unwrap();
+    control::hold(&client,None,parent.clone(),children.clone()).await.unwrap();
+    let first=control::retire_reachable(&client,vec![parent.clone()],3).await.unwrap();
+    assert_eq!(first.retired,0,"claim plus one nominated/deleted edge cannot finalize a high-degree parent");
+    let mut response=client.query("SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$parent; SELECT VALUE id FROM $parent")
+        .bind(("parent",parent.clone())).await.unwrap().check().unwrap();
+    let holds:Vec<RecordId>=response.take(0).unwrap();let payload:Vec<RecordId>=response.take(1).unwrap();
+    assert_eq!(holds.len(),16,"effect budget includes child nomination plus exact hold deletion");
+    assert_eq!(payload,[parent.clone()]);
+    assert!(control::hold(&client,None,other.clone(),vec![parent.clone()]).await.is_err());
+    assert!(control::hold(&client,None,parent.clone(),vec![other.clone()]).await.is_err());
+    assert!(control::ensure_rows(&client,None,vec![values[0].clone()]).await.is_err());
+    let mut late=Variables::new();late.insert("row",values[0].clone());
+    assert!(control::guarded_effect(&client,None,vec![parent.clone()],"UPSERT $row.id CONTENT $row RETURN NONE",late).await.is_err(),"mutable compiler ingress must guard before its payload write");
+    client.invalidate().await.unwrap();
+    let client=lctx_surrealdb::compiler::check_installation(&cfg).await.unwrap();
+    let mut progress=first;
+    while !progress.remaining.is_empty(){progress=control::resume_retirement(&client,progress.identity,16).await.unwrap();}
+    assert_eq!(progress.retired,18);
+    assert!(progress.retained.is_empty());
+    let old=progress.identity;
+    control::ensure_rows(&client,None,vec![values[0].clone()]).await.unwrap();
+    let old_done=control::resume_retirement(&client,old,16).await.unwrap();
+    assert_eq!(old_done.retired,18,"done items never become pending after content reactivation");
+    let mut response=client.query("SELECT VALUE id FROM $parent").bind(("parent",parent.clone())).await.unwrap().check().unwrap();
+    let payload:Vec<RecordId>=response.take(0).unwrap();assert_eq!(payload,[parent.clone()]);
+    let fresh=control::retire_reachable(&client,vec![parent],4).await.unwrap();
+    assert_ne!(fresh.identity,old);assert_eq!(fresh.retired,1);
+    control::retire(&client,other).await.unwrap();client.invalidate().await.unwrap();
+}
+
+#[test]
+fn original_native_request_serialization_retains_issuance_and_exact_payload_digest() {
+    let original=control::NativeRequest{issuance:control::IssuanceEra{generation:ContentHash::of(b"service"),era:7},operation:ContentHash::of(b"original-operation"),request:ContentHash::of(b"exact-payload")};
+    let encoded=serde_json::to_vec(&original).unwrap();
+    let retry:control::NativeRequest=serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(retry,original);
+    let changed=control::NativeRequest{issuance:control::IssuanceEra{era:8,..original.issuance},..original};
+    assert_ne!(changed,original,"a successor must be explicit; retry cannot borrow its era");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unresolved_epoch_zero_effect_cannot_execute_and_retains_original_disposition() {
+    let client=lctx_surrealdb::compiler::check_installation(&config()).await.unwrap();
+    let nonce=control::fresh_identity("zero-epoch-control").unwrap();
+    let object=RecordId::new("native_guard",format!("zero_epoch_{}",nonce.hex()));
+    let sql="CREATE $object SET revision=0,retired=false,phase='active',incarnation=1 RETURN NONE";
+    let mut bindings=Variables::new();bindings.insert("object",object.clone());
+    let request=control::NativeRequest::issue(&client,ContentHash::of(&serde_json::to_vec(&(sql,&bindings)).unwrap())).await.unwrap();
+    client.query("CREATE $effect SET attempt=NONE,owner=NONE,owner_kind='installation',generation=$generation,era=$era,request=$digest,committed=false,resolved=false,revision=0,epoch=0 RETURN NONE")
+        .bind(("effect",RecordId::new("native_effect",request.operation.hex()))).bind(("generation",request.issuance.generation.hex())).bind(("era",request.issuance.era)).bind(("digest",request.request.hex())).await.unwrap().check().unwrap();
+    assert!(control::execute_request(&client,request,None,sql,bindings).await.is_err());
+    assert_eq!(control::request_disposition(&client,request).await.unwrap(),control::EffectDisposition::FencedUncommitted);
+    let mut response=client.query("SELECT VALUE id FROM $object").bind(("object",object)).await.unwrap().check().unwrap();
+    let rows:Vec<RecordId>=response.take(0).unwrap();assert!(rows.is_empty());
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exact_outcome_references_are_idempotent_and_release_only_the_named_consumer() {
+    let client=lctx_surrealdb::compiler::check_installation(&config()).await.unwrap();
+    let sql="RETURN NONE";let bindings=Variables::new();
+    let request=control::NativeRequest::issue(&client,ContentHash::of(&serde_json::to_vec(&(sql,&bindings)).unwrap())).await.unwrap();
+    control::execute_request(&client,request,None,sql,bindings).await.unwrap();
+    let target=RecordId::new("native_effect",request.operation.hex());
+    let one=control::retain_native_outcome(&client,target.clone(),"native-control-reader","evidence").await.unwrap();
+    let repeat=control::retain_native_outcome(&client,target.clone(),"native-control-reader","evidence").await.unwrap();
+    let two=control::retain_native_outcome(&client,target.clone(),"native-control-recovery","recovery").await.unwrap();
+    assert_eq!(one,repeat);assert_ne!(one,two);
+    assert!(control::release_outcome_reference(&client,one.clone(),"wrong-consumer","evidence").await.is_err());
+    control::release_outcome_reference(&client,one.clone(),"native-control-reader","evidence").await.unwrap();
+    control::release_outcome_reference(&client,one,"native-control-reader","evidence").await.unwrap();
+    let mut response=client.query("SELECT VALUE id FROM native_outcome_ref WITH INDEX object_outcome_refs WHERE object=$object").bind(("object",target)).await.unwrap().check().unwrap();
+    let refs:Vec<RecordId>=response.take(0).unwrap();assert_eq!(refs,[two.clone()]);
+    assert_eq!(control::request_disposition(&client,request).await.unwrap(),control::EffectDisposition::Committed);
+    control::release_outcome_reference(&client,two,"native-control-recovery","recovery").await.unwrap();
+    control::release_outcome(&client,request,&request.operation.hex(),"caller").await.unwrap();
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn indexed_live_control_probes_select_declared_routes() {
+    let client=lctx_surrealdb::compiler::check_installation(&config()).await.unwrap();
+    let reader=lctx_surrealdb::NativeReader::private(client.clone());
+    for (index,sql) in [
+        ("live_effects","SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false LIMIT 1"),
+        ("live_attempts","SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state='open' LIMIT 1"),
+        ("live_attempts","SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','closing'] LIMIT 1"),
+        ("live_pins","SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1"),
+        ("live_backups","SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1"),
+        ("live_cleanup","SELECT VALUE id FROM native_cleanup WITH INDEX live_cleanup WHERE state='open' LIMIT 1"),
+        ("live_retirements","SELECT VALUE id FROM native_retirement WITH INDEX live_retirements WHERE state='recovering' LIMIT 1"),
+    ] {
+        let plan:String=reader.query(format!("EXPLAIN {sql}"),Variables::new()).await.unwrap();
+        assert!(plan.contains(index),"live probe must use {index}: {plan}");
+    }
+    for table in ["native_effect","native_cleanup","native_retirement","native_attempt"] {
+        let plan:String=reader.query(format!("EXPLAIN SELECT VALUE id FROM {table}:0>.. LIMIT 1"),Variables::new()).await.unwrap();
+        assert!(plan.contains("RecordIdScan") && !plan.contains("Sort") && !plan.contains("TableScan"),"bounded primary-key page: {plan}");
+    }
+    client.invalidate().await.unwrap();
+}
+
+fn maintenance_config()->RuntimeConfig {
+    assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),"run through explicit validation maintenance");
+    let path=std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("explicit maintenance installer configuration");
+    let cfg=RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+    assert_eq!(cfg.authentication,lctx_surrealdb::AuthenticationScope::Root);
+    assert_eq!(cfg.database.as_str(),"validation");
+    cfg
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "transaction-timeout regression requires explicit validation maintenance and the owned patched server"]
+async fn transaction_timeouts_preserve_executor_stack_and_following_queries() {
+    let client=lctx_surrealdb::compiler::check_installation(&maintenance_config()).await.unwrap();
+    // Both executor timeout branches must recover with the service's unchanged
+    // ten-second transaction / twenty-second query deadlines. No durable rows.
+    for sql in [
+        "LET $value = sleep(11s); RETURN 42;",
+        "BEGIN; LET $value = sleep(11s); COMMIT; RETURN 42;",
+    ] {
+        let mut response=client.query(sql).await.expect("timeout must return a statement error, not abort the daemon");
+        let last=response.num_statements().checked_sub(1).expect("statement results");
+        let errors=response.take_errors();
+        assert!(!errors.is_empty(),"the unchanged transaction deadline must actually fire");
+        assert!(errors.values().any(|error|error.to_string().contains("exceeded the timeout")),"expected transaction timeout: {errors:?}");
+        let value:Value=response.take(last).expect("statement after timeout must complete");
+        assert_eq!(value,Value::Number(surrealdb::types::Number::Int(42)));
+        let mut next=client.query("RETURN 73").await.unwrap().check().unwrap();
+        let value:Value=next.take(0).unwrap();
+        assert_eq!(value,Value::Number(surrealdb::types::Number::Int(73)),"fresh query must retain a healthy executor");
+    }
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "permanent era cuts require explicit exclusive validation maintenance"]
+async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut() {
+    let cfg=maintenance_config();
+    let client=lctx_surrealdb::compiler::check_installation(&cfg).await.unwrap();
+    let object=RecordId::new("native_guard",control::fresh_identity("delayed-first-intent").unwrap().hex());
+    let sql="CREATE $object SET revision=0,retired=false,phase='active',incarnation=1 RETURN NONE";
+    let mut bindings=Variables::new();bindings.insert("object",object.clone());
+    let request=control::NativeRequest::issue(&client,ContentHash::of(&serde_json::to_vec(&(sql,&bindings)).unwrap())).await.unwrap();
+    let attempt_era=control::IssuanceEra::capture(&client).await.unwrap();
+    let attempt=control::fresh_identity("delayed-first-attempt").unwrap();
+    let registration_root=RecordId::new("native_guard",control::fresh_identity("partial-registration-root").unwrap().hex());
+    let mut row=Object::new();row.insert("id",registration_root.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);
+    control::ensure_rows(&client,None,vec![Value::Object(row)]).await.unwrap();
+    let registration=control::fresh_identity("partial-registration-invocation").unwrap();
+    let result=async {
+        lctx_surrealdb::compiler::close_admission(&cfg).await?;
+        lctx_surrealdb::compiler::drain_installation(&cfg).await?;
+        let mut registration_vars=Variables::new();let job=RecordId::new("native_retirement",registration.hex());
+        registration_vars.insert("job",job);registration_vars.insert("digest",ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",vec![registration_root.clone()])).map_err(ModelError::codec)?).hex());
+        control::effect(&client,None,"CREATE $job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$digest,lineage=$job,state='registering',root_count=1,roots_registered=0,examined=0,retired=0,revision=0 RETURN NONE",registration_vars).await?;
+        assert!(control::cut_era(&client).await.is_err(),"incomplete root registration must remain in its recoverable original era");
+        control::register_retirement_roots(&client,registration,vec![registration_root]).await?;
+        let finished=control::resume_retirement(&client,registration,8).await?;
+        assert!(finished.remaining.is_empty() && finished.retained.is_empty());
+        let next=control::cut_era(&client).await?;
+        let first_refused=control::execute_request(&client,request,None,sql,bindings.clone()).await.is_err();
+        let retry_refused=control::execute_request(&client,request,None,sql,bindings).await.is_err();
+        let disposition=control::reconcile_request(&client,request).await?;
+        let attempt_refused=match control::begin_attempt_in(&client,attempt,attempt_era).await {
+            Err(ModelError::Cause(cause))=>cause.downcast_ref::<control::NativeAttemptError>().is_some_and(|error|error.attempt==attempt && error.issuance==attempt_era),
+            _=>false,
+        };
+        let mut response=client.query("SELECT VALUE id FROM $object; SELECT VALUE id FROM $attempt; SELECT VALUE id FROM $effect").bind(("object",object)).bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("effect",RecordId::new("native_effect",request.operation.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let payload:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;let attempts:Vec<RecordId>=response.take(1).map_err(ModelError::codec)?;let effects:Vec<RecordId>=response.take(2).map_err(ModelError::codec)?;
+        Ok::<_,ModelError>((next,first_refused,retry_refused,disposition,attempt_refused,payload,attempts,effects))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    completion.step("era control admission restoration",lctx_surrealdb::compiler::open_admission(&cfg).await);
+    let (next,first,retry,disposition,attempt_refused,payload,attempts,effects)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert_eq!(next.era,request.issuance.era+1);assert!(first && retry && attempt_refused);
+    assert_eq!(disposition,control::EffectDisposition::CompactedTerminal,"missing closed-era identity never implies known uncommitted");
+    assert!(payload.is_empty() && attempts.is_empty() && effects.is_empty(),"a delayed first intent cannot materialize after the cut");
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "closing crash recovery and era cuts require explicit validation maintenance"]
+async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_through_drain() {
+    let cfg=maintenance_config();
+    let client=lctx_surrealdb::compiler::check_installation(&cfg).await.unwrap();
+    let generation=cfg.service_generation;
+    let one=control::issue_attempt(&client,generation).await.unwrap();
+    let two=control::issue_attempt(&client,generation).await.unwrap();
+    let mut targets=Vec::new();
+    for attempt in [one,two] {
+        let target=RecordId::new("native_guard",control::fresh_identity("closing-target").unwrap().hex());
+        let mut row=Object::new();row.insert("id",target.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);
+        control::ensure_rows(&client,Some(attempt),vec![Value::Object(row)]).await.unwrap();
+        control::hold(&client,Some(attempt),RecordId::new("native_attempt",attempt.hex()),vec![target.clone()]).await.unwrap();
+        targets.push(target);
+        let mut vars=Variables::new();vars.insert("attempt",RecordId::new("native_attempt",attempt.hex()));
+        // Exact production fence, followed by simulated process death before inventory.
+        control::effect(&client,Some(attempt),"UPDATE $attempt SET state='closing',revision+=1 RETURN NONE",vars).await.unwrap();
+    }
+    lctx_surrealdb::compiler::close_admission(&cfg).await.unwrap();
+    let result=async {
+        assert!(control::cut_era(&client).await.is_err(),"pre-obligation scope must stay resumable in the original era");
+        control::close_attempt(&client,one,"abandoned").await?;
+        assert!(control::cut_era(&client).await.is_err(),"the other crashed close still fences the era");
+        lctx_surrealdb::compiler::drain_installation(&cfg).await?;
+        let attempts=[RecordId::new("native_attempt",one.hex()),RecordId::new("native_attempt",two.hex())];
+        let mut response=client.query("SELECT VALUE state FROM $attempts; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner IN $attempts").bind(("attempts",attempts.to_vec())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let states:Vec<String>=response.take(0).map_err(ModelError::codec)?;
+        let holds:Vec<RecordId>=response.take(1).map_err(ModelError::codec)?;
+        assert_eq!(states,["abandoned","abandoned"]);assert!(holds.is_empty());
+        for target in targets {control::retire(&client,target).await?;}
+        control::cut_era(&client).await?;
+        Ok::<_,ModelError>(())
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("closing control admission restoration",lctx_surrealdb::compiler::open_admission(&cfg).await);
+    lctx_model::domain::completion::complete(result,completion).unwrap();
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "successor ownership across permanent cuts requires explicit validation maintenance"]
+async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() {
+    let cfg=maintenance_config();
+    let client=lctx_surrealdb::compiler::check_installation(&cfg).await.unwrap();
+    let original=control::IssuanceEra::capture(&client).await.unwrap();
+    let nonce=control::fresh_identity("maintenance-successors").unwrap();
+    let parent=RecordId::new("native_guard",format!("successor_parent_{}",nonce.hex()));
+    let child=RecordId::new("native_guard",format!("successor_child_{}",nonce.hex()));
+    let cleanup_target=RecordId::new("native_guard",format!("successor_cleanup_{}",nonce.hex()));
+    let values=[parent.clone(),child.clone(),cleanup_target.clone()].into_iter().map(|id|{let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)}).collect();
+    control::ensure_rows(&client,None,values).await.unwrap();
+    control::hold(&client,None,parent.clone(),vec![child.clone()]).await.unwrap();
+    let retirement=control::retire_reachable(&client,vec![parent.clone()],1).await.unwrap();
+    let attempt=control::issue_attempt(&client,original.generation).await.unwrap();
+    control::hold(&client,Some(attempt),RecordId::new("native_attempt",attempt.hex()),vec![cleanup_target.clone()]).await.unwrap();
+    let cleanup_era=control::IssuanceEra::capture(&client).await.unwrap();
+    let cleanup=control::fresh_identity("interrupted-terminal-cleanup").unwrap();
+    let mut vars=Variables::new();vars.insert("attempt",RecordId::new("native_attempt",attempt.hex()));vars.insert("cleanup",RecordId::new("native_cleanup",cleanup.hex()));
+    // The actual origin and outgoing relation exist. Persist the same finite obligation
+    // that production creates, then simulate a crash before its first ownership page.
+    control::effect(&client,Some(attempt),"UPDATE $attempt SET state='closed',revision+=1 RETURN NONE; CREATE $cleanup SET attempt=$attempt,generation=$__generation,era=$__era,epoch=$__epoch,owners=[$attempt],unadmitted=true,state='open' RETURN NONE",vars).await.unwrap();
+    let mut response=client.query("SELECT epoch FROM $attempt; SELECT id,incarnation,cutoff FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job AND state='retiring'").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("job",RecordId::new("native_retirement",retirement.identity.hex()))).await.unwrap().check().unwrap();
+    let epochs:Vec<Object>=response.take(0).unwrap();let claimed:Vec<Object>=response.take(1).unwrap();
+    let result=async {
+        lctx_surrealdb::compiler::close_admission(&cfg).await?;lctx_surrealdb::compiler::drain_installation(&cfg).await?;
+        control::cut_era(&client).await?;
+        let old_cleanup_fenced=control::resume_cleanup(&client,cleanup).await.is_err();
+        let old_retirement_fenced=control::resume_retirement(&client,retirement.identity,8).await.is_err();
+        let cleanup_one=control::recover_cleanup(&client,cleanup).await?;
+        let retirement_one=control::recover_retirement(&client,retirement.identity).await?;
+        let repeat_one=(control::recover_cleanup(&client,cleanup).await?==cleanup_one,control::recover_retirement(&client,retirement.identity).await?==retirement_one);
+        // A second cut interrupts the first successors before any deletion page. Recovery
+        // must name them, retain the original owner epoch/cutoff and never reopen predecessors.
+        control::cut_era(&client).await?;
+        let stale_predecessors=(control::recover_cleanup(&client,cleanup).await.is_err(),control::recover_retirement(&client,retirement.identity).await.is_err());
+        let cleanup_two=control::recover_cleanup(&client,cleanup_one).await?;
+        let retirement_two=control::recover_retirement(&client,retirement_one).await?;
+        let repeat_two=(control::recover_cleanup(&client,cleanup_one).await?==cleanup_two,control::recover_retirement(&client,retirement_one).await?==retirement_two);
+        control::resume_cleanup(&client,cleanup_two).await?;
+        let mut progress=control::resume_retirement(&client,retirement_two,8).await?;
+        while !progress.remaining.is_empty(){progress=control::resume_retirement(&client,retirement_two,8).await?;}
+        let mut response=client.query("SELECT epoch,owners,state FROM $cleanup; SELECT id,incarnation,cutoff FROM $claimed; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt; SELECT VALUE id FROM $payloads").bind(("cleanup",RecordId::new("native_cleanup",cleanup_two.hex()))).bind(("claimed",claimed.iter().filter_map(|row|row.get("id")).cloned().collect::<Vec<_>>())).bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("payloads",vec![parent.clone(),child.clone(),cleanup_target.clone()])).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let cleaned:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let final_claim:Vec<Object>=response.take(1).map_err(ModelError::codec)?;let holds:Vec<RecordId>=response.take(2).map_err(ModelError::codec)?;let payloads:Vec<RecordId>=response.take(3).map_err(ModelError::codec)?;
+        control::retire(&client,cleanup_target.clone()).await?;
+        Ok::<_,ModelError>((old_cleanup_fenced,old_retirement_fenced,cleanup_one,retirement_one,cleanup_two,retirement_two,repeat_one,repeat_two,stale_predecessors,progress,cleaned,final_claim,holds,payloads))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("successor control admission restoration",lctx_surrealdb::compiler::open_admission(&cfg).await);
+    let (cleanup_fenced,retirement_fenced,cleanup_one,retirement_one,cleanup_two,retirement_two,repeat_one,repeat_two,stale,progress,cleaned,final_claim,holds,payloads)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert_eq!(cleanup_era,original);assert!(cleanup_fenced && retirement_fenced && repeat_one.0 && repeat_one.1 && repeat_two.0 && repeat_two.1 && stale.0 && stale.1);
+    assert_ne!(cleanup_one,cleanup);assert_ne!(cleanup_two,cleanup_one);assert_ne!(retirement_one,retirement.identity);assert_ne!(retirement_two,retirement_one);
+    assert_eq!(progress.retired,2);assert!(progress.retained.is_empty() && holds.is_empty());assert_eq!(payloads,[cleanup_target]);
+    assert_eq!(cleaned[0].get("epoch"),epochs[0].get("epoch"));assert_eq!(cleaned[0].get("owners"),Some(&Value::Array(Vec::<Value>::new().into())));assert_eq!(cleaned[0].get("state"),Some(&Value::String("done".into())));
+    assert_eq!(final_claim,claimed,"successor preserves the originally claimed item identity/incarnation/cutoff");
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "history deletion requires explicit maintenance and separately qualified consumer inventory"]
+async fn qualified_history_pages_preserve_exact_references_and_collect_terminal_provenance() {
+    let cfg=maintenance_config();
+    let client=lctx_surrealdb::compiler::check_installation(&cfg).await.unwrap();
+    let expected=std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE").expect("separately reviewed history consumer inventory evidence");
+    let mut response=client.query("SELECT VALUE history_inventory FROM native_installation:current").await.unwrap().check().unwrap();
+    let inventory:Vec<String>=response.take(0).unwrap();assert_eq!(inventory,[expected],"this control never qualifies source-only evidence for deletion");
+    let original=control::IssuanceEra::capture(&client).await.unwrap();
+    let nonce=control::fresh_identity("history-eligibility-control").unwrap();
+    let prefix=format!("!history_{}",nonce.hex());
+    let attempt_one=RecordId::new("native_attempt",format!("{prefix}_1"));
+    let attempt_two=RecordId::new("native_attempt",format!("{prefix}_2"));
+    let foreign=RecordId::new("native_attempt",format!("{prefix}_3"));
+    let cleanup=RecordId::new("native_cleanup",format!("{prefix}_1"));
+    let mut bindings=Variables::new();bindings.insert("one",attempt_one.clone());bindings.insert("two",attempt_two.clone());bindings.insert("foreign",foreign.clone());bindings.insert("foreign_generation",ContentHash::of(b"foreign-history-generation").hex());bindings.insert("cleanup",cleanup.clone());
+    control::effect(&client,None,"CREATE $one SET generation=$__generation,era=$__era,epoch=$__epoch,state='closed',admitted=false,revision=0 RETURN NONE; CREATE $two SET generation=$__generation,era=$__era,epoch=$__epoch,state='closed',admitted=false,revision=0 RETURN NONE; CREATE $foreign SET generation=$foreign_generation,era=$__era,epoch=$__epoch,state='closed',admitted=false,revision=0 RETURN NONE; CREATE $cleanup SET attempt=$one,generation=$__generation,era=$__era,epoch=$__epoch,owners=[],unadmitted=true,state='done' RETURN NONE",bindings).await.unwrap();
+    let reference=control::retain_native_outcome(&client,attempt_two.clone(),"history-control","evidence").await.unwrap();
+    let sql="RETURN NONE";let bindings=Variables::new();
+    let request=control::NativeRequest::issue(&client,ContentHash::of(&serde_json::to_vec(&(sql,&bindings)).unwrap())).await.unwrap();
+    control::execute_request(&client,request,None,sql,bindings).await.unwrap();
+    let result=async {
+        lctx_surrealdb::compiler::close_admission(&cfg).await?;lctx_surrealdb::compiler::drain_installation(&cfg).await?;control::cut_era(&client).await?;
+        // Seed finite, exact checkpoints as native fixture state. Production creates the
+        // same checkpoint fields; these cursors avoid walking unrelated retained history.
+        let attempt_before=RecordId::new("native_attempt",format!("{prefix}_0"));
+        let first=history_checkpoint(&client,original.era,"attempt",attempt_before.clone()).await?;
+        let before=control::resume_history_compaction(&client,first,1).await?;
+        let cleanup_before=RecordId::new("native_cleanup",format!("{prefix}_0"));
+        let cleanup_page=history_checkpoint(&client,original.era,"cleanup",cleanup_before).await?;
+        let cleaned=control::resume_history_compaction(&client,cleanup_page,1).await?;
+        let attempts=history_checkpoint(&client,original.era,"attempt",attempt_before).await?;
+        let after=control::resume_history_compaction(&client,attempts,2).await?;
+        let mut previous=request.operation.0;
+        for byte in previous.iter_mut().rev(){if *byte>0{*byte-=1;break;}*byte=255;}
+        let effect_before=RecordId::new("native_effect",ContentHash(previous).hex());
+        let held_page=history_checkpoint(&client,original.era,"effect",effect_before.clone()).await?;
+        let held=control::resume_history_compaction(&client,held_page,1).await?;
+        let retained=control::request_disposition(&client,request).await?;
+        control::release_outcome(&client,request,&request.operation.hex(),"caller").await?;
+        let released_page=history_checkpoint(&client,original.era,"effect",effect_before).await?;
+        let released=control::resume_history_compaction(&client,released_page,1).await?;
+        let compacted=control::request_disposition(&client,request).await?;
+        let mut response=client.query("SELECT VALUE id FROM $one; SELECT VALUE id FROM $two; SELECT VALUE id FROM $cleanup").bind(("one",attempt_one.clone())).bind(("two",attempt_two.clone())).bind(("cleanup",cleanup)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let one:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;let two:Vec<RecordId>=response.take(1).map_err(ModelError::codec)?;let cleanup:Vec<RecordId>=response.take(2).map_err(ModelError::codec)?;
+        control::release_outcome_reference(&client,reference,"history-control","evidence").await?;
+        let final_page=history_checkpoint(&client,original.era,"attempt",attempt_one.clone()).await?;
+        let final_result=control::resume_history_compaction(&client,final_page,1).await?;
+        let foreign_page=history_checkpoint(&client,original.era,"attempt",attempt_two.clone()).await?;
+        let protected=control::resume_history_compaction(&client,foreign_page,1).await?;
+        assert_eq!(protected.removed_records,0);assert_eq!(protected.protected,[foreign.clone()],"a closed era never grants collection authority over a different generation");
+        // Remove only this freshly allocated corruption fixture after proving protection.
+        client.query("DELETE $foreign RETURN NONE").bind(("foreign",foreign)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        Ok::<_,ModelError>((before,cleaned,after,held,retained,released,compacted,one,two,cleanup,final_result))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("history control admission restoration",lctx_surrealdb::compiler::open_admission(&cfg).await);
+    let (before,cleaned,after,held,retained,released,compacted,one,two,cleanup,final_result)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert_eq!(before.removed_records,0);assert_eq!(before.protected,[attempt_one]);
+    assert_eq!(cleaned.removed_records,1);assert_eq!(after.removed_records,1);assert_eq!(after.protected,[attempt_two.clone()]);
+    assert_eq!(held.removed_effects,0);assert_eq!(retained,control::EffectDisposition::Committed);
+    assert_eq!(released.removed_effects,1);assert_eq!(compacted,control::EffectDisposition::CompactedTerminal);
+    assert!(one.is_empty() && cleanup.is_empty());assert_eq!(two,[attempt_two]);assert_eq!(final_result.removed_records,1);
+    client.invalidate().await.unwrap();
+}
+
+#[tokio::test(flavor="multi_thread")]
+#[ignore="lineage collection requires explicit maintenance and separately qualified consumer inventory"]
+async fn qualified_history_preserves_live_retirement_lineage_between_successors(){
+    let cfg=maintenance_config();let client=lctx_surrealdb::compiler::check_installation(&cfg).await.unwrap();
+    let expected=std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE").expect("separately qualified consumer inventory");
+    let mut response=client.query("SELECT VALUE history_inventory FROM native_installation:current").await.unwrap().check().unwrap();
+    let inventory:Vec<String>=response.take(0).unwrap();assert_eq!(inventory,[expected]);
+    let original=control::IssuanceEra::capture(&client).await.unwrap();let nonce=control::fresh_identity("lineage-history").unwrap();
+    let parent=RecordId::new("native_guard",format!("lineage_parent_{}",nonce.hex()));let child=RecordId::new("native_guard",format!("lineage_child_{}",nonce.hex()));
+    let rows=[parent.clone(),child.clone()].into_iter().map(|id|{let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)}).collect();
+    control::ensure_rows(&client,None,rows).await.unwrap();control::hold(&client,None,parent.clone(),vec![child.clone()]).await.unwrap();
+    let retired=control::retire_reachable(&client,vec![parent.clone()],1).await.unwrap();let origin=RecordId::new("native_retirement",retired.identity.hex());
+    let result=async {
+        lctx_surrealdb::compiler::close_admission(&cfg).await?;lctx_surrealdb::compiler::drain_installation(&cfg).await?;control::cut_era(&client).await?;
+        let one=control::recover_retirement(&client,retired.identity).await?;
+        let mut response=client.query("SELECT VALUE id FROM native_effect WITH INDEX owner_effects WHERE owner=$origin AND resolved=true").bind(("origin",origin.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let effects:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;
+        for effect in effects {let checkpoint=history_checkpoint(&client,original.era,"effect",before_hash_record(&effect)?).await?;let receipt=control::resume_history_compaction(&client,checkpoint,1).await?;assert_eq!(receipt.removed_effects,1);}
+        let checkpoint=history_checkpoint(&client,original.era,"retirement",before_hash_record(&origin)?).await?;
+        let protected=control::resume_history_compaction(&client,checkpoint,1).await?;
+        assert_eq!(protected.removed_records,0);assert_eq!(protected.protected,[origin.clone()],"live successor keeps its predecessor metadata after original effects are collected");
+        control::cut_era(&client).await?;let two=control::recover_retirement(&client,one).await?;
+        let mut progress=control::resume_retirement(&client,two,8).await?;while !progress.remaining.is_empty(){progress=control::resume_retirement(&client,two,8).await?;}
+        assert_eq!(progress.retired,2);assert!(progress.retained.is_empty());
+        let checkpoint=history_checkpoint(&client,original.era,"retirement",before_hash_record(&origin)?).await?;
+        let collected=control::resume_history_compaction(&client,checkpoint,1).await?;assert_eq!(collected.removed_records,1,"completed lineage no longer needs predecessor metadata");
+        let mut response=client.query("SELECT VALUE id FROM $payloads").bind(("payloads",vec![parent,child])).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let remaining:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;assert!(remaining.is_empty());Ok::<_,ModelError>(())
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("lineage history admission restoration",lctx_surrealdb::compiler::open_admission(&cfg).await);
+    lctx_model::domain::completion::complete(result,completion).unwrap();client.invalidate().await.unwrap();
+}
+fn before_hash_record(id:&RecordId)->Result<RecordId,ModelError>{
+    let surrealdb::types::RecordIdKey::String(key)=&id.key else{return Err(ModelError::Schema("fixture hash identity"));};
+    let mut bytes=hex::decode(key).map_err(ModelError::codec)?;
+    for byte in bytes.iter_mut().rev(){if *byte>0{*byte-=1;break;}*byte=255;}
+    Ok(RecordId::new(id.table.as_str(),hex::encode(bytes)))
+}
+
+async fn history_checkpoint(client:&surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>,closed:i64,phase:&str,after:RecordId)->Result<ContentHash,ModelError>{
+    let issuance=control::IssuanceEra::capture(client).await?;
+    let identity=control::fresh_identity("bounded-history-native-fixture")?;
+    let mut bindings=Variables::new();bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",identity.hex()));bindings.insert("closed",closed);bindings.insert("phase",phase.to_owned());bindings.insert("after",after);bindings.insert("issuance",issuance.era);
+    control::effect(client,None,"IF $__installation.admission_open OR $__installation.history_inventory=NONE OR $__era!=$issuance OR $__installation.closed_through<$closed { THROW 'history fixture requires qualified closed maintenance'; }; CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=$__epoch,closed_through=$closed,phase=$phase,after=$after,state='open',removed_effects=0,removed_records=0,revision=0 RETURN NONE",bindings).await?;
+    Ok(identity)
+}
 fn row(run: [u8; 16], value: f64) -> QualityStep {
     QualityStep {
         run: serde_json::from_value(serde_json::json!(run)).unwrap(),
@@ -45,6 +446,7 @@ async fn contribute(
     ContentHash,
     BTreeMap<String, lctx_model::domain::completed::CompletedView>,
 ) {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let relation = Relation::of::<QualityStep>();
     let id = store.begin_contribution(spec).await.unwrap();
     store
@@ -56,7 +458,7 @@ async fn contribute(
         .await
         .unwrap();
     let views = store
-        .complete_contribution(id, ProviderOutcome::Complete, &[relation], previous)
+        .complete_contribution(id, ProviderOutcome::Complete, &[relation], previous, &native_operation_budget)
         .await
         .unwrap();
     (id, views)
@@ -357,6 +759,7 @@ async fn shared_revision_addresses_coexist_and_exact_views_select_their_payload(
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn atomic_field_reads_exclude_foreign_same_key_revisions_before_sorting() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::normalized::links::ImportModuleCandidate;
     use lctx_surrealdb::compiler::NativePredicate;
     let cfg = config();
@@ -401,12 +804,10 @@ async fn atomic_field_reads_exclude_foreign_same_key_revisions_before_sorting() 
             .await
             .unwrap();
         let views = store
-            .complete_contribution(
-                owner,
+            .complete_contribution(owner,
                 ProviderOutcome::Complete,
                 std::slice::from_ref(&relation),
-                &BTreeMap::new(),
-            )
+                &BTreeMap::new(), &native_operation_budget)
             .await
             .unwrap();
         if producer == "selected" {
@@ -475,6 +876,7 @@ async fn atomic_field_reads_exclude_foreign_same_key_revisions_before_sorting() 
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_replay() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let cfg = config();
     let source = NativeCompilerStore::begin(&cfg, Frontier::Facts)
         .await
@@ -489,7 +891,7 @@ async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_repla
     source.retain_product_identity(nonce, id).await.unwrap();
     assert!(
         target
-            .attach_retained_product(nonce, &spec)
+            .attach_retained_product(nonce, &spec, &native_operation_budget)
             .await
             .unwrap()
             .is_none()
@@ -510,7 +912,7 @@ async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_repla
     changed.model = ContentHash::of(b"changed model");
     assert!(
         target
-            .attach_retained_product(nonce, &changed)
+            .attach_retained_product(nonce, &changed, &native_operation_budget)
             .await
             .unwrap()
             .is_none()
@@ -519,7 +921,7 @@ async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_repla
     changed.implementation = ContentHash::of(b"changed implementation");
     assert!(
         target
-            .attach_retained_product(nonce, &changed)
+            .attach_retained_product(nonce, &changed, &native_operation_budget)
             .await
             .unwrap()
             .is_none()
@@ -528,7 +930,7 @@ async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_repla
     changed.producer.push_str("changed source");
     assert!(
         target
-            .attach_retained_product(nonce, &changed)
+            .attach_retained_product(nonce, &changed, &native_operation_budget)
             .await
             .unwrap()
             .is_none()
@@ -540,7 +942,7 @@ async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_repla
     );
     assert!(
         target
-            .attach_retained_product(nonce, &changed)
+            .attach_retained_product(nonce, &changed, &native_operation_budget)
             .await
             .unwrap()
             .is_none()
@@ -551,7 +953,7 @@ async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_repla
     let mut response=client.query("SELECT VALUE count() FROM compiler_record WHERE semantic_type=$relation AND semantic_key=$key GROUP ALL").bind(("relation",QualityStep::NAME)).bind(("key",row(run,3.0).id().hex())).await.unwrap().check().unwrap();
     let before: Vec<u64> = response.take(0).unwrap();
     let (attached, attached_views, descriptor) = target
-        .attach_retained_product(nonce, &spec)
+        .attach_retained_product(nonce, &spec, &native_operation_budget)
         .await
         .unwrap()
         .unwrap();
@@ -566,12 +968,10 @@ async fn only_admitted_retention_attaches_to_fresh_attempt_without_payload_repla
     assert_eq!(attached_views[QualityStep::NAME], views[QualityStep::NAME]);
     assert_eq!(descriptor.spec, spec);
     let current = target
-        .complete_contribution(
-            attached,
+        .complete_contribution(attached,
             ProviderOutcome::Complete,
             &[relation],
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     assert_eq!(current, attached_views);
@@ -594,6 +994,8 @@ async fn guarded_reachability_retains_shared_children() {
             row.insert("id", id.clone());
             row.insert("revision", 0i64);
             row.insert("retired", false);
+    row.insert("phase", "active");
+    row.insert("incarnation", 1i64);
             Value::Object(row)
         })
         .collect();
@@ -627,6 +1029,8 @@ async fn guarded_reachability_retains_shared_children() {
             row.insert("id", child.clone());
             row.insert("revision", 0i64);
             row.insert("retired", false);
+    row.insert("phase", "active");
+    row.insert("incarnation", 1i64);
             Value::Object(row)
         }],
     )
@@ -699,6 +1103,7 @@ async fn known_statement_abort_is_reconciled_and_attempt_fence_rejects_late_effe
 
 #[tokio::test(flavor = "multi_thread")]
 async fn retained_membership_deletion_refuses_attachment_and_same_view_revision_conflicts() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let cfg = config();
     let source = NativeCompilerStore::begin(&cfg, Frontier::Facts)
         .await
@@ -734,7 +1139,7 @@ async fn retained_membership_deletion_refuses_attachment_and_same_view_revision_
         .await
         .unwrap();
     assert!(
-        target.attach_retained_product(nonce, &spec).await.is_err(),
+        target.attach_retained_product(nonce, &spec, &native_operation_budget).await.is_err(),
         "retained descriptor alone cannot admit missing compact membership"
     );
     source.abandon().await.unwrap();
@@ -763,7 +1168,7 @@ async fn retained_membership_deletion_refuses_attachment_and_same_view_revision_
         .unwrap();
     assert!(
         union
-            .complete_contribution(id, ProviderOutcome::Complete, &[relation], &prior)
+            .complete_contribution(id, ProviderOutcome::Complete, &[relation], &prior, &native_operation_budget)
             .await
             .is_err(),
         "one exact view cannot select two revisions of a nominal row"
@@ -772,6 +1177,7 @@ async fn retained_membership_deletion_refuses_attachment_and_same_view_revision_
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn retained_empty_output_keeps_exact_zero_cardinality() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let cfg = config();
     let source = NativeCompilerStore::begin(&cfg, Frontier::Facts)
         .await
@@ -784,12 +1190,10 @@ async fn retained_empty_output_keeps_exact_zero_cardinality() {
     let relation = Relation::of::<QualityStep>();
     let id = source.begin_contribution(spec.clone()).await.unwrap();
     let views = source
-        .complete_contribution(
-            id,
+        .complete_contribution(id,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     let view = views[QualityStep::NAME].clone();
@@ -806,7 +1210,7 @@ async fn retained_empty_output_keeps_exact_zero_cardinality() {
     source.retain_product_identity(nonce, id).await.unwrap();
     source.mark_attempt_admitted().await.unwrap();
     let (_, attached, descriptor) = target
-        .attach_retained_product(nonce, &spec)
+        .attach_retained_product(nonce, &spec, &native_operation_budget)
         .await
         .unwrap()
         .unwrap();
@@ -845,6 +1249,8 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
     row.insert("id", object.clone());
     row.insert("revision", 0i64);
     row.insert("retired", false);
+    row.insert("phase", "active");
+    row.insert("incarnation", 1i64);
     control::ensure_rows(&client, None, vec![Value::Object(row)])
         .await
         .unwrap();
@@ -852,7 +1258,7 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
         .await
         .unwrap();
     pin.protect(object.clone()).await.unwrap();
-    let first = control::retire_reachable(&client, vec![object], 1)
+    let first = control::retire_reachable(&client, vec![object], 4)
         .await
         .unwrap();
     assert_eq!(first.retired, 0);
@@ -879,6 +1285,8 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
     expected.insert("id", payload.clone());
     expected.insert("revision", 17i64);
     expected.insert("retired", false);
+    expected.insert("phase", "active");
+    expected.insert("incarnation", 1i64);
     let mut bindings = Variables::new();
     bindings.insert("effect", receipt.clone());
     bindings.insert("object", payload.clone());
@@ -961,6 +1369,7 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
 
 #[tokio::test(flavor = "multi_thread")]
 async fn completed_state_is_exact_binding_closure_in_current_and_cold_owners() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let cfg = config();
     let store = NativeCompilerStore::begin(&cfg, Frontier::Facts)
         .await
@@ -1003,21 +1412,19 @@ async fn completed_state_is_exact_binding_closure_in_current_and_cold_owners() {
         1,
         "unbound singleton view is not portable state authority"
     );
-    let identity = store.completed_state().await.unwrap();
+    let identity = store.completed_state(&native_operation_budget).await.unwrap();
     let bindings = store.bindings().await.unwrap();
     let client = lctx_surrealdb::compiler::check_installation(&cfg)
         .await
         .unwrap();
-    let cold = NativeCompilerStore::from_publication(
-        client,
+    let cold = NativeCompilerStore::from_publication(client,
         cfg.namespace.clone(),
         cfg.database.clone(),
-        bindings,
-    )
+        bindings, &native_operation_budget)
     .await
     .unwrap();
-    cold.verify_state().await.unwrap();
-    assert_eq!(cold.completed_state().await.unwrap(), identity);
+    cold.verify_state(&native_operation_budget).await.unwrap();
+    assert_eq!(cold.completed_state(&native_operation_budget).await.unwrap(), identity);
     run[0] ^= 2;
     let (_, unbound) = contribute(
         &store,
@@ -1027,14 +1434,14 @@ async fn completed_state_is_exact_binding_closure_in_current_and_cold_owners() {
     )
     .await;
     assert_eq!(
-        store.completed_state().await.unwrap(),
+        store.completed_state(&native_operation_budget).await.unwrap(),
         identity,
         "unbound completed rows remain outside captured state"
     );
     let detached = tempfile::tempdir().unwrap();
     assert_eq!(
         store
-            .export_state(&detached.path().join("before.jsonl"))
+            .export_state(&detached.path().join("before.jsonl"), &native_operation_budget)
             .await
             .unwrap(),
         identity
@@ -1054,20 +1461,20 @@ async fn completed_state_is_exact_binding_closure_in_current_and_cold_owners() {
         })
         .await
         .unwrap();
-    let changed = store.completed_state().await.unwrap();
+    let changed = store.completed_state(&native_operation_budget).await.unwrap();
     assert_ne!(
         changed, identity,
         "a fresh operation captures changed bindings"
     );
     assert_eq!(
         store
-            .export_state(&detached.path().join("after.jsonl"))
+            .export_state(&detached.path().join("after.jsonl"), &native_operation_budget)
             .await
             .unwrap(),
         changed
     );
     assert_eq!(
-        cold.completed_state().await.unwrap(),
+        cold.completed_state(&native_operation_budget).await.unwrap(),
         identity,
         "published binding inventory remains exact"
     );
@@ -1132,6 +1539,8 @@ async fn fresh_attempt_reactivates_content_but_original_attempt_effect_and_pin_e
     row.insert("id", object.clone());
     row.insert("revision", 0i64);
     row.insert("retired", false);
+    row.insert("phase", "active");
+    row.insert("incarnation", 1i64);
     let value = Value::Object(row);
     control::ensure_rows(&client, Some(old.attempt()), vec![value.clone()])
         .await
@@ -1153,7 +1562,7 @@ async fn fresh_attempt_reactivates_content_but_original_attempt_effect_and_pin_e
     let epoch = epochs[0];
     let delayed = RecordId::new("native_effect", nonce.hex());
     client.query("CREATE $effect SET attempt=NONE,request='delayed-unowned-control',committed=false,resolved=false,revision=0,epoch=$epoch RETURN NONE").bind(("effect",delayed.clone())).bind(("epoch",epoch)).await.unwrap().check().unwrap();
-    let first = control::retire_reachable(&client, vec![object.clone()], 1)
+    let first = control::retire_reachable(&client, vec![object.clone()], 4)
         .await
         .unwrap();
     assert_eq!(first.retired, 1);
@@ -1192,19 +1601,20 @@ async fn fresh_attempt_reactivates_content_but_original_attempt_effect_and_pin_e
         matches!(guards[0].get("retired_through"),Some(Value::Number(surrealdb::types::Number::Int(mark))) if *mark>=epoch)
     );
     old_pin.release().await.unwrap();
-    let second = control::retire_reachable(&client, vec![object], 1)
+    let second = control::retire_reachable(&client, vec![object], 4)
         .await
         .unwrap();
-    assert_eq!(second.identity, first.identity);
+    assert_ne!(second.identity, first.identity);
     assert_eq!(
-        second.retired, 2,
-        "explicit retirement revisits a legally reactivated root"
+        second.retired, 1,
+        "fresh retirement invocation visits the new incarnation without reviving the old job"
     );
     old.abandon().await.unwrap();
     fresh.abandon().await.unwrap();
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn retained_product_keeps_exact_prerequisite_closure_after_origin_owner_retirement() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let cfg = config();
     let origin = NativeCompilerStore::begin(&cfg, Frontier::Facts)
         .await
@@ -1260,6 +1670,8 @@ async fn retained_product_keeps_exact_prerequisite_closure_after_origin_owner_re
     owner_row.insert("id", owner.clone());
     owner_row.insert("revision", 0i64);
     owner_row.insert("retired", false);
+    owner_row.insert("phase", "active");
+    owner_row.insert("incarnation", 1i64);
     control::ensure_rows(
         &client,
         Some(origin.attempt()),
@@ -1290,7 +1702,7 @@ async fn retained_product_keeps_exact_prerequisite_closure_after_origin_owner_re
         .await
         .unwrap();
     let (attached, _, descriptor) = target
-        .attach_retained_product(nonce, &derived_spec)
+        .attach_retained_product(nonce, &derived_spec, &native_operation_budget)
         .await
         .unwrap()
         .expect(
@@ -1347,6 +1759,8 @@ async fn backup_hold_excludes_retirement_under_exclusive_maintenance() {
     row.insert("id", object.clone());
     row.insert("revision", 0i64);
     row.insert("retired", false);
+    row.insert("phase", "active");
+    row.insert("incarnation", 1i64);
     control::ensure_rows(&client, None, vec![Value::Object(row)])
         .await
         .unwrap();
@@ -1404,6 +1818,8 @@ async fn maintenance_reconciliation_requires_drain_proof_and_fences_only_named_c
     row.insert("id", object.clone());
     row.insert("revision", 0i64);
     row.insert("retired", false);
+    row.insert("phase", "active");
+    row.insert("incarnation", 1i64);
     control::ensure_rows(&client, None, vec![Value::Object(row)])
         .await
         .unwrap();

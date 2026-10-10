@@ -2,54 +2,55 @@
 
 _Updated 2026-10-10 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Holistic state-management correction plan documented; production paused, 2026-10-10.**
-The [companion](docs/plans/holistic-state-management-plan_2026-10-10.md) integrates all ten
-[review findings](docs/design_review/reviews/design_review_holistic-state-management_2026-10-10.md),
-accepted holistic RC01–RC03 and bounded investigations into UP/NE/PC/GK/GR. Remedies remain
-Proposed; coordinator §8 owns HS-F01–HS-F10 Open dispositions, §9.1 actual receipts.
-Independent [target assessment](docs/design_review/reviews/design_review_holistic-state-management-plan_2026-10-10.md)
-accepts the amended Proposed design; F01 post-era recovery is resolved in target text only.
-`just docs-check` **passed**,2026-10-10:380 pages,zero link errors; product checks **not_run**.
+**Current scope: SurrealDB architecture plan authored,2026-10-10; shared main is dirty.**
+The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
+develops SA0–SA9 for all seven source findings and nine capability avenues, integrated with HS/UP/NE.
+The source review remains **Revise**; [independent target assessment](docs/design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) accepts the amended **Proposed**
+contracts after correcting repeated-preflight recovery. Review RC01 and supplemental SA-RC04 were
+operator-accepted2026-10-10; transport/coordination retain their existing conditional decisions.
+Coordinator §8 owns SA/HS dispositions; §9.1 owns document and runtime receipts. Native/product acceptance stays open.
+Publication verification: `just docs-check` **passed**,2026-10-10,385 pages/zero link errors, including the independent review.
+Next: SA0's decision/owner/runbook changes and SA1–SA3's complete recoverable migration; independently ready access work may proceed.
+Authoring performed no migration restart, service change, production remediation or product tests.
 
-**Unified persistent SurrealDB UP0–UP9 implementation / acceptance open.**
-[ADR-0143](docs/adr/0143-unified-persistent-content-and-execution.md) supersedes ADR-0138/0140
-for accepted RC01–RC07. The [unified companion](docs/plans/unified-persistent-surrealdb-plan_2026-10-09.md)
-owns packages; [persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
-owns Open findings and actual receipts. Implementation spans immutable payloads/exact views,
-fenced attempts, checked retained attachment, manifest publication, executable definition epochs,
-data-only restore, reader pins/retirement and one stable service. Patched gRPC remains initial.
-**passed:** owned installation/check, simultaneous logical attachments, equal-definition retry/drift
-refusal, protected backup/default validation/applied restore and readiness. Current guard-free
-`just ready` rebuilt the formatted batching source and all readiness checks passed. Tooling controls and schema migration
-passed; actual receipts and source boundaries remain in the coordinator. Independent integration
-review accepts examined source subject to remaining runtime acceptance.
-Focused corrections passed ordering/acknowledgement17, exact-view/state-closure controls,
-projection immutable-collision refusal, sparse role corruption and multi-window ownership cleanup.
-Indexed canonical point selection, scoped reconciliation, exact lexical document nomination and
-prepared-stream terminal dispatch preserve full actual-state checks. All12 search controls have
-passed, including corrected occurrence mutations that prove an actual physical change.
-Earlier sealing/readback, exact-pin panic cleanup, terminal-owner cleanup and compact backup
-controls retain their dated scopes in the coordinator. No whole publication/restore pass is implied.
-Legal singletons now spill with unchanged bounds;14 pure ordering controls passed. Bounded view
-registration is statically accepted; both new native ownership controls passed. Canonical marker
-ordering, portable restore framing and exact-owner retirement child discovery are implemented;
-the last focused three retirement/backing controls **passed**, run `20261010T080622.398Z-9318a7`.
-The latest publication selection **failed**:11 passed/1 failed/4 timeouts/1 ignored, run
-`20261010T080857.871Z-ada670`; final guarded retirement remains problematic. Three timeouts
-were in cleanup and the full compiled-export timeout was in search publication.
-Fresh MCP native journeys **failed**:2 failed/1 ignored, run `20261010T080910.831Z-6c331b`.
-An absent-library request returned `ResourceRefused`; separately, browse publication hit the
-reconciliation array-size limit. Python acceptance is **blocked** by the failed native producer.
-The two earlier identified reader pins were recovered through checked maintenance. After the earlier missing executable epoch,
-explicit checked maintenance installed current933b… names, preserved prior functions and reopened.
-Guard-free final-source `just ready` passed, including the rebuilt native extension. NativeSession
-close drains calls, releases its pin and shares terminal results across closers;
-compile/static review passed; actual Python acceptance remains blocked. Earlier maintenance8
-finished6passed/2failed before intended drift assertions; its final-source rerun, two-worktree reuse,
-populated backup/restore/restart and unfiltered UP9 `just verify --qualify --cli` remain pending.
-Next: detailed execution planning for the holistic companion before resuming production/qualification.
-No whole-plan closure or measured benefit is claimed; BC3 profile adoption remains separate.
-Operator/PSE-arrow data, selections, real-library adoption, shared caches and recovery evidence stay protected.
+**Holistic state-management HS0–HS11 execution is interrupted.**
+The [holistic companion](docs/plans/holistic-state-management-plan_2026-10-10.md) owns this scope.
+[ADR-0145](docs/adr/0145-holistic-state-ownership.md) supersedes ADR-0143 with selected coherent
+logical backup and fenced history disposal. Coordinator [§8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns scheduled dispositions and actual receipts. HS-F09 is focused-Tested/closed; other HS findings remain Open.
+Implemented source includes model-owned recovery closure, shared audit capture/owned finalizers,
+bounded selection, transaction-bound backup/independent cold admission, phased retirement, original
+issuance eras/outcome references/history collection, compiler release and charged ranked retention.
+Writer fencing, recovery lineage, physical-terminal classification, search scratch and terminal-attempt
+cleanup corrections are source-accepted. The earlier assembled review's sparse first-request, family
+dispatch and budget repairs are source-accepted; functional qualification remains pending.
+**passed**,2026-10-10, historical receipts:99 host/storage and5 model controls (`162158…fe134a`);
+repaired all-test check (`163414…857f59`); repaired installer (`163332…1b9615`). Main migrated,
+but validation twice crashed the original server on transaction-timeout stack cancellation.
+Concurrent-index installation and exact same-target/original-native-ID recovery are implemented;
+114 mocked recovery controls passed. Separately owned exact3.3.0 server correction preserves runtime limits.
+Actual-size export admission/shared-pool pressure corrections passed67 pure controls (`171523…9388db`);
+all-test check (`170340…db2755`) passed. The locked DiskANN build defect received an exact local correction.
+Patched server build/adoption passed;185 composed tooling controls passed. Page-local origin reuse
+passed its three affected pure controls; final affected binaries compiled/listed, and guarded native sync passed.
+**failed**,2026-10-10: `20261010T174350.233Z-05d48c` validation translation exited1/cleaned at19:02:54UTC:
+`native_retirement.root_count` expected `int`, found `NONE`. Main's format4 checkpoint remains;
+validation stays format3/admission closed. Queued `181816…d35925` and `182220…e52348` failed
+prerequisite waits; their native test bodies are **not_run**. The password-fence observer still waits for format4.
+Python/product acceptance, native timeout regression and HS11 assembled qualification are **not_run**.
+Next: execute architecture SA0–SA3 before correcting/resuming the immutable migration;
+then source-matching revealing controls and scheduled HS11 acceptance. Earlier source acceptance is not runtime closure.
+
+**Unified persistent SurrealDB UP0–UP9 / NE / PC / GK / GR integrated acceptance remains open.**
+The [unified companion](docs/plans/unified-persistent-surrealdb-plan_2026-10-09.md) owns surviving
+packages. Exact immutable payloads/views, scoped attempts, retained attachment, manifest publication,
+executable epochs, reader pins and one stable service remain the foundation; patched gRPC remains initial.
+Prior focused passes and failed composites retain their dated scope in coordinator §9.1. Earlier
+publication selection had11 passes/1 failure/4 timeouts/1 ignored; MCP native journeys had2 failures/
+1 ignored, including absent-library ResourceRefused and reconciliation array amplification. Their
+replacement controls and Python follow-up must pass on current source. Earlier accepted source reviews
+and readiness passes do not promote these incomplete runtime results. Operator/PSE-arrow data,
+selections, real-library adoption, shared caches and recovery evidence stay protected.
 
 **Storage lifecycle implementation in progress, 2026-10-09:**
 [ADR-0144](docs/adr/0144-managed-storage-lifetimes.md) governs warm-cache preservation and
@@ -59,7 +60,7 @@ repository checkout bindings and archive/restore mechanisms are implemented with
 controls. The bootstrap uses pinned Python3.14.7 without the project venv; no3.12 helper.
 Only this repository and its two checkouts are registered; eight legacy roots and five retained captures have
 protective descriptors. Central skill stores and other repositories are excluded.
-No production content was removed and automation remains off.
+Backlog cleanup retired five obsolete captures (about98GiB raw samples), preserving/hash-verifying reports and receipts. Verification passed; automation remains off.
 **passed:**163 producer controls,63 lifecycle/build/service controls,34 archive/CLI/replay controls;
 native acquisition compile/five controls; scoped lint/types, ADR lint and docs publication.
 Independent bounded review accepted examined mechanisms. Acquisition crash receipts and sampled
@@ -109,7 +110,6 @@ BC3 candidate-profile qualification and unrelated real-library adoption remain `
 
 **Existing qualification follow-up:** resolve source-specific failures without weakening controls.
 Qualify BC3 separately before installing the ordinary test profile. Record source-specific closure; retain failed composites.
-The operator restored40GiB free after the filesystem fell below1GiB; focused validation resumed.
 No measured speed or whole-plan completion is claimed.
 
 **Preservation and boundaries:** preserve operator hashing references, PC3's dirty isolated

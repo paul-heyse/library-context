@@ -68,9 +68,7 @@ pub(crate) async fn hydrate_prepared_layout<Context>(
                 lctx_model::domain::serving::FailureKind::Unavailable,
             ));
         }
-        let next: Vec<RecordId> = reader
-            .query_prepared_native(prepared.frontier_query(frontier)?)
-            .await?;
+        let next = prepared.frontier(reader, frontier, budget).await?;
         // Admit the result handoff before growing the retained set/frontier. The existing
         // NativeReader checks the whole response and all statement terminals before exposure.
         charge.try_resize(seen.len().saturating_add(next.len()).saturating_mul(384))?;

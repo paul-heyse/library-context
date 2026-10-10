@@ -375,3 +375,5 @@ The evidence does not establish exact redundant compiler bytes, last-use dates, 
 The next consequential decision belongs to the coordinator/operator: confirm the proposed lifecycle and rule changes, then prepare owner-checked retirement of the old isolated roots. Cited raw evidence remains protected pending deliberate consumer release or validated archival replay.
 
 **Intended publication path:** `docs/design_review/reviews/design_review_build-storage_2026-10-09.md`.
+
+**Retention disposition update, 2026-10-10:** the operator selected preservation of reports and receipts with retirement of the five obsolete raw compiler captures listed above. This supersedes their raw-local retention recommendation only. Hash-verified independent report/provenance bundles now exist under each run’s `compile-profile-reports/`; historical size readings and review judgments retain their original date/scope. The [storage plan §10](../../plans/storage-lifecycle-management-plan_2026-10-09.md#10-current-checkpoint) owns actual retirement receipts and current disposition.

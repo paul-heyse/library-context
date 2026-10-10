@@ -62,7 +62,8 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
 }
 
 async fn contribution(workspace: &Workspace) -> CompletedContribution {
-    let mut inventory = workspace.native().contributions().await.unwrap();
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let mut inventory = workspace.native().contributions(&native_operation_budget).await.unwrap();
     assert_eq!(inventory.len(), 1);
     let contribution = inventory.pop().unwrap();
     assert_eq!(
@@ -111,6 +112,7 @@ async fn ordinary_output_composes_stage_code_without_rewriting_supplier_identity
 
 #[tokio::test]
 async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_inventory() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let supplier = supplier();
     let current = produce(supplier.build_digest, &supplier).await;
     let current_descriptor = contribution(&current).await;
@@ -151,12 +153,10 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         .unwrap();
     let views = source
         .native()
-        .complete_contribution(
-            pending,
+        .complete_contribution(pending,
             ProviderOutcome::Complete,
             &relations,
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &native_operation_budget)
         .await
         .unwrap();
     for relation in &relations {
@@ -178,7 +178,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     assert_eq!(expected.spec, captured);
     let bindings = source.native().bindings().await.unwrap();
     let export = tempfile::NamedTempFile::new().unwrap();
-    let state = source.native().export_state(export.path()).await.unwrap();
+    let state = source.native().export_state(export.path(), &native_operation_budget).await.unwrap();
 
     let restored = workspace();
     // Completed-state transport carries contribution/membership state. Its canonical graph
@@ -204,7 +204,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         .unwrap();
     restored
         .native()
-        .import_state(export.path(), &state)
+        .import_state(export.path(), &state, &native_operation_budget)
         .await
         .unwrap();
     restored.restore(Profile::Catalog).await.unwrap();
@@ -216,7 +216,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         "cold restoration retains captured execution rather than current-build composition"
     );
     assert_eq!(imported.identity().unwrap(), expected.identity().unwrap());
-    assert_eq!(restored.native().completed_state().await.unwrap(), state);
+    assert_eq!(restored.native().completed_state(&native_operation_budget).await.unwrap(), state);
     assert_eq!(restored.native().bindings().await.unwrap(), bindings);
     assert_eq!(rows::<Provider>(&restored), vec![captured_supplier]);
     assert_eq!(rows::<Package>(&restored), vec![package()]);

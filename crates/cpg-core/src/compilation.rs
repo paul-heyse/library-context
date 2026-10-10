@@ -19,6 +19,7 @@ use lctx_model::domain::{
 };
 use std::sync::Arc;
 mod reuse;
+mod preparation;
 #[cfg(test)]
 mod cache_controls;
 /// Closed executable upper routes. Metadata and runner dispatch use the same finite type.
@@ -205,6 +206,10 @@ impl UpperStage {
             Self::AnalysisFrontier => &[],
             Self::CatalogFrontier => &[],
         }
+    }
+    fn bindings(self, profile: Profile) -> bool {
+        profile == Profile::Behavioral
+            && matches!(self, Self::SourceCalls | Self::Enriched | Self::Models | Self::Summary)
     }
     fn resolve(name: &str) -> Result<Self, ModelError> {
         let mut found = Self::ALL.into_iter().filter(|s| s.name() == name);
@@ -794,24 +799,24 @@ async fn compile_driver(
     } else {
         None
     };
-    let bindings = match (binding_application, normalized_authority.as_ref()) {
+    let mut bindings = match (binding_application, normalized_authority.as_ref()) {
         (Some(application), Some(authority)) if profile == Profile::Behavioral => Some(
             crate::analysis_bindings::PreparedBindings::new(application, authority)?,
         ),
         _ => None,
     };
-    let graph_needs = schedule
-        .stages()
-        .iter()
-        .filter_map(|s| UpperStage::resolve(s.name).ok())
-        .flat_map(|s| s.graphs(profile).iter().copied())
-        .collect();
+    let analytics_requested = prepared.is_some_and(|p| analytics::build::requested(p.settings()));
+    let initial_needs = preparation::Needs::remaining(
+        schedule.stages().iter().filter_map(|s| UpperStage::resolve(s.name).ok()),
+        profile, analytics_requested,
+    );
+    preparation::release_unused(&mut bindings, initial_needs.bindings);
     let mut graphs = None;
     let mut local = None;
     let mut evaluations = None;
     let mut completed_bodies = None;
     let mut source_calls = None;
-    for declaration in schedule.stages() {
+    for (stage_index, declaration) in schedule.stages().iter().enumerate() {
         if fact_names.contains(declaration.name) {
             continue;
         }
@@ -861,7 +866,11 @@ async fn compile_driver(
                         workspace,
                         normalized_authority.as_ref().expect("normalized authority"),
                         model,
-                        &graph_needs,
+                        &preparation::Needs::remaining(
+                            schedule.stages()[stage_index..].iter()
+                                .filter_map(|s| UpperStage::resolve(s.name).ok()),
+                            profile, analytics_requested,
+                        ).graphs,
                     )
                     .await?,
                 );
@@ -1059,6 +1068,19 @@ async fn compile_driver(
                 }
             }
             }
+            // Future cache decisions remain stage-local. A possible selected consumer keeps
+            // preparation alive; completing that stage (hit or fresh) retires its demand.
+            // Release before later frontier freezing/product bookkeeping can admit more work.
+            let remaining = preparation::Needs::remaining(
+                schedule.stages()[stage_index + 1..].iter()
+                    .filter_map(|s| UpperStage::resolve(s.name).ok()),
+                profile, analytics_requested,
+            );
+            if let Some(graphs) = &mut graphs {
+                graphs.retain(&remaining.graphs);
+            }
+            preparation::release_unused(&mut graphs, !remaining.graphs.is_empty());
+            preparation::release_unused(&mut bindings, remaining.bindings);
             completed.insert(declaration.name);
             freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
             products.complete(declaration.name, completed_product_tokens(workspace, declaration, &schedule)?)?;

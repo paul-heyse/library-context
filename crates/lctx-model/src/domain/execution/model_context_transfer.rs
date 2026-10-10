@@ -44,7 +44,7 @@ impl analysis::support::DerivedEvidence for ContextTransferWitness {
 }
 pub(super) struct CheckedContextTransfer {
     witness: ContextTransferWitness,
-    entry: DerivedEntryValue,
+    entry: std::sync::Arc<DerivedEntryValue>,
     root: PlaceRoot,
     place: Place,
     branch: TransferBranch<transfer::model::TransferKey>,
@@ -121,7 +121,7 @@ impl CheckedContextTransfer {
         let entry = match produced {
             Some(produced) => produced.local.entry(witness, source, budget)?,
             None => match EntryValueWitness::derive_for(data, witness.request(), source, budget)? {
-                Ok(value) => value,
+                Ok(value) => std::sync::Arc::new(value),
                 Err(reason) => return Ok(Err(reason)),
             },
         };

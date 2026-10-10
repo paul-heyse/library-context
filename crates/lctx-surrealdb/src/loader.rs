@@ -17,7 +17,14 @@ fn installation_definitions(sql: &str) -> Result<Vec<String>, ModelError> {
         .map_err(ModelError::codec)?
         .expressions
         .into_iter()
-        .map(|statement| match &statement {
+        .map(|mut statement| {
+            // CONCURRENTLY controls execution, not the persisted index definition.
+            if let TopLevelExpr::Expr(Expr::Define(definition)) = &mut statement {
+                if let DefineStatement::Index(index) = definition.as_mut() {
+                    index.concurrently = false;
+                }
+            }
+            match &statement {
             TopLevelExpr::Expr(Expr::Define(definition))
                 if matches!(
                     definition.as_ref(),
@@ -31,8 +38,51 @@ fn installation_definitions(sql: &str) -> Result<Vec<String>, ModelError> {
                 Ok(statement.to_sql())
             }
             _ => Err(ModelError::Schema("installation declaration grammar")),
+            }
         })
         .collect()
+}
+
+struct InstallationIndex {
+    execution: String,
+    information: String,
+    label: String,
+}
+fn installation_index(sql: &str) -> Result<Option<InstallationIndex>, ModelError> {
+    use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
+    let mut parsed = surrealdb_syn::parse(sql).map_err(ModelError::codec)?.expressions;
+    let [TopLevelExpr::Expr(Expr::Define(definition))] = parsed.as_mut_slice() else {
+        return Err(ModelError::Schema("installation declaration grammar"));
+    };
+    let DefineStatement::Index(index) = definition.as_mut() else { return Ok(None); };
+    index.concurrently = true;
+    let label = format!("{} ON {}", index.name.to_sql(), index.what.to_sql());
+    Ok(Some(InstallationIndex {
+        execution: index.to_sql(),
+        information: format!("INFO FOR INDEX {label}"),
+        label,
+    }))
+}
+fn installation_index_ready(value: &Value) -> Result<bool, ModelError> {
+    let Value::Object(info) = value else { return Err(ModelError::Schema("installation index information")); };
+    let Some(Value::Object(building)) = info.get("building") else { return Err(ModelError::Schema("installation index build information")); };
+    match building.get("status") {
+        Some(Value::String(status)) if status.as_str() == "ready" => Ok(true),
+        Some(Value::String(status)) if matches!(status.as_str(), "started" | "cleaning" | "indexing") => Ok(false),
+        Some(Value::String(status)) if matches!(status.as_str(), "error" | "aborted") => Err(ModelError::codec(format!("index build failed: {building:?}"))),
+        _ => Err(ModelError::Schema("installation index build status")),
+    }
+}
+#[derive(Debug)]
+struct InstallationFailure { context: String, cause: ModelError }
+impl std::fmt::Display for InstallationFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}: {}", self.context, self.cause) }
+}
+impl std::error::Error for InstallationFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(&self.cause) }
+}
+fn installation_failure(context: String, cause: ModelError) -> ModelError {
+    ModelError::Cause(Box::new(InstallationFailure { context, cause }))
 }
 /// Blueprint functions are templates for the publisher's immutable named epochs, never
 /// shared mutable executable names. Validate the complete blueprint before selecting DDL.
@@ -47,6 +97,8 @@ pub struct Loader {
     client: Arc<Surreal<Client>>,
     views: Option<Vec<ContentHash>>,
     attempt: Option<ContentHash>,
+    cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
+    budget: Option<lctx_model::domain::resources::ResourceBudget>,
 }
 pub fn payload_id(
     table: &str,
@@ -91,14 +143,14 @@ impl Loader {
         Self {
             client,
             views: None,
-            attempt: None,
+            attempt: None, cancellation: None, budget: None,
         }
     }
     pub fn for_views(client: Arc<Surreal<Client>>, views: Vec<ContentHash>) -> Self {
         Self {
             client,
             views: Some(views),
-            attempt: None,
+            attempt: None, cancellation: None, budget: None,
         }
     }
     pub fn for_attempt_views(
@@ -109,14 +161,20 @@ impl Loader {
         Self {
             client,
             views: Some(views),
-            attempt: Some(attempt),
+            attempt: Some(attempt), cancellation: None, budget: None,
         }
     }
+    pub fn with_budget(mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Self { self.budget = Some(budget.clone()); self }
+    pub(crate) fn read_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> { self.budget.clone().ok_or(ModelError::Conflict("native operation requires caller budget")) }
+    pub fn with_read_cancellation(mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self { self.cancellation = Some(flag); self }
+    pub fn check_read_admission(&self) -> Result<(), ModelError> { crate::prepared::check_read_cancellation(self.cancellation.as_ref()) }
     pub fn reader(&self) -> crate::NativeReader<()> {
-        match &self.views {
+        let reader = match &self.views {
             Some(views) => crate::NativeReader::for_views(self.client.clone(), views.clone()),
             None => crate::NativeReader::private(self.client.clone()),
-        }
+        };
+        let reader = if let Some(budget) = &self.budget { reader.with_budget(budget) } else { reader };
+        if let Some(flag) = &self.cancellation { reader.with_read_cancellation(flag.clone()) } else { reader }
     }
     pub fn view_ids(&self) -> Option<&[ContentHash]> {
         self.views.as_deref()
@@ -147,36 +205,60 @@ impl Loader {
         phase: &str,
     ) -> Result<(), ModelError> {
         let statements = installation_definitions(schema)?;
-        let actual = self.installation_inventory().await?;
+        let actual = self.installation_inventory().await
+            .map_err(|error| installation_failure(format!("{phase} initial declaration inventory"), error))?;
+        let indexes = statements.iter().filter_map(|statement| installation_index(statement).transpose()).collect::<Result<Vec<_>, _>>()?;
         let missing = statements
             .iter()
             .filter(|statement| !actual.contains(*statement))
             .cloned()
             .collect::<Vec<_>>();
         for (window, chunk) in missing.chunks(32).enumerate() {
+            let labels = chunk.iter().filter_map(|statement| installation_index(statement).transpose())
+                .collect::<Result<Vec<_>, _>>()?.into_iter().map(|index| index.label).collect::<Vec<_>>();
             let context = |error| {
-                ModelError::codec(format!(
-                    "{phase} declaration window {} (statements {}-{}): {error}",
+                installation_failure(format!(
+                    "{phase} declaration window {} (statements {}-{}, indexes [{}])",
                     window + 1,
                     window * 32 + 1,
-                    window * 32 + chunk.len()
-                ))
+                    window * 32 + chunk.len(), labels.join(", ")
+                ), error)
             };
+            let execution = chunk.iter().map(|statement| {
+                Ok(installation_index(statement)?.map_or_else(|| statement.clone(), |index| index.execution))
+            }).collect::<Result<Vec<_>, ModelError>>()?;
             self.client
-                .query(chunk.join(";") + ";")
+                .query(execution.join(";") + ";")
                 .await
-                .map_err(write_failure)?
+                .map_err(|error| context(write_failure(error)))?
                 .check()
-                .map_err(context)?;
+                .map_err(|error| context(ModelError::Cause(Box::new(error))))?;
         }
-        let actual = self.installation_inventory().await?;
+        let actual = self.installation_inventory().await
+            .map_err(|error| installation_failure(format!("{phase} declaration readback inventory"), error))?;
         if statements
             .iter()
             .any(|statement| !actual.contains(statement))
         {
-            return Err(ModelError::Conflict(
+            return Err(installation_failure(format!("{phase} declaration readback"), ModelError::Conflict(
                 "installed native declaration readback",
-            ));
+            )));
+        }
+        // Catalog presence is not readiness. Reconcile every desired index on retries,
+        // including a build retained by the server after a lost response or restart.
+        let mut pending = indexes;
+        while !pending.is_empty() {
+            let mut remaining = Vec::new();
+            for index in pending {
+                let context = |error| installation_failure(format!("{phase} index {} readiness", index.label), error);
+                let mut response = self.client.query(index.information.clone()).await
+                    .map_err(|error| context(ModelError::Cause(Box::new(error))))?
+                    .check().map_err(|error| context(ModelError::Cause(Box::new(error))))?;
+                let value: Value = response.take(0).map_err(|error| context(ModelError::Cause(Box::new(error))))?;
+                if !installation_index_ready(&value).map_err(context)? { remaining.push(index); }
+            }
+            pending = remaining;
+            if !pending.is_empty() { tokio::time::sleep(std::time::Duration::from_millis(100)).await; }
         }
         Ok(())
     }
@@ -751,7 +833,9 @@ fn same_native_payload(left: &Value, right: &Value) -> Result<bool, ModelError> 
     Ok(serde_json::to_vec(left).map_err(ModelError::codec)?
         == serde_json::to_vec(right).map_err(ModelError::codec)?)
 }
-pub(crate) fn native_bytes(value: &Value) -> usize {
+/// Conservative retained payload estimate for native transfer and literal export admission.
+/// Traverses record keys without allocating their SQL representation.
+pub fn native_bytes(value: &Value) -> usize {
     size_of::<Value>().saturating_add(match value {
         Value::String(value) => value.len(),
         Value::Bytes(value) => value.len(),
@@ -767,8 +851,24 @@ pub(crate) fn native_bytes(value: &Value) -> usize {
                     .saturating_add(native_bytes(value))
             })
             .fold(0, usize::saturating_add),
-        Value::RecordId(value) => value.to_sql().len(),
+        Value::RecordId(value) => value.table.as_str().len().saturating_add(native_key_bytes(&value.key)),
         _ => 0,
+    })
+}
+fn native_key_bytes(key: &surrealdb::types::RecordIdKey) -> usize {
+    use surrealdb::types::RecordIdKey;
+    use std::ops::Bound;
+    size_of::<RecordIdKey>().saturating_add(match key {
+        RecordIdKey::String(value) => value.len(),
+        RecordIdKey::Number(_) | RecordIdKey::Uuid(_) => 0,
+        RecordIdKey::Array(values) => values.iter().map(native_bytes).fold(0, usize::saturating_add),
+        RecordIdKey::Object(values) => values.iter().map(|(key, value)| {
+            key.len().saturating_add(32).saturating_add(native_bytes(value))
+        }).fold(0, usize::saturating_add),
+        RecordIdKey::Range(range) => [&range.start, &range.end].into_iter().map(|bound| match bound {
+            Bound::Included(key) | Bound::Excluded(key) => native_key_bytes(key),
+            Bound::Unbounded => 0,
+        }).fold(0, usize::saturating_add),
     })
 }
 pub(crate) fn validate_native_row(row: &Value) -> Result<(), ModelError> {
@@ -928,6 +1028,32 @@ pub fn write_failure(error: surrealdb::Error) -> ModelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installation_index_lowering_preserves_semantic_definition() {
+        let sql = "DEFINE INDEX `index name` ON `table name` FIELDS value UNIQUE COMMENT 'CONCURRENTLY is text'";
+        let index = installation_index(sql).unwrap().unwrap();
+        assert!(index.execution.ends_with(" CONCURRENTLY"));
+        assert_eq!(index.information, "INFO FOR INDEX `index name` ON `table name`");
+        assert_eq!(installation_definitions(sql).unwrap(), installation_definitions(&index.execution).unwrap());
+        assert_ne!(installation_definitions(sql).unwrap(), installation_definitions(&sql.replace("FIELDS value", "FIELDS other")).unwrap());
+        assert_ne!(installation_definitions(sql).unwrap(), installation_definitions(&sql.replace(" UNIQUE", "")).unwrap());
+        assert!(installation_index("DEFINE FUNCTION fn::installer_control() { LET $value=1; RETURN $value; }").unwrap().is_none());
+    }
+    #[test]
+    fn installation_index_readiness_requires_terminal_success() {
+        let info = |status: &str| {
+            let mut building = Object::new(); building.insert("status", status);
+            let mut value = Object::new(); value.insert("building", building); Value::Object(value)
+        };
+        assert!(installation_index_ready(&info("ready")).unwrap());
+        for status in ["started", "cleaning", "indexing"] { assert!(!installation_index_ready(&info(status)).unwrap()); }
+        for status in ["error", "aborted", "unknown"] { assert!(installation_index_ready(&info(status)).is_err()); }
+        assert!(installation_index_ready(&Value::None).is_err());
+        assert!(installation_index_ready(&Value::Object(Object::new())).is_err());
+        let error = installation_failure("native upgrade index test readiness".into(), ModelError::Conflict("index failure"));
+        assert!(error.to_string().contains("native upgrade index test readiness"));
+        assert!(std::error::Error::source(&error).is_some());
+    }
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "requires explicit owned-service maintenance installer credentials"]
     async fn checked_installer_retries_equal_definitions_and_refuses_drift() {
@@ -951,9 +1077,30 @@ mod tests {
             loader
                 .install_declarations(&schema, "installer retry control")
                 .await?;
+            // Build over existing content, then exercise catalog-present retry readiness.
+            for window in 0..4 {
+                let rows = (window * 64..(window + 1) * 64).map(|id| {
+                    let mut row = Object::new();
+                    row.insert("id", RecordId::new(table.as_str(), id.to_string()));
+                    row.insert("value", "populated"); Value::Object(row)
+                }).collect::<Vec<_>>();
+                client.query("INSERT $rows RETURN NONE").bind(("rows", rows)).await
+                    .map_err(write_failure)?.check().map_err(ModelError::codec)?;
+            }
+            let indexed_schema = format!("{schema} DEFINE INDEX populated_value ON {table} FIELDS value;");
+            loader.install_declarations(&indexed_schema, "installer populated index control").await?;
             loader
-                .install_declarations(&schema, "installer retry control")
+                .install_declarations(&indexed_schema, "installer retry control")
                 .await?;
+            let mut response = client.query(format!("INFO FOR INDEX populated_value ON {table}; SELECT VALUE id FROM {table} WITH INDEX populated_value WHERE value='populated';"))
+                .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            let readiness: Value = response.take(0).map_err(ModelError::codec)?;
+            if !installation_index_ready(&readiness)? { return Err(ModelError::Conflict("installer returned before index ready")); }
+            let selected: Vec<RecordId> = response.take(1).map_err(ModelError::codec)?;
+            if selected.len()!=256 { return Err(ModelError::Conflict("installer populated index incomplete")); }
+            if loader.install_declarations(&indexed_schema.replace("FIELDS value", "FIELDS id"), "installer index drift control").await.is_ok() {
+                return Err(ModelError::Conflict("installer accepted conflicting index"));
+            }
             if loader
                 .install_declarations(
                     &schema.replace("TYPE string", "TYPE int"),
@@ -979,7 +1126,7 @@ mod tests {
                 ));
             }
             let actual = loader.installation_inventory().await?;
-            if installation_definitions(&schema)?
+            if installation_definitions(&indexed_schema)?
                 .iter()
                 .any(|definition| !actual.contains(definition))
             {
@@ -1016,9 +1163,8 @@ mod tests {
         let search = crate::materialization::native_definitions();
         let blueprint = |digest: &str| {
             format!(
-                "{}{}DEFINE FUNCTION fn::lctx_operation_definition() {{ RETURN '{digest}'; }};\n",
-                search,
-                crate::materialization::library_definitions()
+                "{}DEFINE FUNCTION fn::lctx_operation_definition() {{ RETURN '{digest}'; }};\n",
+                search
             )
         };
         let first = blueprint(&"0".repeat(64));

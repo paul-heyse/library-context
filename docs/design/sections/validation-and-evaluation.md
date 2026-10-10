@@ -98,7 +98,7 @@ real-provider fixtures, served round trips) are kept separate from derived valid
 `ORDER BY`; every `row_number()` ends in a unique tie-break; every cast in validation code uses
 `safe: false`.
 
-> Decision: ADR-0143, ADR-0117, ADR-0015
+> Decision: ADR-0145, ADR-0117, ADR-0015
 
 ### §8.1 Independent oracles (the validation lane)
 

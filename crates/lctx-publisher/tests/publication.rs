@@ -112,6 +112,7 @@ async fn restored_derived_excess_is_refused(
     definitions: &str,
     table: &'static str,
 ) {
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
     assert_eq!(
         reader.handle(),
@@ -127,7 +128,7 @@ async fn restored_derived_excess_is_refused(
             .filter(|binding| binding.boundary.is_none())
             .map(|binding| binding.view.identity)
             .collect(),
-    );
+    ).with_budget(&native_read_budget);
     let mut response=reader.client().query("SELECT node AS payload,node.anchor AS anchor FROM compiler_view_member WHERE view IN $lctx_views AND node.semantic_type='source_artifacts' LIMIT 1").bind(reader.view_bindings()).await.unwrap().check().unwrap();
     let targets: Vec<Object> = response.take(0).unwrap();
     let target = match targets[0].get("anchor").unwrap() {
@@ -372,7 +373,7 @@ async fn publication_control() {
         handle.clone(),
     )
     .await
-    .unwrap());
+    .unwrap().with_budget(workspace.budget()));
     let viewer = viewer_owner.as_ref().unwrap();
     let marker: Vec<String> = viewer
         .query(
@@ -643,6 +644,147 @@ async fn finish_small_publication<const N: usize>(
     cleanup.unwrap();
 }
 
+fn logical_backup_rows(
+    path: &std::path::Path,
+) -> std::collections::BTreeMap<
+    lctx_surrealdb::surrealdb::types::RecordId,
+    lctx_surrealdb::surrealdb::types::Value,
+> {
+    use lctx_surrealdb::surrealdb::types::Value;
+    let mut dump = backup_decode::DataDump::new(std::fs::File::open(path).unwrap());
+    let mut inventory = std::collections::BTreeMap::new();
+    while let Some(item) = dump.next().unwrap() {
+        if let backup_decode::Item::Rows(rows) = item {
+            for row in rows {
+                let Value::Object(object) = &row else { panic!("logical backup object"); };
+                let Some(Value::RecordId(id)) = object.get("id") else { panic!("logical backup identity"); };
+                assert!(inventory.insert(id.clone(), row).is_none(), "duplicate logical backup row");
+            }
+        }
+    }
+    inventory
+}
+
+// Spend successive production retirement passes on the same durable invocation; a
+// successful first bounded pass alone does not establish that the source is cold.
+// Shared content may remain retained by other publications; the test separately
+// establishes absence of this publication's source ownership and original bytes.
+async fn retire_publication_completely(
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+) -> Result<(), ModelError> {
+    let client = lctx_surrealdb::reader::connect(
+        &config.endpoint, &config.writer_credentials(),
+        config.namespace.as_str(), config.database.as_str(),
+    ).await?;
+    let result = async {
+        let mut progress = lctx_publisher::backup::retire(config, handle, true).await?;
+        loop {
+            if progress.remaining.is_empty() { return Ok(()); }
+            let next = lctx_surrealdb::control::resume_retirement(&client, progress.identity, 4096).await?;
+            if next == progress {
+                return Err(ModelError::Conflict("composed backup retirement made no progress"));
+            }
+            progress = next;
+        }
+    }.await;
+    let mut completion = completion::Completion::default();
+    completion.step("composed backup retirement session invalidation", client.invalidate().await.map_err(ModelError::codec));
+    completion::complete(result, completion)
+}
+
+#[tokio::test]
+async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_retirement() {
+    use lctx_surrealdb::surrealdb::types::{RecordId, Value};
+    let fixture = small_publication("selected_backup_composed").await.unwrap();
+    let definitions = lctx_surrealdb::materialization::native_definitions();
+    let reader_budget = resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap();
+    let mut unrelated_owner = None;
+    let mut churn_owner = None;
+    let mut restored_owner = None;
+    let observer = lctx_surrealdb::reader::connect(
+        &fixture.config.endpoint, &fixture.config.writer_credentials(),
+        fixture.config.namespace.as_str(), fixture.config.database.as_str(),
+    ).await.unwrap();
+    let outcome = AssertUnwindSafe(async {
+        let baseline = fixture.scratch.path().join("baseline.surql");
+        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
+        let expected = logical_backup_rows(&baseline);
+        for table in ["entity", "original", "original_chunk", "lex_occurs"] {
+            assert!(expected.keys().any(|id| id.table.as_str() == table), "selected fixture must exercise {table}");
+        }
+        unrelated_owner = Some(small_publication("selected_backup_unrelated_retained").await.unwrap());
+        let unrelated = unrelated_owner.as_ref().unwrap();
+        assert_ne!(fixture.handle.publication, unrelated.handle.publication);
+        for original in &unrelated.manifest.originals {
+            assert!(!expected.contains_key(&RecordId::new("original", original.source.0.hex())));
+        }
+        let output = fixture.scratch.path().join("composed.surql");
+        // These are actual independent production owners, not synthetic data mutations.
+        // join exercises concurrent calls; it does not establish which snapshot read
+        // overlaps a mutation. The external-transaction control covers that ordering.
+        let (backed_up, churned) = tokio::join!(
+            lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &output, &definitions),
+            async {
+                churn_owner = Some(small_publication("selected_backup_concurrent_publication").await.unwrap());
+                let churn = churn_owner.as_ref().unwrap();
+                retire_publication_completely(&churn.config, &churn.handle).await
+            },
+        );
+        backed_up.unwrap();
+        churned.unwrap();
+        assert_eq!(logical_backup_rows(&output), expected,
+            "unrelated retained payloads, publications and actual derived claims cannot enter the selected dump");
+        // The unrelated publication remains live across export and selected retirement.
+        lctx_publisher::inspection::audit(&unrelated.config, &unrelated.handle, &definitions).await.unwrap();
+        retire_publication_completely(&fixture.config, &fixture.handle).await.unwrap();
+        let mut absent = vec![RecordId::new("publication", fixture.handle.publication.hex())];
+        absent.extend(expected.keys().filter(|id| matches!(id.table.as_str(), "original" | "original_chunk" | "compiler_contribution" | "compiler_membership")).cloned());
+        for window in absent.chunks(128) {
+            let mut response = observer.query("SELECT VALUE id FROM $rows")
+                .bind(("rows", window.to_vec())).await.unwrap().check().unwrap();
+            let remaining: Vec<RecordId> = response.take(0).unwrap();
+            assert!(remaining.is_empty(), "cold restore cannot borrow source publication, contributions, memberships or original bytes: {remaining:?}");
+        }
+        assert!(NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone()).await.is_err(),
+            "source publication must be unavailable before independent admission");
+        let restored = lctx_publisher::backup::restore_publication(
+            &fixture.config, &output, fixture.handle.publication, &definitions,
+        ).await.unwrap();
+        assert_eq!(restored, fixture.handle);
+        assert!(!fixture.config.selection.exists(), "restore does not adopt an operator selection");
+        lctx_publisher::inspection::audit(&fixture.config, &restored, &definitions).await.unwrap();
+        restored_owner = Some(NativeReader::connect(&fixture.config.endpoint,
+            &fixture.config.writer_credentials(), restored).await.unwrap().with_budget(&reader_budget));
+        let reader = restored_owner.as_ref().unwrap();
+        assert_eq!(lctx_publisher::inspection::show(reader).await.unwrap().manifest.content(), fixture.manifest.content());
+        assert_eq!(fixture.manifest.originals.len(), 1);
+        for original in &fixture.manifest.originals {
+            let bytes = reader.original_bytes(original.source, 0, usize::try_from(original.byte_len).unwrap()).await.unwrap();
+            assert_eq!(bytes, fixture.source, "independent cold restore recovers every original byte");
+        }
+        let restored_dump = fixture.scratch.path().join("restored.surql");
+        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &restored_dump, &definitions).await.unwrap();
+        // Fresh physical contributors/bindings are intentionally new. Graph payloads,
+        // originals and actual derived integrity claims retain their exact source values.
+        let content = |rows: std::collections::BTreeMap<RecordId, Value>| rows.into_iter()
+            .filter(|(id, _)| !id.table.as_str().starts_with("compiler_")).collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(content(logical_backup_rows(&restored_dump)), content(expected));
+        lctx_publisher::inspection::audit(&unrelated.config, &unrelated.handle, &definitions).await.unwrap();
+    }).catch_unwind().await;
+    let mut completion = finalize_reader_owners([&mut restored_owner]).await;
+    completion.step("composed backup observer invalidation", observer.invalidate().await.map_err(ModelError::codec));
+    for owned in [Some(&fixture), unrelated_owner.as_ref(), churn_owner.as_ref()].into_iter().flatten() {
+        completion.step("composed backup publication retirement", retire_publication_completely(&owned.config, &owned.handle).await);
+    }
+    let cleanup = completion::complete(Ok(()), completion);
+    if let Err(primary) = outcome {
+        if let Err(secondary) = cleanup { eprintln!("composed backup assertion failed; owned cleanup also failed: {secondary:#?}"); }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
+}
+
 #[tokio::test]
 async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership() {
     cpg_extract::logging::init_logging();
@@ -658,11 +800,11 @@ async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership(
         let viewer = viewer_owner.as_ref().unwrap();
         config.select(&handle).unwrap();
     let backup = fixture.scratch.path().join("snapshot.surql");
-    lctx_publisher::backup::backup(&config, &handle, &backup)
+    lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
         .await
         .unwrap();
     assert!(
-        lctx_publisher::backup::backup(&config, &handle, &backup)
+        lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
             .await
             .is_err()
     );

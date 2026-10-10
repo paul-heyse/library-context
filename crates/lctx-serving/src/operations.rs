@@ -67,7 +67,7 @@ pub async fn dispatch(
     channels: &ChannelState,
     vector: Option<&QueryVector>,
     limits: &ResourceLimits,
-    retained: &crate::ranked_results::RankedResults,
+    retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<Response, ModelError> {
     let snapshot = reader.handle().clone();
@@ -223,12 +223,13 @@ async fn scores(
     member_mode: bool,
     units: crate::search::UnitScope,
     vector: Option<&QueryVector>,
-) -> Result<Vec<ranking::CandidateScore>, ModelError> {
-    let mut scores = Vec::new();
+    b:&ResourceBudget,
+) -> Result<crate::search::SearchRows<ranking::CandidateScore>, ModelError> {
+    let mut scores = crate::search::SearchRows::new(b);
     let policy = RankingPolicy::default();
     let inputs = inputs(domains);
     for family in families {
-        scores.extend(
+        scores.append(
             crate::search::lexical(
                 reader,
                 query,
@@ -239,11 +240,13 @@ async fn scores(
                 units,
                 128,
                 &policy,
+                b,
             )
             .await?,
-        );
+        )?;
         if let Some(v) = vector {
-            scores.extend(
+            let _projection=b.reserve("search-query-projection",1024*size_of::<f32>())?;
+            scores.append(
                 crate::search::vector(
                     reader,
                     &embedding::projection::project_prefix(&v.vector, 1024)
@@ -259,15 +262,16 @@ async fn scores(
                     units,
                     128,
                     &policy,
+                    b,
                 )
                 .await?,
-            );
+            )?;
         }
     }
     if let Some(v) = vector {
-        let full = crate::search::rescore_union(reader, v, &scores, &policy).await?;
+        let full = crate::search::rescore_union(reader, v, &scores, &policy,b).await?;
         scores.retain(|row| row.channel == ranking::Channel::Lexical);
-        scores.extend(full);
+        scores.append(full)?;
     }
     Ok(scores)
 }
@@ -324,7 +328,7 @@ async fn search_operations(
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
-    retained: &crate::ranked_results::RankedResults,
+    retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<SearchOperationsResponse, ModelError> {
     let domains = crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
@@ -349,6 +353,7 @@ async fn search_operations(
         true,
         crate::search::UnitScope::All,
         vector,
+        b,
     )
     .await?;
     let promoted = selected
@@ -390,6 +395,7 @@ async fn search_operations(
             .collect::<Vec<_>>();
         for c in matched {
             let p = candidates::packet(c, selected.prepared.data(), &domains)?;
+            retained.admit_copy(&hit).map_err(wire)?;
             values.push((hit.clone(), candidates::key(&p), p));
         }
     }
@@ -415,7 +421,7 @@ async fn search_evidence(
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
-    retained: &crate::ranked_results::RankedResults,
+    retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<SearchEvidenceResponse, ModelError> {
     let domains = crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
@@ -439,6 +445,7 @@ async fn search_evidence(
         false,
         crate::search::UnitScope::All,
         vector,
+        b,
     )
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
@@ -479,7 +486,7 @@ async fn search_capabilities(
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
-    retained: &crate::ranked_results::RankedResults,
+    retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<SearchCapabilitiesResponse, ModelError> {
     let domains = crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
@@ -492,6 +499,7 @@ async fn search_capabilities(
         false,
         crate::search::UnitScope::BriefOrigins,
         vector,
+        b,
     )
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
@@ -571,6 +579,7 @@ async fn search_capabilities(
                 .enumerate()
                 .filter(|(_, (_, id))| id == brief)
             {
+                retained.admit_copy(&(hit, key, &packet)).map_err(wire)?;
                 values.push((ordinal, hit.clone(), key, packet.clone()));
             }
         }

@@ -324,7 +324,7 @@ impl Workspace {
                 "native restoration requires an empty workspace",
             ));
         }
-        let contributions = self.native.contributions().await?;
+        let contributions = self.native.contributions(&self.budget).await?;
         let mut output_names = std::collections::BTreeSet::new();
         let mut owners = BTreeMap::new();
         let mut owner_charge = StateCharge::new(&self.budget, "compiler-completed-owners");
@@ -533,7 +533,7 @@ impl Workspace {
                 .saturating_mul(3)
                 .saturating_add(binding_bytes),
         )?;
-        let inventory = self.native.freeze_content().await?;
+        let inventory = self.native.freeze_content(&self.budget).await?;
         let expected_owners = self
             .completed_owners
             .lock()
@@ -834,9 +834,10 @@ impl Workspace {
         let (contexts, _contexts) = self.coverage_rows::<AnalysisContext>(&context_source)?;
         let native = self.native.clone();
         let calls = self.native_calls.clone();
+        let budget = self.budget.clone();
         let contributions = self.bridge.call(async move {
             calls
-                .call(async move { native.contributions().await })
+                .call(async move { native.contributions(&budget).await })
                 .await
         })?;
         let _descriptors = self.facts_descriptor_charge(&contributions)?;
@@ -928,9 +929,10 @@ impl Workspace {
             .coverage_rows_async::<AnalysisContext>(&context_source)
             .await?;
         let native = self.native.clone();
+        let budget = self.budget.clone();
         let contributions = self
             .native_calls
-            .call(async move { native.contributions().await })
+            .call(async move { native.contributions(&budget).await })
             .await?;
         let _descriptors = self.facts_descriptor_charge(&contributions)?;
         let value = self.availability_from_rows(
@@ -3687,6 +3689,7 @@ impl ProducerOutput {
                 .expect("checked producer outcome");
             let expected_outcome = outcome as i16;
             let native = self.workspace.native.clone();
+            let budget = self.workspace.budget.clone();
             let views = self
                 .workspace
                 .native_calls
@@ -3698,6 +3701,7 @@ impl ProducerOutput {
                             outcome,
                             &outputs,
                             &previous,
+                            &budget,
                         )
                         .await
                 })
@@ -4792,7 +4796,7 @@ mod tests {
         );
         let output = Arc::try_unwrap(output).ok().unwrap();
         output.finish(ProviderOutcome::Complete).await.unwrap();
-        let contributions = workspace.native().contributions().await.unwrap();
+        let contributions = workspace.native().contributions(workspace.budget()).await.unwrap();
         assert_eq!(contributions.len(), 1);
         assert_eq!(contributions[0].outputs.len(), 2);
         assert_eq!(workspace.completed::<Package>().unwrap().rows(), 0);
@@ -4817,7 +4821,7 @@ mod tests {
             [],
         );
         assert!(refused.declare_async::<Package>().await.is_err());
-        assert!(workspace.native().contributions().await.unwrap().is_empty());
+        assert!(workspace.native().contributions(workspace.budget()).await.unwrap().is_empty());
         assert!(refused.finish(ProviderOutcome::Complete).await.is_err());
         let duplicate = workspace.output(
             "duplicate-async",
@@ -5045,7 +5049,7 @@ mod tests {
             [],
         );
         output.finish(ProviderOutcome::Complete).await.unwrap();
-        let contributions = workspace.native().contributions().await.unwrap();
+        let contributions = workspace.native().contributions(workspace.budget()).await.unwrap();
         assert_eq!(contributions.len(), 1);
         assert!(contributions[0].spec.outputs.is_empty());
         assert!(contributions[0].outputs.is_empty());

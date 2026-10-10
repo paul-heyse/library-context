@@ -75,6 +75,26 @@ checked statement/application completion and physical EOF; late errors and cance
 their disposition. WS/HTTP alternatives require equivalent streaming, cancellation, terminal-error
 and backup contracts. No transport switch or dependency bump is implied.
 
+The owned server build route applies the pinned timeout-stack repair separately from the SDK
+backport. It retains the shipped default+CJK features and existing runtime deadlines. Source,
+lockfile, patches, compiler/build recipe and executable identity belong to its immutable descriptor:
+
+```sh
+uv run --no-sync python scripts/surrealdb_server.py --service-directory /absolute/private/service build
+just service maintenance --server-generation /absolute/private/service.tools/surreal/IDENTITY/record.json
+```
+
+Select the matching installation through `LCTX_SURREAL_SERVICE_CONFIG` when its location differs.
+Building publishes an owned executable generation without installing it. Explicit maintenance
+drains and stops the daemon, durably switches the unit and installation pointer, then verifies
+the exact executable/HTTP identity and both database scopes. A separate immutable handoff journal
+retains predecessor/successor generations and supports exact retry after interruption. During an
+interrupted native schema upgrade, handoff preserves its native operation, credentials and scope
+checkpoints and leaves admission closed; installer resume remains a separate action. Cold service
+archives carry descriptor and executable bytes and require neither source caches nor a rebuild.
+These mechanisms are source-accepted with mocked controls; the persisted coordinator records
+actual server build/adoption and native qualification separately.
+
 ## Compilation products and publication
 
 Compilation stages immutable model/codec-qualified payloads under a durable attempt. Full nominal
@@ -145,15 +165,16 @@ lctx snapshot restore main.surql --publication <64-hex-publication-digest>
 lctx snapshot retire build/native/handle.json --readers-stopped
 ```
 
-Logical backup retains the requested publication pin and uses one terminally checked database
-snapshot. RocksDB snapshot reads preserve rows retired concurrently, so unrelated retirement is
-not blocked by logical export. Canonical content, exact completed state and manifests survive;
-derived search and executable definitions
-are reconstructed. The owned exporter emits one record per statement to preserve finite parsing
-of admitted rows. A multi-manifest dump requires explicit publication selection. The convenience
-restore refuses ambiguity. Its inert recovery metadata references the current protected archive
-when available and names outstanding recovery obligations; that archive is a separate checkpoint.
-Credentials and live runtime authority never enter the logical dump.
+Logical backup retains the requested publication pin and selects its recoverable closure through
+bounded indexed reads in one external database transaction. The manifest, exact completed views,
+originals and pinned definition comparison metadata come from that same snapshot. Application
+terminals, physical EOF and explicit transaction cancellation must all succeed before staged bytes
+are durably published. RocksDB snapshot reads preserve concurrently retired rows. Unrelated
+retained publications are not exported. Actual selected role/search rows remain inert source
+claims: restore independently regenerates their target rows and compares the complete claims
+before admission. Executable definitions are generated from the pinned native blueprint, never
+executed from dump text. Credentials and live runtime authority never enter the logical dump.
+The protected whole-service archive remains a separate recovery checkpoint.
 
 `just service backup /absolute/private/service.tar` closes admission, drains borrowers/effects,
 stops only the owned daemon, captures its cold data, pinned binaries, private configuration,
@@ -163,17 +184,57 @@ stages without changing live state; `--apply` explicitly restores only the match
 installation/generation under maintenance. Recovery validates asset digests and preserves the
 predecessor until readiness succeeds. Failure keeps admission closed and retains recovery assets.
 
-For a maintenance-owned schema or executable-epoch transition, the **current build's**
-`lctx store --runtime-config INSTALLER_CONFIG init
---keep-closed` installs compatible declarations without reopening native admission. The maintenance
-owner must check and drain every affected database before explicitly reopening. The ordinary
-`init` command still opens after successful installation; uncertain initialization does not
-prove that all administrative effects have completed.
-Run this through `just service maintenance -- COMMAND` against the affected owned database.
-An executable policy change requires its new named epoch even when the base schema is unchanged.
-Readiness and stabilizing the existing maintenance executable do not install the current build's
-epoch; ordinary compilation/publication only verifies it. Checked installation preserves earlier
-epoch functions and refuses conflicting declarations.
+An installed control-format change uses the explicit journaled upgrade route:
+
+```sh
+just service maintenance --upgrade-installer /absolute/path/to/current/lctx
+```
+
+The owner closes and drains both databases, journals the exact old/new executable and schema
+identities privately, rotates credentials and restarts the owned daemon before native migration.
+The candidate verifies the exact source marker, adds checked declarations, translates legacy
+state with named outcome references and publishes the new marker last. The executable pointer
+moves only after both database checks succeed. An interrupted upgrade remains closed; repeat
+with the same candidate to reconcile its journal. Ordinary attachment and `store init` refuse
+an incompatible installed format. This transition is a schema migration.
+
+If the candidate itself is defective, the explicit recovery route is:
+
+```sh
+just service maintenance --replace-upgrade-installer /absolute/path/to/corrected/lctx
+```
+
+This creates a distinct immutable host successor and preserves the failed executable, private
+journal, native intent and rotated credentials. After drainage and owned-daemon restart, each
+unpublished scope must retain its exact closed source3 marker and absent/intent-only native journal.
+Partial declarations are reconciled; potentially translated unpublished scope refuses replacement.
+If a scope already published, replacement requires an identical complete target declaration plus
+its exact closed target4/current-generation marker, published native journal and durable completed
+checkpoint. That scope is preserved and skipped. Remaining scopes resume the original native
+migration operation; the new host operation owns the immutable candidate bundle and diagnostics.
+A different target is allowed only before any scope publishes. Ordinary resume still requires the
+same candidate. The persisted coordinator owns actual qualification; this route does not imply a
+successful migration. Installation uses concurrent index construction and waits for every desired
+index to report ready, including catalog-present indexes on a retry; source identity is unchanged.
+
+For compatible executable-epoch installation, run the current build's `lctx store
+--runtime-config INSTALLER_CONFIG init --keep-closed` through `just service maintenance -- COMMAND`.
+It preserves existing era/fencing watermarks and prior pinned functions. The owner checks and
+drains both databases before reopening. Ordinary compilation/publication verifies definitions
+and never installs them.
+
+Native history maintenance also requires closed admission, actual host borrower drainage and
+Root installer authority. `lctx store --runtime-config INSTALLER_CONFIG history qualify
+--evidence HASH` records the reviewed consumer qualification before `history cut` permanently
+closes the old issuance era. `history compact --limit 128` creates a bounded persisted collector;
+`history resume --identity HASH --limit 128` continues that exact collector. Named outcome
+references, unresolved work, provenance and permanent object/authorization fences survive.
+This is an explicit owner operation, never an automatic age-based deletion policy.
+`store recover --cleanup HASH --retirement HASH --limit 128` claims distinct current-era
+successors for exact interrupted obligations; it prints successor identities before continuation.
+Retrying a predecessor returns its existing successor and never refreshes the old request's era.
+Run these commands only through the service maintenance owner; a schema-ready marker alone
+is not evidence of drainage or permission to collect history.
 
 Restore parses closed literal data locally and lowers it through typed staging, independent
 semantic admission and trusted executable generation. Dump SQL is never sent as Root-authorized

@@ -408,6 +408,231 @@ def test_stale_preview_cannot_override_new_hold_or_tracked_reference(storage):
     assert (path / "output").is_file()
 
 
+@pytest.mark.parametrize(
+    ("text", "cited"),
+    [
+        ("{id}", True),
+        ("{path}", True),
+        ("[exact](build/short)", True),
+        ("[source relative](../build/short)", True),
+        ("`build/short/output`", True),
+        ("[encoded](<build/%73hort#details>)", True),
+        ("[unrelated](build/other)", False),
+        ("[undeclared ancestor](build)", False),
+        ("[remote](https://example.org/build/short)", False),
+        ("[remote](//example.org/build/short)", False),
+        ("`build/short output`", False),
+        ("[root](/) [dot](.) [parent](..)", False),
+        ("__unreadable_participant__", True),
+        ("{id} `http://[`", True),
+        ("[first](build/short) `http://[`", True),
+    ],
+)
+def test_prepared_reference_matching_preserves_branch_semantics(storage, text, cited):
+    path = storage.root / "build/short"
+    object_id = publish(storage, path)
+    release(storage, object_id)
+    source = storage.root / "docs/consumer.md"
+    references = storage.prepare_references([(source, text.format(id=object_id, path=path))])
+    decision = storage.disposition(storage.get(object_id), references=references)
+    expected = (
+        f"consumer coverage unavailable: {source}"
+        if text.startswith("__") else f"current tracked reference: {source}"
+    )
+    assert decision["reasons"] == ([expected] if cited else [])
+    assert decision["disposition"] == (
+        "retained" if text.startswith("__") else "unresolved" if cited else "eligible"
+    )
+
+
+def test_prepared_references_preserve_name_matches_reason_order_and_duplicates(storage):
+    path = storage.root / "long-component-name"
+    object_id = publish(storage, path)
+    release(storage, object_id)
+    first, second = storage.root / "first.md", storage.root / "second.md"
+    references = storage.prepare_references([
+        (first, path.name),
+        (second, "__missing_participant__"),
+        (first, f"[one]({path}) [two]({path}/output)"),
+    ])
+    decision = storage.disposition(storage.get(object_id), references=references)
+    assert decision["reasons"] == [
+        f"current tracked reference: {first}",
+        f"consumer coverage unavailable: {second}",
+        f"current tracked reference: {first}",
+    ]
+
+
+@pytest.fixture(
+    params=[("profile-raw", "compile-profile"), ("profile-report", "compile-profile-reports")]
+)
+def profile_scope(storage, request):
+    from harness import ProcessIdentity, write_json_atomic
+
+    category, component = request.param
+    storage.config.write_text(
+        storage.config.read_text() + f'\n[categories.{category}]\nowner="profile"\ngrace_days=0\n'
+    )
+    storage = lifecycle.Storage(root=storage.root, state=storage.state)
+    run = storage.root / "runs/run01"
+    run.mkdir(parents=True)
+    (run / "owner.lock").touch()
+    write_json_atomic(run / "record.json", {
+        "schema": 2, "id": "run01", "owner": ProcessIdentity.of().to_json(),
+        "child": None, "termination": "completed", "cleanup": {"status": "confirmed"},
+        "ended": lifecycle.now(),
+    })
+    parent_id = publish(storage, run)
+    release(storage, parent_id)
+    path = run / component
+    path.mkdir()
+    (path / "output").write_text("retained profile content")
+    object_id = storage.publish(
+        path, category, {"kind": "profile", "path": str(run)}, "control", managed=True,
+        parent=parent_id,
+    )
+    release(storage, object_id)
+    return storage, object_id, path
+
+
+@pytest.mark.parametrize(("text", "cited"), [
+    ("Run just compile-profile record; inspect compile-profile-reports afterward.", False),
+    ("`just compile-profile record --focus cpg-core`", False),
+    ("Generic component `{component}` is used by the profiler.", False),
+    ("Exact lifetime {id}", True),
+    ("Exact output {path}", True),
+    ("[exact](runs/run01/{component})", True),
+    ("[output](runs/run01/{component}/output)", True),
+    ("[declared run scope](runs/run01)", True),
+])
+def test_profile_tool_mentions_require_exact_lifetime_citation(profile_scope, text, cited):
+    storage, object_id, path = profile_scope
+    source = storage.root / "docs/consumer.md"
+    text = text.format(id=object_id, path=path, component=path.name)
+    decision = storage.disposition(storage.get(object_id), references=[(source, text)])
+    assert decision["reasons"] == ([f"current tracked reference: {source}"] if cited else [])
+    assert decision["disposition"] == ("unresolved" if cited else "eligible")
+    assert (path / "output").read_text() == "retained profile content"
+
+
+def test_profile_unique_basename_and_explicit_hold_remain_protective(profile_scope):
+    storage, object_id, path = profile_scope
+    unique = path.parent / "unique-profile-capture"
+    unique.mkdir()
+    row = storage.get(object_id)
+    unique_id = storage.publish(
+        unique, row["category"], row["owner"], "control", managed=True, parent=row["parent"]
+    )
+    release(storage, unique_id)
+    source = storage.root / "consumer.md"
+    decision = storage.disposition(storage.get(unique_id), references=[(source, unique.name)])
+    assert decision["reasons"] == [f"current tracked reference: {source}"]
+    storage.retain(object_id, "retained-evidence", "raw-replay")
+    decision = storage.disposition(storage.get(object_id), references=[(source, path.name)])
+    assert decision["reasons"] == ["consumer retained-evidence requires raw-replay"]
+    assert decision["disposition"] == "retained"
+
+
+@pytest.mark.parametrize("component", ["compile-profile", "compile-profile-reports"])
+def test_nonprofile_canonical_basename_keeps_existing_alias_behavior(storage, component):
+    path = storage.root / component
+    object_id = publish(storage, path)
+    release(storage, object_id)
+    source = storage.root / "consumer.md"
+    decision = storage.disposition(storage.get(object_id), references=[(source, component)])
+    assert decision["reasons"] == [f"current tracked reference: {source}"]
+
+
+def test_prepared_references_preserve_host_root_and_markdown_space_targets(storage):
+    host = storage.root.parent / "host"
+    path = host / "space name"
+    object_id = publish(storage, path)
+    release(storage, object_id)
+    storage.host["repositories"] = [str(host)]
+    source = storage.root / "docs/consumer.md"
+    references = storage.prepare_references([(source, "[capture](<space%20name>)")])
+    decision = storage.disposition(storage.get(object_id), references=references)
+    assert decision["reasons"] == [f"current tracked reference: {source}"]
+
+
+@pytest.mark.parametrize("changed_root", ["repository", "host"])
+def test_prepared_references_rebind_different_resolution_roots(storage, changed_root):
+    source = storage.root / "docs/consumer.md"
+    references = storage.prepare_references([(source, "[capture](short)")])
+    original_targets = list(references.targets(0))
+    assert storage.prepare_references(references) is references
+    other = lifecycle.Storage(
+        root=storage.root.parent / "other" if changed_root == "repository" else storage.root,
+        config=storage.config,
+        state=storage.state.parent / "other-state",
+    )
+    if changed_root == "host":
+        other.host["repositories"] = [str(storage.root.parent / "host")]
+        path = storage.root.parent / "host/short"
+    else:
+        path = other.root / "short"
+    object_id = publish(other, path)
+    release(other, object_id)
+    assert all(target != path for target, _ in original_targets)
+    assert other.prepare_references(references) is not references
+    decision = other.disposition(other.get(object_id), references=references)
+    assert decision["reasons"] == [f"current tracked reference: {source}"]
+
+
+def test_prepared_ancestor_citations_use_current_scope_status_before_effect(storage):
+    parent = storage.root / "build"
+    parent_id = publish(storage, parent)
+    child = parent / "short"
+    child_id = publish(storage, child, parent=parent_id)
+    release(storage, parent_id)
+    release(storage, child_id)
+    source = storage.root / "consumer.md"
+    references = storage.prepare_references([(source, "[scope](build)")])
+    with pytest.raises(lifecycle.Blocked, match="tracked reference"):
+        storage.retire(child_id, references=references)
+    # The fixture simulates a current tombstone while keeping the physical child present.
+    retired = storage.get(parent_id)
+    retired["retired_at"] = lifecycle.now()
+    storage.save(retired)
+    assert storage.retire(child_id, references=references)["action"] == "retired"
+    assert parent.is_dir()
+
+
+def test_plan_prepares_document_tokens_once_but_not_across_operations(storage, monkeypatch):
+    import urllib.parse
+
+    ids = []
+    for name in ("first", "second"):
+        object_id = publish(storage, storage.root / "build" / name)
+        release(storage, object_id)
+        ids.append(object_id)
+    source = storage.root / "consumer.md"
+    source.write_text("[first](build/first/output) [second](build/second/output)")
+    subprocess.run(["git", "-C", str(storage.root), "add", "consumer.md"], check=True)
+    calls = {"tokens": 0, "urls": 0, "records": 0}
+    findall, urlsplit, records = lifecycle.re.findall, urllib.parse.urlsplit, storage.records
+
+    def counted_findall(*args):
+        calls["tokens"] += 1
+        return findall(*args)
+
+    def counted_urlsplit(*args):
+        calls["urls"] += 1
+        return urlsplit(*args)
+
+    def counted_records():
+        calls["records"] += 1
+        return records()
+
+    monkeypatch.setattr(lifecycle.re, "findall", counted_findall)
+    monkeypatch.setattr(urllib.parse, "urlsplit", counted_urlsplit)
+    monkeypatch.setattr(storage, "records", counted_records)
+    assert all(row["disposition"] == "unresolved" for row in storage.plan(ids)["dispositions"])
+    assert calls == {"tokens": 1, "urls": 2, "records": 1}
+    storage.plan(ids)
+    assert calls == {"tokens": 2, "urls": 4, "records": 2}
+
+
 def test_unmanaged_exposure_remains_protected_after_release(storage):
     path = storage.root.parent / "legacy"
     object_id = publish(storage, path, managed=False)

@@ -920,6 +920,7 @@ async fn detached_transport_refuses_graph_and_retained_membership_disagreement()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_admission_refuses_unsupported_facts_with_consistent_hashes() {
+        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use datafusion::arrow::{array::{Array, BinaryArray}, ipc::reader::FileReader};
     use futures::TryStreamExt;
     use lctx_model::domain::{
@@ -964,7 +965,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     }
     assert!(omitted > 0);
     let views = candidate.native().complete_contribution(id, ProviderOutcome::Complete,
-        &relations, &BTreeMap::new()).await.unwrap();
+        &relations, &BTreeMap::new(), &native_operation_budget).await.unwrap();
     for relation in &relations {
         let view = views[relation.name()].clone();
         candidate.native().bind(CompletedBinding {
@@ -974,9 +975,9 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
             configuration: None,
         }).await.unwrap();
     }
-    candidate.native().verify_state().await.unwrap();
+    candidate.native().verify_state(&native_operation_budget).await.unwrap();
     let state_path = directory.path().join("coherent-completed-state.jsonl");
-    let state = candidate.native().export_state(&state_path).await.unwrap();
+    let state = candidate.native().export_state(&state_path, &native_operation_budget).await.unwrap();
 
     let importer = Workspace::new(candidate.model().clone(), WorkspaceOptions::default(),
         crate::native_fixture::store()).unwrap();
@@ -1005,10 +1006,10 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     }
     // This performs the full independent cold backing/membership/descriptor audit first.
     // No baseline manifest is relabelled as authority for the neutral owner's new lineage.
-    importer.native().import_state(&state_path, &state).await.unwrap();
+    importer.native().import_state(&state_path, &state, &native_operation_budget).await.unwrap();
     importer.restore(Profile::Catalog).await.unwrap();
-    assert_eq!(importer.native().completed_state().await.unwrap(), state);
-    let restored = importer.native().contributions().await.unwrap();
+    assert_eq!(importer.native().completed_state(&native_operation_budget).await.unwrap(), state);
+    let restored = importer.native().contributions(&native_operation_budget).await.unwrap();
     assert_eq!(restored.len(), 1);
     assert!(restored[0].spec.captured_binding.is_none());
     assert_eq!(restored[0].outputs[SyntaxSupport::NAME].rows, 0);

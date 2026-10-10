@@ -200,6 +200,24 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
     catalog_journey().await;
 }
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires retained admitted fixture via just fixture --serving NAME"]
+async fn absent_library_returns_unknown_library_without_broad_view_lowering() {
+    let viewer = lctx_surrealdb::config::ViewerConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_NATIVE_SERVING_CONFIG").expect("retained admitted serving fixture"),
+    )).unwrap();
+    let handle = viewer.selected().unwrap();
+    let reader = NativeReader::connect(&viewer.endpoint, &viewer.credentials(), handle).await.unwrap();
+    let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
+    let result = service.execute("browse_library", r#"{"library":"lctx-absent-library-revealing-control"}"#).await;
+    service.close().await;
+    drop(service);
+    let mut terminal = completion::Completion::default();
+    terminal.step("absent library reader close", reader.close().await);
+    terminal.step("absent library session invalidation", reader.client().invalidate().await.map_err(ModelError::codec));
+    let error = completion::complete(Ok(result), terminal).unwrap().unwrap_err();
+    assert_eq!(error.public_failure(),PublicFailure::new(FailureKind::UnknownLibrary));
+}
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires exclusive just service maintenance --native-clients"]
 async fn published_service_refuses_executable_epoch_drift_before_library_lookup() {
     assert!(
@@ -864,7 +882,7 @@ async fn catalog_journey() {
     // embedder or mutable-cache parameter and reconstructs search arrays from these exact bytes.
     tools_phase.finish(Terminal::Passed);
     let backup = scratch.path().join("canonical-values.surql");
-    lctx_publisher::backup::backup(&config, &handle, &backup)
+    lctx_publisher::backup::backup(&config, &handle, &backup, &lctx_serving::native_definitions())
         .await
         .unwrap();
     let restored =

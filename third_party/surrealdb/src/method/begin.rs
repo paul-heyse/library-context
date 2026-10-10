@@ -15,6 +15,19 @@ pub struct Begin<C: Connection> {
 	pub(super) client: Surreal<C>,
 }
 
+impl<C: Connection> Begin<C> {
+    /// Preserve the exact exporter session when transaction setup fails, so its owner can
+    /// explicitly invalidate it rather than relying on a dropped client notification.
+    pub async fn retain_on_error(self) -> std::result::Result<Transaction<C>, (crate::Error, Surreal<C>)> {
+        let client = self.client;
+        let result = async {
+            let router = client.inner.router.extract()?;
+            router.engine.begin(ctx(client.session_id)).await
+        }.await;
+        match result { Ok(id) => Ok(Transaction { id, client }), Err(error) => Err((error, client)) }
+    }
+}
+
 impl<C> IntoFuture for Begin<C>
 where
 	C: Connection,

@@ -29,7 +29,7 @@ pub(crate) struct Marker {
     pub manifest: Bytes,
     pub views: Bytes,
 }
-fn decode(row: Marker) -> Result<(SnapshotHandle, Manifest, Vec<CompletedBinding>), ModelError> {
+pub(crate) fn decode(row: Marker) -> Result<(SnapshotHandle, Manifest, Vec<CompletedBinding>), ModelError> {
     let handle: SnapshotHandle =
         serde_json::from_slice(&hex::decode(&row.handle).map_err(ModelError::codec)?)
             .map_err(ModelError::codec)?;
@@ -80,22 +80,23 @@ pub async fn show(reader: &NativeReader) -> Result<SnapshotDetails, ModelError> 
         .iter()
         .flat_map(|binding| binding.view.contributions.iter().map(|id| id.hex()))
         .collect::<std::collections::BTreeSet<_>>();
-    let mut vars = Variables::new();
-    vars.insert("logical", logical.into_iter().collect::<Vec<_>>());
-    let mut response=reader.client().query("SELECT VALUE descriptor FROM compiler_contribution WHERE completed=true AND logical IN $logical ORDER BY logical").bind(vars).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-    let descriptors: Vec<Bytes> = response.take(0).map_err(ModelError::codec)?;
     let mut exact = std::collections::BTreeMap::new();
-    for bytes in descriptors {
-        let contribution: CompletedContribution =
-            serde_json::from_slice(&bytes).map_err(ModelError::codec)?;
-        let identity = contribution.identity()?;
-        if let Some(previous) = exact.insert(identity, (bytes.clone(), contribution)) {
-            if previous.0 != bytes {
-                return Err(ModelError::Conflict(
-                    "logical contribution descriptor collision",
-                ));
+    for logical in logical {
+        let mut vars = Variables::new(); vars.insert("logical", logical);
+        let mut rows = reader.stream_prepared(lctx_surrealdb::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT descriptor FROM compiler_contribution WITH INDEX logical_contribution WHERE completed=true AND logical=$logical ORDER BY id".into()])?)?;
+        let result = async {
+            while let Some(value) = rows.next().await? {
+                let lctx_surrealdb::surrealdb::types::Value::Object(row) = value else { return Err(ModelError::Schema("inspection contributor object")); };
+                let Some(lctx_surrealdb::surrealdb::types::Value::Bytes(bytes)) = row.get("descriptor") else { return Err(ModelError::Schema("inspection contributor descriptor")); };
+                let contribution: CompletedContribution = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+                let identity = contribution.identity()?;
+                if let Some(previous) = exact.insert(identity, (bytes.clone(), contribution)) {
+                    if previous.0 != *bytes { return Err(ModelError::Conflict("logical contribution descriptor collision")); }
+                }
             }
-        }
+            Ok(())
+        }.await;
+        let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("inspection contributor drainage", rows.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
     }
     let contributions = exact
         .into_values()
@@ -165,53 +166,68 @@ pub async fn audit(
     {
         return Err(ModelError::Conflict("audit installation identity"));
     }
+    // An owned driver retains the pin/session through caller cancellation. Dropping the
+    // JoinHandle transfers delivery only; the driver still joins every native tail and reports
+    // cleanup uncertainty before releasing authority.
+    let config = config.clone();
+    let handle = handle.clone();
+    let native_definitions = native_definitions.to_owned();
+    crate::owned_read::run("publication audit", move |cancel| async move { audit_owned(&config, &handle, &native_definitions, &cancel).await }).await
+}
+async fn audit_owned(
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+    native_definitions: &str,
+    cancel: &crate::owned_read::Cancellation,
+) -> Result<(), ModelError> {
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(cpg_core::workspace::WorkspaceOptions::default().memory_bytes)?;
     let reader = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         handle.clone(),
-    )
-    .await?;
+    ).await?.with_budget(&budget).with_read_cancellation(cancel.flag());
+    let mut pin_guard = reader.protect_terminal_close();
+    let mut owner = None;
     let result = async {
+        cancel.check()?;
         let (manifest, bindings) = marker(reader.client(), handle).await?;
         if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
             return Err(ModelError::Conflict("audit semantic contract"));
         }
-        let compiler = lctx_surrealdb::compiler::NativeCompilerStore::from_publication(
-            reader.shared_client(),
-            config.namespace.clone(),
-            config.database.clone(),
-            bindings.clone(),
-        )
-        .await?;
-        compiler.verify_state().await?;
-        if compiler.completed_state().await? != manifest.completed_state {
+        let compiler = lctx_surrealdb::compiler::NativeCompilerStore::publication_owner(
+            reader.shared_client(), config.namespace.clone(), config.database.clone(), bindings.clone(),
+        )?;
+        compiler.set_read_cancellation(cancel.flag())?;
+        owner = Some(compiler.clone());
+        let capture = compiler.capture_audit(&budget).await?;
+        cancel.check()?;
+        compiler.verify_captured(&capture).await?;
+        cancel.check()?;
+        if compiler.completed_state_captured(&capture).await? != manifest.completed_state {
             return Err(ModelError::Conflict("audit exact completed state"));
         }
         let loader = Loader::for_views(
             reader.shared_client(),
-            bindings
-                .iter()
-                .filter(|binding| binding.boundary.is_none())
-                .map(|binding| binding.view.identity)
-                .collect(),
-        );
+            bindings.iter().filter(|binding| binding.boundary.is_none())
+                .map(|binding| binding.view.identity).collect(),
+        ).with_budget(&budget).with_read_cancellation(cancel.flag());
+        cancel.check()?;
         loader.reconcile(&manifest).await?;
+        cancel.check()?;
         crate::search::reconcile_search(&loader).await?;
+        cancel.check()?;
         if crate::verify_realization(&loader, native_definitions).await? != handle.realization {
             return Err(ModelError::Conflict("audit pinned realization"));
         }
         Ok(())
-    }
-    .await;
-    let mut completion = lctx_model::domain::completion::Completion::default();
-    completion.step("audit reader pin release", reader.close().await);
-    completion.step(
-        "audit session invalidation",
-        reader
-            .client()
-            .invalidate()
-            .await
-            .map_err(ModelError::codec),
-    );
+    }.await;
+    let mut completion = if let Some(owner) = owner {
+        owner.drain_report().await
+    } else {
+        lctx_model::domain::completion::Completion::default()
+    };
+    if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) || completion.local != lctx_model::domain::completion::LocalState::Terminal || completion.remote != lctx_model::domain::completion::RemoteState::Confirmed { reader.retain_unknown(); }
+    completion.step("audit reader pin release", pin_guard.close(&reader).await);
+    completion.step("audit session invalidation", reader.client().invalidate().await.map_err(ModelError::codec));
     lctx_model::domain::completion::complete(result, completion)
 }

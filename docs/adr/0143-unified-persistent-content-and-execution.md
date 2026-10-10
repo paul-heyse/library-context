@@ -1,10 +1,10 @@
 ---
 id: ADR-0143
 title: Share immutable native content through exact views and durable execution ownership
-status: accepted
+status: superseded
 date: 2026-10-09
 supersedes: [ADR-0138, ADR-0140]
-superseded-by: null
+superseded-by: ADR-0145
 design: ["§1.2", "§B2", "§B3", "§B7", "§B12", "§B13", "§4", "§5", "§6", "§14.2", "§15"]
 evidence: Proposed
 revisit: A supported writer or consumer cannot preserve exact view-relative meaning, immutable definition epochs, independent cold admission or durable effect certainty under shared storage.

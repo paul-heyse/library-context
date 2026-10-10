@@ -226,6 +226,7 @@ pub struct AdmittedArtifact {
     _manifest_charge: StateCharge,
 }
 impl AdmittedArtifact {
+    pub fn budget(&self) -> &ResourceBudget { self.workspace.budget() }
     pub fn native(&self) -> &Arc<lctx_surrealdb::compiler::NativeCompilerStore> {
         self.workspace.native()
     }
@@ -389,7 +390,7 @@ impl AdmittedArtifact {
         }
         let state = self
             .native()
-            .export_state(&staged.path().join("completed-state.jsonl"))
+            .export_state(&staged.path().join("completed-state.jsonl"), self.workspace.budget())
             .await?;
         if state != self.manifest.completed_state {
             return Err(ModelError::Conflict("admitted completed state changed"));
@@ -458,6 +459,7 @@ impl VerifiedExport {
     {
         crate::native_canonical::assertions(self.workspace.clone()).await
     }
+    pub fn budget(&self) -> &ResourceBudget { self.workspace.budget() }
     pub fn native(&self) -> &Arc<lctx_surrealdb::compiler::NativeCompilerStore> {
         self.workspace.native()
     }
@@ -938,8 +940,9 @@ async fn readmit_detached(
     let native = runtime.native().clone();
     let path = path.join("completed-state.jsonl");
     let state = manifest.completed_state.clone();
+    let budget = runtime.budget().clone();
     runtime
-        .native_call(async move { native.import_state(&path, &state).await })
+        .native_call(async move { native.import_state(&path, &state, &budget).await })
         .await?;
     runtime.restore(manifest.profile).await?;
     verify_restored(runtime, manifest).await.map(|_| ())
@@ -952,6 +955,7 @@ pub struct RestoredAdmission {
     _manifest_charge: StateCharge,
 }
 impl RestoredAdmission {
+    pub fn budget(&self) -> &ResourceBudget { self.workspace.budget() }
     pub fn native(&self) -> &Arc<lctx_surrealdb::compiler::NativeCompilerStore> {
         self.workspace.native()
     }

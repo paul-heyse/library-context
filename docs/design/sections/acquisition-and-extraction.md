@@ -3,7 +3,7 @@
 **Implemented / Tested, 2026-09-30, at the qualified facts frontier.** [§15](semantic-model.md) owns the current typed
 facts contracts (ADR-0085/0086/0089/0092). Acquisition captures the locked installed closure and
 selected pinned corpus before extraction. `lctx-model::domain` owns source, occurrence, attribution,
-call, type, flow, document and deployment meaning. **Shared compiler route Accepted / implementation in progress, 2026-10-09 (ADR-0143):**
+call, type, flow, document and deployment meaning. **Shared compiler route Accepted / implementation in progress, 2026-10-09 (ADR-0145):**
 providers stream bounded typed batches into attempt-owned contributions in the installed shared
 native database. Immutable content and exact completed views feed normalization, analysis and
 catalog; ordinary compilation admits these views and publishes a manifest over them. `catalog` reports Flow NotRequested;
@@ -22,7 +22,7 @@ model kernels remain store-independent; actual producer-to-consumer controls use
 fixtures. Real-library qualification and operator activation remain held. Acquisition requirements
 own input verification, while typed row declarations own emission.
 
-> Decision: ADR-0143, ADR-0131
+> Decision: ADR-0145, ADR-0131
 
 ## §4 Pipeline
 
@@ -35,7 +35,7 @@ and explicit NotRequested reporting ownership. Availability and manifests consum
 result. The [correction plan PC2](../../plans/persisted-execution-corrections-plan_2026-10-07.md#32-captured-suppliers-bind-a-declared-semantic-contract--f02)
 owns the migration and its independently expected compatibility controls.
 
-> Decision: ADR-0143
+> Decision: ADR-0145
 
 **Implemented / acceptance in progress, 2026-10-08 (ADR-0137).** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.
 
@@ -195,7 +195,7 @@ A failed or interrupted attempt exposes no completed artifact or publication. Po
 generation readers are retired. [Storage §6](storage-and-publication.md) owns realization;
 the [persisted plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current acceptance.
 
-> Decision: ADR-0143, ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
+> Decision: ADR-0145, ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
 
 
 ### §4.1 Stages

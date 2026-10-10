@@ -14,7 +14,7 @@ pub enum AuthenticationScope {
     Root,
     Database,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]

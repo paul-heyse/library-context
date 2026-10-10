@@ -316,3 +316,65 @@ Final assembled acceptance and daily timer/release-hook activation are **not_run
 UP9, BC3 and publication receipts retain their original scopes. Scheduling stays off until SM8
 passes; missing or changed qualification blocks effects. No recovered-space or whole-plan closure
 claim is made.
+
+**Operator-authorized backlog cleanup, 2026-10-10, in progress.** Fresh allocated accounting
+finds approximately109GiB under this checkout's `build/`,106GiB under `build/runs`; five retained
+compiler captures dominate that backlog. These readings establish location, not deletion authority.
+Their terminal owners lacked confirmed cleanup. Exact owner recovery `20261010T183211.700Z-5ce72c`
+passed after proving each owner dead and its original process group gone; historical outcomes,
+capture bytes, retention markers and explicit replay consumers remain intact. The operator explicitly selected **keep reports and receipts; retire obsolete raw captures**.
+Independent report/receipt preservation and actual reference migration precede the named raw
+consumer release and owner-checked retirement; no raw replay archive is requested.
+
+The first full read-only inventory/plan scans exposed repeated citation parsing/path resolution
+per object. Only those scans were cancelled (`20261010T182720.573Z-817a8d` and
+`20261010T182720.739Z-5fc87d`, confirmed cleanup); native migration/builds were untouched.
+Operation-local lazy reference preparation now preserves direct/sentinel/first-match semantics
+and fresh current-scope protection before every effect. Focused lifecycle/review/root/CLI controls
+passed78 in3.60s on the identified correction. Inventory `20261010T183431.265Z-1617ba` passed
+in40s with confirmed cleanup:173 repository dispositions,149retained/14unresolved/10active,
+zero eligible objects. This is an actual command duration, not a comparative speed claim.
+Authorized lifecycle sweep `20261010T183557.250Z-a39de1` **passed**,70s with confirmed cleanup,
+no retirement actions and no reclaimed bytes. The final snapshot reuses preparation only for
+identical ordered resolution roots; distinct repository/host roots rebuild from original documents.
+Final combined lifecycle/review/root/review-controls/CLI controls passed80 in3.65s, source
+`b5b01439ba918a62e61625b4561fb4a69620a35a8194353a1c63766490ee2307`.
+No retained-capture retirement is claimed; policy and retirement authority are unchanged.
+
+The completed inventory also exposed false citation holds: generic `compile-profile` command
+mentions matched every canonical profile directory basename. The narrow profile-owner correction
+removes that alias shortcut for the shared raw/report component names only, preserving exact IDs,
+full/resolved child paths, declared ancestor scopes, unique names, coverage errors and consumer
+holds. Combined focused controls **passed100 in4.93s**; independent bounded source inspection
+accepted source `7c4987e4a698fb434d224f658fb8abb09b85d471c5df81420b5f88e753c1d0cd`.
+Actual retirement and independent preservation verification passed as recorded below.
+
+**Backlog retirement completed,2026-10-10.** Preservation run
+`20261010T185122.583Z-31eb56` passed with confirmed cleanup:1,035 nonraw files, including
+all decoded reports, assessments, source/configuration provenance and original run receipts,
+were copied and hash-verified under five independently held `compile-profile-reports/` roots.
+The reviewed preparation program has SHA256
+`c8538ebb8632c204b46de8ed82d0a6eb7e13de592fbba000443c5251734f9261`.
+Current exact evidence links were redirected to their preserved destinations. Named raw consumers
+were explicitly released; owner-checked adoption and the targeted `just storage sweep` retired
+only the five previously identified raw objects. Original run retention markers were restored.
+
+The lifecycle action receipt `85f23a33-188b-4323-a0cf-01ab161da73d` records all five actual
+retirements. Wrapper `20261010T185413.080Z-2ab732` **failed**,exit1, only when saving its aggregate
+receipt after those effects: its run root was not private enough for `durable_json`. No deletion
+was retried. Recovery verification `20261010T185615.043Z-6fe7c2` **passed**,exit0/confirmed cleanup,
+independently checking every preserved hash, each retired descriptor, absent original/quarantine,
+retained run receipt/marker and the authoritative lifecycle action receipt. Its
+[cleanup receipt](../../build/runs/20261010T185615.043Z-6fe7c2/cleanup/cleanup-receipt.json)
+retains the actual action receipt and the preparation/retirement/recovery program sources.
+
+Preservation-time observations account for105,266,143,232 allocated bytes (about98.0GiB) of
+retired raw samples. Independent retained reports/receipts occupy4,028,424,192 allocated bytes
+(about3.75GiB). These are scoped allocation observations, not attribution of concurrent free-space
+changes or a whole-repository cleanup claim; unseen external hardlinks/shared extents remain an
+accounting limit. No raw replay archive is retained, by the operator's explicit choice. Active
+migration/builds, shared compiler/native caches, native persistent content, recovery archives,
+unrelated legacy roots and dirty worktrees were not retired. SM8 qualification/automation remain
+separate and pending.
+
+Scoped `uv run --no-sync pyrefly check scripts/storage_lifecycle.py tests/scripts/test_storage_lifecycle.py` **passed**,zero errors. Scoped Ruff initially found two overlong declarations; line wrapping only corrected them, and `uv run --no-sync ruff check scripts/storage_lifecycle.py tests/scripts/test_storage_lifecycle.py` **passed**. No lifecycle semantics changed after the100-control/source-review receipt.

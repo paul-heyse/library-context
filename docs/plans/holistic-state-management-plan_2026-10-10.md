@@ -9,6 +9,14 @@ owns all scheduled finding dispositions; its §9.1 owns actual execution receipt
 and prerequisites below are not another progress ledger. Existing UP/NE/PC/GK/GR acceptance
 remains open. Authoring this plan performs no production, database or storage operation.
 
+**SurrealDB architecture refinement, Proposed,2026-10-10:** the
+[architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
+develops complete installed migration/recovery, operation-valid catalog preparation, relation-aware
+limited reads, FULLTEXT/exact nomination, per-node batched occurrence hydration and lifecycle sets.
+It replaces conflicting open physical routes; HS meaning/lifetime/cold/terminal obligations survive.
+Coordinator §8 owns SA/HS dispositions and §9.1 actual receipts. HS source implementation is not
+acceptance of these further corrections.
+
 ## 1. Outcome, baseline and foundation assessment
 
 Compiling, publishing, inspecting, recovering and serving an exact publication should carry
@@ -65,6 +73,12 @@ HS0 settles exact ADR disposition from the selected contracts before changing ef
 formats. This is a scheduled architectural decision update, not a new approval round. Do not
 rewrite an accepted ADR to describe Proposed code as implemented. Other corrections refine
 existing ownership/resource contracts; update their owners alongside the corresponding changes.
+
+The architecture review's distinct RC01 and supplemental SA-RC04 were accepted on2026-10-10.
+Companion §2/§3 and SA0–SA3 own their migration decision, complete transition, atomic page progress
+and checked partially translated successor. HS5/HS6 lifecycle successors are not schema-upgrade
+successors. Conditional narrowing remains the existing holistic-RC03; transport retains UP-RC07.
+No duplicate approval, migration journal or finding ledger is introduced here.
 
 ## 3. Shared semantic closure and owned audit
 
@@ -136,6 +150,12 @@ and late-window occurrences. Unrelated state must not expand sparse preparation 
 selected search quota. Statement terminals, outer terminal and physical EOF remain checked.
 Attributing the historical concat error to one statement is useful investigation, not a gate
 on correcting independently established complete-array amplification.
+
+Architecture SA5/SA6 refine HS4 at the remaining limited-relation and lexical/occurrence consumers:
+per-node membership with alias provenance, ordered relevant-relation streams and table-source plus
+exact-equality nomination precede all-dependency eligibility, frozen ranking and quotas. Complete
+reconciliation keeps its complete route. Architecture SA4 removes repeated unchanged catalog
+preparation without replacing actual readback or terminal index readiness.
 
 ## 5. Native lifecycle: bounded effects and sufficient retained authority
 
@@ -295,6 +315,14 @@ HS-F09 is a local policy correction independent of the retained-entry refactor a
 
 ## 8. Execution packages and dependencies
 
+The architecture companion's SA1–SA3 qualify installed schema recovery before further native
+execution; they are distinct from HS6 retirement/cleanup recovery. SA4/SA5/SA6 replace amplified
+remaining HS4 preparation/read/search routes. SA7 batches HS5/HS6 per-item crossings while keeping
+their guards, reference horizons and successor obligations. SA8 routes overlapping transport,
+cache/lifetime, guard, engine and legacy-release investigations through existing owners; its §7
+owns the questions/evidence/conditional triggers. HS10 does not run a duplicate investigation.
+SA9 joins this plan's HS11 and UP9 once; all surviving runtime obligations remain explicit.
+
 Package order expresses capability dependencies, not a requirement to wait for every prior row.
 One integrator owns shared model/native schema, compiler/audit surfaces and final acceptance.
 Independent packages may proceed together when editing/maintenance ownership is compatible.
@@ -356,6 +384,7 @@ is distinct. Do not introduce blanket invalidation or a second orchestration dep
 | Graph GK1/2/4/5/6/7 and reuse GR2/3/4/5/6 | Last actual consumer, charged ranked preparation and conditional local reuse; full membership/absence, equality, exact graph scope and original final acceptance survive. |
 | Coroutine CU4/CU6 and compilation BC3/BC5 | Preserve small async boundaries/finite kernels; integrate affected final-source correctness once. Test-profile adoption stays a separate BC3 decision. |
 | Storage native delegation / SM8 | Invoke native retirement/compaction through its owner; never filesystem-purge native history. Host service-survival/storage acceptance remains separate. |
+| SurrealDB architecture SA0–SA9 | Complete compatible transition and native atomic progress/host mixed-state successor before another installed attempt; selective reader/search and bounded lifecycle sets replace amplified routes. HS/UP semantics, independent cold checks and current-source qualification survive. |
 
 Migrate semantic declarations, all physical/portable consumers and installed schema together.
 When guard/era/codec changes require a schema migration, use explicit maintenance after actual

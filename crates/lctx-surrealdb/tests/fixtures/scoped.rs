@@ -97,24 +97,22 @@ pub async fn reader(
         store.write_batch(&contribution, relation, &batch).await?;
     }
     let views = store
-        .complete_contribution(
-            contribution,
+        .complete_contribution(contribution,
             ProviderOutcome::Complete,
             &relations,
-            &BTreeMap::new(),
-        )
+            &BTreeMap::new(), &budget)
         .await?;
     let client = lctx_surrealdb::compiler::check_installation(config).await?;
     let loader = lctx_surrealdb::Loader::for_attempt_views(
         client.clone(),
         store.attempt(),
         views.values().map(|view| view.identity).collect(),
-    );
+    ).with_budget(&budget);
     loader.entity_references(entities).await?;
     loader.assertion_references(assertions).await?;
     let views = views.values().map(|v| v.identity).collect::<Vec<_>>();
     Ok(ScopedFixture {
-        reader: NativeReader::for_views(client, views.clone()),
+        reader: NativeReader::for_views(client, views.clone()).with_budget(&budget),
         store,
         contribution,
         views,

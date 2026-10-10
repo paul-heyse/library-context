@@ -18,8 +18,16 @@ fn config() -> serde_json::Value {
         .expect("installed validation configuration is required");
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
+async fn selected_rows<Context>(reader: &NativeReader<Context>, predicate: &str) -> Vec<Value> {
+    let mut rows = reader.selected_payload_rows("entity", predicate, Variables::new(), vec![], "id", None).unwrap();
+    let mut result = Vec::new(); while let Some(row) = rows.next().await.unwrap() { result.push(row); }
+    rows.drain_transport().await.unwrap(); result
+}
+fn body(row: &Value) -> &surrealdb::types::Object { row.as_object().unwrap().get("body").unwrap().as_object().unwrap() }
 #[tokio::test]
 async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisions() {
+    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_surrealdb::compiler::NativeCompilerStore;
     use std::collections::{BTreeMap, BTreeSet};
     let cfg = scoped::config();
@@ -87,12 +95,10 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             .await
             .unwrap();
         let views = store
-            .complete_contribution(
-                owner,
+            .complete_contribution(owner,
                 stages::ProviderOutcome::Complete,
                 &relations,
-                &BTreeMap::new(),
-            )
+                &BTreeMap::new(), &native_operation_budget)
             .await
             .unwrap();
         if producer == "selected" {
@@ -104,7 +110,7 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             .await
             .unwrap(),
         selected_views,
-    );
+    ).with_budget(&native_read_budget);
     let alias = normalized::entities::EntityRef::Place { place: place.id() };
     let result = async {
         let aliases = native
@@ -365,16 +371,9 @@ async fn native_codec_graph_search_and_immutable_winners() {
         "key",
         reader::target_id(Target::Entity(EntityId::of(package.id()))),
     );
-    let adjacency: Vec<String> = reader
-        .query(
-            format!(
-                "SELECT VALUE in.semantic_type FROM reference WHERE out=$key AND ({})",
-                reader.selected_node_predicate("in")
-            ),
-            b,
-        )
-        .await
-        .unwrap();
+    let candidates: Vec<surrealdb::types::Object> = reader.query_native("SELECT in AS id,in.semantic_type AS semantic_type FROM reference WITH INDEX incoming WHERE out=$key", b).await.unwrap();
+    let selected = reader.prepare_selection().await.unwrap().unwrap();
+    let adjacency = candidates.into_iter().filter(|row| selected.contains_all(&[<surrealdb::types::RecordId as surrealdb::types::SurrealValue>::from_value(row.get("id").unwrap().clone()).unwrap()]).unwrap()).map(|row| <String as surrealdb::types::SurrealValue>::from_value(row.get("semantic_type").unwrap().clone()).unwrap()).collect::<Vec<_>>();
     assert_eq!(adjacency, vec!["releases"]);
     // Raw SQL preserves flexible bodies; independent admission owns semantic closure.
     let mut bindings = Variables::new();
@@ -516,35 +515,13 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
     let native = &fixture.reader;
     let client = native.shared_client();
     let loader = Loader::new(client.clone());
-    let texts: Vec<String> = native
-        .query(
-            format!("SELECT VALUE body.text FROM entity WHERE semantic_type='retrieval_corpus_texts' AND ({})",native.selected_node_predicate("id")),
-            Variables::new(),
-        )
-        .await
-        .unwrap();
+    let texts = selected_rows(native, "semantic_type='retrieval_corpus_texts'").await.into_iter().map(|row| <String as surrealdb::types::SurrealValue>::from_value(body(&row).get("text").unwrap().clone()).unwrap()).collect::<Vec<_>>();
     assert_eq!(texts, vec![text.to_owned()]);
-    let titles: Vec<String> = native
-        .query(
-            format!("SELECT VALUE body.title FROM entity WHERE semantic_type='retrieval_units' AND ({})",native.selected_node_predicate("id")),
-            Variables::new(),
-        )
-        .await
-        .unwrap();
+    let titles = selected_rows(native, "semantic_type='retrieval_units'").await.into_iter().map(|row| <String as surrealdb::types::SurrealValue>::from_value(body(&row).get("title").unwrap().clone()).unwrap()).collect::<Vec<_>>();
     assert_eq!(titles, vec!["Usage scenario 雪".to_owned()]);
-    // Raw SDK values retain bytes/null tags; the reader's SerdeWrapper route serves ordinary
-    // serde models and cannot decode Value's separately tagged serde representation.
-    let mut response = native
-        .client()
-        .query(
-            format!("SELECT VALUE body FROM entity WHERE semantic_type='literal_values' AND ({}) ORDER BY subtype",native.selected_node_predicate("id")),
-        )
-        .bind(native.view_bindings())
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let literal_bodies: Vec<Value> = response.take(0).unwrap();
+    let mut literal_rows = selected_rows(native, "semantic_type='literal_values'").await;
+    literal_rows.sort_by_key(|row| row.as_object().unwrap().get("subtype").unwrap().clone());
+    let literal_bodies = literal_rows.iter().map(|row| Value::Object(body(row).clone())).collect::<Vec<_>>();
     assert_eq!(literal_bodies.len(), 2);
     let textual = literal_bodies[0].as_object().unwrap();
     let opaque_body = literal_bodies[1].as_object().unwrap();
@@ -598,4 +575,66 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
         "complete envelope comparison rejects raw flexible body drift"
     );
     fixture.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_budget_lifetimes() {
+    use lctx_surrealdb::prepared::PreparedQuery;
+    let config = scoped::config();
+    let nonce = lctx_surrealdb::control::fresh_identity("sparse-indexed-selection").unwrap();
+    let packages = (0..260).map(|ordinal| Package { name: format!("sparse-{}-{ordinal:04}", nonce.hex()) }).collect::<Vec<_>>();
+    let release = Release { package: packages[0].id(), version: "1".into() };
+    let place = value::Place {
+        root: serde_json::from_value(serde_json::to_value([13u8;16]).unwrap()).unwrap(),
+        path: serde_json::from_value(serde_json::to_value([17u8;16]).unwrap()).unwrap(),
+    };
+    let revision = source::SourceArtifact {
+        input: serde_json::from_value(serde_json::json!(nonce.0[..16])).unwrap(), path: "sparse.py".into(), content: nonce, byte_len: 1,
+    };
+    let mut entities = packages.iter().cloned().map(Entity::from).collect::<Vec<_>>();
+    entities.extend([Entity::from(release.clone()), Entity::from(place.clone()), Entity::from(revision.clone())]);
+    let selected = scoped::reader(&config, &entities, &[]).await.unwrap();
+    let foreign_package = Package { name: format!("foreign-{}", nonce.hex()) };
+    let mut changed = revision.clone(); changed.byte_len = 2;
+    let foreign = scoped::reader(&config, &[Entity::from(foreign_package.clone()), Entity::from(changed)], &[]).await.unwrap();
+    let retained = selected.reader.resource_budget().unwrap();
+    let request = resources::ResourceBudget::scoped(&retained, 2 << 20).unwrap();
+    let reader = selected.reader.with_request_budget_clone(&request);
+    let retained_baseline = retained.reserved();
+    assert!(retained_baseline > 0);
+    let result = async {
+        let keys = vec![*packages[0].id().bytes(), *foreign_package.id().bytes()];
+        for _ in 0..3 {
+            assert_eq!(reader.records::<Package>(RecordSelection::Keys(keys.clone())).await?, vec![packages[0].clone()]);
+            assert_eq!(request.reserved(), 0, "each sparse read releases its cursor, nomination and sort scratch");
+        }
+        assert_eq!(reader.records::<Release>(RecordSelection::Scope { field: "package".into(), values: vec![serde_json::to_value(packages[0].id()).unwrap()] }).await?, vec![release]);
+        let alias = normalized::entities::EntityRef::Place { place: place.id() };
+        assert_eq!(reader.records::<normalized::entities::EntityRef>(RecordSelection::Keys(vec![*alias.id().bytes()])).await?, vec![alias]);
+        let mut bindings = Variables::new(); bindings.insert("type", Package::NAME); bindings.insert("keys", keys.iter().map(hex::encode).collect::<Vec<_>>());
+        let plan = reader.query_prepared_native::<Vec<Value>>(PreparedQuery::new(bindings, vec![], vec!["SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type=$type AND semantic_key IN $keys EXPLAIN".into()])?).await?;
+        assert!(format!("{plan:?}").contains("semantic_key"), "actual key nomination plan: {plan:?}");
+        let mut bindings = Variables::new(); bindings.insert("type", Release::NAME); bindings.insert("values", lctx_surrealdb::loader::json_value(serde_json::json!([packages[0].id()]))?);
+        let mut preparation = vec![];
+        let predicate = lctx_surrealdb::prepared::prepare_scope(&mut preparation, "record_scope", "$type", "package", "$values");
+        let plan = reader.query_prepared_native::<Vec<Value>>(PreparedQuery::new(bindings, preparation, vec![format!("SELECT id FROM entity WITH INDEX by_scope WHERE semantic_type=$type AND ({predicate}) EXPLAIN")])?).await?;
+        assert!(format!("{plan:?}").contains("by_scope"), "actual scope nomination plan: {plan:?}");
+        let mut views = selected.views.clone(); views.extend(foreign.views.iter().copied());
+        let conflicted = NativeReader::for_views(reader.shared_client(), views).with_budget(&retained).with_request_budget(&request);
+        let conflict = conflicted.records::<source::SourceArtifact>(RecordSelection::Keys(vec![*revision.id().bytes()])).await;
+        conflicted.close().await?; drop(conflicted);
+        assert!(conflict.is_err(), "two selected physical revisions cannot silently choose one nominal result");
+        Ok::<_, ModelError>(())
+    }.await;
+    let exact = reader.prepare_selection().await.unwrap().unwrap();
+    drop(reader);
+    let mut terminal = completion::Completion::default();
+    terminal.step("sparse selected fixture close", selected.close().await);
+    terminal.step("sparse foreign fixture close", foreign.close().await);
+    completion::complete(result, terminal).unwrap();
+    drop(selected); drop(foreign);
+    assert_eq!(request.reserved(), 0);
+    assert!(retained.reserved() > 0, "the immutable selected borrower retains its original charge after cache/owner release");
+    drop(exact);
+    assert_eq!(retained.reserved(), 0);
 }

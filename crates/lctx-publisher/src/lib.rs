@@ -186,6 +186,8 @@ mod search;
 pub use search::{materialize_search, reconcile_search};
 
 pub mod backup;
+mod selected_backup;
+mod owned_read;
 mod backup_import;
 mod restore;
 

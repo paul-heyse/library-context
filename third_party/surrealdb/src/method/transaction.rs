@@ -36,6 +36,20 @@ where
 		Cancel::from_transaction(self)
 	}
 
+	/// Cancel while retaining this exact session for explicit finalization, including when
+	/// acknowledgement is uncertain. Unlike cloning `Surreal`, this never creates a session.
+	pub async fn cancel_ref(&self) -> crate::Result<()> {
+		use crate::OnceLockExt;
+		let router = self.client.inner.router.extract()?;
+		router.engine.rollback(crate::conn::ctx(self.client.session_id), self.id).await
+	}
+
+	/// Invalidate the session that owns this transaction after all reads and cancellation
+	/// have reached their terminal outcome. This does not acknowledge a failed cancellation.
+	pub async fn invalidate_session(&self) -> crate::Result<()> {
+		self.client.invalidate().await
+	}
+
 	/// See [Surreal::query]
 	pub fn query<'client>(&'client self, query: impl Into<Cow<'client, str>>) -> Query<'client, C> {
 		self.client.query(query).with_transaction(self.id)

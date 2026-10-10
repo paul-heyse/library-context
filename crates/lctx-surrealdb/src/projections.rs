@@ -16,7 +16,7 @@ use lctx_model::domain::{
 };
 use serde::Serialize;
 use std::{collections::BTreeSet, io::Write};
-use surrealdb::types::{Bytes, RecordId, Variables};
+use surrealdb::types::{Bytes, RecordId, SurrealValue, Value, Variables};
 
 // These fields connect a source owner to its own projection records. They are traversed
 // only during ownership selection; resolved foreign endpoints get forward closure alone.
@@ -309,64 +309,75 @@ async fn hydrate<Context>(
         lctx_model::domain::graph::EntityId::of(key.input),
     ));
     bindings.insert("capture", capture);
-    let selected_entity = reader.selected_node_predicate("id");
-    let roots: Vec<RecordId> = reader.query_prepared_native(crate::prepared::PreparedQuery::new(bindings,preparation,vec![format!("RETURN array::concat(\
-        (SELECT VALUE id FROM entity WHERE ({selected_entity}) AND (anchor=$capture OR (semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)))),\
-        (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND ({selected_entity}) AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)),\
-        (SELECT VALUE id FROM entity WHERE semantic_type=$symbols AND ({selected_entity}) AND scope_keys CONTAINS $__projection_context_scope))")])?).await?;
-    let mut seen = BTreeSet::new();
-    let mut frontier: Vec<_> = roots
-        .into_iter()
-        .filter(|id| seen.insert(id.clone()))
-        .collect();
-    let mut charge = budget.reserve(
-        "native-projection-selection",
-        seen.len().saturating_mul(128),
-    )?;
-    // Ownership first: input isolates and every owned relationship are selected before following
-    // resolved endpoints. Context/provider identities cannot pull in unrelated input owners.
+    let mut seen = BTreeSet::new(); let mut charge = budget.reserve("native-projection-selection", 0)?;
+    let mut frontier = Vec::new();
+    for (table, predicate) in [
+        ("entity", "anchor=$capture OR (semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)) OR (semantic_type=$symbols AND scope_keys CONTAINS $__projection_context_scope)"),
+        ("assertion", "semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)"),
+    ] {
+        frontier.extend(projection_candidates(reader, format!("SELECT id FROM {table} WHERE {predicate}"), bindings.clone(), preparation.clone(), &mut seen, charge.as_mut(), budget).await?);
+    }
+    // Owner-first traversal retains isolates and owned relationships. Every native frontier
+    // argument is finite; selected membership is tested against the prepared disk cursor.
     while !frontier.is_empty() {
-        let mut vars = Variables::new();
-        vars.insert("frontier", frontier);
-        vars.insert("types", types.iter().cloned().collect::<Vec<_>>());
-        vars.insert("fields", OWNED_FIELDS.to_vec());
-        vars.insert(
-            "context",
-            crate::loader::json_value(
-                serde_json::to_value(key.context).map_err(ModelError::codec)?,
-            )?,
-        );
-        let selected = reader.selected_node_predicate("in");
-        let next: Vec<RecordId> = reader.query(format!("RETURN array::distinct(array::concat(\
-            (SELECT VALUE in FROM reference WHERE out IN (SELECT VALUE anchor FROM $frontier) AND field IN $fields AND ({selected}) AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context)),\
-            (SELECT VALUE in FROM participant WHERE out IN (SELECT VALUE anchor FROM $frontier) AND field IN $fields AND ({selected}) AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context))));"), vars).await?;
-        frontier = next
-            .into_iter()
-            .filter(|id| seen.insert(id.clone()))
-            .collect();
-        charge.try_resize(seen.len().saturating_mul(128))?;
+        let mut next = Vec::new();
+        for window in frontier.chunks(128) {
+            let mut vars = bindings.clone(); vars.insert("frontier", window.to_vec()); vars.insert("fields", OWNED_FIELDS.to_vec());
+            for table in ["reference", "participant"] {
+                next.extend(projection_candidates(reader, format!("SELECT in AS id FROM {table} WITH INDEX incoming WHERE out IN (SELECT VALUE anchor FROM $frontier) AND field IN $fields AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context)"), vars.clone(), vec![], &mut seen, charge.as_mut(), budget).await?);
+            }
+        }
+        frontier = next;
     }
     frontier = seen.iter().cloned().collect();
     while !frontier.is_empty() {
-        let mut vars = Variables::new();
-        vars.insert("frontier", frontier);
-        vars.insert("types", types.iter().cloned().collect::<Vec<_>>());
-        let selected = reader.selected_node_predicate("id");
-        let next: Vec<RecordId> = reader.query(format!("RETURN array::concat(\
-            (SELECT VALUE id FROM entity WHERE semantic_type IN $types AND ({selected}) AND anchor IN array::concat((SELECT VALUE out FROM reference WHERE in IN $frontier),(SELECT VALUE out FROM participant WHERE in IN $frontier))),\
-            (SELECT VALUE id FROM assertion WHERE semantic_type IN $types AND ({selected}) AND anchor IN array::concat((SELECT VALUE out FROM reference WHERE in IN $frontier),(SELECT VALUE out FROM participant WHERE in IN $frontier))));"), vars).await?;
-        frontier = next
-            .into_iter()
-            .filter(|id| seen.insert(id.clone()))
-            .collect();
-        charge.try_resize(seen.len().saturating_mul(128))?;
+        let mut next = Vec::new();
+        for window in frontier.chunks(128) {
+            for edge in ["reference", "participant"] {
+                let mut vars = bindings.clone(); vars.insert("frontier", window.to_vec());
+                // Endpoint anchors are read from an actual indexed edge stream, never a
+                // closure-sized server array. Resolve each finite anchor window separately.
+                let mut edges = reader.stream_prepared(crate::prepared::PreparedQuery::new(vars, vec![], vec![format!("SELECT out AS id FROM {edge} WITH INDEX outgoing WHERE in IN $frontier")])?)?;
+                let result = async {
+                    loop {
+                        let mut anchors = Vec::new(); while anchors.len() < 128 { let Some(row) = edges.next().await? else { break; }; anchors.push(projection_id(&row)?); }
+                        if anchors.is_empty() { break; }
+                        let mut vars = bindings.clone(); vars.insert("anchors", anchors);
+                        for table in ["entity", "assertion"] {
+                            next.extend(projection_candidates(reader, format!("SELECT id FROM {table} WITH INDEX anchor_payload WHERE anchor IN $anchors AND semantic_type IN $types"), vars.clone(), vec![], &mut seen, charge.as_mut(), budget).await?);
+                        }
+                    }
+                    Ok(())
+                }.await;
+                let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("projection outgoing edge drainage", edges.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
+            }
+        }
+        frontier = next;
     }
-    let mut vars = Variables::new();
-    vars.insert("nodes", seen.into_iter().collect::<Vec<_>>());
-    vars.insert("types", types.into_iter().collect::<Vec<_>>());
-    reader.canonical_batches("RETURN array::concat(\
-        (SELECT 'entity' AS node_kind, canonical FROM entity WHERE id IN $nodes AND semantic_type IN $types),\
-        (SELECT 'assertion' AS node_kind, canonical FROM assertion WHERE id IN $nodes AND semantic_type IN $types));".into(), vars, budget).await
+    let nodes = seen.into_iter().collect::<Vec<_>>(); let types = types.into_iter().collect::<Vec<_>>();
+    let result = reader.canonical_point_batches(&nodes, &types, budget).await;
+    drop(charge); result
+
+}
+
+fn projection_id(row: &Value) -> Result<RecordId, ModelError> {
+    let Value::Object(row) = row else { return Err(ModelError::Schema("projection candidate object")); };
+    RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("projection candidate identity"))?).map_err(ModelError::codec)
+}
+async fn projection_candidates<Context>(reader: &NativeReader<Context>, sql: String, vars: Variables, preparation: Vec<String>, seen: &mut BTreeSet<RecordId>, charge: &mut dyn lctx_model::domain::resources::Reservation, budget: &ResourceBudget) -> Result<Vec<RecordId>, ModelError> {
+    let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(vars, preparation, vec![sql])?)?;
+    let mut next = Vec::new();
+    let result = async {
+        loop {
+            let mut batch = Vec::new(); while batch.len() < 128 { let Some(row) = rows.next().await? else { break; }; batch.push(projection_id(&row)?); }
+            if batch.is_empty() { break; }
+            let batch = reader.selected_candidate_ids(&batch, budget).await?;
+            for node in batch { if !seen.contains(&node) { charge.try_resize(seen.len().saturating_add(1).saturating_mul(384))?; seen.insert(node.clone()); next.push(node); } }
+        }
+        Ok(())
+    }.await;
+    let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("projection indexed candidate drainage", rows.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
+    Ok(next)
 }
 
 pub fn name(raw: &str) -> Result<ProjectionName, String> {

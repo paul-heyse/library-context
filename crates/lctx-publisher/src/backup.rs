@@ -8,97 +8,83 @@ use lctx_surrealdb::surrealdb::types::RecordId;
 use lctx_surrealdb::{NativeReader, RuntimeConfig};
 use std::path::Path;
 
-/// Write a logical dump after the gRPC file export consumes successful terminal completion.
-/// Database users/access credentials and historical versions are excluded.
-/// A parent-directory sync failure after publication leaves the dump in place and reports
-/// uncertain durability; callers must inspect the destination before retrying.
+/// Write only the exact recoverable closure through one transaction-bound native snapshot.
+/// Staged bytes become visible only after checked EOF, explicit cancel and session invalidation.
 pub async fn backup(
-    config: &RuntimeConfig,
-    handle: &SnapshotHandle,
-    output: &Path,
+    config: &RuntimeConfig, handle: &SnapshotHandle, output: &Path, native_definitions: &str,
 ) -> Result<(), ModelError> {
-    if handle.database.namespace != config.namespace
-        || handle.database.database != config.database
-        || handle.service_generation != config.service_generation
-    {
+    if handle.database.namespace != config.namespace || handle.database.database != config.database || handle.service_generation != config.service_generation {
         return Err(ModelError::Conflict("backup installation identity"));
     }
-    if output.exists() {
-        return Err(ModelError::Conflict("backup destination already exists"));
-    }
-    let parent = output
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let viewer = NativeReader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        handle.clone(),
-    )
-    .await?;
+    if output.exists() { return Err(ModelError::Conflict("backup destination already exists")); }
+    let config = config.clone(); let handle = handle.clone(); let output = output.to_owned(); let definitions = native_definitions.to_owned();
+    // Caller cancellation transfers the whole read/export finalizer to its owned driver.
+    crate::owned_read::run("selected backup", move |cancel| async move { backup_owned(&config, &handle, &output, &definitions, &cancel).await }).await
+}
+async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &Path, native_definitions: &str, cancel: &crate::owned_read::Cancellation) -> Result<(), ModelError> {
+    let parent = output.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let viewer = NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle.clone()).await?;
+    let mut pin_guard = viewer.protect_terminal_close();
     let client = viewer.shared_client();
     let staged = match tempfile::NamedTempFile::new_in(parent) {
         Ok(file) => file,
         Err(error) => {
-            let mut completion = Completion::default();
-            completion.step("backup setup reader pin release", viewer.close().await);
-            completion.step(
-                "backup setup session invalidation",
-                client.invalidate().await.map_err(ModelError::codec),
-            );
+            let mut completion = Completion::default(); completion.step("backup setup reader pin release", pin_guard.close(&viewer).await);
+            completion.step("backup setup session invalidation", client.invalidate().await.map_err(ModelError::codec));
             return complete(Err(ModelError::codec(error)), completion);
         }
     };
-    // The retained publication pin protects the requested manifest. SurrealDB exports all
-    // tables through one read transaction; RocksDB snapshot reads retain even concurrently
-    // retired rows. Ordinary logical export needs no database-wide retirement barrier.
+    let mut transaction = None;
+    let mut exporter = None;
     let result = async {
+        cancel.check()?;
         let metadata = recovery_metadata(config, handle)?;
-        let engine = tempfile::NamedTempFile::new_in(parent).map_err(ModelError::codec)?;
-        let result = async {
-            // One whole-main engine snapshot is consumed through successful terminal export.
-            // Only afterward do local, bounded preparation and writing narrow its data closure.
-            export_main(&client, engine.path()).await?;
-            let budget = lctx_model::domain::resources::ResourceBudget::fixed(
-                cpg_core::workspace::WorkspaceOptions::default().memory_bytes,
-            )?;
-            crate::restore::compact_export(engine.path(), staged.path(), handle, &budget)?;
-            // Comments carry references and obligations only. The data-only decoder never grants
-            // authority from them or imports live attempts, credentials, pins or executable code.
-            use std::io::Write;
-            let mut file = std::fs::OpenOptions::new()
-                .append(true)
-                .open(staged.path())
-                .map_err(ModelError::codec)?;
-            writeln!(
-                file,
-                "\n-- lctx-backup-recovery: {}",
-                serde_json::to_string(&metadata).map_err(ModelError::codec)?
-            )
-            .map_err(ModelError::codec)
-        }
-        .await;
-        let mut completion = Completion::default();
-        completion.cleanup(
-            engine.path().display().to_string(),
-            engine.close().map_err(ModelError::codec),
-        );
-        complete(result, completion)
-    }
-    .await;
+        // One dedicated exporter session, with one external transaction across all metadata,
+        // closure and content reads. There is no independent export or per-page snapshot.
+        exporter = Some(lctx_surrealdb::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await?);
+        cancel.check()?;
+        let version = exporter.as_ref().expect("owned exporter").version().await.map_err(ModelError::codec)?.to_string();
+        cancel.check()?;
+        let session = match std::sync::Arc::try_unwrap(exporter.take().expect("owned exporter")) {
+            Ok(session) => session,
+            Err(session) => { exporter = Some(session); return Err(ModelError::Conflict("backup export session ownership")); }
+        };
+        let snapshot = match session.begin().retain_on_error().await {
+            Ok(snapshot) => std::sync::Arc::new(snapshot),
+            Err((error, session)) => {
+                let mut completion = Completion::default();
+                let invalidated = session.invalidate().await.map_err(ModelError::codec);
+                if invalidated.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
+                completion.step("backup failed-begin session invalidation", invalidated);
+                return complete(Err(ModelError::codec(error)), completion);
+            }
+        };
+        transaction = Some(snapshot.clone());
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(cpg_core::workspace::WorkspaceOptions::default().memory_bytes)?;
+        crate::selected_backup::export(&snapshot, &version, handle, native_definitions, staged.path(), &budget, cancel).await?;
+        cancel.check()?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(staged.path()).map_err(ModelError::codec)?;
+        writeln!(file, "\n-- lctx-backup-recovery: {}", serde_json::to_string(&metadata).map_err(ModelError::codec)?).map_err(ModelError::codec)
+    }.await;
     let mut completion = Completion::default();
-    completion.step("backup retained manifest pin release", viewer.close().await);
-    completion.step(
-        "backup export session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
-    );
-    complete_backup(
-        staged,
-        output,
-        result,
-        complete(Ok(()), completion),
-        |parent| std::fs::File::open(parent)?.sync_all(),
-    )
+    if let Some(session) = exporter {
+        let invalidated = session.invalidate().await.map_err(ModelError::codec);
+        if invalidated.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
+        completion.step("backup pre-begin exporter session invalidation", invalidated);
+    }
+    if let Some(transaction) = transaction {
+        let cancelled = transaction.cancel_ref().await.map_err(ModelError::codec);
+        if cancelled.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
+        completion.step("backup snapshot explicit cancellation", cancelled);
+        let invalidated = transaction.invalidate_session().await.map_err(ModelError::codec);
+        if invalidated.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
+        completion.step("backup snapshot session invalidation", invalidated);
+    }
+    completion.step("backup retained manifest pin release", pin_guard.close(&viewer).await);
+    completion.step("backup reader session invalidation", client.invalidate().await.map_err(ModelError::codec));
+    let result = result.and_then(|()| cancel.check());
+    complete_backup(staged, output, result, complete(Ok(()), completion), |parent| std::fs::File::open(parent)?.sync_all())
 }
 
 fn recovery_metadata(
@@ -151,51 +137,6 @@ fn recovery_metadata(
         serde_json::json!({"schema":1,"kind":"logical-content","publication":handle.publication,"view":handle.view,"definition_epoch":handle.definition_epoch,"service_generation":config.service_generation,"namespace":config.namespace,"database":config.database,"protected_recovery_asset":protected,
         "obligations":["logical content restore performs independent admission and never restores live runtime authority","whole-service recovery requires a separately protected cold archive, pinned executables, private configuration and credentials","a referenced cold archive is an independent checkpoint, not a snapshot of this later logical export","reconcile durable effects, attempts, pins and retirement records under maintenance before reopening a recovered service","selection, serving receipts and canonical coordination must be restored only by their owning installation"]}),
     )
-}
-
-async fn export_main(
-    client: &lctx_surrealdb::surrealdb::Surreal<
-        lctx_surrealdb::surrealdb::engine::remote::grpc::Client,
-    >,
-    output: &Path,
-) -> Result<(), ModelError> {
-    let tables = [
-        "entity",
-        "assertion",
-        "participant",
-        "reference",
-        "external",
-        "entity_anchor",
-        "assertion_anchor",
-        "compiler_view_member",
-        "original",
-        "original_chunk",
-        "publication",
-        "compiler_contribution",
-        "compiler_membership",
-        "compiler_view",
-        "compiler_record",
-        "compiler_binding",
-        "compiler_alias",
-    ]
-    .map(str::to_owned)
-    .to_vec();
-    client
-        .export(output)
-        .with_config()
-        .users(false)
-        .accesses(false)
-        .versions(false)
-        .params(false)
-        .functions(false)
-        .analyzers(false)
-        .apis(false)
-        .buckets(false)
-        .modules(false)
-        .configs(false)
-        .tables(tables)
-        .await
-        .map_err(ModelError::codec)
 }
 
 fn complete_backup(
@@ -329,7 +270,7 @@ pub async fn retire(
 
 #[cfg(test)]
 #[path = "../tests/fixtures/grpc_export.rs"]
-mod grpc_export_fixture;
+pub(crate) mod grpc_export_fixture;
 
 #[cfg(test)]
 mod tests {
@@ -625,57 +566,5 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn backup_grpc_file_export_on_owned_persistent_fixture() {
-        use lctx_model::domain::{graph::Entity, input::Package};
-        let config = RuntimeConfig::read(Path::new(
-            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
-        ))
-        .unwrap();
-        let client = lctx_surrealdb::compiler::check_installation(&config)
-            .await
-            .unwrap();
-        let package = Package {
-            name: format!(
-                "canonical-backup-sentinel-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ),
-        };
-        let loader = lctx_surrealdb::Loader::new(client.clone());
-        loader
-            .entities(&[Entity::from(package.clone())])
-            .await
-            .unwrap();
-        let scratch = tempfile::tempdir().unwrap();
-        let output = scratch.path().join("snapshot.surql");
-        export_main(&client, &output).await.unwrap();
-        let dump = std::fs::read_to_string(&output).unwrap();
-        assert!(dump.contains(&package.name));
-        assert!(dump.contains("publication"));
-        assert!(!dump.contains("DEFINE USER"));
-        for table in [
-            "native_installation",
-            "native_attempt",
-            "native_pin",
-            "native_effect",
-            "native_hold",
-            "native_backup_hold",
-            "native_retirement",
-            "native_product",
-            "native_guard",
-        ] {
-            assert!(
-                !dump.contains(&format!("DEFINE TABLE {table} ")),
-                "runtime control table exported: {table}"
-            );
-        }
-        // The exported grammar is accepted without submitting any SQL back to the service.
-        let mut parsed = crate::backup_import::DataDump::new(std::fs::File::open(&output).unwrap());
-        while parsed.next().unwrap().is_some() {}
-        assert!(!config.selection.exists());
-        client.invalidate().await.unwrap();
-    }
+
 }

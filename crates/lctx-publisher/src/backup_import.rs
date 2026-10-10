@@ -14,33 +14,15 @@ use surrealdb_sql::{Data, Expr, Literal, TopLevelExpr};
 /// this allowance covers those encodings rather than multiplying by a whole export batch.
 pub(crate) const MAX_DUMP_RECORD_BYTES: usize = MAX_ROW_BYTES * 16;
 
-/// Only immutable content and claimed completed descriptors can enter ordinary restore.
-/// Runtime attempts, effects, pins, installation, users and access records are excluded.
-pub(crate) const DATA_TABLES: &[&str] = &[
-    "entity",
-    "assertion",
-    "original",
-    "original_chunk",
-    "publication",
-    "compiler_contribution",
-    "compiler_membership",
-    "compiler_view",
-    "compiler_record",
-    "compiler_binding",
-    "compiler_alias",
-];
-pub(crate) const DERIVED_TABLES: &[&str] = &[
-    "participant",
-    "reference",
-    "external",
-    "entity_anchor",
-    "assertion_anchor",
-    "compiler_view_member",
-    "lexical_document",
-    "lexical_member",
-    "lexical_term",
-    "lexical_corpus",
-];
+/// The native adapter owns the entire immutable dump inventory, including inert actual
+/// integrity claims. Runtime controls and regenerated secondary indexes have no dump codec.
+pub(crate) fn dump_tables() -> impl Iterator<Item = lctx_surrealdb::compiler::RecoveryTable> {
+    lctx_surrealdb::compiler::recovery_table_inventory()
+}
+pub(crate) fn table_codec(name: &str) -> Result<lctx_surrealdb::compiler::RecoveryTable, ModelError> {
+    lctx_surrealdb::compiler::classify_recovery_table(name)
+        .ok_or(ModelError::Schema("dump table outside immutable content inventory"))
+}
 
 #[derive(Debug)]
 pub(crate) enum Item {
@@ -74,6 +56,34 @@ pub(crate) fn definition_metadata(
     Ok(definition.to_sql())
 }
 
+fn require_literal_value(value: &Value) -> Result<(), ModelError> {
+    match value {
+        Value::None | Value::Null | Value::Bool(_) | Value::String(_) | Value::Bytes(_) => Ok(()),
+        Value::Number(Number::Float(value)) if !value.is_finite() => Err(ModelError::Schema("dump unsupported literal family")),
+        Value::Number(_) => Ok(()),
+        Value::RecordId(id) if matches!(id.key, RecordIdKey::String(_) | RecordIdKey::Number(_)) => Ok(()),
+        Value::Array(values) => values.iter().try_for_each(require_literal_value),
+        Value::Object(values) => values.values().try_for_each(require_literal_value),
+        _ => Err(ModelError::Schema("dump unsupported literal family")),
+    }
+}
+/// The single typed data-only SQL lowering used by selected export and local compaction.
+pub(crate) fn write_row(
+    writer: &mut impl std::io::Write, row: Value,
+    charge: &mut dyn lctx_model::domain::resources::Reservation,
+) -> Result<(), ModelError> {
+    let Value::Object(object) = &row else { return Err(ModelError::Schema("dump record object")); };
+    let Some(Value::RecordId(id)) = object.get("id") else { return Err(ModelError::Schema("dump literal record identity")); };
+    let relation = table_codec(id.table.as_str())?.relation;
+    require_literal_value(&row)?;
+    // Admit the actual value before SQL escaping and geometric String growth. A
+    // tiny record must not reserve the maximum legal dump statement allowance.
+    let bound = lctx_surrealdb::loader::native_bytes(&row).saturating_mul(32).saturating_add(512);
+    charge.try_resize(bound)?;
+    let encoded = Value::Array(vec![row].into()).to_sql(); charge.try_resize(encoded.capacity())?;
+    if encoded.len().saturating_add(8) > MAX_DUMP_RECORD_BYTES { return Err(ModelError::Schema("data dump statement bound")); }
+    writeln!(writer, "INSERT {}{encoded};", if relation { "RELATION " } else { "" }).map_err(ModelError::codec)?; charge.try_resize(0)?; Ok(())
+}
 struct Units<R> {
     input: R,
     parser: surrealdb_syn::parser::StatementStream,
@@ -218,23 +228,13 @@ impl<R: Read> DataDump<R> {
                         let Some(Value::RecordId(id)) = object.get("id") else {
                             return Err(ModelError::Schema("dump literal record identity"));
                         };
-                        if !DATA_TABLES.contains(&id.table.as_str())
-                            && !DERIVED_TABLES.contains(&id.table.as_str())
-                        {
-                            return Err(ModelError::Schema(
-                                "dump table outside immutable content inventory",
-                            ));
-                        }
-                        if insert.relation
-                            != ["participant", "reference"].contains(&id.table.as_str())
-                        {
+                        let codec = table_codec(id.table.as_str())?;
+                        if insert.relation != codec.relation {
                             return Err(ModelError::Schema("dump record relation kind"));
                         }
-                        // Derived edges are discarded. Their body is never executable and native
-                        // admission regenerates every role from canonical typed values.
-                        if DATA_TABLES.contains(&id.table.as_str()) {
-                            result.push(value);
-                        }
+                        // Derived rows remain inert claims for independent cold comparison.
+                        // Ordinary restore never executes or imports these physical records.
+                        result.push(value);
                     }
                     Ok(Some(Item::Rows(result)))
                 }
@@ -330,6 +330,46 @@ mod tests {
             panic!("one declaration metadata item");
         };
         metadata.clone()
+    }
+    #[test]
+    fn literal_export_admits_actual_record_size_and_refuses_before_writing() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(128 * 1024).unwrap();
+        let mut charge = budget.reserve("literal-export-control", 0).unwrap();
+        let mut object = Object::new();
+        object.insert("id", RecordId::new("entity", "quoted-key"));
+        object.insert("escaped", "line\n'\\\"\0".repeat(16));
+        object.insert("binary", Bytes::from(vec![0, 255, 42]));
+        let row = Value::Object(object.clone());
+        let mut output = b"OPTION IMPORT;\n".to_vec();
+        write_row(&mut output, row.clone(), charge.as_mut()).unwrap();
+        let mut decoded = DataDump::new(output.as_slice());
+        let Some(Item::Rows(rows)) = decoded.next().unwrap() else { panic!("literal rows"); };
+        assert_eq!(rows, [row]);
+        assert_eq!(charge.size(), 0);
+        object.insert("escaped", "large".repeat(4096));
+        let mut refused_output = Vec::new();
+        assert!(matches!(write_row(&mut refused_output, Value::Object(object), charge.as_mut()), Err(ModelError::Resource { .. })));
+        assert!(refused_output.is_empty(), "resource refusal precedes any dump effect");
+    }
+    #[test]
+    fn every_recovery_family_uses_the_actual_data_only_codec_and_relation_kind() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(MAX_DUMP_RECORD_BYTES * 2).unwrap();
+        let mut charge = budget.reserve("family-codec-control", 0).unwrap();
+        for table in dump_tables() {
+            let mut object = Object::new(); object.insert("id", RecordId::new(table.name, "claim"));
+            object.insert("unexpected_actual_field", "preserve; quoted ' source anomaly");
+            object.insert("bytes", Bytes::from(vec![0, 255, 59])); object.insert("explicit_null", Value::Null);
+            let expected = Value::Object(object);
+            let mut output = b"OPTION IMPORT;\n".to_vec(); write_row(&mut output, expected.clone(), charge.as_mut()).unwrap();
+            let text = String::from_utf8(output).unwrap();
+            let decoded = decode(&text).unwrap(); let [Item::Rows(rows)] = decoded.as_slice() else { panic!("one family row"); };
+            assert_eq!(rows, &vec![expected], "typed source preservation: {:?}", table.kind);
+            let wrong = if table.relation { text.replace("INSERT RELATION ", "INSERT ") } else { text.replace("INSERT ", "INSERT RELATION ") };
+            assert!(decode(&wrong).is_err(), "wrong native codec kind: {}", table.name);
+        }
+        for excluded in ["native_pin", "compiler_attempt", "entity_anchor", "lexical_document"] {
+            assert!(table_codec(excluded).is_err(), "no unowned cache/control codec: {excluded}");
+        }
     }
     #[test]
     fn export_definition_metadata_normalizes_only_application_kind() {

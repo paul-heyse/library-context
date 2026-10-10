@@ -20,6 +20,7 @@ pub mod class_metadata;
 pub mod compiler_scope_program;
 pub mod compilation_product;
 pub mod completed;
+pub mod recovery_closure;
 pub mod completion;
 pub mod composition;
 pub mod conditions;

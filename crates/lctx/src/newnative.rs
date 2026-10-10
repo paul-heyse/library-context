@@ -286,7 +286,7 @@ pub async fn backup(
     output: &Path,
 ) -> anyhow::Result<()> {
     let selected = handle(config, path)?;
-    lctx_publisher::backup::backup(config, &selected, output).await?;
+    lctx_publisher::backup::backup(config, &selected, output, &lctx_serving::native_definitions()).await?;
     Ok(())
 }
 pub async fn restore(

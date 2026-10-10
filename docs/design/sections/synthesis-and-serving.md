@@ -178,7 +178,7 @@ retain separate execution status.
 
 ## §11 Serving and agent interface
 
-> Decision: ADR-0143, ADR-0131, ADR-0114, ADR-0117
+> Decision: ADR-0145, ADR-0131, ADR-0114, ADR-0117
 
 **Implemented native serving, 2026-10-06 (ADR-0128); targeted verification passed and activation is separate.** A running service pins one exact published view and its immutable executable epoch. Rust owns operation meaning and uncertainty; native queries/functions
 implement connected access, text/vector search and coarse hydration. The
@@ -189,7 +189,7 @@ realizations underneath a reader. Native querying is selected, without an adopti
 Compiler artifacts retain exact original bytes and consumed vectors. Native indexes are derived;
 changed functions/analyzers/index specs belong to physical realization identity. `lctx-serving` dispatches all ten operations from the pinned native reader. The PyO3 NativeSession
 and FastMCP adapter consume model-generated schemas and the same complete snapshot boundary.
-ADR-0143 governs shared storage, manifest visibility and runtime pins; the cited earlier decisions
+ADR-0145 governs shared storage, manifest visibility and runtime pins; the cited earlier decisions
 retain their semantic, embedding and product obligations. The private native owner uses scoped
 database credentials to acquire durable pins; those credentials are never a serialized public
 capability. First use checks the pinned Rust operation definition. No unrelated corpus is hydrated at startup.
@@ -198,7 +198,7 @@ capability. First use checks the pinned Rust operation definition. No unrelated 
 
 ### §11.1 Embedding spec and vectors
 
-> Decision: ADR-0143, ADR-0131, ADR-0106
+> Decision: ADR-0145, ADR-0131, ADR-0106
 
 **Implemented replacement, 2026-10-06; integrated native acceptance pending (ADR-0131):** format3
 separates actual encoder/input, rendering, query and projection dependencies.
@@ -223,7 +223,7 @@ acceptance, numerical parity, usefulness and operator adoption require their own
 
 ### §11.2 Retrieval
 
-> Decision: ADR-0143, ADR-0131
+> Decision: ADR-0145, ADR-0131
 
 **Implemented native retrieval, 2026-10-06; integrated acceptance pending and no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
 contextual occurrences. Native operations retain release/library eligibility, finite channels,
@@ -232,7 +232,7 @@ duplicate contributions before fusion; retain the actual winning occurrence/chan
 Conditions, provider disagreement, scope and missing coverage remain visible. Similarity is a
 heuristic witness and never substitutes for requirement evidence or runtime guarantees.
 
-**Implemented shared-store extension, qualification pending, 2026-10-09 (ADR-0143):** every
+**Implemented shared-store extension, qualification pending, 2026-10-09 (ADR-0145):** every
 occurrence retains exact payload dependencies, including its selected unit, windows, bindings and
 vector lineage. Eligibility checks those dependencies before ranking limits. Shared full-text
 indexes nominate matches; immutable exact-view/family corpus and term statistics determine BM25
@@ -251,6 +251,13 @@ exact primary bindings and mandatory context replace broad fragment-parent appli
 eligible target/context alternatives, preserve zero-BM25 match eligibility and exact identifiers,
 and hydrate full values/evidence late. Evidence demands select compatible context-closed bundles;
 actual final delivery maps/readable information differ from mere IDs or expandable references.
+**Accepted active-state target, 2026-10-10 (ADR-0145); qualification open.** Ranked storage
+is charged to the service pool before construction; request scratch uses selected request policy.
+Pending entries remain request-owned through final packing, then publish complete immutable
+charged borrowers. Replay runs outside the retention-map lock. Eviction preserves active borrower
+charges; service close fences/drains admitted requests before releasing retention. Selected limits
+reach continuation decode and final envelope admission, without substituted defaults.
+
 Ranked continuations retain a bounded session-owned immutable ordering with explicit expiry/refusal,
 not a silently recomputed page. The [serving extension](../../plans/graph-native-serving-plan_2026-10-05.md#7-er3er4--contextual-discovery-and-actually-delivered-information)
 owns ER3/ER4; native querying remains selected without an adoption/proof campaign.
@@ -259,7 +266,7 @@ owns ER3/ER4; native querying remains selected without an adoption/proof campaig
 
 ### §11.3 FastMCP contract
 
-> Decision: ADR-0143, ADR-0025, ADR-0049, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063, ADR-0071, ADR-0073, ADR-0116
+> Decision: ADR-0145, ADR-0025, ADR-0049, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063, ADR-0071, ADR-0073, ADR-0116
 
 **Implemented native transport, 2026-10-06; actual journey outcomes are in the coordinator.** Rust owns the
 finite request/response inventory, strict nominal inputs, scalar policies, classification and wire
@@ -297,4 +304,4 @@ invent a universal engine-step counter. Qualitative first-principles/library-inf
 these choices; quantitative speed/capacity claims require measurement. Custom APIs, WASM modules,
 buckets, reactive enrichment and external exporters are activated only by a current consumer.
 
-> Decision: ADR-0143, ADR-0131
+> Decision: ADR-0145, ADR-0131

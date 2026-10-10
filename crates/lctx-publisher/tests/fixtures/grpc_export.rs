@@ -4,7 +4,7 @@ use futures::{Stream, StreamExt};
 use rpc::surreal_db_service_server::{SurrealDbService, SurrealDbServiceServer};
 use std::{
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 use surrealdb_protocol::proto::{rpc::v1 as rpc, v1 as proto};
@@ -28,20 +28,28 @@ pub enum Fault {
     ByteCountMismatch,
     TransportClose,
 }
+#[derive(Clone, Copy, Debug)]
+pub enum QueryFault { Success, LateStatementError, OuterError, MissingOuterEnd, LateTransportError, LatePayload }
 type Frames<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
 
 pub struct Fixture {
     pub endpoint: String,
     terminal: Arc<Notify>,
+    pub provisional: Arc<Notify>,
+    pub events: Arc<Mutex<Vec<&'static str>>>,
     socket_stop: watch::Sender<bool>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<Result<(), tonic::transport::Error>>>,
 }
 impl Fixture {
-    pub async fn start(fault: Fault) -> Self {
+    pub async fn start(fault: Fault) -> Self { Self::start_inner(fault, None).await }
+    pub async fn start_query(fault: QueryFault) -> Self { Self::start_inner(Fault::Success, Some(fault)).await }
+    async fn start_inner(fault: Fault, query_fault: Option<QueryFault>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("grpc://{}", listener.local_addr().unwrap());
         let terminal = Arc::new(Notify::new());
+        let provisional = Arc::new(Notify::new());
+        let events = Arc::new(Mutex::new(Vec::new()));
         let (socket_stop, sockets) = watch::channel(false);
         let incoming =
             tokio_stream::wrappers::TcpListenerStream::new(listener).map(move |stream| {
@@ -56,6 +64,7 @@ impl Fixture {
         let service = Peer {
             fault,
             terminal: terminal.clone(),
+            provisional: provisional.clone(), events: events.clone(), query_fault,
         };
         let (shutdown, stop) = oneshot::channel();
         let task = tokio::spawn(
@@ -67,7 +76,7 @@ impl Fixture {
         );
         Self {
             endpoint,
-            terminal,
+            terminal, provisional, events,
             socket_stop,
             shutdown: Some(shutdown),
             task: Some(task),
@@ -157,6 +166,17 @@ impl AsyncWrite for Socket {
 struct Peer {
     fault: Fault,
     terminal: Arc<Notify>,
+    provisional: Arc<Notify>,
+    events: Arc<Mutex<Vec<&'static str>>>,
+    query_fault: Option<QueryFault>,
+}
+fn checked_context(context: Option<rpc::RequestContext>, transaction: bool) -> Result<(), Status> {
+    let context = context.ok_or(Status::invalid_argument("missing same-session context"))?;
+    if context.session.as_ref().map(|id| id.bytes.as_ref()) != Some(&[1u8; 16][..]) ||
+        (transaction && context.transaction.as_ref().map(|id| id.bytes.as_ref()) != Some(&[2u8; 16][..])) {
+        return Err(Status::invalid_argument("wrong session/transaction identity"));
+    }
+    Ok(())
 }
 #[tonic::async_trait]
 impl SurrealDbService for Peer {
@@ -210,8 +230,9 @@ impl SurrealDbService for Peer {
     }
     async fn invalidate(
         &self,
-        _: Request<rpc::InvalidateRequest>,
+        request: Request<rpc::InvalidateRequest>,
     ) -> Result<Response<rpc::InvalidateResponse>, Status> {
+        if self.query_fault.is_some() { checked_context(request.into_inner().context, false)?; self.events.lock().unwrap().push("invalidate"); }
         Ok(Response::new(Default::default()))
     }
     type ExportSurqlStream = Frames<rpc::ExportSurqlResponse>;
@@ -316,9 +337,11 @@ impl SurrealDbService for Peer {
     }
     async fn begin_transaction(
         &self,
-        _: Request<rpc::BeginTransactionRequest>,
+        request: Request<rpc::BeginTransactionRequest>,
     ) -> Result<Response<rpc::BeginTransactionResponse>, Status> {
-        Err(Status::unimplemented("export fault fixture only"))
+        checked_context(request.into_inner().context, false)?;
+        self.events.lock().unwrap().push("begin");
+        Ok(Response::new(rpc::BeginTransactionResponse { transaction: Some(proto::Uuid { bytes: vec![2u8; 16].into() }) }))
     }
     async fn commit_transaction(
         &self,
@@ -328,9 +351,11 @@ impl SurrealDbService for Peer {
     }
     async fn cancel_transaction(
         &self,
-        _: Request<rpc::CancelTransactionRequest>,
+        request: Request<rpc::CancelTransactionRequest>,
     ) -> Result<Response<rpc::CancelTransactionResponse>, Status> {
-        Err(Status::unimplemented("export fault fixture only"))
+        checked_context(request.into_inner().context, true)?;
+        self.events.lock().unwrap().push("cancel");
+        Ok(Response::new(Default::default()))
     }
     async fn run(&self, _: Request<rpc::RunRequest>) -> Result<Response<rpc::RunResponse>, Status> {
         Err(Status::unimplemented("export fault fixture only"))
@@ -344,9 +369,46 @@ impl SurrealDbService for Peer {
     type QueryStream = Frames<rpc::QueryResponse>;
     async fn query(
         &self,
-        _: Request<rpc::QueryRequest>,
+        request: Request<rpc::QueryRequest>,
     ) -> Result<Response<Self::QueryStream>, Status> {
-        Err(Status::unimplemented("export fault fixture only"))
+        let fault = self.query_fault.ok_or(Status::unimplemented("export fault fixture only"))?;
+        checked_context(request.into_inner().context, true)?;
+        self.events.lock().unwrap().push("query");
+        let (sender, receiver) = mpsc::channel(8);
+        let terminal = self.terminal.clone(); let provisional = self.provisional.clone(); let events = self.events.clone();
+        tokio::spawn(async move {
+            use rpc::query_response::Frame;
+            let send = |frame| sender.send(Ok(rpc::QueryResponse { frame: Some(frame) }));
+            let batch = |kind, error| rpc::QueryBatchFrame {
+                query_index: 0, batch_index: 0, kind: kind as i32,
+                statement_kind: rpc::QueryStatementKind::Other as i32, stats: None, error,
+                payload: Some(rpc::query_batch_frame::Payload::Values(rpc::ValueBatch {
+                    values: vec![proto::Value::try_from(lctx_surrealdb::surrealdb::types::Value::Null).unwrap()],
+                })),
+            };
+            if send(Frame::Begin(rpc::QueryBegin { statement_count: 1, ..Default::default() })).await.is_err() { return; }
+            let first = if matches!(fault, QueryFault::LateStatementError) { rpc::QueryResponseKind::Batched } else { rpc::QueryResponseKind::BatchedFinal };
+            if send(Frame::Batch(batch(first, None))).await.is_err() { return; }
+            if !matches!(fault, QueryFault::LateStatementError | QueryFault::OuterError | QueryFault::MissingOuterEnd) {
+                if send(Frame::End(rpc::QueryEnd { result_count: 1, ..Default::default() })).await.is_err() { return; }
+            }
+            provisional.notify_one();
+            tokio::select! { _ = terminal.notified() => {}, _ = sender.closed() => return }
+            match fault {
+                QueryFault::Success | QueryFault::MissingOuterEnd => {},
+                QueryFault::LateStatementError => {
+                    let mut final_batch = batch(rpc::QueryResponseKind::BatchedFinal, Some(proto::SurrealError::new(proto::ErrorKind::Internal, "injected late selected statement failure")));
+                    final_batch.batch_index = 1; final_batch.payload = None;
+                    let _ = send(Frame::Batch(final_batch)).await;
+                    let _ = send(Frame::End(rpc::QueryEnd { result_count: 1, ..Default::default() })).await;
+                },
+                QueryFault::OuterError => { let _ = send(Frame::Error(proto::SurrealError::new(proto::ErrorKind::Internal, "injected selected outer failure"))).await; },
+                QueryFault::LateTransportError => { let _ = sender.send(Err(Status::unavailable("injected selected late physical status"))).await; },
+                QueryFault::LatePayload => { let _ = send(Frame::Batch(batch(rpc::QueryResponseKind::BatchedFinal, None))).await; },
+            }
+            events.lock().unwrap().push("physical-tail-sent");
+        });
+        Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(receiver))))
     }
     type SubscribeStream = Frames<rpc::SubscribeResponse>;
     async fn subscribe(

@@ -1,4 +1,4 @@
-use futures::StreamExt;
+use futures::{StreamExt, FutureExt};
 use lctx_model::domain::{
     Key, KeySink, ModelError, Record,
     graph::{Assertion, Entity, Target},
@@ -35,13 +35,49 @@ pub struct NativeReader<Context = SnapshotHandle> {
     client: Arc<Surreal<Client>>,
     handle: Context,
     scope: Option<Arc<ReaderScope>>,
+    cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
+    budget: Option<lctx_model::domain::resources::ResourceBudget>,
+    request_budget: Option<lctx_model::domain::resources::ResourceBudget>,
+}
+/// Protect a publication pin through unexpected unwind and async finalizer abandonment.
+/// This holds the pin alone, so it never counts as another reader/scope borrower.
+pub struct ReadFinalizationGuard { pin: Option<Arc<crate::control::ReaderPin>>, closed: bool }
+impl ReadFinalizationGuard {
+    pub async fn close<Context>(&mut self, reader: &NativeReader<Context>) -> Result<(), ModelError> {
+        let actual = reader.scope.as_ref().and_then(|scope| scope._pin.as_ref());
+        if !match (&self.pin, actual) { (Some(pin), Some(actual)) => Arc::ptr_eq(pin, actual), (None, None) => true, _ => false } {
+            return Err(ModelError::Conflict("reader finalization guard owner"));
+        }
+        reader.close().await?; self.closed = true; Ok(())
+    }
+}
+impl Drop for ReadFinalizationGuard {
+    fn drop(&mut self) { if !self.closed { if let Some(pin) = &self.pin { pin.retain_unknown(); } } }
 }
 struct ReaderScope {
     originals: Option<Vec<lctx_model::domain::graph::Original>>,
     views: Vec<lctx_model::domain::ContentHash>,
     _pin: Option<Arc<crate::control::ReaderPin>>,
+    selection: std::sync::Mutex<Option<(lctx_model::domain::resources::ResourceBudget, futures::future::Shared<futures::future::BoxFuture<'static, Result<crate::selection::SelectedPayloads, Arc<ModelError>>>>)>>,
+}
+struct SelectionLease { scope: Arc<ReaderScope>, confirmed: bool }
+impl Drop for SelectionLease {
+    fn drop(&mut self) {
+        if !self.confirmed { if let Some(pin) = &self.scope._pin { pin.retain_unknown(); } }
+    }
 }
 impl<Context> NativeReader<Context> {
+    pub(crate) fn transport_reader(&self) -> NativeReader<()> { NativeReader { client: self.client.clone(), handle: (), scope: self.scope.clone(), cancellation: self.cancellation.clone(), budget: self.budget.clone(), request_budget: self.request_budget.clone() } }
+    /// Retained selection and default scratch share the caller's allocation authority.
+    pub fn with_budget(mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Self { self.budget = Some(budget.clone()); self.request_budget = Some(budget.clone()); self }
+    pub fn with_request_budget_clone(&self, budget: &lctx_model::domain::resources::ResourceBudget) -> NativeReader<()> { self.transport_reader().with_request_budget(budget) }
+    pub fn with_request_budget(mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Self { self.request_budget = Some(budget.clone()); self }
+    pub fn resource_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> { self.budget.clone().ok_or(ModelError::Conflict("native reader requires caller budget")) }
+    fn scratch_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> { self.request_budget.clone().ok_or(ModelError::Conflict("native selected read requires caller budget")) }
+    pub fn protect_terminal_close(&self) -> ReadFinalizationGuard { ReadFinalizationGuard { pin: self.scope.as_ref().and_then(|scope| scope._pin.clone()), closed: false } }
+    pub fn with_read_cancellation(mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self { self.cancellation = Some(flag); self }
+    pub(crate) fn read_cancellation(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> { self.cancellation.clone() }
+    pub fn check_read_admission(&self) -> Result<(), ModelError> { crate::prepared::check_read_cancellation(self.cancellation.as_ref()) }
     /// The owner drains reader clones and streams before explicit session invalidation.
     pub async fn close(&self) -> Result<(), ModelError> {
         if let Some(scope) = &self.scope {
@@ -51,8 +87,13 @@ impl<Context> NativeReader<Context> {
             if let Some(pin) = &scope._pin {
                 pin.release().await?;
             }
+            scope.selection.lock().map_err(|_| ModelError::Conflict("reader selection owner"))?.take();
         }
         Ok(())
+    }
+    /// Conservative protection when a finalizer cannot establish remote terminality.
+    pub fn retain_unknown(&self) {
+        if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
     }
     pub(crate) fn authorize_original_ranges(
         &self,
@@ -92,117 +133,97 @@ impl<Context> NativeReader<Context> {
         }
         bindings
     }
-    pub fn selected_node_predicate(&self, expression: &str) -> String {
-        if self.scope.is_some() {
-            format!(
-                "({expression} IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) OR {expression} IN (SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)))"
-            )
-        } else {
-            "true".into()
-        }
+    /// One operation-local immutable, disk-backed selection; this carries no acceptance result.
+    pub async fn prepare_selection(&self) -> Result<Option<crate::selection::SelectedPayloads>, ModelError> {
+        self.selection_preparation().await
     }
-    pub fn selected_anchor_predicate(&self, expression: &str) -> String {
-        if self.scope.is_some() {
-            format!(
-                "({expression} IN (SELECT VALUE node.anchor FROM compiler_view_member WHERE view IN $lctx_views) OR {expression} IN (SELECT VALUE target.anchor FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)))"
-            )
-        } else {
-            "true".into()
-        }
+    pub(crate) fn selection_preparation(&self) -> futures::future::BoxFuture<'static, Result<Option<crate::selection::SelectedPayloads>, ModelError>> {
+        let scope = self.scope.clone(); let client = self.client.clone(); let cancellation = self.cancellation.clone(); let budget = self.budget.clone();
+        async move {
+            let Some(scope) = scope else { return Ok(None); };
+            let budget = budget.ok_or(ModelError::Conflict("native selection requires caller budget"))?;
+            let pending = {
+                let mut selection = scope.selection.lock().map_err(|_| ModelError::Conflict("reader selection owner"))?;
+                if let Some((owner, pending)) = selection.as_ref() { if !owner.shares_pool(&budget) { return Err(ModelError::Conflict("foreign native selection budget")); } pending.clone() } else {
+                    let retained_scope = scope.clone(); let preparation_cancellation = cancellation.clone();
+                    let retained_budget = budget.clone();
+                    let task = tokio::spawn(async move {
+                        let mut lease = SelectionLease { scope: retained_scope, confirmed: false };
+                        let result = crate::selection::SelectedPayloads::for_cancellable_views(client, &lease.scope.views, preparation_cancellation, &retained_budget).await;
+                        lease.confirmed = result.as_ref().err().is_none_or(|error| error.permits_storage_cleanup());
+                        drop(lease); result
+                    });
+                    let pending = async move { task.await.map_err(|error| Arc::new(ModelError::codec(error)))?.map_err(Arc::new) }.boxed().shared();
+                    *selection = Some((budget, pending.clone())); pending
+                }
+            };
+            pending.await.map(|selected| Some(selected.with_read_cancellation(cancellation))).map_err(ModelError::SharedCause)
+        }.boxed()
     }
-    /// Resolve exact physical candidates once, using the installed view and alias indexes.
-    /// Typed predicates then operate on these point sources rather than scanning shared families.
-    pub(crate) fn selected_record_source(
-        &self,
-        preparation: &mut Vec<String>,
-        relation: Option<&str>,
-    ) -> Option<&'static str> {
-        self.scope.as_ref()?;
-        match relation {
-            Some(relation) => {
-                preparation.push(format!("LET $lctx_record_members = SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation={relation}"));
-                preparation.push("LET $lctx_record_alias_sources = SELECT VALUE node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views".into());
-            }
-            None => {
-                preparation.push("LET $lctx_record_members = SELECT VALUE node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views".into());
-                preparation.push("LET $lctx_record_alias_sources = $lctx_record_members".into());
-            }
-        }
-        preparation.push("LET $lctx_record_aliases = SELECT VALUE target FROM compiler_alias WITH INDEX alias_source WHERE source IN $lctx_record_alias_sources".into());
-        preparation.push("LET $lctx_record_nodes = array::distinct(array::concat($lctx_record_members,$lctx_record_aliases))".into());
-        Some("$lctx_record_nodes")
-    }
-    fn canonical_sources(&self, preparation: &mut Vec<String>) -> [String; 2] {
-        match self.selected_record_source(preparation, Some("$type")) {
-            Some(source) => [source.into(), source.into()],
-            None => ["entity".into(), "assertion".into()],
-        }
-    }
-    /// Only model-declared relation names enter SQL. The exact view is mandatory here.
-    pub fn relation_rows(&self, relation: &str) -> Result<NativeRows, ModelError> {
+    pub fn selected_payload_rows(
+        &self, table: &str, predicate: &str, bindings: Variables,
+        preparation: Vec<String>, order: &str, limit: Option<usize>,
+    ) -> Result<NativeRows, ModelError> {
         if self.scope.is_none() {
-            return Err(ModelError::Conflict(
-                "relation read requires exact published view",
-            ));
+            let limit = limit.map(|limit| format!(" LIMIT {limit}")).unwrap_or_default();
+            return self.stream_prepared(crate::prepared::PreparedQuery::new(bindings, preparation,
+                vec![format!("SELECT * FROM {table} WHERE ({predicate}) ORDER BY {order}{limit}")])?);
         }
-        let table = crate::schema::ScopeTable::for_relation(relation)?.name();
-        let mut bindings = self.view_bindings();
-        bindings.insert("type", relation.to_string());
-        bindings.insert("table", table.to_string());
-        let mut preparation = Vec::new();
-        let source = self
-            .selected_record_source(&mut preparation, Some("$type"))
-            .ok_or(ModelError::Conflict(
-                "relation read requires exact published view",
-            ))?;
-        self.stream_prepared(crate::prepared::PreparedQuery::new(bindings,preparation,vec![format!("SELECT canonical FROM {source} WHERE record::table(id)=$table AND semantic_type=$type ORDER BY semantic_key")])?)
+        let selection = self.selection_preparation(); let scope = self.scope.clone().expect("scope"); let budget = self.scratch_budget()?;
+        let table = table.to_owned(); let predicate = predicate.to_owned(); let order = order.to_owned();
+        let mut rows = NativeRows::owned(move |sender| async move {
+            let selection = selection.await?.ok_or(ModelError::Conflict("selected reader scope"))?;
+            if sender.is_closed() { return Ok(()); }
+            let mut rows = selection.rows_with_budget(&table, &predicate, bindings, preparation, &order, limit, &budget)?;
+            let result = async { loop {
+                let row = tokio::select! { biased; _ = sender.closed() => { rows.cancel_delivery(); break; }, row = rows.next() => row? };
+                let Some(row) = row else { break; };
+                if sender.send(row).await.is_err() { rows.cancel_delivery(); break; }
+            } Ok(()) }.await;
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step("selected reader payload drainage", rows.drain_transport().await);
+            lctx_model::domain::completion::complete(result, completion)
+        })?;
+        rows.scope = Some(scope); rows.client = Some(self.client.clone()); Ok(rows)
+    }
+    /// A model-owned indexed query returns compact `id` nominations. Exact selected
+    /// membership is checked before fetching their complete canonical payloads.
+    pub fn candidate_payload_rows(&self, candidates: crate::prepared::PreparedQuery, table: &str, order: &str) -> Result<NativeRows, ModelError> {
+        let budget = self.scratch_budget()?;
+        let scope = self.scope.as_ref().ok_or(ModelError::Conflict("candidate read requires exact selected scope"))?;
+        let mut rows = crate::selection::SelectedPayloads::sparse_candidate_rows(self.client.clone(), scope.views.clone(), self.cancellation.clone(), candidates, table, order, &budget)?;
+        rows.scope = Some(scope.clone()); rows.client = Some(self.client.clone()); Ok(rows)
+    }
+    pub async fn selected_candidate_ids(&self, requested: &[RecordId], budget: &lctx_model::domain::resources::ResourceBudget) -> Result<Vec<RecordId>, ModelError> {
+        match &self.scope { Some(scope) => crate::selection::SelectedPayloads::filter_view_candidates(self.client.clone(), &scope.views, self.cancellation.clone(), requested, budget).await, None => Ok(requested.to_vec()) }
+    }
+    pub fn record_stream_candidates<R: Record + DeserializeOwned>(&self, candidates: crate::prepared::PreparedQuery, order: &str) -> Result<CanonicalRecords<R>, ModelError> {
+        let table = crate::schema::ScopeTable::for_relation(R::NAME)?.name();
+        if table == "compiler_record" { return Err(ModelError::Schema("canonical native record family")); }
+        Ok(CanonicalRecords { rows: self.candidate_payload_rows(candidates, table, order)?, positions: vec![0], physical_kind: true, failed: false, marker: std::marker::PhantomData })
+    }
+    /// Release retained immutable preparation after the owning service has drained requests.
+    pub async fn release_preparation(&self) -> Result<(), ModelError> {
+        if let Some(scope) = &self.scope {
+            let pending = scope.selection.lock().map_err(|_| ModelError::Conflict("reader selection owner"))?.take();
+            if let Some((_, pending)) = pending { pending.await.map_err(ModelError::SharedCause)?; }
+        } Ok(())
+    }
+    pub fn relation_rows(&self, relation: &str) -> Result<NativeRows, ModelError> {
+        if self.scope.is_none() { return Err(ModelError::Conflict("relation read requires exact published view")); }
+        let mut vars = Variables::new(); vars.insert("type", relation.to_owned());
+        self.selected_payload_rows(crate::schema::ScopeTable::for_relation(relation)?.name(), "semantic_type=$type", vars, vec![], "semantic_key", None)
     }
     pub fn relation_bodies(&self, relation: &str, limit: usize) -> Result<NativeRows, ModelError> {
-        if self.scope.is_none() {
-            return Err(ModelError::Conflict(
-                "relation read requires exact published view",
-            ));
-        }
-        let table = crate::schema::ScopeTable::for_relation(relation)?.name();
-        let mut bindings = self.view_bindings();
-        bindings.insert("type", relation.to_string());
-        bindings.insert("table", table.to_string());
-        bindings.insert("limit", limit);
-        let mut preparation = Vec::new();
-        let source = self
-            .selected_record_source(&mut preparation, Some("$type"))
-            .ok_or(ModelError::Conflict(
-                "relation read requires exact published view",
-            ))?;
-        self.stream_prepared(crate::prepared::PreparedQuery::new(bindings,preparation,vec![format!("SELECT semantic_key,body FROM {source} WHERE record::table(id)=$table AND semantic_type=$type ORDER BY semantic_key LIMIT $limit")])?)
+        if self.scope.is_none() { return Err(ModelError::Conflict("relation read requires exact published view")); }
+        let mut vars = Variables::new(); vars.insert("type", relation.to_owned());
+        self.selected_payload_rows(crate::schema::ScopeTable::for_relation(relation)?.name(), "semantic_type=$type", vars, vec![], "semantic_key", Some(limit))
     }
-    /// Rows are provisional. Only exhaustion after every declared statement end and the outer
-    /// transport completion establishes success. Private publishers discard their target on error.
-    pub fn query_stream(
-        &self,
-        sql: impl Into<String>,
-        bindings: Variables,
-        statements: usize,
-    ) -> Result<NativeRows, ModelError> {
-        self.stream_prepared(crate::prepared::PreparedQuery::from_sql(
-            sql.into(),
-            bindings,
-            statements,
-            (0..statements).collect(),
-        )?)
+    pub fn query_stream(&self, sql: impl Into<String>, bindings: Variables, statements: usize) -> Result<NativeRows, ModelError> {
+        self.stream_prepared(crate::prepared::PreparedQuery::from_sql(sql.into(), bindings, statements, (0..statements).collect())?)
     }
-
-    pub fn stream_prepared(
-        &self,
-        query: crate::prepared::PreparedQuery,
-    ) -> Result<NativeRows, ModelError> {
-        query
-            .with_bindings(self.view_bindings())
-            .stream(&self.client)
-            .map(|mut rows| {
-                rows.scope = self.scope.clone();
-                rows
-            })
+    pub fn stream_prepared(&self, query: crate::prepared::PreparedQuery) -> Result<NativeRows, ModelError> {
+        query.with_bindings(self.view_bindings()).stream_cancellable(&self.client, self.cancellation.as_ref()).map(|mut rows| { rows.scope = self.scope.clone(); rows })
     }
     pub async fn query_prepared<T: Serialize + DeserializeOwned + 'static>(
         &self,
@@ -225,12 +246,14 @@ impl<Context> NativeReader<Context> {
         &self,
         query: crate::prepared::PreparedQuery,
     ) -> Result<Value, ModelError> {
+        self.check_read_admission()?;
         if query.result_positions().len() != 1 {
             return Err(ModelError::Schema("native single result demand"));
         }
         let position = query.result_positions()[0];
         let terminals = query.expected_terminals();
         let (sql, bindings) = query.with_bindings(self.view_bindings()).into_request();
+        self.check_read_admission()?;
         let mut response = self
             .client
             .query(sql)
@@ -258,29 +281,15 @@ impl<Context> NativeReader<Context> {
         &self,
         predicate: &str,
         mut bindings: Variables,
-        mut preparation: Vec<String>,
+        preparation: Vec<String>,
         order: &str,
     ) -> Result<CanonicalRecords<R>, ModelError> {
         bindings.insert("type", R::NAME.to_string());
-        let [entities, assertions] = self.canonical_sources(&mut preparation);
-        let query = crate::prepared::PreparedQuery::new(
-            bindings,
-            preparation,
-            vec![
-                format!(
-                    "SELECT canonical, {order} FROM {entities} WHERE record::table(id)='entity' AND semantic_type=$type AND ({predicate}) ORDER BY {order}"
-                ),
-                format!(
-                    "SELECT canonical, {order} FROM {assertions} WHERE record::table(id)='assertion' AND semantic_type=$type AND ({predicate}) ORDER BY {order}"
-                ),
-            ],
-        )?;
-        let positions = query.result_positions().to_vec();
+        let table = crate::schema::ScopeTable::for_relation(R::NAME)?.name();
+        if table == "compiler_record" { return Err(ModelError::Schema("canonical native record family")); }
         Ok(CanonicalRecords {
-            rows: self.stream_prepared(query)?,
-            positions,
-            failed: false,
-            marker: std::marker::PhantomData,
+            rows: self.selected_payload_rows(table, &format!("semantic_type=$type AND ({predicate})"), bindings, preparation, order, None)?,
+            positions: vec![0], physical_kind: true, failed: false, marker: std::marker::PhantomData,
         })
     }
     pub fn client(&self) -> &Surreal<Client> {
@@ -319,11 +328,13 @@ impl<Context> NativeReader<Context> {
         let mut bindings = Variables::new();
         bindings.insert("type", R::NAME.to_string());
         let mut preparation = Vec::new();
+        let mut index = ""; let mut connected = false;
         let predicate = match selection {
             RecordSelection::Keys(keys) => {
                 if keys.is_empty() {
                     return Ok(vec![]);
                 }
+                index = " WITH INDEX semantic_key";
                 bindings.insert("keys", keys.iter().map(hex::encode).collect::<Vec<_>>());
                 "semantic_key IN $keys".to_owned()
             }
@@ -341,6 +352,7 @@ impl<Context> NativeReader<Context> {
                     crate::loader::json_value(serde_json::Value::Array(values))?,
                 );
                 if sparse {
+                    index = " WITH INDEX by_scope";
                     crate::prepared::prepare_scope(
                         &mut preparation,
                         "record_scope",
@@ -353,6 +365,7 @@ impl<Context> NativeReader<Context> {
                 }
             }
             RecordSelection::Connected { targets, fields } => {
+                connected = true;
                 if targets.is_empty() {
                     return Ok(vec![]);
                 }
@@ -361,46 +374,22 @@ impl<Context> NativeReader<Context> {
                     targets.into_iter().map(target_id).collect::<Vec<_>>(),
                 );
                 bindings.insert("fields", fields);
-                "id IN (SELECT VALUE in FROM participant WHERE out IN $targets AND (array::len($fields)=0 OR field IN $fields)) OR id IN (SELECT VALUE in FROM reference WHERE out IN $targets AND (array::len($fields)=0 OR field IN $fields))".into()
+                "array::len((SELECT VALUE id FROM participant WITH INDEX outgoing WHERE in=$parent.id AND out IN $targets AND (array::len($fields)=0 OR field IN $fields) LIMIT 1))>0 OR array::len((SELECT VALUE id FROM reference WITH INDEX outgoing WHERE in=$parent.id AND out IN $targets AND (array::len($fields)=0 OR field IN $fields) LIMIT 1))>0".into()
             }
         };
-        let [entities, assertions] = self.canonical_sources(&mut preparation);
-        let query = crate::prepared::PreparedQuery::new(
-            bindings,
-            preparation,
-            vec![
-                format!(
-                    "SELECT VALUE canonical FROM {entities} WHERE record::table(id)='entity' AND semantic_type=$type AND ({predicate}) ORDER BY semantic_key"
-                ),
-                format!(
-                    "SELECT VALUE canonical FROM {assertions} WHERE record::table(id)='assertion' AND semantic_type=$type AND ({predicate}) ORDER BY semantic_key"
-                ),
-            ],
-        )?;
-        let positions = query.result_positions().to_vec();
-        let terminals = query.expected_terminals();
-        let (sql, bindings) = query.with_bindings(self.view_bindings()).into_request();
-        let mut response = self
-            .client
-            .query(sql)
-            .bind(bindings)
-            .await
-            .map_err(sdk_error)?
-            .check()
-            .map_err(sdk_error)?;
-        if response.num_statements() != terminals {
-            return Err(ModelError::Schema("native record response inventory"));
-        }
-        let entities: Vec<Bytes> = response.take(positions[0]).map_err(|_| corrupt())?;
-        let assertions: Vec<Bytes> = response.take(positions[1]).map_err(|_| corrupt())?;
-        let mut result = Vec::with_capacity(entities.len() + assertions.len());
-        for payload in entities {
-            result.push(canonical_entity::<R>(&payload)?);
-        }
-        for payload in assertions {
-            result.push(canonical_assertion::<R>(&payload)?);
-        }
-        Ok(result)
+        let table = crate::schema::ScopeTable::for_relation(R::NAME)?.name();
+        let mut rows = if self.scope.is_none() {
+            self.record_stream_prepared::<R>(&predicate, bindings, preparation, "semantic_key")?
+        } else {
+            let statements = if connected {
+                ["participant", "reference"].map(|role| format!("SELECT in AS id FROM {role} WITH INDEX incoming WHERE out IN $targets AND (array::len($fields)=0 OR field IN $fields) AND in.semantic_type=$type")).to_vec()
+            } else { vec![format!("SELECT id FROM {table}{index} WHERE semantic_type=$type AND ({predicate})")] };
+            CanonicalRecords { rows: self.candidate_payload_rows(crate::prepared::PreparedQuery::new(bindings, preparation, statements)?, table, "semantic_key")?, positions: vec![0], physical_kind: true, failed: false, marker: std::marker::PhantomData }
+        };
+        let result = async { let mut result = Vec::new(); while let Some(row) = rows.next().await? { result.push(row); } Ok(result) }.await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step("native typed record drainage", rows.drain_transport().await);
+        lctx_model::domain::completion::complete(result, completion)
     }
     /// Hydrate one ordered window through its exact physical record pointers. A nominal
     /// family predicate is never a substitute for the already selected backing records.
@@ -437,17 +426,13 @@ impl<Context> NativeReader<Context> {
                 .map(|candidate| candidate.node.clone())
                 .collect::<Vec<_>>(),
         );
-        let query = crate::prepared::PreparedQuery::new(
-            bindings,
-            vec![],
-            vec![format!(
-                "SELECT id,semantic_type,semantic_key,canonical FROM $nodes WHERE ({}) ORDER BY semantic_key",
-                self.selected_node_predicate("id")
-            )],
-        )?;
+        let requested = candidates.iter().map(|candidate| candidate.node.clone()).collect::<Vec<_>>();
+        if self.selected_candidate_ids(&requested, &self.scratch_budget()?).await?.len() != requested.len() { return Err(ModelError::Conflict("native candidate outside exact view")); }
+        let query = crate::prepared::PreparedQuery::new(bindings, vec![], vec![candidate_records_sql().into()])?;
         let position = query.result_positions()[0];
         let terminals = query.expected_terminals();
         let (sql, bindings) = query.with_bindings(self.view_bindings()).into_request();
+        self.check_read_admission()?;
         let mut response = self
             .client
             .query(sql)
@@ -556,15 +541,20 @@ impl NativeReader<SnapshotHandle> {
         views.sort();
         views.dedup();
         let pin = crate::control::ReaderPin::acquire(client.clone(), &all_views).await?;
-        pin.protect(RecordId::new("publication", handle.publication.hex()))
-            .await?;
+        if let Err(error) = pin.protect(RecordId::new("publication", handle.publication.hex())).await {
+            if !error.permits_storage_cleanup() { pin.retain_unknown(); }
+            let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("failed reader setup pin release", pin.release().await);
+            return lctx_model::domain::completion::complete(Err(error), completion);
+        }
         Ok(Self {
             client,
             handle,
+            cancellation: None, budget: None, request_budget: None,
             scope: Some(Arc::new(ReaderScope {
                 originals: Some(manifest.originals),
                 views,
                 _pin: Some(pin),
+                selection: std::sync::Mutex::new(None),
             })),
         })
     }
@@ -580,7 +570,12 @@ impl NativeReader<SnapshotHandle> {
             handle.database.database.as_str(),
         )
         .await?;
-        Self::open(client, handle).await
+        let result = Self::open(client.clone(), handle).await;
+        if result.is_err() {
+            let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("failed reader setup session invalidation", client.invalidate().await.map_err(ModelError::codec));
+            return lctx_model::domain::completion::complete(result, completion);
+        }
+        result
     }
     pub fn handle(&self) -> &SnapshotHandle {
         &self.handle
@@ -594,10 +589,12 @@ impl NativeReader<()> {
         Self {
             client,
             handle: (),
+            cancellation: None, budget: None, request_budget: None,
             scope: Some(Arc::new(ReaderScope {
                 originals: None,
                 views,
                 _pin: None,
+                selection: std::sync::Mutex::new(None),
             })),
         }
     }
@@ -608,6 +605,7 @@ impl NativeReader<()> {
         Self {
             client,
             handle: (),
+            cancellation: None, budget: None, request_budget: None,
             scope: None,
         }
     }
@@ -635,12 +633,18 @@ pub(crate) fn sdk_error(error: surrealdb::Error) -> ModelError {
         ModelError::Cause(Box::new(error))
     }
 }
+fn unconfirmed_stream(error: ModelError) -> ModelError {
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+    lctx_model::domain::completion::complete::<()>(Err(error), completion).unwrap_err()
+}
 
 pub struct NativeRows {
     stream: futures::stream::BoxStream<'static, surrealdb::Result<surrealdb::method::StreamItem>>,
     // Declaration order matters: dropping the stream signals cancellation before the final
     // session handle can be released. Explicit drainage retains both through completion.
     client: Option<Arc<Surreal<Client>>>,
+    transaction: Option<Arc<surrealdb::method::Transaction<Client>>>,
     scope: Option<Arc<ReaderScope>>,
     statements: usize,
     ended: usize,
@@ -649,8 +653,35 @@ pub struct NativeRows {
     drain_errors: Vec<Arc<ModelError>>,
     drain_row_order_error: bool,
     row_bytes: usize,
+    owned_result: Option<futures::future::Shared<futures::future::BoxFuture<'static, Result<(), Arc<ModelError>>>>>,
 }
 impl NativeRows {
+    /// The driver owns all native preparation through its checked terminal. Receiver loss
+    /// stops delivery; admitted native reads still drain before the synthetic terminal.
+    pub(crate) fn owned<F, Fut>(driver: F) -> Result<Self, ModelError>
+    where F: FnOnce(tokio::sync::mpsc::Sender<Value>) -> Fut + Send + 'static,
+          Fut: std::future::Future<Output = Result<(), ModelError>> + Send + 'static,
+    {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let (terminal_sender, terminal_receiver) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move { let result = driver(sender).await; let _ = terminal_sender.send(result); });
+        let rows = futures::stream::unfold(receiver, |mut receiver| async move {
+            receiver.recv().await.map(|value| (Ok(surrealdb::method::StreamItem::Row { statement: 0, value }), receiver))
+        });
+        let result = async move {
+            terminal_receiver.await.map_err(|error| Arc::new(ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed, format!("selected driver lost terminal: {error}"))))?
+                .map_err(Arc::new)
+        }.boxed().shared();
+        let terminal_result = result.clone();
+        let terminal = futures::stream::once(async move {
+            let _ = terminal_result.await;
+            Ok(surrealdb::method::StreamItem::StatementEnd { statement: 0, stats: Default::default(), result: Ok(()) })
+        });
+        let mut rows = Self::new(rows.chain(terminal), 1)?;
+        rows.owned_result = Some(result);
+        Ok(rows)
+    }
     pub(crate) fn new(
         stream: impl futures::Stream<Item = surrealdb::Result<surrealdb::method::StreamItem>>
         + Send
@@ -663,6 +694,7 @@ impl NativeRows {
         Ok(Self {
             stream: stream.boxed(),
             client: None,
+            transaction: None,
             scope: None,
             statements,
             ended: 0,
@@ -671,11 +703,23 @@ impl NativeRows {
             drain_errors: Vec::new(),
             drain_row_order_error: false,
             row_bytes: 1024 * 1024,
+            owned_result: None,
         })
+    }
+    /// Close synthetic delivery while keeping its independent driver terminal alive.
+    /// Raw transport streams remain owned until checked drainage.
+    pub(crate) fn cancel_delivery(&mut self) {
+        if self.owned_result.is_some() {
+            self.stream = futures::stream::empty().boxed();
+            self.exhausted = true; self.ended = self.statements;
+        }
     }
     pub(crate) fn with_client(mut self, client: Arc<Surreal<Client>>) -> Self {
         self.client = Some(client);
         self
+    }
+    pub(crate) fn with_transaction(mut self, transaction: Arc<surrealdb::method::Transaction<Client>>) -> Self {
+        self.transaction = Some(transaction); self
     }
     pub(crate) fn with_row_bytes(mut self, row_bytes: usize) -> Self {
         self.row_bytes = row_bytes;
@@ -693,24 +737,24 @@ impl NativeRows {
         if !self.exhausted {
             while let Some(item) = self.stream.next().await {
                 match item {
-                    Err(error) => self.drain_errors.push(Arc::new(sdk_error(error))),
+                    Err(error) => self.drain_errors.push(Arc::new(unconfirmed_stream(sdk_error(error)))),
                     Ok(surrealdb::method::StreamItem::Row { statement, .. }) => {
                         if (statement != self.ended || statement >= self.statements)
                             && !self.drain_row_order_error
                         {
                             self.drain_row_order_error = true;
-                            self.drain_errors.push(Arc::new(ModelError::Schema(
+                            self.drain_errors.push(Arc::new(unconfirmed_stream(ModelError::Schema(
                                 "native stream drainage row order",
-                            )));
+                            ))));
                         }
                     }
                     Ok(surrealdb::method::StreamItem::StatementEnd {
                         statement, result, ..
                     }) => {
                         if statement != self.ended || statement >= self.statements {
-                            self.drain_errors.push(Arc::new(ModelError::Schema(
+                            self.drain_errors.push(Arc::new(unconfirmed_stream(ModelError::Schema(
                                 "native stream drainage terminal order",
-                            )));
+                            ))));
                         } else {
                             self.ended += 1;
                         }
@@ -722,9 +766,8 @@ impl NativeRows {
             }
             self.exhausted = true;
             if self.ended != self.statements {
-                self.drain_errors.push(Arc::new(ModelError::Schema(
-                    "native stream drainage missing terminal",
-                )));
+                self.drain_errors.push(Arc::new(ModelError::infrastructure(
+                    lctx_model::domain::Infrastructure::Unconfirmed, "native stream drainage missing terminal")));
             }
         }
         if self.ended != self.statements {
@@ -734,14 +777,24 @@ impl NativeRows {
                 }
             }
         }
-        self.scope.take();
+        if let Some(result) = self.owned_result.as_ref().cloned() {
+            let result = result.await; self.owned_result.take();
+            if let Err(error) = result { self.drain_errors.push(error); }
+        }
         let mut completion = lctx_model::domain::completion::Completion::default();
+        if self.ended != self.statements || self.failure.as_ref().is_some_and(|error| !error.permits_storage_cleanup()) {
+            completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+        }
         for error in &self.drain_errors {
             completion.step(
                 "native stream finalization",
                 Err(ModelError::SharedCause(error.clone())),
             );
         }
+        if completion.remote == lctx_model::domain::completion::RemoteState::Unknown {
+            if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
+        }
+        self.scope.take();
         lctx_model::domain::completion::complete(Ok(()), completion)
     }
     pub async fn next(&mut self) -> Result<Option<Value>, ModelError> {
@@ -754,14 +807,12 @@ impl NativeRows {
         }
     }
     async fn read_next(&mut self) -> Result<Option<Value>, ModelError> {
-        if self.exhausted {
-            return Ok(None);
-        }
+        if self.exhausted && self.owned_result.is_none() { return Ok(None); }
         while let Some(item) = self.stream.next().await {
-            match item.map_err(sdk_error)? {
+            match item.map_err(|error| unconfirmed_stream(sdk_error(error)))? {
                 surrealdb::method::StreamItem::Row { statement, value } => {
                     if statement != self.ended || statement >= self.statements {
-                        return Err(ModelError::Schema("native stream row order"));
+                        return Err(unconfirmed_stream(ModelError::Schema("native stream row order")));
                     }
                     // The SDK queue is row bounded, not byte bounded. Refuse an oversized source
                     // value before decoding or expansion; this is not a server RSS guarantee.
@@ -780,7 +831,7 @@ impl NativeRows {
                     statement, result, ..
                 } => {
                     if statement != self.ended || statement >= self.statements {
-                        return Err(ModelError::Schema("native stream terminal order"));
+                        return Err(unconfirmed_stream(ModelError::Schema("native stream terminal order")));
                     }
                     self.ended += 1;
                     result.map_err(sdk_error)?;
@@ -794,7 +845,14 @@ impl NativeRows {
                     pin.retain_unknown();
                 }
             }
-            return Err(ModelError::Schema("native stream missing terminal success"));
+            return Err(ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed, "native stream missing terminal success"));
+        }
+        if let Some(result) = self.owned_result.as_ref().cloned() {
+            let result = result.await; self.owned_result.take();
+            if let Err(error) = result {
+                if !error.permits_storage_cleanup() { if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); } }
+                return Err(ModelError::SharedCause(error));
+            }
         }
         self.scope.take();
         Ok(None)
@@ -806,7 +864,10 @@ impl Drop for NativeRows {
         let Some(scope) = self.scope.take() else {
             return;
         };
-        if self.exhausted && self.ended == self.statements {
+        if self.exhausted && self.ended == self.statements && self.owned_result.is_none() {
+            if self.failure.as_ref().is_some_and(|error| !error.permits_storage_cleanup()) {
+                if let Some(pin) = &scope._pin { pin.retain_unknown(); }
+            }
             return;
         }
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
@@ -815,30 +876,20 @@ impl Drop for NativeRows {
             }
             return;
         };
-        let mut stream = std::mem::replace(&mut self.stream, futures::stream::empty().boxed());
-        let client = self.client.take();
-        let mut ended = self.ended;
-        let statements = self.statements;
+        self.cancel_delivery();
+        let mut drain = NativeRows {
+            stream: std::mem::replace(&mut self.stream, futures::stream::empty().boxed()),
+            client: self.client.take(), transaction: self.transaction.take(), scope: Some(scope),
+            statements: self.statements, ended: self.ended, exhausted: self.exhausted,
+            failure: self.failure.take(), drain_errors: std::mem::take(&mut self.drain_errors),
+            drain_row_order_error: self.drain_row_order_error, row_bytes: self.row_bytes,
+            owned_result: self.owned_result.take(),
+        };
         runtime.spawn(async move {
-            let _client = client;
-            let mut unknown = false;
-            while let Some(item) = stream.next().await {
-                match item {
-                    Ok(surrealdb::method::StreamItem::StatementEnd { statement, .. })
-                        if statement == ended =>
-                    {
-                        ended += 1
-                    }
-                    Err(_) => unknown = true,
-                    _ => {}
-                }
+            let result = drain.drain_transport().await;
+            if result.is_err() || drain.failure.is_some() {
+                tracing::error!(primary = ?drain.failure, completion = ?result, "cancelled native read terminal outcome");
             }
-            if unknown || ended != statements {
-                if let Some(pin) = &scope._pin {
-                    pin.retain_unknown();
-                }
-            }
-            drop(scope);
         });
     }
 }
@@ -846,6 +897,7 @@ impl Drop for NativeRows {
 pub struct CanonicalRecords<R> {
     rows: NativeRows,
     positions: Vec<usize>,
+    physical_kind: bool,
     failed: bool,
     marker: std::marker::PhantomData<R>,
 }
@@ -874,6 +926,14 @@ impl<R: Record + DeserializeOwned> CanonicalRecords<R> {
             .map_err(|_| corrupt())?;
         // Statement identity is supplied by the checked SDK envelope, not a string projection.
         // ORDER BY fields are selected for SurrealQL but never interpreted as canonical authority.
+        if self.physical_kind {
+            let id = RecordId::from_value(projection.get("id").cloned().ok_or_else(corrupt)?).map_err(|_| corrupt())?;
+            return match id.table.as_str() {
+                "entity" => canonical_entity::<R>(&canonical).map(Some),
+                "assertion" => canonical_assertion::<R>(&canonical).map(Some),
+                _ => Err(ModelError::Schema("native canonical family")),
+            };
+        }
         let row = match self
             .positions
             .iter()
@@ -996,6 +1056,38 @@ pub async fn authenticated(
 mod streaming_tests {
     use super::*;
     use surrealdb::method::StreamItem;
+    #[tokio::test]
+    async fn reader_terminal_guard_retains_actual_pin_on_unwind_without_an_extra_scope_borrower() {
+        use futures::FutureExt;
+        let pin = crate::control::ReaderPin::test_detached(false);
+        let mut reader = NativeReader::for_views(Arc::new(Surreal::init()), vec![]);
+        Arc::get_mut(reader.scope.as_mut().unwrap()).unwrap()._pin = Some(pin.clone());
+        let scope_borrowers = Arc::strong_count(reader.scope.as_ref().unwrap());
+        let guard = reader.protect_terminal_close();
+        assert_eq!(Arc::strong_count(reader.scope.as_ref().unwrap()), scope_borrowers);
+        let panic = std::panic::AssertUnwindSafe(async move {
+            let _guard = guard;
+            panic!("read owner unwind before terminal close");
+        }).catch_unwind().await;
+        assert!(panic.is_err()); assert!(pin.test_uncertain());
+        assert!(!reader.close().await.unwrap_err().permits_storage_cleanup());
+        let pin = crate::control::ReaderPin::test_detached(true);
+        Arc::get_mut(reader.scope.as_mut().unwrap()).unwrap()._pin = Some(pin.clone());
+        let mut guard = reader.protect_terminal_close();
+        guard.close(&reader).await.unwrap(); drop(guard);
+        assert!(!pin.test_uncertain(), "successful explicit close disarms protection");
+    }
+    #[tokio::test]
+    async fn cancelled_read_owner_fences_reader_loader_and_selected_native_admission() {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let reader = NativeReader::private(Arc::new(Surreal::init())).with_read_cancellation(flag.clone());
+        let error = reader.query_native::<Value>("RETURN 1", Variables::new()).await.unwrap_err();
+        assert!(error.to_string().contains("delivery cancelled"), "must refuse before unconnected SDK client: {error}");
+        let loader = crate::Loader::for_views(reader.shared_client(), vec![]).with_read_cancellation(flag);
+        assert!(loader.check_read_admission().is_err());
+        let error = match loader.reader().query_stream("RETURN 1", Variables::new(), 1) { Err(error) => error, Ok(_) => panic!("cancelled stream admitted") };
+        assert!(error.to_string().contains("delivery cancelled"));
+    }
     #[test]
     fn typed_sdk_timeout_is_resource_refused_without_message_classification() {
         let error = surrealdb::Error::query(
@@ -1046,6 +1138,22 @@ mod streaming_tests {
     }
     fn failure() -> surrealdb::Error {
         surrealdb::Error::internal("injected late stream failure".into())
+    }
+    #[tokio::test]
+    async fn missing_terminal_and_late_physical_failure_forbid_pin_cleanup() {
+        let mut missing = NativeRows::new(futures::stream::iter([Ok(row())]), 1).unwrap();
+        assert!(missing.next().await.unwrap().is_some());
+        let primary = missing.next().await.unwrap_err();
+        assert!(!primary.permits_storage_cleanup());
+        assert!(!missing.drain_transport().await.unwrap_err().permits_storage_cleanup());
+        let mut late = NativeRows::new(futures::stream::iter([Ok(end(Ok(()))), Err(failure())]), 1).unwrap();
+        let primary = late.next().await.unwrap_err();
+        assert!(matches!(primary.primary(), Some(ModelError::Cause(cause)) if cause.downcast_ref::<surrealdb::Error>().is_some()));
+        assert!(!primary.permits_storage_cleanup());
+        assert!(!late.drain_transport().await.unwrap_err().permits_storage_cleanup());
+        let mut semantic = NativeRows::new(futures::stream::iter([Ok(end(Err(surrealdb::Error::query("confirmed statement failure".into(), None))))]), 1).unwrap();
+        assert!(semantic.next().await.unwrap_err().permits_storage_cleanup());
+        semantic.drain_transport().await.unwrap();
     }
     #[tokio::test]
     async fn interrupted_transport_drain_retains_primary_and_both_late_errors() {
@@ -1125,6 +1233,7 @@ mod streaming_tests {
         let mut records = CanonicalRecords::<lctx_model::domain::input::Package> {
             rows,
             positions: vec![0],
+            physical_kind: false,
             failed: false,
             marker: std::marker::PhantomData,
         };
@@ -1150,6 +1259,7 @@ mod streaming_tests {
         let mut records = CanonicalRecords::<lctx_model::domain::input::Package> {
             rows,
             positions: vec![0],
+            physical_kind: false,
             failed: false,
             marker: std::marker::PhantomData,
         };

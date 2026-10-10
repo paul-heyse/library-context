@@ -5,6 +5,11 @@ use surrealdb::{
     method::StreamItem,
     types::{ToSql, Value, Variables},
 };
+pub(crate) fn check_read_cancellation(flag: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>) -> Result<(), ModelError> {
+    if flag.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Acquire)) {
+        Err(ModelError::Cause(Box::new(std::io::Error::new(std::io::ErrorKind::Interrupted, "native read delivery cancelled"))))
+    } else { Ok(()) }
+}
 
 /// Statement positions include preparation. Every terminal remains part of the operation,
 /// including preparation failures; only designated result statements expose payload rows.
@@ -87,6 +92,18 @@ impl PreparedQuery {
             crate::reader::NativeRows::new(selected_rows(stream, results, terminals), terminals)?
                 .with_client(client.clone()),
         )
+    }
+    pub(crate) fn stream_cancellable(self, client: &std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>, flag: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>) -> Result<crate::reader::NativeRows, ModelError> {
+        check_read_cancellation(flag)?;
+        self.stream(client)
+    }
+    /// The caller owns explicit cancellation of this external transaction after checked EOF.
+    pub fn stream_transaction(
+        self, transaction: &std::sync::Arc<surrealdb::method::Transaction<surrealdb::engine::remote::grpc::Client>>,
+    ) -> Result<crate::reader::NativeRows, ModelError> {
+        let terminals = self.expected_terminals(); let (sql, bindings) = self.clone().into_request();
+        let stream = transaction.query(sql).bind(bindings).stream_items().map_err(crate::reader::sdk_error)?;
+        Ok(crate::reader::NativeRows::new(self.select_rows(stream), terminals)?.with_transaction(transaction.clone()))
     }
     pub fn select_rows(
         &self,

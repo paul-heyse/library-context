@@ -27,6 +27,9 @@ impl Admission<'_> {
             Self::Restored(owner) => owner.native(),
         }
     }
+    fn budget(&self) -> &lctx_model::domain::resources::ResourceBudget {
+        match self { Self::Completed(owner) => owner.budget(), Self::Export(owner) => owner.budget(), Self::Restored(owner) => owner.budget() }
+    }
     fn manifest(&self) -> &Manifest {
         match self {
             Self::Completed(owner) => owner.manifest(),
@@ -61,6 +64,7 @@ impl<'a> Publication<'a> {
         .await;
         let client = lease.finish_with(connected)?;
         let attempt = admission.native().attempt();
+        let budget = admission.budget().clone();
         Ok(Self {
             admission,
             loader: Loader::for_attempt_views(
@@ -71,10 +75,11 @@ impl<'a> Publication<'a> {
                     .filter(|binding| binding.boundary.is_none())
                     .map(|binding| binding.view.identity)
                     .collect(),
-            ),
+            ).with_budget(&budget),
             bindings,
         })
     }
+    pub(crate) fn loader(&self) -> &Loader { &self.loader }
     fn store(&self) -> &Arc<NativeCompilerStore> {
         self.admission.native()
     }
@@ -141,7 +146,7 @@ impl<'a> Publication<'a> {
         let lease = self.store().begin_finalization().await?;
         let phase = Phase::begin("publication_seal");
         let result = async {
-            if self.store().completed_state_after_closure(&lease).await? != manifest.completed_state
+            if self.store().completed_state_after_closure(&lease, self.admission.budget()).await? != manifest.completed_state
             {
                 return Err(ModelError::Conflict("sealed completed state"));
             }

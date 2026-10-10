@@ -210,6 +210,29 @@ enum StoreCommand {
         keep_closed: bool,
     },
     Check,
+    /// Print this executable's native schema identity without accessing stored state.
+    Schema,
+    /// Upgrade one exact legacy scope while its service owner holds closed maintenance.
+    Upgrade {
+        #[arg(long, value_parser=content_hash)]
+        expected_schema: lctx_model::domain::ContentHash,
+        #[arg(long, value_parser=content_hash)]
+        operation: lctx_model::domain::ContentHash,
+    },
+    /// Explicit drained maintenance of retained control history.
+    History {
+        #[command(subcommand)]
+        command: HistoryCommand,
+    },
+    /// Claim distinct maintenance successors for exact interrupted obligations.
+    Recover {
+        #[arg(long, value_parser=content_hash)]
+        cleanup: Vec<lctx_model::domain::ContentHash>,
+        #[arg(long, value_parser=content_hash)]
+        retirement: Vec<lctx_model::domain::ContentHash>,
+        #[arg(long, default_value_t = 128)]
+        limit: usize,
+    },
     /// Maintenance-only durable effect reconciliation and drainage barrier.
     Drain,
     /// Release named abandoned owners after explicit predecessor drainage under closed maintenance.
@@ -225,6 +248,29 @@ enum StoreCommand {
     CloseAdmission,
     /// Reopen native borrowers after checked maintenance recovery.
     OpenAdmission,
+}
+
+#[derive(Subcommand, Debug)]
+enum HistoryCommand {
+    /// Record the reviewed and qualified consumer inventory before allowing collection.
+    Qualify {
+        #[arg(long, value_parser=content_hash)]
+        evidence: lctx_model::domain::ContentHash,
+    },
+    /// Permanently close the old issuance era after actual drainage.
+    Cut,
+    /// Collect one bounded page behind a qualified permanent fence.
+    Compact {
+        #[arg(long, default_value_t = 128)]
+        limit: usize,
+    },
+    /// Continue the same persisted collector without refreshing its issuance authority.
+    Resume {
+        #[arg(long, value_parser=content_hash)]
+        identity: lctx_model::domain::ContentHash,
+        #[arg(long, default_value_t = 128)]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -876,6 +922,13 @@ fn run() -> anyhow::Result<()> {
             runtime_config,
             command,
         } => {
+            if matches!(&command, StoreCommand::Schema) {
+                println!("{}", serde_json::to_string(&serde_json::json!({
+                    "schema_version":lctx_surrealdb::control::SCHEMA_VERSION,
+                    "schema":lctx_surrealdb::compiler::base_schema_identity().hex(),
+                }))?);
+                return Ok(());
+            }
             let config = newnative::config(&runtime_config)?;
             let runtime = runtime()?;
             let reports_ready = !matches!(
@@ -884,6 +937,9 @@ fn run() -> anyhow::Result<()> {
                     | StoreCommand::Drain
                     | StoreCommand::CloseAdmission
                     | StoreCommand::Reconcile { .. }
+                    | StoreCommand::Upgrade { .. }
+                    | StoreCommand::History { .. }
+                    | StoreCommand::Recover { .. }
             );
             match command {
                 StoreCommand::Init { keep_closed } => {
@@ -891,6 +947,56 @@ fn run() -> anyhow::Result<()> {
                 }
                 StoreCommand::Check => {
                     runtime.block_on(newnative::ready(&config))?;
+                }
+                StoreCommand::Schema => unreachable!("metadata command returned above"),
+                StoreCommand::Upgrade { expected_schema, operation } => {
+                    runtime.block_on(async {
+                        let blueprint=lctx_serving::native_definitions();
+                        lctx_surrealdb::upgrade::upgrade(&config, expected_schema, operation, &blueprint).await?;
+                        // Executable epochs have a separate owner from the base format marker.
+                        // Repeat safely after unknown installation acknowledgement; stay closed.
+                        lctx_publisher::install_definitions(&config,&blueprint).await?;
+                        anyhow::Ok(())
+                    })?;
+                }
+                StoreCommand::History { command } => {
+                    runtime.block_on(async {
+                        let client = lctx_surrealdb::upgrade::maintenance_client(&config).await?;
+                        let receipt = match command {
+                            HistoryCommand::Qualify { evidence } => {
+                                lctx_surrealdb::control::qualify_history_inventory(&client, evidence).await?;
+                                serde_json::json!({"inventory":evidence.hex()})
+                            }
+                            HistoryCommand::Cut => serde_json::to_value(lctx_surrealdb::control::cut_era(&client).await?)?,
+                            HistoryCommand::Compact { limit } => serde_json::to_value(lctx_surrealdb::control::compact_history(&client, limit).await?)?,
+                            HistoryCommand::Resume { identity, limit } => serde_json::to_value(lctx_surrealdb::control::resume_history_compaction(&client, identity, limit).await?)?,
+                        };
+                        println!("{}", serde_json::to_string(&serde_json::json!({"ready":false,"receipt":receipt}))?);
+                        anyhow::Ok(())
+                    })?;
+                    return Ok(());
+                }
+                StoreCommand::Recover { cleanup, retirement, limit } => {
+                    runtime.block_on(async {
+                        anyhow::ensure!(!cleanup.is_empty() || !retirement.is_empty(), "recover requires named obligations");
+                        let client = lctx_surrealdb::upgrade::maintenance_client(&config).await?;
+                        let mut receipts=Vec::new();
+                        for predecessor in cleanup {
+                            let successor=lctx_surrealdb::control::recover_cleanup(&client, predecessor).await?;
+                            // Emit the durable identity before continuing: a later error cannot hide it.
+                            println!("{}",serde_json::json!({"cleanup_predecessor":predecessor.hex(),"successor":successor.hex()}));
+                            lctx_surrealdb::control::resume_cleanup(&client,successor).await?;
+                            receipts.push(serde_json::json!({"cleanup":successor.hex(),"completed":true}));
+                        }
+                        for predecessor in retirement {
+                            let successor=lctx_surrealdb::control::recover_retirement(&client,predecessor).await?;
+                            println!("{}",serde_json::json!({"retirement_predecessor":predecessor.hex(),"successor":successor.hex()}));
+                            receipts.push(serde_json::to_value(lctx_surrealdb::control::resume_retirement(&client,successor,limit).await?)?);
+                        }
+                        println!("{}",serde_json::json!({"ready":false,"receipts":receipts}));
+                        anyhow::Ok(())
+                    })?;
+                    return Ok(());
                 }
                 StoreCommand::Drain => {
                     runtime.block_on(lctx_surrealdb::compiler::drain_installation(&config))?;
@@ -977,6 +1083,19 @@ mod tests {
             };
             assert_eq!(keep_closed, expected);
         }
+    }
+
+    #[test]
+    fn maintenance_upgrade_and_recovery_require_exact_identities() {
+        let identity="ab".repeat(32);
+        assert!(parse(&["store","schema"]).is_ok());
+        assert!(parse(&["store","upgrade"]).is_err());
+        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity]).is_ok());
+        assert!(parse(&["store","upgrade","--expected-schema","wrong","--operation",&identity]).is_err());
+        assert!(parse(&["store","history","qualify","--evidence",&identity]).is_ok());
+        assert!(parse(&["store","history","resume","--identity",&identity]).is_ok());
+        assert!(parse(&["store","history","resume"]).is_err());
+        assert!(parse(&["store","recover","--cleanup",&identity,"--retirement",&identity]).is_ok());
     }
 
     #[test]
