@@ -2,13 +2,14 @@
 
 _Updated 2026-10-10 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Holistic state-management design review complete; implementation paused, 2026-10-10.**
-The [review](docs/design_review/reviews/design_review_holistic-state-management_2026-10-10.md)
-assesses stored and active state across compiler graphs, caches, serving sessions, native
-ownership and host/worktree lifecycles. Verdict: **Revise**, ten HS-F findings; A1–A4 violated,
-G1/G5/G6 fail. Remedies remain Proposed; new findings retain source-review disposition.
-Review documentation: `just docs-check` **passed**, 2026-10-10 (378 pages, zero link errors).
-Product/native checks **not_run** for this review; previous acceptance remains open.
+**Holistic state-management correction plan documented; production paused, 2026-10-10.**
+The [companion](docs/plans/holistic-state-management-plan_2026-10-10.md) integrates all ten
+[review findings](docs/design_review/reviews/design_review_holistic-state-management_2026-10-10.md),
+accepted holistic RC01–RC03 and bounded investigations into UP/NE/PC/GK/GR. Remedies remain
+Proposed; coordinator §8 owns HS-F01–HS-F10 Open dispositions, §9.1 actual receipts.
+Independent [target assessment](docs/design_review/reviews/design_review_holistic-state-management-plan_2026-10-10.md)
+accepts the amended Proposed design; F01 post-era recovery is resolved in target text only.
+`just docs-check` **passed**,2026-10-10:380 pages,zero link errors; product checks **not_run**.
 
 **Unified persistent SurrealDB UP0–UP9 implementation / acceptance open.**
 [ADR-0143](docs/adr/0143-unified-persistent-content-and-execution.md) supersedes ADR-0138/0140
@@ -46,7 +47,7 @@ close drains calls, releases its pin and shares terminal results across closers;
 compile/static review passed; actual Python acceptance remains blocked. Earlier maintenance8
 finished6passed/2failed before intended drift assertions; its final-source rerun, two-worktree reuse,
 populated backup/restore/restart and unfiltered UP9 `just verify --qualify --cli` remain pending.
-Next: resolve review recommendations through plan creation before resuming that execution.
+Next: detailed execution planning for the holistic companion before resuming production/qualification.
 No whole-plan closure or measured benefit is claimed; BC3 profile adoption remains separate.
 Operator/PSE-arrow data, selections, real-library adoption, shared caches and recovery evidence stay protected.
 

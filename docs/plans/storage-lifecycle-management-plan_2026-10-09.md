@@ -11,6 +11,12 @@ roots survive worktree deletion and compose with §3.4 hierarchical protection. 
 F01–F03 remain here; unified F08 remains with the persisted coordinator, not a duplicate ledger.
 Plan authoring performs no adoption, cleanup, operator-store inspection or activation.
 
+**Holistic native lifecycle refinement, Proposed, 2026-10-10:** [holistic companion](holistic-state-management-plan_2026-10-10.md) §5
+adds phased high-degree retirement and qualified terminal-history compaction behind permanent
+issuance fences. This manager only delegates to the native owner; it cannot purge control rows,
+RocksDB files, recovery assets or evidence. Native HS/UP acceptance remains in the persisted
+coordinator; SM8 service-survival/host lifecycle acceptance stays here.
+
 ## 1. Outcome, basis and completion boundary
 
 **Operator scope correction, 2026-10-09:** focus on `library-context/build`, this repository's build artifacts and its own checkouts. Other repositories and central library-skill directories are excluded. Shared/native caches remain preserved external dependencies; do not inventory or deploy lifecycle management into central skill stores.

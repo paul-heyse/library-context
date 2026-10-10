@@ -21,6 +21,12 @@ deliberate observation. UP4/UP5 extend those actual consumers; UP7 rebases fixtu
 interfaces against current AF work; UP8 composes client/server retention. UP9 integrates the
 remaining NE9/GK7/GR6 acceptance; existing timeouts and assertion receipts remain unchanged.
 
+**Holistic refinement, Proposed, 2026-10-10:** [holistic companion](holistic-state-management-plan_2026-10-10.md) §3–§4
+adds one recoverable-closure declaration and operation-local audit capture, retains compiler
+terminal ownership through reader release, and replaces complete native arrays with bounded
+actual access. Its §7 releases graph preparations at last consumer and composes ranked state.
+These corrections refine NE1–NE4/NE9; prior source acceptance does not establish their closure.
+
 ## 1. Outcome, baseline and assessed foundations
 
 Make necessary native work follow actual immutable membership and compatible physical inputs,
@@ -167,6 +173,11 @@ Empty demand still validates view authority, relation/projection shape and bound
 skipping row queries. Foreign owners, wrong nominal relations, inconsistent pointers, duplicate
 keys, late errors and cancellation remain rejection/finality obligations.
 
+**HS4 complete-access extension:** compiler-state, reader, derived-search and reconciliation
+consumers must avoid whole-universe arrays before streaming. Use indexed windows or bounded
+exact batches and a compact client merge where needed; preserve all roles/occurrences, negative
+domains and eligibility before limits. Qualify actual plans and late-window corruption cases.
+
 ### 3.3 Prepare admission once; enforce independently — F02
 
 Capture immutable TableProviders and checked typed logical input templates inside the existing
@@ -235,6 +246,11 @@ have the same semantics, and charges can transfer without another full resident 
 premises cannot be established, retain the single actual-output read and retire only redundant
 representations. No producer certificate replaces native completion or artifact admission. This
 bounded decision is required before claiming cold capture work was removed.
+
+**HS3 audit correction:** the current audit still reconstructs exact closure across verification,
+completed-state/checksum and dump paths. Share one operation-owned selection through the model/native
+closure owner, while retaining independent actual-row/cold predicates. This is separate from
+write-time capture above and from HS1 terminal drainage; neither correction certifies the other.
 
 ### 3.5 Wake-driven handoffs and relevant completion — F05/F06
 
@@ -308,7 +324,7 @@ permit conflicting writers. Existing GK/GR/PJ/PC/BC/CU IDs are not reset.
 | **NE1 — exact binding and preparation contract** | NE0 decisions; current working model scopes/completed views | One immutable resolved inventory used by provider registration, product dependencies and native resolution; compatibility identity and typed selected-port binding. Different epoch/role/schema/configuration refuses sharing; ordinary finite tests need no database |
 | **NE2 — actual membership access** | NE1 exact views; NE0 session/finality baseline for runtime controls | Bounded planner qualification then unary equality/one-owner/verified-pointer routes; compact exact-view preparation where repeated access needs it; shared native consumers migrated. Sparse/missing/foreign/conflicting owners, projection/order, cancellation and late errors preserve independent expected results |
 | **NE3 — shared admission inputs** | NE1; NE2 native reads for native migration | Checked logical preparation, union input hydration and partitioned independent checks across support/normalization/general compatible invariants. Full ownership/negative and stored-output orphan domains remain complete; invalid rows outside producer positives still refuse |
-| **NE4 — token and typed product pipeline** | NE1; NE3 predicate-input slice; NE2 token access for native integration | Union root tokens; one typed decode through all pre-effect checks and replay; explicit cold capture decision. Missing/deleted domains, wrong-but-canonical products and uncertain effects retain current outcomes; Fresh families stay Fresh |
+| **NE4 — token and typed product pipeline** | NE1; NE3 predicate-input slice; NE2 token access for native integration | Union root tokens; one typed decode through all pre-effect checks and replay; explicit cold capture decision. Missing/deleted domains, wrong-but-canonical products and uncertain effects retain current outcomes; Fresh families stay Fresh HS3 migrates audit closure/capture; HS8 releases actual graph consumers; HS10 settles hydration/interner refinements only for named consumers. |
 | **NE5 — event-driven native handoffs** | NE0 lifetime/finality contract; current BC/CU contained plumbing | Wakeable synchronous handoffs and async coarse flush, registration reuse and batch charge transfer across provider/core reads/writes. Queue-full cancellation, vanished receiver and late failed effects settle in retained owners |
 | **NE6 — contribution-relevant completion** | NE0 decision; NE1 dependency binding; working NE5 owner/ack slice | Actual producing work terminality gates local completion; independent retained readers no longer block it. Own read/write failure and an unrelated late failure still prevent invalid final admission; final closure drains everything relevant globally |
 | **NE7 — stable viewer flights** | Current GK5/GR5 exact pins/close ownership; NE0 retained-session control | Same-key initialization remains one across retention pressure, with independently cancellable waiters and prompt terminal flight removal. Pressure/complete/close races, external borrows and separate pins retain charges and actual native behavior |

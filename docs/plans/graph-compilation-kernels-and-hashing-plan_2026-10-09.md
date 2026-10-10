@@ -17,6 +17,11 @@ UP2/UP4 migrate physical binding consumers; UP5 migrates scoped reader pins. UP7
 fixtures replace disposable acceptance setup; UP9 integrates surviving GK7/GR6 obligations.
 Existing compiled code and receipts remain their dated baseline, not unified-store qualification.
 
+**Holistic refinement, Proposed, 2026-10-10:** [holistic companion](holistic-state-management-plan_2026-10-10.md) §3/§4/§7
+adds shared recovery-closure meaning, complete array-free native selection, graph/binding release
+after the last actual consumer and charged ranked borrowers with selected continuation policy.
+Full projection universe, exact membership/absence and existing GK7 qualification survive.
+
 ## 1. Outcome and assessed foundations
 
 Compile model-owned relation operations into shared prepared execution. The operation owner
@@ -196,11 +201,11 @@ reason where no operation program is necessary.
 |---|---|---|
 | **GK0 — decisions and combined target** | RC01/RC02 confirmed; target-plan review resolved | Complementary ADR/owner changes, supersession map, revision/cutover rules and shared model/compiler/reuse contracts before dependent code. |
 | **GK1 — authoritative scope model** | GK0 | Complete Aspect/Execution/Support operation composition and finite evaluator; ClassInventory and compiler callers stop independently authoring body/coverage meaning. F02 extension/substitution cases pass. |
-| **GK2 — shared compiled selection** | GK1; existing PC completion/access contracts | Native/DataFusion and compact Rust scope lowerings, owner partitions, shared discovery/hydration and exact root outcomes; overlapping and skew controls establish F01's replacement. |
+| **GK2 — shared compiled selection** | GK1; existing PC completion/access contracts | Native/DataFusion and compact Rust scope lowerings, owner partitions, shared discovery/hydration and exact root outcomes; overlapping and skew controls establish F01's replacement. HS3/HS4 extend shared closure selectors through complete multi-window roles/occurrences; streaming alone is insufficient physical evidence. |
 | **GK3 — normalization and admission integration** | Working GK2; GR1 program identity | All normalization and execution/support selector consumers migrate, including entity/admission paths exposed by timeouts; no correctness inference from faster completion. |
-| **GK4 — upper compiler and graph kernels** | GK2; needed GK3 outputs | Structural/Local/Model/Summary/Analytic and C0–C2/S0/E0 consumers use their actual shared demand and retained pure kernels; old duplicate selectors retire alongside migration. |
-| **GK5 — pinned serving integration** | GK2 and published exact-input binding; GR5 for cached preparation | Native inspection/browse/evidence/selection use model programs and reusable prepared inputs; public contract unchanged, independent request and pin controls. |
-| **GK6 — compiler/reuse composition** | GK3–GK5 plus working GR2–GR5 products | Driver uses qualified products and dependency propagation; ownership/admission/provenance remain current after skipped pure computation. |
+| **GK4 — upper compiler and graph kernels** | GK2; needed GK3 outputs | Structural/Local/Model/Summary/Analytic and C0–C2/S0/E0 consumers use their actual shared demand and retained pure kernels; old duplicate selectors retire alongside migration. HS8 inventories actual optional/cache-hit consumers and releases each heavy graph/binding preparation at last use. |
+| **GK5 — pinned serving integration** | GK2 and published exact-input binding; GR5 for cached preparation | Native inspection/browse/evidence/selection use model programs and reusable prepared inputs; public contract unchanged, independent request and pin controls. HS2/HS9 compose ranked retention/replay with service charges, selected limits and request/close ownership. |
+| **GK6 — compiler/reuse composition** | GK3–GK5 plus working GR2–GR5 products | Driver uses qualified products and dependency propagation; ownership/admission/provenance remain current after skipped pure computation. HS8 preserves small async phases and finite kernels; conditional cross-attempt runtime injection requires a real repeated production consumer. |
 | **GK7 — integrated retirement and qualification** | All actual consumers, GR6 and affected PC/CU/BC contracts | Replaced interpretations/preparation removed; final both-profile/frontier/native/MCP/transport controls and applicable leaves; coordinator closes only evidence-established findings. |
 
 GK1's semantic correction precedes aggressive sharing. GK2 can precede unrelated older journeys;

@@ -1,5 +1,11 @@
 # Rust coroutine containment: checked loaders and coherent producer phases
 
+**Holistic integration, Proposed, 2026-10-10:** the [holistic companion](holistic-state-management-plan_2026-10-10.md) §7/§9
+releases driver graph/binding preparation at its last actual consumer while preserving the
+contained async phases and synchronous finite kernels qualified here. Reusable SCC scratch
+remains conditional on a real repeated-SCC consumer; it is not required for last-use release.
+CU6 affected acceptance joins the persisted coordinator; BC3 profile adoption remains separate.
+
 **Implemented / acceptance in progress · 2026-10-08.** CU0–CU5 source corrections are integrated; CU6 compiler/runtime acceptance remains open.
 
 ## 1. Outcome, authority and confirmed coverage

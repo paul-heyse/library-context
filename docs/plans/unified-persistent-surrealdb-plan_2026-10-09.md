@@ -9,6 +9,11 @@ UP9 acceptance remain in progress. The
 owns scheduled findings and actual receipts. This companion owns the unified target and
 UP0–UP9 packages, not another status or retention ledger.
 
+**Holistic refinement, Proposed, 2026-10-10:** [holistic companion](holistic-state-management-plan_2026-10-10.md) supersedes conflicting
+physical routes below: shared closure meaning, terminal audit ownership, complete array-free
+selection, phased retirement, qualified terminal-history compaction, selected coherent backup
+and charged active state. UP acceptance remains open; coordinator §8/§9.1 owns disposition/receipts.
+
 ## 1. Outcome, baseline and assessed foundations
 
 Use one durable, authenticated library-context SurrealDB service across compilation, publication,
@@ -242,9 +247,13 @@ Occurrence identity and eligibility include exact payload dependencies rather th
 anchors alone. Pinned-A/unrelated-B controls establish both eligibility and ranking isolation.
 
 Application snapshots are explicit immutable ordinary records, not engine temporal history.
-The selected backup route is streamed logical export of `main` under a native retention hold
-and one database read snapshot, with checked application and physical terminals. Include
-manifests, payloads, memberships, definitions, originals and required completed products.
+The replacement logical backup route selects only the requested complete recovery closure through
+one explicit snapshot transaction, with its exact publication pin, checked stream terminals and
+explicit transaction cancellation. [holistic companion](holistic-state-management-plan_2026-10-10.md) §6 develops the source-supported
+transaction-bound gRPC route and its qualification/fallback decision. Read comparison definitions
+in that transaction; include manifests, payloads, memberships, originals and required completed
+products. Whole-main export followed by selected compaction is the superseded physical baseline,
+not the replacement target. Whole-service recovery remains separate.
 Keep service configuration/administrative credential recovery and external selection/coordination
 assets explicitly separate, protected and referenced; no secrets in ordinary artifacts.
 Active pins/effects are restored as recovery obligations, never as invented live clients.
@@ -328,6 +337,11 @@ scratch promptly. Preserve byte-aware backpressure, existing charges and cancell
 No job/thread caps or longer test deadlines compensate for a bad route. High-degree/global cases
 must have credible access/kernel/spill behavior; honest refusal alone does not establish fit.
 
+The holistic companion §7 extends UP4/UP5: graph/binding preparation releases after its last
+actual scheduled consumer, including cache hits and optional stages. Ranked result construction,
+retention and replay share the service pool; immutable live borrowers survive eviction, replay
+occurs outside the map lock and selected ResourceLimits reaches continuation decode/final packing.
+
 ### 7.3 Native lifecycle owns internal retirement
 
 The native owner computes retention from published manifests, declared completed-product holds,
@@ -343,20 +357,30 @@ reconciliation route. The storage manager observes allocation/eligibility and in
 operations; it never deletes RocksDB internals. Warm authoritative content has no automatic age
 expiry. Capacity pressure reports protected footprint and placement, not permission to evict it.
 
+The holistic companion §5 replaces parent-count-only retirement with guarded claim/page/finalize
+phases and an invocation incarnation. Actual outgoing holds/effects are bounded; reactivation and
+incoming/outgoing hold creation respect retiring guards. Keep short installation coordination
+until equivalent narrower coordination is qualified. Index live control subsets immediately;
+rich history deletion requires durable issuance-era fences, drained maintenance, retained outcome
+horizons and referenced-provenance protection. Post-era interrupted cleanup/retirement requires
+a distinct admitted maintenance successor bound to original scope/incarnation/cutoff, after
+original effect reconciliation/fencing; it cannot refresh an old request or reset completed work.
+No age/size/resolved flag authorizes collection.
+
 ## 8. Packages, working prerequisites and consumer migration
 
 | Package | Required input | Delivered behavior and revealing completion evidence |
 |---|---|---|
 | **UP0 — decisions and shared contracts** | Accepted RC01–RC07; current AF/PC/GK/GR/NE owners | Superseding/complementary ADRs, governed owner updates, versioned content/view/attempt/pin/publication contracts and source-qualified scope. Same-key revision, foreign endpoint, empty view and lost-commit cases specify outcomes before consumers change. |
 | **UP1 — durable installation and attachment** | UP0 service/generation/maintenance contract; AF1/AF4 working ownership | One host service, stable main/validation and coordination roots; explicit installer/readiness/maintenance; attachment has no provisioning. Two worktrees share service identity; one closes without stopping the other; incompatible/missing generation refuses with repair route. |
-| **UP2 — canonical payloads and exact views** | UP0 layout/codec contracts; UP1 working service; existing typed codecs | Loader/compiler membership/original/reference/read/reconciliation migrate together to payload/anchor storage and compact exact resolver. Equal content shares, cross-view variants coexist, same-view conflicts and foreign references reject, isolates/parallel roles/originals remain exact. |
-| **UP3 — fenced attempts and current attachment** | UP0 effects contract; UP2 native membership primitives; PC1/NE6 retained finality | Guarded staging/completion/attach/pin and unknown-ack reconciliation used by actual compiler ingress. Cancelled/delayed/conflicting writes cannot become completed through an expired owner; acknowledged completion survives lost response. No global guard or arbitrary pending resume. |
+| **UP2 — canonical payloads and exact views** | UP0 layout/codec contracts; UP1 working service; existing typed codecs | Loader/compiler membership/original/reference/read/reconciliation migrate together to payload/anchor storage and compact exact resolver. Equal content shares, cross-view variants coexist, same-view conflicts and foreign references reject, isolates/parallel roles/originals remain exact. HS3 supplies one model/native recovery-closure declaration and migrates dump/audit consumers; actual/cold checks stay independent. |
+| **UP3 — fenced attempts and current attachment** | UP0 effects contract; UP2 native membership primitives; PC1/NE6 retained finality | Guarded staging/completion/attach/pin and unknown-ack reconciliation used by actual compiler ingress. Cancelled/delayed/conflicting writes cannot become completed through an expired owner; acknowledged completion survives lost response. No database-wide compiler completion barrier or arbitrary pending resume; short native lifecycle coordination remains where required. HS5/HS6 extend guards with retirement incarnation and issuance-era validation before history deletion. |
 | **UP4 — compiler reuse and dependency consumers** | UP2 exact reads; UP3 checked attachment; GK/GR/NE shared preparation | Providers/normalization/structural/behavioral/selected analytics/catalog/synthesis reuse eligible retained content and current bindings without canonical replay. Each operation has an exact eligibility or Fresh reason. Membership/deletion/provenance changes agree with independent clean recomputation. |
-| **UP5 — publication and scoped serving** | UP2 closure/realization; UP3 guarded publication/pins; existing publisher/query owners | Manifest publication and selection, immutable definition epochs, scoped CLI/NativeReader/PyO3/MCP/evaluator/search/evidence/cursors. Publish B while A remains pinned; unrelated/pending B cannot alter A or consume its search quota. Qualify native index behavior and exact-vector policy explicitly. |
-| **UP6 — portable import, backup and restart recovery** | UP3 recovery; UP5 manifests/definitions; PC5 bounded parser/terminal primitives | Single-main export plus protected recovery closure; data-only restore lowering validates definitions as metadata and creates fresh logical staging/guards, never administrative dump execution. Concurrent same-dump imports and unrelated tests remain isolated; attempted USE/DDL/control-ID injection rejects. Privileged whole-service recovery is explicit maintenance. Corruption, late errors and unknown effects retain disposition. |
+| **UP5 — publication and scoped serving** | UP2 closure/realization; UP3 guarded publication/pins; existing publisher/query owners | Manifest publication and selection, immutable definition epochs, scoped CLI/NativeReader/PyO3/MCP/evaluator/search/evidence/cursors. Publish B while A remains pinned; unrelated/pending B cannot alter A or consume its search quota. Qualify native index behavior and exact-vector policy explicitly. HS1 retains audit pins/session through terminal drainage; HS4 removes complete server arrays; HS2/HS9 qualify selected policy and charged ranked borrowers. |
+| **UP6 — portable import, backup and restart recovery** | UP3 recovery; UP5 manifests/definitions; PC5 bounded parser/terminal primitives | Selected closed-content export within one coherent transaction plus protected recovery assets; data-only restore lowering validates definitions as metadata and creates fresh logical staging/guards, never administrative dump execution. Concurrent same-dump imports and unrelated tests remain isolated; attempted USE/DDL/control-ID injection rejects. Privileged whole-service recovery is explicit maintenance. Corruption, late errors and unknown effects retain disposition. |
 | **UP7 — tests, worktrees and diagnostics** | UP1 attachment; UP2/UP3 logical isolation; AF1/4/6/7 current interfaces; UP5 read-only tool scope | All native fixture/test/verification/run/worktree owners consume stable service scopes. Fresh negative controls, parallel tests, cleanup identity and synthetic privileged maintenance diagnostics work; no scratch fallback or namespace/database teardown remains. |
-| **UP8 — retention and composed resources** | UP3 pin/effect guards; UP4/UP5 actual references; storage-management owner contract | Native reachability/retirement plus manager delegation; byte-aware queues/release at affected adapters. Two-view sharing, pin-versus-retire, interrupted cleanup, unresolved writes and worktree removal preserve content. Growth/skew routes are inspected and focused-tested. |
-| **UP9 — integrated cutover and acceptance** | Actual migrated UP1–UP8 consumers and their revealing controls | Remove private-database/replay-only/DB-wide-view paths and obsolete formats; rebuild project projections from pinned inputs under explicit maintenance. One final-source coordinated affected acceptance with surviving PC/PJ/GK/GR/NE/CU/BC obligations; no historical pass promoted or timeout waived. |
+| **UP8 — retention and composed resources** | UP3 pin/effect guards; UP4/UP5 actual references; storage-management owner contract | Native reachability/retirement plus manager delegation; byte-aware queues/release at affected adapters. Two-view sharing, pin-versus-retire, interrupted cleanup, unresolved writes and worktree removal preserve content. Growth/skew routes are inspected and focused-tested. HS5 bounds actual effects; HS6 separately qualifies live indexes and safe history disposal; HS8/HS9 integrate active-state release/charges. |
+| **UP9 — integrated cutover and acceptance** | Actual migrated UP1–UP8 consumers and their revealing controls | Remove private-database/replay-only/DB-wide-view paths and obsolete formats; rebuild project projections from pinned inputs under explicit maintenance. One final-source coordinated affected acceptance with surviving PC/PJ/GK/GR/NE/CU/BC obligations; no historical pass promoted or timeout waived. HS11 joins this single final-source acceptance; authoring or source-review acceptance closes no runtime finding. |
 
 UP0 settles the common design before implementation; it is not a placeholder for incompatible
 later choices. UP1 and codec/finite-contract implementation can proceed independently once their

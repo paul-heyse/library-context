@@ -16,6 +16,11 @@ lifetime guarantees survive. Existing GR0–GR5 receipts describe the implemente
 UP4 migrates actual reuse consumers and UP9 integrates surviving GR6 acceptance. The persisted
 coordinator remains the sole findings/receipt owner.
 
+**Holistic refinement, Proposed, 2026-10-10:** [holistic companion](holistic-state-management-plan_2026-10-10.md) §7/§9
+refines driver last-use release, charged ranked retention/replay and consumer-local hydration/
+program-runtime investigations. Exact positive/negative/member dependencies identify new products;
+old immutable pinned views remain valid. No blanket invalidation or second dependency graph.
+
 ## 1. Selected direction and baseline
 
 Use a model-owned content-addressed cache of pure compiled-operation products, persisted through
@@ -258,10 +263,10 @@ UP9 integrates surviving GR6 evidence. They do not require completing the supers
 |---|---|---|
 | **GR0 — reuse contracts/decisions** | RC02; resolved target-plan review; GK1 contract design | Model-owned purity/substitutability, canonical program/product/dependency schema, ADR/owner changes, store capability/lifecycle and exact/finer dependency scopes. |
 | **GR1 — program identity and interning** | GK1 definitions and GR0 encoding | Direct pinned XXH3 feature, charged exact-equality operation interner, BLAKE3 durable program identity. First scope compiler consumers reuse shape without global hasher changes. |
-| **GR2 — portable exact products** | GR0; working GK2 access; existing typed ingress/admission | Native disposable cache and conservative exact-view product reuse. Normalize/class-scope and topology products work across two physical attempts; current contribution ownership/admission is reconstructed. |
-| **GR3 — driver and complete dependency graph** | GR2; current completed-source contracts | Cumulative compiler binds products, requested dependencies and reverse edges; changed domain/program inputs select recomputation, pure value equality is distinct from provenance refresh. |
+| **GR2 — portable exact products** | GR0; working GK2 access; existing typed ingress/admission | Native disposable cache and conservative exact-view product reuse. Normalize/class-scope and topology products work across two physical attempts; current contribution ownership/admission is reconstructed. HS10 assesses consuming typed/portable section streaming only where it removes real overlap and preserves pre-effect independent checks. |
+| **GR3 — driver and complete dependency graph** | GR2; current completed-source contracts | Cumulative compiler binds products, requested dependencies and reverse edges; changed domain/program inputs select recomputation, pure value equality is distinct from provenance refresh. HS8 releases graph/binding preparations after their actual remaining scheduled consumers, including cache hits. |
 | **GR4 — selected domains and propagation** | GK3/GK4 actual owned operations; GR3 | Finer callable/class/root membership and selected topology tokens, negative/missing coverage, SCC updates and clean-rebuild equality. Adopt reusable upper pure products through the family map below. |
-| **GR5 — pinned request preparation** | GK5 binding; GR1 layouts and GR0 leases | Moka-backed viewer-owned inspection/browse preparation with coalesced fallible initialization, independent request outcomes, retained charges/pins after eviction and cancellation/retry controls. |
+| **GR5 — pinned request preparation** | GK5 binding; GR1 layouts and GR0 leases | Moka-backed viewer-owned inspection/browse preparation with coalesced fallible initialization, independent request outcomes, retained charges/pins after eviction and cancellation/retry controls. HS9 extends the same composed ownership to ranked entries and immutable replay borrowers; selected policy follows HS2. |
 | **GR6 — integration, retirement and qualification** | GK6, GR2–GR5 consumers | Cache-off/cold/hit/reload/changed-input equivalence, corruption/finality/concurrency controls, surviving PC/CU/BC and native/MCP acceptance; obsolete competing preparation removed. |
 
 GR0 and GK1 design contracts together; actual GR1 depends on the implemented declarations.

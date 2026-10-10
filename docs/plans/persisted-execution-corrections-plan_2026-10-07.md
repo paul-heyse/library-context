@@ -18,6 +18,12 @@ UP6 preserves PC5's bounded parser/terminal lessons but replaces ordinary admini
 execution with data-only restore lowering; UP9 integrates the remaining acceptance. No old
 receipt is upgraded and no unrelated correction is restarted.
 
+**Holistic refinement, Proposed, 2026-10-10:** [holistic companion](holistic-state-management-plan_2026-10-10.md) §3–§6
+refines PC1/PC3–PC6 with owned audit terminal joins (including failed construction), shared
+closure selection with independent checks, array-free complete native access and selected
+snapshot backup. PC5 retains bounded data-only restore/finality; it does not establish backup
+locality. Coordinator §8 remains sole finding disposition; previous receipts stay dated.
+
 ## 1. Outcome, baseline and foundations
 
 Complete the native compiler, publication, restore and selected-access boundaries so captured facts
@@ -163,12 +169,12 @@ Packages describe delivered behavior, not a fresh numbering of PG0–PG9. The ro
 | Package | Required input | Delivered behavior and existing integration |
 |---|---|---|
 | **PC0 — decisions and architecture** | Both operator confirmations; independent target-plan review resolved | Complementary ADR and owner updates for §§3–5; accepted-rule routing and explicit state/schema cutover. Extends PG0 without undoing ADR-0138. |
-| **PC1 — complete operation outcomes** | PC0 outcome contract | Model composition plus every identified workflow/setup consumer, drain certainty and cancellation ownership. Extends PG1/PG5/PG7/PG9; closes F01 only with all siblings migrated. |
+| **PC1 — complete operation outcomes** | PC0 outcome contract | Model composition plus every identified workflow/setup consumer, drain certainty and cancellation ownership. Extends PG1/PG5/PG7/PG9; closes F01 only with all siblings migrated. HS1 keeps read owner/pin/client alive through admitted compiler-stream tails and composes preparation/semantic/cleanup failures. |
 | **PC2 — authoritative captured bindings** | PC0 binding/migration contract | Producer declarations, executable/captured binding, persisted versioning, admission/reporting and all external consumers move together. Extends PG1/PG3/PG5/PG7; removes F02's competing classifier. |
-| **PC3 — scope layout and shared lowering** | PC0; table/consumer map and prepared-result contract | Complete table-specific DDL/lowering/reconciliation plus compiler, reader, projection and serving query generation. Extends PG1/PG2/PG5/PG6; F03 remains open until PC4 qualifies execution. |
+| **PC3 — scope layout and shared lowering** | PC0; table/consumer map and prepared-result contract | Complete table-specific DDL/lowering/reconciliation plus compiler, reader, projection and serving query generation. Extends PG1/PG2/PG5/PG6; F03 remains open until PC4 qualifies execution. HS3/HS4 migrate native/dump closure meaning and remove complete-array preparation, preserving independent actual-state fidelity. |
 | **PC4 — bounded candidate execution and fetch** | PC3 working query contract; PC1 lifetime/outcome handling | Shared compact external ordering, exact-member intersection and bounded hydration across selected/general/canonical paths; safe fetch delegation. Extends PG2/PG4/PG6. |
 | **PC5 — batched restore requests** | PC0 RC02 and PC1 completion behavior | Unit/request separation, ordered checked batching and failed-staging handling. Local parser/import controls can proceed independently of PC2/PC3; whole restore cannot. Extends PG7. |
-| **PC6 — integrated completion** | PC1–PC5 producers and all actual consumers working | New-format/schema fixtures, both-profile/frontier affected controls, completed backup/restore/admission and actual native/MCP/evaluator journey; obsolete competing routes removed, owners and dispositions updated. Completes affected PG9 obligations, not unrelated pending work. |
+| **PC6 — integrated completion** | PC1–PC5 producers and all actual consumers working | New-format/schema fixtures, both-profile/frontier affected controls, completed backup/restore/admission and actual native/MCP/evaluator journey; obsolete competing routes removed, owners and dispositions updated. Completes affected PG9 obligations, not unrelated pending work. HS11 integrates matching-source audit/export/restore acceptance into UP9 once; the isolated audit candidate is unverified. |
 
 PC1 and PC2 address immediate semantic/recovery risk and can be designed independently. PC3/PC4 are one coordinated access design with distinct integration prerequisites. PC5's transport implementation does not wait on the full selected-access implementation; its final journey consumes the new bindings and schema. Do not claim F05 closed after a smaller setup query alone, F04 closed after replacing LET with a growing hash set, or F02 closed after one fixture accepts current provider IDs.
 

@@ -521,7 +521,57 @@ specific boundaries, not whole-plan barriers. Preserve concurrent AF corrections
 interfaces; arbitrary SQL/native MCP is not safe merely because a stable store is attached.
 No service, test run, store, selection or cleanup action is authorized by this document update.
 
+### 7.4 Holistic state-management refinement, 2026-10-10
+
+The [holistic companion](holistic-state-management-plan_2026-10-10.md) integrates the stored and
+active state review. The operator accepted its distinct RC01–RC03 on2026-10-10. Its Proposed
+HS0–HS11 packages refine UP/NE/PC/GK/GR rather than restart their superseded implementations.
+Shared closure meaning and one audit capture, complete array-free native selection, terminal audit
+ownership, phased retirement, safe history compaction, selected coherent backup, last-consumer
+compiler release and charged ranked borrowing are now part of the combined target.
+
+HS0 records architectural/owner changes before dependent effects. HS1 audit finality and HS2
+selected-policy decoding can proceed independently. HS3 shared closure supplies consumers to
+HS4 native access and HS7 selected export; HS5 bounded retirement keeps short installation
+coordination initially. HS6 live indexing is independent of its destructive collector, which
+requires permanent issuance-era fences, qualified outcome horizons, drained maintenance and
+a distinct authorized successor for protected post-cut cleanup/retirement; old requests stay fenced.
+HS8/HS9 own active-state lifetimes; HS10 resolves bounded consumer-local questions without
+postponing established corrections. The companion supplies detailed contracts and cases.
+
+HS11 joins UP9's sole final-source acceptance, including surviving NE9/GK7/GR6/PC6/CU6 and
+native publication/MCP/Python/restore obligations. BC3 and SM8 retain separate evidence owners.
+No current failed receipt is waived or promoted. The unverified audit worktree candidate is
+not integrated by authoring; this change performs no production or native operation.
+
 ## 8. Sole finding disposition
+
+### Holistic state-management findings transferred on 2026-10-10
+
+This is the sole current disposition of HS-F01–HS-F10: all **Open / scheduled**. The
+[companion](holistic-state-management-plan_2026-10-10.md) owns contracts, dependencies and
+investigations; source review retains its dated Revise assessment. Accepted RC01–RC03 and plan
+publication do not establish implementation or closure. Each row requires its own evidence;
+HS-F06 capture sharing does not close HS-F10, and indexing alone does not close HS-F05.
+
+| Source finding / disposition | Responsible component / packages | Required closure evidence |
+|---|---|---|
+| <a id="HS-F01"></a>[HS-F01](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F01) — **Open** | Model/native closure; HS0/HS3; UP2/6, NE1/3/4, PC3 | One logical closure declaration and native/dump adapters; every actual consumer migrated; extension, missing/extra memberships/roles/aliases/originals and independent cold checks. |
+| <a id="HS-F02"></a>[HS-F02](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F02) — **Open** | Native compiler/reader/search/reconciliation; HS4; NE2, PC3/4, GK2, UP5/6 | Complete multi-window indexed/bounded selection beyond prior array allowance; actual plans, late-window corruptions and unrelated-state isolation; checked terminals. |
+| <a id="HS-F03"></a>[HS-F03](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F03) — **Open** | Native lifecycle; HS0/HS5; UP3/8 | Claim/page/finalize bounds actual outgoing effects; high degree, incoming/outgoing late holds, lost acknowledgements, old invocation versus reactivation, interruption/restart and pinned subtree; matching retirement regression passes. |
+| <a id="HS-F04"></a>[HS-F04](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F04) — **Open** | Publisher/native backup; HS0/HS3/HS7; UP6 | One coherent selected snapshot without unrelated transport/spool; transitive closure/originals, concurrent publish/retire, explicit cancel/terminal/durability faults and fresh independent data-only restore. |
+| <a id="HS-F05"></a>[HS-F05](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F05) — **Open** | Native control history; HS0/HS6; UP3/8 | Qualified indexed live access plus safe bounded compaction: delayed first intent/epoch-zero/old retry fenced permanently, outcome horizons explicit, protected post-cut cleanup/retirement completes under distinct maintenance successors, unresolved/reference obligations survive restart and same-content reactivation. |
+| <a id="HS-F06"></a>[HS-F06](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F06) — **Open** | Native/publisher audit; HS3; NE4, PC3/6 | One operation-owned exact selection/capture through verify/checksum/completed-state, without repeated closure construction or circular actual-state/cold oracle; isolated patch alone is no evidence. |
+| <a id="HS-F07"></a>[HS-F07](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F07) — **Open** | Compiler driver; HS8; GK4/6, GR3/4, NE4, UP4/8 | Graph/binding ownership ends at last actual optional/cache-hit consumer; outputs/universe/order unchanged; no new huge coroutine. |
+| <a id="HS-F08"></a>[HS-F08](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F08) — **Open** | Serving ranked state; HS9; UP5/8, GK5/GR5 | Incrementally charged pending construction and immutable live borrowers; replay outside map lock; eviction, pressure, close, cancellation and final-pack failures preserve charges/pins/outcomes. |
+| <a id="HS-F09"></a>[HS-F09](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F09) — **Open** | Serving selected limits; HS2; UP5, GK5 | Configured-large and configured-small continuation decode use selected policy; actual final envelope admission/cursor bindings unchanged. |
+| <a id="HS-F10"></a>[HS-F10](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md#HS-F10) — **Open** | Publisher/native audit finalizer; HS1; PC1, UP5/6/9 | Read owner exists before fallible preparation and joins all admitted tails before pin/session release, including cancellation/early failure; primary and secondary uncertainty preserved. |
+
+**Independent target-plan finding, 2026-10-10:**
+
+| Source finding / disposition | Responsible component / packages | Closure evidence |
+|---|---|---|
+| <a id="HS-PLAN-F01"></a>[Holistic-plan F01](../design_review/reviews/design_review_holistic-state-management-plan_2026-10-10.md#F01) — **Closed, target text only** | Native maintenance successor; HS0/HS5/HS6 | Companion §5.2 and package prerequisites now distinguish original same-era resume from post-cut authorized successor, preserve original scope/incarnation/cutoff/completed work, and block conflicting effects while original acknowledgement remains uncertain. Independent amended-target assessment accepts this contract. No runtime closure: HS-F03/HS-F05 remain Open. |
 
 ### Unified-persistence findings transferred on 2026-10-09
 
@@ -2159,12 +2209,13 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-09: unified persistence implementation in progress.** UP0–UP8 source changes provide
-shared immutable content, exact scoped readers, checked admitted attachment, durable effects,
-manifest publication, data-only restore and stable service/recovery tooling. Integration review
-corrections and actual installation/controls remain in progress. Source findings remain Open in §8.
-The common final acceptance is UP9 with the surviving obligations identified in §7.3. Historical
-timeouts, integrated implementation and bounded passes below are not rewritten or promoted.
+**2026-10-10: holistic correction target documented; production execution paused.** The
+[companion](holistic-state-management-plan_2026-10-10.md) adds HS0–HS11 to the combined UP/NE/PC/GK/GR
+target (§7.4); HS findings are Open in §8. Source-supported selected backup and phased retirement
+routes are Proposed. History deletion depends on working issuance fences and qualified horizons.
+Existing unified source is implemented with scoped passes; final publication/MCP failures and
+blocked Python follow-up retain their exact §9.1 receipts. HS11 joins UP9 acceptance once.
+No authoring result promotes those receipts, closes qualification or changes a service/store.
 
 **2026-10-09: GK0–GK6/GR0–GR5 integrated, Implemented / focused Tested; enclosing qualification open.**
 ADR-0139 and the architectural owners install model-owned relation scope compilation, canonical
