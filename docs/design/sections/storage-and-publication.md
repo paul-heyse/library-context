@@ -61,6 +61,9 @@ reconciled through an operation identity, never inferred from local process clea
 Attempt closure fences writes before bounded ownership cleanup. Unadmitted product cleanup retains
 attempt prerequisite roots until every product is removed, so interrupted cleanup remains discoverable;
 admitted products survive. Remaining ownership rows provide conservative retry progress.
+Cleanup effects use the exact terminal attempt's original epoch, checking owner/state/epoch at
+both durable intent and execution; deleting owned holds/products does not allocate a new global
+installation epoch per page. Ordinary open-attempt and pin authorization remain separate.
 
 A short guarded transition publishes an immutable manifest over admitted views and one executable
 definition epoch. Handles bind semantic/realization identities, publication, exact view set and
@@ -69,8 +72,13 @@ cannot install DDL, mutate unrelated content or replace another publication's fu
 remains explicit. Later cleanup failure preserves an acknowledged committed publication.
 
 Logical backup uses the native engine's single whole-main read transaction and the requested
-publication's reader pin. RocksDB snapshot reads retain concurrently retired rows; unrelated
-retirement need not wait for logical export. Protected cold service recovery retains exclusive
+publication's reader pin. A completed engine dump is grammar-decoded once and compacted to the
+requested manifest's complete dependency/payload/original closure before atomic logical-output
+publication. Shared preparation describes claimed input, not admission; every restore freshly
+prepares and independently admits its own data. Physical engine export still transfers/spools
+whole-database table data, an explicit growth cost of this initial route.
+RocksDB snapshot reads retain concurrently retired rows; unrelated retirement need not wait for
+logical export. Protected cold service recovery retains exclusive
 maintenance and drainage. Restore treats its input as data, never as
 Root-authorized SurrealQL: closed literal data is lowered through typed staging and independent
 admission. Definition metadata selects trusted executable generation. Grammar-owned comparison

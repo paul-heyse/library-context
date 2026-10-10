@@ -496,6 +496,24 @@ async fn publication_control(maintenance: bool) {
             .await
             .is_err()
     );
+    // A logical backup closes exactly the requested publication, even though the
+    // engine snapshot includes unrelated shared-service content.
+    let mut dump = backup_decode::DataDump::new(std::fs::File::open(&backup).unwrap());
+    let mut exported_publications = Vec::new();
+    while let Some(item) = dump.next().unwrap() {
+        if let backup_decode::Item::Rows(rows) = item {
+            for row in rows {
+                if let lctx_surrealdb::surrealdb::types::Value::Object(object) = row {
+                    if let Some(lctx_surrealdb::surrealdb::types::Value::RecordId(id)) = object.get("id") {
+                        if id.table.as_str() == "publication" {
+                            exported_publications.push(id.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(exported_publications, vec![lctx_surrealdb::surrealdb::types::RecordId::new("publication", handle.publication.hex())]);
     omitted_backup_payloads_are_refused(&config, &handle, &backup, &definitions).await;
     let selected_before_restore = std::fs::read(&config.selection).unwrap();
     let serving_before_restore =

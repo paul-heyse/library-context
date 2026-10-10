@@ -30,7 +30,7 @@ check, then exposed exported FIELD OVERWRITE metadata comparing unequal to insta
 Grammar-owned comparison correction passed compile, eight pure controls and independent review.
 Its rerun passed entity-omission refusal, then timed out decoding the next large shared-store dump.
 Terminal-owner cleanup passed its multi-window retention/receipt control. Selected closed-content
-backup preparation is implemented with focused checks in progress;
+backup preparation passed compile,23 pure controls and independent review;
 full publication/concurrent restore remain pending. Exact named recovery released only verified
 failed-test pins; installer stabilization passed and admission is open.
 NativeSession close drains calls, releases its pin and shares terminal results across closers;

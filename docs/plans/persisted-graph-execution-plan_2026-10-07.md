@@ -1337,7 +1337,20 @@ bounded source review. Its focused multi-window receipt/retention control **pass
 run `20261010T054722.768Z-c17257`, Nextest `8a570cd0-ed03-4087-b554-4d03cb2a9d59`,
 3.007s after1m04s build. The1025-target partial-cleanup, late-write refusal, admitted/unrelated
 retention and original terminal-owner epoch assertions remain. The receipt observations are
-exact-owner filters over shared effect history, not indexed access or a measured speed comparison. Backup compaction remains in progress; no measured benefit is claimed.
+exact-owner filters over shared effect history, not indexed access or a measured speed comparison.
+Selected closed-content backup compaction and shared per-input claimed preparation are implemented.
+Final `cargo check --locked --release -p lctx-publisher --tests` **passed**,0.92s.
+Pure controls **passed**,2026-10-10: `cargo nextest run --locked --release -p lctx-publisher
+--lib -E 'test(restore::definition_tests) | test(backup_import::tests) |
+(test(backup::tests) & !test(backup_grpc_file_export_on_owned_persistent_fixture))'`,
+Nextest `c6397b27-6012-407b-b233-4ec4332dd730`,23 passed,0.244s after35.58s build;
+the excluded managed-native fixture was not run by that pure selection. Seven new controls cover
+complete transitive closure and physical row equality, equivalent historical owners/bindings,
+missing/duplicate selected data, original chunks/hash, invalid unselected executable tail,
+pre-connection refusal and variable-length alias allocation. Independent final source review
+accepted frozen backup `4da63c7d…`/restore `7299b261…` and publication inventory assertion;
+its alias/header accounting findings and physical-binding multiplicity finding are corrected.
+Actual native publication/restore remains pending; no measured benefit is claimed.
 
 Timeout cleanup confirmed empty descendants and released attachment. Exact inventory
 `timeout-publication-pin-inventory-af43660aa09f4c42a685c8da0b97828e/before.json` under owned

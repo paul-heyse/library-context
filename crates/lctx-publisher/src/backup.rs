@@ -54,20 +54,36 @@ pub async fn backup(
     // retired rows. Ordinary logical export needs no database-wide retirement barrier.
     let result = async {
         let metadata = recovery_metadata(config, handle)?;
-        export_main(&client, staged.path()).await?;
-        // Comments carry references and obligations only. The data-only decoder never grants
-        // authority from them or imports live attempts, credentials, pins or executable code.
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(staged.path())
-            .map_err(ModelError::codec)?;
-        writeln!(
-            file,
-            "\n-- lctx-backup-recovery: {}",
-            serde_json::to_string(&metadata).map_err(ModelError::codec)?
-        )
-        .map_err(ModelError::codec)
+        let engine = tempfile::NamedTempFile::new_in(parent).map_err(ModelError::codec)?;
+        let result = async {
+            // One whole-main engine snapshot is consumed through successful terminal export.
+            // Only afterward do local, bounded preparation and writing narrow its data closure.
+            export_main(&client, engine.path()).await?;
+            let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                cpg_core::workspace::WorkspaceOptions::default().memory_bytes,
+            )?;
+            crate::restore::compact_export(engine.path(), staged.path(), handle, &budget)?;
+            // Comments carry references and obligations only. The data-only decoder never grants
+            // authority from them or imports live attempts, credentials, pins or executable code.
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(staged.path())
+                .map_err(ModelError::codec)?;
+            writeln!(
+                file,
+                "\n-- lctx-backup-recovery: {}",
+                serde_json::to_string(&metadata).map_err(ModelError::codec)?
+            )
+            .map_err(ModelError::codec)
+        }
+        .await;
+        let mut completion = Completion::default();
+        completion.cleanup(
+            engine.path().display().to_string(),
+            engine.close().map_err(ModelError::codec),
+        );
+        complete(result, completion)
     }
     .await;
     let mut completion = Completion::default();
