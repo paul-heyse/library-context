@@ -298,11 +298,14 @@ Native content/recovery effects remain delegated to UP8/service owners, without 
 - **passed:** scoped Ruff and pyrefly on the storage/producer/profile modules and affected controls; `just adr-lint` —80 records; `just docs-check` —377 canonical pages, zero link errors. The concurrently edited service module passes scoped pyrefly; its whole-file Ruff remains **failed** on formatting/lint in the native owner's mixed working copy, which this task does not rewrite wholesale.
 - **passed:** independent bounded implementation review and isolated replay receipt inspection. The coordinator independently reviewed the reviewer's narrow legacy-adoption implementation. These source judgments do not establish assembled target acceptance.
 
-**blocked:** SM8 matching-source `just qualify` and actual installed-service executable transfer
-await the native owner's existing exclusive maintenance session. `just service status` observed
-`maintenance: true` and a protected borrower; the installation still depends on checkout-local
-`target/release/lctx`. This task does not interrupt that owner or alter its installation. Run the
-required transfer/survival control and coordinated gate once that prerequisite is available.
+**passed,2026-10-10:** actual installed-service executable transfer through the native owner's
+`just service maintenance --stabilize-installer` (`57371`). The checked service-owned executable
+outside the checkout has SHA256
+`a1732564eb34aab4d0df8b64fd473f0590885120eb1f1b572ff12f84fbf87d58`;
+both database drain/check/reopen passed and maintenance is released. The
+[persisted coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+owns the native receipt and exact boundary. SM8 matching-source `just qualify` and its service
+survival control remain pending; transfer alone does not close SM8.
 Final assembled acceptance and daily timer/release-hook activation are **not_run**. Earlier AF1,
 UP9, BC3 and publication receipts retain their original scopes. Scheduling stays off until SM8
 passes; missing or changed qualification blocks effects. No recovered-space or whole-plan closure

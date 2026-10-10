@@ -23,9 +23,11 @@ Publication passes sealing, bounded cleanup and readback; subsequent listing rej
 malformed synthetic publication from a retention test. The test now uses a generic native guard.
 Explicit drained maintenance retired the one exact obsolete marker through native APIs, preserved
 private row/source/progress evidence, and checked reopening. The temporary repair helper is removed.
-**remaining acceptance:** final CLI build and generic-root retention control passed. Publication
-failed in a global test-side selection after sealing/readback; indexed point-selection correction
-and controlled acknowledgement-discard/concurrent same-dump extensions are in focused rerun.
+**remaining acceptance:** final CLI build, generic-root retention and committed acknowledgement-
+discard/session-loss reconciliation passed. Publication's indexed point selection passed; its dump
+omission helper is corrected for bounded empty/multirow frames, with runtime rerun pending.
+Named recovery released only two verified failed-test pins; installer stabilization passed and
+admission is open. Awaited assertion-failure cleanup passed compile and independent source review; runtime rerun is active.
 NativeSession close drains calls, releases its pin and shares terminal results across closers;
 compile/static review passed, actual Python acceptance awaits the final MCP journey. Earlier eight
 maintenance controls finished6passed/2failed before intended drift assertions; all eight need a
@@ -47,10 +49,10 @@ No production content was removed and automation remains off.
 **passed:**163 producer controls,63 lifecycle/build/service controls,34 archive/CLI/replay controls;
 native acquisition compile/five controls; scoped lint/types, ADR lint and docs publication.
 Independent bounded review accepted examined mechanisms. Acquisition crash receipts and sampled
-import without meaningful symbols remain protected. SM8 gate/service-transfer acceptance is
-**blocked** by the native owner's active exclusive maintenance; scheduling is **not_run**.
-Next: native owner releases maintenance, then service survival control and coordinated matching-source
-`just qualify`/assembled review before scheduling. UP9/BC3/operator acceptance retains its owners.
+import without meaningful symbols remain protected. Installed-service executable transfer
+**passed**,2026-10-10, through the native owner's checked stabilization route; maintenance is released.
+SM8 service-survival acceptance and coordinated matching-source `just qualify`/assembled review
+remain **not_run**. Scheduling stays off until that acceptance. UP9/BC3/operator acceptance retains its owners.
 
 **Current scope: native-execution efficiency NE0–NE9 implemented; coordinated acceptance open.**
 The [native-efficiency plan](docs/plans/native-execution-efficiency-plan_2026-10-09.md)

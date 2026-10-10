@@ -28,6 +28,29 @@ async fn fixture_client(
     .unwrap()
 }
 
+async fn compiler_backing_nodes(
+    client: &std::sync::Arc<
+        lctx_surrealdb::surrealdb::Surreal<lctx_surrealdb::surrealdb::engine::remote::grpc::Client>,
+    >,
+    contribution: ContentHash,
+) -> Vec<lctx_surrealdb::surrealdb::types::RecordId> {
+    let mut bindings = lctx_surrealdb::surrealdb::types::Variables::new();
+    bindings.insert(
+        "owner",
+        lctx_surrealdb::surrealdb::types::RecordId::new(
+            "compiler_contribution",
+            contribution.hex(),
+        ),
+    );
+    lctx_surrealdb::NativeReader::private(client.clone())
+        .query_native(
+            "SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND record::table(node)='compiler_record'",
+            bindings,
+        )
+        .await
+        .unwrap()
+}
+
 async fn abandon_acknowledged_write_failure(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
@@ -230,9 +253,10 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     );
     restored.abandon().await.unwrap();
     use lctx_surrealdb::surrealdb::types::{Bytes, Number, Value, Variables};
+    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
     let mut response = admin
-        .query("SELECT * FROM compiler_record WHERE semantic_type='projection_snapshot_chunks' AND id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record' AND semantic_type='projection_snapshot_chunks'")
+        .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()
@@ -399,9 +423,10 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         )
         .await
         .unwrap();
+    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
     let mut response = admin
-        .query("SELECT * FROM compiler_record WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()
@@ -514,13 +539,11 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
         ),
         "exact acknowledged range primary: {failure:?}"
     );
+    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
     for (table, predicate) in [
         ("original", "id=$source"),
         ("original_chunk", "source=$source"),
-        (
-            "compiler_record",
-            "id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)",
-        ),
+        ("compiler_record", "record::table(id)='compiler_record'"),
         ("compiler_membership", "contribution=$owner"),
     ] {
         let mut bindings = lctx_surrealdb::surrealdb::types::Variables::new();
@@ -538,8 +561,14 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
                 contribution.hex(),
             ),
         );
+        let source = if table == "compiler_record" {
+            bindings.insert("nodes", backing_nodes.clone());
+            "$nodes"
+        } else {
+            table
+        };
         let mut response = admin
-            .query(format!("SELECT * FROM {table} WHERE {predicate}"))
+            .query(format!("SELECT * FROM {source} WHERE {predicate}"))
             .bind(bindings)
             .await
             .unwrap()

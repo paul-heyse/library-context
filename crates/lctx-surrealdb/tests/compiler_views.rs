@@ -41,6 +41,29 @@ fn spec(producer: &str, relation: &Relation) -> ContributionSpec {
     }
 }
 
+async fn compiler_backing_nodes(
+    client: &std::sync::Arc<
+        lctx_surrealdb::surrealdb::Surreal<lctx_surrealdb::surrealdb::engine::remote::grpc::Client>,
+    >,
+    contribution: ContentHash,
+) -> Vec<lctx_surrealdb::surrealdb::types::RecordId> {
+    let mut bindings = lctx_surrealdb::surrealdb::types::Variables::new();
+    bindings.insert(
+        "owner",
+        lctx_surrealdb::surrealdb::types::RecordId::new(
+            "compiler_contribution",
+            contribution.hex(),
+        ),
+    );
+    lctx_surrealdb::NativeReader::private(client.clone())
+        .query_native(
+            "SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND record::table(node)='compiler_record'",
+            bindings,
+        )
+        .await
+        .unwrap()
+}
+
 async fn abandon_known_failure(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
@@ -132,10 +155,12 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
             .unwrap();
     restored.import_state(file.path(), &state).await.unwrap();
     restored.abandon().await.unwrap();
+    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
+    assert_eq!(backing_nodes.len(), 1);
 
     admin
-        .query("UPDATE compiler_record SET body.value=2.0f WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("UPDATE $nodes SET body.value=2.0f WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()
@@ -149,8 +174,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         Err(ModelError::Conflict("compiler backing canonical body"))
     ));
     admin
-        .query("UPDATE compiler_record SET body.value=0.5f WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("UPDATE $nodes SET body.value=0.5f WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()
@@ -158,8 +183,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let mut bindings = Variables::new();
     bindings.insert("key", "00".repeat(16));
     admin
-        .query("UPDATE compiler_record SET semantic_key=$key WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("UPDATE $nodes SET semantic_key=$key WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .bind(bindings)
         .await
         .unwrap()
@@ -176,8 +201,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let mut bindings = Variables::new();
     bindings.insert("key", row.id().hex());
     admin
-        .query("UPDATE compiler_record SET semantic_key=$key WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("UPDATE $nodes SET semantic_key=$key WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .bind(bindings)
         .await
         .unwrap()
@@ -625,9 +650,11 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap();
     let counts: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(counts, vec![serde_json::json!({"rows":16})]);
+    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
+    assert_eq!(backing_nodes.len(), 1);
     let mut response = admin
-        .query("SELECT VALUE body FROM compiler_record WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("SELECT VALUE body FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()
@@ -637,8 +664,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     store.verify_state().await.unwrap();
     let state = store.completed_state().await.unwrap();
     admin
-        .query("UPDATE compiler_record SET body.ordinal=1 WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("UPDATE $nodes SET body.ordinal=1 WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()
@@ -656,8 +683,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         ))
     ));
     admin
-        .query("UPDATE compiler_record SET body.ordinal=0 WHERE id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)")
-        .bind(("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex())))
+        .query("UPDATE $nodes SET body.ordinal=0 WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()

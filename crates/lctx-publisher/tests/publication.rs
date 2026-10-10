@@ -9,8 +9,10 @@ use cpg_core::{
     artifact, compilation,
     workspace::{Workspace, WorkspaceOptions},
 };
+use futures::FutureExt;
 use lctx_model::domain::{admission::Frontier, serving::SnapshotHandle, stages::Profile, *};
 use lctx_surrealdb::{NativeReader, RuntimeConfig};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 fn select_and_show_cli(
     binary: &std::path::Path,
@@ -104,19 +106,18 @@ fn select_and_show_cli(
 // Derived rows linked to selected anchors are part of this publication's exact cold
 // comparison. Unrelated rows in the shared database are deliberately outside its authority.
 async fn restored_derived_excess_is_refused(
+    reader: &NativeReader<SnapshotHandle>,
     config: &RuntimeConfig,
     handle: &SnapshotHandle,
     definitions: &str,
 ) {
     use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
-    let reader = NativeReader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        handle.clone(),
-    )
-    .await
-    .unwrap();
-    let details = lctx_publisher::inspection::show(&reader).await.unwrap();
+    assert_eq!(
+        reader.handle(),
+        handle,
+        "derived control borrows the exact publication"
+    );
+    let details = lctx_publisher::inspection::show(reader).await.unwrap();
     let loader = lctx_surrealdb::Loader::for_views(
         reader.shared_client(),
         details
@@ -246,8 +247,6 @@ async fn restored_derived_excess_is_refused(
         let clean = lctx_publisher::inspection::audit(config, handle, definitions).await;
         checks.push((table, clean.is_ok(), clean.is_ok()));
     }
-    reader.close().await.unwrap();
-    reader.client().invalidate().await.unwrap();
     for (table, reconciliation, audit) in checks {
         assert!(
             reconciliation && audit,
@@ -271,6 +270,12 @@ async fn actual_installed_analyzer_drift_is_refused() {
 }
 async fn publication_control(maintenance: bool) {
     cpg_extract::logging::init_logging();
+    // Keep durable reader owners outside the assertion future. Tokio shutdown after a
+    // panic cannot be relied on to finish ReaderPin's best-effort asynchronous Drop.
+    let mut inspector_owner = None;
+    let mut viewer_owner = None;
+    let mut restored_viewer_owner = None;
+    let outcome = AssertUnwindSafe(async {
     let scratch = tempfile::tempdir().unwrap();
     let mut config = RuntimeConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
@@ -344,13 +349,14 @@ async fn publication_control(maintenance: bool) {
     assert_eq!(handle.semantic, verified.manifest().content());
     let listed = lctx_publisher::inspection::list(&config).await.unwrap();
     assert!(listed.contains(&handle));
-    let inspector = NativeReader::connect(
+    inspector_owner = Some(NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         handle.clone(),
     )
     .await
-    .unwrap();
+    .unwrap());
+    let inspector = inspector_owner.as_ref().unwrap();
     let details = lctx_publisher::inspection::show(&inspector).await.unwrap();
     assert_eq!(
         details.manifest.completed_state,
@@ -361,8 +367,7 @@ async fn publication_control(maintenance: bool) {
     lctx_publisher::inspection::audit(&config, &handle, &definitions)
         .await
         .unwrap();
-    inspector.close().await.unwrap();
-    inspector.client().invalidate().await.unwrap();
+    assert_reader_panic_cleanup(&mut inspector_owner, &config, &handle).await;
     if maintenance {
         let installer = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
@@ -396,13 +401,14 @@ async fn publication_control(maintenance: bool) {
             .await
             .unwrap();
     }
-    let viewer = NativeReader::connect(
+    viewer_owner = Some(NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         handle.clone(),
     )
     .await
-    .unwrap();
+    .unwrap());
+    let viewer = viewer_owner.as_ref().unwrap();
     let marker: Vec<String> = viewer
         .query(
             format!(
@@ -584,14 +590,15 @@ async fn publication_control(maintenance: bool) {
             "restores cannot borrow another attempt's epoch"
         );
     }
-    restored_derived_excess_is_refused(&config, &restored, &definitions).await;
-    let restored_viewer = NativeReader::connect(
+    restored_derived_excess_is_refused(viewer, &config, &restored, &definitions).await;
+    restored_viewer_owner = Some(NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         restored.clone(),
     )
     .await
-    .unwrap();
+    .unwrap());
+    let restored_viewer = restored_viewer_owner.as_ref().unwrap();
     for original in &verified.manifest().originals {
         let bytes = restored_viewer
             .original_bytes(
@@ -628,10 +635,8 @@ async fn publication_control(maintenance: bool) {
         })
         .await
         .unwrap();
-    viewer.close().await.unwrap();
-    viewer.client().invalidate().await.unwrap();
-    restored_viewer.close().await.unwrap();
-    restored_viewer.client().invalidate().await.unwrap();
+    close_reader_owner(&mut viewer_owner).await.unwrap();
+    close_reader_owner(&mut restored_viewer_owner).await.unwrap();
     std::fs::remove_file(&config.selection).unwrap();
     std::fs::remove_file(config.selection.with_extension("serving.json")).unwrap();
     lctx_publisher::backup::retire(&config, &handle, true)
@@ -642,7 +647,133 @@ async fn publication_control(maintenance: bool) {
             .await
             .is_err()
     );
+    })
+    .catch_unwind()
+    .await;
+    let completion = finalize_reader_owners([
+        &mut inspector_owner,
+        &mut viewer_owner,
+        &mut restored_viewer_owner,
+    ])
+    .await;
+    let cleanup = completion::complete(Ok(()), completion);
+    if let Err(primary) = outcome {
+        if let Err(secondary) = cleanup {
+            eprintln!("publication assertion failed; reader cleanup also failed: {secondary:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
 }
+
+async fn close_reader_owner(
+    owner: &mut Option<NativeReader<SnapshotHandle>>,
+) -> Result<(), ModelError> {
+    let reader = owner.as_ref().expect("live reader owner");
+    reader.close().await?;
+    reader
+        .client()
+        .invalidate()
+        .await
+        .map_err(ModelError::codec)?;
+    // Retain ownership on either failure so the outer finalizer can report/finish it.
+    owner.take();
+    Ok(())
+}
+
+async fn finalize_reader_owners<const N: usize>(
+    owners: [&mut Option<NativeReader<SnapshotHandle>>; N],
+) -> completion::Completion {
+    let mut completion = completion::Completion::default();
+    for owner in owners {
+        if let Some(reader) = owner.as_ref() {
+            let close = reader.close().await;
+            let invalidate = reader
+                .client()
+                .invalidate()
+                .await
+                .map_err(ModelError::codec);
+            completion.step("publication reader close", close);
+            completion.step("publication reader session invalidation", invalidate);
+            // Keep the object alive through finalization observation. Normal explicit
+            // close points remove their Option only after close/invalidation succeed.
+        }
+    }
+    completion
+}
+
+// Exercise the actual panic path using the already compiled fixture and its inspector.
+// This simulated assertion panic is contained here; an enclosing real failure still
+// propagates through publication_control's finalizer unchanged.
+async fn assert_reader_panic_cleanup(
+    owner: &mut Option<NativeReader<SnapshotHandle>>,
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+) {
+    use lctx_surrealdb::surrealdb::types::RecordId;
+    let reader = owner.as_ref().unwrap();
+    let mut vars = surrealdb_vars();
+    vars.insert(
+        "publication",
+        RecordId::new("publication", handle.publication.hex()),
+    );
+    let pins: Vec<RecordId> = reader.query_native(
+        "SELECT VALUE owner FROM native_hold WITH INDEX object_holds WHERE object=$publication AND record::table(owner)='native_pin'",
+        vars,
+    ).await.unwrap();
+    assert_eq!(
+        pins.len(),
+        1,
+        "the unique publication has one inspector pin"
+    );
+    let observer = lctx_surrealdb::reader::connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        config.namespace.as_str(),
+        config.database.as_str(),
+    )
+    .await
+    .unwrap();
+    let simulated = AssertUnwindSafe(async {
+        assert_eq!(reader.handle(), handle);
+        panic!("simulated publication assertion failure for awaited reader cleanup");
+    })
+    .catch_unwind()
+    .await;
+    let mut completion = finalize_reader_owners([owner]).await;
+    // The reader object remains alive here. An independent connection establishes
+    // that awaited finalization, rather than eventual Drop, released this exact pin.
+    let released = async {
+        let mut result = observer
+            .query("SELECT VALUE released FROM ONLY $pin")
+            .bind(("pin", pins[0].clone()))
+            .await
+            .map_err(ModelError::codec)?
+            .check()
+            .map_err(ModelError::codec)?;
+        result.take::<Option<bool>>(0).map_err(ModelError::codec)
+    }
+    .await;
+    completion.step(
+        "publication cleanup observer invalidation",
+        observer.invalidate().await.map_err(ModelError::codec),
+    );
+    let cleanup = completion::complete(Ok(()), completion);
+    if cleanup.is_ok() {
+        owner.take();
+    }
+    cleanup.unwrap();
+    assert!(
+        simulated.is_err(),
+        "simulated assertion must exercise unwind cleanup"
+    );
+    assert_eq!(
+        released.unwrap(),
+        Some(true),
+        "the exact pin is released while its reader object is alive"
+    );
+}
+
 fn surrealdb_vars() -> lctx_surrealdb::surrealdb::types::Variables {
     Default::default()
 }

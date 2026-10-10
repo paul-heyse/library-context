@@ -1257,11 +1257,34 @@ frames for ignored derived records. The test now accepts bounded empty/multirow 
 each actual row and requires an actual omission from every target table before the unchanged
 negative restore check. Compile (`54ce2b`,0.69s) and independent review **passed**; runtime pending.
 Guard-free `just ready` **passed** (`439667`); native extension already current.
-Installer stabilization **blocked before transfer**: maintenance's actual native drain found
-durable pins left by failed test runtime shutdown. Admission stays closed. Named recovery is
-being grounded in exact pin identities and confirmed test descendant cleanup; no unknown reader
-release is authorized. The reviewed implementation/correction tree is committed in `4a13db4b`;
-UP9 remains open. The publication settings nonce is retained to isolate final-retirement controls
+Installer stabilization initially **blocked before transfer** when actual native drain found
+pins left by two failed publication test runtimes. Exact read-only inventory, prior zero-pin
+baseline and confirmed dead run owners/empty descendant cleanup grounded named recovery.
+`just service maintenance --recover --reconcile-database validation` with the two exact
+`--reconcile-pin` values **passed** (`91881`); no unknown reader was released. Inventory
+`failed-publication-pin-inventory-b7be5d2abd6b425f9978b068a9ceb482/before.json` under the owned
+service state retains both identities and306 holds each, SHA256
+`415075bf07caf1f45b49219b5e606390b06a9e6fb5dfb4e10196110f6888945e`.
+The set is attributed to the two failed controls; individual pin-to-run pairing is epoch-order
+inference, not PID/time metadata in native rows.
+`just service maintenance --stabilize-installer` then **passed** (`57371`),2026-10-10:
+checked executable transferred outside the checkout to service-owned `surrealdb.tools/lctx/`
+with SHA256 `a1732564eb34aab4d0df8b64fd473f0590885120eb1f1b572ff12f84fbf87d58`.
+Both database checks/drain/reopen passed, generation/schema unchanged, admission open and no
+borrowers. Publication assertion cleanup is being made awaited before runtime exit; production
+best-effort ReaderPin Drop and unknown-effect policy remain unchanged. The reviewed implementation/correction tree is committed in `4a13db4b`;
+UP9 remains open. Publication assertion cleanup now awaits close and invalidation of all three
+known readers outside the caught assertion future, preserves the primary panic and reports
+secondary cleanup failures. The same finalizer's contained-panic control independently observes
+the exact durable pin released while its reader object remains alive. The excess-derived helper
+borrows the existing exact viewer rather than acquiring another pin. Compile **passed**
+(`cargo check --locked --release -p lctx-publisher --test publication`,0.51s) and independent
+bounded source review accepted the change; runtime pending. Abrupt test-process termination is
+outside this assertion-panic guarantee. Two compiler test targets now nominate canonical physical
+rows through indexed contribution membership before point reads/updates, preserving all tamper,
+restoration and terminal checks; compile **passed** (`7d0a2c`,0.40s) and independent review accepted
+examined source, runtime pending.
+The publication settings nonce is retained to isolate final-retirement controls
 under concurrent copies/worktrees; a stable shared handle alone would undermine that isolation.
 
 **NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
