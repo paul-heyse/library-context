@@ -381,7 +381,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
 #[tokio::test(flavor = "multi_thread")]
 async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() {
     use lctx_model::domain::{FiniteF64, analytics::QualityStep};
-    use lctx_surrealdb::surrealdb::types::{Bytes, Number, Value, Variables};
+    use lctx_surrealdb::surrealdb::types::{Bytes, Number, ToSql, Value};
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
@@ -405,6 +405,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         inputs: vec![],
         outputs: BTreeSet::from([QualityStep::NAME.into()]),
     };
+    let model = spec.model;
     let contribution = store.begin_contribution(spec).await.unwrap();
     store
         .write_batch(
@@ -414,15 +415,29 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         )
         .await
         .unwrap();
-    store
+    let views = store
         .complete_contribution(
             contribution,
             ProviderOutcome::Complete,
-            &[relation],
+            std::slice::from_ref(&relation),
             &BTreeMap::new(),
         )
         .await
         .unwrap();
+    let view = views[relation.name()].clone();
+    store
+        .bind(CompletedBinding {
+            boundary: None,
+            source: SourceSnapshot::of_completed_view(&relation, model, &view).unwrap(),
+            view,
+            configuration: None,
+        })
+        .await
+        .unwrap();
+    let state = store.completed_state().await.unwrap();
+    assert_eq!(state.contributions, 1);
+    assert_eq!(state.memberships, 1);
+    assert_eq!(state.backing_rows, 1);
     let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
     let mut response = admin
         .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
@@ -437,47 +452,96 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     };
     assert!(rows.is_empty());
     let saved = altered.clone();
-    let id = altered.get("id").unwrap().clone();
     let Some(Value::Object(body)) = altered.get_mut("body") else {
         panic!("quality backing body");
     };
     body.insert("value", Value::Number(Number::Float(-0.0)));
     let canonical = serde_json::to_vec(&Value::Object(body.clone())).unwrap();
-    altered.insert("canonical", Bytes::from(canonical.clone()));
-    altered.insert("content", ContentHash::of(&canonical).hex());
-    let mut bindings = Variables::new();
-    bindings.insert("id", id.clone());
-    bindings.insert("row", Value::Object(altered));
-    admin
-        .query("UPDATE $id CONTENT $row RETURN NONE")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    assert!(
-        matches!(
-            store.verify_state().await,
-            Err(ModelError::Conflict("compiler backing declared body"))
-        ),
-        "model-normalized numeric bytes must be exact before membership checking"
-    );
-    assert!(matches!(
-        store.completed_state().await,
-        Err(ModelError::Conflict("compiler backing declared body"))
-    ));
-    let mut restore = Variables::new();
-    restore.insert("id", id);
-    restore.insert("row", Value::Object(saved));
-    admin
-        .query("UPDATE $id CONTENT $row RETURN NONE")
-        .bind(restore)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    let content = ContentHash::of(&canonical);
+    let nominal = hex::decode(altered.get("semantic_key").unwrap().as_string().unwrap()).unwrap();
+    let negative_node = lctx_surrealdb::loader::payload_id(
+        "compiler_record", QualityStep::NAME, &nominal, content,
+    ).unwrap();
+    altered.insert("id", negative_node.clone());
+    altered.insert("canonical", Bytes::from(canonical));
+    altered.insert("content", content.hex());
+    assert_ne!(saved.get("id"), altered.get("id"), "content-addressed negative zero has its own address");
+    assert_ne!(saved.get("canonical"), altered.get("canonical"), "negative zero changes canonical bytes");
+    assert_eq!(saved.get("semantic_key"), altered.get("semantic_key"), "nominal identity is unchanged");
+
+    let mut membership = admin.query("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner")
+        .bind(("owner", lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution", contribution.hex())))
+        .await.unwrap().check().unwrap();
+    let memberships: Vec<Value> = membership.take(0).unwrap();
+    assert_eq!(memberships.len(), 1, "exact owned contributor membership");
+    let saved_membership = memberships[0].as_object().unwrap().clone();
+    assert_eq!(saved_membership.get("node"), saved.get("id"));
+    let membership_id = saved_membership.get("id").unwrap().clone();
+    // This deliberate corruption remains independently owned while both cold validators run.
+    // The native state reader selects backing through this exact contributor membership;
+    // view descriptors retain the same nominal membership/cardinality.
+    let pin = lctx_surrealdb::control::ReaderPin::acquire(admin.clone(), &[]).await.unwrap();
+    let observations = async {
+        lctx_surrealdb::control::ensure_rows(&admin, Some(store.attempt()), vec![Value::Object(altered.clone())]).await?;
+        pin.protect(negative_node.clone()).await?;
+        let mut mutation = admin.query("UPDATE $id SET node=$node,content=$content RETURN AFTER")
+            .bind(("id", membership_id.clone())).bind(("node", negative_node.clone()))
+            .bind(("content", content.hex())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let changed: Vec<Value> = mutation.take(0).map_err(ModelError::codec)?;
+        let verification = store.verify_state().await;
+        let completed = store.completed_state().await;
+        Ok::<_, ModelError>((changed, verification, completed))
+    }.await;
+    let mut finality = lctx_model::domain::completion::Completion::default();
+    let restoration = async {
+        admin.query("UPDATE $id CONTENT $row RETURN NONE")
+            .bind(("id", membership_id.clone())).bind(("row", Value::Object(saved_membership.clone())))
+            .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        Ok(())
+    }.await;
+    let restored = restoration.is_ok();
+    finality.step("negative-zero exact membership restoration", restoration);
+    // Never retire the replacement while a failed restoration may still refer to it.
+    if !restored {
+        finality.step("negative-zero failed restoration retention", lctx_surrealdb::control::hold(
+            &admin, Some(store.attempt()),
+            lctx_surrealdb::surrealdb::types::RecordId::new("native_attempt", store.attempt().hex()),
+            vec![negative_node.clone()],
+        ).await);
+    }
+    finality.step("negative-zero temporary pin release", pin.release().await);
+    if restored {
+        finality.step("negative-zero exact malformed payload retirement", async {
+            let progress = lctx_surrealdb::control::retire_reachable(&admin, vec![negative_node.clone()], 1).await?;
+            if !progress.remaining.is_empty() {
+                return Err(ModelError::Conflict("negative-zero malformed payload retained"));
+            }
+            Ok(())
+        }.await);
+    } else {
+        finality.storage.push(lctx_model::domain::completion::StorageState::Orphan(negative_node.to_sql()));
+    }
+    let (changed, verification, completed) = lctx_model::domain::completion::complete(observations, finality).unwrap();
+    let mut readback = admin.query("SELECT * FROM $member; SELECT * FROM $original; SELECT * FROM $negative")
+        .bind(("member", membership_id)).bind(("original", saved.get("id").unwrap().clone()))
+        .bind(("negative", negative_node.clone())).await.unwrap().check().unwrap();
+    let restored_memberships: Vec<Value> = readback.take(0).unwrap();
+    let restored_backing: Vec<Value> = readback.take(1).unwrap();
+    let retired_negative: Vec<Value> = readback.take(2).unwrap();
+    assert_eq!(restored_memberships, vec![Value::Object(saved_membership.clone())]);
+    assert_eq!(restored_backing, vec![Value::Object(saved)]);
+    assert!(retired_negative.is_empty(), "temporary malformed payload retired before refusal assertions");
+    let mut expected_membership = saved_membership;
+    expected_membership.insert("node", negative_node);
+    expected_membership.insert("content", content.hex());
+    assert_eq!(changed, vec![Value::Object(expected_membership)], "one exact membership changes only physical payload and content");
+    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing declared body"))),
+        "coherent negative-zero independent verification before membership checks: {verification:?}");
+    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing declared body"))),
+        "coherent negative-zero completed state before membership checks: {completed:?}");
     store.verify_state().await.unwrap();
     store.abandon().await.unwrap();
+    admin.invalidate().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

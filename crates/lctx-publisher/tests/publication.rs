@@ -110,6 +110,7 @@ async fn restored_derived_excess_is_refused(
     config: &RuntimeConfig,
     handle: &SnapshotHandle,
     definitions: &str,
+    table: &'static str,
 ) {
     use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
     assert_eq!(
@@ -146,70 +147,62 @@ async fn restored_derived_excess_is_refused(
             .as_nanos()
     );
     let mut checks = Vec::new();
-    for table in [
-        "search_api_options",
-        "search_documentation_deployment",
-        "search_scenario",
-        "search_source",
-        "vector",
-        "lex_occurs",
-        "vec_occurs",
+    let relation = table.ends_with("occurs");
+    let vector = table == "vector" || table == "vec_occurs";
+    let source_table = if vector {
+        "vector"
+    } else if relation {
+        "search_source"
+    } else {
+        table
+    };
+    let source = RecordId::new(source_table, format!("{suffix}-{table}"));
+    let mut endpoint = Object::new();
+    endpoint.insert("id", source.clone());
+    if vector {
+        endpoint.insert("dependencies", vec![target_payload.clone()]);
+        let mut embedding = vec![0f32; 1024];
+        embedding[0] = 1.;
+        endpoint.insert("encoder_hash", suffix.clone());
+        endpoint.insert("policy_key", suffix.clone());
+        endpoint.insert("library_input", suffix.clone());
+        endpoint.insert("family", 3i64);
+        endpoint.insert("full_key", suffix.clone());
+        endpoint.insert("projection_key", format!("{suffix}-{table}"));
+        endpoint.insert("embedding", embedding);
+    } else {
+        let text = format!("restored extra discovery row {suffix}-{table}");
+        endpoint.insert("text", text.clone());
+        endpoint.insert("digest", ContentHash::of(text.as_bytes()).0.to_vec());
+    }
+    let edge_table = if vector { "vec_occurs" } else { "lex_occurs" };
+    let edge_id = RecordId::new(edge_table, format!("{suffix}-{table}"));
+    let mut edge = Object::new();
+    edge.insert("id", edge_id.clone());
+    edge.insert("in", source.clone());
+    edge.insert("out", target.clone());
+    edge.insert("unit_node", target.clone());
+    edge.insert("unit_payload", target_payload.clone());
+    edge.insert("dependencies", vec![target_payload.clone()]);
+    edge.insert("family", 3i64);
+    for (field, byte) in [
+        ("unit", 1i64),
+        ("window", 2),
+        ("part", 3),
+        ("context", 4),
+        ("input", 5),
     ] {
-        let relation = table.ends_with("occurs");
-        let vector = table == "vector" || table == "vec_occurs";
-        let source_table = if vector {
-            "vector"
-        } else if relation {
-            "search_source"
-        } else {
-            table
-        };
-        let source = RecordId::new(source_table, format!("{suffix}-{table}"));
-        let mut endpoint = Object::new();
-        endpoint.insert("id", source.clone());
-        if vector {
-            endpoint.insert("dependencies", vec![target_payload.clone()]);
-            let mut embedding = vec![0f32; 1024];
-            embedding[0] = 1.;
-            endpoint.insert("encoder_hash", suffix.clone());
-            endpoint.insert("policy_key", suffix.clone());
-            endpoint.insert("library_input", suffix.clone());
-            endpoint.insert("family", 3i64);
-            endpoint.insert("full_key", suffix.clone());
-            endpoint.insert("projection_key", format!("{suffix}-{table}"));
-            endpoint.insert("embedding", embedding);
-        } else {
-            let text = format!("restored extra discovery row {suffix}-{table}");
-            endpoint.insert("text", text.clone());
-            endpoint.insert("digest", ContentHash::of(text.as_bytes()).0.to_vec());
-        }
-        let edge_table = if vector { "vec_occurs" } else { "lex_occurs" };
-        let edge_id = RecordId::new(edge_table, format!("{suffix}-{table}"));
-        let mut edge = Object::new();
-        edge.insert("id", edge_id.clone());
-        edge.insert("in", source.clone());
-        edge.insert("out", target.clone());
-        edge.insert("unit_node", target.clone());
-        edge.insert("unit_payload", target_payload.clone());
-        edge.insert("dependencies", vec![target_payload.clone()]);
-        edge.insert("family", 3i64);
-        for (field, byte) in [
-            ("unit", 1i64),
-            ("window", 2),
-            ("part", 3),
-            ("context", 4),
-            ("input", 5),
-        ] {
-            edge.insert(field, vec![byte; 16]);
-        }
-        for field in ["binding", "member", "anchor"] {
-            edge.insert(field, Value::Null);
-        }
-        for field in ["exact_name", "exact_path", "exact_option"] {
-            edge.insert(field, "");
-        }
-        edge.insert("eligible", true);
-        edge.insert("occurrence_key", format!("{suffix}-{table}"));
+        edge.insert(field, vec![byte; 16]);
+    }
+    for field in ["binding", "member", "anchor"] {
+        edge.insert(field, Value::Null);
+    }
+    for field in ["exact_name", "exact_path", "exact_option"] {
+        edge.insert(field, "");
+    }
+    edge.insert("eligible", true);
+    edge.insert("occurrence_key", format!("{suffix}-{table}"));
+    let observed = AssertUnwindSafe(async {
         for (name, relation, row) in [
             (source_table, false, Value::Object(endpoint)),
             (edge_table, true, Value::Object(edge)),
@@ -233,20 +226,35 @@ async fn restored_derived_excess_is_refused(
             let audit = lctx_publisher::inspection::audit(config, handle, definitions).await;
             checks.push((table, reconciliation.is_err(), audit.is_err()));
         }
-        // Remove only this control's fresh rows before evaluating negative assertions.
-        let mut vars = Variables::new();
-        vars.insert("ids", vec![edge_id, source]);
+    })
+    .catch_unwind()
+    .await;
+    // Remove only this control's fresh rows before evaluating negative assertions.
+    let mut vars = Variables::new();
+    vars.insert("ids", vec![edge_id, source]);
+    let cleaned = async {
         reader
             .client()
             .query("DELETE $ids")
             .bind(vars)
             .await
-            .unwrap()
+            .map_err(ModelError::codec)?
             .check()
-            .unwrap();
-        let clean = lctx_publisher::inspection::audit(config, handle, definitions).await;
-        checks.push((table, clean.is_ok(), clean.is_ok()));
+            .map_err(ModelError::codec)?;
+        Ok::<(), ModelError>(())
     }
+    .await;
+    if let Err(primary) = observed {
+        if let Err(secondary) = cleaned {
+            eprintln!(
+                "derived excess observation panicked; exact mutation cleanup failed: {secondary:#?}"
+            );
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleaned.unwrap();
+    let clean = lctx_publisher::inspection::audit(config, handle, definitions).await;
+    checks.push((table, clean.is_ok(), clean.is_ok()));
     for (table, reconciliation, audit) in checks {
         assert!(
             reconciliation && audit,
@@ -257,24 +265,14 @@ async fn restored_derived_excess_is_refused(
 
 #[tokio::test]
 async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
-    publication_control(false).await;
+    publication_control().await;
 }
-#[tokio::test]
-#[ignore = "requires explicit exclusive maintenance admission"]
-async fn actual_installed_analyzer_drift_is_refused() {
-    assert!(
-        std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),
-        "run through just service maintenance --native-clients"
-    );
-    publication_control(true).await;
-}
-async fn publication_control(maintenance: bool) {
+async fn publication_control() {
     cpg_extract::logging::init_logging();
     // Keep durable reader owners outside the assertion future. Tokio shutdown after a
     // panic cannot be relied on to finish ReaderPin's best-effort asynchronous Drop.
     let mut inspector_owner = None;
     let mut viewer_owner = None;
-    let mut restored_viewer_owner = None;
     let outcome = AssertUnwindSafe(async {
     let scratch = tempfile::tempdir().unwrap();
     let mut config = RuntimeConfig::read(std::path::Path::new(
@@ -368,39 +366,6 @@ async fn publication_control(maintenance: bool) {
         .await
         .unwrap();
     assert_reader_panic_cleanup(&mut inspector_owner, &config, &handle).await;
-    if maintenance {
-        let installer = RuntimeConfig::read(std::path::Path::new(
-            &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
-                .expect("maintenance installer config"),
-        ))
-        .unwrap();
-        let admin = lctx_surrealdb::reader::connect(
-            &installer.endpoint,
-            &installer.writer_credentials(),
-            installer.namespace.as_str(),
-            installer.database.as_str(),
-        )
-        .await
-        .unwrap();
-        admin
-            .query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS uppercase")
-            .await
-            .unwrap()
-            .check()
-            .unwrap();
-        let refused = lctx_publisher::inspection::audit(&config, &handle, &definitions).await;
-        let analyzer = definitions
-            .lines()
-            .find(|line| line.starts_with("DEFINE ANALYZER lctx_discovery "))
-            .unwrap()
-            .replacen("DEFINE ANALYZER ", "DEFINE ANALYZER OVERWRITE ", 1);
-        admin.query(analyzer).await.unwrap().check().unwrap();
-        admin.invalidate().await.unwrap();
-        assert!(refused.is_err(), "actual analyzer drift must be refused");
-        lctx_publisher::inspection::audit(&config, &handle, &definitions)
-            .await
-            .unwrap();
-    }
     viewer_owner = Some(NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
@@ -487,7 +452,212 @@ async fn publication_control(maintenance: bool) {
     )
     .unwrap();
     assert_eq!(serving.selected().unwrap(), handle);
-    let backup = scratch.path().join("snapshot.surql");
+    assert!(
+        lctx_publisher::backup::retire(&config, &handle, false)
+            .await
+            .is_err()
+    );
+    assert!(
+        lctx_publisher::backup::retire(&config, &handle, true)
+            .await
+            .is_err()
+    );
+    // Already pinned readers retain the original immutable realization after selection changes.
+    assert_eq!(viewer.handle(), &handle);
+    viewer
+        .records::<source::SourceArtifact>(lctx_surrealdb::RecordSelection::Scope {
+            field: "input".into(),
+            values: vec![
+                serde_json::to_value(captured.inputs()[0].captured().revision().id()).unwrap(),
+            ],
+        })
+        .await
+        .unwrap();
+    close_reader_owner(&mut viewer_owner).await.unwrap();
+    std::fs::remove_file(&config.selection).unwrap();
+    std::fs::remove_file(config.selection.with_extension("serving.json")).unwrap();
+    lctx_publisher::backup::retire(&config, &handle, true)
+        .await
+        .unwrap();
+    assert!(
+        NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
+            .await
+            .is_err()
+    );
+    })
+    .catch_unwind()
+    .await;
+    let completion = finalize_reader_owners([&mut inspector_owner, &mut viewer_owner]).await;
+    let cleanup = completion::complete(Ok(()), completion);
+    if let Err(primary) = outcome {
+        if let Err(secondary) = cleanup {
+            eprintln!("publication assertion failed; reader cleanup also failed: {secondary:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
+}
+
+/// Small controls still compile and admit real provider outputs. Distinct bytes AND paths
+/// give every parallel case its own input revision and physical SourceArtifact anchors.
+struct SmallPublication {
+    scratch: tempfile::TempDir,
+    config: RuntimeConfig,
+    handle: SnapshotHandle,
+    manifest: graph::Manifest,
+    source: Vec<u8>,
+}
+async fn small_publication(case: &str) -> Result<SmallPublication, ModelError> {
+    cpg_extract::logging::init_logging();
+    let scratch = tempfile::tempdir().map_err(ModelError::codec)?;
+    let mut config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+    ))?;
+    config.selection = scratch.path().join("selected.json");
+    let native =
+        lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized).await?;
+    let mut publication_owns_completion = false;
+    let built = async {
+        let workspace = Workspace::new(
+            Arc::new(model()?),
+            WorkspaceOptions::default(),
+            native.clone(),
+        )?;
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nonce = format!(
+            "{case}_{}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(ModelError::codec)?
+                .as_nanos(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let root = scratch.path().join("sources");
+        std::fs::create_dir(&root).map_err(ModelError::codec)?;
+        let path = format!("{nonce}.py");
+        let mut source =
+            format!("# Independently owned publication control {nonce}\n").into_bytes();
+        source.extend(
+            std::fs::read(runtime::root("native_signature").join("native_signature.py"))
+                .map_err(ModelError::codec)?,
+        );
+        std::fs::write(root.join(&path), &source).map_err(ModelError::codec)?;
+        let captured = Arc::new(cpg_extract::bundle::CapturedInputs::new(
+            vec![cpg_extract::acquisition::AcquiredInput::tree(
+                cpg_extract::capture::CapturedInput::capture(&root, &[path], workspace.budget())
+                    .map_err(ModelError::codec)?,
+                &nonce,
+            )],
+            cpg_extract::native_context::NativeContextConfig::committed(
+                Profile::Catalog,
+                workspace.budget(),
+            )
+            .map_err(ModelError::codec)?,
+        ));
+        let settings = ContentHash::of(nonce.as_bytes());
+        compilation::compile(
+            &workspace,
+            captured.clone(),
+            Profile::Catalog,
+            settings,
+            Frontier::Normalized,
+            None,
+            None,
+            None,
+        )
+        .await?;
+        let admitted = artifact::admit(
+            &workspace,
+            &captured,
+            Frontier::Normalized,
+            Profile::Catalog,
+            settings,
+        )
+        .await?;
+        let manifest = admitted.manifest().clone();
+        // Once entered, publication owns attempt/session completion on either outcome.
+        publication_owns_completion = true;
+        let handle = lctx_publisher::seal_completed(
+            &admitted,
+            &config,
+            &lctx_surrealdb::materialization::native_definitions(),
+        )
+        .await?;
+        Ok((handle, manifest, source))
+    }
+    .await;
+    let mut completion = completion::Completion::default();
+    if built.is_err() && !publication_owns_completion {
+        completion.step(
+            "small publication attempt abandonment",
+            native.abandon().await,
+        );
+    }
+    let (handle, manifest, source) = completion::complete(built, completion)?;
+    Ok(SmallPublication {
+        scratch,
+        config,
+        handle,
+        manifest,
+        source,
+    })
+}
+
+async fn finish_small_publication<const N: usize>(
+    fixture: &SmallPublication,
+    outcome: std::thread::Result<()>,
+    owners: [&mut Option<NativeReader<SnapshotHandle>>; N],
+) {
+    let reader_phase = lctx_surrealdb::phase::Phase::begin("small_publication_reader_finalization");
+    let mut completion = finalize_reader_owners(owners).await;
+    reader_phase.finish(if completion.failures.is_empty() {
+        lctx_surrealdb::phase::Terminal::Passed
+    } else {
+        lctx_surrealdb::phase::Terminal::Failed
+    });
+    for path in [
+        &fixture.config.selection,
+        &fixture.config.selection.with_extension("serving.json"),
+    ] {
+        let removed = match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(ModelError::codec(error)),
+        };
+        completion.cleanup(path.display().to_string(), removed);
+    }
+    let retirement_phase = lctx_surrealdb::phase::Phase::begin("small_publication_retirement");
+    let retired = lctx_publisher::backup::retire(&fixture.config, &fixture.handle, true)
+        .await
+        .map(|_| ());
+    retirement_phase.finish_result(&retired);
+    completion.step("small publication retirement", retired);
+    let cleanup = completion::complete(Ok(()), completion);
+    if let Err(primary) = outcome {
+        if let Err(secondary) = cleanup {
+            eprintln!("publication control failed; owned cleanup also failed: {secondary:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
+}
+
+#[tokio::test]
+async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership() {
+    cpg_extract::logging::init_logging();
+    let fixture = small_publication("backup_cold_restore").await.unwrap();
+    let config = &fixture.config;
+    let handle = fixture.handle.clone();
+    let definitions = lctx_surrealdb::materialization::native_definitions();
+    let mut viewer_owner = None;
+    let mut restored_viewer_owner = None;
+    let outcome = AssertUnwindSafe(async {
+        viewer_owner = Some(NativeReader::connect(&config.endpoint,
+            &config.writer_credentials(), handle.clone()).await.unwrap());
+        let viewer = viewer_owner.as_ref().unwrap();
+        config.select(&handle).unwrap();
+    let backup = fixture.scratch.path().join("snapshot.surql");
     lctx_publisher::backup::backup(&config, &handle, &backup)
         .await
         .unwrap();
@@ -608,80 +778,100 @@ async fn publication_control(maintenance: bool) {
             "restores cannot borrow another attempt's epoch"
         );
     }
-    restored_derived_excess_is_refused(viewer, &config, &restored, &definitions).await;
-    restored_viewer_owner = Some(NativeReader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        restored.clone(),
+
+        restored_viewer_owner = Some(NativeReader::connect(&config.endpoint,
+            &config.writer_credentials(), restored.clone()).await.unwrap());
+        let restored_viewer = restored_viewer_owner.as_ref().unwrap();
+        assert_eq!(fixture.manifest.originals.len(), 1);
+        for original in &fixture.manifest.originals {
+            let bytes = restored_viewer.original_bytes(original.source, 0,
+                usize::try_from(original.byte_len.min(256 << 10)).unwrap()).await.unwrap();
+            assert_eq!(bytes, &fixture.source[..bytes.len()]);
+        }
+        assert_eq!(viewer.handle(), &handle);
+    }).catch_unwind().await;
+    finish_small_publication(
+        &fixture,
+        outcome,
+        [&mut viewer_owner, &mut restored_viewer_owner],
     )
-    .await
-    .unwrap());
-    let restored_viewer = restored_viewer_owner.as_ref().unwrap();
-    for original in &verified.manifest().originals {
-        let bytes = restored_viewer
-            .original_bytes(
-                original.source,
-                0,
-                usize::try_from(original.byte_len.min(256 << 10)).unwrap(),
-            )
+    .await;
+}
+
+macro_rules! derived_excess_controls {
+    ($($name:ident: $table:literal,)*) => {$(
+        #[tokio::test]
+        async fn $name() {
+            let fixture = small_publication(stringify!($name)).await.unwrap();
+            let mut owner = None;
+            let outcome = AssertUnwindSafe(async {
+                owner = Some(NativeReader::connect(&fixture.config.endpoint,
+                    &fixture.config.writer_credentials(), fixture.handle.clone()).await.unwrap());
+                restored_derived_excess_is_refused(owner.as_ref().unwrap(), &fixture.config,
+                    &fixture.handle, &lctx_surrealdb::materialization::native_definitions(),
+                    $table).await;
+            }).catch_unwind().await;
+            finish_small_publication(&fixture, outcome, [&mut owner]).await;
+        }
+    )*};
+}
+derived_excess_controls! {
+    cold_audit_refuses_excess_api_options: "search_api_options",
+    cold_audit_refuses_excess_documentation_deployment: "search_documentation_deployment",
+    cold_audit_refuses_excess_scenario: "search_scenario",
+    cold_audit_refuses_excess_source: "search_source",
+    cold_audit_refuses_excess_vector: "vector",
+    cold_audit_refuses_excess_lexical_occurrence: "lex_occurs",
+    cold_audit_refuses_excess_vector_occurrence: "vec_occurs",
+}
+
+#[tokio::test]
+#[ignore = "requires explicit exclusive maintenance admission"]
+async fn actual_installed_analyzer_drift_is_refused() {
+    assert!(
+        std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),
+        "run through just service maintenance --native-clients"
+    );
+    let fixture = small_publication("installed_analyzer_drift").await.unwrap();
+    let config = &fixture.config;
+    let handle = fixture.handle.clone();
+    let definitions = lctx_surrealdb::materialization::native_definitions();
+    let outcome = AssertUnwindSafe(async {
+        let installer = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
+                .expect("maintenance installer config"),
+        ))
+        .unwrap();
+        let admin = lctx_surrealdb::reader::connect(
+            &installer.endpoint,
+            &installer.writer_credentials(),
+            installer.namespace.as_str(),
+            installer.database.as_str(),
+        )
+        .await
+        .unwrap();
+        admin
+            .query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS uppercase")
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let refused = lctx_publisher::inspection::audit(&config, &handle, &definitions).await;
+        let analyzer = definitions
+            .lines()
+            .find(|line| line.starts_with("DEFINE ANALYZER lctx_discovery "))
+            .unwrap()
+            .replacen("DEFINE ANALYZER ", "DEFINE ANALYZER OVERWRITE ", 1);
+        admin.query(analyzer).await.unwrap().check().unwrap();
+        admin.invalidate().await.unwrap();
+        assert!(refused.is_err(), "actual analyzer drift must be refused");
+        lctx_publisher::inspection::audit(&config, &handle, &definitions)
             .await
             .unwrap();
-        let expected =
-            std::fs::read(export.join(format!("original-{}.bin", original.source.0.hex())))
-                .unwrap();
-        assert_eq!(bytes, &expected[..bytes.len()]);
-    }
-    assert!(
-        lctx_publisher::backup::retire(&config, &handle, false)
-            .await
-            .is_err()
-    );
-    assert!(
-        lctx_publisher::backup::retire(&config, &handle, true)
-            .await
-            .is_err()
-    );
-    // Restore of identical content does not invent a second publication identity.
-    // Already pinned readers retain the original immutable realization after selection changes.
-    assert_eq!(viewer.handle(), &handle);
-    viewer
-        .records::<source::SourceArtifact>(lctx_surrealdb::RecordSelection::Scope {
-            field: "input".into(),
-            values: vec![
-                serde_json::to_value(captured.inputs()[0].captured().revision().id()).unwrap(),
-            ],
-        })
-        .await
-        .unwrap();
-    close_reader_owner(&mut viewer_owner).await.unwrap();
-    close_reader_owner(&mut restored_viewer_owner).await.unwrap();
-    std::fs::remove_file(&config.selection).unwrap();
-    std::fs::remove_file(config.selection.with_extension("serving.json")).unwrap();
-    lctx_publisher::backup::retire(&config, &handle, true)
-        .await
-        .unwrap();
-    assert!(
-        NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
-            .await
-            .is_err()
-    );
     })
     .catch_unwind()
     .await;
-    let completion = finalize_reader_owners([
-        &mut inspector_owner,
-        &mut viewer_owner,
-        &mut restored_viewer_owner,
-    ])
-    .await;
-    let cleanup = completion::complete(Ok(()), completion);
-    if let Err(primary) = outcome {
-        if let Err(secondary) = cleanup {
-            eprintln!("publication assertion failed; reader cleanup also failed: {secondary:#?}");
-        }
-        std::panic::resume_unwind(primary);
-    }
-    cleanup.unwrap();
+    finish_small_publication(&fixture, outcome, []).await;
 }
 
 async fn close_reader_owner(
@@ -705,12 +895,17 @@ async fn finalize_reader_owners<const N: usize>(
     let mut completion = completion::Completion::default();
     for owner in owners {
         if let Some(reader) = owner.as_ref() {
+            let close_phase = lctx_surrealdb::phase::Phase::begin("publication_reader_close");
             let close = reader.close().await;
+            close_phase.finish_result(&close);
+            let invalidate_phase =
+                lctx_surrealdb::phase::Phase::begin("publication_reader_invalidation");
             let invalidate = reader
                 .client()
                 .invalidate()
                 .await
                 .map_err(ModelError::codec);
+            invalidate_phase.finish_result(&invalidate);
             completion.step("publication reader close", close);
             completion.step("publication reader session invalidation", invalidate);
             // Keep the object alive through finalization observation. Normal explicit

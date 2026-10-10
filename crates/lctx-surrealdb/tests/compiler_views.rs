@@ -1,7 +1,7 @@
 use futures::TryStreamExt;
 use lctx_model::domain::{
-    ContentHash, Record, Relation,
-    completed::ContributionSpec,
+    ContentHash, ModelError, Record, Relation,
+    completed::{CompletedBinding, ContributionSpec},
     input::Package,
     resources::ResourceBudget,
     stages::{Profile, ProviderOutcome},
@@ -106,6 +106,110 @@ async fn abandon_known_failure(
     observer.invalidate().await.unwrap();
 }
 
+async fn abandon_acknowledged_write_failure(
+    store: &NativeCompilerStore,
+    config: &RuntimeConfig,
+    original: &ModelError,
+) {
+    use lctx_model::domain::completion::{LocalState, RemoteState};
+    let result = store.abandon().await;
+    let failure = result.expect_err("acknowledged write failure remains in the cleanup receipt");
+    let ModelError::Completion(outcome) = &failure else {
+        panic!("structured cleanup receipt: {failure:?}");
+    };
+    assert!(
+        outcome.primary.is_none(),
+        "abandonment does not invent a new primary: {failure:?}"
+    );
+    assert_eq!(outcome.completion.local, LocalState::Terminal);
+    assert_eq!(outcome.completion.remote, RemoteState::Confirmed);
+    assert_eq!(outcome.completion.storage, vec![]);
+    assert!(outcome.completion.committed.is_empty());
+    assert_eq!(
+        outcome.completion.failures.len(),
+        1,
+        "cleanup adds no unrelated failure: {failure:?}"
+    );
+    let retained = &outcome.completion.failures[0];
+    assert_eq!(retained.step, "write_batch");
+    match (retained.error.primary(), original.primary()) {
+        (Some(ModelError::Conflict(actual)), Some(ModelError::Conflict(expected))) => {
+            assert_eq!(actual, expected)
+        }
+        (Some(ModelError::Schema(actual)), Some(ModelError::Schema(expected))) => {
+            assert_eq!(actual, expected)
+        }
+        (Some(ModelError::Cause(actual)), Some(ModelError::Cause(expected))) => {
+            assert!(
+                std::ptr::eq(actual.as_ref(), expected.as_ref()),
+                "cleanup retains the same acknowledged native cause"
+            );
+        }
+        _ => panic!(
+            "cleanup must retain the exact acknowledged primary class and cause: original={original:?}; cleanup={failure:?}"
+        ),
+    }
+    if let (ModelError::SharedCause(actual), ModelError::SharedCause(expected)) =
+        (&retained.error, original)
+    {
+        assert!(
+            std::sync::Arc::ptr_eq(actual, expected),
+            "cleanup retains the same owned cause"
+        );
+    }
+    // Abandonment closes only this attempt; the installed database and content remain.
+    let observer = fixture_client(store, config).await;
+    let mut response = observer
+        .query("SELECT VALUE state FROM $attempt")
+        .bind((
+            "attempt",
+            lctx_surrealdb::surrealdb::types::RecordId::new(
+                "native_attempt",
+                store.attempt().hex(),
+            ),
+        ))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let states: Vec<String> = response.take(0).unwrap();
+    assert_eq!(states, vec!["abandoned"]);
+    observer.invalidate().await.unwrap();
+}
+
+fn assert_acknowledged_immutable_collision(failure: &ModelError) {
+    use lctx_surrealdb::surrealdb::types::{Number, Value};
+    let native = failure
+        .primary()
+        .and_then(|primary| match primary {
+            ModelError::Cause(cause) => cause.downcast_ref::<lctx_surrealdb::surrealdb::Error>(),
+            _ => None,
+        })
+        .expect("exact native immutable-address guard cause");
+    assert!(native.is_thrown());
+    assert_eq!(
+        native.message(),
+        "An error occurred: native immutable address collision"
+    );
+    let Value::Object(wire) = Value::from_t(native.clone()) else {
+        panic!("native error wire object");
+    };
+    assert_eq!(wire.get("code"), Some(&Value::Number(Number::Int(-32006))));
+    let mut envelope = failure;
+    while let ModelError::SharedCause(inner) = envelope {
+        envelope = inner.as_ref();
+    }
+    let ModelError::Completion(outcome) = envelope else {
+        panic!("checked native transaction failure: {failure:?}");
+    };
+    assert_eq!(
+        outcome.completion.remote,
+        lctx_model::domain::completion::RemoteState::Confirmed
+    );
+    assert!(failure.permits_storage_cleanup());
+    assert!(!failure.has_committed_effect());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     use lctx_model::domain::{FiniteF64, ModelError, analytics::QualityStep};
@@ -136,13 +240,28 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         )
         .await
         .unwrap();
-    store
+    let views = store
         .complete_contribution(
             contribution,
             ProviderOutcome::Complete,
-            &[relation],
+            std::slice::from_ref(&relation),
             &BTreeMap::new(),
         )
+        .await
+        .unwrap();
+    let view = views[relation.name()].clone();
+    store
+        .bind(CompletedBinding {
+            boundary: None,
+            source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                &relation,
+                spec("quality", &relation).model,
+                &view,
+            )
+            .unwrap(),
+            view,
+            configuration: None,
+        })
         .await
         .unwrap();
     store.verify_state().await.unwrap();
@@ -158,21 +277,22 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
     assert_eq!(backing_nodes.len(), 1);
 
-    admin
-        .query("UPDATE $nodes SET body.value=2.0f WHERE record::table(id)='compiler_record'")
+    let mut before = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+    let saved: Vec<Value> = before.take(0).unwrap();
+    assert_eq!(saved.len(), 1, "exact owned quality backing row");
+    let mut mutation = admin
+        .query("UPDATE $nodes SET body.value=2.0f WHERE record::table(id)='compiler_record' RETURN AFTER")
         .bind(("nodes", backing_nodes.clone()))
         .await
         .unwrap()
         .check()
         .unwrap();
-    assert!(matches!(
-        store.verify_state().await,
-        Err(ModelError::Conflict("compiler backing canonical body"))
-    ));
-    assert!(matches!(
-        store.completed_state().await,
-        Err(ModelError::Conflict("compiler backing canonical body"))
-    ));
+    let changed: Vec<Value> = mutation.take(0).unwrap();
+    assert_eq!(changed.len(), 1, "mutation affects the exact owned backing row");
+    assert_ne!(changed, saved, "body mutation is substantive");
+    let verification = store.verify_state().await;
+    let completed = store.completed_state().await;
     admin
         .query("UPDATE $nodes SET body.value=0.5f WHERE record::table(id)='compiler_record'")
         .bind(("nodes", backing_nodes.clone()))
@@ -180,24 +300,61 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .unwrap()
         .check()
         .unwrap();
+    let mut readback = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+    let restored_rows: Vec<Value> = readback.take(0).unwrap();
+    assert_eq!(restored_rows, saved, "restore exact physical row before refusal assertions");
+    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing typed identity"))),
+        "body-only corruption independent verification: {verification:?}");
+    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing typed identity"))),
+        "body-only corruption completed state: {completed:?}");
+    // Independently reach canonical-byte validation without changing the content address:
+    // keep the actual body and id intact, but encode a different valid body in canonical.
+    let mut mismatched_body = saved[0].as_object().unwrap().get("body").unwrap().as_object().unwrap().clone();
+    mismatched_body.insert("value", Value::Number(Number::Float(2.0)));
+    let mismatched_canonical = lctx_surrealdb::surrealdb::types::Bytes::from(
+        serde_json::to_vec(&Value::Object(mismatched_body)).unwrap(),
+    );
+    let mut mutation = admin.query("UPDATE $nodes SET canonical=$canonical WHERE record::table(id)='compiler_record' RETURN AFTER")
+        .bind(("nodes", backing_nodes.clone())).bind(("canonical", mismatched_canonical.clone()))
+        .await.unwrap().check().unwrap();
+    let changed: Vec<Value> = mutation.take(0).unwrap();
+    let verification = store.verify_state().await;
+    let completed = store.completed_state().await;
+    admin.query("UPDATE $nodes SET canonical=$canonical WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
+        .bind(("canonical", saved[0].as_object().unwrap().get("canonical").unwrap().clone()))
+        .await.unwrap().check().unwrap();
+    let mut readback = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+    let restored_rows: Vec<Value> = readback.take(0).unwrap();
+    assert_eq!(restored_rows, saved, "restore canonical bytes before refusal assertions");
+    assert_eq!(changed.len(), 1, "canonical-only mutation affects one owned row");
+    assert_ne!(changed, saved, "canonical-only mutation is substantive");
+    assert_eq!(changed[0].as_object().unwrap().get("body"), saved[0].as_object().unwrap().get("body"));
+    assert_eq!(changed[0].as_object().unwrap().get("id"), saved[0].as_object().unwrap().get("id"));
+    assert_eq!(changed[0].as_object().unwrap().get("canonical"), Some(&Value::Bytes(mismatched_canonical)));
+    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing canonical body"))),
+        "canonical-only corruption independent verification: {verification:?}");
+    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing canonical body"))),
+        "canonical-only corruption completed state: {completed:?}");
     let mut bindings = Variables::new();
     bindings.insert("key", "00".repeat(16));
-    admin
-        .query("UPDATE $nodes SET semantic_key=$key WHERE record::table(id)='compiler_record'")
+    let mut mutation = admin
+        .query("UPDATE $nodes SET semantic_key=$key WHERE record::table(id)='compiler_record' RETURN AFTER")
         .bind(("nodes", backing_nodes.clone()))
         .bind(bindings)
         .await
         .unwrap()
         .check()
         .unwrap();
-    assert!(matches!(
-        store.verify_state().await,
-        Err(ModelError::Conflict("compiler backing typed identity"))
-    ));
-    assert!(matches!(
-        store.completed_state().await,
-        Err(ModelError::Conflict("compiler backing typed identity"))
-    ));
+    let changed: Vec<Value> = mutation.take(0).unwrap();
+    assert_eq!(changed.len(), 1, "false typed key mutation affects one owned row");
+    assert_eq!(changed[0].as_object().unwrap().get("semantic_key"),
+        Some(&Value::String("00".repeat(16))));
+    assert_ne!(changed, saved, "false typed key mutation is substantive");
+    let verification = store.verify_state().await;
+    let completed = store.completed_state().await;
     let mut bindings = Variables::new();
     bindings.insert("key", row.id().hex());
     admin
@@ -208,6 +365,14 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .unwrap()
         .check()
         .unwrap();
+    let mut readback = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+    let restored_rows: Vec<Value> = readback.take(0).unwrap();
+    assert_eq!(restored_rows, saved, "restore exact physical key before refusal assertions");
+    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing typed identity"))),
+        "false typed key independent verification: {verification:?}");
+    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing typed identity"))),
+        "false typed key completed state: {completed:?}");
     assert_eq!(store.completed_state().await.unwrap(), state);
 
     // External transport must reject the row before trusting even an outer state identity.
@@ -223,8 +388,10 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let mut envelopes = lines
         .map(|line| serde_json::from_str::<Envelope>(line).unwrap())
         .collect::<Vec<_>>();
+    let mut changed_backing_rows = 0;
     for envelope in &mut envelopes {
         if envelope.table == "compiler_record" {
+            changed_backing_rows += 1;
             let Value::Object(object) = &mut envelope.row else {
                 panic!("backing object");
             };
@@ -234,6 +401,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
             body.insert("value", Value::Number(Number::Float(2.0)));
         }
     }
+    assert_eq!(changed_backing_rows, 1, "external mutation changes one selected backing envelope");
     let text = header.to_string()
         + "\n"
         + &envelopes
@@ -249,7 +417,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     assert!(
         matches!(
             error.primary(),
-            Some(ModelError::Conflict("compiler backing canonical body"))
+            Some(ModelError::Conflict("compiler backing typed identity"))
         ),
         "{error:?}"
     );
@@ -257,7 +425,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         &altered,
         &config,
         "import_state",
-        "compiler backing canonical body",
+        "compiler backing typed identity",
     )
     .await;
     store.abandon().await.unwrap();
@@ -372,6 +540,9 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn pending_overlap_frozen_selection_and_state_transport() {
+    use futures::FutureExt;
+    use lctx_model::domain::{ModelError, completion};
+    use std::panic::AssertUnwindSafe;
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
@@ -379,190 +550,242 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
         .await
         .unwrap();
-    let admin = fixture_client(&store, &config).await;
-    let relation = Relation::of::<Package>();
-    let first = Package {
-        name: "first".into(),
-    };
-    let second = Package {
-        name: "second".into(),
-    };
-    let a = store
-        .begin_contribution(spec("a", &relation))
-        .await
-        .unwrap();
-    store
-        .write_batch(
-            &a,
-            &relation,
-            &Package::encode(std::slice::from_ref(&first)).unwrap(),
-        )
-        .await
-        .unwrap();
-    store
-        .write_batch(
-            &a,
-            &relation,
-            &Package::encode(std::slice::from_ref(&first)).unwrap(),
-        )
-        .await
-        .unwrap();
-    let views = store
-        .complete_contribution(
-            a,
-            ProviderOutcome::Complete,
-            std::slice::from_ref(&relation),
-            &BTreeMap::new(),
-        )
-        .await
-        .unwrap();
-    let frozen = views[relation.name()].clone();
-    let mut next = spec("b", &relation);
-    next.inputs.push(
-        lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
-            &relation, next.model, &frozen,
-        )
-        .unwrap(),
-    );
-    let b = store.begin_contribution(next).await.unwrap();
-    store
-        .write_batch(
-            &b,
-            &relation,
-            &Package::encode(&[first.clone(), second.clone()]).unwrap(),
-        )
-        .await
-        .unwrap();
-    let budget = ResourceBudget::fixed(32 << 20).unwrap();
-    let mut rows = store
-        .scan_batches(&frozen, &relation, None, None, &budget, 8)
-        .await
-        .unwrap();
-    let mut observed = vec![];
-    while let Some(batch) = rows.try_next().await.unwrap() {
-        observed.extend(Package::decode(&batch).unwrap());
-    }
-    assert_eq!(
-        observed,
-        vec![first.clone()],
-        "pending values cannot widen a frozen view"
-    );
-    let current = store
-        .complete_contribution(
-            b,
-            ProviderOutcome::Complete,
-            std::slice::from_ref(&relation),
-            &views,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        current[relation.name()].rows,
-        2,
-        "overlapping membership must deduplicate"
-    );
-    assert_ne!(current[relation.name()].identity, frozen.identity);
-    let mut response = admin
-        .query("SELECT producer,inputs.relation AS predecessors FROM $owner")
-        .bind((
-            "owner",
-            lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution", b.hex()),
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let projected: Vec<serde_json::Value> = response.take(0).unwrap();
-    assert_eq!(
-        projected[0]["predecessors"],
-        serde_json::json!([relation.name()]),
-        "dependency views are natively queryable"
-    );
-    let mut rows = store
-        .scan_batches(
-            &current[relation.name()],
-            &relation,
-            None,
-            Some(NativePredicate::Keys(vec![*second.id().bytes()])),
-            &budget,
-            8,
-        )
-        .await
-        .unwrap();
-    let selected = rows.try_next().await.unwrap().unwrap();
-    assert_eq!(Package::decode(&selected).unwrap(), vec![second]);
-    assert!(rows.try_next().await.unwrap().is_none());
-    let state = store.completed_state().await.unwrap();
-    assert_eq!(state.contributions, 2);
-    assert_eq!(state.memberships, 3);
-    let file = tempfile::NamedTempFile::new().unwrap();
-    assert_eq!(store.export_state(file.path()).await.unwrap(), state);
-    let restored =
-        NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+    let mut admin_owner = None;
+    let mut restored_owner = None;
+    let mut restored_admin_owner = None;
+    let mut store_finalized = false;
+    let mut restored_finalized = false;
+    let outcome = AssertUnwindSafe(async {
+        admin_owner = Some(fixture_client(&store, &config).await);
+        let admin = admin_owner.as_ref().unwrap();
+        let relation = Relation::of::<Package>();
+        let first = Package {
+            name: "first".into(),
+        };
+        let second = Package {
+            name: "second".into(),
+        };
+        let a = store
+            .begin_contribution(spec("a", &relation))
             .await
             .unwrap();
-    let restored_admin = fixture_client(&restored, &config).await;
-    // Complete state references canonical families; detached import loads those separately.
-    lctx_surrealdb::Loader::new(restored_admin.clone())
-        .entities(&[
-            lctx_model::domain::graph::Entity::from(first.clone()),
-            lctx_model::domain::graph::Entity::from(Package {
-                name: "second".into(),
-            }),
-        ])
-        .await
-        .unwrap();
-    restored.import_state(file.path(), &state).await.unwrap();
-    assert_eq!(restored.completed_state().await.unwrap(), state);
-    // Replay compares complete immutable membership rows, rather than replacing corrupted
-    // metadata or silently ignoring an existing key. Published graph payloads remain identical.
-    let replay = restored
-        .begin_contribution(spec("replay", &relation))
-        .await
-        .unwrap();
-    let batch = Package::encode(std::slice::from_ref(&first)).unwrap();
-    restored
-        .write_batch(&replay, &relation, &batch)
-        .await
-        .unwrap();
-    restored
-        .write_batch(&replay, &relation, &batch)
-        .await
-        .unwrap();
-    let mut bindings = lctx_surrealdb::surrealdb::types::Variables::new();
-    bindings.insert(
-        "contribution",
-        lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution", replay.hex()),
-    );
-    bindings.insert("content", ContentHash::of(b"corrupt-membership").hex());
-    restored_admin
-        .query("UPDATE compiler_membership SET content=$content WHERE contribution=$contribution")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let error = restored
-        .write_batch(&replay, &relation, &batch)
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(
-            error.primary(),
-            Some(lctx_model::domain::ModelError::Conflict(
-                "native membership same-key payload"
+        store
+            .write_batch(
+                &a,
+                &relation,
+                &Package::encode(std::slice::from_ref(&first)).unwrap(),
+            )
+            .await
+            .unwrap();
+        store
+            .write_batch(
+                &a,
+                &relation,
+                &Package::encode(std::slice::from_ref(&first)).unwrap(),
+            )
+            .await
+            .unwrap();
+        let views = store
+            .complete_contribution(
+                a,
+                ProviderOutcome::Complete,
+                std::slice::from_ref(&relation),
+                &BTreeMap::new(),
+            )
+            .await
+            .unwrap();
+        let frozen = views[relation.name()].clone();
+        let mut next = spec("b", &relation);
+        next.inputs.push(
+            lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                &relation, next.model, &frozen,
+            )
+            .unwrap(),
+        );
+        let b = store.begin_contribution(next).await.unwrap();
+        store
+            .write_batch(
+                &b,
+                &relation,
+                &Package::encode(&[first.clone(), second.clone()]).unwrap(),
+            )
+            .await
+            .unwrap();
+        let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        let mut rows = store
+            .scan_batches(&frozen, &relation, None, None, &budget, 8)
+            .await
+            .unwrap();
+        let mut observed = vec![];
+        while let Some(batch) = rows.try_next().await.unwrap() {
+            observed.extend(Package::decode(&batch).unwrap());
+        }
+        assert_eq!(
+            observed,
+            vec![first.clone()],
+            "pending values cannot widen a frozen view"
+        );
+        let current = store
+            .complete_contribution(
+                b,
+                ProviderOutcome::Complete,
+                std::slice::from_ref(&relation),
+                &views,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            current[relation.name()].rows,
+            2,
+            "overlapping membership must deduplicate"
+        );
+        assert_ne!(current[relation.name()].identity, frozen.identity);
+        let mut response = admin
+            .query("SELECT producer,inputs.relation AS predecessors FROM $owner")
+            .bind((
+                "owner",
+                lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution", b.hex()),
             ))
-        ),
-        "{error:?}"
-    );
-    store.abandon().await.unwrap();
-    abandon_known_failure(
-        &restored,
-        &config,
-        "write_batch",
-        "native membership same-key payload",
-    )
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let projected: Vec<serde_json::Value> = response.take(0).unwrap();
+        assert_eq!(
+            projected[0]["predecessors"],
+            serde_json::json!([relation.name()]),
+            "dependency views are natively queryable"
+        );
+        let mut rows = store
+            .scan_batches(
+                &current[relation.name()],
+                &relation,
+                None,
+                Some(NativePredicate::Keys(vec![*second.id().bytes()])),
+                &budget,
+                8,
+            )
+            .await
+            .unwrap();
+        let selected = rows.try_next().await.unwrap().unwrap();
+        assert_eq!(Package::decode(&selected).unwrap(), vec![second]);
+        assert!(rows.try_next().await.unwrap().is_none());
+        assert_eq!(
+            store.completed_state().await.unwrap().contributions,
+            0,
+            "unbound intermediate views are not completed-state roots"
+        );
+        let current_view = current[relation.name()].clone();
+        store
+            .bind(lctx_model::domain::completed::CompletedBinding {
+                boundary: None,
+                source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                    &relation,
+                    spec("b", &relation).model,
+                    &current_view,
+                )
+                .unwrap(),
+                view: current_view,
+                configuration: None,
+            })
+            .await
+            .unwrap();
+        let state = store.completed_state().await.unwrap();
+        assert_eq!(state.contributions, 2);
+        assert_eq!(state.memberships, 3);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        assert_eq!(store.export_state(file.path()).await.unwrap(), state);
+        restored_owner = Some(
+            NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+                .await
+                .unwrap(),
+        );
+        let restored = restored_owner.as_ref().unwrap();
+        restored_admin_owner = Some(fixture_client(restored, &config).await);
+        let restored_admin = restored_admin_owner.as_ref().unwrap();
+        // Complete state references canonical families; detached import loads those separately.
+        lctx_surrealdb::Loader::new(restored_admin.clone())
+            .entities(&[
+                lctx_model::domain::graph::Entity::from(first.clone()),
+                lctx_model::domain::graph::Entity::from(Package {
+                    name: "second".into(),
+                }),
+            ])
+            .await
+            .unwrap();
+        restored.import_state(file.path(), &state).await.unwrap();
+        assert_eq!(restored.completed_state().await.unwrap(), state);
+        // Replay compares complete immutable membership rows, rather than replacing corrupted
+        // metadata or silently ignoring an existing key. Published graph payloads remain identical.
+        let replay = restored
+            .begin_contribution(spec("replay", &relation))
+            .await
+            .unwrap();
+        let batch = Package::encode(std::slice::from_ref(&first)).unwrap();
+        restored
+            .write_batch(&replay, &relation, &batch)
+            .await
+            .unwrap();
+        restored
+            .write_batch(&replay, &relation, &batch)
+            .await
+            .unwrap();
+        let mut bindings = lctx_surrealdb::surrealdb::types::Variables::new();
+        bindings.insert(
+            "contribution",
+            lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution", replay.hex()),
+        );
+        bindings.insert("content", ContentHash::of(b"corrupt-membership").hex());
+        restored_admin
+            .query(
+                "UPDATE compiler_membership SET content=$content WHERE contribution=$contribution",
+            )
+            .bind(bindings)
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let error = restored
+            .write_batch(&replay, &relation, &batch)
+            .await
+            .unwrap_err();
+        assert_acknowledged_immutable_collision(&error);
+        store.abandon().await.unwrap();
+        store_finalized = true;
+        abandon_acknowledged_write_failure(restored, &config, &error).await;
+        restored_finalized = true;
+    })
+    .catch_unwind()
     .await;
+    let mut completion = completion::Completion::default();
+    if !store_finalized {
+        completion.step("pending overlap source finalization", store.abandon().await);
+    }
+    if let Some(restored) = restored_owner.as_ref()
+        && !restored_finalized
+    {
+        completion.step(
+            "pending overlap restored finalization",
+            restored.abandon().await,
+        );
+    }
+    for client in [admin_owner.as_ref(), restored_admin_owner.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        completion.step(
+            "pending overlap observer invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+    }
+    let cleanup = completion::complete(Ok(()), completion);
+    if let Err(primary) = outcome {
+        if let Err(secondary) = cleanup {
+            eprintln!("pending overlap control failed; owned cleanup also failed: {secondary:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -618,11 +841,28 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .complete_contribution(
             contribution,
             ProviderOutcome::Complete,
-            &[relation.clone(), source_relation],
+            &[relation.clone(), source_relation.clone()],
             &BTreeMap::new(),
         )
         .await
         .unwrap();
+    for output in [&relation, &source_relation] {
+        let view = views[output.name()].clone();
+        store
+            .bind(CompletedBinding {
+                boundary: None,
+                source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                    output,
+                    spec("bytes", &relation).model,
+                    &view,
+                )
+                .unwrap(),
+                view,
+                configuration: None,
+            })
+            .await
+            .unwrap();
+    }
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     let mut rows = store
         .scan_batches(&views[relation.name()], &relation, None, None, &budget, 8)
@@ -663,6 +903,9 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     assert!(metadata.iter().all(|body|matches!(body,lctx_surrealdb::surrealdb::types::Value::Object(object) if !object.contains_key("body"))));
     store.verify_state().await.unwrap();
     let state = store.completed_state().await.unwrap();
+    assert_eq!(state.contributions, 1);
+    assert_eq!(state.memberships, 2);
+    assert_eq!(state.backing_rows, 1);
     admin
         .query("UPDATE $nodes SET body.ordinal=1 WHERE record::table(id)='compiler_record'")
         .bind(("nodes", backing_nodes.clone()))
@@ -750,18 +993,18 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap();
     let mut altered = row;
     altered.body.0[0] ^= 1;
-    assert!(
-        store
-            .write_batch(
-                &other,
-                &relation,
-                &ArtifactChunk::encode(&[altered]).unwrap()
-            )
-            .await
-            .is_err()
-    );
+    let error = store
+        .write_batch(
+            &other,
+            &relation,
+            &ArtifactChunk::encode(&[altered]).unwrap(),
+        )
+        .await
+        .unwrap_err();
+    assert_acknowledged_immutable_collision(&error);
     assert!(store.check().is_err());
-    abandon_known_failure(&store, &config, "write_batch", "original same-key payload").await;
+    abandon_acknowledged_write_failure(&store, &config, &error).await;
+    admin.invalidate().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1935,9 +2178,26 @@ async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowne
                 second = Some(id);
             }
         }
+        let view = previous[relation.name()].clone();
+        store
+            .bind(CompletedBinding {
+                boundary: None,
+                source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                    &relation,
+                    spec("second", &relation).model,
+                    &view,
+                )
+                .unwrap(),
+                view,
+                configuration: None,
+            })
+            .await
+            .unwrap();
     }
     let second = second.unwrap();
     let expected = off.completed_state().await.unwrap();
+    assert_eq!(expected.contributions, 2);
+    assert_eq!(expected.memberships, 2);
     assert_eq!(cold.completed_state().await.unwrap(), expected);
     let mut stream = cold
         .scan_contribution_batches(second, &relation, &budget, 32)

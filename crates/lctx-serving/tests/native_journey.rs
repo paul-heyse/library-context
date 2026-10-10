@@ -662,9 +662,49 @@ async fn catalog_journey() {
         serde_json::from_value(evidence["evidence"]["body"]["bytes"].clone()).unwrap();
     let expected = std::fs::read(runtime::root("synthesis_sources").join("api.py")).unwrap();
     assert_eq!(body, expected);
-    // A remains genuinely pinned, with an actual public cursor and attributed bytes,
-    // while a distinct real Facts publication B joins the same immutable executable epoch.
-    let coexistence_phase = Phase::begin("distinct_facts_publication_coexists");
+    // A keeps its full serving capability epoch, actual public cursor and attributed bytes.
+    // B uses a distinct supported search-only epoch: it is consumed through NativeReader,
+    // not a second full NativeService. Publishing B must leave A's exact named functions intact.
+    async fn executable_observation(
+        reader: &NativeReader,
+    ) -> Result<([String; 2], String), ModelError> {
+        use lctx_surrealdb::surrealdb::types::Value;
+        let mut response = reader.client().query("INFO FOR DB").await
+            .map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let value: Value = response.take(0).map_err(ModelError::codec)?;
+        let Value::Object(info) = value else {
+            return Err(ModelError::Schema("coexisting native function inventory object"));
+        };
+        let Some(Value::Object(functions)) = info.get("functions") else {
+            return Err(ModelError::Schema("coexisting native function inventory"));
+        };
+        let actual = |name: &str| -> Result<String, ModelError> {
+            let prefix = format!("DEFINE FUNCTION {name}(");
+            let mut matches = functions.values().filter_map(|value| match value {
+                Value::String(definition) if definition.starts_with(&prefix) => Some(definition),
+                _ => None,
+            });
+            let definition = matches.next().ok_or(ModelError::Schema(
+                "exact coexisting native function",
+            ))?;
+            if matches.next().is_some() {
+                return Err(ModelError::Conflict("duplicate coexisting native function"));
+            }
+            Ok(definition.clone())
+        };
+        let definitions = [
+            actual(&reader.handle().operation_definition_function())?,
+            actual(&reader.handle().library_roots_function())?,
+        ];
+        let operation: String = reader.query(
+            format!("RETURN {}();", reader.handle().operation_definition_function()),
+            Default::default(),
+        ).await?;
+        Ok((definitions, operation))
+    }
+    let a_executables_before = executable_observation(&reader).await.unwrap();
+    assert_eq!(a_executables_before.1, lctx_serving::operation_definition().hex());
+    let coexistence_phase = Phase::begin("distinct_capability_epoch_publication_coexists");
     let b_native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
         .await
         .unwrap();
@@ -685,11 +725,11 @@ async fn catalog_journey() {
         &b_workspace, &b_captured, Frontier::Facts, Profile::Catalog, b_settings,
     ).await.unwrap();
     let b_handle = lctx_publisher::seal_completed(
-        &b_admitted, &config, &lctx_serving::native_definitions(),
+        &b_admitted, &config, &lctx_surrealdb::materialization::native_definitions(),
     ).await.unwrap();
     let mut b_reader = None;
     let observations = async {
-        lctx_publisher::inspection::audit(&config, &b_handle, &lctx_serving::native_definitions()).await?;
+        lctx_publisher::inspection::audit(&config, &b_handle, &lctx_surrealdb::materialization::native_definitions()).await?;
         b_reader = Some(NativeReader::connect(
             &config.endpoint, &config.writer_credentials(), b_handle.clone(),
         ).await?);
@@ -711,7 +751,8 @@ async fn catalog_journey() {
             "get_evidence",
             &serde_json::json!({"source":{"kind":"artifact","artifact":original.id()},"page":{"expanded":true}}).to_string(),
         ).await.map_err(|error| ModelError::Cause(Box::new(error)))?).map_err(ModelError::codec)?;
-        Ok::<_, ModelError>((b_sources, continued, packet, attributed, reader.handle().clone()))
+        let a_executables_after = executable_observation(&reader).await?;
+        Ok::<_, ModelError>((b_sources, continued, packet, attributed, reader.handle().clone(), a_executables_after))
     }.await;
     let mut b_completion = completion::Completion::default();
     b_completion.step("coexisting Facts compiler drainage", b_workspace.drain().await);
@@ -727,14 +768,17 @@ async fn catalog_journey() {
     }
     let observations = completion::complete(observations, b_completion);
     coexistence_phase.finish_result(&observations);
-    let (b_sources, continued, packet, attributed, a_handle_after) = observations.unwrap();
+    let (b_sources, continued, packet, attributed, a_handle_after, a_executables_after) = observations.unwrap();
     assert!(!b_sources.is_empty(), "B must contain real captured provider facts");
     assert_ne!(b_handle.semantic, handle.semantic);
     assert_ne!(b_handle.publication, handle.publication);
     assert_eq!(b_handle.database, handle.database);
     assert_eq!(b_handle.service_generation, handle.service_generation);
-    assert_eq!(b_handle.definition_epoch, handle.definition_epoch);
+    assert_ne!(b_handle.definition_epoch, handle.definition_epoch,
+        "full serving A and search-only B have distinct supported capability epochs");
     assert_eq!(a_handle_after, handle);
+    assert_eq!(a_executables_after, a_executables_before,
+        "A's exact named operation/library definitions and operation result survive B publication");
     assert_eq!(continued, next, "A's saved continuation remains exact after B publication");
     assert_eq!(packet, operation, "A's attributed operation packet remains exact");
     assert_eq!(attributed, evidence, "A's original evidence bytes and attribution remain exact");

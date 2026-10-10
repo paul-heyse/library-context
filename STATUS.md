@@ -11,7 +11,7 @@ fenced attempts, checked retained attachment, manifest publication, executable d
 data-only restore, reader pins/retirement and one stable service. Patched gRPC remains initial.
 **passed:** owned installation/check, simultaneous logical attachments, equal-definition retry/drift
 refusal, protected backup/default validation/applied restore and readiness. Current guard-free
-`just ready` rebuilt the earlier native extension; final-source bridge refresh remains pending. Tooling controls and schema migration
+`just ready` rebuilt the formatted batching source and all readiness checks passed. Tooling controls and schema migration
 passed; actual receipts and source boundaries remain in the coordinator. Independent integration
 review accepts examined source subject to remaining runtime acceptance.
 Focused corrections passed ordering/acknowledgement17, exact-view/state-closure controls,
@@ -31,18 +31,25 @@ Grammar-owned comparison correction passed compile, eight pure controls and inde
 Its rerun passed entity-omission refusal, then timed out decoding the next large shared-store dump.
 Terminal-owner cleanup passed its multi-window retention/receipt control. Selected closed-content
 backup preparation passed compile,23 pure controls and independent review;
-full publication/concurrent restore remain pending after another timeout in unbuffered raw-dump
-spooling. Buffering passed compile/24 pure controls/review; scoped terminal cleanup passed both
-actual interruption and large admitted/unadmitted controls. Named recovery released verified
-failed-test pins; installer stabilization passed and admission is open.
-NativeSession close drains calls, releases its pin and shares terminal results across closers;
-compile/static review passed, actual Python acceptance awaits the final MCP journey. Earlier eight
+full publication/concurrent restore remain pending. Buffering passed compile/24 pure controls/review;
+its native rerun completed compact backup/three omission refusals before timing out in valid restore.
+Scoped terminal cleanup passed interruption and large admitted/unadmitted controls, but its elapsed
+phase remains slow. Imported membership roots and test decomposition are implemented; their focused
+selection finished9passed/8timeouts, including a restore ordering refusal before timeout.
+Legal singletons now spill with unchanged bounds;14 pure ordering controls passed. Bounded view
+registration is statically accepted; both new native ownership controls passed. Publication rerun
+finished9passed/7timeouts. Canonical marker ordering, portable restore framing and guarded retirement
+windows are implemented/static-reviewed; their focused native/pure controls are running. The last run's
+two identified reader pins were recovered through checked maintenance. Fresh MCP native journeys failed at the missing executable epoch;
+explicit checked maintenance installed current933b… names, preserved prior functions and reopened.
+Guard-free final-source `just ready` passed, including the rebuilt native extension. NativeSession
+close drains calls, releases its pin and shares terminal results across closers;
+compile/static review passed, actual Python acceptance is not_run after the failed MCP producer. Earlier eight
 maintenance controls finished6passed/2failed before intended drift assertions; all eight need a
 final-source rerun. Next: fresh retained MCP producer/Python suite, maintenance8, two-worktree
-reuse, populated backup/restore/restart, then unfiltered UP9 `just qualify` and applicable leaves.
+reuse, populated backup/restore/restart, then unfiltered UP9 `just verify --qualify --cli` and applicable leaves.
 No whole-plan closure or measured benefit is claimed; BC3 profile adoption remains separate.
-The owned service is outside checkouts; operator/PSE-arrow data, selections, protected evaluation
-and real-library adoption remain held. Shared build caches and recovery evidence stay protected.
+Operator/PSE-arrow data, selections, real-library adoption, shared caches and recovery evidence stay protected.
 
 **Storage lifecycle implementation in progress, 2026-10-09:**
 [ADR-0144](docs/adr/0144-managed-storage-lifetimes.md) governs warm-cache preservation and
@@ -101,8 +108,7 @@ native ownership, search, restore and representative journeys must pass on the r
 BC3 candidate-profile qualification and unrelated real-library adoption remain `not_run`.
 
 **Existing qualification follow-up:** resolve source-specific failures without weakening controls.
-Qualify BC3 separately before
-installing the ordinary test profile. Record source-specific closure; retain failed composites.
+Qualify BC3 separately before installing the ordinary test profile. Record source-specific closure; retain failed composites.
 The operator restored40GiB free after the filesystem fell below1GiB; focused validation resumed.
 No measured speed or whole-plan completion is claimed.
 

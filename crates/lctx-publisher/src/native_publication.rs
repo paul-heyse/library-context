@@ -48,7 +48,7 @@ impl<'a> Publication<'a> {
         config: &RuntimeConfig,
     ) -> Result<Self, ModelError> {
         admission.native().check_publication_target(config)?;
-        let bindings = admission.native().bindings().await?;
+        let bindings = canonical_bindings(admission.native().bindings().await?)?;
         let lease = admission
             .native()
             .begin_derived_operation("publication session")?;
@@ -191,14 +191,14 @@ async fn seal_staging(
     let realization = realization?;
     let definition_epoch = crate::definitions::epoch_identity(native_definitions);
     let view = view_identity(views)?;
-    let mut publication = KeySink::new("native-publication/v2");
-    manifest.content().encode(&mut publication);
-    realization.encode(&mut publication);
-    view.encode(&mut publication);
-    config.service_generation.encode(&mut publication);
-    definition_epoch.encode(&mut publication);
     let handle = SnapshotHandle {
-        publication: publication.finish(),
+        publication: publication_identity(
+            manifest.content(),
+            realization,
+            view,
+            config.service_generation,
+            definition_epoch,
+        ),
         view,
         service_generation: config.service_generation,
         definition_epoch,
@@ -325,4 +325,118 @@ async fn seal_staging(
 /// The publication freezes this exact binding inventory, not the whole database.
 pub(crate) fn view_identity(bindings: &[CompletedBinding]) -> Result<ContentHash, ModelError> {
     lctx_model::domain::completed::binding_inventory_identity(bindings)
+}
+
+/// Logical binding order owns both the immutable marker bytes and its scoped loader inputs.
+/// Attempt-qualified physical binding addresses are transport details and may reorder on restore.
+fn canonical_bindings(
+    mut bindings: Vec<CompletedBinding>,
+) -> Result<Vec<CompletedBinding>, ModelError> {
+    bindings.sort_by_key(CompletedBinding::key);
+    view_identity(&bindings)?;
+    Ok(bindings)
+}
+
+fn publication_identity(
+    semantic: ContentHash,
+    realization: ContentHash,
+    view: ContentHash,
+    generation: ContentHash,
+    definition_epoch: ContentHash,
+) -> ContentHash {
+    let mut publication = KeySink::new("native-publication/v2");
+    semantic.encode(&mut publication);
+    realization.encode(&mut publication);
+    view.encode(&mut publication);
+    generation.encode(&mut publication);
+    definition_epoch.encode(&mut publication);
+    publication.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lctx_model::domain::{
+        Record, Relation, analysis::sources::SourceSnapshot, completed::CompletedView,
+        input::Package,
+    };
+    use std::collections::BTreeSet;
+
+    fn binding(boundary: Option<&str>) -> CompletedBinding {
+        let relation = Relation::of::<Package>();
+        let view = CompletedView::new(
+            Package::NAME.into(),
+            BTreeSet::from([ContentHash::of(b"contributor")]),
+            0,
+        )
+        .unwrap();
+        CompletedBinding {
+            boundary: boundary.map(str::to_owned),
+            source: SourceSnapshot::of_completed_view(&relation, ContentHash::of(b"model"), &view)
+                .unwrap(),
+            view,
+            configuration: None,
+        }
+    }
+
+    #[test]
+    fn restored_binding_order_preserves_immutable_marker_bytes_and_handle() {
+        let first = binding(None);
+        let second = binding(Some("facts"));
+        let original = vec![first.clone(), second.clone()];
+        let reversed = vec![second, first];
+        assert_ne!(
+            serde_json::to_vec(&original).unwrap(),
+            serde_json::to_vec(&reversed).unwrap()
+        );
+        assert_eq!(
+            view_identity(&original).unwrap(),
+            view_identity(&reversed).unwrap()
+        );
+        let original = canonical_bindings(original).unwrap();
+        let restored = canonical_bindings(reversed).unwrap();
+        // These are the exact bytes persisted in publication.views by seal_staging.
+        assert_eq!(
+            serde_json::to_vec(&original).unwrap(),
+            serde_json::to_vec(&restored).unwrap()
+        );
+        let make_handle = |bindings: &[CompletedBinding]| {
+            let semantic = ContentHash::of(b"semantic");
+            let realization = ContentHash::of(b"realization");
+            let service_generation = ContentHash::of(b"generation");
+            let definition_epoch = ContentHash::of(b"epoch");
+            let view = view_identity(bindings).unwrap();
+            SnapshotHandle {
+                publication: publication_identity(
+                    semantic,
+                    realization,
+                    view,
+                    service_generation,
+                    definition_epoch,
+                ),
+                view,
+                semantic,
+                realization,
+                service_generation,
+                definition_epoch,
+                database: DatabaseIdentity {
+                    namespace: lctx_model::domain::serving::Name::new("library_context").unwrap(),
+                    database: lctx_model::domain::serving::Name::new("validation").unwrap(),
+                },
+            }
+        };
+        assert_eq!(make_handle(&original), make_handle(&restored));
+    }
+
+    #[test]
+    fn canonical_binding_capture_refuses_duplicate_or_invalid_inventory() {
+        let valid = binding(None);
+        assert!(matches!(
+            canonical_bindings(vec![valid.clone(), valid.clone()]),
+            Err(ModelError::Conflict("duplicate publication binding")),
+        ));
+        let mut invalid = valid;
+        invalid.view.rows += 1;
+        assert!(canonical_bindings(vec![invalid]).is_err());
+    }
 }

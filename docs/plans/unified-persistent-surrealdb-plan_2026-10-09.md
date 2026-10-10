@@ -420,6 +420,9 @@ assembled acceptance at UP9 because model/receipt/trust/transport contracts chan
 the coordinator's surviving obligations. BC3 retains its separate candidate-profile gate and
 release defaults until qualified. Do not run broad journeys after each package. Real-library,
 Qwen, protected evaluation and operator activation retain their separate authorization.
+The final assembled command is `just verify --qualify --cli`, retaining actual snapshot CLI
+assertions alongside the full unfiltered qualifier. Publication contracts may use independently
+owned focused cases; the full catalog producer/export/cold-import journey remains required.
 
 | Source obligation | Package coverage; required distinction |
 |---|---|

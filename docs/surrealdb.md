@@ -163,11 +163,17 @@ stages without changing live state; `--apply` explicitly restores only the match
 installation/generation under maintenance. Recovery validates asset digests and preserves the
 predecessor until readiness succeeds. Failure keeps admission closed and retains recovery assets.
 
-For a maintenance-owned schema transition, `lctx store --runtime-config INSTALLER_CONFIG init
+For a maintenance-owned schema or executable-epoch transition, the **current build's**
+`lctx store --runtime-config INSTALLER_CONFIG init
 --keep-closed` installs compatible declarations without reopening native admission. The maintenance
 owner must check and drain every affected database before explicitly reopening. The ordinary
 `init` command still opens after successful installation; uncertain initialization does not
 prove that all administrative effects have completed.
+Run this through `just service maintenance -- COMMAND` against the affected owned database.
+An executable policy change requires its new named epoch even when the base schema is unchanged.
+Readiness and stabilizing the existing maintenance executable do not install the current build's
+epoch; ordinary compilation/publication only verifies it. Checked installation preserves earlier
+epoch functions and refuses conflicting declarations.
 
 Restore parses closed literal data locally and lowers it through typed staging, independent
 semantic admission and trusted executable generation. Dump SQL is never sent as Root-authorized

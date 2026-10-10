@@ -918,6 +918,50 @@ pub(crate) async fn restore(
     lctx_model::domain::completion::complete(result, completion)
 }
 
+/// Assemble selected portable state synchronously; independent native admission follows.
+fn write_completed_state<W: Write>(
+    dump: &Dump,
+    prepared: &PreparedClosure,
+    budget: &ResourceBudget,
+    mut writer: W,
+) -> Result<(), ModelError> {
+    serde_json::to_writer(&mut writer, &CompletedStateHeader::current())
+        .map_err(ModelError::codec)?;
+    writer.write_all(b"\n").map_err(ModelError::codec)?;
+    let mut binding_keys = BTreeSet::new();
+    for table in STATE_TABLES {
+        let mut sorted = lctx_surrealdb::ordered_rows::SortedRows::with_budget_and_row_bytes(
+            budget,
+            lctx_model::domain::resources::MAX_ROW_BYTES,
+        )?;
+        for row in dump.rows(table)? {
+            let row = row?;
+            let obj = object(&row)?;
+            let keep = prepared.keep_row(table, &row)?
+                && (*table != "compiler_binding" || {
+                    let descriptor: CompletedBinding =
+                        serde_json::from_slice(bytes(obj, "descriptor")?)
+                            .map_err(ModelError::codec)?;
+                    binding_keys.insert(descriptor.key())
+                });
+            if keep {
+                sorted.push(lctx_surrealdb::compiler::normalize_transport_row(
+                    table,
+                    &row,
+                    &prepared.owner_specs,
+                )?)?;
+            }
+        }
+        let mut sorted = sorted.finish()?;
+        while let Some(row) = sorted.next_row()? {
+            serde_json::to_writer(&mut writer, &serde_json::json!({"table":table,"row":row}))
+                .map_err(ModelError::codec)?;
+            writer.write_all(b"\n").map_err(ModelError::codec)?;
+        }
+    }
+    Ok(())
+}
+
 async fn reconstruct(
     dump: &Dump,
     native: &Arc<NativeCompilerStore>,
@@ -933,7 +977,6 @@ async fn reconstruct(
     )?;
     let manifest = &prepared.manifest;
     let nodes = &prepared.nodes;
-    let owner_specs = &prepared.owner_specs;
     let mut batch_charge = budget.reserve("restore-canonical-ingress", 0)?;
     for table in ["entity", "assertion"] {
         let mut entities = Vec::new();
@@ -1027,40 +1070,7 @@ async fn reconstruct(
     let _state_buffer = budget.reserve("restore-completed-state-buffer", SPOOL_BUFFER_BYTES)?;
     let mut state = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
     let mut writer = std::io::BufWriter::with_capacity(SPOOL_BUFFER_BYTES, &mut state);
-    let assembled = (|| {
-        serde_json::to_writer(&mut writer, &CompletedStateHeader::current())
-            .map_err(ModelError::codec)?;
-        writer.write_all(b"\n").map_err(ModelError::codec)?;
-        let mut binding_keys = BTreeSet::new();
-        for table in STATE_TABLES {
-            let mut sorted = lctx_surrealdb::ordered_rows::SortedRows::with_budget(budget)?;
-            for row in dump.rows(table)? {
-                let row = row?;
-                let obj = object(&row)?;
-                let keep = prepared.keep_row(table, &row)?
-                    && (*table != "compiler_binding" || {
-                        let descriptor: CompletedBinding =
-                            serde_json::from_slice(bytes(obj, "descriptor")?)
-                                .map_err(ModelError::codec)?;
-                        binding_keys.insert(descriptor.key())
-                    });
-                if keep {
-                    sorted.push(lctx_surrealdb::compiler::normalize_transport_row(
-                        table,
-                        &row,
-                        &owner_specs,
-                    )?)?;
-                }
-            }
-            let mut sorted = sorted.finish()?;
-            while let Some(row) = sorted.next_row()? {
-                serde_json::to_writer(&mut writer, &serde_json::json!({"table":table,"row":row}))
-                    .map_err(ModelError::codec)?;
-                writer.write_all(b"\n").map_err(ModelError::codec)?;
-            }
-        }
-        Ok(())
-    })();
+    let assembled = write_completed_state(dump, prepared, budget, &mut writer);
     let mut completion = lctx_model::domain::completion::Completion::default();
     completion.step("restore completed-state spool flush", finish_spool(writer));
     let assembled = lctx_model::domain::completion::complete(assembled, completion);
@@ -1376,6 +1386,90 @@ mod definition_tests {
     fn budget() -> ResourceBudget {
         ResourceBudget::fixed(cpg_core::workspace::WorkspaceOptions::default().memory_bytes)
             .unwrap()
+    }
+    #[test]
+    fn selected_state_assembly_preserves_maximum_declared_projection_chunk() {
+        use lctx_model::domain::{
+            EvidenceBytes, Id,
+            projection::{ProjectionSnapshotChunk, ProjectionSourceAssessment, snapshot},
+            resources::{MAX_ROW_BYTES, TRANSFER_BYTES},
+        };
+        let assessment: Id<ProjectionSourceAssessment> =
+            serde_json::from_value(serde_json::to_value([7u8; 16]).unwrap()).unwrap();
+        let header = snapshot::header(assessment, snapshot::CHUNK_BYTES).unwrap();
+        let chunk = ProjectionSnapshotChunk {
+            snapshot: header.id(),
+            ordinal: 0,
+            payload: EvidenceBytes(vec![255; snapshot::CHUNK_BYTES]),
+        };
+        let relation = Relation::of::<ProjectionSnapshotChunk>();
+        let batch = ProjectionSnapshotChunk::encode(&[chunk]).unwrap();
+        let body = lctx_surrealdb::codec::batch_bodies(&relation, &batch)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let mut fixture = claimed_fixture();
+        // Compaction-only claimed rows omit fields consumed by portable normalization.
+        for (index, row) in fixture.rows.iter_mut().enumerate() {
+            if record_id(row).unwrap().table.as_str() == "compiler_membership" {
+                let Value::Object(object) = row else { unreachable!() };
+                object.insert("relation", Package::NAME);
+                object.insert("semantic_key", format!("{index:032x}"));
+            }
+        }
+        let backing_id = RecordId::new("compiler_record", "extra");
+        let backing = fixture
+            .rows
+            .iter_mut()
+            .find(|row| record_id(row).unwrap() == &backing_id)
+            .unwrap();
+        let Value::Object(object) = backing else {
+            panic!("claimed physical backing");
+        };
+        object.insert("canonical", Bytes::from(serde_json::to_vec(&body).unwrap()));
+        let expected = backing.clone();
+        assert!(serde_json::to_vec(&expected).unwrap().len() > TRANSFER_BYTES);
+        let scratch = tempfile::tempdir().unwrap();
+        let input = scratch.path().join("selected.surql");
+        write_claimed(&input, &fixture.rows);
+        let budget = budget();
+        {
+            let dump = Dump::decode(&input, &budget).unwrap();
+            let prepared =
+                PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget).unwrap();
+            let reserved = budget.reserved();
+            let mut encoded = Vec::new();
+            write_completed_state(&dump, &prepared, &budget, &mut encoded).unwrap();
+            assert_eq!(
+                budget.reserved(),
+                reserved,
+                "ordering reservations released"
+            );
+            let mut observed = None;
+            for line in encoded
+                .split(|byte| *byte == b'\n')
+                .skip(1)
+                .filter(|line| !line.is_empty())
+            {
+                assert!(
+                    line.len() + 1 <= MAX_ROW_BYTES,
+                    "whole import envelope remains bounded"
+                );
+                let row: serde_json::Value = serde_json::from_slice(line).unwrap();
+                if row["table"] == "compiler_record" {
+                    let value: Value = serde_json::from_value(row["row"].clone()).unwrap();
+                    if record_id(&value).unwrap() == &backing_id {
+                        assert!(line.len() > TRANSFER_BYTES);
+                        assert!(
+                            observed.replace(value).is_none(),
+                            "exactly one selected backing"
+                        );
+                    }
+                }
+            }
+            assert_eq!(observed, Some(expected));
+        }
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn compact_claimed_closure_preserves_transitive_outputs_aliases_originals_and_physical_ids() {

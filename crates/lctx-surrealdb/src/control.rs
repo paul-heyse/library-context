@@ -877,6 +877,132 @@ async fn enqueue_retirement(
     bindings.insert("rows", rows);
     effect(client,None,"FOR $row IN $rows { LET $row_id=$row.id; LET $existing=SELECT * FROM ONLY $row_id FOR UPDATE; IF $existing=NONE { CREATE $row.id CONTENT $row RETURN NONE; } ELSE { IF $existing.state='done' { UPDATE $row.id SET state='pending' RETURN NONE; }; }; };",bindings).await
 }
+async fn reconsider_retirement(client: &Surreal<Client>, job: &RecordId) -> Result<(), ModelError> {
+    let mut bindings = Variables::new();
+    bindings.insert("job", job.clone());
+    effect(client,None,"UPDATE native_retirement_item SET state='pending' WHERE job=$job AND state='retained' RETURN NONE",bindings).await
+}
+// Candidate classification is only a preparation hint. The final effect rechecks each
+// exact item/guard/incoming hold; changed guards stay pending for a fresh nomination.
+async fn retirement_candidates(
+    client: &Surreal<Client>,
+    job: &RecordId,
+    limit: usize,
+) -> Result<Vec<Object>, ModelError> {
+    let response = client.query("SELECT id,object FROM native_retirement_item WITH INDEX retirement_queue WHERE job=$job AND state='pending' ORDER BY id LIMIT $limit")
+        .bind(("job", job.clone())).bind(("limit", limit)).await.map_err(ModelError::codec).and_then(|response| response.check().map_err(ModelError::codec));
+    let mut response = response?;
+    let mut candidates: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
+    if candidates.is_empty() {
+        return Ok(candidates);
+    }
+    let mut sql = String::new();
+    let mut bindings = Variables::new();
+    for (index, candidate) in candidates.iter_mut().enumerate() {
+        let Some(Value::RecordId(object)) = candidate.get("object") else {
+            return Err(ModelError::Schema("native retirement object"));
+        };
+        if !matches!(candidate.get("id"), Some(Value::RecordId(_))) {
+            return Err(ModelError::Schema("native retirement item"));
+        }
+        let guard = guard_id(&Value::RecordId(object.clone()))?;
+        bindings.insert(format!("object_{index}"), object.clone());
+        bindings.insert(format!("guard_{index}"), guard.clone());
+        candidate.insert("guard", guard);
+        sql.push_str(&format!("SELECT VALUE revision FROM $guard_{index}; SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object_{index} LIMIT 1;"));
+    }
+    let response = client
+        .query(sql)
+        .bind(bindings)
+        .await
+        .map_err(ModelError::codec)
+        .and_then(|response| response.check().map_err(ModelError::codec));
+    let mut response = response?;
+    if response.num_statements() != candidates.len() * 2 {
+        return Err(ModelError::Schema(
+            "native retirement classification terminals",
+        ));
+    }
+    for (index, candidate) in candidates.iter_mut().enumerate() {
+        let revisions: Vec<i64> = response.take(index * 2).map_err(ModelError::codec)?;
+        let held: Vec<RecordId> = response.take(index * 2 + 1).map_err(ModelError::codec)?;
+        let revision = match revisions.as_slice() {
+            [] => 0,
+            [revision] => *revision,
+            _ => return Err(ModelError::Schema("native retirement guard revision")),
+        };
+        candidate.insert("revision", revision);
+        candidate.insert("prepared", held.is_empty());
+    }
+    Ok(candidates)
+}
+async fn prepare_retirement_children(
+    client: &Surreal<Client>,
+    job: &RecordId,
+    candidates: &[Object],
+) -> Result<(), ModelError> {
+    let owners = candidates
+        .iter()
+        .filter(|candidate| candidate.get("prepared") == Some(&Value::Bool(true)))
+        .map(|candidate| {
+            candidate
+                .get("object")
+                .cloned()
+                .ok_or(ModelError::Schema("native retirement object"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if owners.is_empty() {
+        return Ok(());
+    }
+    // Exact owner equalities retain the compound-index prefix access. A grouped IN
+    // with ordering can select an unfiltered index scan in the pinned planner.
+    // One streamed request still checks every owner's statement and the outer EOF.
+    let statements = owners.len();
+    let mut sql = String::new();
+    let mut bindings = Variables::new();
+    for (index, owner) in owners.into_iter().enumerate() {
+        bindings.insert(format!("owner_{index}"), owner);
+        sql.push_str(&format!("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$owner_{index};"));
+    }
+    let mut children = crate::reader::NativeRows::new(client.query(sql)
+        .bind(bindings).stream_items().map_err(ModelError::codec)?, statements)?;
+    let result = async {
+        let mut window = Vec::new();
+        while let Some(child) = children.next().await? {
+            let Value::RecordId(child) = child else {
+                return Err(ModelError::Schema("native retirement child"));
+            };
+            window.push(child);
+            if window.len() == crate::loader::NATIVE_WINDOW_ROWS {
+                enqueue_retirement(client, job, std::mem::take(&mut window)).await?;
+            }
+        }
+        enqueue_retirement(client, job, window).await
+    }
+    .await;
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.step(
+        "native retirement child stream drainage",
+        children.drain_transport().await,
+    );
+    lctx_model::domain::completion::complete(result, completion)
+}
+async fn finish_retirement_window(
+    client: &Surreal<Client>,
+    job: &RecordId,
+    candidates: Vec<Object>,
+) -> Result<(), ModelError> {
+    let mut bindings = Variables::new();
+    bindings.insert("job", job.clone());
+    bindings.insert(
+        "candidates",
+        candidates
+            .into_iter()
+            .map(Value::Object)
+            .collect::<Vec<_>>(),
+    );
+    effect(client,None,"LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; UPDATE native_installation:current SET backup_revision=(backup_revision ?? 0)+1,admission_revision=(admission_revision ?? 0)+1 RETURN NONE; IF array::len(SELECT VALUE id FROM native_backup_hold WHERE active=true LIMIT 1)>0 { THROW 'native retirement backup hold'; }; FOR $candidate IN $candidates { LET $item=$candidate.id; LET $object=$candidate.object; LET $guard=$candidate.guard; LET $queued=SELECT * FROM ONLY $item FOR UPDATE; IF $queued.job=$job AND $queued.object=$object AND $queued.state='pending' { LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF ($before.revision ?? 0)=$candidate.revision { LET $held=array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0; IF $held OR $candidate.prepared { UPSERT $guard SET revision=(revision ?? 0)+1,retired=(retired ?? false) RETURN NONE; IF $held { UPDATE $item SET state='retained' RETURN NONE; UPDATE $job SET examined+=1,revision+=1 RETURN NONE; } ELSE { UPDATE $guard SET retired=true,retired_through=math::max([retired_through ?? 0,$installation.admission_revision ?? 0]) RETURN NONE; DELETE $object RETURN NONE; LET $owner_holds=SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$object; DELETE $owner_holds RETURN NONE; UPDATE $item SET state='done' RETURN NONE; UPDATE $job SET examined+=1,retired+=1,revision+=1 RETURN NONE; }; }; }; }; };",bindings).await
+}
 pub async fn resume_retirement(
     client: &Surreal<Client>,
     identity: ContentHash,
@@ -887,51 +1013,25 @@ pub async fn resume_retirement(
     }
     let job = RecordId::new("native_retirement", identity.hex());
     // An explicit later pass reconsiders retained objects after reader/publication holds end.
-    let mut bindings = Variables::new();
-    bindings.insert("job", job.clone());
-    effect(client,None,"UPDATE native_retirement_item SET state='pending' WHERE job=$job AND state='retained' RETURN NONE",bindings).await?;
-    for _ in 0..limit {
-        let mut response=client.query("SELECT id,object FROM native_retirement_item WHERE job=$job AND state='pending' ORDER BY id LIMIT 1").bind(("job",job.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let queue: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
-        let Some(item) = queue.first() else {
+    reconsider_retirement(client, &job).await?;
+    let mut attempted = 0;
+    while attempted < limit {
+        let candidates = retirement_candidates(
+            client,
+            &job,
+            (limit - attempted).min(crate::loader::NATIVE_WINDOW_ROWS),
+        )
+        .await?;
+        if candidates.is_empty() {
             break;
-        };
-        let (Some(Value::RecordId(item)), Some(Value::RecordId(object))) =
-            (item.get("id"), item.get("object"))
-        else {
-            return Err(ModelError::Schema("native retirement item"));
-        };
-        let guard = guard_id(&Value::RecordId(object.clone()))?;
-        let mut response = client
-            .query("SELECT VALUE revision FROM $guard")
-            .bind(("guard", guard.clone()))
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        let revision: Vec<i64> = response.take(0).map_err(ModelError::codec)?;
-        let revision = revision.first().copied().unwrap_or(0);
-        // Persist every child before releasing parent references. The owner guard revision
-        // proves the bounded child scan was complete, even if references changed meanwhile.
-        let mut children=crate::reader::NativeRows::new(client.query("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object").bind(("owner",object.clone())).stream_items().map_err(ModelError::codec)?,1)?;
-        let mut window = Vec::new();
-        while let Some(child) = children.next().await? {
-            let Value::RecordId(child) = child else {
-                return Err(ModelError::Schema("native retirement child"));
-            };
-            window.push(child);
-            if window.len() == crate::loader::NATIVE_WINDOW_ROWS {
-                enqueue_retirement(client, &job, std::mem::take(&mut window)).await?;
-            }
         }
-        enqueue_retirement(client, &job, window).await?;
-        let mut bindings = Variables::new();
-        bindings.insert("job", job.clone());
-        bindings.insert("item", item.clone());
-        bindings.insert("object", object.clone());
-        bindings.insert("guard", guard);
-        bindings.insert("revision", revision);
-        effect(client,None,"LET $queued=SELECT * FROM ONLY $item FOR UPDATE; IF $queued.state='pending' { LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; UPDATE native_installation:current SET backup_revision=(backup_revision ?? 0)+1,admission_revision=(admission_revision ?? 0)+1 RETURN NONE; IF array::len(SELECT VALUE id FROM native_backup_hold WHERE active=true LIMIT 1)>0 { THROW 'native retirement backup hold'; }; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF ($before.revision ?? 0)=$revision { UPSERT $guard SET revision=(revision ?? 0)+1,retired=(retired ?? false) RETURN NONE; IF array::len(SELECT VALUE id FROM native_hold WHERE object=$object LIMIT 1)>0 { UPDATE $item SET state='retained' RETURN NONE; UPDATE $job SET examined+=1,revision+=1 RETURN NONE; } ELSE { UPDATE $guard SET retired=true,retired_through=math::max([retired_through ?? 0,$installation.admission_revision ?? 0]) RETURN NONE; DELETE $object RETURN NONE; LET $owner_holds=SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$object; DELETE $owner_holds RETURN NONE; UPDATE $item SET state='done' RETURN NONE; UPDATE $job SET examined+=1,retired+=1,revision+=1 RETURN NONE; }; }; };",bindings).await?;
+        attempted += candidates.len();
+        // Children become durable work before any eligible parent's holds disappear.
+        // A retained parent keeps its entire subtree reachable without walking it now.
+        let result = prepare_retirement_children(client, &job, &candidates).await;
+        result?;
+        let result = finish_retirement_window(client, &job, candidates).await;
+        result?;
     }
     let mut response=client.query("SELECT examined,retired FROM $job; SELECT VALUE object FROM native_retirement_item WHERE job=$job AND state='pending' ORDER BY id LIMIT 128; SELECT VALUE object FROM native_retirement_item WHERE job=$job AND state='retained' ORDER BY id LIMIT 128").bind(("job",job)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
     let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
@@ -1027,6 +1127,130 @@ impl Drop for ReaderPin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn retirement_windows_skip_retained_subtrees_recheck_late_holds_and_resume_exact_limits()
+    {
+        let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).with_test_writer().try_init();
+        macro_rules! observed {
+            ($name:literal, $work:expr) => {{
+                let phase = crate::phase::Phase::begin($name);
+                let result = $work.await;
+                phase.finish_result(&result);
+                result
+            }};
+        }
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+        ))
+        .unwrap();
+        let mut client = crate::compiler::check_installation(&config).await.unwrap();
+        let nonce = fresh_identity("retirement-window-control").unwrap();
+        let parent = RecordId::new("native_guard", format!("parent_{}", nonce.hex()));
+        let racer = RecordId::new("native_guard", format!("race_{}", nonce.hex()));
+        let children = (0..257)
+            .map(|n| RecordId::new("native_guard", format!("child_{}_{n}", nonce.hex())))
+            .collect::<Vec<_>>();
+        let pins = [
+            ReaderPin::acquire(client.clone(), &[]).await.unwrap(),
+            ReaderPin::acquire(client.clone(), &[]).await.unwrap(),
+        ];
+        let result = async {
+            for window in [parent.clone(), racer.clone()].into_iter().chain(children.iter().cloned()).collect::<Vec<_>>().chunks(128) {
+                observed!("retirement_fixture_ensure", ensure_rows(&client, None, window.iter().map(|id| {
+                    let mut row = Object::new(); row.insert("id", id.clone()); row.insert("revision", 0i64); row.insert("retired", false); Value::Object(row)
+                }).collect()))?;
+            }
+            for window in children.chunks(128) { observed!("retirement_fixture_hold", hold(&client, None, parent.clone(), window.to_vec()))?; }
+            pins[0].protect(parent.clone()).await?;
+            pins[0].protect(racer.clone()).await?;
+            let retained = observed!("retirement_held_parent_pass", retire_reachable(&client, vec![parent.clone()], 128))?;
+            let job = RecordId::new("native_retirement", retained.identity.hex());
+            let mut vars = Variables::new(); vars.insert("job", job.clone()); vars.insert("parent", parent.clone());
+            let retained_queue = cleanup_ids(&client, "SELECT VALUE object FROM native_retirement_item WITH INDEX retirement_queue WHERE job=$job", vars.clone()).await?;
+            let race = observed!("retirement_race_initial_pass", retire_reachable(&client, vec![racer.clone()], 1))?;
+            let race_job = RecordId::new("native_retirement", race.identity.hex());
+            pins[0].release().await?;
+            reconsider_retirement(&client, &race_job).await?;
+            let nominated = retirement_candidates(&client, &race_job, 128).await?;
+            observed!("retirement_race_prepare_children", prepare_retirement_children(&client, &race_job, &nominated))?;
+            // An actual owner added after the child snapshot changes the exact guard.
+            pins[1].protect(racer.clone()).await?;
+            observed!("retirement_race_final_window", finish_retirement_window(&client, &race_job, nominated))?;
+            vars.insert("job", race_job); vars.insert("parent", racer.clone());
+            let pending_parent = cleanup_ids(&client, "SELECT VALUE object FROM native_retirement_item WITH INDEX retirement_queue WHERE job=$job AND state='pending' AND object=$parent", vars.clone()).await?;
+            let reader = crate::NativeReader::private(client.clone());
+            let parent_after_race: Vec<RecordId> = reader.query_native("SELECT VALUE id FROM $parent", vars.clone()).await?;
+            pins[1].release().await?;
+            let race_finished = resume_retirement(&client, race.identity, 1).await?;
+            vars.insert("job", job.clone()); vars.insert("parent", parent.clone());
+            let parent_pass = observed!("retirement_parent_resume", resume_retirement(&client, retained.identity, 1))?;
+            client.invalidate().await.map_err(ModelError::codec)?;
+            // Durable queued children remain exact across an independent session.
+            client = crate::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await?;
+            let partial = observed!("retirement_leaf_partial_resume", resume_retirement(&client, retained.identity, 129))?;
+            let pending_children = cleanup_ids(&client, "SELECT VALUE object FROM native_retirement_item WITH INDEX retirement_queue WHERE job=$job AND state='pending'", vars.clone()).await?;
+            let finished = observed!("retirement_leaf_final_resume", resume_retirement(&client, retained.identity, 128))?;
+            vars.insert("children", children.clone());
+            let remaining = cleanup_ids(&client, "SELECT VALUE id FROM $children", vars).await?;
+            Ok::<_, ModelError>((retained, retained_queue, pending_parent, parent_after_race, parent_pass, partial, pending_children, finished, remaining, race_finished))
+        }.await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        for pin in pins {
+            completion.step("retirement window control pin release", pin.release().await);
+        }
+        let cleanup_phase = crate::phase::Phase::begin("retirement_fixture_cleanup");
+        completion.step(
+            "retirement window control owned closure cleanup",
+            retire_reachable(&client, vec![parent.clone(), racer.clone()], 4096)
+                .await
+                .map(|_| ()),
+        );
+        cleanup_phase.finish(if completion.failures.is_empty() { crate::phase::Terminal::Passed } else { crate::phase::Terminal::Failed });
+        completion.step(
+            "retirement window control session close",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        let (
+            retained,
+            retained_queue,
+            pending_parent,
+            parent_after_race,
+            parent_pass,
+            partial,
+            pending_children,
+            finished,
+            remaining,
+            race_finished,
+        ) = lctx_model::domain::completion::complete(result, completion).unwrap();
+        assert_eq!(retained.examined, 1);
+        assert_eq!(retained.retired, 0);
+        assert_eq!(
+            retained_queue,
+            [parent.clone()],
+            "held high-fanout parent must not enqueue its subtree"
+        );
+        assert_eq!(
+            pending_parent,
+            [racer.clone()],
+            "changed guard keeps prepared parent pending"
+        );
+        assert_eq!(
+            parent_after_race,
+            [racer],
+            "late actual hold prevents deletion"
+        );
+        assert_eq!(race_finished.retired, 1);
+        assert_eq!(parent_pass.retired, 1);
+        assert_eq!(
+            partial.retired, 130,
+            "129 attempted leaves span one full window plus one item"
+        );
+        assert_eq!(pending_children.len(), 128);
+        assert_eq!(finished.retired, 258);
+        assert!(finished.remaining.is_empty());
+        assert!(finished.retained.is_empty());
+        assert!(remaining.is_empty());
+    }
     // Actual SDK transactions exercise partial durable cleanup, reconciliation fencing
     // of a later uncommitted page, and a fresh scope resuming the remaining ownership.
     #[tokio::test(flavor = "multi_thread")]

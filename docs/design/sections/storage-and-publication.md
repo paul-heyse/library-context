@@ -67,10 +67,19 @@ installation epoch per page. A durable hold-cleanup intent spans bounded guarded
 only the final empty-scope proof marks it completed. Reconciliation fences further pages of an
 incomplete operation, while a fresh intent can resume the remaining ownership rows. Partial
 cleanup is not rollback. Ordinary open-attempt and pin authorization remain separate.
+Imported memberships retain `attempt→contribution→membership` reachability, including partial
+ingress. They need no duplicate direct attempt root once their already-rooted contributor owns
+them; canonical, alias and backing-row ownership retain their separate existing protections.
+View registration groups descriptor writes and ownership edges in row/byte-bounded windows,
+while each exact membership stream still reaches checked EOF and its declared cardinality is
+compared with actual rows. A claimed empty descriptor does not establish emptiness. Views enter
+the local completed inventory only after their ownership operations succeed.
 
 A short guarded transition publishes an immutable manifest over admitted views and one executable
 definition epoch. Handles bind semantic/realization identities, publication, exact view set and
-service generation. Definitions are installed under immutable epoch names. Ordinary publication
+service generation. Captured bindings are validated and ordered by their logical binding keys
+before marker serialization, so fresh physical attempt IDs cannot change an equal manifest's bytes.
+Definitions are installed under immutable epoch names. Ordinary publication
 cannot install DDL, mutate unrelated content or replace another publication's functions. Selection
 remains explicit. Later cleanup failure preserves an acknowledged committed publication.
 
@@ -87,6 +96,8 @@ Root-authorized SurrealQL: closed literal data is lowered through typed staging 
 admission. Definition metadata selects trusted executable generation. Grammar-owned comparison
 normalizes only declaration application modifiers (`OVERWRITE`/`IF NOT EXISTS`); schema, bodies,
 permissions and other attributes remain exact, and imported definitions never execute.
+Completed-state ordering uses the existing portable row allowance and the restore's composed
+budget. Subsequent whole-line envelope and decoded native-weight admission remain independent.
 Imported runtime control
 records cannot restore grants, attempts, fences, pins or visibility. An explicitly selected manifest
 chooses the recovery closure; ambiguous multi-publication convenience restore refuses.
@@ -95,6 +106,11 @@ Native reachability owns publication roots, admitted reusable content, active at
 and recovery holds. Retirement and pin acquisition serialize on exact guard records. Collection
 rechecks reachability and full identity under guards; local manager policy delegates rather than
 performing its own database deletion. Shared surviving content is never removed by attempt cleanup.
+Retirement nominates bounded windows and streams each eligible owner's indexed children into
+durable work before releasing the parent. Retained parents keep their subtree without descending
+it. Final effects recheck exact queue identity, guard revision, incoming holds and backup exclusion;
+changed guards remain pending for fresh preparation. Every child stream checks all statement
+terminals and transport EOF before parent release.
 Completed contributors retain exact prerequisite views as well as their output payloads. Durable
 attempt/effect/pin authorization epochs and permanent retired-through watermarks permit a later
 valid lifecycle to recreate identical content while excluding delayed earlier operations, even

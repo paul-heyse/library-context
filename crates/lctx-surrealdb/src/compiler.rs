@@ -1065,95 +1065,157 @@ impl NativeCompilerStore {
         }
         sorted.finish().await
     }
-    async fn registered_or_install_view(
+    async fn registered_or_install_views(
         self: &Arc<Self>,
-        view: &CompletedView,
+        views: &[&CompletedView],
     ) -> Result<(), ModelError> {
-        let mut row = Object::new();
-        row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
-        row.insert(
-            "descriptor",
-            Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?),
-        );
-        for (field, value) in view_projection(view)? {
-            row.insert(field, value);
-        }
-        crate::control::ensure_rows(&self.client, Some(self.attempt), vec![Value::Object(row)])
-            .await?;
-        self.remember_view(view)?;
-        let budget = ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
-        let prepared = self.prepare_memberships(view, &budget).await?;
-        let mut ordered = AsyncOrderedCandidates::new_registered(
-            prepared,
-            &budget,
-            self.blocking_owner()?,
-            self.blocking_observer()?,
-        )
-        .await?;
-        let mut count = 0u64;
-        loop {
-            let candidates = ordered
-                .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
-                .await?;
-            if candidates.is_empty() {
-                break;
-            }
-            let mut rows = Vec::with_capacity(candidates.len());
-            let mut nodes = Vec::with_capacity(candidates.len());
-            for candidate in candidates {
-                let mut sink = KeySink::new("native-view-member/v1");
-                view.identity.encode(&mut sink);
-                candidate.relation.encode(&mut sink);
-                sink.part(b"key", &candidate.key);
+        // Membership preparation depends on verified contributor mappings, not early
+        // known-view registration. Remember a view only after checked EOF and ownership.
+        let window_budget = ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
+        let mut descriptor_charge = window_budget.reserve("native-view-descriptor-window", 0)?;
+        let mut reference_charge = window_budget.reserve("native-view-retention-window", 0)?;
+        let mut start = 0;
+        while start < views.len() {
+            let mut end = start;
+            let mut rows = Vec::new();
+            let mut bytes = 0usize;
+            while end < views.len() {
+                let view = views[end];
+                view.validate()?;
                 let mut row = Object::new();
+                row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
                 row.insert(
-                    "id",
-                    RecordId::new("compiler_view_member", sink.finish().hex()),
+                    "descriptor",
+                    Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?),
                 );
-                row.insert("view", RecordId::new("compiler_view", view.identity.hex()));
-                row.insert("relation", candidate.relation);
-                row.insert("semantic_key", hex::encode(candidate.key));
-                row.insert("node", candidate.node.clone());
-                row.insert(
-                    "content",
-                    candidate
-                        .content
-                        .ok_or(ModelError::Schema("exact view content"))?
-                        .hex(),
-                );
-                nodes.push(candidate.node);
-                if let Some(Value::RecordId(id)) = row.get("id") {
-                    nodes.push(id.clone());
+                for (field, value) in view_projection(view)? {
+                    row.insert(field, value);
                 }
-                rows.push(Value::Object(row));
-                count += 1;
+                let row = Value::Object(row);
+                let weight = crate::loader::native_bytes(&row);
+                if !rows.is_empty()
+                    && (rows.len() == crate::loader::NATIVE_WINDOW_ROWS
+                        || bytes.saturating_add(weight) > d::resources::TRANSFER_BYTES)
+                {
+                    break;
+                }
+                bytes = bytes.saturating_add(weight);
+                descriptor_charge.try_resize(bytes.saturating_mul(4))?;
+                rows.push(row);
+                end += 1;
             }
             crate::control::ensure_rows(&self.client, Some(self.attempt), rows).await?;
-            crate::control::hold(
-                &self.client,
-                Some(self.attempt),
-                RecordId::new("compiler_view", view.identity.hex()),
-                nodes,
-            )
-            .await?;
+            descriptor_charge.try_resize(0)?;
+            let window = &views[start..end];
+            let mut references = Vec::new();
+            let mut reference_bytes = 0usize;
+            for view in window {
+                // Preserve the existing per-view preparation budget and retained cache ownership.
+                let budget = ResourceBudget::fixed(d::resources::MAX_ROW_BYTES.saturating_mul(4))?;
+                let prepared = self.prepare_memberships(view, &budget).await?;
+                let mut ordered = AsyncOrderedCandidates::new_registered(
+                    prepared,
+                    &budget,
+                    self.blocking_owner()?,
+                    self.blocking_observer()?,
+                )
+                .await?;
+                let mut count = 0u64;
+                loop {
+                    let candidates = ordered
+                        .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
+                        .await?;
+                    if candidates.is_empty() {
+                        break;
+                    }
+                    let mut rows = Vec::with_capacity(candidates.len());
+                    let mut nodes = Vec::with_capacity(candidates.len());
+                    for candidate in candidates {
+                        let mut sink = KeySink::new("native-view-member/v1");
+                        view.identity.encode(&mut sink);
+                        candidate.relation.encode(&mut sink);
+                        sink.part(b"key", &candidate.key);
+                        let mut row = Object::new();
+                        row.insert(
+                            "id",
+                            RecordId::new("compiler_view_member", sink.finish().hex()),
+                        );
+                        row.insert("view", RecordId::new("compiler_view", view.identity.hex()));
+                        row.insert("relation", candidate.relation);
+                        row.insert("semantic_key", hex::encode(candidate.key));
+                        row.insert("node", candidate.node.clone());
+                        row.insert(
+                            "content",
+                            candidate
+                                .content
+                                .ok_or(ModelError::Schema("exact view content"))?
+                                .hex(),
+                        );
+                        nodes.push(candidate.node);
+                        if let Some(Value::RecordId(id)) = row.get("id") {
+                            nodes.push(id.clone());
+                        }
+                        rows.push(Value::Object(row));
+                        count += 1;
+                    }
+                    crate::control::ensure_rows(&self.client, Some(self.attempt), rows).await?;
+                    crate::control::hold(
+                        &self.client,
+                        Some(self.attempt),
+                        RecordId::new("compiler_view", view.identity.hex()),
+                        nodes,
+                    )
+                    .await?;
+                }
+                if count != view.rows {
+                    return Err(ModelError::Conflict("exact view cardinality"));
+                }
+                let owner = RecordId::new("compiler_view", view.identity.hex());
+                let contributors = self.view_owners(view)?;
+                let edges = contributors
+                    .into_iter()
+                    .map(|id| {
+                        (
+                            owner.clone(),
+                            RecordId::new("compiler_contribution", id.hex()),
+                        )
+                    })
+                    .chain(std::iter::once((
+                        RecordId::new("native_attempt", self.attempt.hex()),
+                        owner.clone(),
+                    )));
+                for (owner, object) in edges {
+                    let weight = crate::loader::native_bytes(&Value::RecordId(owner.clone()))
+                        .saturating_add(crate::loader::native_bytes(&Value::RecordId(
+                            object.clone(),
+                        )));
+                    if !references.is_empty()
+                        && (references.len() == crate::loader::NATIVE_WINDOW_ROWS
+                            || reference_bytes.saturating_add(weight)
+                                > d::resources::TRANSFER_BYTES)
+                    {
+                        crate::control::hold_many(
+                            &self.client,
+                            Some(self.attempt),
+                            std::mem::take(&mut references),
+                        )
+                        .await?;
+                        reference_bytes = 0;
+                        reference_charge.try_resize(0)?;
+                    }
+                    reference_bytes = reference_bytes.saturating_add(weight);
+                    reference_charge.try_resize(reference_bytes.saturating_mul(4))?;
+                    references.push((owner, object));
+                }
+            }
+            crate::control::hold_many(&self.client, Some(self.attempt), references).await?;
+            reference_charge.try_resize(0)?;
+            for view in window {
+                self.remember_view(view)?;
+            }
+            start = end;
         }
-        if count != view.rows {
-            return Err(ModelError::Conflict("exact view cardinality"));
-        }
-        let owner = RecordId::new("compiler_view", view.identity.hex());
-        let contributors = self
-            .view_owners(view)?
-            .into_iter()
-            .map(|id| RecordId::new("compiler_contribution", id.hex()))
-            .collect();
-        crate::control::hold(&self.client, Some(self.attempt), owner, contributors).await?;
-        crate::control::hold(
-            &self.client,
-            Some(self.attempt),
-            RecordId::new("native_attempt", self.attempt.hex()),
-            vec![RecordId::new("compiler_view", view.identity.hex())],
-        )
-        .await
+        Ok(())
     }
 
     /// Only admission of the complete current semantic boundary makes retained products eligible.
@@ -1334,9 +1396,10 @@ impl NativeCompilerStore {
                 std::collections::BTreeSet::from([descriptor.identity()?]),
                 output.rows,
             )?;
-            self.registered_or_install_view(&view).await?;
             views.insert(relation.clone(), view);
         }
+        self.registered_or_install_views(&views.values().collect::<Vec<_>>())
+            .await?;
         Ok(Some((physical, views, descriptor)))
     }
     async fn hold_contribution_inputs(
@@ -3003,9 +3066,10 @@ impl NativeCompilerStore {
                     count += rows.len() as u64;
                 }
                 let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
-                self.registered_or_install_view(&view).await?;
                 views.insert(relation.name().to_string(), view);
             }
+            self.registered_or_install_views(&views.values().collect::<Vec<_>>())
+                .await?;
             return Ok(views);
         }
         let prior_ids = outputs
@@ -3125,9 +3189,10 @@ impl NativeCompilerStore {
                 .checked_add(new)
                 .ok_or(ModelError::Schema("native union count overflow"))?;
             let view = CompletedView::new(relation.name().into(), contributions, count)?;
-            self.registered_or_install_view(&view).await?;
             views.insert(relation.name().to_string(), view);
         }
+        self.registered_or_install_views(&views.values().collect::<Vec<_>>())
+            .await?;
         Ok(views)
     }
 
@@ -4035,9 +4100,9 @@ impl NativeCompilerStore {
             .await?;
         }
         self.verify_state_inner().await?;
-        for view in self.views_inner().await? {
-            self.registered_or_install_view(&view).await?;
-        }
+        let views = self.views_inner().await?;
+        self.registered_or_install_views(&views.iter().collect::<Vec<_>>())
+            .await?;
         if &self.state_identity_inner(false).await? != expected {
             self.fail();
             return Err(ModelError::Conflict("completed state transport identity"));
@@ -4131,7 +4196,12 @@ impl NativeCompilerStore {
             let Some(Value::RecordId(id)) = object.get("id") else {
                 return Err(ModelError::Schema("import state identity"));
             };
-            holds.push((attempt.clone(), id.clone()));
+            // Imported contributions precede memberships and are already attempt-rooted.
+            // Keep membership ownership on that contributor, including partial ingress,
+            // rather than duplicating every membership as a transient attempt root.
+            if *table != "compiler_membership" {
+                holds.push((attempt.clone(), id.clone()));
+            }
             if *table == "compiler_membership" {
                 let (Some(Value::RecordId(owner)), Some(Value::RecordId(node))) =
                     (object.get("contribution"), object.get("node"))
@@ -6651,6 +6721,315 @@ mod completion_tests {
 #[cfg(test)]
 mod compiler_scope_tests {
     use super::*;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn batched_empty_views_verify_membership_and_retain_dependency_ownership() {
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+        ))
+        .unwrap();
+        let native = NativeCompilerStore::begin(&config, Frontier::Facts)
+            .await
+            .unwrap();
+        let client = check_installation(&config).await.unwrap();
+        let reader = crate::NativeReader::private(client.clone());
+        let mut forged_id = None;
+        let result = async {
+            let nonce = crate::control::fresh_identity("batched-empty-views")?;
+            let relation = Relation::of::<d::analytics::QualityStep>();
+            let model = d::model()?.digest();
+            let spec = ContributionSpec {
+                captured_binding: None, producer: format!("base-{}", nonce.hex()),
+                profile: d::stages::Profile::Catalog, model, implementation: nonce,
+                configuration: None, inputs: vec![],
+                outputs: std::collections::BTreeSet::from([relation.name().to_string()]),
+            };
+            let base = native.begin_contribution(spec).await?;
+            let row = d::analytics::QualityStep {
+                run: serde_json::from_value(serde_json::to_value(
+                    <[u8;16]>::try_from(&nonce.0[..16]).map_err(ModelError::codec)?,
+                ).map_err(ModelError::codec)?).map_err(ModelError::codec)?,
+                ordinal: 0, value: d::FiniteF64::new(0.75)?,
+            };
+            native.write_batch(&base, &relation, &d::analytics::QualityStep::encode(&[row])?).await?;
+            let base_views = native.complete_contribution(base, ProviderOutcome::Complete,
+                std::slice::from_ref(&relation), &BTreeMap::new()).await?;
+            let base_view = base_views[relation.name()].clone();
+            let outputs = [Relation::of::<d::analytics::RankScore>(),
+                Relation::of::<d::analytics::CommunityRun>()];
+            let spec = ContributionSpec {
+                captured_binding: None, producer: format!("empty-{}", nonce.hex()),
+                profile: d::stages::Profile::Catalog, model, implementation: nonce,
+                configuration: None,
+                inputs: vec![d::analysis::sources::SourceSnapshot::of_completed_view(
+                    &relation, model, &base_view,
+                )?],
+                outputs: outputs.iter().map(|relation| relation.name().to_string()).collect(),
+            };
+            let empty = native.begin_contribution(spec).await?;
+            let views = native.complete_contribution(empty, ProviderOutcome::Complete,
+                &outputs, &BTreeMap::new()).await?;
+            let empty_ids = views.values().map(|view| RecordId::new(
+                "compiler_view", view.identity.hex(),
+            )).collect::<Vec<_>>();
+            let attempt = RecordId::new("native_attempt", native.attempt().hex());
+            let contributor = RecordId::new("compiler_contribution", empty.hex());
+            let base_id = RecordId::new("compiler_view", base_view.identity.hex());
+            let base_contributor = RecordId::new("compiler_contribution", base.hex());
+            let mut expected = std::collections::BTreeSet::from([
+                (contributor.clone(), base_id.clone()),
+                (base_id.clone(), base_contributor.clone()),
+                (attempt.clone(), base_id.clone()),
+                (attempt.clone(), base_contributor.clone()),
+                (attempt.clone(), contributor.clone()),
+            ]);
+            for view in &empty_ids {
+                expected.insert((attempt.clone(), view.clone()));
+                expected.insert((view.clone(), contributor.clone()));
+            }
+            let mut vars = Variables::new();
+            vars.insert("views", empty_ids.clone());
+            vars.insert("owners", expected.iter().map(|(owner,_)| owner.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
+            vars.insert("objects", expected.iter().map(|(_,object)| object.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
+            let members: Vec<RecordId> = reader.query_native(
+                "SELECT VALUE id FROM compiler_view_member WHERE view IN $views", vars.clone(),
+            ).await?;
+            let rows: Vec<Object> = reader.query_native(
+                "SELECT owner,object FROM native_hold WITH INDEX owner_holds WHERE owner IN $owners AND object IN $objects", vars,
+            ).await?;
+            let edges = rows.into_iter().map(|row| match (row.get("owner"),row.get("object")) {
+                (Some(Value::RecordId(owner)),Some(Value::RecordId(object))) => Ok((owner.clone(),object.clone())),
+                _ => Err(ModelError::Schema("empty view retention edge")),
+            }).collect::<Result<std::collections::BTreeSet<_>,_>>()?;
+            let mut eligibility = Vec::new();
+            for object in [contributor, base_id, base_contributor] {
+                eligibility.push(crate::control::retirement_eligibility(&client, object).await?);
+            }
+            let forged = CompletedView::new(base_view.relation.clone(),
+                base_view.contributions.clone(), 0)?;
+            forged_id = Some(RecordId::new("compiler_view", forged.identity.hex()));
+            // A genuine membership must defeat a forged zero even after its descriptor
+            // is ensured. The normal member scan and cardinality check own this refusal.
+            let refusal = native.registered_or_install_views(&[&forged]).await;
+            let remembered = native.known_views.lock()
+                .map_err(|_| ModelError::Conflict("native view owner"))?
+                .contains_key(&forged.identity);
+            Ok::<_, ModelError>((views, members, edges, expected, eligibility, refusal, remembered))
+        }.await;
+        let mut completion = d::completion::Completion::default();
+        let abandoned = native.abandon().await;
+        let can_retire = abandoned.is_ok();
+        completion.step("batched view attempt finalization", abandoned);
+        if let Some(id) = forged_id {
+            if can_retire {
+                let retired = async {
+                    crate::control::retire_reachable(&client, vec![id.clone()], 4096).await?;
+                    let mut vars = Variables::new();
+                    vars.insert("view", id.clone());
+                    let view: Vec<RecordId> = reader.query_native(
+                        "SELECT VALUE id FROM $view", vars.clone(),
+                    ).await?;
+                    let members: Vec<RecordId> = reader.query_native(
+                        "SELECT VALUE id FROM compiler_view_member WHERE view=$view", vars.clone(),
+                    ).await?;
+                    let holds: Vec<RecordId> = reader.query_native(
+                        "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$view", vars,
+                    ).await?;
+                    if !view.is_empty() || !members.is_empty() || !holds.is_empty() {
+                        return Err(ModelError::Conflict("forged view cleanup remains reachable"));
+                    }
+                    Ok(())
+                }.await;
+                completion.step("exact forged view retirement", retired);
+            } else {
+                completion
+                    .storage
+                    .push(d::completion::StorageState::Orphan(id.to_sql()));
+            }
+        }
+        completion.step("batched view reader close", reader.close().await);
+        completion.step(
+            "batched view session close",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        let (views, members, edges, expected, eligibility, refusal, remembered) =
+            d::completion::complete(result, completion).unwrap();
+        assert_eq!(views.len(), 2);
+        assert!(views.values().all(|view| view.rows == 0));
+        assert!(
+            members.is_empty(),
+            "both installed empty views have actual zero memberships"
+        );
+        assert_eq!(
+            edges, expected,
+            "both ownership edge kinds and the exact prerequisite chain are retained"
+        );
+        assert!(
+            eligibility.iter().all(|item| !item.eligible
+                && item
+                    .reasons
+                    .iter()
+                    .any(|reason| reason == "reachable through native owner hold",)),
+            "contributors and their source view remain protected"
+        );
+        assert!(matches!(
+            refusal,
+            Err(ModelError::Conflict("exact view cardinality"))
+        ));
+        assert!(
+            !remembered,
+            "a descriptor cannot grant registration before actual membership and ownership"
+        );
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn imported_membership_pages_retain_contributor_reachability_without_duplicate_attempt_roots()
+     {
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+        ))
+        .unwrap();
+        let source = NativeCompilerStore::begin(&config, Frontier::Facts)
+            .await
+            .unwrap();
+        let target = NativeCompilerStore::begin(&config, Frontier::Facts)
+            .await
+            .unwrap();
+        let client = check_installation(&config).await.unwrap();
+        let reader = crate::NativeReader::private(client.clone());
+        let result = async {
+            let nonce = crate::control::fresh_identity("partial-membership-import")?;
+            let row = d::analytics::QualityStep {
+                run: serde_json::from_value(serde_json::to_value(<[u8;16]>::try_from(&nonce.0[..16]).map_err(ModelError::codec)?).map_err(ModelError::codec)?).map_err(ModelError::codec)?,
+                ordinal: 0, value: d::FiniteF64::new(0.75)?,
+            };
+            let relation = Relation::of::<d::analytics::QualityStep>();
+            let spec = ContributionSpec {
+                captured_binding: None, producer: nonce.hex(), profile: d::stages::Profile::Catalog,
+                model: d::model()?.digest(), implementation: nonce, configuration: None,
+                inputs: vec![], outputs: std::collections::BTreeSet::from([relation.name().to_string()]),
+            };
+            let contribution = source.begin_contribution(spec.clone()).await?;
+            source.write_batch(&contribution, &relation, &d::analytics::QualityStep::encode(&[row])?).await?;
+            let views = source.complete_contribution(contribution, ProviderOutcome::Complete, std::slice::from_ref(&relation), &BTreeMap::new()).await?;
+            let view = views[relation.name()].clone();
+            source.bind(CompletedBinding {
+                boundary: None,
+                source: d::analysis::sources::SourceSnapshot::of_completed_view(&relation, spec.model, &view)?,
+                view, configuration: None,
+            }).await?;
+            source.retain_product_identity(nonce, contribution).await?;
+            source.mark_attempt_admitted().await?;
+            let directory = tempfile::tempdir().map_err(ModelError::codec)?;
+            let path = directory.path().join("completed.jsonl");
+            let expected = source.export_state(&path).await?;
+            let transport = std::fs::read_to_string(&path).map_err(ModelError::codec)?;
+            let mut pages = [Vec::new(), Vec::new()];
+            for line in transport.lines().skip(1) {
+                let row: StateRow = serde_json::from_str(line).map_err(ModelError::codec)?;
+                match row.table.as_str() {
+                    "compiler_contribution" => pages[0].push(row.row),
+                    "compiler_membership" => pages[1].push(row.row),
+                    _ => break,
+                }
+            }
+            if pages.iter().any(|page| page.len()!=1) {
+                return Err(ModelError::Invalid("single-row partial import fixture".into()));
+            }
+            // Execute the actual confirmed import pages, then stop before views, backing,
+            // bindings, dependency attachment or completion. No public fault hook is needed.
+            target.insert_state_batch(0, std::mem::take(&mut pages[0])).await?;
+            target.insert_state_batch(1, std::mem::take(&mut pages[1])).await?;
+            let mut vars = Variables::new();
+            vars.insert("attempt", RecordId::new("native_attempt", target.attempt.hex()));
+            let contributors: Vec<RecordId> = reader.query_native("SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$attempt", vars.clone()).await?;
+            vars.insert("contributors", contributors.clone());
+            let members: Vec<Object> = reader.query_native("SELECT id,node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors", vars.clone()).await?;
+            let [member] = members.as_slice() else { return Err(ModelError::Schema("partial import membership")); };
+            let (Some(Value::RecordId(membership)), Some(Value::RecordId(node))) = (member.get("id"), member.get("node")) else { return Err(ModelError::Schema("partial import pointers")); };
+            let membership = membership.clone();
+            vars.insert("node", node.clone());
+            let original: Vec<Value> = reader.query_native("SELECT * FROM $node", vars.clone()).await?;
+            let attempt_roots: Vec<RecordId> = reader.query_native("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt", vars.clone()).await?;
+            let contributor_roots: Vec<RecordId> = reader.query_native("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner IN $contributors", vars.clone()).await?;
+            let completed: Vec<bool> = reader.query("SELECT VALUE completed FROM $contributors", vars.clone()).await?;
+            let eligibility = crate::control::retirement_eligibility(&client, membership.clone()).await?;
+            target.drain().await?;
+            crate::control::close_attempt(&client, target.attempt, "abandoned").await?;
+            let terminal_roots: Vec<RecordId> = reader.query_native("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt", vars.clone()).await?;
+            let retired = crate::control::retire_reachable(&client, contributors.clone(), 16).await?;
+            let remaining_members: Vec<RecordId> = reader.query_native("SELECT VALUE id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors", vars.clone()).await?;
+            let retained: Vec<Value> = reader.query_native("SELECT * FROM $node", vars).await?;
+            source.verify_state().await?;
+            let state_after_cleanup = source.completed_state().await?;
+            Ok::<_, ModelError>((contributors, membership, attempt_roots, contributor_roots, completed, eligibility, terminal_roots, retired, remaining_members, original, retained, expected, state_after_cleanup))
+        }.await;
+        let mut completion = d::completion::Completion::default();
+        completion.step(
+            "partial membership target finalization",
+            target.abandon().await,
+        );
+        completion.step(
+            "partial membership source finalization",
+            source.abandon().await,
+        );
+        completion.step("partial membership reader close", reader.close().await);
+        completion.step(
+            "partial membership session close",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        let (
+            contributors,
+            membership,
+            attempt_roots,
+            contributor_roots,
+            completed,
+            eligibility,
+            terminal_roots,
+            retired,
+            remaining_members,
+            original,
+            retained,
+            expected,
+            state_after_cleanup,
+        ) = d::completion::complete(result, completion).unwrap();
+        assert_eq!(contributors.len(), 1);
+        assert_eq!(
+            attempt_roots, contributors,
+            "only the contributor is an attempt root"
+        );
+        assert_eq!(
+            contributor_roots,
+            vec![membership],
+            "the contributor protects its imported membership page"
+        );
+        assert_eq!(
+            completed,
+            vec![false],
+            "later import completion did not run"
+        );
+        assert!(
+            !eligibility.eligible
+                && eligibility
+                    .reasons
+                    .iter()
+                    .any(|reason| reason == "reachable through native owner hold")
+        );
+        assert!(terminal_roots.is_empty());
+        assert_eq!(
+            retired.retired, 2,
+            "only the abandoned contributor and its membership retire"
+        );
+        assert!(
+            retired.remaining.is_empty()
+                && retired.retained.is_empty()
+                && remaining_members.is_empty()
+        );
+        assert_eq!(original.len(), 1);
+        assert_eq!(
+            retained, original,
+            "admitted shared backing content remains exact"
+        );
+        assert_eq!(state_after_cleanup, expected);
+    }
     #[test]
     fn canonical_compiler_backing_rejects_imported_scope_and_retired_scalars() {
         let record = d::analytics::QualityStep {

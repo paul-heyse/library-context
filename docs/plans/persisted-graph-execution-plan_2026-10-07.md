@@ -1373,7 +1373,7 @@ primary/cleanup errors. Native import reads only after successful flush; bytes, 
 grammar/EOF and cold admission remain unchanged. Final publisher test compile **passed**,0.79s;
 the preceding pure selection plus a final-flush-failure/no-hidden-retry control **passed**,
 24 controls, Nextest `22dcb124-7c24-4ca5-b023-dfda73300818`,0.241s after36.47s build.
-Independent review accepted frozen restore `349100dc…`. Actual corrected native rerun is pending.
+Independent review accepted frozen restore `349100dc…`. The corrected native rerun is recorded below.
 The scoped cleanup replacement is implemented: one durable terminal-owner intent precedes
 bounded128-row guarded nomination/deletion steps, and only an empty nomination commits/resolves
 the scope. Unknown acknowledgement and typed response failures reconcile that exact operation;
@@ -1402,6 +1402,249 @@ the adjacent protected publication inventory SHA256 is
 Attribution uses the drained73287 baseline, sole subsequent native run and confirmed terminal
 cleanup, not pin age. Exact named recovery **passed** (`41271`), draining/reopening both databases
 without generation/schema changes. No other pins/attempts/effects were released.
+
+The buffering/scoped-cleanup rerun **failed / timed out**,2026-10-10:
+`just verify --select store --nextest-args "--test publication -E
+'test(compiled_export_publishes_unselected_and_viewer_is_immutable)'"`,
+run `20261010T063038.495Z-80228f`, Nextest `7d9a0b43-25d4-42c8-aab5-cbe81183c44c`,
+300.026s after1m14s build. Publication/readback and contained-panic cleanup passed in flow;
+compact backup and all three omitted-payload refusals completed before both valid restores
+reached native setup. Concurrent restore, subsequent audits and retirement remain unverified.
+Terminal cleanup still occupied39.127s; reducing request count did not demonstrate a reduction
+in that phase. Remaining investigation targets duplicate ownership and physical restore replay,
+preserving fresh input validation, cold admission and unchanged deadlines.
+Protected assets `/tmp/.tmpIGV3pG` (27,354,168-byte compact dump and omission variants),
+`/tmp/.tmpjU2boS` and `/tmp/.tmpUfOYAg` (46,631,028-byte decoded valid inputs each) retain
+correction diagnosis/qualification as their current consumer. Confirmed child cleanup and
+fixture release preceded exact inventory of one unreleased pin, epoch2776,305 views/306 holds,
+publication `e0e8e48b…`, with no borrowers or backup holds. Inventory under owned service state
+`timeout-publication-pin-inventory-70c62268ef0c4f59889536682872458c/before.json` has SHA256
+`db71865b33eb4eebaebc411d553fb742ad7b2546cd6e282108c9bb2b873c5fa1`;
+adjacent protected publication inventory SHA256 is
+`d10547ae9eed8283e5d3cbb88435d379ffd2b3669bf7a5311120cce92672ed9a`.
+Independent review accepted only pin
+`83627df694ac1ab627b053635f6075c916383d5fce4d23e95ab1615f5ec42cd3` through named recovery.
+`just service maintenance --recover --reconcile-database validation --reconcile-pin
+83627df694ac1ab627b053635f6075c916383d5fce4d23e95ab1615f5ec42cd3` **passed** (`77605`),
+draining/reopening both databases without changing generation/schema. No other owners were released.
+Owned-maintenance diagnostics then exposed two helper-format errors (quoted record IDs and
+the successful BEGIN response in an otherwise cancelled transaction). Both failures kept
+admission closed. The sole authorized128-row DELETE ran inside BEGIN/CANCEL; exact before/after
+row equality passed. Its private per-statement times were1.212ms nomination,0.606ms owner
+recheck and302.781ms deletion; these are one bounded rollback observation, not an end-to-end
+speed claim. Standard maintenance recovery reopened service. A read-only continuation, with
+all mutation code removed and the original rollback evidence checked, **passed** (`48577`),
+draining/reopening both databases. Evidence is
+`cleanup-owner-diagnostic-fe9cf37e9e3444e0b6db999fcfaf271b/read-only.json` under owned service state;
+the original rollback is retained in `cleanup-owner-diagnostic-0ebe13b9a94f47c29ad6a921a810ba5d/read-only.json`.
+The32,584 publication roots include7,234 memberships and17,479 participant/reference rows.
+Independent structural review accepts removing only redundant imported `attempt→membership`
+holds: contribution batches are already attempt-rooted, and the same guarded operation retains
+`contribution→membership`. Alias/backing/canonical ownership is unchanged. This refinement is
+being implemented with an interrupted-import reachability control.
+The membership-only correction and actual private-page control are implemented. Owner
+`cargo check --locked --release -p lctx-surrealdb --lib --tests` **passed**,25.29s (`6301`);
+independent source review accepted frozen compiler `714141cd…`, including the existing
+insertion-to-hold retirement refusal window and exact partial-import/source-retention assertions.
+Guard-free `just ready` **passed** (`91811`, native rebuild2m18s; `21192`, subsequent test-source
+fingerprint refresh8.57s). Native runtime proof remains pending below.
+
+The publication acceptance case also aggregated the full catalog producer/export/cold import,
+backup, three omission refusals, two concurrent cold restores and more than twenty full audits
+under one test deadline. Independent review accepts separating independent contracts while
+retaining all assertions: one full catalog round trip; one self-contained smaller actual-provider
+Normalized backup/concurrent-restore case; seven derived-corruption cases with distinct immutable
+source bytes/paths and repeated refusal/clean audits; separate maintenance-only analyzer drift.
+Ordinary unfiltered qualification must execute all cases with normal parallelism and unchanged
+deadlines. Smaller cases do not replace the full catalog route or establish production efficiency.
+That decomposition is implemented; `cargo check --locked --release -p lctx-publisher --test
+publication` **passed**,0.61s. Independent review accepted frozen test `1ca2f777…` and its
+complete assertion mapping. Derived mutations now finalize their exact injected rows even when
+observation panics. Coverage is composed through the same exact-handle cold auditor, not claimed
+as seven literal backup/restore/corruption sequences.
+
+The focused runtime selection `just verify --select store --nextest-args "--lib --test
+publication -E 'binary(=publication) | test(imported_membership_pages_retain_contributor_reachability_without_duplicate_attempt_roots)'"`
+**failed**,2026-10-10, run `20261010T065843.706Z-6aeeb2`, nextest
+`3903dc70-a51b-42ff-b707-aaf783f2c5ab`:17 controls,9 passed and8 timed out at the unchanged300s
+deadline after3m44s compilation. The scenario corruption case passed259.186s; the seven pure
+backup-decoder controls and selected imported-membership control account for the other passes.
+The smaller backup/concurrent-restore case contains a substantive failure before timeout:
+`native-ordered-candidates` refused candidate run bytes1048750 against1048576 at
+`publication.rs:663`. Its finalization then exceeded the test deadline. The remaining timeouts
+retain their original results; decomposition does not establish efficient production execution.
+Static review also identifies independent per-empty-view descriptor and ownership effects;
+safe batching must preserve actual membership proof, full immutable equality, attempt fencing
+and retirement protection. Both paths are under bounded source investigation, not claimed corrected.
+
+Fresh MCP invocation with retained identifier `unified-up9-final-source` **failed** before build
+or producer execution because retained names permit only ASCII alphanumeric characters and
+underscores (run `20261010T070337.843Z-04cf29`). Corrected invocation `just verify --select
+serving:mcp --retain-serving unified_up9_final_source` is in progress, run
+`20261010T070441.312Z-e94739`; its fresh release CLI/evaluator build passed2m13s. The native
+journey **failed** after346.30s:0 passed,2 failed,1 ignored. Both actual catalog producers reached
+artifact admission, then sealing refused `Conflict("pinned executable definition epoch")` at
+`native_journey.rs:373/1035`. Python MCP controls are **not_run** because their producer failed.
+Exact installed-definition versus comparison behavior is under source investigation. The producer
+has ended and its attachment released; no successful retained final-source serving fixture is claimed.
+Read-only post-run inventory **passed** with0 active pins,0 backup holds and0 borrowers,
+admission open. Private evidence is `post-focused-pin-inventory-86ff9b26c8524010bb80c39c52e74353/before.json`,
+SHA256 `c568b21948c2985618dd9c9ab177e94886135a5c6b340e0bf9227a69c266473d`;
+no reader reconciliation was needed.
+
+The ordering refusal is corrected at its production owner: an encoded frame already admitted
+by the row limit can exceed an empty aggregate run through allocated buffer/key metadata.
+Such a row now spills directly as a separately charged singleton and uses the existing full-value
+binary-carry merge. Encoded frame limits and aggregate pending-run limits are unchanged.
+`cargo check --locked --release -p lctx-surrealdb --lib --tests` **passed**,1.73s (`10782`).
+`cargo nextest run --locked --release -p lctx-surrealdb --lib -E 'test(ordered_rows::tests::)'
+--no-fail-fast` **passed**,14 controls, nextest `f7d21057-7cca-4baf-80bc-6f3906b5ca57`,
+40.45s build/0.175s execution. Controls include a legal near-limit ordinary frame, equal/conflicting
+duplicates across singleton/regular runs, and budget/scratch release on failure. Exact failed dump
+row identity was not captured; no claim is made about its table or exact encoded length.
+Matching-source concurrent cold-restore runtime acceptance remains pending.
+
+The executable-epoch failure was an explicit deployment prerequisite, not waived drift.
+Read-only INFO retained six functions from three earlier full epochs. Under owned maintenance,
+the freshly built CLI ran `store --runtime-config <validation-installer> init --keep-closed`
+through the existing checked installer. **passed** (`22706`): it added exactly current epoch
+`933b551594d093d435447546ea21919ddefa5cb9fef273aada35f96a71c023ed`'s library/operation
+functions, preserved all six previous function strings and generation/schema, then drained and
+reopened both databases. Private evidence is `current-epoch-install-ded25a984fb640ec8de933bb2b705e7f/`;
+initial INFO is `definition-epoch-inventory-7de1393074a94e5bb8c6dc55a68b6d0d/before.json`,
+SHA256 `90eee1416f127846cabbdb3ab29547117248d89f277a16c82af1eeeb74ff9925`.
+Ordinary publication remains verification-only. The stable maintenance executable, service
+generation, existing selections and operator/main content were not replaced. Matching-source
+serving/Python runtime acceptance still requires a fresh producer.
+
+Bounded compiler registration is implemented and independently accepted statically. All four
+fresh/reuse/attachment/import caller loops share descriptor and ownership windows bounded by
+the existing128 rows/transfer bytes. Every view retains its actual membership preparation,
+checked EOF and cardinality check; no zero-count descriptor becomes an emptiness grant.
+Existing durable ensure/hold kernels retain attempt/retirement guards and immutable comparisons.
+The local view inventory is updated only after ownership windows succeed. New native coverage
+exercises two actual empty relations, both hold kinds, a retained prerequisite chain and forged
+zero refusal. Its deliberate unrooted rejected view is retired by exact identity after confirmed
+abandonment, with absence readbacks; failed abandonment retains its named repair asset.
+Three-crate affected compile checks **passed**,5.03s/4.85s/0.55s, and final test-cleanup check
+**passed**,1.34s. No end-to-end speed claim follows from source batching.
+The distinct-capability-epoch F03 extension is implemented and independently accepted statically:
+full-serving A keeps its live cursor, evidence and exact two named declarations while search-only
+B publishes under a genuinely different supported epoch. It does not claim two different full
+Rust executable versions or newly installed function sets. Native/Python acceptance remains pending.
+Scoped `just turn-end --paths …` **passed** at this implementation boundary, formatting the four
+owned Rust files; ADR/build-feature generation was skipped because no corresponding input changed.
+Final compiler SHA256 is `733ac69cbfbf061f87c982fc0ba24f3588877d98d3b18ed0cd90dafa8f14082c`;
+ordering SHA256 is `be474aabad88e8e905f9309e4879aea0b666cc839e1787324f1260d32858dbd6`.
+Independent final review accepted the exact forged-view cleanup and formatted source without
+remaining material findings in these deltas. Guard-free `just ready` **passed** (`17403`),
+rebuilding the native extension in1m21s. `just docs-check` **passed** (`96790`),377 canonical
+pages and zero link errors. Ordering is committed separately in `7fa04966`; native compiler,
+publication and serving controls remain pending on the formatted batching source.
+The affected selection `just verify --select store --nextest-args "--lib --test compiler_views
+-E 'test(batched_empty_views_verify_membership_and_retain_dependency_ownership) |
+test(imported_membership_pages_retain_contributor_reachability_without_duplicate_attempt_roots) |
+test(overlapping_membership_windows_count_distinct_keys_across_contributors) |
+test(pending_overlap_frozen_selection_and_state_transport)'"` **failed**,2026-10-10,
+run `20261010T072635.811Z-e3f571`, nextest `08a51108-bbbe-42f0-aa5b-88f5d0919c1c`:
+3 passed/1 failed,2m38s build/2.404s execution. Both new ownership controls and the existing
+multi-window nonempty overlap control passed. The remaining transport case reached its state
+count assertion with0 contributions against2 expected. It has no bound root before state export,
+whereas current capture intentionally follows only exact bound roots and their dependencies.
+Its setup is being reconciled with that contract; production closure is not widened to all known
+or ambient completed contributors, and its2-contribution/3-membership expectations remain required.
+The actual-bound-root rerun **failed**, run `20261010T073403.028Z-2c17bd`, nextest
+`d305335b-d214-41cb-9ffe-1b82e1e9e67f`,35.7s including build/1.035s execution.
+Export, fresh import and completed-state equality passed. Deliberate replay membership corruption
+was correctly rejected by the durable full-value guard as `native immutable address collision`;
+the stale caller-specific expected error refused that correct response. The exact error assertion
+and four further stale unbound state fixtures are being migrated without weakening admission.
+
+Ordinary publication rerun `just verify --select store --nextest-args "--test publication"`
+**failed**, run `20261010T073248.683Z-01e873`, nextest
+`a328fb2d-65e1-4bd9-911b-61f5f5e02127`:9 passed/7 timed out/1 ignored,
+1m32s build/300.036s execution. Two small derived excess controls passed; five other derived
+cases, concurrent cold restore and the full publication case timed out. The prior singleton
+run-size assertion did not recur; phase logs now localize remaining work. These are not waived
+timeouts or evidence for a measured speed benefit. Runtime deadlines and parallelism are unchanged.
+Separate source inspection found restore's completed-state sorter used the ordinary1MiB frame
+limit while portable export/import support the existing64MiB envelope contract. The constructor
+now uses `MAX_ROW_BYTES` with its original composed budget; whole-line import and native-weight
+checks remain unchanged. Independent review accepted this correction statically and
+`cargo check --locked --release -p lctx-publisher --lib` **passed**,2.47s (`72935`).
+The synchronous state assembly is now a private helper used by restore. Its focused pure
+regression builds a maximum declared projection chunk through the typed Arrow/codec path inside
+the existing explicitly claimed transport fixture; it exercises actual dump preparation and state
+assembly, exact oversized backing readback, whole-envelope bound and reservation release. It
+does not establish native admission of that claimed fixture. The initial test compile **failed**
+on unsupported JSON array-repeat syntax (`27250`); replacing it with serialization of a typed
+byte array made `cargo check --locked --release -p lctx-publisher --lib --tests` **passed**,0.62s.
+Actual concurrent restore and the assembly control's execution remain pending.
+
+Phase diagnosis places five derived excess timeouts and the concurrent-restore case in
+`small_publication_retirement`, after reader finalization. The restore case has a real primary
+marker collision before that cleanup: restored bindings arrive ordered by attempt-qualified
+physical IDs, while publication identity sorts logical keys and marker bytes did not. Capture
+now validates and sorts bindings before both loader construction and immutable serialization;
+the full-value guard is unchanged. The two pure reversal/duplicate-invalid controls compile;
+`cargo check --locked --release -p lctx-publisher --lib --tests` **passed**,0.74s on that delta.
+Previously stored unsorted markers may require explicit owned-state cutover before equal
+deterministic resealing; ordinary publication does not rewrite them.
+Retirement currently visits descendants even when their parent remains retained and performs
+multiple native round trips per nominated object. A bounded nomination/metadata/child-stream/
+guarded-effect window correction is in progress. Its final guards, child persistence before parent
+release, incoming holds, backup exclusion and durable progress must remain authoritative.
+The test setup/error corrections, canonical binding capture and restore assembly helper/regression
+were independently accepted statically on their identified source hashes; runtime reruns remain
+required. Post-publication read-only inventory found exactly two active305-view pins,0 backup
+holds and0 borrowers. Evidence `post-publication-inventory-cdcbe7616204443ba5700236e12a62a4/before.json`
+has SHA256 `9bda947b2bed7bd0f5d6ecbd168825eaf4b18a9565933e8c38bdf4691c57ca9e`.
+Independent review approved attribution from the zero-pin baseline, sole pin-producing publication
+run and both managed runs' confirmed empty survivor/released attachment receipts; role or handle
+was not guessed from epochs. Standard `just service maintenance --recover --reconcile-database
+validation --reconcile-pin 13b8dc2c357eaa0a9176977bedd8ae2b9de9a1f301d0f40f774c35bac25ff095
+--reconcile-pin 35fe7e7e578f24a246941b31dcafb482b7c897fa41b7cdd7edfcd914880ed25c`
+**passed** (`57912`), with both databases drained/reopened and generation/schema unchanged.
+No content was retired and no other client owners were released.
+
+The subsequent focused selection `just verify --select store --nextest-args "--lib --test
+compiler_views --test compiler_backing --test native_control -E <selected contract controls>"`
+**failed**,2026-10-10, run `20261010T075341.169Z-66e0c3`, nextest
+`28139a24-024c-4166-9f17-77710e9e2d52`:22 passed/4 failed,1m37s build/21.492s execution.
+The exact filter is retained in the run receipt. Bound-root export/import, actual projection
+backing, empty/nonempty ownership windows, canonical marker ordering and existing retirement
+guards passed. Two corruption fixtures reached the earlier physical-address guard instead of
+their intended deeper checks; their new independent canonical-byte and correctly addressed
+negative-zero mutations preserve deeper refusal coverage. The new assembly fixture omitted
+portable membership relation/key fields, and the retirement window timed out in child discovery.
+The assembly fixture correction **passed** in diagnostic run `20261010T075900.309Z-c56c5c`,
+nextest `5b206937-0926-4e5b-bb95-3f12b40f118c`:1 passed/1 failed,2m09s build/29.036s execution.
+Retirement still failed at the unchanged10s native query limit; phase markers identified child
+preparation, not candidate classification or nomination. Pinned3.3 execution-planner inspection
+found grouped owner `IN` plus ordering can select a broad index scan. Child preparation now
+streams exact owner-equality statements in one checked request, retaining bounded enqueue windows,
+all statement terminals and outer EOF. Source compile passed1.46s; runtime rerun is pending.
+Retirement nomination and guarded effects remain bounded by the existing128-row window.
+Retained parents are not descended until their holds end; final item/guard revision, incoming
+holds and backup exclusion remain authoritative. Child queue entries become durable before parent
+release. This does not claim constant memory for the pre-existing outgoing-hold deletion array.
+The focused rerun `just verify --select store --nextest-args "--lib --test compiler_views
+--test compiler_backing -E 'test(retirement_windows_skip_retained_subtrees_recheck_late_holds_and_resume_exact_limits)
+| test(cold_backing_rejects_valid_body_changes_and_false_typed_keys)
+| test(cold_backing_rejects_coherent_negative_zero_before_membership_checks)'"`
+**passed**,2026-10-10, run `20261010T080622.398Z-9318a7`, nextest
+`7d37313e-5438-4035-a4bd-e866c2e5aa5a`:3 passed,1m43s build/1.692s execution.
+Independent review accepted all three frozen source deltas, including guarded malformed-row
+restoration and exact-owner child stream completion. This is focused contract evidence;
+publication, serving, recovery and unfiltered UP9 acceptance still require their own runs.
+
+Checked retained-closure attachment during restore remains a bounded avenue for subsequent
+efficiency work if physical replay remains material. It requires fresh selected-input typed/full-row
+validation before ownership normalization, shared normalized-state hashing, exact generation/schema/
+definition-epoch and full-value candidate checks, and a source pin through guarded fresh ownership.
+Missing or forged dump rows must refuse without ambient fallback. Independent state/runtime/artifact
+cold admission remains mandatory. Existing claimed closure preparation and request-keyed provider
+attachment are not, alone, a restore attachment grant; no such restore fast path is claimed implemented.
 
 Timeout cleanup confirmed empty descendants and released attachment. Exact inventory
 `timeout-publication-pin-inventory-af43660aa09f4c42a685c8da0b97828e/before.json` under owned
