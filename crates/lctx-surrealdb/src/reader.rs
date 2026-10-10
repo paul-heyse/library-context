@@ -36,26 +36,145 @@ pub struct NativeReader<Context = SnapshotHandle> {
     handle: Context,
     scope: Option<Arc<ReaderScope>>,
 }
-struct ReaderScope {originals:Option<Vec<lctx_model::domain::graph::Original>>,views:Vec<lctx_model::domain::ContentHash>,_pin:Option<Arc<crate::control::ReaderPin>>}
+struct ReaderScope {
+    originals: Option<Vec<lctx_model::domain::graph::Original>>,
+    views: Vec<lctx_model::domain::ContentHash>,
+    _pin: Option<Arc<crate::control::ReaderPin>>,
+}
 impl<Context> NativeReader<Context> {
     /// The owner drains reader clones and streams before explicit session invalidation.
-    pub async fn close(&self)->Result<(),ModelError>{if let Some(scope)=&self.scope {if Arc::strong_count(scope)!=1{return Err(ModelError::Conflict("native reader clones remain live"));}if let Some(pin)=&scope._pin{pin.release().await?;}}Ok(())}
-    pub(crate) fn authorize_original_ranges(&self,ranges:&[(lctx_model::domain::graph::EntityId,u64,usize)])->Result<(),ModelError>{
-        if let Some(originals)=self.scope.as_ref().and_then(|scope|scope.originals.as_ref()) {for (source,start,length) in ranges {let original=originals.iter().find(|original|original.source==*source).ok_or(ModelError::Conflict("original source outside publication"))?;if start.checked_add(*length as u64).is_none_or(|end|end>original.byte_len){return Err(ModelError::Conflict("original range outside publication"));}}}Ok(())
+    pub async fn close(&self) -> Result<(), ModelError> {
+        if let Some(scope) = &self.scope {
+            if Arc::strong_count(scope) != 1 {
+                return Err(ModelError::Conflict("native reader clones remain live"));
+            }
+            if let Some(pin) = &scope._pin {
+                pin.release().await?;
+            }
+        }
+        Ok(())
     }
-    pub fn view_bindings(&self)->Variables {let mut bindings=Variables::new();if let Some(scope)=&self.scope {bindings.insert("lctx_views",scope.views.iter().map(|view|RecordId::new("compiler_view",view.hex())).collect::<Vec<_>>());}bindings}
-    pub fn selected_node_predicate(&self,expression:&str)->String {if self.scope.is_some(){format!("({expression} IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) OR {expression} IN (SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)))")}else{"true".into()}}
-    pub fn selected_anchor_predicate(&self,expression:&str)->String {if self.scope.is_some(){format!("({expression} IN (SELECT VALUE node.anchor FROM compiler_view_member WHERE view IN $lctx_views) OR {expression} IN (SELECT VALUE target.anchor FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)))")}else{"true".into()}}
+    pub(crate) fn authorize_original_ranges(
+        &self,
+        ranges: &[(lctx_model::domain::graph::EntityId, u64, usize)],
+    ) -> Result<(), ModelError> {
+        if let Some(originals) = self
+            .scope
+            .as_ref()
+            .and_then(|scope| scope.originals.as_ref())
+        {
+            for (source, start, length) in ranges {
+                let original = originals
+                    .iter()
+                    .find(|original| original.source == *source)
+                    .ok_or(ModelError::Conflict("original source outside publication"))?;
+                if start
+                    .checked_add(*length as u64)
+                    .is_none_or(|end| end > original.byte_len)
+                {
+                    return Err(ModelError::Conflict("original range outside publication"));
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn view_bindings(&self) -> Variables {
+        let mut bindings = Variables::new();
+        if let Some(scope) = &self.scope {
+            bindings.insert(
+                "lctx_views",
+                scope
+                    .views
+                    .iter()
+                    .map(|view| RecordId::new("compiler_view", view.hex()))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        bindings
+    }
+    pub fn selected_node_predicate(&self, expression: &str) -> String {
+        if self.scope.is_some() {
+            format!(
+                "({expression} IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) OR {expression} IN (SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)))"
+            )
+        } else {
+            "true".into()
+        }
+    }
+    pub fn selected_anchor_predicate(&self, expression: &str) -> String {
+        if self.scope.is_some() {
+            format!(
+                "({expression} IN (SELECT VALUE node.anchor FROM compiler_view_member WHERE view IN $lctx_views) OR {expression} IN (SELECT VALUE target.anchor FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)))"
+            )
+        } else {
+            "true".into()
+        }
+    }
+    /// Resolve exact physical candidates once, using the installed view and alias indexes.
+    /// Typed predicates then operate on these point sources rather than scanning shared families.
+    pub(crate) fn selected_record_source(
+        &self,
+        preparation: &mut Vec<String>,
+        relation: Option<&str>,
+    ) -> Option<&'static str> {
+        self.scope.as_ref()?;
+        match relation {
+            Some(relation) => {
+                preparation.push(format!("LET $lctx_record_members = SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation={relation}"));
+                preparation.push("LET $lctx_record_alias_sources = SELECT VALUE node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views".into());
+            }
+            None => {
+                preparation.push("LET $lctx_record_members = SELECT VALUE node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views".into());
+                preparation.push("LET $lctx_record_alias_sources = $lctx_record_members".into());
+            }
+        }
+        preparation.push("LET $lctx_record_aliases = SELECT VALUE target FROM compiler_alias WITH INDEX alias_source WHERE source IN $lctx_record_alias_sources".into());
+        preparation.push("LET $lctx_record_nodes = array::distinct(array::concat($lctx_record_members,$lctx_record_aliases))".into());
+        Some("$lctx_record_nodes")
+    }
+    fn canonical_sources(&self, preparation: &mut Vec<String>) -> [String; 2] {
+        match self.selected_record_source(preparation, Some("$type")) {
+            Some(source) => [source.into(), source.into()],
+            None => ["entity".into(), "assertion".into()],
+        }
+    }
     /// Only model-declared relation names enter SQL. The exact view is mandatory here.
-    pub fn relation_rows(&self,relation:&str)->Result<NativeRows,ModelError>{
-        if self.scope.is_none(){return Err(ModelError::Conflict("relation read requires exact published view"));}
-        let table=crate::schema::ScopeTable::for_relation(relation)?.name();let mut bindings=self.view_bindings();bindings.insert("relation",relation.to_string());
-        self.query_stream(format!("SELECT canonical FROM {table} WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",self.selected_node_predicate("id")),bindings,1)
+    pub fn relation_rows(&self, relation: &str) -> Result<NativeRows, ModelError> {
+        if self.scope.is_none() {
+            return Err(ModelError::Conflict(
+                "relation read requires exact published view",
+            ));
+        }
+        let table = crate::schema::ScopeTable::for_relation(relation)?.name();
+        let mut bindings = self.view_bindings();
+        bindings.insert("type", relation.to_string());
+        bindings.insert("table", table.to_string());
+        let mut preparation = Vec::new();
+        let source = self
+            .selected_record_source(&mut preparation, Some("$type"))
+            .ok_or(ModelError::Conflict(
+                "relation read requires exact published view",
+            ))?;
+        self.stream_prepared(crate::prepared::PreparedQuery::new(bindings,preparation,vec![format!("SELECT canonical FROM {source} WHERE record::table(id)=$table AND semantic_type=$type ORDER BY semantic_key")])?)
     }
-    pub fn relation_bodies(&self,relation:&str,limit:usize)->Result<NativeRows,ModelError>{
-        if self.scope.is_none(){return Err(ModelError::Conflict("relation read requires exact published view"));}
-        let table=crate::schema::ScopeTable::for_relation(relation)?.name();let mut bindings=self.view_bindings();bindings.insert("relation",relation.to_string());bindings.insert("limit",limit);
-        self.query_stream(format!("SELECT semantic_key,body FROM {table} WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key LIMIT $limit",self.selected_node_predicate("id")),bindings,1)
+    pub fn relation_bodies(&self, relation: &str, limit: usize) -> Result<NativeRows, ModelError> {
+        if self.scope.is_none() {
+            return Err(ModelError::Conflict(
+                "relation read requires exact published view",
+            ));
+        }
+        let table = crate::schema::ScopeTable::for_relation(relation)?.name();
+        let mut bindings = self.view_bindings();
+        bindings.insert("type", relation.to_string());
+        bindings.insert("table", table.to_string());
+        bindings.insert("limit", limit);
+        let mut preparation = Vec::new();
+        let source = self
+            .selected_record_source(&mut preparation, Some("$type"))
+            .ok_or(ModelError::Conflict(
+                "relation read requires exact published view",
+            ))?;
+        self.stream_prepared(crate::prepared::PreparedQuery::new(bindings,preparation,vec![format!("SELECT semantic_key,body FROM {source} WHERE record::table(id)=$table AND semantic_type=$type ORDER BY semantic_key LIMIT $limit")])?)
     }
     /// Rows are provisional. Only exhaustion after every declared statement end and the outer
     /// transport completion establishes success. Private publishers discard their target on error.
@@ -77,7 +196,13 @@ impl<Context> NativeReader<Context> {
         &self,
         query: crate::prepared::PreparedQuery,
     ) -> Result<NativeRows, ModelError> {
-        query.with_bindings(self.view_bindings()).stream(&self.client).map(|mut rows|{rows.scope=self.scope.clone();rows})
+        query
+            .with_bindings(self.view_bindings())
+            .stream(&self.client)
+            .map(|mut rows| {
+                rows.scope = self.scope.clone();
+                rows
+            })
     }
     pub async fn query_prepared<T: Serialize + DeserializeOwned + 'static>(
         &self,
@@ -87,6 +212,14 @@ impl<Context> NativeReader<Context> {
         SerdeWrapper::<T>::from_value(value)
             .map(|value| value.0)
             .map_err(ModelError::codec)
+    }
+    /// Prepared SDK-native results retain record IDs and nested Object/Array variants.
+    /// Exposure uses the same complete response and terminal checks as typed serde results.
+    pub async fn query_prepared_native<T: SurrealValue>(
+        &self,
+        query: crate::prepared::PreparedQuery,
+    ) -> Result<T, ModelError> {
+        T::from_value(self.checked_native_value(query).await?).map_err(ModelError::codec)
     }
     async fn checked_native_value(
         &self,
@@ -125,24 +258,27 @@ impl<Context> NativeReader<Context> {
         &self,
         predicate: &str,
         mut bindings: Variables,
-        preparation: Vec<String>,
+        mut preparation: Vec<String>,
         order: &str,
     ) -> Result<CanonicalRecords<R>, ModelError> {
         bindings.insert("type", R::NAME.to_string());
+        let [entities, assertions] = self.canonical_sources(&mut preparation);
         let query = crate::prepared::PreparedQuery::new(
             bindings,
             preparation,
             vec![
                 format!(
-                    "SELECT canonical, {order} FROM entity WHERE semantic_type=$type AND ({predicate}) AND ({}) ORDER BY {order}",self.selected_node_predicate("id")
+                    "SELECT canonical, {order} FROM {entities} WHERE record::table(id)='entity' AND semantic_type=$type AND ({predicate}) ORDER BY {order}"
                 ),
                 format!(
-                    "SELECT canonical, {order} FROM assertion WHERE semantic_type=$type AND ({predicate}) AND ({}) ORDER BY {order}",self.selected_node_predicate("id")
+                    "SELECT canonical, {order} FROM {assertions} WHERE record::table(id)='assertion' AND semantic_type=$type AND ({predicate}) ORDER BY {order}"
                 ),
             ],
         )?;
+        let positions = query.result_positions().to_vec();
         Ok(CanonicalRecords {
             rows: self.stream_prepared(query)?,
+            positions,
             failed: false,
             marker: std::marker::PhantomData,
         })
@@ -174,7 +310,7 @@ impl<Context> NativeReader<Context> {
         bindings: Variables,
     ) -> Result<T, ModelError> {
         let query = crate::prepared::PreparedQuery::new(bindings, vec![], vec![sql.into()])?;
-        T::from_value(self.checked_native_value(query).await?).map_err(ModelError::codec)
+        self.query_prepared_native(query).await
     }
     pub async fn records<R: Record + DeserializeOwned>(
         &self,
@@ -228,15 +364,16 @@ impl<Context> NativeReader<Context> {
                 "id IN (SELECT VALUE in FROM participant WHERE out IN $targets AND (array::len($fields)=0 OR field IN $fields)) OR id IN (SELECT VALUE in FROM reference WHERE out IN $targets AND (array::len($fields)=0 OR field IN $fields))".into()
             }
         };
+        let [entities, assertions] = self.canonical_sources(&mut preparation);
         let query = crate::prepared::PreparedQuery::new(
             bindings,
             preparation,
             vec![
                 format!(
-                    "SELECT VALUE canonical FROM entity WHERE semantic_type=$type AND ({predicate}) AND ({}) ORDER BY semantic_key",self.selected_node_predicate("id")
+                    "SELECT VALUE canonical FROM {entities} WHERE record::table(id)='entity' AND semantic_type=$type AND ({predicate}) ORDER BY semantic_key"
                 ),
                 format!(
-                    "SELECT VALUE canonical FROM assertion WHERE semantic_type=$type AND ({predicate}) AND ({}) ORDER BY semantic_key",self.selected_node_predicate("id")
+                    "SELECT VALUE canonical FROM {assertions} WHERE record::table(id)='assertion' AND semantic_type=$type AND ({predicate}) ORDER BY semantic_key"
                 ),
             ],
         )?;
@@ -303,7 +440,10 @@ impl<Context> NativeReader<Context> {
         let query = crate::prepared::PreparedQuery::new(
             bindings,
             vec![],
-            vec![format!("SELECT id,semantic_type,semantic_key,canonical FROM $nodes WHERE ({}) ORDER BY semantic_key",self.selected_node_predicate("id"))],
+            vec![format!(
+                "SELECT id,semantic_type,semantic_key,canonical FROM $nodes WHERE ({}) ORDER BY semantic_key",
+                self.selected_node_predicate("id")
+            )],
         )?;
         let position = query.result_positions()[0];
         let terminals = query.expected_terminals();
@@ -359,41 +499,117 @@ pub fn candidate_records_sql() -> &'static str {
 }
 
 impl NativeReader<SnapshotHandle> {
-    pub async fn open(client:Arc<Surreal<Client>>,handle:SnapshotHandle)->Result<Self,ModelError>{
-        crate::control::check_installation(&client,handle.service_generation).await?;
-        let mut bindings=Variables::new();bindings.insert("publication",RecordId::new("publication",handle.publication.hex()));
-        let mut response=client.query("SELECT handle,views,manifest,definition_epoch FROM $publication").bind(bindings).await.map_err(sdk_error)?.check().map_err(sdk_error)?;
-        let rows:Vec<surrealdb::types::Object>=response.take(0).map_err(sdk_error)?;
-        let [row]=rows.as_slice() else{return Err(ModelError::Conflict("snapshot publication missing"));};
-        let expected=hex::encode(serde_json::to_vec(&handle).map_err(ModelError::codec)?);
-        if row.get("handle")!=Some(&Value::String(expected)) || row.get("definition_epoch")!=Some(&Value::String(handle.definition_epoch.hex())) {return Err(ModelError::Conflict("snapshot publication handle"));}
-        let Some(Value::Bytes(manifest_bytes))=row.get("manifest") else{return Err(ModelError::Schema("publication manifest"));};
-        let manifest=lctx_model::domain::graph::Manifest::decode(manifest_bytes)?;
-        if manifest.content()!=handle.semantic{return Err(ModelError::Conflict("publication semantic manifest"));}
+    pub async fn open(
+        client: Arc<Surreal<Client>>,
+        handle: SnapshotHandle,
+    ) -> Result<Self, ModelError> {
+        crate::control::check_installation(&client, handle.service_generation).await?;
+        let mut bindings = Variables::new();
+        bindings.insert(
+            "publication",
+            RecordId::new("publication", handle.publication.hex()),
+        );
+        let mut response = client
+            .query("SELECT handle,views,manifest,definition_epoch FROM $publication")
+            .bind(bindings)
+            .await
+            .map_err(sdk_error)?
+            .check()
+            .map_err(sdk_error)?;
+        let rows: Vec<surrealdb::types::Object> = response.take(0).map_err(sdk_error)?;
+        let [row] = rows.as_slice() else {
+            return Err(ModelError::Conflict("snapshot publication missing"));
+        };
+        let expected = hex::encode(serde_json::to_vec(&handle).map_err(ModelError::codec)?);
+        if row.get("handle") != Some(&Value::String(expected))
+            || row.get("definition_epoch") != Some(&Value::String(handle.definition_epoch.hex()))
+        {
+            return Err(ModelError::Conflict("snapshot publication handle"));
+        }
+        let Some(Value::Bytes(manifest_bytes)) = row.get("manifest") else {
+            return Err(ModelError::Schema("publication manifest"));
+        };
+        let manifest = lctx_model::domain::graph::Manifest::decode(manifest_bytes)?;
+        if manifest.content() != handle.semantic {
+            return Err(ModelError::Conflict("publication semantic manifest"));
+        }
         handle.validate_identity()?;
-        let Some(Value::Bytes(bytes))=row.get("views") else{return Err(ModelError::Schema("publication exact views"));};
-        let completed:Vec<lctx_model::domain::completed::CompletedBinding>=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-        if lctx_model::domain::completed::binding_inventory_identity(&completed)?!=handle.view{return Err(ModelError::Conflict("publication exact view inventory"));}
-        let mut all_views=completed.iter().map(|binding|binding.view.identity).collect::<Vec<_>>();all_views.sort();all_views.dedup();let mut views=completed.into_iter().filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect::<Vec<_>>();views.sort();views.dedup();
-        let pin=crate::control::ReaderPin::acquire(client.clone(),&all_views).await?;
-        pin.protect(RecordId::new("publication",handle.publication.hex())).await?;
-        Ok(Self{client,handle,scope:Some(Arc::new(ReaderScope{originals:Some(manifest.originals),views,_pin:Some(pin)}))})
+        let Some(Value::Bytes(bytes)) = row.get("views") else {
+            return Err(ModelError::Schema("publication exact views"));
+        };
+        let completed: Vec<lctx_model::domain::completed::CompletedBinding> =
+            serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        if lctx_model::domain::completed::binding_inventory_identity(&completed)? != handle.view {
+            return Err(ModelError::Conflict("publication exact view inventory"));
+        }
+        let mut all_views = completed
+            .iter()
+            .map(|binding| binding.view.identity)
+            .collect::<Vec<_>>();
+        all_views.sort();
+        all_views.dedup();
+        let mut views = completed
+            .into_iter()
+            .filter(|binding| binding.boundary.is_none())
+            .map(|binding| binding.view.identity)
+            .collect::<Vec<_>>();
+        views.sort();
+        views.dedup();
+        let pin = crate::control::ReaderPin::acquire(client.clone(), &all_views).await?;
+        pin.protect(RecordId::new("publication", handle.publication.hex()))
+            .await?;
+        Ok(Self {
+            client,
+            handle,
+            scope: Some(Arc::new(ReaderScope {
+                originals: Some(manifest.originals),
+                views,
+                _pin: Some(pin),
+            })),
+        })
     }
-    pub async fn connect(endpoint:&str,credentials:&Credentials,handle:SnapshotHandle)->Result<Self,ModelError>{
-        let client=connect(endpoint,credentials,handle.database.namespace.as_str(),handle.database.database.as_str()).await?;
-        Self::open(client,handle).await
+    pub async fn connect(
+        endpoint: &str,
+        credentials: &Credentials,
+        handle: SnapshotHandle,
+    ) -> Result<Self, ModelError> {
+        let client = connect(
+            endpoint,
+            credentials,
+            handle.database.namespace.as_str(),
+            handle.database.database.as_str(),
+        )
+        .await?;
+        Self::open(client, handle).await
     }
     pub fn handle(&self) -> &SnapshotHandle {
         &self.handle
     }
 }
 impl NativeReader<()> {
-    pub fn for_views(client:Arc<Surreal<Client>>,views:Vec<lctx_model::domain::ContentHash>)->Self {Self{client,handle:(),scope:Some(Arc::new(ReaderScope{originals:None,views,_pin:None}))}}
+    pub fn for_views(
+        client: Arc<Surreal<Client>>,
+        views: Vec<lctx_model::domain::ContentHash>,
+    ) -> Self {
+        Self {
+            client,
+            handle: (),
+            scope: Some(Arc::new(ReaderScope {
+                originals: None,
+                views,
+                _pin: None,
+            })),
+        }
+    }
 
     /// Owner-supplied private native access, with no published snapshot capability.
     /// The owner must drain/discard its private target after any terminal failure.
     pub fn private(client: Arc<Surreal<Client>>) -> Self {
-        Self { client, handle: (), scope:None }
+        Self {
+            client,
+            handle: (),
+            scope: None,
+        }
     }
 }
 
@@ -511,7 +727,13 @@ impl NativeRows {
                 )));
             }
         }
-        if self.ended!=self.statements {if let Some(scope)=&self.scope {if let Some(pin)=&scope._pin {pin.retain_unknown();}}}
+        if self.ended != self.statements {
+            if let Some(scope) = &self.scope {
+                if let Some(pin) = &scope._pin {
+                    pin.retain_unknown();
+                }
+            }
+        }
         self.scope.take();
         let mut completion = lctx_model::domain::completion::Completion::default();
         for error in &self.drain_errors {
@@ -567,7 +789,11 @@ impl NativeRows {
         }
         self.exhausted = true;
         if self.ended != self.statements {
-            if let Some(scope)=&self.scope {if let Some(pin)=&scope._pin{pin.retain_unknown();}}
+            if let Some(scope) = &self.scope {
+                if let Some(pin) = &scope._pin {
+                    pin.retain_unknown();
+                }
+            }
             return Err(ModelError::Schema("native stream missing terminal success"));
         }
         self.scope.take();
@@ -576,21 +802,59 @@ impl NativeRows {
 }
 
 impl Drop for NativeRows {
-    fn drop(&mut self){
-        let Some(scope)=self.scope.take() else{return;};
-        if self.exhausted && self.ended==self.statements{return;}
-        let Ok(runtime)=tokio::runtime::Handle::try_current() else{if let Some(pin)=&scope._pin{pin.retain_unknown();}return;};
-        let mut stream=std::mem::replace(&mut self.stream,futures::stream::empty().boxed());let client=self.client.take();let mut ended=self.ended;let statements=self.statements;
-        runtime.spawn(async move{let _client=client;let mut unknown=false;while let Some(item)=stream.next().await {match item {Ok(surrealdb::method::StreamItem::StatementEnd{statement,..}) if statement==ended=>ended+=1,Err(_)=>unknown=true,_=>{}}}if unknown || ended!=statements {if let Some(pin)=&scope._pin{pin.retain_unknown();}}drop(scope);});
+    fn drop(&mut self) {
+        let Some(scope) = self.scope.take() else {
+            return;
+        };
+        if self.exhausted && self.ended == self.statements {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            if let Some(pin) = &scope._pin {
+                pin.retain_unknown();
+            }
+            return;
+        };
+        let mut stream = std::mem::replace(&mut self.stream, futures::stream::empty().boxed());
+        let client = self.client.take();
+        let mut ended = self.ended;
+        let statements = self.statements;
+        runtime.spawn(async move {
+            let _client = client;
+            let mut unknown = false;
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(surrealdb::method::StreamItem::StatementEnd { statement, .. })
+                        if statement == ended =>
+                    {
+                        ended += 1
+                    }
+                    Err(_) => unknown = true,
+                    _ => {}
+                }
+            }
+            if unknown || ended != statements {
+                if let Some(pin) = &scope._pin {
+                    pin.retain_unknown();
+                }
+            }
+            drop(scope);
+        });
     }
 }
 
 pub struct CanonicalRecords<R> {
     rows: NativeRows,
+    positions: Vec<usize>,
     failed: bool,
     marker: std::marker::PhantomData<R>,
 }
 impl<R: Record + DeserializeOwned> CanonicalRecords<R> {
+    /// Drain the owning transport without accepting a previously failed typed stream.
+    /// Late statement/transport errors remain structured finalization failures.
+    pub async fn drain_transport(&mut self) -> Result<(), ModelError> {
+        self.rows.drain_transport().await
+    }
     pub async fn next(&mut self) -> Result<Option<R>, ModelError> {
         if self.failed {
             return Err(ModelError::Conflict("failed canonical stream"));
@@ -610,9 +874,13 @@ impl<R: Record + DeserializeOwned> CanonicalRecords<R> {
             .map_err(|_| corrupt())?;
         // Statement identity is supplied by the checked SDK envelope, not a string projection.
         // ORDER BY fields are selected for SurrealQL but never interpreted as canonical authority.
-        let row = match self.rows.ended {
-            0 => canonical_entity::<R>(&canonical)?,
-            1 => canonical_assertion::<R>(&canonical)?,
+        let row = match self
+            .positions
+            .iter()
+            .position(|position| *position == self.rows.ended)
+        {
+            Some(0) => canonical_entity::<R>(&canonical)?,
+            Some(1) => canonical_assertion::<R>(&canonical)?,
             _ => return Err(ModelError::Schema("native stream canonical statement")),
         };
         Ok(Some(row))
@@ -856,6 +1124,7 @@ mod streaming_tests {
         .unwrap();
         let mut records = CanonicalRecords::<lctx_model::domain::input::Package> {
             rows,
+            positions: vec![0],
             failed: false,
             marker: std::marker::PhantomData,
         };
@@ -880,6 +1149,7 @@ mod streaming_tests {
         .unwrap();
         let mut records = CanonicalRecords::<lctx_model::domain::input::Package> {
             rows,
+            positions: vec![0],
             failed: false,
             marker: std::marker::PhantomData,
         };

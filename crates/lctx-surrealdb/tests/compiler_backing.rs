@@ -2,7 +2,8 @@
 use lctx_model::domain::{
     ContentHash, EvidenceBytes, Id, ModelError, Record, Relation,
     admission::Frontier,
-    completed::ContributionSpec,
+    analysis::sources::SourceSnapshot,
+    completed::{CompletedBinding, ContributionSpec},
     projection::{
         ProjectionSnapshot, ProjectionSnapshotChunk, ProjectionSourceAssessment, snapshot,
     },
@@ -44,10 +45,7 @@ async fn abandon_acknowledged_write_failure(
     );
     assert_eq!(outcome.completion.local, LocalState::Terminal);
     assert_eq!(outcome.completion.remote, RemoteState::Confirmed);
-    assert_eq!(
-        outcome.completion.storage,
-        vec![]
-    );
+    assert_eq!(outcome.completion.storage, vec![]);
     assert!(outcome.completion.committed.is_empty());
     assert_eq!(
         outcome.completion.failures.len(),
@@ -63,6 +61,12 @@ async fn abandon_acknowledged_write_failure(
         (Some(ModelError::Schema(actual)), Some(ModelError::Schema(expected))) => {
             assert_eq!(actual, expected)
         }
+        (Some(ModelError::Cause(actual)), Some(ModelError::Cause(expected))) => {
+            assert!(
+                std::ptr::eq(actual.as_ref(), expected.as_ref()),
+                "cleanup retains the same acknowledged native cause"
+            );
+        }
         _ => panic!(
             "cleanup must retain the exact acknowledged primary class and cause: original={original:?}; cleanup={failure:?}"
         ),
@@ -76,10 +80,22 @@ async fn abandon_acknowledged_write_failure(
         );
     }
     // Abandonment closes only this attempt; the installed database and content remain.
-    let observer = fixture_client(store,config).await;
-    let mut response = observer.query("SELECT VALUE state FROM $attempt").bind(("attempt",lctx_surrealdb::surrealdb::types::RecordId::new("native_attempt",store.attempt().hex()))).await.unwrap().check().unwrap();
-    let states:Vec<String>=response.take(0).unwrap();
-    assert_eq!(states,vec!["abandoned"]);
+    let observer = fixture_client(store, config).await;
+    let mut response = observer
+        .query("SELECT VALUE state FROM $attempt")
+        .bind((
+            "attempt",
+            lctx_surrealdb::surrealdb::types::RecordId::new(
+                "native_attempt",
+                store.attempt().hex(),
+            ),
+        ))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let states: Vec<String> = response.take(0).unwrap();
+    assert_eq!(states, vec!["abandoned"]);
     observer.invalidate().await.unwrap();
 }
 
@@ -143,6 +159,18 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         )
         .await
         .unwrap();
+    for relation in [&header_relation, &chunk_relation] {
+        let view = views[relation.name()].clone();
+        store
+            .bind(CompletedBinding {
+                boundary: None,
+                source: SourceSnapshot::of_completed_view(relation, spec.model, &view).unwrap(),
+                view,
+                configuration: None,
+            })
+            .await
+            .unwrap();
+    }
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(8 << 20).unwrap();
     use futures::TryStreamExt;
     let batches = store
@@ -284,7 +312,14 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     let mut next = spec;
     next.producer = "conflicting-projection-backing".into();
     let contribution = store.begin_contribution(next).await.unwrap();
-    store.write_batch(&contribution,&chunk_relation,&ProjectionSnapshotChunk::encode(&[chunk]).unwrap()).await.unwrap();
+    store
+        .write_batch(
+            &contribution,
+            &chunk_relation,
+            &ProjectionSnapshotChunk::encode(&[chunk]).unwrap(),
+        )
+        .await
+        .unwrap();
     let result = store
         .write_batch(
             &contribution,
@@ -293,12 +328,27 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         )
         .await;
     let failure = result.expect_err("same nominal key with changed opaque payload must refuse");
+    // The shared immutable-address guard refuses the changed membership before the
+    // former caller-specific conflict label; preserve its actual acknowledged cause.
+    let native_collision = failure.primary().and_then(|primary| match primary {
+        ModelError::Cause(cause) => cause.downcast_ref::<lctx_surrealdb::surrealdb::Error>(),
+        _ => None,
+    });
     assert!(
-        matches!(
-            failure.primary(),
-            Some(ModelError::Conflict("native membership same-key payload"))
-        ),
+        native_collision.is_some_and(|error| {
+            // SurrealDB 3.3.0 retains the server's THROW prefix in Error::message().
+            error.is_thrown()
+                && error.message() == "An error occurred: native immutable address collision"
+        }),
         "exact physical conflict primary: {failure:?}"
+    );
+    assert!(
+        failure.permits_storage_cleanup(),
+        "collision effects are confirmed: {failure:?}"
+    );
+    assert!(
+        !failure.has_committed_effect(),
+        "refused transaction commits no conflicting effect"
     );
     abandon_acknowledged_write_failure(&store, &config, &failure).await;
     admin.invalidate().await.unwrap();
@@ -361,7 +411,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         panic!("quality backing row");
     };
     assert!(rows.is_empty());
-    let saved=altered.clone();
+    let saved = altered.clone();
     let id = altered.get("id").unwrap().clone();
     let Some(Value::Object(body)) = altered.get_mut("body") else {
         panic!("quality backing body");
@@ -391,8 +441,16 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         store.completed_state().await,
         Err(ModelError::Conflict("compiler backing declared body"))
     ));
-    let mut restore=Variables::new();restore.insert("id",id);restore.insert("row",Value::Object(saved));
-    admin.query("UPDATE $id CONTENT $row RETURN NONE").bind(restore).await.unwrap().check().unwrap();
+    let mut restore = Variables::new();
+    restore.insert("id", id);
+    restore.insert("row", Value::Object(saved));
+    admin
+        .query("UPDATE $id CONTENT $row RETURN NONE")
+        .bind(restore)
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     store.verify_state().await.unwrap();
     store.abandon().await.unwrap();
 }
@@ -456,18 +514,42 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
         ),
         "exact acknowledged range primary: {failure:?}"
     );
-    for (table,predicate) in [
-        ("original","id=$source"),
-        ("original_chunk","source=$source"),
-        ("compiler_record","id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)"),
-        ("compiler_membership","contribution=$owner"),
+    for (table, predicate) in [
+        ("original", "id=$source"),
+        ("original_chunk", "source=$source"),
+        (
+            "compiler_record",
+            "id IN (SELECT VALUE node FROM compiler_membership WHERE contribution=$owner)",
+        ),
+        ("compiler_membership", "contribution=$owner"),
     ] {
-        let mut bindings=lctx_surrealdb::surrealdb::types::Variables::new();
-        bindings.insert("source",lctx_surrealdb::surrealdb::types::RecordId::new("original",lctx_model::domain::graph::EntityId::of(artifact).0.hex()));
-        bindings.insert("owner",lctx_surrealdb::surrealdb::types::RecordId::new("compiler_contribution",contribution.hex()));
-        let mut response=admin.query(format!("SELECT * FROM {table} WHERE {predicate}")).bind(bindings).await.unwrap().check().unwrap();
-        let rows:Vec<Value>=response.take(0).unwrap();
-        assert!(rows.is_empty(),"later invalid range must precede every owned effect in {table}");
+        let mut bindings = lctx_surrealdb::surrealdb::types::Variables::new();
+        bindings.insert(
+            "source",
+            lctx_surrealdb::surrealdb::types::RecordId::new(
+                "original",
+                lctx_model::domain::graph::EntityId::of(artifact).0.hex(),
+            ),
+        );
+        bindings.insert(
+            "owner",
+            lctx_surrealdb::surrealdb::types::RecordId::new(
+                "compiler_contribution",
+                contribution.hex(),
+            ),
+        );
+        let mut response = admin
+            .query(format!("SELECT * FROM {table} WHERE {predicate}"))
+            .bind(bindings)
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let rows: Vec<Value> = response.take(0).unwrap();
+        assert!(
+            rows.is_empty(),
+            "later invalid range must precede every owned effect in {table}"
+        );
     }
     abandon_acknowledged_write_failure(&store, &config, &failure).await;
     admin.invalidate().await.unwrap();

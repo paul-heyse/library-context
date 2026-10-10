@@ -20,6 +20,29 @@ const RUN_BYTES: usize = 1024 * 1024;
 const IO_BYTES: usize = 8192;
 const OWNER: &str = "native-ordered-candidates";
 
+/// Encoded frame and decoded native containers coexist during ordering. Byte and
+/// string payloads do not expand into one Value allocation per encoded byte.
+pub(crate) fn physical_work_bytes(value: &Value, frame: usize) -> usize {
+    frame
+        .saturating_mul(2)
+        .saturating_add(crate::loader::native_bytes(value).saturating_mul(2))
+        .saturating_add(size_of::<Entry<RecordId>>())
+}
+
+/// Portable transport separately bounds encoded frames and native rows. A merge
+/// keeps three work heads alongside the acknowledged input and singleton frame.
+pub(crate) fn portable_ordering_budget() -> Result<ResourceBudget, ModelError> {
+    let row = lctx_model::domain::resources::MAX_ROW_BYTES;
+    let work = row
+        .saturating_mul(4)
+        .saturating_add(size_of::<Entry<RecordId>>());
+    ResourceBudget::fixed(
+        work.saturating_mul(4)
+            .saturating_add(row)
+            .saturating_add(4 * RUN_BYTES),
+    )
+}
+
 /// A complete relation-qualified nominal identity and its actual stored backing pointer.
 /// Scope branches and exact contributors may repeat this tuple, but cannot disagree on node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,8 +105,8 @@ impl Adapter for Physical {
             _ => bytes.saturating_mul(2 * size_of::<Value>() + 4),
         }
     }
-    fn work_bytes(_: &Value, frame: usize) -> usize {
-        frame.saturating_mul(2 * size_of::<Value>() + 4) + size_of::<Entry<RecordId>>()
+    fn work_bytes(value: &Value, frame: usize) -> usize {
+        physical_work_bytes(value, frame)
     }
 }
 struct Compact;
@@ -117,15 +140,15 @@ impl Adapter for Compact {
         frame.saturating_mul(factor) + size_of::<Candidate>() + size_of::<Entry<Self::Key>>()
     }
 }
-fn entry<A: Adapter>(value: A::Output) -> Result<Entry<A::Key>, ModelError> {
+fn entry<A: Adapter>(value: A::Output, row_bytes: usize) -> Result<Entry<A::Key>, ModelError> {
     let key = A::key(&value)?;
     let bytes = A::encode(&value)?;
-    if bytes.len() > ROW_BYTES {
+    if bytes.len() > row_bytes {
         return Err(ModelError::Limit {
             owner: "native-ordered-rows",
             limit: "row bytes",
             observed: bytes.len(),
-            bound: ROW_BYTES,
+            bound: row_bytes,
         });
     }
     let work_bytes = A::work_bytes(&value, bytes.len());
@@ -153,7 +176,7 @@ fn read<A: Adapter>(
         .read_exact(&mut length[1..])
         .map_err(ModelError::codec)?;
     let length = usize::try_from(u64::from_le_bytes(length)).map_err(ModelError::codec)?;
-    if length > ROW_BYTES || length > bounds.frame {
+    if length > bounds.frame {
         return Err(ModelError::Schema("ordered row frame bound"));
     }
     let mut bytes = vec![0; length];
@@ -230,6 +253,7 @@ struct Sorter<A: Adapter> {
     pending: Vec<Entry<A::Key>>,
     payload_bytes: usize,
     limit: usize,
+    row_bytes: usize,
     // Binary carry merging: logarithmic descriptors and two live heads, never a seen set.
     runs: Vec<Option<NamedTempFile>>,
     budget: Option<ResourceBudget>,
@@ -248,6 +272,7 @@ impl<A: Adapter> Sorter<A> {
             pending: Vec::new(),
             payload_bytes: 0,
             limit,
+            row_bytes: ROW_BYTES,
             runs: Vec::new(),
             budget,
             retained,
@@ -283,7 +308,7 @@ impl<A: Adapter> Sorter<A> {
         result
     }
     fn push_inner(&mut self, value: A::Output) -> Result<(), ModelError> {
-        let row = entry::<A>(value)?;
+        let row = entry::<A>(value, self.row_bytes)?;
         self.bounds.frame = self.bounds.frame.max(row.bytes.len());
         self.bounds.work = self.bounds.work.max(row.work_bytes);
         let row_bytes = row.bytes.capacity() + A::key_bytes(&row.key);
@@ -308,9 +333,11 @@ impl<A: Adapter> Sorter<A> {
             .payload_bytes
             .saturating_add(row_bytes)
             .saturating_add(capacity * size_of::<Entry<A::Key>>());
-        // Reduced test run limits may emit a singleton; the production candidate buffer
-        // still never exceeds the existing one-MiB run bound.
-        if self.budget.is_some() && pending_bytes > RUN_BYTES {
+        // Ordinary candidate/physical windows keep the one-MiB run bound. Explicit
+        // portable envelopes may emit one charged larger row and flush immediately.
+        let oversized_singleton =
+            self.pending.is_empty() && pending_bytes > RUN_BYTES && self.row_bytes > ROW_BYTES;
+        if self.budget.is_some() && pending_bytes > RUN_BYTES && !oversized_singleton {
             return Err(ModelError::Limit {
                 owner: OWNER,
                 limit: "candidate run bytes",
@@ -481,6 +508,17 @@ impl SortedRows {
     pub fn with_budget(budget: &ResourceBudget) -> Result<Self, ModelError> {
         Sorter::new(RUN_BYTES, Some(budget.clone())).map(Self)
     }
+    pub fn with_budget_and_row_bytes(
+        budget: &ResourceBudget,
+        row_bytes: usize,
+    ) -> Result<Self, ModelError> {
+        if row_bytes == 0 || row_bytes > lctx_model::domain::resources::MAX_ROW_BYTES {
+            return Err(ModelError::Schema("physical ordering row byte limit"));
+        }
+        let mut sorter = Sorter::new(RUN_BYTES, Some(budget.clone()))?;
+        sorter.row_bytes = row_bytes;
+        Ok(Self(sorter))
+    }
     pub fn with_run_bytes(limit: usize) -> Result<Self, ModelError> {
         Sorter::new(limit, None).map(Self)
     }
@@ -557,7 +595,10 @@ pub struct OrderedCandidates(Ordered<Compact>);
 #[derive(Clone)]
 pub struct PreparedCandidates(Arc<Run<Compact>>);
 impl PreparedCandidates {
-    pub fn cursor_with_budget(&self, budget: &ResourceBudget) -> Result<OrderedCandidates, ModelError> {
+    pub fn cursor_with_budget(
+        &self,
+        budget: &ResourceBudget,
+    ) -> Result<OrderedCandidates, ModelError> {
         Ordered::open_in(self.0.clone(), Some(budget.clone())).map(OrderedCandidates)
     }
 }
@@ -823,5 +864,54 @@ mod tests {
             sorted.push(row("large", Value::String("x".repeat(ROW_BYTES)))),
             Err(ModelError::Limit { .. })
         ));
+    }
+
+    #[test]
+    fn portable_large_rows_use_charged_singletons_without_container_amplification() {
+        let value = row("a", Value::Bytes(Bytes::from(vec![255; ROW_BYTES])));
+        let mut ordinary = SortedRows::new().unwrap();
+        assert!(matches!(
+            ordinary.push(value.clone()),
+            Err(ModelError::Limit { .. })
+        ));
+        let budget = ResourceBudget::fixed(128 << 20).unwrap();
+        let mut sorted = SortedRows::with_budget_and_row_bytes(
+            &budget,
+            lctx_model::domain::resources::MAX_ROW_BYTES,
+        )
+        .unwrap();
+        let second = row("b", Value::Bytes(Bytes::from(vec![254; ROW_BYTES])));
+        // The encoded frame can fit the ordinary frame limit while its key and
+        // retained entry metadata put the singleton just over the run limit.
+        let empty = row("c", Value::String(String::new()));
+        let overhead = serde_json::to_vec(&empty).unwrap().len();
+        let boundary = row("c", Value::String("x".repeat(RUN_BYTES - overhead - 1)));
+        assert_eq!(serde_json::to_vec(&boundary).unwrap().len(), RUN_BYTES - 1);
+        sorted.push(second.clone()).unwrap();
+        assert!(
+            sorted.0.pending.is_empty(),
+            "large row is flushed as a singleton"
+        );
+        sorted.push(value.clone()).unwrap();
+        sorted.push(value.clone()).unwrap();
+        sorted.push(boundary.clone()).unwrap();
+        assert!(
+            sorted.0.pending.is_empty(),
+            "metadata-heavy singleton is flushed"
+        );
+        let mut ordered = sorted.finish().unwrap();
+        assert_eq!(ordered.next_row().unwrap(), Some(value));
+        assert_eq!(ordered.next_row().unwrap(), Some(second));
+        assert_eq!(ordered.next_row().unwrap(), Some(boundary));
+        assert!(ordered.next_row().unwrap().is_none());
+        drop(ordered);
+        assert_eq!(budget.reserved(), 0);
+        assert!(
+            SortedRows::with_budget_and_row_bytes(
+                &budget,
+                lctx_model::domain::resources::MAX_ROW_BYTES + 1,
+            )
+            .is_err()
+        );
     }
 }

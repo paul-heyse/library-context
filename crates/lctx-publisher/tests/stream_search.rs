@@ -9,10 +9,32 @@ use lctx_model::domain::{
 };
 use lctx_publisher::{materialize_search, reconcile_search};
 use lctx_surrealdb::surrealdb::types::{RecordId, Value, Variables};
-use lctx_surrealdb::{Loader,RuntimeConfig};
-#[path="../../lctx-serving/tests/fixtures/scoped.rs"] mod scoped;
-fn nonce()->&'static str {static NONCE:std::sync::OnceLock<String>=std::sync::OnceLock::new();NONCE.get_or_init(||format!("{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))}
-fn id<R: Record>(byte: u8) -> Id<R> {let digest=ContentHash::of(format!("{}-{byte}",nonce()).as_bytes());serde_json::from_value(serde_json::json!(&digest.0[..16])).unwrap()}
+use lctx_surrealdb::{Loader, RuntimeConfig};
+#[path = "../../lctx-serving/tests/fixtures/scoped.rs"]
+mod scoped;
+struct FixtureIdentity {
+    nonce: String,
+}
+impl FixtureIdentity {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        Self {
+            nonce: format!(
+                "{}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ),
+        }
+    }
+    fn id<R: Record>(&self, byte: u8) -> Id<R> {
+        let digest = ContentHash::of(format!("{}-{byte}", self.nonce).as_bytes());
+        serde_json::from_value(serde_json::json!(&digest.0[..16])).unwrap()
+    }
+}
 
 async fn execute(loader: &Loader, sql: impl Into<String>, bindings: Variables) {
     loader
@@ -25,18 +47,36 @@ async fn execute(loader: &Loader, sql: impl Into<String>, bindings: Variables) {
         .unwrap();
 }
 async fn rows(loader: &Loader, table: &str) -> Vec<Value> {
-    let mut response = loader
-        .client()
-        .query(format!("SELECT * FROM {table} WHERE {} ORDER BY id",match table {
-            "lex_occurs"|"vec_occurs"=>lctx_surrealdb::derived_search::selected_occurrence_predicate(&loader.reader(),"$this"),
-            "vector"=>format!("id IN (SELECT VALUE in FROM vec_occurs WHERE {})",lctx_surrealdb::derived_search::selected_occurrence_predicate(&loader.reader(),"$this")),
-            _=>format!("id IN (SELECT VALUE in FROM lex_occurs WHERE {})",lctx_surrealdb::derived_search::selected_occurrence_predicate(&loader.reader(),"$this")),
-        })).bind(loader.reader().view_bindings())
-        .await
-        .unwrap()
-        .check()
+    let reader = loader.reader();
+    let mut preparation = Vec::new();
+    let exact =
+        lctx_surrealdb::derived_search::prepare_exact_occurrences(&reader, &mut preparation);
+    let source = match table {
+        "lex_occurs" => exact.lexical,
+        "vec_occurs" => exact.vector,
+        "vector" => exact.vectors,
+        _ => exact.documents,
+    };
+    let mut vars = reader.view_bindings();
+    vars.insert("table", table.to_string());
+    let mut stream = reader
+        .stream_prepared(
+            lctx_surrealdb::prepared::PreparedQuery::new(
+                vars,
+                preparation,
+                vec![format!(
+                    "SELECT * FROM {source} WHERE record::table(id)=$table ORDER BY id"
+                )],
+            )
+            .unwrap(),
+        )
         .unwrap();
-    response.take(0).unwrap()
+    let mut rows = Vec::new();
+    while let Some(row) = stream.next().await.unwrap() {
+        rows.push(row);
+    }
+    stream.drain_transport().await.unwrap();
+    rows
 }
 async fn restore(loader: &Loader, row: &Value, relation: bool) {
     let mut bind = Variables::new();
@@ -60,16 +100,51 @@ async fn restore(loader: &Loader, row: &Value, relation: bool) {
 }
 #[tokio::test]
 async fn streamed_witnesses_and_complete_read_only_cold_audit() {
-    streamed_control(false).await;
+    streamed_control(AuditTarget::Baseline).await;
+}
+#[derive(Clone, Copy, Debug)]
+enum AuditTarget {
+    Baseline,
+    Lexical(&'static str),
+    Physical(&'static str),
+    Definitions,
+}
+macro_rules! audit_controls {
+    ($($name:ident: $kind:ident($table:literal),)*) => {$(
+        #[tokio::test]
+        async fn $name() { streamed_control(AuditTarget::$kind($table)).await; }
+    )*};
+}
+audit_controls! {
+    streamed_lexical_corpus_corruption: Lexical("lexical_corpus"),
+    streamed_lexical_term_corruption: Lexical("lexical_term"),
+    streamed_lexical_document_corruption: Lexical("lexical_document"),
+    streamed_lexical_member_corruption: Lexical("lexical_member"),
+    streamed_api_options_corruption: Physical("search_api_options"),
+    streamed_documentation_deployment_corruption: Physical("search_documentation_deployment"),
+    streamed_scenario_corruption: Physical("search_scenario"),
+    streamed_source_corruption: Physical("search_source"),
+    streamed_vector_corruption: Physical("vector"),
+    streamed_lexical_occurrence_corruption: Physical("lex_occurs"),
+    streamed_vector_occurrence_corruption: Physical("vec_occurs"),
 }
 #[tokio::test]
-#[ignore="requires explicit exclusive maintenance admission"]
-async fn installed_scope_definition_drift_is_detected_read_only(){
-    assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),"run through just service maintenance --native-clients");
-    streamed_control(true).await;
+#[ignore = "requires explicit exclusive maintenance admission"]
+async fn installed_scope_definition_drift_is_detected_read_only() {
+    assert!(
+        std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),
+        "run through just service maintenance --native-clients"
+    );
+    streamed_control(AuditTarget::Definitions).await;
 }
-async fn streamed_control(maintenance:bool){
-    let config=scoped::config();
+async fn streamed_control(target: AuditTarget) {
+    let identity = FixtureIdentity::new();
+    let maintenance = matches!(target, AuditTarget::Definitions);
+    let started = std::time::Instant::now();
+    let progress =
+        |phase: &str| eprintln!("stream_search {target:?} {:?}: {phase}", started.elapsed());
+    progress("fixture construction");
+    let config = scoped::config();
     let spec: Spec = serde_json::from_slice(include_bytes!(
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
@@ -82,8 +157,8 @@ async fn streamed_control(maintenance:bool){
     ];
     let document = embedding::DocumentRecipe::new(&spec).unwrap();
     let policy = embedding::projection::ProjectionDefinition::initial(&spec);
-    let text_owner=format!("discover exact native evidence {}",nonce());
-    let text=text_owner.as_str();
+    let text_owner = format!("discover exact native evidence {}", identity.nonce);
+    let text = text_owner.as_str();
     let digest = ContentHash::of(text.as_bytes());
     let mut entities = specifications
         .iter()
@@ -95,8 +170,8 @@ async fn streamed_control(maintenance:bool){
     let mut members = Vec::new();
     for name in ["first", "second"] {
         let member = CatalogMember {
-            input: id(1),
-            access: id(2),
+            input: identity.id(1),
+            access: identity.id(2),
             path: vec![name.into()],
             name: name.into(),
         };
@@ -151,8 +226,8 @@ async fn streamed_control(maintenance:bool){
                 member: members[0].0,
             };
             let unit = Unit {
-                input: id(1),
-                context: id(context),
+                input: identity.id(1),
+                context: identity.id(context),
                 family,
                 origin: origin.id(),
                 corpus: corpus.id(),
@@ -171,7 +246,7 @@ async fn streamed_control(maintenance:bool){
             let supported = OriginalAnchor {
                 unit: unit.id(),
                 ordinal: 0,
-                original: id(6),
+                original: identity.id(6),
             };
             expected_anchor.push(supported.id());
             assertions.push(Assertion::from_record(supported).unwrap());
@@ -180,7 +255,7 @@ async fn streamed_control(maintenance:bool){
                     Assertion::from_record(OriginalAnchor {
                         unit: unit.id(),
                         ordinal,
-                        original: id(9),
+                        original: identity.id(9),
                     })
                     .unwrap(),
                 );
@@ -197,7 +272,7 @@ async fn streamed_control(maintenance:bool){
                     text: text.into(),
                 };
                 let window = SearchWindow {
-                    definition: id(7),
+                    definition: identity.id(7),
                     unit: unit.id(),
                     ordinal,
                     corpus: corpus.id(),
@@ -230,14 +305,14 @@ async fn streamed_control(maintenance:bool){
                     start: 0,
                     end: text.len() as i64,
                     part: Some(part.id()),
-                    original: Some(id(6)),
+                    original: Some(identity.id(6)),
                     original_start: Some(0),
                     original_end: Some(text.len() as i64),
                 }));
                 for (index, encoder) in specifications.iter().enumerate() {
                     assertions.push(
                         Assertion::from_record(RetrievalEmbeddingUse {
-                            invocation: id(10 + index as u8),
+                            invocation: identity.id(10 + index as u8),
                             window: window.id(),
                             specification: encoder.id(),
                             document: document.id(),
@@ -263,7 +338,7 @@ async fn streamed_control(maintenance:bool){
                 text: setup.into(),
             };
             let window = SearchWindow {
-                definition: id(7),
+                definition: identity.id(7),
                 unit: unit.id(),
                 ordinal: 10,
                 corpus: corpus.id(),
@@ -285,19 +360,54 @@ async fn streamed_control(maintenance:bool){
             }));
         }
     }
-    let fixture=scoped::reader(&config,&entities,&assertions).await.unwrap();
-    let vars=fixture.reader.view_bindings();let Some(Value::Array(selected))=vars.get("lctx_views")else{panic!("explicit fixture views")};
-    let views=selected.iter().map(|view|{let Value::RecordId(view)=view else{panic!("view ID")};let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash)=&view.key else{panic!("view hash")};ContentHash(hex::decode(hash).unwrap().try_into().unwrap())}).collect::<Vec<_>>();
-    let loader=Loader::for_attempt_views(fixture.reader.shared_client(),fixture.store.attempt(),views.clone());
-    let privileged=if maintenance {
-        let installer=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer config"))).unwrap();
-        let client=lctx_surrealdb::reader::connect(&installer.endpoint,&installer.writer_credentials(),installer.namespace.as_str(),installer.database.as_str()).await.unwrap();
-        Some(Loader::for_views(client,views))
-    }else{None};
+    let fixture = scoped::reader(&config, &entities, &assertions)
+        .await
+        .unwrap();
+    let vars = fixture.reader.view_bindings();
+    let Some(Value::Array(selected)) = vars.get("lctx_views") else {
+        panic!("explicit fixture views")
+    };
+    let views = selected
+        .iter()
+        .map(|view| {
+            let Value::RecordId(view) = view else {
+                panic!("view ID")
+            };
+            let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
+                panic!("view hash")
+            };
+            ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
+        })
+        .collect::<Vec<_>>();
+    let loader = Loader::for_attempt_views(
+        fixture.reader.shared_client(),
+        fixture.store.attempt(),
+        views.clone(),
+    );
+    let privileged = if maintenance {
+        let installer = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
+                .expect("maintenance installer config"),
+        ))
+        .unwrap();
+        let client = lctx_surrealdb::reader::connect(
+            &installer.endpoint,
+            &installer.writer_credentials(),
+            installer.namespace.as_str(),
+            installer.database.as_str(),
+        )
+        .await
+        .unwrap();
+        Some(Loader::for_views(client, views))
+    } else {
+        None
+    };
     // This physical-lowering fixture has deliberately partial canonical rows.
     // Sparse canonical scope keys support its frontiers; full graph closure is
     // exercised by the separate admitted publication journey.
+    progress("materialize search");
     materialize_search(&loader).await.unwrap();
+    progress("read materialized witnesses");
     let tables = [
         "search_api_options",
         "search_documentation_deployment",
@@ -327,31 +437,75 @@ async fn streamed_control(maintenance:bool){
                 .any(|a| row.get("anchor") == Some(&physical(serde_json::to_value(a).unwrap())))
         );
     }
+    progress("initial cold audit");
     reconcile_search(&loader).await.unwrap();
+    progress("initial cold audit passed");
     // Frozen lexical statistics are reconciled by actual payload, without repairing corruption.
-    for (table,change) in [("lexical_corpus","documents=documents+1"),("lexical_term","df=df+1"),("lexical_document","length=length+1"),("lexical_member","family=99")] {
-        let scope=lctx_surrealdb::lexical_stats::scope_identity(&loader.reader()).unwrap();let mut bind=Variables::new();bind.insert("scope",scope.hex());
-        let predicate=if table=="lexical_document" {"id IN (SELECT VALUE in FROM lexical_member WHERE scope=$scope)"}else{"scope=$scope"};
-        let saved:Vec<Value>=loader.reader().query(format!("SELECT * FROM {table} WHERE {predicate} ORDER BY id LIMIT 1"),bind).await.unwrap();let saved=saved[0].clone();
-        let mut vars=Variables::new();vars.insert("id",saved.as_object().unwrap().get("id").unwrap().clone());vars.insert("saved",saved.clone());
-        execute(&loader,format!("UPDATE $id SET {change}"),vars.clone()).await;
-        assert!(reconcile_search(&loader).await.is_err(),"changed immutable {table}");
-        let before:Value=loader.reader().query("SELECT * FROM ONLY $id",vars.clone()).await.unwrap();
+    for (table, change) in [
+        ("lexical_corpus", "documents=documents+1"),
+        ("lexical_term", "df=df+1"),
+        ("lexical_document", "length=length+1"),
+        ("lexical_member", "family=99"),
+    ] {
+        if !matches!(target, AuditTarget::Lexical(selected) if selected == table) {
+            continue;
+        }
+        progress(&format!("lexical corruption {table}"));
+        let scope = lctx_surrealdb::lexical_stats::scope_identity(&loader.reader()).unwrap();
+        let mut bind = Variables::new();
+        bind.insert("scope", scope.hex());
+        let predicate = if table == "lexical_document" {
+            "id IN (SELECT VALUE in FROM lexical_member WHERE scope=$scope)"
+        } else {
+            "scope=$scope"
+        };
+        let saved: Vec<Value> = loader
+            .reader()
+            .query_native(
+                format!("SELECT * FROM {table} WHERE {predicate} ORDER BY id LIMIT 1"),
+                bind,
+            )
+            .await
+            .unwrap();
+        let saved = saved[0].clone();
+        let mut vars = Variables::new();
+        vars.insert("id", saved.as_object().unwrap().get("id").unwrap().clone());
+        vars.insert("saved", saved.clone());
+        execute(&loader, format!("UPDATE $id SET {change}"), vars.clone()).await;
+        assert!(
+            reconcile_search(&loader).await.is_err(),
+            "changed immutable {table}"
+        );
+        let before: Value = loader
+            .reader()
+            .query_native("SELECT * FROM ONLY $id", vars.clone())
+            .await
+            .unwrap();
         assert!(reconcile_search(&loader).await.is_err());
-        let after:Value=loader.reader().query("SELECT * FROM ONLY $id",vars.clone()).await.unwrap();assert_eq!(before,after,"cold refusal stays read-only");
-        execute(&loader,"UPDATE $id CONTENT $saved",vars).await;
+        let after: Value = loader
+            .reader()
+            .query_native("SELECT * FROM ONLY $id", vars.clone())
+            .await
+            .unwrap();
+        assert_eq!(before, after, "cold refusal stays read-only");
+        execute(&loader, "UPDATE $id CONTENT $saved", vars).await;
         reconcile_search(&loader).await.unwrap();
     }
     // Full rows, not just counts/IDs: every family refuses deletion, extra row and changed payload.
     for table in tables {
+        if !maintenance && !matches!(target, AuditTarget::Physical(selected) if selected == table) {
+            continue;
+        }
+        progress(&format!("family {table}: read witnesses"));
         let family_rows = rows(&loader, table).await;
         let saved = if table.ends_with("occurs") {
             family_rows
                 .iter()
                 .find(|row| {
                     let row = row.as_object().unwrap();
-                    row.get("member") != Some(&Value::Null)
-                        && row.get("anchor") != Some(&Value::Null)
+                    ["member", "anchor", "binding"]
+                        .into_iter()
+                        .all(|field| row.get(field).is_some_and(|value| value != &Value::Null))
                 })
                 .unwrap()
                 .clone()
@@ -361,86 +515,177 @@ async fn streamed_control(maintenance:bool){
         let object = saved.as_object().unwrap();
         let mut bind = Variables::new();
         bind.insert("id", object.get("id").unwrap().clone());
-        execute(&loader, "DELETE $id", bind.clone()).await;
-        assert!(reconcile_search(&loader).await.is_err(), "missing {table}");
-        restore(&loader, &saved, table.ends_with("occurs")).await;
-        // Endpoint deletion may remove connected relations; restore those exact saved witnesses.
-        if !table.ends_with("occurs") {
-            for (occurrence_table, saved_rows) in
-                [("lex_occurs", &lexical), ("vec_occurs", &vectors)]
-            {
-                let mut restore_bind = Variables::new();
-                restore_bind.insert("rows", saved_rows.clone());
-                execute(
-                    &loader,
-                    format!("INSERT RELATION IGNORE INTO {occurrence_table} $rows"),
-                    restore_bind,
-                )
-                .await;
+        if !maintenance {
+            progress(&format!("family {table}: missing row audit"));
+            execute(&loader, "DELETE $id", bind.clone()).await;
+            let missing_refusal = reconcile_search(&loader).await;
+            restore(&loader, &saved, table.ends_with("occurs")).await;
+            // Endpoint deletion may remove connected relations; restore those exact saved witnesses.
+            if !table.ends_with("occurs") {
+                for (occurrence_table, saved_rows) in
+                    [("lex_occurs", &lexical), ("vec_occurs", &vectors)]
+                {
+                    let mut restore_bind = Variables::new();
+                    restore_bind.insert("rows", saved_rows.clone());
+                    execute(
+                        &loader,
+                        format!("INSERT RELATION IGNORE INTO {occurrence_table} $rows"),
+                        restore_bind,
+                    )
+                    .await;
+                }
             }
-        }
-        let mut extra = object.clone();
-        extra.insert("id", RecordId::new(table,format!("{}-extra",nonce())));
-        if table.starts_with("search_") {
-            extra.insert("digest", vec![0i64; 32]);
-        } else if table == "vector" {
-            extra.insert("projection_key", "extra-projection");
-        } else {
-            extra.insert("occurrence_key", "extra");
-        }
-        let extra = Value::Object(extra);
-        restore(&loader, &extra, table.ends_with("occurs")).await;
-        let extra_edge=if !table.ends_with("occurs") {
-            let template=if table=="vector" {&vectors[0]}else{&lexical[0]};
-            let mut edge=template.as_object().unwrap().clone();
-            let name=if table=="vector"{"vec_occurs"}else{"lex_occurs"};
-            let id=RecordId::new(name,format!("{}-extra-{table}",nonce()));edge.insert("id",id.clone());edge.insert("in",extra.as_object().unwrap().get("id").unwrap().clone());edge.insert("occurrence_key",format!("{}-extra-{table}",nonce()));
-            restore(&loader,&Value::Object(edge),true).await;Some(id)
-        }else{None};
-        assert!(reconcile_search(&loader).await.is_err(), "extra {table}");
-        let mut extra_bind = Variables::new();
-        extra_bind.insert("id", extra.as_object().unwrap().get("id").unwrap().clone());
-        if let Some(id)=extra_edge {let mut vars=Variables::new();vars.insert("id",id);execute(&loader,"DELETE $id",vars).await;}
-        execute(&loader, "DELETE $id", extra_bind).await;
-        let changes = if table.starts_with("search_") {
-            vec!["text='changed'"]
-        } else if table == "vector" {
-            vec![
-                "full_key='changed'",
-                "policy_key='changed'",
-                "embedding[0]=0.0,embedding[2]=1.0",
-                "embedding[0]=0.5",
-            ]
-        } else {
-            vec![
-                "eligible=false",
-                "family=3",
-                "input=array::repeat(0,16)",
-                "context=array::repeat(0,16)",
-                "member=NULL",
-                "anchor=NULL",
-                "unit=array::repeat(0,16)",
-                "window=array::repeat(0,16)",
-                "part=array::repeat(0,16)",
-                "binding=NULL",
-                "occurrence_key='changed'",
-            ]
-        };
-        for change in changes {
-            execute(&loader, format!("UPDATE $id SET {change}"), bind.clone()).await;
-            assert!(
-                reconcile_search(&loader).await.is_err(),
-                "changed {table}: {change}"
+            assert!(missing_refusal.is_err(), "missing {table}");
+            progress(&format!("family {table}: extra row audit"));
+            let mut extra = object.clone();
+            extra.insert(
+                "id",
+                RecordId::new(table, format!("{}-extra", identity.nonce)),
             );
-            let after = rows(&loader, table).await;
-            // Refusal is read-only: a second audit observes the same exact persisted row set.
-            assert!(reconcile_search(&loader).await.is_err());
-            assert_eq!(after, rows(&loader, table).await);
-            let mut original = bind.clone();
-            original.insert("saved", saved.clone());
-            execute(&loader, "UPDATE $id CONTENT $saved", original).await;
+            if table.starts_with("search_") {
+                extra.insert(
+                    "digest",
+                    physical(
+                        serde_json::to_value(ContentHash::of(
+                            format!("{}-extra-{table}", identity.nonce).as_bytes(),
+                        ))
+                        .unwrap(),
+                    ),
+                );
+            } else if table == "vector" {
+                extra.insert("projection_key", "extra-projection");
+            } else {
+                extra.insert(
+                    "occurrence_key",
+                    format!("{}-extra-{table}", identity.nonce),
+                );
+            }
+            let extra = Value::Object(extra);
+            restore(&loader, &extra, table.ends_with("occurs")).await;
+            let extra_edge = if !table.ends_with("occurs") {
+                let template = if table == "vector" {
+                    &vectors[0]
+                } else {
+                    &lexical[0]
+                };
+                let mut edge = template.as_object().unwrap().clone();
+                let name = if table == "vector" {
+                    "vec_occurs"
+                } else {
+                    "lex_occurs"
+                };
+                let id = RecordId::new(name, format!("{}-extra-{table}", identity.nonce));
+                edge.insert("id", id.clone());
+                edge.insert("in", extra.as_object().unwrap().get("id").unwrap().clone());
+                edge.insert(
+                    "occurrence_key",
+                    format!("{}-extra-{table}", identity.nonce),
+                );
+                restore(&loader, &Value::Object(edge), true).await;
+                Some(id)
+            } else {
+                None
+            };
+            let extra_refusal = reconcile_search(&loader).await;
+            let mut extra_bind = Variables::new();
+            extra_bind.insert("id", extra.as_object().unwrap().get("id").unwrap().clone());
+            if let Some(id) = extra_edge {
+                let mut vars = Variables::new();
+                vars.insert("id", id);
+                execute(&loader, "DELETE $id", vars).await;
+            }
+            execute(&loader, "DELETE $id", extra_bind).await;
+            assert!(extra_refusal.is_err(), "extra {table}");
+            let mut mutation_values = Variables::new();
+            mutation_values.insert(
+                "changed_occurrence_key",
+                format!("{}-changed-{table}", identity.nonce),
+            );
+            if table.ends_with("occurs") {
+                let Some(Value::Number(lctx_surrealdb::surrealdb::types::Number::Int(family))) =
+                    object.get("family")
+                else {
+                    panic!("occurrence family integer");
+                };
+                assert!((0..4).contains(family), "fixture family code");
+                let changed_family = (family + 1) % 4;
+                assert_ne!(
+                    changed_family, *family,
+                    "family corruption must change the row"
+                );
+                mutation_values.insert("changed_family", changed_family);
+                assert_eq!(object.get("eligible"), Some(&Value::Bool(true)));
+                let zero_identity = physical(serde_json::json!(vec![0; 16]));
+                for field in ["input", "context", "unit", "window", "part"] {
+                    assert_ne!(
+                        object.get(field),
+                        Some(&zero_identity),
+                        "nonzero fixture {field}"
+                    );
+                }
+                for field in ["member", "anchor", "binding"] {
+                    assert!(
+                        object.get(field).is_some_and(|value| value != &Value::Null),
+                        "nonnull fixture {field}"
+                    );
+                }
+                assert_ne!(
+                    object.get("occurrence_key"),
+                    mutation_values.get("changed_occurrence_key")
+                );
+            }
+            let changes = if table.starts_with("search_") {
+                vec!["text='changed'"]
+            } else if table == "vector" {
+                vec![
+                    "full_key='changed'",
+                    "policy_key='changed'",
+                    "embedding[0]=0.0,embedding[2]=1.0",
+                    "embedding[0]=0.5",
+                ]
+            } else {
+                vec![
+                    "eligible=false",
+                    "family=$changed_family",
+                    "input=array::repeat(0,16)",
+                    "context=array::repeat(0,16)",
+                    "member=NULL",
+                    "anchor=NULL",
+                    "unit=array::repeat(0,16)",
+                    "window=array::repeat(0,16)",
+                    "part=array::repeat(0,16)",
+                    "binding=NULL",
+                    "occurrence_key=$changed_occurrence_key",
+                ]
+            };
+            for change in changes {
+                progress(&format!("family {table}: changed {change}"));
+                let mut mutation = bind.clone();
+                mutation.extend(mutation_values.clone());
+                execute(&loader, format!("UPDATE $id SET {change}"), mutation).await;
+                let changed = rows(&loader, table).await;
+                let first_refusal = reconcile_search(&loader).await;
+                let after = rows(&loader, table).await;
+                // Refusal is read-only: a second audit observes the same exact persisted row set.
+                let second_refusal = reconcile_search(&loader).await;
+                let after_second = rows(&loader, table).await;
+                let mut original = bind.clone();
+                original.insert("saved", saved.clone());
+                execute(&loader, "UPDATE $id CONTENT $saved", original).await;
+                // Restore before negative assertions so a test failure retains no corrupt witness.
+                assert_ne!(
+                    changed, family_rows,
+                    "physical mutation must change {table}: {change}"
+                );
+                assert!(first_refusal.is_err(), "changed {table}: {change}");
+                assert!(second_refusal.is_err(), "second refusal {table}: {change}");
+                assert_eq!(changed, after, "first audit is read-only");
+                assert_eq!(after, after_second, "second audit is read-only");
+            }
+            progress(&format!("family {table}: restored audit"));
+            reconcile_search(&loader).await.unwrap();
+            continue;
         }
-        if !maintenance {reconcile_search(&loader).await.unwrap();continue;}
         let (scope_field, source_field) = if table.starts_with("search_") {
             ("scope_digest", "digest")
         } else if table == "vector" {
@@ -462,7 +707,11 @@ async fn streamed_control(maintenance:bool){
         execute(&loader, "UPDATE $id CONTENT $saved", original).await;
         reconcile_search(&loader).await.unwrap();
     }
-    if let Some(privileged)=privileged {privileged.client().invalidate().await.unwrap();}
+    if let Some(privileged) = privileged {
+        privileged.client().invalidate().await.unwrap();
+    }
+    progress("fixture cleanup");
     fixture.close().await.unwrap();
     loader.client().invalidate().await.unwrap();
+    progress("complete");
 }

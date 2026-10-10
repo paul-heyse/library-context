@@ -1,17 +1,22 @@
 //! Exact immutable compiler products and dependencies. These describe completed state, not
 //! runtime grants, execution history or a cross-run scheduler.
-use super::{ContentHash, Key, KeySink, ModelError, analysis::sources::SourceSnapshot, stages::Profile};
+use super::{
+    ContentHash, Key, KeySink, ModelError, analysis::sources::SourceSnapshot, stages::Profile,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TypedRowKey { pub relation: String, pub key: [u8; 16] }
+pub struct TypedRowKey {
+    pub relation: String,
+    pub key: [u8; 16],
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContributionSpec {
-    #[serde(deserialize_with="super::producer_contract::required_optional")]
+    #[serde(deserialize_with = "super::producer_contract::required_optional")]
     pub captured_binding: Option<super::producer_contract::CapturedProducerBinding>,
     pub producer: String,
     pub profile: Profile,
@@ -23,16 +28,38 @@ pub struct ContributionSpec {
 }
 impl ContributionSpec {
     pub fn identity(&self) -> Result<ContentHash, ModelError> {
-        if self.producer.is_empty() { return Err(ModelError::Invalid("empty contribution producer".into())); }
-        let mut input_ids = self.inputs.iter().map(SourceSnapshot::identity).collect::<Vec<_>>();
-        input_ids.sort(); input_ids.dedup();
+        if self.producer.is_empty() {
+            return Err(ModelError::Invalid("empty contribution producer".into()));
+        }
+        let mut input_ids = self
+            .inputs
+            .iter()
+            .map(SourceSnapshot::identity)
+            .collect::<Vec<_>>();
+        input_ids.sort();
+        input_ids.dedup();
         let mut sink = KeySink::new("compiler-contribution-spec/v2");
-        self.captured_binding.as_ref().map(|binding|binding.identity()).transpose()?.encode(&mut sink);
-        if self.captured_binding.as_ref().is_some_and(|binding|self.configuration!=Some(binding.producer_settings)) {return Err(ModelError::Conflict("captured producer settings"));}
-        self.producer.encode(&mut sink); self.profile.name().to_string().encode(&mut sink);
-        self.model.encode(&mut sink); self.implementation.encode(&mut sink);
-        self.configuration.encode(&mut sink); input_ids.encode(&mut sink);
-        for output in &self.outputs { output.encode(&mut sink); }
+        self.captured_binding
+            .as_ref()
+            .map(|binding| binding.identity())
+            .transpose()?
+            .encode(&mut sink);
+        if self
+            .captured_binding
+            .as_ref()
+            .is_some_and(|binding| self.configuration != Some(binding.producer_settings))
+        {
+            return Err(ModelError::Conflict("captured producer settings"));
+        }
+        self.producer.encode(&mut sink);
+        self.profile.name().to_string().encode(&mut sink);
+        self.model.encode(&mut sink);
+        self.implementation.encode(&mut sink);
+        self.configuration.encode(&mut sink);
+        input_ids.encode(&mut sink);
+        for output in &self.outputs {
+            output.encode(&mut sink);
+        }
         Ok(sink.finish())
     }
 }
@@ -46,19 +73,34 @@ pub struct CompletedView {
     pub identity: ContentHash,
 }
 impl CompletedView {
-    pub fn new(relation: String, contributions: BTreeSet<ContentHash>, rows: u64) -> Result<Self, ModelError> {
+    pub fn new(
+        relation: String,
+        contributions: BTreeSet<ContentHash>,
+        rows: u64,
+    ) -> Result<Self, ModelError> {
         if relation.is_empty() || contributions.is_empty() {
-            return Err(ModelError::Invalid("completed view needs relation and completed contributions".into()));
+            return Err(ModelError::Invalid(
+                "completed view needs relation and completed contributions".into(),
+            ));
         }
         let mut sink = KeySink::new("compiler-completed-view/v1");
         relation.encode(&mut sink);
-        for contribution in &contributions { contribution.encode(&mut sink); }
+        for contribution in &contributions {
+            contribution.encode(&mut sink);
+        }
         // Count is deduplicated metadata, not a substitute for exact membership.
-        sink.part(b"rows",&rows.to_le_bytes());
-        Ok(Self { relation, contributions, rows, identity: sink.finish() })
+        sink.part(b"rows", &rows.to_le_bytes());
+        Ok(Self {
+            relation,
+            contributions,
+            rows,
+            identity: sink.finish(),
+        })
     }
     pub fn validate(&self) -> Result<(), ModelError> {
-        if Self::new(self.relation.clone(), self.contributions.clone(), self.rows)?.identity != self.identity {
+        if Self::new(self.relation.clone(), self.contributions.clone(), self.rows)?.identity
+            != self.identity
+        {
             return Err(ModelError::Conflict("completed view identity"));
         }
         Ok(())
@@ -67,7 +109,10 @@ impl CompletedView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OutputContent { pub rows: u64, pub content: ContentHash }
+pub struct OutputContent {
+    pub rows: u64,
+    pub content: ContentHash,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -78,13 +123,21 @@ pub struct CompletedContribution {
 }
 impl CompletedContribution {
     pub fn identity(&self) -> Result<ContentHash, ModelError> {
-        if !(0..=4).contains(&self.outcome) || self.outcome == 3
+        if !(0..=4).contains(&self.outcome)
+            || self.outcome == 3
             || self.outputs.keys().cloned().collect::<BTreeSet<_>>() != self.spec.outputs
-        { return Err(ModelError::Invalid("incomplete contribution output inventory/outcome".into())); }
+        {
+            return Err(ModelError::Invalid(
+                "incomplete contribution output inventory/outcome".into(),
+            ));
+        }
         let mut sink = KeySink::new("compiler-completed-contribution/v1");
-        self.spec.identity()?.encode(&mut sink); self.outcome.encode(&mut sink);
+        self.spec.identity()?.encode(&mut sink);
+        self.outcome.encode(&mut sink);
         for (name, output) in &self.outputs {
-            name.encode(&mut sink); sink.part(b"rows",&output.rows.to_le_bytes()); output.content.encode(&mut sink);
+            name.encode(&mut sink);
+            sink.part(b"rows", &output.rows.to_le_bytes());
+            output.content.encode(&mut sink);
         }
         Ok(sink.finish())
     }
@@ -102,38 +155,80 @@ pub const STATE_FORMAT_VERSION: u32 = 3;
 
 /// Physical addresses qualify the complete nominal identity and semantic payload with the
 /// executable model and codec. Nominal identity alone is never a mutable storage address.
-pub fn payload_address(model: ContentHash, relation: &str, nominal: &[u8], content: ContentHash) -> ContentHash {
-    let mut sink=KeySink::new("native-immutable-payload/v1");
-    model.encode(&mut sink); sink.part(b"codec", b"canonical-native-json/v1");
-    relation.to_string().encode(&mut sink); sink.part(b"nominal",nominal); content.encode(&mut sink); sink.finish()
+pub fn payload_address(
+    model: ContentHash,
+    relation: &str,
+    nominal: &[u8],
+    content: ContentHash,
+) -> ContentHash {
+    let mut sink = KeySink::new("native-immutable-payload/v1");
+    model.encode(&mut sink);
+    sink.part(b"codec", b"canonical-native-json/v1");
+    relation.to_string().encode(&mut sink);
+    sink.part(b"nominal", nominal);
+    content.encode(&mut sink);
+    sink.finish()
 }
 pub fn attempt_contribution(attempt: ContentHash, spec: ContentHash) -> ContentHash {
-    let mut sink=KeySink::new("native-attempt-contribution/v1"); attempt.encode(&mut sink); spec.encode(&mut sink); sink.finish()
+    let mut sink = KeySink::new("native-attempt-contribution/v1");
+    attempt.encode(&mut sink);
+    spec.encode(&mut sink);
+    sink.finish()
 }
 pub fn attempt_binding(attempt: ContentHash, binding: ContentHash) -> ContentHash {
-    let mut sink=KeySink::new("native-attempt-binding/v1"); attempt.encode(&mut sink); binding.encode(&mut sink); sink.finish()
+    let mut sink = KeySink::new("native-attempt-binding/v1");
+    attempt.encode(&mut sink);
+    binding.encode(&mut sink);
+    sink.finish()
 }
-pub fn binding_inventory_identity(bindings:&[CompletedBinding])->Result<ContentHash,ModelError>{
-    let mut ordered=bindings.iter().collect::<Vec<_>>();ordered.sort_by_key(|binding|binding.key());
-    if ordered.windows(2).any(|pair|pair[0].key()==pair[1].key()){return Err(ModelError::Conflict("duplicate publication binding"));}
-    let mut sink=KeySink::new("native-publication-view/v1");
-    for binding in ordered {binding.validate()?;binding.key().encode(&mut sink);binding.view.identity.encode(&mut sink);binding.configuration.encode(&mut sink);}Ok(sink.finish())
+pub fn binding_inventory_identity(
+    bindings: &[CompletedBinding],
+) -> Result<ContentHash, ModelError> {
+    let mut ordered = bindings.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|binding| binding.key());
+    if ordered
+        .windows(2)
+        .any(|pair| pair[0].key() == pair[1].key())
+    {
+        return Err(ModelError::Conflict("duplicate publication binding"));
+    }
+    let mut sink = KeySink::new("native-publication-view/v1");
+    for binding in ordered {
+        binding.validate()?;
+        binding.key().encode(&mut sink);
+        binding.view.identity.encode(&mut sink);
+        binding.configuration.encode(&mut sink);
+    }
+    Ok(sink.finish())
 }
 
 /// Native owner retirement decisions are explicit; the storage manager may consume these
 /// reasons but cannot decide that authoritative content is disposable by age.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RetirementEligibility { pub eligible: bool, pub reasons: Vec<String> }
+pub struct RetirementEligibility {
+    pub eligible: bool,
+    pub reasons: Vec<String>,
+}
 /// The first transport record is format authority, never a descriptor or state row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CompletedStateHeader {pub format_version:u32}
+pub struct CompletedStateHeader {
+    pub format_version: u32,
+}
 impl CompletedStateHeader {
-    pub fn current()->Self {Self{format_version:STATE_FORMAT_VERSION}}
-    pub fn decode(bytes:&[u8])->Result<Self,ModelError> {
-        let header:Self=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-        if header.format_version!=STATE_FORMAT_VERSION {return Err(ModelError::Invalid("unsupported completed-state transport format".into()));}
+    pub fn current() -> Self {
+        Self {
+            format_version: STATE_FORMAT_VERSION,
+        }
+    }
+    pub fn decode(bytes: &[u8]) -> Result<Self, ModelError> {
+        let header: Self = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        if header.format_version != STATE_FORMAT_VERSION {
+            return Err(ModelError::Invalid(
+                "unsupported completed-state transport format".into(),
+            ));
+        }
         Ok(header)
     }
 }
@@ -149,7 +244,9 @@ pub struct CompletedStateIdentity {
 impl CompletedStateIdentity {
     pub fn validate(&self) -> Result<(), ModelError> {
         if self.format_version != STATE_FORMAT_VERSION {
-            return Err(ModelError::Invalid("unsupported completed-state format".into()));
+            return Err(ModelError::Invalid(
+                "unsupported completed-state format".into(),
+            ));
         }
         Ok(())
     }
@@ -165,28 +262,36 @@ pub struct CompletedBinding {
     pub configuration: Option<ContentHash>,
 }
 impl CompletedBinding {
-    pub fn validate(&self)->Result<(),ModelError> {
+    pub fn validate(&self) -> Result<(), ModelError> {
         self.view.validate()?;
-        if self.source.relation()!=self.view.relation || self.source.view()!=self.view.identity
-            || self.source.rows()<0 || self.source.rows() as u64 != self.view.rows
-            || self.boundary.as_ref().is_some_and(|boundary|boundary.is_empty()) {
+        if self.source.relation() != self.view.relation
+            || self.source.view() != self.view.identity
+            || self.source.rows() < 0
+            || self.source.rows() as u64 != self.view.rows
+            || self
+                .boundary
+                .as_ref()
+                .is_some_and(|boundary| boundary.is_empty())
+        {
             return Err(ModelError::Conflict("completed binding exact view"));
         }
         Ok(())
     }
-    pub fn key(&self)->ContentHash {
-        let mut sink=KeySink::new("compiler-binding-key/v1");
-        self.source.relation().to_string().encode(&mut sink);self.boundary.encode(&mut sink);sink.finish()
+    pub fn key(&self) -> ContentHash {
+        let mut sink = KeySink::new("compiler-binding-key/v1");
+        self.source.relation().to_string().encode(&mut sink);
+        self.boundary.encode(&mut sink);
+        sink.finish()
     }
 }
 
 /// A bounded native reachability retirement pass; remaining roots can be retried explicitly.
-#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RetirementProgress {
-    pub identity:ContentHash,
-    pub retired:u64,
-    pub examined:u64,
-    pub remaining:Vec<String>,
-    pub retained:Vec<String>,
+    pub identity: ContentHash,
+    pub retired: u64,
+    pub examined: u64,
+    pub remaining: Vec<String>,
+    pub retained: Vec<String>,
 }

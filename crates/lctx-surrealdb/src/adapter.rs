@@ -210,15 +210,26 @@ pub(crate) fn physical_row(
     row.insert("semantic_type", view.semantic_type);
     row.insert("semantic_key", view.semantic_key);
     row.insert("content", content.hex());
-    row.insert("canonical", surrealdb::types::Bytes::from(canonical.clone()));
+    row.insert(
+        "canonical",
+        surrealdb::types::Bytes::from(canonical.clone()),
+    );
     row.insert("body", view.body);
     if let Some((kind, subtype)) = graph {
-        let anchor=match id.table.as_str() {
-            "entity" => {let entity:d::graph::Entity=serde_json::from_slice(&canonical).map_err(ModelError::codec)?;crate::reader::target_id(d::graph::Target::Entity(entity.id()))},
-            "assertion" => {let assertion:d::graph::Assertion=serde_json::from_slice(&canonical).map_err(ModelError::codec)?;crate::reader::target_id(d::graph::Target::Assertion(assertion.id()))},
-            _=>return Err(ModelError::Schema("graph payload family")),
+        let anchor = match id.table.as_str() {
+            "entity" => {
+                let entity: d::graph::Entity =
+                    serde_json::from_slice(&canonical).map_err(ModelError::codec)?;
+                crate::reader::target_id(d::graph::Target::Entity(entity.id()))
+            }
+            "assertion" => {
+                let assertion: d::graph::Assertion =
+                    serde_json::from_slice(&canonical).map_err(ModelError::codec)?;
+                crate::reader::target_id(d::graph::Target::Assertion(assertion.id()))
+            }
+            _ => return Err(ModelError::Schema("graph payload family")),
         };
-        row.insert("anchor",anchor);
+        row.insert("anchor", anchor);
         row.insert("kind", kind);
         row.insert("subtype", subtype.map(Value::from_t).unwrap_or(Value::Null));
     }

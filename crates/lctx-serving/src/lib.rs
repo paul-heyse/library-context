@@ -34,9 +34,9 @@ mod operation_packet;
 mod operations;
 mod originals;
 mod pagination;
+mod preparation;
 mod ranked_results;
 mod service;
-mod preparation;
 mod vocabulary;
 pub use service::{NativeService, QueryVector};
 
@@ -61,5 +61,5 @@ pub fn operation_definition() -> lctx_model::domain::ContentHash {
 }
 
 #[cfg(test)]
-#[path="../tests/fixtures/scoped.rs"]
+#[path = "../tests/fixtures/scoped.rs"]
 pub(crate) mod scoped_fixture;

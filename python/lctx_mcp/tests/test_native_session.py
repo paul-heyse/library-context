@@ -109,6 +109,64 @@ async def test_native_mcp_lifespan_uses_one_pinned_viewer_snapshot(transport):
 
 
 @pytest.mark.anyio
+async def test_native_close_drains_calls_and_releases_pin_before_returning(tmp_path):
+    from native_transport import ResponseGate, fixture_query, viewer_config
+
+    configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
+    library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")
+    assert configured and library, "owned published native fixture required"
+    config = json.loads(Path(configured).read_text())
+    selected = json.loads(Path(config["selection"]).read_text())
+    publication = bytes(selected["publication"]).hex()
+
+    async def pins():
+        rows = await asyncio.to_thread(
+            fixture_query,
+            selected,
+            "SELECT VALUE owner FROM native_hold WITH INDEX object_holds "
+            f"WHERE object=publication:⟨{publication}⟩ AND owner.released=false",
+        )
+        return set(rows[0]["result"])
+
+    before = await pins()
+    async with ResponseGate(config["endpoint"]) as proxy:
+        path = viewer_config(configured, proxy.endpoint, tmp_path / "viewer.json")
+        native = await asyncio.to_thread(NativeSession, str(path))
+        added = await pins() - before
+        assert len(added) == 1, "the actual session owns one publication pin"
+        request = None
+        closes = []
+        try:
+            proxy.pause()
+            request = asyncio.create_task(
+                asyncio.to_thread(
+                    native.execute, "browse_library", json.dumps({"library": library})
+                )
+            )
+            await asyncio.wait_for(proxy.entered.wait(), timeout=5)
+            closes = [asyncio.create_task(asyncio.to_thread(native.close)) for _ in range(2)]
+            await asyncio.sleep(0)
+            assert not request.done() and all(not close.done() for close in closes)
+            assert added <= await pins()
+            proxy.resume()
+            assert json.loads(await request)["entries"]["items"]
+            await asyncio.gather(*closes)
+            # Keep the Python object alive: release cannot depend on object destruction.
+            assert not (added & await pins())
+            await asyncio.to_thread(native.close)
+            with pytest.raises(NativeFailure):
+                await asyncio.to_thread(
+                    native.execute, "browse_library", json.dumps({"library": library})
+                )
+        finally:
+            proxy.resume()
+            await asyncio.gather(
+                *(task for task in [request, *closes] if task), return_exceptions=True
+            )
+            await asyncio.to_thread(native.close)
+
+
+@pytest.mark.anyio
 async def test_actual_native_zero_deadline_returns_safe_resource_refusal():
     configured = os.environ.get("LCTX_NATIVE_SERVING_CONFIG")
     library = os.environ.get("LCTX_NATIVE_TEST_LIBRARY")

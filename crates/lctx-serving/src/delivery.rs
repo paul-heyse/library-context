@@ -1098,9 +1098,17 @@ mod packing_tests {
         let public: Value = serde_json::from_str(envelope.as_str()).unwrap();
         assert_eq!(public["structuredContent"], raw);
         assert_eq!(envelope.as_str().len(), response.mcp_result_len().unwrap());
-        assert_eq!(raw["results"]["items"][0]["delivered_windows"][0]["source_maps"][0]["original"]["end"], 18000);
-        assert!(raw["delivery"]["fields"].as_array().unwrap().iter().any(|field|
-            field["original"]["end"] == 18000 && field["role"] == "reference"));
+        assert_eq!(
+            raw["results"]["items"][0]["delivered_windows"][0]["source_maps"][0]["original"]["end"],
+            18000
+        );
+        assert!(
+            raw["delivery"]["fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field["original"]["end"] == 18000 && field["role"] == "reference")
+        );
         let Response::SearchEvidence(r) = response else {
             panic!("route")
         };

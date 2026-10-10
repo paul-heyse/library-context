@@ -292,8 +292,10 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         admitted.empty_universe(FactFamily::Syntax),
         Some(Availability::NoScope)
     );
-    let expected_contributions = source.native().contributions().await.unwrap();
-    let expected_bindings = source.native().bindings().await.unwrap();
+    let mut expected_contributions = source.native().contributions().await.unwrap();
+    expected_contributions.sort_by_key(|row| row.identity().unwrap());
+    let mut expected_bindings = source.native().bindings().await.unwrap();
+    expected_bindings.sort_by_key(CompletedBinding::key);
     let export = tempfile::NamedTempFile::new().unwrap();
     let state = source.native().export_state(export.path()).await.unwrap();
     assert_eq!(state.format_version, 3);
@@ -328,12 +330,25 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         outcome.completion.remote,
         lctx_model::domain::completion::RemoteState::Confirmed
     );
-    assert!(outcome.completion.storage.is_empty(),"abandonment must not remove shared storage");
-    let inspector=lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
-    let attempt=lctx_surrealdb::surrealdb::types::RecordId::new("native_attempt",refused.native().attempt().hex());
+    assert!(
+        outcome.completion.storage.is_empty(),
+        "abandonment must not remove shared storage"
+    );
+    let inspector = lctx_surrealdb::compiler::check_installation(&config)
+        .await
+        .unwrap();
+    let attempt = lctx_surrealdb::surrealdb::types::RecordId::new(
+        "native_attempt",
+        refused.native().attempt().hex(),
+    );
     let mut response=inspector.query("SELECT VALUE state FROM $attempt; SELECT VALUE id FROM native_hold WHERE owner=$attempt").bind(("attempt",attempt)).await.unwrap().check().unwrap();
-    let states:Vec<String>=response.take(0).unwrap();assert_eq!(states,["abandoned"]);
-    let holds:Vec<lctx_surrealdb::surrealdb::types::RecordId>=response.take(1).unwrap();assert!(holds.is_empty(),"refused attempt must release only its outgoing holds");
+    let states: Vec<String> = response.take(0).unwrap();
+    assert_eq!(states, ["abandoned"]);
+    let holds: Vec<lctx_surrealdb::surrealdb::types::RecordId> = response.take(1).unwrap();
+    assert!(
+        holds.is_empty(),
+        "refused attempt must release only its outgoing holds"
+    );
     inspector.invalidate().await.unwrap();
     assert!(outcome.completion.failures.iter().any(|failure| {
         failure.step == "import_state"
@@ -345,7 +360,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
 
     let restored = workspace(&config).await;
     assert_eq!(source.native().database(), restored.native().database());
-    assert_ne!(source.native().attempt(),restored.native().attempt());
+    assert_ne!(source.native().attempt(), restored.native().attempt());
     // Shared immutable canonical payload survives attempt closure. Import independently
     // validates the transported descriptors/membership against those retained actual bytes;
     // it does not replay providers or mutate a separate database.
@@ -362,14 +377,14 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             .unwrap(),
         *admitted
     );
-    assert_eq!(
-        restored.native().contributions().await.unwrap(),
-        expected_contributions
-    );
-    assert_eq!(
-        restored.native().bindings().await.unwrap(),
-        expected_bindings
-    );
+    // Attempt-specific physical record order is not portable authority. Compare every
+    // descriptor byte in logical identity order without deduplicating repeated rows.
+    let mut actual_contributions = restored.native().contributions().await.unwrap();
+    actual_contributions.sort_by_key(|row| row.identity().unwrap());
+    assert_eq!(actual_contributions, expected_contributions);
+    let mut actual_bindings = restored.native().bindings().await.unwrap();
+    actual_bindings.sort_by_key(CompletedBinding::key);
+    assert_eq!(actual_bindings, expected_bindings);
     assert_eq!(restored.native().completed_state().await.unwrap(), state);
     for name in [
         "input_revisions",

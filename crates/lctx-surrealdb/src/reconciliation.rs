@@ -45,11 +45,21 @@ impl Loader {
             ("entity", GraphFamily::Entities),
             ("assertion", GraphFamily::Assertions),
         ] {
-            let mut rows = reader.query_stream(
-                format!("SELECT * FROM {table} WHERE ({}) ORDER BY anchor.nominal",reader.selected_node_predicate("id")),
-                reader.view_bindings(),
-                1,
-            )?;
+            let mut preparation = Vec::new();
+            let source = reader
+                .selected_record_source(&mut preparation, None)
+                .unwrap_or(table);
+            let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(
+                Variables::new(),
+                preparation,
+                vec![
+                // Anchors share one table per family and their fixed-width keys are the
+                // canonical nominal hashes. Order the stored value, without a dereference.
+                format!(
+                    "SELECT * FROM {source} WHERE record::table(id)='{table}' ORDER BY anchor,id"
+                ),
+                ],
+            )?)?;
             let mut hasher = FamilyHasher::new(family);
             let limits = lctx_model::domain::batching::TransferLimits::default();
             let mut pending = rows.next().await?;
@@ -162,7 +172,7 @@ impl Loader {
                         )
                     };
                     let physical = crate::adapter::physical_row(
-                        crate::loader::payload_id(table,&view.semantic_type,&key.0,content)?,
+                        crate::loader::payload_id(table, &view.semantic_type, &key.0, content)?,
                         content,
                         canonical,
                         Some((kind, subtype)),
@@ -191,11 +201,34 @@ impl Loader {
                 ));
             }
         }
-        let source=reader.selected_node_predicate("in");
-        let external=format!("SELECT * FROM external WHERE id IN array::concat((SELECT VALUE out FROM participant WHERE ({source})),(SELECT VALUE out FROM reference WHERE ({source}))) ORDER BY id; SELECT * FROM participant WHERE ({source}) ORDER BY id; SELECT * FROM reference WHERE ({source}) ORDER BY id");
-        let mut actual = reader.query_stream(external, reader.view_bindings(), 3)?;
+        let mut preparation = Vec::new();
+        let results = if let Some(source) = reader.selected_record_source(&mut preparation, None) {
+            // Nominate every actual outgoing role, including unexpected IDs/fields/roles.
+            // Expected-row IDs must never constrain this independent integrity readback.
+            preparation.push(format!("LET $lctx_participants = SELECT VALUE id FROM participant WITH INDEX outgoing WHERE in IN {source}"));
+            preparation.push(format!("LET $lctx_references = SELECT VALUE id FROM reference WITH INDEX outgoing WHERE in IN {source}"));
+            preparation.push("LET $lctx_external = array::distinct(SELECT VALUE out FROM array::concat($lctx_participants,$lctx_references) WHERE record::table(out)='external')".into());
+            vec![
+                "SELECT * FROM $lctx_external ORDER BY id".into(),
+                "SELECT * FROM $lctx_participants ORDER BY id".into(),
+                "SELECT * FROM $lctx_references ORDER BY id".into(),
+            ]
+        } else {
+            vec![
+                "SELECT * FROM external WHERE id IN array::concat((SELECT VALUE out FROM participant),(SELECT VALUE out FROM reference)) ORDER BY id".into(),
+                "SELECT * FROM participant ORDER BY id".into(),
+                "SELECT * FROM reference ORDER BY id".into(),
+            ]
+        };
+        let mut actual = reader.stream_prepared(crate::prepared::PreparedQuery::new(
+            Variables::new(),
+            preparation,
+            results,
+        )?)?;
         expected.finish()?.reconcile(&mut actual).await?;
-        if self.view_ids().is_none() && table_count(self, "original").await? != manifest.originals.len() as u64 {
+        if self.view_ids().is_none()
+            && table_count(self, "original").await? != manifest.originals.len() as u64
+        {
             return Err(ModelError::Conflict("native original inventory"));
         }
         let mut original_chunks = 0;
@@ -241,7 +274,9 @@ impl Loader {
                 return Err(ModelError::Conflict("native original readback"));
             }
         }
-        if self.view_ids().is_none() && table_count(self, "original_chunk").await? != original_chunks {
+        if self.view_ids().is_none()
+            && table_count(self, "original_chunk").await? != original_chunks
+        {
             return Err(ModelError::Conflict("native original chunk inventory"));
         }
         Ok(())
@@ -275,12 +310,25 @@ impl<Context> crate::NativeReader<Context> {
             return Ok(vec![]);
         }
         self.authorize_original_ranges(ranges)?;
-        let mut eligible=self.view_bindings();
+        let mut eligible = self.view_bindings();
         if eligible.get("lctx_views").is_some() {
-            let anchors=ranges.iter().map(|(source,_,_)|crate::reader::target_id(Target::Entity(*source))).collect::<Vec<_>>();
-            eligible.insert("anchors",anchors.clone());
-            let found:Vec<RecordId>=self.query_native(format!("SELECT VALUE anchor FROM entity WHERE anchor IN $anchors AND ({})",self.selected_node_predicate("id")),eligible).await?;
-            if anchors.iter().any(|anchor|!found.contains(anchor)){return Err(ModelError::Conflict("original source outside exact view"));}
+            let anchors = ranges
+                .iter()
+                .map(|(source, _, _)| crate::reader::target_id(Target::Entity(*source)))
+                .collect::<Vec<_>>();
+            eligible.insert("anchors", anchors.clone());
+            let found: Vec<RecordId> = self
+                .query_native(
+                    format!(
+                        "SELECT VALUE anchor FROM entity WHERE anchor IN $anchors AND ({})",
+                        self.selected_node_predicate("id")
+                    ),
+                    eligible,
+                )
+                .await?;
+            if anchors.iter().any(|anchor| !found.contains(anchor)) {
+                return Err(ModelError::Conflict("original source outside exact view"));
+            }
         }
         let (sources, physical) = physical_original_ranges(ranges)?;
         if physical.is_empty() {
@@ -295,7 +343,7 @@ impl<Context> crate::NativeReader<Context> {
                 .collect::<Vec<_>>(),
         );
         let sql = "SELECT * FROM $chunks ORDER BY source,start";
-        let chunks:Vec<Value>=self.query_native(sql,vars).await?;
+        let chunks: Vec<Value> = self.query_native(sql, vars).await?;
         let chunks = index_original_chunks(chunks, &physical)?;
         ranges
             .iter()

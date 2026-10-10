@@ -1,5 +1,6 @@
 //! Read-only domain session. Rust retains the private database principal needed for durable
 //! reader pins; Python receives no credentials or arbitrary native-query operation.
+use lctx_model::domain::ModelError;
 use lctx_serving::NativeService;
 use lctx_surrealdb::{NativeReader, config::ViewerConfig};
 use pyo3::prelude::*;
@@ -8,6 +9,7 @@ struct State {
     service: Option<Arc<NativeService>>,
     active: usize,
     closing: bool,
+    closed: Option<Result<(), Arc<ModelError>>>,
 }
 struct Shared {
     state: Mutex<State>,
@@ -40,8 +42,11 @@ impl NativeSession {
                 ))
                 .map_err(crate::model_error)?;
             let service = Arc::new(
-                NativeService::new(reader.clone(), config.serving_limits.clone().unwrap_or_default())
-                    .map_err(crate::model_error)?,
+                NativeService::new(
+                    reader.clone(),
+                    config.serving_limits.clone().unwrap_or_default(),
+                )
+                .map_err(crate::model_error)?,
             );
             Ok(Self {
                 runtime,
@@ -50,6 +55,7 @@ impl NativeSession {
                         service: Some(service),
                         active: 0,
                         closing: false,
+                        closed: None,
                     }),
                     drained: Condvar::new(),
                 }),
@@ -80,7 +86,11 @@ impl NativeSession {
                 state.active += 1;
                 service
             };
-            let _active = Active(self.shared.clone());
+            let active = Active {
+                shared: self.shared.clone(),
+                service: Some(service),
+            };
+            let service = active.service.as_ref().ok_or_else(crate::unavailable)?;
             let unavailable = query_vector_json.as_deref() == Some("unavailable");
             let vector = if unavailable {
                 None
@@ -94,10 +104,15 @@ impl NativeSession {
                         ))
                     })?
             };
-            let remaining =
-                remaining_deadline_ms.unwrap_or(service.request_deadline_ms());
+            let remaining = remaining_deadline_ms.unwrap_or(service.request_deadline_ms());
             self.runtime
-                .block_on(service.execute_encoded_for(&tool, &request_json, vector, unavailable, remaining))
+                .block_on(service.execute_encoded_for(
+                    &tool,
+                    &request_json,
+                    vector,
+                    unavailable,
+                    remaining,
+                ))
                 .map_err(crate::error)
         })?;
         let result = pyo3::types::PyString::new(py, encoded.as_str()).unbind();
@@ -107,34 +122,58 @@ impl NativeSession {
     fn handle_json(&self) -> PyResult<String> {
         serde_json::to_string(self.reader.handle()).map_err(|_| crate::unavailable())
     }
-    /// Drain admitted calls before invalidating the one server session.
+    /// Drain admitted calls and release the publication pin before client invalidation.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
         py.detach(|| {
             let mut state = self.shared.state.lock().map_err(|_| crate::unavailable())?;
             state.closing = true;
-            while state.active > 0 {
+            loop {
+                if let Some(result) = &state.closed {
+                    return result.clone().map_err(|_| crate::unavailable());
+                }
+                if state.active == 0 && state.service.is_some() {
+                    break;
+                }
                 state = self
                     .shared
                     .drained
                     .wait(state)
                     .map_err(|_| crate::unavailable())?;
             }
-            if let Some(service) = state.service.take() {
-                drop(state);
-                self.runtime
-                    .block_on(async { service.close().await; self.reader.client().invalidate().await })
-                    .map_err(|_| crate::unavailable())?;
-            }
-            Ok(())
+            let service = state.service.take().ok_or_else(crate::unavailable)?;
+            drop(state);
+            let result = self
+                .runtime
+                .block_on(async {
+                    service.close().await;
+                    // Its reader clone must be gone before closing the remaining pin owner.
+                    drop(service);
+                    self.reader.close().await?;
+                    self.reader
+                        .client()
+                        .invalidate()
+                        .await
+                        .map_err(ModelError::codec)
+                })
+                .map_err(Arc::new);
+            let mut state = self.shared.state.lock().map_err(|_| crate::unavailable())?;
+            state.closed = Some(result.clone());
+            self.shared.drained.notify_all();
+            result.map_err(|_| crate::unavailable())
         })
     }
 }
-struct Active(Arc<Shared>);
+struct Active {
+    shared: Arc<Shared>,
+    service: Option<Arc<NativeService>>,
+}
 impl Drop for Active {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.0.state.lock() {
+        // Publish drainage only after the admitted call's service/reader clone is gone.
+        drop(self.service.take());
+        if let Ok(mut state) = self.shared.state.lock() {
             state.active = state.active.saturating_sub(1);
-            self.0.drained.notify_all();
+            self.shared.drained.notify_all();
         }
     }
 }

@@ -40,7 +40,8 @@ impl Default for RankingPolicy {
         Self {
             revision: 5,
             lexical: LexicalPolicy {
-                scoring: super::Name::new("view-family-bm25-distinct-terms-v1").expect("scoring policy"),
+                scoring: super::Name::new("view-family-bm25-distinct-terms-v1")
+                    .expect("scoring policy"),
                 analyzer: super::Name::new("lctx_discovery").expect("bounded analyzer name"),
                 definition: ContentHash::of(b"lctx-discovery/v2:class,camel;lowercase"),
                 k1: 1.5,
@@ -54,9 +55,11 @@ impl RankingPolicy {
     pub fn validate(&self) -> Result<(), ModelError> {
         if self.revision != 5
             || self.lexical.scoring.as_str() != "view-family-bm25-distinct-terms-v1"
-            || self.lexical.definition != ContentHash::of(b"lctx-discovery/v2:class,camel;lowercase")
+            || self.lexical.definition
+                != ContentHash::of(b"lctx-discovery/v2:class,camel;lowercase")
             || self.lexical.analyzer.as_str() != "lctx_discovery"
-            || self.lexical.k1 != 1.5 || self.lexical.b != 0.75
+            || self.lexical.k1 != 1.5
+            || self.lexical.b != 0.75
             || self.rrf_k != 60
             || !self.lexical.k1.is_finite()
             || self.lexical.k1 <= 0.0
@@ -91,7 +94,8 @@ pub struct ChannelBinding {
 impl ChannelBinding {
     pub fn lexical(policy: &RankingPolicy, query: &str) -> Result<Self, ModelError> {
         let policy = policy.identity()?;
-        let mut sink = KeySink::new("serving-lexical-channel/v2;view-family-bm25-distinct-terms/v1");
+        let mut sink =
+            KeySink::new("serving-lexical-channel/v2;view-family-bm25-distinct-terms/v1");
         sink.part(b"policy", &policy.0.0);
         sink.part(b"query", query.as_bytes());
         Ok(Self {

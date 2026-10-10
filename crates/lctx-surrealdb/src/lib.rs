@@ -2,13 +2,13 @@
 mod adapter;
 pub mod cache;
 pub mod product_cache;
-pub use product_cache::{NativeProductCache, LeasedProduct};
+pub use product_cache::{LeasedProduct, NativeProductCache};
 pub mod codec;
 pub use cache::NativeEmbeddingCache;
 pub mod config;
 pub mod prepared;
 pub mod reader;
-pub use config::{RuntimeConfig, ReuseConfig, AuthenticationScope};
+pub use config::{AuthenticationScope, ReuseConfig, RuntimeConfig};
 pub mod acknowledged_candidates;
 pub mod batches;
 pub mod loader;

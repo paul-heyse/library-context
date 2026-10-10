@@ -10,7 +10,7 @@ use lctx_model::domain::{
     *,
 };
 use lctx_surrealdb::reader;
-#[path="fixtures/scoped.rs"]
+#[path = "fixtures/scoped.rs"]
 mod scoped;
 
 fn decode<R: Record>(batches: &lctx_surrealdb::batches::CanonicalBatches) -> Vec<R> {
@@ -24,7 +24,7 @@ fn decode<R: Record>(batches: &lctx_surrealdb::batches::CanonicalBatches) -> Vec
 
 #[tokio::test]
 async fn canonical_input_companions_retain_corpus_distribution_without_retired_scalars() {
-    let config=scoped::config();
+    let config = scoped::config();
     let library = InputRevision {
         manifest: ContentHash::of(b"selected library input"),
     };
@@ -131,7 +131,9 @@ async fn canonical_input_companions_retain_corpus_distribution_without_retired_s
         Assertion::from_record(corpus_distribution.clone()).unwrap(),
         Assertion::from_record(foreign_distribution).unwrap(),
     ];
-    let native=scoped::reader(&config,&entities,&assertions).await.unwrap();
+    let native = scoped::reader(&config, &entities, &assertions)
+        .await
+        .unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     // Current SCHEMAFULL rows contain canonical body.input and scope_keys, never scope_input.
     let retired:Vec<bool>=native.query(format!("SELECT VALUE scope_input IS NONE FROM entity WHERE semantic_type IN ['source_artifacts','catalog_members','retrieval_units'] AND ({})",native.selected_node_predicate("id")),surrealdb::types::Variables::new()).await.unwrap();
@@ -193,7 +195,7 @@ async fn canonical_input_companions_retain_corpus_distribution_without_retired_s
 async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_view() {
     use lctx_model::domain::serving_scope::ServingScopeProgram;
     use lctx_surrealdb::scope::PreparedServingScope;
-    let config=scoped::config();
+    let config = scoped::config();
     let package_a = Package {
         name: "shared-template-reader-a".into(),
     };
@@ -208,8 +210,26 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
         package: package_b.id(),
         version: "1".into(),
     };
-    let native_a=scoped::reader(&config,&[Entity::from(package_a.clone()),Entity::from(release_a.clone())],&[]).await.unwrap();
-    let native_b=scoped::reader(&config,&[Entity::from(package_b.clone()),Entity::from(release_b.clone())],&[]).await.unwrap();
+    let native_a = scoped::reader(
+        &config,
+        &[
+            Entity::from(package_a.clone()),
+            Entity::from(release_a.clone()),
+        ],
+        &[],
+    )
+    .await
+    .unwrap();
+    let native_b = scoped::reader(
+        &config,
+        &[
+            Entity::from(package_b.clone()),
+            Entity::from(release_b.clone()),
+        ],
+        &[],
+    )
+    .await
+    .unwrap();
     let budget = ResourceBudget::fixed(2 << 20).unwrap();
     let inputs = [
         ValidationInput::of::<Release>(&["id"]),
@@ -225,7 +245,15 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
     let baseline = budget.reserved();
     // The same prepared metadata is reused across readers and again after another reader ran.
     // Both frontier execution and canonical hydration are submitted through the supplied reader.
-    assert!(native_b.query_prepared::<Vec<surrealdb::types::RecordId>>(prepared.frontier_query(vec![root_a.clone()]).unwrap()).await.is_err(),"foreign roots are refused before native traversal");
+    assert!(
+        native_b
+            .query_prepared_native::<Vec<surrealdb::types::RecordId>>(
+                prepared.frontier_query(vec![root_a.clone()]).unwrap()
+            )
+            .await
+            .is_err(),
+        "foreign roots are refused before native traversal"
+    );
     let observed: Result<Vec<_>, ModelError> = async {
         let mut observations = Vec::new();
         for (native, root) in [
@@ -235,7 +263,7 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
         ] {
             let request_charge = budget.reserve("shared-reader-scope-request", 1024)?;
             let next: Vec<surrealdb::types::RecordId> = native
-                .query_prepared(prepared.frontier_query(vec![root.clone()])?)
+                .query_prepared_native(prepared.frontier_query(vec![root.clone()])?)
                 .await?;
             let mut nodes = vec![root.clone()];
             nodes.extend(next.iter().cloned());
@@ -255,12 +283,14 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
     drop(prepared);
     drop(root_charge);
     let released = budget.reserved();
-    assert_eq!(native_a.store.database(),native_b.store.database());
-    assert_ne!(native_a.store.attempt(),native_b.store.attempt());
+    assert_eq!(native_a.store.database(), native_b.store.database());
+    assert_ne!(native_a.store.attempt(), native_b.store.attempt());
     native_a.close().await.unwrap();
     native_b.close().await.unwrap();
     let observed = observed.unwrap();
-    let package_id = |package:&Package| lctx_surrealdb::loader::entity_payload_id(&Entity::from(package.clone())).unwrap();
+    let package_id = |package: &Package| {
+        lctx_surrealdb::loader::entity_payload_id(&Entity::from(package.clone())).unwrap()
+    };
     assert_eq!(
         observed
             .iter()
@@ -280,19 +310,11 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
     }
     assert_eq!(
         packages,
-        vec![
-            vec![package_a.clone()],
-            vec![package_b],
-            vec![package_a]
-        ]
+        vec![vec![package_a.clone()], vec![package_b], vec![package_a]]
     );
     assert_eq!(
         releases,
-        vec![
-            vec![release_a.clone()],
-            vec![release_b],
-            vec![release_a]
-        ]
+        vec![vec![release_a.clone()], vec![release_b], vec![release_a]]
     );
     assert_eq!(after_requests, baseline);
     assert_eq!(released, 0);

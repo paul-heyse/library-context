@@ -251,10 +251,10 @@ mod native_controls {
         let relation = Relation::of::<Package>();
         let mut rows = vec![
             Package {
-                name: format!("first-{}",store.attempt().hex()),
+                name: format!("first-{}", store.attempt().hex()),
             },
             Package {
-                name: format!("second-{}",store.attempt().hex()),
+                name: format!("second-{}", store.attempt().hex()),
             },
         ];
         rows.sort_by_key(Record::id);

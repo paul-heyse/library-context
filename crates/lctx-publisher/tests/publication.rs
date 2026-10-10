@@ -1,20 +1,15 @@
 //! Actual compiled finite fixture, independent export verification, native publication and VIEWER.
-#[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
-mod runtime;
-#[path = "../../cpg-core/tests/fixtures/native.rs"]
-mod native_fixture;
 #[path = "../src/backup_import.rs"]
 mod backup_decode;
+#[path = "../../cpg-core/tests/fixtures/native.rs"]
+mod native_fixture;
+#[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
+mod runtime;
 use cpg_core::{
     artifact, compilation,
     workspace::{Workspace, WorkspaceOptions},
 };
-use lctx_model::domain::{
-    admission::Frontier,
-    serving::SnapshotHandle,
-    stages::Profile,
-    *,
-};
+use lctx_model::domain::{admission::Frontier, serving::SnapshotHandle, stages::Profile, *};
 use lctx_surrealdb::{NativeReader, RuntimeConfig};
 use std::sync::Arc;
 fn select_and_show_cli(
@@ -66,7 +61,10 @@ fn select_and_show_cli(
         String::from_utf8_lossy(&shown.stderr)
     );
     assert_eq!(
-        serde_json::from_value::<SnapshotHandle>(serde_json::from_slice::<serde_json::Value>(&shown.stdout).unwrap()["handle"].clone()).unwrap(),
+        serde_json::from_value::<SnapshotHandle>(
+            serde_json::from_slice::<serde_json::Value>(&shown.stdout).unwrap()["handle"].clone()
+        )
+        .unwrap(),
         *handle
     );
     // A valid-shaped foreign handle must be refused by the actual CLI before the one
@@ -96,55 +94,193 @@ fn select_and_show_cli(
         .unwrap();
     assert!(shown.status.success());
     assert_eq!(
-        serde_json::from_value::<SnapshotHandle>(serde_json::from_slice::<serde_json::Value>(&shown.stdout).unwrap()["handle"].clone()).unwrap(),
+        serde_json::from_value::<SnapshotHandle>(
+            serde_json::from_slice::<serde_json::Value>(&shown.stdout).unwrap()["handle"].clone()
+        )
+        .unwrap(),
         *handle
     );
 }
 // Derived rows linked to selected anchors are part of this publication's exact cold
 // comparison. Unrelated rows in the shared database are deliberately outside its authority.
-async fn restored_derived_excess_is_refused(config:&RuntimeConfig,handle:&SnapshotHandle,definitions:&str){
-    use lctx_surrealdb::surrealdb::types::{Object,RecordId,Value,Variables};
-    let reader=NativeReader::connect(&config.endpoint,&config.writer_credentials(),handle.clone()).await.unwrap();
-    let details=lctx_publisher::inspection::show(&reader).await.unwrap();
-    let loader=lctx_surrealdb::Loader::for_views(reader.shared_client(),details.bindings.iter().filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect());
-    let mut response=reader.client().query("SELECT VALUE node.anchor FROM compiler_view_member WHERE view IN $lctx_views AND node.semantic_type='source_artifacts' LIMIT 1").bind(reader.view_bindings()).await.unwrap().check().unwrap();
-    let targets:Vec<RecordId>=response.take(0).unwrap();let target=targets.first().unwrap().clone();
-    let suffix=format!("{}-{}",handle.publication.hex(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
-    for table in ["search_api_options","search_documentation_deployment","search_scenario","search_source","vector","lex_occurs","vec_occurs"] {
-        let relation=table.ends_with("occurs");let vector=table=="vector"||table=="vec_occurs";
-        let source_table=if vector{"vector"}else if relation{"search_source"}else{table};
-        let source=RecordId::new(source_table,format!("{suffix}-{table}"));
-        let mut endpoint=Object::new();endpoint.insert("id",source.clone());
-        if vector {let mut embedding=vec![0f32;1024];embedding[0]=1.;endpoint.insert("encoder_hash",suffix.clone());endpoint.insert("policy_key",suffix.clone());endpoint.insert("library_input",suffix.clone());endpoint.insert("family",3i64);endpoint.insert("full_key",suffix.clone());endpoint.insert("projection_key",format!("{suffix}-{table}"));endpoint.insert("embedding",embedding);}
-        else {let text=format!("restored extra discovery row {suffix}-{table}");endpoint.insert("text",text.clone());endpoint.insert("digest",ContentHash::of(text.as_bytes()).0.to_vec());}
-        let edge_table=if vector{"vec_occurs"}else{"lex_occurs"};let edge_id=RecordId::new(edge_table,format!("{suffix}-{table}"));
-        let mut edge=Object::new();edge.insert("id",edge_id.clone());edge.insert("in",source.clone());edge.insert("out",target.clone());edge.insert("unit_node",target.clone());edge.insert("family",3i64);
-        for (field,byte) in [("unit",1i64),("window",2),("part",3),("context",4),("input",5)]{edge.insert(field,vec![byte;16]);}
-        for field in ["binding","member","anchor"]{edge.insert(field,Value::Null);}
-        for field in ["exact_name","exact_path","exact_option"]{edge.insert(field,"");}
-        edge.insert("eligible",true);edge.insert("occurrence_key",format!("{suffix}-{table}"));
-        for (name,relation,row) in [(source_table,false,Value::Object(endpoint)),(edge_table,true,Value::Object(edge))] {
-            let mut vars=Variables::new();vars.insert("rows",vec![row]);reader.client().query(format!("INSERT {}INTO {name} $rows",if relation{"RELATION "}else{""})).bind(vars).await.unwrap().check().unwrap();
+async fn restored_derived_excess_is_refused(
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+    definitions: &str,
+) {
+    use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
+    let reader = NativeReader::connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        handle.clone(),
+    )
+    .await
+    .unwrap();
+    let details = lctx_publisher::inspection::show(&reader).await.unwrap();
+    let loader = lctx_surrealdb::Loader::for_views(
+        reader.shared_client(),
+        details
+            .bindings
+            .iter()
+            .filter(|binding| binding.boundary.is_none())
+            .map(|binding| binding.view.identity)
+            .collect(),
+    );
+    let mut response=reader.client().query("SELECT node AS payload,node.anchor AS anchor FROM compiler_view_member WHERE view IN $lctx_views AND node.semantic_type='source_artifacts' LIMIT 1").bind(reader.view_bindings()).await.unwrap().check().unwrap();
+    let targets: Vec<Object> = response.take(0).unwrap();
+    let target = match targets[0].get("anchor").unwrap() {
+        Value::RecordId(id) => id.clone(),
+        _ => panic!("selected artifact anchor"),
+    };
+    let target_payload = match targets[0].get("payload").unwrap() {
+        Value::RecordId(id) => id.clone(),
+        _ => panic!("selected artifact payload"),
+    };
+    let suffix = format!(
+        "{}-{}",
+        handle.publication.hex(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let mut checks = Vec::new();
+    for table in [
+        "search_api_options",
+        "search_documentation_deployment",
+        "search_scenario",
+        "search_source",
+        "vector",
+        "lex_occurs",
+        "vec_occurs",
+    ] {
+        let relation = table.ends_with("occurs");
+        let vector = table == "vector" || table == "vec_occurs";
+        let source_table = if vector {
+            "vector"
+        } else if relation {
+            "search_source"
+        } else {
+            table
+        };
+        let source = RecordId::new(source_table, format!("{suffix}-{table}"));
+        let mut endpoint = Object::new();
+        endpoint.insert("id", source.clone());
+        if vector {
+            endpoint.insert("dependencies", vec![target_payload.clone()]);
+            let mut embedding = vec![0f32; 1024];
+            embedding[0] = 1.;
+            endpoint.insert("encoder_hash", suffix.clone());
+            endpoint.insert("policy_key", suffix.clone());
+            endpoint.insert("library_input", suffix.clone());
+            endpoint.insert("family", 3i64);
+            endpoint.insert("full_key", suffix.clone());
+            endpoint.insert("projection_key", format!("{suffix}-{table}"));
+            endpoint.insert("embedding", embedding);
+        } else {
+            let text = format!("restored extra discovery row {suffix}-{table}");
+            endpoint.insert("text", text.clone());
+            endpoint.insert("digest", ContentHash::of(text.as_bytes()).0.to_vec());
         }
-        for _ in 0..2 {assert!(lctx_publisher::reconcile_search(&loader).await.is_err(),"scoped excess {table}");assert!(lctx_publisher::inspection::audit(config,handle,definitions).await.is_err());}
-        let mut vars=Variables::new();vars.insert("ids",vec![edge_id,source]);reader.client().query("DELETE $ids").bind(vars).await.unwrap().check().unwrap();
-        lctx_publisher::inspection::audit(config,handle,definitions).await.unwrap();
+        let edge_table = if vector { "vec_occurs" } else { "lex_occurs" };
+        let edge_id = RecordId::new(edge_table, format!("{suffix}-{table}"));
+        let mut edge = Object::new();
+        edge.insert("id", edge_id.clone());
+        edge.insert("in", source.clone());
+        edge.insert("out", target.clone());
+        edge.insert("unit_node", target.clone());
+        edge.insert("unit_payload", target_payload.clone());
+        edge.insert("dependencies", vec![target_payload.clone()]);
+        edge.insert("family", 3i64);
+        for (field, byte) in [
+            ("unit", 1i64),
+            ("window", 2),
+            ("part", 3),
+            ("context", 4),
+            ("input", 5),
+        ] {
+            edge.insert(field, vec![byte; 16]);
+        }
+        for field in ["binding", "member", "anchor"] {
+            edge.insert(field, Value::Null);
+        }
+        for field in ["exact_name", "exact_path", "exact_option"] {
+            edge.insert(field, "");
+        }
+        edge.insert("eligible", true);
+        edge.insert("occurrence_key", format!("{suffix}-{table}"));
+        for (name, relation, row) in [
+            (source_table, false, Value::Object(endpoint)),
+            (edge_table, true, Value::Object(edge)),
+        ] {
+            let mut vars = Variables::new();
+            vars.insert("rows", vec![row]);
+            reader
+                .client()
+                .query(format!(
+                    "INSERT {}INTO {name} $rows",
+                    if relation { "RELATION " } else { "" }
+                ))
+                .bind(vars)
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+        }
+        for _ in 0..2 {
+            let reconciliation = lctx_publisher::reconcile_search(&loader).await;
+            let audit = lctx_publisher::inspection::audit(config, handle, definitions).await;
+            checks.push((table, reconciliation.is_err(), audit.is_err()));
+        }
+        // Remove only this control's fresh rows before evaluating negative assertions.
+        let mut vars = Variables::new();
+        vars.insert("ids", vec![edge_id, source]);
+        reader
+            .client()
+            .query("DELETE $ids")
+            .bind(vars)
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let clean = lctx_publisher::inspection::audit(config, handle, definitions).await;
+        checks.push((table, clean.is_ok(), clean.is_ok()));
     }
-    reader.close().await.unwrap();reader.client().invalidate().await.unwrap();
+    reader.close().await.unwrap();
+    reader.client().invalidate().await.unwrap();
+    for (table, reconciliation, audit) in checks {
+        assert!(
+            reconciliation && audit,
+            "scoped excess refusal and cleaned admission: {table}"
+        );
+    }
 }
 
 #[tokio::test]
-async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {publication_control(false).await;}
+async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
+    publication_control(false).await;
+}
 #[tokio::test]
-#[ignore="requires explicit exclusive maintenance admission"]
-async fn actual_installed_analyzer_drift_is_refused(){
-    assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),"run through just service maintenance --native-clients");
+#[ignore = "requires explicit exclusive maintenance admission"]
+async fn actual_installed_analyzer_drift_is_refused() {
+    assert!(
+        std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),
+        "run through just service maintenance --native-clients"
+    );
     publication_control(true).await;
 }
-async fn publication_control(maintenance:bool) {
-    let scratch=tempfile::tempdir().unwrap();
-    let mut config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();config.selection=scratch.path().join("selected.json");
-    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized).await.unwrap();
+async fn publication_control(maintenance: bool) {
+    cpg_extract::logging::init_logging();
+    let scratch = tempfile::tempdir().unwrap();
+    let mut config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+    ))
+    .unwrap();
+    config.selection = scratch.path().join("selected.json");
+    let native =
+        lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized)
+            .await
+            .unwrap();
     let workspace = Workspace::new(
         Arc::new(model().unwrap()),
         WorkspaceOptions::default(),
@@ -152,7 +288,16 @@ async fn publication_control(maintenance:bool) {
     )
     .unwrap();
     let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
-    let settings=ContentHash::of(format!("native-publication-control-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()).as_bytes());
+    let settings = ContentHash::of(
+        format!(
+            "native-publication-control-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
+        .as_bytes(),
+    );
     compilation::compile(
         &workspace,
         captured.clone(),
@@ -179,8 +324,16 @@ async fn publication_control(maintenance:bool) {
     drop(admitted);
     workspace.drain().await.unwrap();
     native.abandon().await.unwrap();
-    let restored = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized).await.unwrap();
-    let workspace = Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default(), restored).unwrap();
+    let restored =
+        lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized)
+            .await
+            .unwrap();
+    let workspace = Workspace::new(
+        Arc::new(model().unwrap()),
+        WorkspaceOptions::default(),
+        restored,
+    )
+    .unwrap();
     let verified = artifact::verify_export(&export, &workspace).await.unwrap();
 
     let definitions = lctx_surrealdb::materialization::native_definitions();
@@ -191,25 +344,57 @@ async fn publication_control(maintenance:bool) {
     assert_eq!(handle.semantic, verified.manifest().content());
     let listed = lctx_publisher::inspection::list(&config).await.unwrap();
     assert!(listed.contains(&handle));
-    let inspector=NativeReader::connect(&config.endpoint,&config.writer_credentials(),handle.clone()).await.unwrap();
-    let details=lctx_publisher::inspection::show(&inspector).await.unwrap();
-    assert_eq!(details.manifest.completed_state,verified.manifest().completed_state);
+    let inspector = NativeReader::connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        handle.clone(),
+    )
+    .await
+    .unwrap();
+    let details = lctx_publisher::inspection::show(&inspector).await.unwrap();
+    assert_eq!(
+        details.manifest.completed_state,
+        verified.manifest().completed_state
+    );
     assert!(!details.contributions.is_empty());
     assert!(!details.bindings.is_empty());
     lctx_publisher::inspection::audit(&config, &handle, &definitions)
         .await
         .unwrap();
-    inspector.close().await.unwrap();inspector.client().invalidate().await.unwrap();
+    inspector.close().await.unwrap();
+    inspector.client().invalidate().await.unwrap();
     if maintenance {
-        let installer=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer config"))).unwrap();
-        let admin=lctx_surrealdb::reader::connect(&installer.endpoint,&installer.writer_credentials(),installer.namespace.as_str(),installer.database.as_str()).await.unwrap();
-        admin.query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS uppercase").await.unwrap().check().unwrap();
-        let refused=lctx_publisher::inspection::audit(&config,&handle,&definitions).await;
-        let analyzer=definitions.lines().find(|line|line.starts_with("DEFINE ANALYZER lctx_discovery ")).unwrap().replacen("DEFINE ANALYZER ","DEFINE ANALYZER OVERWRITE ",1);
+        let installer = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
+                .expect("maintenance installer config"),
+        ))
+        .unwrap();
+        let admin = lctx_surrealdb::reader::connect(
+            &installer.endpoint,
+            &installer.writer_credentials(),
+            installer.namespace.as_str(),
+            installer.database.as_str(),
+        )
+        .await
+        .unwrap();
+        admin
+            .query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS uppercase")
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let refused = lctx_publisher::inspection::audit(&config, &handle, &definitions).await;
+        let analyzer = definitions
+            .lines()
+            .find(|line| line.starts_with("DEFINE ANALYZER lctx_discovery "))
+            .unwrap()
+            .replacen("DEFINE ANALYZER ", "DEFINE ANALYZER OVERWRITE ", 1);
         admin.query(analyzer).await.unwrap().check().unwrap();
         admin.invalidate().await.unwrap();
-        assert!(refused.is_err(),"actual analyzer drift must be refused");
-        lctx_publisher::inspection::audit(&config,&handle,&definitions).await.unwrap();
+        assert!(refused.is_err(), "actual analyzer drift must be refused");
+        lctx_publisher::inspection::audit(&config, &handle, &definitions)
+            .await
+            .unwrap();
     }
     let viewer = NativeReader::connect(
         &config.endpoint,
@@ -220,7 +405,10 @@ async fn publication_control(maintenance:bool) {
     .unwrap();
     let marker: Vec<String> = viewer
         .query(
-            format!("SELECT VALUE handle FROM publication:`{}`",handle.publication.hex()),
+            format!(
+                "SELECT VALUE handle FROM publication:`{}`",
+                handle.publication.hex()
+            ),
             surrealdb_vars(),
         )
         .await
@@ -231,11 +419,42 @@ async fn publication_control(maintenance:bool) {
     );
     // The private pin owner is not a serialized read-only ACL grant. Native immutable
     // ingress refuses an existing payload address with different canonical bytes.
-    let mut response=viewer.client().query("SELECT * FROM entity WHERE id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) LIMIT 1").bind(viewer.view_bindings()).await.unwrap().check().unwrap();
-    let mut rows:Vec<lctx_surrealdb::surrealdb::types::Value>=response.take(0).unwrap();
-    let lctx_surrealdb::surrealdb::types::Value::Object(ref mut row)=rows[0] else{panic!("canonical payload")};
-    row.insert("canonical",lctx_surrealdb::surrealdb::types::Bytes::from(b"foreign canonical bytes".to_vec()));
-    assert!(lctx_surrealdb::control::ensure_rows(viewer.client(),None,rows).await.is_err());
+    let selected_entity = lctx_surrealdb::prepared::PreparedQuery::new(
+        surrealdb_vars(),
+        vec!["LET $nodes=SELECT VALUE node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views".into()],
+        vec!["SELECT * FROM $nodes WHERE record::table(id)='entity' LIMIT 1".into()],
+    ).unwrap();
+    let mut rows: Vec<lctx_surrealdb::surrealdb::types::Value> =
+        viewer.query_prepared_native(selected_entity).await.unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "immutable collision control requires one selected entity"
+    );
+    let selected_id = rows[0].as_object().unwrap().get("id").unwrap().clone();
+    let mut selected = surrealdb_vars();
+    selected.insert("node", selected_id);
+    let membership: Vec<lctx_surrealdb::surrealdb::types::RecordId> = viewer
+        .query_native("SELECT VALUE id FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views AND node=$node LIMIT 1", selected)
+        .await
+        .unwrap();
+    assert_eq!(
+        membership.len(),
+        1,
+        "tampered payload belongs to this exact pinned view"
+    );
+    let lctx_surrealdb::surrealdb::types::Value::Object(ref mut row) = rows[0] else {
+        panic!("canonical payload")
+    };
+    row.insert(
+        "canonical",
+        lctx_surrealdb::surrealdb::types::Bytes::from(b"foreign canonical bytes".to_vec()),
+    );
+    assert!(
+        lctx_surrealdb::control::ensure_rows(viewer.client(), None, rows)
+            .await
+            .is_err()
+    );
     for original in &verified.manifest().originals {
         let bytes = viewer
             .original_bytes(
@@ -271,17 +490,100 @@ async fn publication_control(maintenance:bool) {
             .await
             .is_err()
     );
-    omitted_backup_payloads_are_refused(&config,&handle,&backup,&definitions).await;
-    let restored = lctx_publisher::backup::restore_publication(&config, &backup, handle.publication, &definitions)
+    omitted_backup_payloads_are_refused(&config, &handle, &backup, &definitions).await;
+    let selected_before_restore = std::fs::read(&config.selection).unwrap();
+    let serving_before_restore =
+        std::fs::read(config.selection.with_extension("serving.json")).unwrap();
+    let mut ownership = surrealdb_vars();
+    ownership.insert(
+        "publication",
+        lctx_surrealdb::surrealdb::types::RecordId::new("publication", handle.publication.hex()),
+    );
+    // Publication roots retain each physical contributor. Observe only this exact
+    // publication's owners, so unrelated concurrent validation attempts cannot enter the check.
+    let ownership_query = "SELECT VALUE object.attempt FROM native_hold WITH INDEX owner_holds WHERE owner=$publication AND record::table(object)='compiler_contribution'";
+    let before: Vec<lctx_surrealdb::surrealdb::types::RecordId> = viewer
+        .query_native(ownership_query, ownership.clone())
         .await
         .unwrap();
-    assert_eq!(restored.semantic, handle.semantic);
-    assert_eq!(restored.database,handle.database);
-    assert_eq!(restored,handle,"restored immutable publication identity is content-based");
-    lctx_publisher::inspection::audit(&config, &restored, &definitions)
-        .await
-        .unwrap();
+    let before = before
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let (first, second) = tokio::join!(
+        lctx_publisher::backup::restore_publication(
+            &config,
+            &backup,
+            handle.publication,
+            &definitions,
+        ),
+        lctx_publisher::backup::restore_publication(
+            &config,
+            &backup,
+            handle.publication,
+            &definitions,
+        ),
+    );
+    let restored = first.unwrap();
+    let concurrent = second.unwrap();
+    assert_eq!(
+        restored, handle,
+        "restore retains the immutable publication identity"
+    );
+    assert_eq!(
+        concurrent, restored,
+        "concurrent equal restores converge on one handle"
+    );
+    let (first_audit, second_audit) = tokio::join!(
+        lctx_publisher::inspection::audit(&config, &restored, &definitions),
+        lctx_publisher::inspection::audit(&config, &concurrent, &definitions),
+    );
+    first_audit.unwrap();
+    second_audit.unwrap();
+    assert_eq!(
+        std::fs::read(&config.selection).unwrap(),
+        selected_before_restore
+    );
+    assert_eq!(
+        std::fs::read(config.selection.with_extension("serving.json")).unwrap(),
+        serving_before_restore,
+    );
     assert_eq!(config.selected().unwrap(), handle); // Restore never selects its imported handle.
+    let after: Vec<lctx_surrealdb::surrealdb::types::RecordId> = viewer
+        .query_native(ownership_query, ownership)
+        .await
+        .unwrap();
+    let after = after.into_iter().collect::<std::collections::BTreeSet<_>>();
+    let fresh = after.difference(&before).cloned().collect::<Vec<_>>();
+    assert_eq!(
+        fresh.len(),
+        2,
+        "each restore creates a fresh mutable attempt owner"
+    );
+    let mut ownership = surrealdb_vars();
+    ownership.insert("attempts", fresh);
+    let attempts: Vec<lctx_surrealdb::surrealdb::types::Object> = viewer
+        .query_native("SELECT * FROM $attempts", ownership)
+        .await
+        .unwrap();
+    assert_eq!(attempts.len(), 2);
+    let mut epochs = std::collections::BTreeSet::new();
+    for attempt in attempts {
+        use lctx_surrealdb::surrealdb::types::{Number, Value};
+        assert_eq!(attempt.get("state"), Some(&Value::String("closed".into())));
+        assert_eq!(attempt.get("admitted"), Some(&Value::Bool(true)));
+        assert_eq!(
+            attempt.get("generation"),
+            Some(&Value::String(config.service_generation.hex()))
+        );
+        let Some(Value::Number(Number::Int(epoch))) = attempt.get("epoch") else {
+            panic!("fresh restore attempt epoch");
+        };
+        assert!(*epoch > 0);
+        assert!(
+            epochs.insert(*epoch),
+            "restores cannot borrow another attempt's epoch"
+        );
+    }
     restored_derived_excess_is_refused(&config, &restored, &definitions).await;
     let restored_viewer = NativeReader::connect(
         &config.endpoint,
@@ -326,42 +628,90 @@ async fn publication_control(maintenance:bool) {
         })
         .await
         .unwrap();
-    viewer.close().await.unwrap();viewer.client().invalidate().await.unwrap();
-    restored_viewer.close().await.unwrap();restored_viewer.client().invalidate().await.unwrap();
+    viewer.close().await.unwrap();
+    viewer.client().invalidate().await.unwrap();
+    restored_viewer.close().await.unwrap();
+    restored_viewer.client().invalidate().await.unwrap();
     std::fs::remove_file(&config.selection).unwrap();
     std::fs::remove_file(config.selection.with_extension("serving.json")).unwrap();
-    lctx_publisher::backup::retire(&config,&handle,true).await.unwrap();
-    assert!(NativeReader::connect(&config.endpoint,&config.writer_credentials(),handle).await.is_err());
+    lctx_publisher::backup::retire(&config, &handle, true)
+        .await
+        .unwrap();
+    assert!(
+        NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
+            .await
+            .is_err()
+    );
 }
-fn surrealdb_vars()->lctx_surrealdb::surrealdb::types::Variables{Default::default()}
+fn surrealdb_vars() -> lctx_surrealdb::surrealdb::types::Variables {
+    Default::default()
+}
 
 // Omitted content must be refused even though the identical publication already exists
 // in this shared store. An intact same-store round trip alone cannot establish that.
-async fn omitted_backup_payloads_are_refused(config:&RuntimeConfig,handle:&SnapshotHandle,backup:&std::path::Path,definitions:&str){
-    use std::io::Write;
+async fn omitted_backup_payloads_are_refused(
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+    backup: &std::path::Path,
+    definitions: &str,
+) {
     use lctx_surrealdb::surrealdb::types::ToSql;
-    for table in ["entity","assertion","compiler_record"] {
-        let input=backup.with_file_name(format!("omitted-{table}.surql"));
-        let mut altered=std::io::BufWriter::new(std::fs::File::create(&input).unwrap());
-        writeln!(altered,"OPTION IMPORT;").unwrap();
-        let mut dump=backup_decode::DataDump::new(std::fs::File::open(backup).unwrap());let mut removed=0;
-        while let Some(item)=dump.next().unwrap() {
+    use std::io::Write;
+    for table in ["entity", "assertion", "compiler_record"] {
+        let input = backup.with_file_name(format!("omitted-{table}.surql"));
+        let mut altered = std::io::BufWriter::new(std::fs::File::create(&input).unwrap());
+        writeln!(altered, "OPTION IMPORT;").unwrap();
+        let mut dump = backup_decode::DataDump::new(std::fs::File::open(backup).unwrap());
+        let mut removed = 0;
+        while let Some(item) = dump.next().unwrap() {
             match item {
-                backup_decode::Item::Definition(definition)=>writeln!(altered,"{definition};").unwrap(),
-                backup_decode::Item::Rows(rows)=>{
-                    assert_eq!(rows.len(),1,"managed native export must emit one bounded record per statement");
-                    let mut kept=Vec::new();
+                backup_decode::Item::Definition(definition) => {
+                    writeln!(altered, "{definition};").unwrap()
+                }
+                backup_decode::Item::Rows(rows) => {
+                    assert_eq!(
+                        rows.len(),
+                        1,
+                        "managed native export must emit one bounded record per statement"
+                    );
+                    let mut kept = Vec::new();
                     for row in rows {
-                        let omit=matches!(&row,lctx_surrealdb::surrealdb::types::Value::Object(object) if matches!(object.get("id"),Some(lctx_surrealdb::surrealdb::types::Value::RecordId(id)) if id.table.as_str()==table));
-                        if omit{removed+=1;}else{kept.push(row);}
+                        let omit = matches!(&row,lctx_surrealdb::surrealdb::types::Value::Object(object) if matches!(object.get("id"),Some(lctx_surrealdb::surrealdb::types::Value::RecordId(id)) if id.table.as_str()==table));
+                        if omit {
+                            removed += 1;
+                        } else {
+                            kept.push(row);
+                        }
                     }
-                    if !kept.is_empty(){writeln!(altered,"INSERT {};",lctx_surrealdb::surrealdb::types::Value::Array(kept.into()).to_sql()).unwrap();}
-                },
+                    if !kept.is_empty() {
+                        writeln!(
+                            altered,
+                            "INSERT {};",
+                            lctx_surrealdb::surrealdb::types::Value::Array(kept.into()).to_sql()
+                        )
+                        .unwrap();
+                    }
+                }
             }
         }
-        altered.flush().unwrap();drop(altered);
-        if removed==0{continue;}
-        let error=lctx_publisher::backup::restore_publication(config,&input,handle.publication,definitions).await.unwrap_err();
-        assert!(error.to_string().contains("restore selected payload absent from dump"),"{table}: {error}");
+        altered.flush().unwrap();
+        drop(altered);
+        if removed == 0 {
+            continue;
+        }
+        let error = lctx_publisher::backup::restore_publication(
+            config,
+            &input,
+            handle.publication,
+            definitions,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("restore selected payload absent from dump"),
+            "{table}: {error}"
+        );
     }
 }

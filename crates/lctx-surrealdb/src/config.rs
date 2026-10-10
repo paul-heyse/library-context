@@ -2,7 +2,7 @@
 use crate::Credentials;
 use lctx_model::domain::{
     ContentHash, ModelError,
-    serving::{Name, SnapshotHandle, ResourceLimits},
+    serving::{Name, ResourceLimits, SnapshotHandle},
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -43,7 +43,11 @@ pub struct ReuseConfig {
 }
 impl ReuseConfig {
     pub fn validate(&self, runtime: &RuntimeConfig) -> Result<(), ModelError> {
-        if self.database != runtime.database || self.capacity_bytes == 0 || self.capacity_bytes > i64::MAX as u64 || !self.lease_directory.is_absolute() {
+        if self.database != runtime.database
+            || self.capacity_bytes == 0
+            || self.capacity_bytes > i64::MAX as u64
+            || !self.lease_directory.is_absolute()
+        {
             return Err(ModelError::Invalid("reuse requires the installed database, positive capacity and absolute coordination directory".into()));
         }
         Ok(())
@@ -73,19 +77,27 @@ impl RuntimeConfig {
         if !matches!(cfg.database.as_str(), "main" | "validation")
             || cfg.cache_database != cfg.database
         {
-            return Err(ModelError::Invalid("runtime requires stable main or validation storage".into()));
+            return Err(ModelError::Invalid(
+                "runtime requires stable main or validation storage".into(),
+            ));
         }
-        if let Some(reuse) = &cfg.reuse { reuse.validate(&cfg)?; }
-        if let Some(limits) = &cfg.serving_limits { limits.validate()?; }
+        if let Some(reuse) = &cfg.reuse {
+            reuse.validate(&cfg)?;
+        }
+        if let Some(limits) = &cfg.serving_limits {
+            limits.validate()?;
+        }
         Ok(cfg)
     }
     pub fn writer_credentials(&self) -> Credentials {
         match self.authentication {
             AuthenticationScope::Root => Credentials::Root {
-                username: self.username.clone(), password: self.password.clone(),
+                username: self.username.clone(),
+                password: self.password.clone(),
             },
             AuthenticationScope::Database => Credentials::Database {
-                username: self.username.clone(), password: self.password.clone(),
+                username: self.username.clone(),
+                password: self.password.clone(),
             },
         }
     }
@@ -251,8 +263,11 @@ pub struct ViewerConfig {
 }
 impl ViewerConfig {
     pub fn read(path: &Path) -> Result<Self, ModelError> {
-        let cfg: Self = serde_json::from_slice(&std::fs::read(path).map_err(ModelError::codec)?).map_err(ModelError::codec)?;
-        if let Some(limits) = &cfg.serving_limits { limits.validate()?; }
+        let cfg: Self = serde_json::from_slice(&std::fs::read(path).map_err(ModelError::codec)?)
+            .map_err(ModelError::codec)?;
+        if let Some(limits) = &cfg.serving_limits {
+            limits.validate()?;
+        }
         Ok(cfg)
     }
     /// New launches read the one atomic handle. Existing sessions retain their immutable pin.
@@ -317,7 +332,10 @@ mod selection_controls {
         let new = handle("new");
         cfg.select(&old).unwrap();
         let viewer = ViewerConfig::read(&cfg.selection.with_extension("serving.json")).unwrap();
-        assert_eq!(viewer.username,cfg.username,"trusted readers require the pin-writing principal");
+        assert_eq!(
+            viewer.username, cfg.username,
+            "trusted readers require the pin-writing principal"
+        );
         let pinned = viewer.selected().unwrap();
         let held = cfg.lock_selection().await.unwrap();
         let competitor = config(scratch.path());

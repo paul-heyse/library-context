@@ -141,7 +141,9 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
         .unwrap();
     assertions.push(Assertion::from_record(coverage).unwrap());
     assertions.push(Assertion::from_record(expected.assessment()).unwrap());
-    let fixture = scoped::reader(&config,&entities,&assertions).await.unwrap();
+    let fixture = scoped::reader(&config, &entities, &assertions)
+        .await
+        .unwrap();
     let reader = &fixture.reader;
     let projection = lctx_surrealdb::projections::materialize_scoped(&reader, key, &budget)
         .await
@@ -168,7 +170,10 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
     assert!(json.get("snapshot").is_none());
     assert!(json.get("manifest").is_none());
     assert!(json.get("definition").is_none());
-    assert_eq!(json["assessment"],serde_json::to_value(expected.assessment()).unwrap());
+    assert_eq!(
+        json["assessment"],
+        serde_json::to_value(expected.assessment()).unwrap()
+    );
     assert_eq!(json["vertices"].as_array().unwrap().len(), 4);
     assert_eq!(json["arcs"].as_array().unwrap().len(), 3);
     assert_eq!(json["gaps"].as_array().unwrap().len(), 4);

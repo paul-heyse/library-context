@@ -11,8 +11,9 @@ receipts retain their original scope and do not qualify shared persistence.
 **Implemented bounded access, 2026-10-09; enclosing planner qualification remains open.** Native prepared
 demand owns bindings, result positions and expected terminals. Scope layout follows each physical
 table's actual inventory; graph scope_context and independently owned search columns remain.
-Compact atomic candidates use the existing bounded external ordering owner before exact-membership
-checks, projected hydration and residual filtering. Whole-match arrays and growing native union
+Compact atomic candidates first restrict physical pointers to the exact completed contributors,
+then use bounded external ordering, strict membership checks, projected hydration and residual filtering.
+Unrelated same-nominal revisions cannot create a conflict before that restriction. Whole-match arrays and growing native union
 deduplication are retired. Physical export order and nominal selected order retain distinct adapters.
 DDL, constructed rows, independent imported-value reconciliation and realization identity change
 together; the [correction plan PC3–PC4](../../plans/persisted-execution-corrections-plan_2026-10-07.md#4-one-native-demand-interpretation-and-bounded-candidate-execution)
@@ -57,6 +58,9 @@ private core admission establishes the exact semantic boundary. Compatible retai
 content can attach through checked current ownership without canonical replay. Current provenance,
 exact dependencies and independent cold admission remain mandatory. Unknown acknowledgement is
 reconciled through an operation identity, never inferred from local process cleanup.
+Attempt closure fences writes before bounded ownership cleanup. Unadmitted product cleanup retains
+attempt prerequisite roots until every product is removed, so interrupted cleanup remains discoverable;
+admitted products survive. Remaining ownership rows provide conservative retry progress.
 
 A short guarded transition publishes an immutable manifest over admitted views and one executable
 definition epoch. Handles bind semantic/realization identities, publication, exact view set and
@@ -64,7 +68,10 @@ service generation. Definitions are installed under immutable epoch names. Ordin
 cannot install DDL, mutate unrelated content or replace another publication's functions. Selection
 remains explicit. Later cleanup failure preserves an acknowledged committed publication.
 
-Backup is a whole-main snapshot under recovery holds. Restore treats its input as data, never as
+Logical backup uses the native engine's single whole-main read transaction and the requested
+publication's reader pin. RocksDB snapshot reads retain concurrently retired rows; unrelated
+retirement need not wait for logical export. Protected cold service recovery retains exclusive
+maintenance and drainage. Restore treats its input as data, never as
 Root-authorized SurrealQL: closed literal data is lowered through typed staging and independent
 admission. Definition metadata selects trusted executable generation; imported runtime control
 records cannot restore grants, attempts, fences, pins or visibility. An explicitly selected manifest

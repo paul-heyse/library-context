@@ -2,7 +2,8 @@
 //! work and its acknowledgement in the owner; dropping the owner closes admission and
 //! lets already acknowledged blocking work release scratch and guards at its terminal.
 use crate::ordered_rows::{
-    Candidate, OrderedCandidates, OrderedRows, PreparedCandidates, PreparedRows, SortedCandidates, SortedRows,
+    Candidate, OrderedCandidates, OrderedRows, PreparedCandidates, PreparedRows, SortedCandidates,
+    SortedRows,
 };
 use futures::{
     FutureExt,
@@ -51,11 +52,8 @@ fn candidate_bytes(candidate: &Candidate) -> Result<usize, ModelError> {
         .saturating_add(std::mem::size_of::<Candidate>()))
 }
 fn physical_bytes(row: &Value) -> Result<usize, ModelError> {
-    Ok(serde_json::to_vec(row)
-        .map_err(ModelError::codec)?
-        .len()
-        .saturating_mul(2 * std::mem::size_of::<Value>() + 4)
-        .saturating_add(std::mem::size_of::<Value>()))
+    let frame = serde_json::to_vec(row).map_err(ModelError::codec)?.len();
+    Ok(crate::ordered_rows::physical_work_bytes(row, frame))
 }
 enum Kernel {
     Candidates(SortedCandidates),
@@ -75,7 +73,7 @@ impl Owner {
     async fn new(
         budget: &ResourceBudget,
         guard: impl Send + 'static,
-        physical: bool,
+        physical_row_bytes: Option<usize>,
         prepared: Option<PreparedRows>,
         prepared_candidates: Option<PreparedCandidates>,
         register: Option<Box<dyn FnOnce(BlockingTerminal) + Send>>,
@@ -103,9 +101,12 @@ impl Owner {
                             .cursor_with_budget(&worker_budget)
                             .map(Kernel::OrderedRows)
                     } else if let Some(prepared) = prepared_candidates {
-                        prepared.cursor_with_budget(&worker_budget).map(Kernel::OrderedCandidates)
-                    } else if physical {
-                        SortedRows::with_budget(&worker_budget).map(Kernel::Rows)
+                        prepared
+                            .cursor_with_budget(&worker_budget)
+                            .map(Kernel::OrderedCandidates)
+                    } else if let Some(row_bytes) = physical_row_bytes {
+                        SortedRows::with_budget_and_row_bytes(&worker_budget, row_bytes)
+                            .map(Kernel::Rows)
                     } else {
                         SortedCandidates::new(&worker_budget).map(Kernel::Candidates)
                     };
@@ -361,7 +362,9 @@ impl AsyncCandidateSort {
         budget: &ResourceBudget,
         owner: impl Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, false, None, None, None).await.map(Self)
+        Owner::new(budget, owner, None, None, None, None)
+            .await
+            .map(Self)
     }
     /// Register a join observer before the first initialization await. The observer can
     /// retain an operation lease and report late errors after this caller is dropped.
@@ -370,7 +373,7 @@ impl AsyncCandidateSort {
         owner: impl Send + 'static,
         register: impl FnOnce(BlockingTerminal) + Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, false, None, None, Some(Box::new(register)))
+        Owner::new(budget, owner, None, None, None, Some(Box::new(register)))
             .await
             .map(Self)
     }
@@ -404,9 +407,20 @@ impl AsyncOrderedCandidates {
         owner: impl Send + 'static,
         register: impl FnOnce(BlockingTerminal) + Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, false, None, Some(prepared), Some(Box::new(register)))
-            .await
-            .map(|owner| Self { owner, retained: None, exhausted: false })
+        Owner::new(
+            budget,
+            owner,
+            None,
+            None,
+            Some(prepared),
+            Some(Box::new(register)),
+        )
+        .await
+        .map(|owner| Self {
+            owner,
+            retained: None,
+            exhausted: false,
+        })
     }
     pub async fn next_batch(&mut self, max: usize) -> Result<Vec<Candidate>, ModelError> {
         if self.exhausted {
@@ -440,9 +454,25 @@ impl AsyncPhysicalSort {
         owner: impl Send + 'static,
         register: impl FnOnce(BlockingTerminal) + Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, true, None, None, Some(Box::new(register)))
+        Self::new_registered_with_row_bytes(budget, owner, register, crate::ordered_rows::ROW_BYTES)
             .await
-            .map(Self)
+    }
+    pub async fn new_registered_with_row_bytes(
+        budget: &ResourceBudget,
+        owner: impl Send + 'static,
+        register: impl FnOnce(BlockingTerminal) + Send + 'static,
+        row_bytes: usize,
+    ) -> Result<Self, ModelError> {
+        Owner::new(
+            budget,
+            owner,
+            Some(row_bytes),
+            None,
+            None,
+            Some(Box::new(register)),
+        )
+        .await
+        .map(Self)
     }
     pub async fn push(&mut self, row: Value) -> Result<(), ModelError> {
         let bytes = physical_bytes(&row)?;
@@ -474,7 +504,7 @@ impl AsyncOrderedRows {
         Owner::new(
             budget,
             owner,
-            true,
+            Some(crate::ordered_rows::ROW_BYTES),
             Some(prepared),
             None,
             Some(Box::new(register)),

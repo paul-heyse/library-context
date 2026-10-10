@@ -197,19 +197,127 @@ async fn call(
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign_cursor_refusal() {
-    catalog_journey(false).await;
+    catalog_journey().await;
 }
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires exclusive just service maintenance --native-clients"]
 async fn published_service_refuses_executable_epoch_drift_before_library_lookup() {
-    assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),"exclusive maintenance owner required");
-    catalog_journey(true).await;
+    assert!(
+        std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some(),
+        "exclusive maintenance owner required"
+    );
+    let config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+    ))
+    .unwrap();
+    let installer = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
+            .expect("validation maintenance installer"),
+    ))
+    .unwrap();
+    let viewer = lctx_surrealdb::config::ViewerConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_NATIVE_SERVING_CONFIG").expect(
+            "retained admitted synthetic serving fixture; run with just fixture --serving NAME",
+        ),
+    ))
+    .unwrap();
+    let handle = viewer.selected().unwrap();
+    handle.validate_identity().unwrap();
+    assert_eq!(
+        installer.authentication,
+        lctx_surrealdb::AuthenticationScope::Root
+    );
+    assert_eq!(config.namespace.as_str(), "library_context");
+    assert_eq!(config.database.as_str(), "validation");
+    assert_eq!(installer.namespace, config.namespace);
+    assert_eq!(installer.database, config.database);
+    assert_eq!(installer.endpoint, config.endpoint);
+    assert_eq!(viewer.endpoint, config.endpoint);
+    assert_eq!(installer.service_generation, config.service_generation);
+    assert_eq!(handle.service_generation, config.service_generation);
+    assert_eq!(handle.database.namespace, config.namespace);
+    assert_eq!(handle.database.database, config.database);
+    // Reuse exact admitted content; the ordinary producer still owns full Catalog qualification.
+    lctx_publisher::inspection::audit(&config, &handle, &lctx_serving::native_definitions())
+        .await
+        .unwrap();
+    let reader = NativeReader::connect(&viewer.endpoint, &viewer.credentials(), handle.clone())
+        .await
+        .unwrap();
+    let result = async {
+        let admin = lctx_surrealdb::reader::connect(&installer.endpoint, &installer.writer_credentials(), installer.namespace.as_str(), installer.database.as_str()).await?;
+        let checked = async {
+            async fn actual_function(
+                client: &lctx_surrealdb::surrealdb::Surreal<lctx_surrealdb::surrealdb::engine::remote::grpc::Client>,
+                function: &str,
+            ) -> Result<String, ModelError> {
+                use lctx_surrealdb::surrealdb::types::Value;
+                let mut response = client.query("INFO FOR DB").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                let value: Value = response.take(0).map_err(ModelError::codec)?;
+                let Value::Object(info) = value else {
+                    return Err(ModelError::Schema("native function inventory object"));
+                };
+                let Some(Value::Object(functions)) = info.get("functions") else { return Err(ModelError::Schema("native function inventory")); };
+                let prefix = format!("DEFINE FUNCTION {function}(");
+                let definitions = functions.values().filter_map(|value| match value {
+                    Value::String(definition) if definition.starts_with(&prefix) => Some(definition),
+                    _ => None,
+                }).collect::<Vec<_>>();
+                match definitions.as_slice() {
+                    [definition] => Ok((*definition).clone()),
+                    _ => Err(ModelError::Schema("exact retained operation function")),
+                }
+            }
+            let function = handle.operation_definition_function();
+            let saved = actual_function(&admin, &function).await?;
+            let service = NativeService::new(reader.clone(), ResourceLimits::default())?;
+            let refusal = async {
+                admin.query(format!("DEFINE FUNCTION OVERWRITE {function}() {{ RETURN 'incompatible'; }} PERMISSIONS FULL;")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                Ok::<_, ModelError>(service.execute("find_operations", r#"{"library":"unqueried"}"#).await)
+            }.await;
+            // Restore even when mutation/dispatch fails; preserve the actual preflighted body.
+            let restoration = async {
+                admin.query(saved.replacen("DEFINE FUNCTION ", "DEFINE FUNCTION OVERWRITE ", 1)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                if actual_function(&admin, &function).await? != saved {
+                    return Err(ModelError::Conflict("exact operation function restoration"));
+                }
+                Ok(())
+            }.await;
+            service.close().await;
+            drop(service);
+            let mut completion = completion::Completion::default();
+            completion.step("operation function restoration", restoration);
+            completion.step("retained publication audit", lctx_publisher::inspection::audit(&config, &handle, &lctx_serving::native_definitions()).await);
+            completion::complete(refusal, completion)
+        }.await;
+        let mut completion = completion::Completion::default();
+        completion.step("drift admin invalidation", admin.invalidate().await.map_err(ModelError::codec));
+        completion::complete(checked, completion)
+    }.await;
+    let mut completion = completion::Completion::default();
+    completion.step("retained drift reader close", reader.close().await);
+    completion.step(
+        "retained drift reader invalidation",
+        reader
+            .client()
+            .invalidate()
+            .await
+            .map_err(ModelError::codec),
+    );
+    let refusal = completion::complete(result, completion).unwrap();
+    assert_eq!(
+        refusal.unwrap_err().public_failure(),
+        PublicFailure::new(FailureKind::Incompatible)
+    );
 }
-async fn catalog_journey(check_epoch_drift:bool) {
+async fn catalog_journey() {
     journey("catalog_ten_tools", async {
     let setup_phase = Phase::begin("journey_setup");
     let scratch=tempfile::tempdir().unwrap();
     let mut config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
+    let installed_selection = config.selection.clone();
+    let installed_selection_before = installed_selection.try_exists().unwrap()
+        .then(|| std::fs::read(&installed_selection).unwrap());
     config.selection=scratch.path().join("selection.json");
     let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
         .await
@@ -434,21 +542,6 @@ async fn catalog_journey(check_epoch_drift:bool) {
     }
     let tools_phase = Phase::begin("tool_groups");
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
-    if check_epoch_drift {
-        let path=std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer configuration");
-        let installer=RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
-        assert_eq!(installer.database,config.database);
-        assert_eq!(installer.service_generation,config.service_generation);
-        let admin=lctx_surrealdb::reader::connect(&installer.endpoint,&installer.writer_credentials(),installer.namespace.as_str(),installer.database.as_str()).await.unwrap();
-        let function=handle.operation_definition_function();
-        admin.query(format!("DEFINE FUNCTION OVERWRITE {function}() {{ RETURN 'incompatible'; }} PERMISSIONS FULL;")).await.unwrap().check().unwrap();
-        let refusal=service.execute("find_operations",r#"{"library":"unqueried"}"#).await;
-        // Restore before asserting, including when the refusal itself regresses.
-        admin.query(format!("DEFINE FUNCTION OVERWRITE {function}() {{ RETURN '{}'; }} PERMISSIONS FULL;",lctx_serving::operation_definition().hex())).await.unwrap().check().unwrap();
-        admin.invalidate().await.unwrap();
-        assert_eq!(refusal.unwrap_err().public_failure(),PublicFailure::new(FailureKind::Incompatible));
-        lctx_publisher::inspection::audit(&config,&handle,&lctx_serving::native_definitions()).await.unwrap();
-    }
     let missing = service
         .execute("browse_library", r#"{"library":"absent-library"}"#)
         .await
@@ -569,6 +662,85 @@ async fn catalog_journey(check_epoch_drift:bool) {
         serde_json::from_value(evidence["evidence"]["body"]["bytes"].clone()).unwrap();
     let expected = std::fs::read(runtime::root("synthesis_sources").join("api.py")).unwrap();
     assert_eq!(body, expected);
+    // A remains genuinely pinned, with an actual public cursor and attributed bytes,
+    // while a distinct real Facts publication B joins the same immutable executable epoch.
+    let coexistence_phase = Phase::begin("distinct_facts_publication_coexists");
+    let b_native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
+        .await
+        .unwrap();
+    let b_workspace = Workspace::new(
+        Arc::new(model().unwrap()),
+        WorkspaceOptions::default(),
+        b_native,
+    ).unwrap();
+    let b_identity = lctx_surrealdb::control::fresh_identity("native-journey-facts-coexistence").unwrap();
+    let b_library = format!("native-coexistence-facts-{}", b_identity.hex());
+    let b_captured = library_fixture_at("catalog_core", &b_library, b_workspace.budget());
+    let b_settings = ContentHash::of(b"native-serving-distinct-facts-coexistence/v1");
+    compilation::compile(
+        &b_workspace, b_captured.clone(), Profile::Catalog, b_settings,
+        Frontier::Facts, None, None, None,
+    ).await.unwrap();
+    let b_admitted = artifact::admit(
+        &b_workspace, &b_captured, Frontier::Facts, Profile::Catalog, b_settings,
+    ).await.unwrap();
+    let b_handle = lctx_publisher::seal_completed(
+        &b_admitted, &config, &lctx_serving::native_definitions(),
+    ).await.unwrap();
+    let mut b_reader = None;
+    let observations = async {
+        lctx_publisher::inspection::audit(&config, &b_handle, &lctx_serving::native_definitions()).await?;
+        b_reader = Some(NativeReader::connect(
+            &config.endpoint, &config.writer_credentials(), b_handle.clone(),
+        ).await?);
+        let b_sources = b_reader.as_ref().unwrap().records::<source::SourceArtifact>(
+            RecordSelection::Scope {
+                field: "input".into(),
+                values: vec![serde_json::to_value(b_captured.inputs()[0].captured().revision().id()).map_err(ModelError::codec)?],
+            },
+        ).await?;
+        let continued: serde_json::Value = serde_json::from_str(&service.execute(
+            "find_operations",
+            &serde_json::json!({"library":library,"page":{"size":1,"cursor":token}}).to_string(),
+        ).await.map_err(|error| ModelError::Cause(Box::new(error)))?).map_err(ModelError::codec)?;
+        let packet: serde_json::Value = serde_json::from_str(&service.execute(
+            "get_operation",
+            &serde_json::json!({"library":library,"operation":{"kind":"public_path","path":["api","connect"]},"sections":["briefs","contextual_typing","scenarios","deployment","relationships","behavior","access_routes","incoming_references","conflicts"],"page":{"expanded":true}}).to_string(),
+        ).await.map_err(|error| ModelError::Cause(Box::new(error)))?).map_err(ModelError::codec)?;
+        let attributed: serde_json::Value = serde_json::from_str(&service.execute(
+            "get_evidence",
+            &serde_json::json!({"source":{"kind":"artifact","artifact":original.id()},"page":{"expanded":true}}).to_string(),
+        ).await.map_err(|error| ModelError::Cause(Box::new(error)))?).map_err(ModelError::codec)?;
+        Ok::<_, ModelError>((b_sources, continued, packet, attributed, reader.handle().clone()))
+    }.await;
+    let mut b_completion = completion::Completion::default();
+    b_completion.step("coexisting Facts compiler drainage", b_workspace.drain().await);
+    if let Some(b_reader) = b_reader.take() {
+        b_completion.step("coexisting Facts reader close", b_reader.close().await);
+        b_completion.step("coexisting Facts reader invalidation", b_reader.client().invalidate().await.map_err(ModelError::codec));
+    }
+    if b_completion.failures.is_empty() {
+        b_completion.cleanup(b_handle.publication.hex(),
+            lctx_publisher::backup::retire(&config, &b_handle, true).await.map(|_| ()));
+    } else {
+        b_completion.storage.push(completion::StorageState::Orphan(b_handle.publication.hex()));
+    }
+    let observations = completion::complete(observations, b_completion);
+    coexistence_phase.finish_result(&observations);
+    let (b_sources, continued, packet, attributed, a_handle_after) = observations.unwrap();
+    assert!(!b_sources.is_empty(), "B must contain real captured provider facts");
+    assert_ne!(b_handle.semantic, handle.semantic);
+    assert_ne!(b_handle.publication, handle.publication);
+    assert_eq!(b_handle.database, handle.database);
+    assert_eq!(b_handle.service_generation, handle.service_generation);
+    assert_eq!(b_handle.definition_epoch, handle.definition_epoch);
+    assert_eq!(a_handle_after, handle);
+    assert_eq!(continued, next, "A's saved continuation remains exact after B publication");
+    assert_eq!(packet, operation, "A's attributed operation packet remains exact");
+    assert_eq!(attributed, evidence, "A's original evidence bytes and attribution remain exact");
+    assert!(!config.selection.exists(), "neither publication selects itself");
+    assert_eq!(installed_selection.try_exists().unwrap()
+        .then(|| std::fs::read(&installed_selection).unwrap()), installed_selection_before);
     // A rare authored term has a positive BM25 score even when brief fragmentation varies.
     let capabilities=call(&service,"search_capabilities",serde_json::json!({"library":library,"query":"carefully","page":{"size":1,"expanded":true}})).await;
     let brief = capabilities["results"]["items"]

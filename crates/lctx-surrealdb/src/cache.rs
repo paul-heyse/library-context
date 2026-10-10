@@ -27,13 +27,26 @@ impl NativeEmbeddingCache {
         Ok(Self { client })
     }
     /// Ordinary callers observe the installed table and never install schema.
-    pub async fn connect(client:Arc<Surreal<Client>>)->Result<Self,ModelError> {
-        let mut response=client.query("INFO FOR DB").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let inventory:surrealdb::types::Value=response.take(0).map_err(ModelError::codec)?;
-        let surrealdb::types::Value::Object(inventory)=inventory else{return Err(ModelError::Schema("embedding cache inventory"));};
-        let Some(surrealdb::types::Value::Object(tables))=inventory.get("tables") else{return Err(ModelError::Schema("embedding cache tables"));};
-        if !tables.contains_key("embedding_cache") {return Err(ModelError::Invalid("embedding cache is not installed; run just service install".into()));}
-        Ok(Self{client})
+    pub async fn connect(client: Arc<Surreal<Client>>) -> Result<Self, ModelError> {
+        let mut response = client
+            .query("INFO FOR DB")
+            .await
+            .map_err(ModelError::codec)?
+            .check()
+            .map_err(ModelError::codec)?;
+        let inventory: surrealdb::types::Value = response.take(0).map_err(ModelError::codec)?;
+        let surrealdb::types::Value::Object(inventory) = inventory else {
+            return Err(ModelError::Schema("embedding cache inventory"));
+        };
+        let Some(surrealdb::types::Value::Object(tables)) = inventory.get("tables") else {
+            return Err(ModelError::Schema("embedding cache tables"));
+        };
+        if !tables.contains_key("embedding_cache") {
+            return Err(ModelError::Invalid(
+                "embedding cache is not installed; run just service install".into(),
+            ));
+        }
+        Ok(Self { client })
     }
     async fn read(
         &self,
@@ -312,7 +325,11 @@ mod tests {
     use crate::{RuntimeConfig, compiler::check_installation};
 
     async fn fixture(label: &str) -> (NativeEmbeddingCache, String) {
-        let config = RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("installed validation runtime"))).unwrap();
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("installed validation runtime"),
+        ))
+        .unwrap();
         let client = check_installation(&config).await.unwrap();
         let nonce = tempfile::NamedTempFile::new().unwrap();
         let scope = format!("{label}:{}", nonce.path().display());
@@ -434,7 +451,10 @@ mod tests {
     async fn rocksdb_grpc_commit_conflict_has_the_source_confirmed_retryable_reason() {
         let (cache, database) = fixture("conflict").await;
         let owned = candidate(&database, "commit-conflict");
-        cache.admit(&spec(), std::slice::from_ref(&owned)).await.unwrap();
+        cache
+            .admit(&spec(), std::slice::from_ref(&owned))
+            .await
+            .unwrap();
         let id = winner_id(&spec().hash().hex(), owned.input_hash);
         let first = cache.client.as_ref().clone().begin().await.unwrap();
         let second = cache.client.as_ref().clone().begin().await.unwrap();

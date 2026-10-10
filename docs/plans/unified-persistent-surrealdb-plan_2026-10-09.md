@@ -2,8 +2,9 @@
 
 **Accepted target / implementation in progress · 2026-10-09.** The operator explicitly
 accepted source-review RC01–RC07. ADR-0143 records the superseding contracts; source changes
-implement shared content, scoped ownership and stable service integration. Installation,
-runtime controls and integrated UP9 acceptance remain in progress. The
+implement shared content, scoped ownership and stable service integration. The owned service
+is installed and empty-service recovery is focused Tested. Product runtime repairs and integrated
+UP9 acceptance remain in progress. The
 [persisted coordinator §8/§9.1](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
 owns scheduled findings and actual receipts. This companion owns the unified target and
 UP0–UP9 packages, not another status or retention ledger.

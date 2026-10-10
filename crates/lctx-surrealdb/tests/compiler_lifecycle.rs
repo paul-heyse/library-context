@@ -70,12 +70,26 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
         .await
         .unwrap();
     let admin = fixture_client(&store, &config).await;
-    let view=views[relation.name()].clone();
-    let binding=lctx_model::domain::completed::CompletedBinding {
-        source:lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&relation,specification.model,&view).unwrap(),
-        view,boundary:None,configuration:None,
+    let view = views[relation.name()].clone();
+    let binding = lctx_model::domain::completed::CompletedBinding {
+        source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+            &relation,
+            specification.model,
+            &view,
+        )
+        .unwrap(),
+        view,
+        boundary: None,
+        configuration: None,
     };
-    let cold = NativeCompilerStore::from_publication(admin,store.namespace().clone(),store.database().clone(),vec![binding]).await.unwrap();
+    let cold = NativeCompilerStore::from_publication(
+        admin,
+        store.namespace().clone(),
+        store.database().clone(),
+        vec![binding],
+    )
+    .await
+    .unwrap();
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(32 << 20).unwrap();
     let mut registration =
         Box::pin(cold.scan_rows(&views[relation.name()], &relation, None, None, &budget));
@@ -226,9 +240,12 @@ async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
         })
         .await
         .unwrap();
-    let cold=store.clone();
+    let cold = store.clone();
     assert!(cold.contributions().await.unwrap().is_empty());
-    assert!(cold.freeze_content().await.is_err());
+    let freeze = match cold.freeze_content().await {
+        Err(error) => error,
+        Ok(_) => panic!("pending content must reject final freeze"),
+    };
     assert!(
         cold.prepare_canonical(
             &lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap()
@@ -236,7 +253,34 @@ async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
         .await
         .is_err()
     );
-    store.abandon().await.unwrap();
+    let cleanup = store.abandon().await.unwrap_err();
+    let lctx_model::domain::ModelError::Completion(outcome) = cleanup else {
+        panic!("structured pending-freeze cleanup receipt");
+    };
+    assert!(outcome.primary.is_none());
+    assert_eq!(
+        outcome.completion.local,
+        lctx_model::domain::completion::LocalState::Terminal
+    );
+    assert_eq!(
+        outcome.completion.remote,
+        lctx_model::domain::completion::RemoteState::Confirmed
+    );
+    assert!(outcome.completion.storage.is_empty());
+    assert_eq!(outcome.completion.failures.len(), 1);
+    assert_eq!(outcome.completion.failures[0].step, "freeze_content");
+    match (&outcome.completion.failures[0].error, &freeze) {
+        (
+            lctx_model::domain::ModelError::SharedCause(retained),
+            lctx_model::domain::ModelError::SharedCause(original),
+        ) => {
+            assert!(
+                std::sync::Arc::ptr_eq(retained, original),
+                "cleanup retains the exact freeze refusal"
+            );
+        }
+        _ => panic!("shared pending-freeze cause retained"),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -289,37 +333,96 @@ async fn acknowledged_setup_authentication_failure_has_a_failed_phase_terminal()
 #[tokio::test(flavor = "multi_thread")]
 async fn native_producing_completion_waits_own_rows_without_waiting_unrelated_reader() {
     use lctx_model::domain::{analysis::sources::SourceSnapshot, resources::ResourceBudget};
-    let path = std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"));
+    let path = std::path::PathBuf::from(
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
+    );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
+    let store = NativeCompilerStore::begin(&config, Frontier::Facts)
+        .await
+        .unwrap();
     let relation = Relation::of::<Package>();
     let mut specification = ContributionSpec {
-        captured_binding: None, producer: "scoped-source".into(), profile: Profile::Catalog,
-        model: ContentHash::of(b"scoped-model"), implementation: ContentHash::of(b"scoped-code"),
-        configuration: None, inputs: vec![], outputs: BTreeSet::from([relation.name().into()]),
+        captured_binding: None,
+        producer: "scoped-source".into(),
+        profile: Profile::Catalog,
+        model: ContentHash::of(b"scoped-model"),
+        implementation: ContentHash::of(b"scoped-code"),
+        configuration: None,
+        inputs: vec![],
+        outputs: BTreeSet::from([relation.name().into()]),
     };
-    let id = store.begin_contribution(specification.clone()).await.unwrap();
-    store.write_batch(&id, &relation, &Package::encode(&[Package { name: "scoped-source-row".into() }]).unwrap()).await.unwrap();
-    let views = store.complete_contribution(id, ProviderOutcome::Complete, std::slice::from_ref(&relation), &BTreeMap::new()).await.unwrap();
+    let id = store
+        .begin_contribution(specification.clone())
+        .await
+        .unwrap();
+    store
+        .write_batch(
+            &id,
+            &relation,
+            &Package::encode(&[Package {
+                name: "scoped-source-row".into(),
+            }])
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let views = store
+        .complete_contribution(
+            id,
+            ProviderOutcome::Complete,
+            std::slice::from_ref(&relation),
+            &BTreeMap::new(),
+        )
+        .await
+        .unwrap();
     let frozen = &views[relation.name()];
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
-    let unrelated = store.scan_rows(frozen, &relation, None, None, &budget).await.unwrap();
+    let unrelated = store
+        .scan_rows(frozen, &relation, None, None, &budget)
+        .await
+        .unwrap();
 
     specification.producer = "scoped-dependent".into();
-    specification.inputs.push(SourceSnapshot::of_completed_view(&relation, specification.model, frozen).unwrap());
-    let scope = store.producing_scope(specification.identity().unwrap(), &budget).unwrap();
-    let id = scope.run(store.begin_contribution(specification)).await.unwrap();
-    let mut own = scope.run(store.scan_rows(frozen, &relation, None, None, &budget)).await.unwrap();
-    let mut completion = Box::pin(store.complete_contribution_scoped(&scope, id, ProviderOutcome::Complete, std::slice::from_ref(&relation), &views));
-    assert!(futures::poll!(&mut completion).is_pending(), "own producing stream is not terminal");
+    specification
+        .inputs
+        .push(SourceSnapshot::of_completed_view(&relation, specification.model, frozen).unwrap());
+    let scope = store
+        .producing_scope(specification.identity().unwrap(), &budget)
+        .unwrap();
+    let id = scope
+        .run(store.begin_contribution(specification))
+        .await
+        .unwrap();
+    let mut own = scope
+        .run(store.scan_rows(frozen, &relation, None, None, &budget))
+        .await
+        .unwrap();
+    let mut completion = Box::pin(store.complete_contribution_scoped(
+        &scope,
+        id,
+        ProviderOutcome::Complete,
+        std::slice::from_ref(&relation),
+        &views,
+    ));
+    assert!(
+        futures::poll!(&mut completion).is_pending(),
+        "own producing stream is not terminal"
+    );
     // Payload hydration starts after local completion closed root admission. The exact
     // returned stream carries its admitted scope rather than relying on task inheritance.
     assert!(own.next().await.unwrap().is_some());
     assert!(own.next().await.unwrap().is_none());
     let next = completion.await.unwrap();
-    assert_eq!(next[relation.name()].rows, 1, "an unrelated retained reader cannot block local completion");
+    assert_eq!(
+        next[relation.name()].rows,
+        1,
+        "an unrelated retained reader cannot block local completion"
+    );
     let mut final_close = Box::pin(store.end_writes());
-    assert!(futures::poll!(&mut final_close).is_pending(), "final closure still owns every retained native reader");
+    assert!(
+        futures::poll!(&mut final_close).is_pending(),
+        "final closure still owns every retained native reader"
+    );
     drop(unrelated);
     final_close.await.unwrap();
     store.abandon().await.unwrap();

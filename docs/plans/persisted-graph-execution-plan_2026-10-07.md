@@ -908,6 +908,347 @@ are still **not_run** on the replacement final source. No measured speedup or wh
 is claimed. A build attempted during an intermediate `IndexedResults` typing correction failed
 before execution; it is not a product-control result.
 
+**Focused foundation confirmation, 2026-10-09:** ordinary native controls now **passed**,
+Nextest `044cfeeb-10ba-4cca-8bc3-4eb096a33c14`,11passed/1explicit-maintenance ignored,
+3.787s bodies after1m24s build (`just fixture -- cargo nextest run --locked --release
+-p lctx-surrealdb --test native_control --no-fail-fast`). The earlier retirement control
+also passed alone (`f54c2c1e-ab92-43ab-ac93-e0ed317270d9`,0.200s). Native completion now
+maps logical producer identities to attempt-owned physical IDs before establishing producing
+scope ownership. Actual cold import/admission subsequently reached an obsolete full-vector
+ordering assertion (`911756c3-d7a1-4ad7-861a-ee43f3c91e65`,16.648s,1failed): the control now
+sorts full validated logical descriptors/bindings without deduplication; rerun remains pending.
+The failed search diagnostic is `440b871b-df57-4e76-bfbc-64c48a6b0f19`,10.951s; preceding
+four-control search result is `7f76ed1e-8060-4b55-8bad-4a8e91ed48e3`,1passed/3failed,26.227s.
+
+The exact derived-selection correction resolves selected payloads once, uses indexed exact
+`unit_payload` candidates and complete dependency eligibility, then point-selects actual rows.
+Lexical statistics, winning/rescore and exact-vector nomination consume the shared preparation.
+Fresh malformed extras remain visible to actual-content comparison when their dependencies
+belong to the selected scope. Focused native and integrated consumer compile checks passed;
+new lexical/vector payload indexes require explicit additive installation before runtime checks.
+Base schema/service generation is unchanged; immutable executable blueprint epochs advance.
+Maintenance child environments now retain attachment-owned compiler/test configurations even
+when the parent exports foreign paths; its real-child regression passed1 control in0.65s.
+
+Ordinary logical backup no longer holds database-wide retirement exclusion. Version-matched
+3.3.0 source establishes one read-only export transaction across all tables
+(`surrealdb-core/src/kvs/ds.rs:5562–5580`, `kvs/export.rs:557`) and RocksDB snapshot-backed
+point/range reads (`surrealdb-kvs-rocksdb/src/lib.rs:783–836,994–1003`). Retired rows remain
+visible to that captured read transaction. The requested publication's durable reader pin,
+checked stream terminal and provisional-file semantics remain; protected cold whole-service
+recovery still requires exclusive maintenance and drainage. Source support is not a measured
+benefit. Final independent delta review, index installation, focused consumers and UP9 remain
+pending. External commit `6b173569` captured the integrated implementation checkpoint; subsequent
+runtime repairs remain on shared main.
+
+**Maintenance recovery prerequisite, 2026-10-09 — implementation pending runtime:** the
+current CLI build passed3m21s and guard-free extension refresh passed4m56s before the additional
+recovery API. The producing-scope lifecycle control passed, Nextest
+`6ffdfbcd-d2ad-4afe-8692-1197f6c51eae`,1 control,0.445s after4m52s queued build.
+The explicit additive index installation then refused **before any DDL**: validation contained
+three unreleased synthetic reader pins from earlier failed controls. No backup holds were active.
+Host borrowers were zero; exact failed-command process identities were dead, their attachment
+receipts released and child cleanup confirmed with no survivors. Admission and the failed
+maintenance marker remain closed; an empty-view marker alone does not authorize release.
+
+The native owner now provides explicit Root-only named maintenance reconciliation, requiring
+closed admission and an asserted completed predecessor drain. It fences unresolved effects first,
+then guards each exact supplied identity, retaining the epoch watermark, unrelated pins and
+partial committed progress on a later refusal. The CLI exposes named repeated `--pin` and
+`--backup-hold` flags plus required `--readers-stopped`; it never implicitly releases all readers.
+Service recovery owns the exclusive host locks and released-command proof, with explicit database
+and inventory. Its initial40 functional controls passed1.34s. Independent source review accepted
+the native/CLI delta but found missing installer-config target validation in the service path;
+that preflight and failure-closed ordering are now independently reviewed. Four bounded tooling
+modules passed140 controls, including stale/swapped installer-target zero-effect refusal and
+unknown-cleanup admission closure. Final CLI build passed5m40s, guard-free native refresh
+passed2m55s, and `just ready` passed. One intermediate extension refresh compiled but correctly
+failed freshness after the partial-commit correction changed production during its build; its
+retry does not turn that failed freshness result into a product-control failure or pass.
+The exact three-pin repair **passed** (`just service maintenance --recover` with three explicit
+validation pin identities and stopped-client proof, session93088). Both databases then had no
+unreleased pins or active backup holds. Additive index installation subsequently **failed** on
+an existing `fn::lctx_operation_definition` declaration: main's two exact-payload indexes were
+installed before refusal; validation's were not, and no new immutable executable epoch was
+installed. The outer maintenance owner reclosed and drained both databases and retained its
+failure marker. Shared installation now validates the complete generated blueprint before any
+DDL, installs physical declarations only, and delegates executable helpers to the existing
+publisher-owned immutable epoch installer. Independent delta review approved the corrected
+source; `cargo check --locked --release -p lctx-surrealdb --tests` passed1.84s. Raw unversioned
+library-roots/operation-definition helpers have no production callers and await explicit
+maintenance retirement after the new epoch is verified.
+The corrected CLI rebuild **passed**3m24s. Ordinary explicit recovery without pin flags
+passed (session62286), followed by additive installation/check under exclusive maintenance
+(session32520). Both databases now contain both `exact_unit_payload` indexes and immutable
+epoch `fa8442e94aafcc4aa59e63c8252cff3604b37ad0467d4374100ee9c934a3f0cb`;
+base generation remains unchanged. Exact reviewed raw-helper retirement passed (session12509):
+only the two obsolete literal names were removed, with all four remaining named definitions
+identical before/after in each database. No content DML was performed. Final `just service check`
+passed, the maintenance marker cleared, and focused consumers resumed with ordinary parallelism.
+Ignored maintenance controls, remaining focused consumers and UP9 remain **not_run** on final
+source; no readiness waiver or blanket pin release bypassed the refusal.
+
+**Build-storage interruption, 2026-10-09:** the physical-blueprint control passed
+(`88656f49-16fa-448d-8671-c832256d0572`,1 control,0.005s after5m32s build).
+The subsequent seven-consumer no-run build failed101 (session43190) when the entire shared
+`/home/paul/.cargo/build/library-context` directory disappeared during active rustc output;
+errors were missing output directories, not product assertions or disk exhaustion. Available
+space rose from25GiB to225GiB. The queued focused consumer run acquired the lock afterward
+and began reconstructing intermediates normally. Persistent service data, the current CLI,
+profiling captures and the protected recovery archive were not removed by this task. Ordinary
+migration controls remain queued; enclosing qualification stays Open.
+
+**Post-cutover focused consumers, 2026-10-09:** the reconstructed consumer build passed16m22s;
+Nextest `7eded87a-3753-41f6-97d6-f2aae91a652b` ran7 controls,3passed/4failed in105.961s.
+Native admission/attachment ownership, independent cold transport and frozen-view BM25 passed.
+Failures exposed a retained synthetic occurrence-key collision, SDK-native Object decoding through
+the serde result path, an attempt-abandonment20s timeout after successful hydration assertions,
+and a physical/logical completed-owner key mismatch at publication admission. Fresh logical fixture
+keys and native prepared conversion are corrected; workspace ownership now uses logical spec
+identity and retains full descriptor comparison. The existing admission control additionally
+freezes fresh and reused products. No uniqueness, completeness or deadline rule was weakened.
+
+The seven migration controls (`5a2b47cc-4dc3-4a1e-aac8-47ca8ed321df`) ran4passed/3failed in3.360s,
+after18m40s queue/reconstruction. Remaining failures were missing binding roots before portable
+export, a negative freeze test incorrectly demanding successful cleanup despite its retained
+primary failure, and top-level `RETURN` skipping the intended later sleep/error. Controls now
+establish actual binding authority, inspect retained failure plus confirmed cleanup, and execute
+the intended later terminals. Post-run inventories in both databases had no unreleased pins,
+active backup holds or pin-owned holds; no additional reader release was needed.
+
+Static cleanup review found unindexed owner-hold scans and a global product/contribution
+dereference. Native correction adds exact owner/attempt/contribution indexes and scoped two-stage
+cleanup while preserving admitted products and unrelated holds. These declarations intentionally
+advance the exact base-schema identity. The current CLI's exact bytes are retained as a named
+maintenance migration asset: predecessor close/drain must precede candidate installation under
+one host-exclusive lease, with database-specific failure closure if only one scope migrates.
+Native source review accepted the examined correction; concrete migration review, runtime reruns,
+cross-worktree reuse, disruptive maintenance controls and UP9 remain pending.
+
+The concrete maintenance procedure and its `store init --keep-closed` support passed independent
+static review. Installation retains closed native admission throughout; only the outer checked
+maintenance owner reopens after both databases install, check and drain. A failed initializer
+retains its completion uncertainty separately from observed gate closure, and mixed-schema
+cleanup uses exact pinned predecessor/candidate binaries per database. Exact canonical index
+readback precedes reopening. Runtime migration **passed** (`62048`): both stable databases
+advanced from `feefd2ea…` to `464537d3…`, with service generation unchanged, all three canonical
+index definitions confirmed and checked admission reopened. Candidate CLI build **passed**
+(`87912`,1m53s); affected native/publisher/serving test compile checks **passed** (`32620`).
+Focused reruns and UP9 still have their own pending boundaries.
+
+Post-migration ordinary native controls ran12passed/1failed (`99a90a7a-6d37-4b1d-8a79-95db085d77a3`):
+all prior controls and prepared-native conversion passed. The new cleanup control repeated
+abandonment after the first call invalidated its session; exact cleanup through a separate
+authenticated client repaired the test, and its rerun passed (`f6b95e0a-f59b-4c99-bfe5-66c39fde6573`).
+Actual index plans, admitted retention and unrelated holds were checked.
+The seven consumer rerun (`4deda5a0-0281-437a-8c73-3929b2550f02`) ran5passed/1failed/1timed_out.
+Publication reached graph admission and exposed a remaining nominal-ID/payload-ID assumption
+in the canonical reader/header lookup. The search control now executes its94 cold audits and
+hit the unchanged300s case deadline. Its cases are being separated by independently isolated
+corruption responsibility, retaining the assertions and ordinary parallelism.
+The seven migration rerun (`08edc7b0-c7a9-498a-838e-0e353ac28352`) ran5passed/2failed.
+SurrealDB3.3's actual SleepPlan requires Root edit authority; pending cancellation moves to an
+explicit maintenance control. Projection export exposed a false1.9GiB charge for a declared
+1MiB opaque chunk: physical ordering multiplied the entire encoded frame by Value-node size.
+The correction charges frame plus native containers and uses the existing64MiB portable-row
+contract for charged singleton spills; ordinary compact windows retain their bounds.
+These are current correction obligations, not successful enclosing acceptance.
+
+The canonical payload/nominal identity repair passed its pure tampering control
+(`82ef83d9-9db7-4e89-b53a-314263d6fa41`). Reconciliation now orders exact physical
+anchors and payload IDs rather than an unprojected anchor dereference; the actual native
+sparse-corruption/terminal control passed (`34ef090e-7bf8-42ce-8d56-583cbdf0d968`,21.290s).
+Ordering/acknowledgement controls passed17 (`b0b150a7-b159-490b-9866-48ead064935e`).
+Portable ordering now composes headroom for three merge heads, acknowledged input and one
+singleton frame, charging actual reservations. Encoded-frame and native-row bounds remain
+separate; this does not promise that every maximum native row has an admissible encoding.
+
+The next focused publication/search/projection run **failed**
+(`7c1e8b8f-c5a8-4b5b-88f4-40fffb1ca96d`,14failed,153.756s after3m44s build).
+Projection export reached its intended immutable collision, but its assertion expected a
+retired local error label rather than the checked SDK throw. Publication exposed a near1MiB
+portable frame whose retained key/entry metadata exceeded the ordinary run threshold; the
+explicit portable singleton exception now uses total retained bytes. Its revealing boundary
+control and all17 ordering/acknowledgement controls **passed** on the corrected source
+(`04168042-3b7c-4ce4-a42f-d7e7dc36fe5a`,0.097s after2m18s build).
+The publication runtime rerun is pending. All12 independently isolated search controls timed out during
+canonical lowering. Static diagnosis found repeated global entity/assertion scans with inline
+view-membership expansion. Indexed point selection and exact prepared-result terminal dispatch
+are implemented using existing indexes and passed independent static review plus the three-crate
+test compile check (`32426`,4.02s). The same point-source preparation serves CLI/evidence relation
+reads, including compiler records. New runtime controls cover real ingress aliases, separate-view
+same-nominal revisions, entity/assertion result positions and preparatory refusal with explicit
+typed-stream drainage. Their runtime execution is pending exclusive maintenance completion.
+Alias preparation collects the exact selected aliases before the final family/type filter; no
+claim of family-only preparation or measured speedup is made. No parallelism cap or deadline increase is used;
+disruptive maintenance controls and final-source UP9 acceptance remain separate pending work.
+
+The compiler-state correction also passed compile checks (`20780`,2.59s) and independent
+static review: hashing, export and audit each capture exact bindings/dependency closure once
+per operation, use indexed candidate/point sources and check all prepared terminals. The
+extended `completed_state_is_exact_binding_closure_in_current_and_cold_owners` control covers
+unbound exclusion, changed-binding recapture and preserved cold inventory; runtime is pending.
+NativeSession explicit close now drains active requests and service clones, releases its reader
+pin, then invalidates the client. Concurrent closers share the same terminal result. Compile
+check (`52219`,10.66s), Python syntax check and independent static review passed; its actual
+pending-call/two-closer/pin-release Python control awaits the final native refresh.
+
+The eight explicitly admitted maintenance controls finished **6passed/2failed**. Backup exclusion,
+named reader reconciliation, extra-original-envelope refusal, read-only scope-definition drift,
+installer equality/drift and explicit pending-poll cancellation/three-terminal/EOF drainage passed.
+Analyzer drift failed during publication admission before mutation (`55df26e0-61df-4397-b3bf-1a1367e19e8f`,
+121.452s); executable-epoch drift timed out during full catalog fixture construction before
+publication/mutation (`e393b948-c5ae-4ca0-8935-078efeab1334`,300.026s). Both intended assertions
+remain unexercised. The frozen private receipt is
+`maintenance-eight-controls-fecfd3ef799a4786bc8e0a47f4153a04.json` under the owned service state root,
+SHA256 `bc560c2a3273662248633958f6bccff3c034777af8acfb1af0d4ee5ed01100ca`.
+All eight restored exact definitions and confirmed drainage; zero borrowers, pins, backup holds
+and unresolved effects remained. `just service maintenance --recover` **passed** (`87111`),
+revalidating both databases and reopening admission without forced reader release.
+The executable-drift control will consume an exact retained publication from the independently
+qualified ordinary MCP producer; it need not rebuild that prerequisite merely to mutate/check
+its pinned definition. The full ordinary catalog journey remains required by UP9.
+
+Final-source preparation: scoped `just turn-end --paths ...` regenerated ADR/Hakari (no feature
+change), formatted72 task Rust files and three Python files, excluding concurrent acquisition
+owners. Mechanical service-script lint corrections preserve messages and conditions. The
+retained-view drift control passed `cargo check --locked --release -p lctx-serving --test native_journey`
+(`73003`,1.49s) and independent static review after strict SDK Value/Object decoding. The private
+F01 wrapper passed syntax/static review and verifies explicit main interpreter/native-artifact
+provenance; independent worktree-built clients are outside that claim.
+The corrected17-control run (`20261010T034621.579Z-841e29`) selects the12 `streamed_` cases,
+publication, projection backing and the three new reader/state controls named above. Its
+`cargo build --profile release --locked -p lctx --bin lctx` **passed**,5m27s. Consumer runtime
+finished **15passed/2failed** (`9648509a-f112-41d1-ac8f-5aacaba3ba93`,105.815s after2m30s
+test build). All12 search controls and the three reader/state controls passed under ordinary
+parallelism; no native query timeout occurred in that selection. Projection's exact typed THROW
+assertion omitted the SDK's `An error occurred:` prefix; the pinned source/SDK control confirms
+the prefix and the test correction compiles. Publication progressed past admission but exposed
+`conflicting nominal candidate pointer` in Normalized compilation: atomic-scope candidates are
+sorted before exact completed-view filtering, so unrelated same-nominal payload revisions can
+falsely conflict. The native owner is correcting that access boundary and adding a revealing
+actual control. Final native refresh, maintenance8, F01, populated recovery and assembled UP9
+remain unqualified.
+
+**2026-10-10 focused follow-up:** run `20261010T040306.825Z-fa0912`, Nextest
+`efd6fb96-2140-4c8e-941a-a8c4206cb39c`, finished **2passed/2failed** in153.235s after2m44s
+build. Projection backing and existing same-view revision-conflict refusal passed. The new
+atomic exact-view control initially supplied hex strings instead of native reference arrays;
+its fixture now derives values through the production batch codec. Publication passed compile,
+export and cold verification, then failed final publication seal with a10s native query timeout.
+The exact-view correction preserves the strict downstream membership/collision validators.
+
+The phase-logged rerun `20261010T041013.131Z-c15f1b`, Nextest
+`ee891bfb-9f1f-4a42-a1e2-0e974e4c6f16`, finished **1passed/1failed** in167.128s after18.16s
+build. The corrected actual atomic exact-view control passed. Publication failed specifically
+in `publication_final_reconciliation` after10002.8ms; state hashing completed beforehand, and
+publication marker/realization phases were not reached. Static review identified global canonical
+and outgoing-role scans with repeated view expansion still in reconciliation. The native owner
+is migrating those reads to the shared exact-node preparation and indexed role sources while
+preserving full canonical/family/role reconciliation. No deadline or parallelism change is used.
+
+The exact-node reconciliation rerun `20261010T041912.896Z-a41f00`, Nextest
+`bfe0fe8d-f6b9-46ef-a547-99700cba9999`, finished **1passed/1failed** in172.183s after1m54s
+build. The extended sparse-corruption control passed, including independently missing and
+unexpected participant/reference rows followed by restored positive readback. Independent source
+review approved the examined exact-source/alias/prepared-terminal patch. Publication's final
+reconciliation passed3406ms, realization passed14ms and its marker passed7490ms. The subsequent
+attempt cleanup exceeded the unchanged10s query deadline; the structured failure preserves the
+acknowledged unselected publication identity. Abandonment repeats the cleanup timeout. Indexed
+owner enumeration still feeds an unbounded transactional delete in `control::close_attempt`;
+bounded, fenced, retryable cleanup is the next correction. This receipt does not establish whole
+publication success or a measured speedup.
+
+The bounded cleanup correction fences the exact attempt/epoch before deleting indexed owner-hold
+and product windows. Unadmitted products drain before attempt roots, so interruption and concurrent
+retirement cannot erase their discovery path; admitted products remain retained. Existing frozen
+and maintenance-fenced states remain terminal. Independent review identified and corrected the
+initial release-before-product race and a maintenance-state compatibility omission. The extended
+actual control covers1025 target holds, partial cleanup, late-write refusal, repeated close,
+admitted-product retention and unrelated-reader preservation. Final compile check **passed**
+(`76351`,1.52s); runtime is pending. The precursor14-control build
+`20261010T043054.710Z-5363ff` was **cancelled / not_run**, exit143 after40.8s, before controls
+started, to incorporate those review corrections. No test failure or pass is attributed to it.
+Lexical statistics readback also replaces a remaining shared-document scan with indexed nomination
+of all actual scoped members plus exact document point reads. Its full sorted comparisons and
+prepared terminals remain; independent static review and compile check **passed** (`67261`,1.32s).
+Runtime reruns include all12 isolated search controls rather than inheriting their earlier passes.
+
+Run `20261010T043334.260Z-b5c688`, Nextest `75697021-f7fe-4e67-82cd-34dd17e4c517`,
+finished **11passed/3failed**,216.599s after2m01s build. Multi-window cleanup passed, as did ten
+search controls. Publication completed sealing, cleanup and fresh reader readback without a
+native query timeout, then listing refused a malformed retained-control placeholder marker
+(`Codec: Invalid character 'n' at position0`). The generic ownership test had inserted
+`handle='native-owner-control'` into the authoritative publication table. It is being migrated
+to a generic guard root, retaining its prerequisite/product retirement assertions; exact leftover
+synthetic roots need checked native retirement under drained maintenance. Listing remains fail-closed.
+
+Both occurrence controls failed because their fixed `family=3` mutation can equal an already
+Source-family witness. The test now chooses another valid family, asserts actual physical change,
+retains both refusal/read-only checks and restores witnesses before negative assertions.
+Independent static review and scoped compile **passed**. Their corrected runtime rerun
+`20261010T044103.370Z-32fe0e`, Nextest `7aa6cc3c-2b89-4be4-9b95-304698ad8eb5`,
+**passed2** in35.108s after29.71s build. These are test-precondition corrections, not a weakened
+reconciliation contract. Guard-free `just ready` **passed**, rebuilding and installing the current
+native extension before readiness checks; no live client was replaced. Final-source
+MCP/maintenance/F01/recovery/UP9 obligations remain pending.
+
+The one-time exact placeholder-retirement wrapper and temporary native helper passed independent
+static review. Its first maintenance invocation **failed before native helper execution or content
+effects**, at the host check for the sole current fixture attachment. Outer maintenance retained
+closed admission; the daemon remained active and ordinary borrowers drained. The invocation had
+nested `just fixture` inside service maintenance, which already creates an attachment. Exact-one
+proof correctly refused the resulting two attachments. Standard `just service maintenance --recover`
+**passed** (`65280`) without forced release. Retry uses the direct maintenance-owned command;
+fail-closed publication listing and exact-one attachment proof remain unchanged.
+
+The direct repair **passed**, Nextest `27b4b2d9-8cff-41c1-9e0d-028a90dba69d`, one ignored
+maintenance control in0.438s after5.23s build. The exact old synthetic publication
+`82a7c62e89415bafc18e9ed280d9363d7543a4e0bb92f7ca1f2b9586905fdbd3` was retired through
+native terminal-attempt closure/reachability; no raw deletion or listing filter was added.
+Private row/source/progress evidence and terminal receipt remain under service state
+`native-owner-marker-repair-2188c8423e3245cbaf1c264ee0e590a9/`; wrapper SHA256
+`4f0c9e42f3a6d038f9ba2551753e8ebe95ecd4f0e8119255744762142b904f54`.
+The wrapper verified the requested marker absent and native admission closed before outer
+maintenance checked drainage/readiness and reopened both databases. The temporary helper is
+removed from repository code (post-removal compile **passed**, `81b37b`,0.49s); the generic native-guard fixture retains actual product
+and prerequisite-retention assertions. Focused publication and final UP9 acceptance remain pending.
+
+Final acceptance source audit identified two missing direct cases: concurrent ordinary imports of
+the same dump (TF01), and the committed shared-effect reconciliation branch after controlled
+acknowledgement discard/session loss (Unified F05). Existing actual delayed transactions,
+pin protection/retirement/resume and source inspection cover their separate lifecycle branches;
+they are not evidence of arbitrary process death or a directly forced pin/retirement race.
+These revealing controls are being integrated before final qualification. The two existing
+compiler reuse matrices also now exercise removal of an inserted declaration, comparing retained
+attachment against independent cold compilation and the original populated result; compile
+check **passed** (`30191`,4.82s), runtime pending. No new runtime cap or production hook is added.
+Independent source review accepted concurrent ordinary same-dump restore, its fresh mutable
+owner checks, independent audits and unchanged selection bytes, plus both-profile deletion
+equivalence. Their runtime evidence remains pending. Unified F03's explicit distinct-publication
+during live catalog cursor scenario is also being added using a tiny Facts-only second input;
+existing same-handle restore and foreign physical candidates do not establish that exact trigger.
+
+Focused run `20261010T045427.832Z-9dd5df`, Nextest
+`674ea14a-019b-4ec2-93a9-54977c7ec5a2`, finished **1passed/1failed**,232.206s after the
+final CLI build passed in1m26s and test build in4.82s. The corrected generic-root retention
+control passed. Publication passed sealing/listing/audit/readback, then its raw test-side
+`entity WHERE id IN (...)` selection timed out at10s. This precedes the newly added concurrent
+restore assertions; that binary predates those test-only extensions. The test now nominates
+physical candidates through the exact pinned-view index and point-reads the entity, checking
+both prepared terminals and independent selected membership before immutable collision mutation.
+Compile **passed** (`3f5520`,0.47s); runtime remains pending. No production timeout or test deadline changed.
+
+Final bounded source review accepted the correction tree at `75e8e5bf` plus the examined changes.
+It found no remaining executable ordinary scratch-database provisioning/teardown, database
+sealing as view authority, or canonical payload-replay route in inspected crates/scripts/Python.
+The existing qualifier covers all eight profile/frontier admission/export combinations, both
+reuse matrices, native/publisher/serving, Python sessions and applicable leaves. The approved
+Facts-only B/live catalog A extension compiles (`native_journey`,0.86s) and preserves the exact
+saved cursor, operation packet, attributed evidence, A handle/selection and epoch while B is
+published; structured cleanup retires only B. These are source/compile outcomes, not runtime
+closure. Final focused rerun, fresh MCP, maintenance8, F01, populated recovery and UP9 remain pending.
+
 **NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
 operator-accepted complementary target. Exact bindings, membership access, typed replay,
 shared admission, wake-driven handoffs, scoped completion, stable flights and explicit

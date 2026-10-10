@@ -167,7 +167,7 @@ impl PreparedServingScope {
             .map(|input| input.name().to_owned())
             .collect();
         bindings.insert("types", types.into_iter().collect::<Vec<_>>());
-        let selected=reader.selected_node_predicate("id");
+        let selected = reader.selected_node_predicate("id");
         reader.canonical_batches(format!("RETURN {{\
             LET $selected=array::distinct(array::concat((SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views),(SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views))));\
             LET $nodes=SELECT VALUE id FROM $selected WHERE id IN $requested_nodes OR anchor IN $requested_nodes;\

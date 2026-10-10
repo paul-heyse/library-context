@@ -11,16 +11,36 @@ mod native_publication;
 use native_publication::{Admission, Publication};
 /// Install additive immutable executable definitions under explicit root maintenance authority.
 /// Normal compilation/publication only verifies this epoch and cannot create schema or users.
-pub async fn install_definitions(config:&RuntimeConfig,blueprint:&str)->Result<(),ModelError>{
-    if config.authentication!=lctx_surrealdb::AuthenticationScope::Root {return Err(ModelError::Conflict("definition installation requires root maintenance authority"));}
-    let client=lctx_surrealdb::reader::connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await?;
-    let result=async {
-        lctx_surrealdb::control::check_installation(&client,config.service_generation).await?;
-        let loader=lctx_surrealdb::Loader::new(client.clone());
-        crate::definitions::install_epoch(&loader,blueprint).await.map(|_|())
-    }.await;
-    let mut completion=Completion::default();completion.step("definition installation session invalidation",client.invalidate().await.map_err(ModelError::codec));
-    complete(result,completion)
+pub async fn install_definitions(
+    config: &RuntimeConfig,
+    blueprint: &str,
+) -> Result<(), ModelError> {
+    if config.authentication != lctx_surrealdb::AuthenticationScope::Root {
+        return Err(ModelError::Conflict(
+            "definition installation requires root maintenance authority",
+        ));
+    }
+    let client = lctx_surrealdb::reader::connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        config.namespace.as_str(),
+        config.database.as_str(),
+    )
+    .await?;
+    let result = async {
+        lctx_surrealdb::control::check_installation(&client, config.service_generation).await?;
+        let loader = lctx_surrealdb::Loader::new(client.clone());
+        crate::definitions::install_epoch(&loader, blueprint)
+            .await
+            .map(|_| ())
+    }
+    .await;
+    let mut completion = Completion::default();
+    completion.step(
+        "definition installation session invalidation",
+        client.invalidate().await.map_err(ModelError::codec),
+    );
+    complete(result, completion)
 }
 pub async fn publish(
     export: &VerifiedExport,
@@ -152,9 +172,10 @@ async fn publication_completion<T>(
                 completion.step("publication abandon", native.abandon().await);
             } else {
                 completion.remote = RemoteState::Unknown;
-                completion
-                    .storage
-                    .push(StorageState::Orphan(format!("native_attempt:{}",native.attempt().hex())));
+                completion.storage.push(StorageState::Orphan(format!(
+                    "native_attempt:{}",
+                    native.attempt().hex()
+                )));
             }
         }
     }

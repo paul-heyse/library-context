@@ -25,8 +25,23 @@ pub struct ScopedCandidate {
     pub score: Option<f64>,
 }
 impl ScopedCandidate {
-    fn published(self,snapshot:&SnapshotHandle)->CandidateScore {CandidateScore{snapshot:snapshot.clone(),occurrence:self.occurrence,channel:self.channel,channel_identity:self.channel_identity,score:self.score}}
-    fn from_published(row:&CandidateScore)->Self {Self{occurrence:row.occurrence,channel:row.channel,channel_identity:row.channel_identity,score:row.score}}
+    fn published(self, snapshot: &SnapshotHandle) -> CandidateScore {
+        CandidateScore {
+            snapshot: snapshot.clone(),
+            occurrence: self.occurrence,
+            channel: self.channel,
+            channel_identity: self.channel_identity,
+            score: self.score,
+        }
+    }
+    fn from_published(row: &CandidateScore) -> Self {
+        Self {
+            occurrence: row.occurrence,
+            channel: row.channel,
+            channel_identity: row.channel_identity,
+            score: row.score,
+        }
+    }
 }
 
 /// The eligibility policy is applied before each channel's candidate cap.
@@ -42,8 +57,23 @@ impl UnitScope {
 }
 // unit_node is the writer-derived real graph pointer, independently reconciled with the unit.
 // The outgoing reference index reaches the unit's origin without collecting all origins/units.
-const SELECTED_OCCURRENCE: &str = "array::len(dependencies)>0 AND dependencies ALLINSIDE array::distinct(array::concat((SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views),(SELECT VALUE target FROM compiler_alias WHERE source IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views))))";
-const UNIT_ELIGIBILITY: &str = "($brief_origins=false OR array::len((SELECT VALUE id FROM reference WITH INDEX outgoing WHERE in=$parent.unit_payload AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND field='origin' AND out IN (SELECT VALUE node.anchor FROM compiler_view_member WHERE view IN $lctx_views AND node.semantic_type='retrieval_origins' AND node.body.kind=6) LIMIT 1))>0)";
+const UNIT_ELIGIBILITY: &str = "($brief_origins=false OR array::len((SELECT VALUE id FROM reference WITH INDEX outgoing WHERE in=$parent.unit_payload AND field='origin' AND out IN $lctx_brief_origin_anchors LIMIT 1))>0)";
+fn prepare_candidates<Context>(
+    reader: &NativeReader<Context>,
+) -> (
+    lctx_surrealdb::derived_search::ExactOccurrences,
+    Vec<String>,
+) {
+    let mut preparation = Vec::new();
+    let exact = lctx_surrealdb::derived_search::prepare_exact_occurrences(reader, &mut preparation);
+    let source = exact.payloads.unwrap_or("entity");
+    preparation.push(format!("LET $lctx_brief_origin_anchors=SELECT VALUE anchor FROM {source} WHERE semantic_type='retrieval_origins' AND body.kind=6"));
+    (exact, preparation)
+}
+/// Exact native point sources required by the production vector selection and EXPLAIN.
+pub fn vector_selection_preparation<Context>(reader: &NativeReader<Context>) -> Vec<String> {
+    prepare_candidates(reader).1
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -80,10 +110,29 @@ pub async fn lexical(
     cap: usize,
     policy: &RankingPolicy,
 ) -> Result<Vec<CandidateScore>, ModelError> {
-    lexical_scoped(reader,query,family,inputs,pairs,member_mode,units,cap,policy).await.map(|rows|rows.into_iter().map(|row|row.published(reader.handle())).collect())
+    lexical_scoped(
+        reader,
+        query,
+        family,
+        inputs,
+        pairs,
+        member_mode,
+        units,
+        cap,
+        policy,
+    )
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|row| row.published(reader.handle()))
+            .collect()
+    })
 }
 /// Query the exact explicit view scope without manufacturing a publication grant.
-#[allow(clippy::too_many_arguments, reason="The native kernel keeps eligibility and policy explicit")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The native kernel keeps eligibility and policy explicit"
+)]
 pub async fn lexical_scoped<Context>(
     reader: &NativeReader<Context>,
     query: &str,
@@ -99,11 +148,17 @@ pub async fn lexical_scoped<Context>(
         return Err(ModelError::Invalid("native candidate target cap".into()));
     }
     policy.validate()?;
-    let scope=lctx_surrealdb::lexical_stats::scope_identity(reader)?;
-    let selected_occurrence=lctx_surrealdb::derived_search::selected_occurrence_predicate(reader,"$this");
+    let scope = lctx_surrealdb::lexical_stats::scope_identity(reader)?;
+    let (exact, mut preparation) = prepare_candidates(reader);
+    let selected_occurrence =
+        lctx_surrealdb::derived_search::prepare_selected_payloads(reader, &mut preparation);
+    let lexical_occurrences = &exact.lexical;
     let mut vars = reader.view_bindings();
-    vars.insert("lexical_scope",scope.hex());
-    vars.insert("corpus_id",lctx_surrealdb::lexical_stats::corpus_id(scope,family as i16));
+    vars.insert("lexical_scope", scope.hex());
+    vars.insert(
+        "corpus_id",
+        lctx_surrealdb::lexical_stats::corpus_id(scope, family as i16),
+    );
     vars.insert("query", query.to_owned());
     vars.insert("family", family as i16);
     vars.insert("inputs", binding(inputs)?);
@@ -131,14 +186,20 @@ pub async fn lexical_scoped<Context>(
  }};
  LET $documents=SELECT id,$score_document(id) AS score FROM {table} WHERE text @1,OR@ $query AND array::len((SELECT VALUE id FROM $parent.id->lex_occurs WHERE eligible=true AND {selected_occurrence} AND family=$family AND {UNIT_ELIGIBILITY} AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier};
  LET $scores=object::from_entries($documents.map(|$v|[<string>$v.id,$v.score]));
- LET $occurrences=SELECT *, $scores[<string>in] ?? 0.0 AS score FROM lex_occurs WHERE eligible=true AND {selected_occurrence} AND family=$family AND {UNIT_ELIGIBILITY} AND ($scores[<string>in]!=NONE OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $occurrences=SELECT *, $scores[<string>in] ?? 0.0 AS score FROM {lexical_occurrences} WHERE eligible=true AND family=$family AND {UNIT_ELIGIBILITY} AND ($scores[<string>in]!=NONE OR exact_name=$query OR exact_path=$query OR exact_option=$query) AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
  LET $ranked=SELECT {target} AS target,context,{{a:!(exact_name=$query OR exact_path=$query OR exact_option=$query),b:-score,c:occurrence_key,hit:{{score:score,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}}}} AS rank FROM $occurrences;
  LET $grouped=SELECT target,context,rank FROM $ranked GROUP BY target,context;
  LET $winners=SELECT target,context,array::first(array::sort(rank)) AS winner FROM $grouped;
  RETURN SELECT VALUE winner.hit FROM $winners ORDER BY winner.a ASC,winner.b ASC,target ASC,context ASC LIMIT 1024;
 }};"#
         );
-        rows = reader.query::<Vec<NativeHit>>(sql, vars.clone()).await?;
+        rows = reader
+            .query_prepared::<Vec<NativeHit>>(lctx_surrealdb::prepared::PreparedQuery::new(
+                vars.clone(),
+                preparation.clone(),
+                vec![sql],
+            )?)
+            .await?;
         let targets = rows
             .iter()
             .map(|row| {
@@ -223,10 +284,33 @@ pub async fn vector(
     cap: usize,
     policy: &RankingPolicy,
 ) -> Result<Vec<CandidateScore>, ModelError> {
-    vector_scoped(reader,vector,specification,vector_digest,recipe_digest,projection,family,inputs,pairs,member_mode,units,cap,policy).await.map(|rows|rows.into_iter().map(|row|row.published(reader.handle())).collect())
+    vector_scoped(
+        reader,
+        vector,
+        specification,
+        vector_digest,
+        recipe_digest,
+        projection,
+        family,
+        inputs,
+        pairs,
+        member_mode,
+        units,
+        cap,
+        policy,
+    )
+    .await
+    .map(|rows| {
+        rows.into_iter()
+            .map(|row| row.published(reader.handle()))
+            .collect()
+    })
 }
 /// Exact eligible-vector query over a compiler-owned view scope.
-#[allow(clippy::too_many_arguments, reason="The native kernel keeps vector and eligibility identities explicit")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The native kernel keeps vector and eligibility identities explicit"
+)]
 pub async fn vector_scoped<Context>(
     reader: &NativeReader<Context>,
     vector: &[f32],
@@ -267,20 +351,28 @@ pub async fn vector_scoped<Context>(
     let mut rows = Vec::new();
     // Ordered rank-object keys select one real primary witness per target/context.
     // Score dictionaries avoid a variable-table scan for every occurrence.
+    let (exact, preparation) = prepare_candidates(reader);
+    let vector_occurrences = &exact.vector;
     for tier in [128, 256, 512, 1024] {
         let selection = vector_selection_sql(tier)?;
         let sql = format!(
             r#"RETURN {{
  LET $vectors={selection};
  LET $scores=object::from_entries($vectors.map(|$v|[<string>$v.id,$v.score]));
- LET $occurrences=SELECT *, $scores[<string>in] AS score FROM vec_occurs WHERE eligible=true AND {SELECTED_OCCURRENCE} AND {UNIT_ELIGIBILITY} AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
+ LET $occurrences=SELECT *, $scores[<string>in] AS score FROM {vector_occurrences} WHERE eligible=true AND {UNIT_ELIGIBILITY} AND family=$family AND in IN $vectors.id AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs);
  LET $ranked=SELECT {target} AS target,context,{{a:-score,b:occurrence_key,hit:{{score:score,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}}}} AS rank FROM $occurrences;
  LET $grouped=SELECT target,context,rank FROM $ranked GROUP BY target,context;
  LET $winners=SELECT target,context,array::first(array::sort(rank)) AS winner FROM $grouped;
  RETURN SELECT VALUE winner.hit FROM $winners ORDER BY winner.a ASC,target ASC,context ASC LIMIT 1024;
 }};"#
         );
-        rows = reader.query::<Vec<NativeHit>>(sql, vars.clone()).await?;
+        rows = reader
+            .query_prepared::<Vec<NativeHit>>(lctx_surrealdb::prepared::PreparedQuery::new(
+                vars.clone(),
+                preparation.clone(),
+                vec![sql],
+            )?)
+            .await?;
         let targets = rows
             .iter()
             .map(|row| {
@@ -328,9 +420,20 @@ pub async fn rescore_union(
     nominated: &[CandidateScore],
     policy: &RankingPolicy,
 ) -> Result<Vec<CandidateScore>, ModelError> {
-    if nominated.iter().any(|row|&row.snapshot!=reader.handle()){return Err(ModelError::Conflict("rescore publication identity"));}
-    let rows=nominated.iter().map(ScopedCandidate::from_published).collect::<Vec<_>>();
-    rescore_union_scoped(reader,query,&rows,policy).await.map(|rows|rows.into_iter().map(|row|row.published(reader.handle())).collect())
+    if nominated.iter().any(|row| &row.snapshot != reader.handle()) {
+        return Err(ModelError::Conflict("rescore publication identity"));
+    }
+    let rows = nominated
+        .iter()
+        .map(ScopedCandidate::from_published)
+        .collect::<Vec<_>>();
+    rescore_union_scoped(reader, query, &rows, policy)
+        .await
+        .map(|rows| {
+            rows.into_iter()
+                .map(|row| row.published(reader.handle()))
+                .collect()
+        })
 }
 /// Re-score only the nominated exact scoped frontier; no publication identity is inferred.
 pub async fn rescore_union_scoped<Context>(
@@ -397,15 +500,20 @@ pub async fn rescore_union_scoped<Context>(
         );
         vars.insert("encoder", query.spec.hex());
         vars.insert("policy", query.projection.hex());
-        let rows:Vec<FullLink>=reader.query("SELECT in.full_key AS full_key,family,{score:0.0,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor} AS witness FROM vec_occurs WHERE eligible=true AND unit_node IN (SELECT VALUE node.anchor FROM compiler_view_member WHERE view IN $lctx_views) AND out IN (SELECT VALUE node.anchor FROM compiler_view_member WHERE view IN $lctx_views) AND scope_window IN $window_keys AND unit IN $units AND [unit,window,part,binding,context,anchor,family] IN $tuples AND in.encoder_hash=$encoder AND in.policy_key=$policy AND in.family=family AND in.library_input=scope_input ORDER BY occurrence_key,in.full_key",vars).await?;
+        let (exact, preparation) = prepare_candidates(reader);
+        let sql = format!(
+            "SELECT in.full_key AS full_key,family,{{score:0.0,unit:unit,window:window,part:part,binding:binding,context:context,member:member,anchor:anchor}} AS witness FROM {} WHERE eligible=true AND scope_window IN $window_keys AND unit IN $units AND [unit,window,part,binding,context,anchor,family] IN $tuples AND in.encoder_hash=$encoder AND in.policy_key=$policy AND in.family=family AND in.library_input=scope_input ORDER BY occurrence_key,in.full_key",
+            exact.vector
+        );
+        let rows: Vec<FullLink> = reader
+            .query_prepared(lctx_surrealdb::prepared::PreparedQuery::new(
+                vars,
+                preparation,
+                vec![sql],
+            )?)
+            .await?;
         for row in rows {
-            let occurrence = candidate(
-                row.witness,
-                row.family,
-                channel,
-                member_mode,
-            )?
-            .occurrence;
+            let occurrence = candidate(row.witness, row.family, channel, member_mode)?.occurrence;
             if !chunk.contains(&occurrence) {
                 return Err(ModelError::Conflict(
                     "rescore frontier changed exact lineage",
@@ -513,6 +621,6 @@ pub fn vector_selection_sql(tier: usize) -> Result<String, ModelError> {
         return Err(ModelError::Invalid("unsupported candidate tier".into()));
     }
     Ok(format!(
-        r"SELECT id,vector::similarity::cosine(embedding,$vector) AS score FROM vector WHERE encoder_hash=$encoder_hash AND policy_key=$policy_key AND family=$family AND library_input IN $input_keys AND array::len((SELECT VALUE id FROM $parent.id->vec_occurs WHERE eligible=true AND {SELECTED_OCCURRENCE} AND {UNIT_ELIGIBILITY} AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier}"
+        r"SELECT id,vector::similarity::cosine(embedding,$vector) AS score FROM $lctx_selected_vectors WHERE encoder_hash=$encoder_hash AND policy_key=$policy_key AND family=$family AND library_input IN $input_keys AND array::len((SELECT VALUE id FROM $parent.id->vec_occurs WHERE eligible=true AND array::len(dependencies)>0 AND dependencies ALLINSIDE $lctx_selected_payloads AND {UNIT_ELIGIBILITY} AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs) LIMIT 1))>0 ORDER BY score DESC,id ASC LIMIT {tier}"
     ))
 }

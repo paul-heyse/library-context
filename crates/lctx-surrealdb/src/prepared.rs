@@ -1,60 +1,132 @@
 //! Mechanical native request preparation. Callers own eligibility, order and residual policy.
 use futures::{Stream, StreamExt};
 use lctx_model::domain::ModelError;
-use surrealdb::{method::StreamItem, types::{Value, Variables, ToSql}};
+use surrealdb::{
+    method::StreamItem,
+    types::{ToSql, Value, Variables},
+};
 
 /// Statement positions include preparation. Every terminal remains part of the operation,
 /// including preparation failures; only designated result statements expose payload rows.
 #[derive(Clone)]
 pub struct PreparedQuery {
-    sql:String,
-    bindings:Variables,
-    results:Vec<usize>,
-    terminals:usize,
+    sql: String,
+    bindings: Variables,
+    results: Vec<usize>,
+    terminals: usize,
 }
 impl PreparedQuery {
-    pub fn new(bindings:Variables,preparation:Vec<String>,results:Vec<String>)->Result<Self,ModelError> {
-        let offset=preparation.len();
-        let terminals=offset+results.len();
-        let positions=(offset..terminals).collect();
-        let sql=preparation.into_iter().chain(results).map(|statement|format!("{};",statement.trim_end_matches(';'))).collect();
-        Self::from_sql(sql,bindings,terminals,positions)
+    pub fn new(
+        bindings: Variables,
+        preparation: Vec<String>,
+        results: Vec<String>,
+    ) -> Result<Self, ModelError> {
+        let offset = preparation.len();
+        let terminals = offset + results.len();
+        let positions = (offset..terminals).collect();
+        let sql = preparation
+            .into_iter()
+            .chain(results)
+            .map(|statement| format!("{};", statement.trim_end_matches(';')))
+            .collect();
+        Self::from_sql(sql, bindings, terminals, positions)
     }
     /// For an owner-generated statement/block whose statement inventory is already known.
-    pub fn from_sql(sql:String,bindings:Variables,terminals:usize,results:Vec<usize>)->Result<Self,ModelError> {
-        if terminals==0 || results.is_empty() || results.iter().any(|position|*position>=terminals) || results.windows(2).any(|pair|pair[0]>=pair[1]) {
+    pub fn from_sql(
+        sql: String,
+        bindings: Variables,
+        terminals: usize,
+        results: Vec<usize>,
+    ) -> Result<Self, ModelError> {
+        if terminals == 0
+            || results.is_empty()
+            || results.iter().any(|position| *position >= terminals)
+            || results.windows(2).any(|pair| pair[0] >= pair[1])
+        {
             return Err(ModelError::Schema("prepared native result inventory"));
         }
-        Ok(Self{sql,bindings,results,terminals})
+        Ok(Self {
+            sql,
+            bindings,
+            results,
+            terminals,
+        })
     }
-    pub fn result_positions(&self)->&[usize] {&self.results}
-    pub fn expected_terminals(&self)->usize {self.terminals}
-    pub fn into_request(self)->(String,Variables) {(self.sql,self.bindings)}
-    pub fn with_bindings(mut self,bindings:Variables)->Self {self.bindings.extend(bindings);self}
-    pub fn stream(self,client:&std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>)->Result<crate::reader::NativeRows,ModelError> {
-        let Self{sql,bindings,results,terminals}=self;
+    pub fn result_positions(&self) -> &[usize] {
+        &self.results
+    }
+    pub fn expected_terminals(&self) -> usize {
+        self.terminals
+    }
+    pub fn into_request(self) -> (String, Variables) {
+        (self.sql, self.bindings)
+    }
+    pub fn with_bindings(mut self, bindings: Variables) -> Self {
+        self.bindings.extend(bindings);
+        self
+    }
+    pub fn stream(
+        self,
+        client: &std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+    ) -> Result<crate::reader::NativeRows, ModelError> {
+        let Self {
+            sql,
+            bindings,
+            results,
+            terminals,
+        } = self;
         // SDK Surreal::clone creates an independent session and replays authentication.
         // The stream owns the request already; retain the existing session rather than
         // asking Query::into_owned to clone its borrowed client for every read.
-        let stream=client.query(sql).bind(bindings).stream_items().map_err(crate::reader::sdk_error)?;
-        Ok(crate::reader::NativeRows::new(selected_rows(stream,results,terminals),terminals)?.with_client(client.clone()))
+        let stream = client
+            .query(sql)
+            .bind(bindings)
+            .stream_items()
+            .map_err(crate::reader::sdk_error)?;
+        Ok(
+            crate::reader::NativeRows::new(selected_rows(stream, results, terminals), terminals)?
+                .with_client(client.clone()),
+        )
     }
-    pub fn select_rows(&self,stream:impl Stream<Item=surrealdb::Result<StreamItem>>+Send+'static)->impl Stream<Item=surrealdb::Result<StreamItem>>+Send+'static {
-        selected_rows(stream,self.results.clone(),self.terminals)
+    pub fn select_rows(
+        &self,
+        stream: impl Stream<Item = surrealdb::Result<StreamItem>> + Send + 'static,
+    ) -> impl Stream<Item = surrealdb::Result<StreamItem>> + Send + 'static {
+        selected_rows(stream, self.results.clone(), self.terminals)
     }
 }
-fn selected_rows(stream:impl Stream<Item=surrealdb::Result<StreamItem>>+Send+'static,results:Vec<usize>,terminals:usize)->impl Stream<Item=surrealdb::Result<StreamItem>>+Send+'static {
-    let mut ended=0;
-    stream.filter_map(move |item|{
-        let selected=match &item {
-            Ok(StreamItem::Row{statement,value}) if *statement<terminals && !results.contains(statement)=>{
-                if *statement!=ended {Some(Err(surrealdb::Error::internal("native preparation row order".into())))}
-                else if matches!(value,Value::None){None}else{Some(Err(surrealdb::Error::internal("native preparation emitted payload".into())))}
-            },
-            Ok(StreamItem::StatementEnd{statement,..})=>{if *statement==ended && *statement<terminals{ended+=1;}Some(item)},
-            _=>Some(item),
+fn selected_rows(
+    stream: impl Stream<Item = surrealdb::Result<StreamItem>> + Send + 'static,
+    results: Vec<usize>,
+    terminals: usize,
+) -> impl Stream<Item = surrealdb::Result<StreamItem>> + Send + 'static {
+    let mut ended = 0;
+    stream.filter_map(move |item| {
+        let selected = match &item {
+            Ok(StreamItem::Row { statement, value })
+                if *statement < terminals && !results.contains(statement) =>
+            {
+                if *statement != ended {
+                    Some(Err(surrealdb::Error::internal(
+                        "native preparation row order".into(),
+                    )))
+                } else if matches!(value, Value::None) {
+                    None
+                } else {
+                    Some(Err(surrealdb::Error::internal(
+                        "native preparation emitted payload".into(),
+                    )))
+                }
+            }
+            Ok(StreamItem::StatementEnd { statement, .. }) => {
+                if *statement == ended && *statement < terminals {
+                    ended += 1;
+                }
+                Some(item)
+            }
+            _ => Some(item),
         };
-        async move {selected}
+        async move { selected }
     })
 }
 /// The schema's persisted <string> lowering, derived from canonical fields, including NULL.
@@ -65,10 +137,26 @@ pub fn scope_string(value: &Value) -> String {
     }
 }
 /// Shared scalar nominal lowering; expression inputs are generated by trusted owners.
-pub fn scope_constant(relation:&str,field:&str,value:&str)->String {format!("{relation}+'|{field}|'+<string>{value}")}
-pub fn scope_constants(relation:&str,field:&str,values:&str)->String {format!("{values}.map(|$value| {})",scope_constant(relation,field,"$value"))}
-pub fn prepare_scope(preparation:&mut Vec<String>,name:&str,relation:&str,field:&str,values:&str)->String {
-    preparation.push(format!("LET ${name} = {}",scope_constants(relation,field,values)));
+pub fn scope_constant(relation: &str, field: &str, value: &str) -> String {
+    format!("{relation}+'|{field}|'+<string>{value}")
+}
+pub fn scope_constants(relation: &str, field: &str, values: &str) -> String {
+    format!(
+        "{values}.map(|$value| {})",
+        scope_constant(relation, field, "$value")
+    )
+}
+pub fn prepare_scope(
+    preparation: &mut Vec<String>,
+    name: &str,
+    relation: &str,
+    field: &str,
+    values: &str,
+) -> String {
+    preparation.push(format!(
+        "LET ${name} = {}",
+        scope_constants(relation, field, values)
+    ));
     format!("scope_keys CONTAINSANY ${name}")
 }
 
@@ -77,35 +165,117 @@ mod tests {
     use super::*;
     #[test]
     fn preparation_positions_cover_both_record_results() {
-        let query=PreparedQuery::new(Variables::new(),vec!["LET $scope = ['x']".into()],vec!["SELECT * FROM entity".into(),"SELECT * FROM assertion".into()]).unwrap();
-        assert_eq!(query.result_positions(),[1,2]);assert_eq!(query.expected_terminals(),3);
-        assert!(PreparedQuery::from_sql("RETURN 1".into(),Variables::new(),1,vec![1]).is_err());
+        let query = PreparedQuery::new(
+            Variables::new(),
+            vec!["LET $scope = ['x']".into()],
+            vec![
+                "SELECT * FROM entity".into(),
+                "SELECT * FROM assertion".into(),
+            ],
+        )
+        .unwrap();
+        assert_eq!(query.result_positions(), [1, 2]);
+        assert_eq!(query.expected_terminals(), 3);
+        assert!(PreparedQuery::from_sql("RETURN 1".into(), Variables::new(), 1, vec![1]).is_err());
     }
-    fn terminal(statement:usize,result:surrealdb::Result<()>)->surrealdb::Result<StreamItem> {Ok(StreamItem::StatementEnd{statement,stats:Default::default(),result})}
+    fn terminal(statement: usize, result: surrealdb::Result<()>) -> surrealdb::Result<StreamItem> {
+        Ok(StreamItem::StatementEnd {
+            statement,
+            stats: Default::default(),
+            result,
+        })
+    }
     #[tokio::test]
     async fn both_selected_positions_require_every_terminal() {
-        let query=PreparedQuery::new(Variables::new(),vec!["LET $x=1".into()],vec!["RETURN $x".into(),"RETURN $x".into()]).unwrap();
-        let input=futures::stream::iter(vec![Ok(StreamItem::Row{statement:0,value:Value::None}),terminal(0,Ok(())),Ok(StreamItem::Row{statement:1,value:Value::from_t(1)}),terminal(1,Ok(())),Ok(StreamItem::Row{statement:2,value:Value::from_t(2)}),terminal(2,Err(surrealdb::Error::internal("late terminal".into())))]);
-        let mut rows=crate::reader::NativeRows::new(query.select_rows(input),query.expected_terminals()).unwrap();
-        assert_eq!(rows.next().await.unwrap(),Some(Value::from_t(1)));assert_eq!(rows.next().await.unwrap(),Some(Value::from_t(2)));assert!(rows.next().await.is_err());
-        let input=futures::stream::iter(vec![Ok(StreamItem::Row{statement:0,value:Value::None}),terminal(0,Ok(())),terminal(1,Ok(())),terminal(2,Ok(()))]);
-        let mut rows=crate::reader::NativeRows::new(query.select_rows(input),query.expected_terminals()).unwrap();assert!(rows.next().await.unwrap().is_none());
+        let query = PreparedQuery::new(
+            Variables::new(),
+            vec!["LET $x=1".into()],
+            vec!["RETURN $x".into(), "RETURN $x".into()],
+        )
+        .unwrap();
+        let input = futures::stream::iter(vec![
+            Ok(StreamItem::Row {
+                statement: 0,
+                value: Value::None,
+            }),
+            terminal(0, Ok(())),
+            Ok(StreamItem::Row {
+                statement: 1,
+                value: Value::from_t(1),
+            }),
+            terminal(1, Ok(())),
+            Ok(StreamItem::Row {
+                statement: 2,
+                value: Value::from_t(2),
+            }),
+            terminal(2, Err(surrealdb::Error::internal("late terminal".into()))),
+        ]);
+        let mut rows =
+            crate::reader::NativeRows::new(query.select_rows(input), query.expected_terminals())
+                .unwrap();
+        assert_eq!(rows.next().await.unwrap(), Some(Value::from_t(1)));
+        assert_eq!(rows.next().await.unwrap(), Some(Value::from_t(2)));
+        assert!(rows.next().await.is_err());
+        let input = futures::stream::iter(vec![
+            Ok(StreamItem::Row {
+                statement: 0,
+                value: Value::None,
+            }),
+            terminal(0, Ok(())),
+            terminal(1, Ok(())),
+            terminal(2, Ok(())),
+        ]);
+        let mut rows =
+            crate::reader::NativeRows::new(query.select_rows(input), query.expected_terminals())
+                .unwrap();
+        assert!(rows.next().await.unwrap().is_none());
     }
     #[tokio::test]
     async fn preparation_cannot_hide_out_of_order_or_undeclared_rows() {
-        let query=PreparedQuery::new(Variables::new(),vec!["LET $x=1".into(),"LET $y=1".into()],vec!["RETURN $x".into()]).unwrap();
-        for statement in [1,3] {
-            let input=futures::stream::iter(vec![Ok(StreamItem::Row{statement,value:Value::None})]);
-            let mut rows=crate::reader::NativeRows::new(query.select_rows(input),query.expected_terminals()).unwrap();assert!(rows.next().await.is_err());
+        let query = PreparedQuery::new(
+            Variables::new(),
+            vec!["LET $x=1".into(), "LET $y=1".into()],
+            vec!["RETURN $x".into()],
+        )
+        .unwrap();
+        for statement in [1, 3] {
+            let input = futures::stream::iter(vec![Ok(StreamItem::Row {
+                statement,
+                value: Value::None,
+            })]);
+            let mut rows = crate::reader::NativeRows::new(
+                query.select_rows(input),
+                query.expected_terminals(),
+            )
+            .unwrap();
+            assert!(rows.next().await.is_err());
         }
     }
     #[tokio::test]
     async fn preparation_keeps_late_failure_and_missing_terminals() {
-        let query=PreparedQuery::new(Variables::new(),vec!["LET $x=1".into()],vec!["RETURN $x".into()]).unwrap();
-        let stream=futures::stream::iter(vec![Ok(StreamItem::Row{statement:0,value:Value::None}),Err(surrealdb::Error::internal("late preparation failure".into()))]);
-        let rows=query.select_rows(stream).collect::<Vec<_>>().await;
-        assert_eq!(rows.len(),1);assert!(rows[0].is_err());
-        let mut rows=crate::reader::NativeRows::new(query.select_rows(futures::stream::empty()),query.expected_terminals()).unwrap();
+        let query = PreparedQuery::new(
+            Variables::new(),
+            vec!["LET $x=1".into()],
+            vec!["RETURN $x".into()],
+        )
+        .unwrap();
+        let stream = futures::stream::iter(vec![
+            Ok(StreamItem::Row {
+                statement: 0,
+                value: Value::None,
+            }),
+            Err(surrealdb::Error::internal(
+                "late preparation failure".into(),
+            )),
+        ]);
+        let rows = query.select_rows(stream).collect::<Vec<_>>().await;
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].is_err());
+        let mut rows = crate::reader::NativeRows::new(
+            query.select_rows(futures::stream::empty()),
+            query.expected_terminals(),
+        )
+        .unwrap();
         assert!(rows.next().await.is_err());
     }
 }

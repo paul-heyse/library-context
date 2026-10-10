@@ -2,8 +2,8 @@
 //! `compile --artifact-only --output DIR` exports a native-backed artifact; ordinary compilation
 //! publishes an immutable native snapshot without changing the selected handle.
 
-mod compile;
 mod acquisition;
+mod compile;
 mod compile_options;
 mod model;
 mod newnative;
@@ -195,7 +195,7 @@ enum SnapshotCommand {
     /// Read model-declared relation bodies within one exact published view.
     Query {
         relation: String,
-        #[arg(long,default_value_t=100)]
+        #[arg(long, default_value_t = 100)]
         limit: usize,
         #[arg(long)]
         handle: Option<PathBuf>,
@@ -204,10 +204,23 @@ enum SnapshotCommand {
 
 #[derive(Subcommand, Debug)]
 enum StoreCommand {
-    Init,
+    Init {
+        /// Install under maintenance without reopening native borrower admission.
+        #[arg(long)]
+        keep_closed: bool,
+    },
     Check,
     /// Maintenance-only durable effect reconciliation and drainage barrier.
     Drain,
+    /// Release named abandoned owners after explicit predecessor drainage under closed maintenance.
+    Reconcile {
+        #[arg(long, value_parser=content_hash)]
+        pin: Vec<lctx_model::domain::ContentHash>,
+        #[arg(long, value_parser=content_hash)]
+        backup_hold: Vec<lctx_model::domain::ContentHash>,
+        #[arg(long, required = true)]
+        readers_stopped: bool,
+    },
     /// Maintenance-only fencing of native borrower admission.
     CloseAdmission,
     /// Reopen native borrowers after checked maintenance recovery.
@@ -239,12 +252,15 @@ fn refused(error: &anyhow::Error) -> bool {
         .any(|cause| cause.is::<Refused>() || cause.is::<lctx_model::domain::serving::WireError>())
 }
 
-fn content_hash(raw:&str)->Result<lctx_model::domain::ContentHash,String> {
-    if raw.len()!=64 {return Err("content digest must contain 64 hexadecimal digits".into());}
-    let mut bytes=[0u8;32];
-    for (index,pair) in raw.as_bytes().chunks_exact(2).enumerate() {
-        let pair=std::str::from_utf8(pair).map_err(|_|"content digest must be hexadecimal")?;
-        bytes[index]=u8::from_str_radix(pair,16).map_err(|_|"content digest must be hexadecimal")?;
+fn content_hash(raw: &str) -> Result<lctx_model::domain::ContentHash, String> {
+    if raw.len() != 64 {
+        return Err("content digest must contain 64 hexadecimal digits".into());
+    }
+    let mut bytes = [0u8; 32];
+    for (index, pair) in raw.as_bytes().chunks_exact(2).enumerate() {
+        let pair = std::str::from_utf8(pair).map_err(|_| "content digest must be hexadecimal")?;
+        bytes[index] =
+            u8::from_str_radix(pair, 16).map_err(|_| "content digest must be hexadecimal")?;
     }
     Ok(lctx_model::domain::ContentHash(bytes))
 }
@@ -296,7 +312,6 @@ fn uv(args: &[&str], env_dir: &Path) -> anyhow::Result<()> {
     }
 }
 
-
 fn init(
     name: &str,
     requirement: &str,
@@ -340,7 +355,14 @@ fn init(
         &["lock", "--project", &library_dir.to_string_lossy()],
         &env_dir,
     )?;
-    let mut acquired = acquisition::Lease::open(&library_dir, &env_dir, &sources.join(name), true, false, false)?;
+    let mut acquired = acquisition::Lease::open(
+        &library_dir,
+        &env_dir,
+        &sources.join(name),
+        true,
+        false,
+        false,
+    )?;
     let site = fs_err::read_dir(acquired.environment.join("lib"))?
         .filter_map(|e| e.ok().map(|e| e.path().join("site-packages")))
         .find(|p| p.is_dir())
@@ -613,10 +635,25 @@ fn run() -> anyhow::Result<()> {
         } => init(&name, &requirement, &python, &libraries, &envs, &sources),
         Cmd::Acquire { name, reinstall } => {
             let library_dir = libraries.join(&name);
-            acquisition::Lease::open(&library_dir, &envs.join(&name), &sources.join(&name), true, reinstall, true)?.finish()
+            acquisition::Lease::open(
+                &library_dir,
+                &envs.join(&name),
+                &sources.join(&name),
+                true,
+                reinstall,
+                true,
+            )?
+            .finish()
         }
         Cmd::DeploymentIdentity { name } => {
-            let mut acquired = acquisition::Lease::open(&libraries.join(&name), &envs.join(&name), &sources.join(&name), false, false, false)?;
+            let mut acquired = acquisition::Lease::open(
+                &libraries.join(&name),
+                &envs.join(&name),
+                &sources.join(&name),
+                false,
+                false,
+                false,
+            )?;
             let inventory = cpg_extract::acquisition::inventory_installed(
                 &libraries.join(&name),
                 &acquired.environment,
@@ -676,8 +713,7 @@ fn run() -> anyhow::Result<()> {
             if artifact_only && output.as_ref().is_some_and(|output| output.exists()) {
                 return Err(Refused("artifact destination already exists".into()).into());
             }
-            let runtime_config =
-                runtime_config.unwrap_or_else(newnative::default_config);
+            let runtime_config = runtime_config.unwrap_or_else(newnative::default_config);
             let target = if artifact_only {
                 compile::Target::Artifact(
                     output
@@ -760,15 +796,17 @@ fn run() -> anyhow::Result<()> {
                     );
                 }
                 SnapshotCommand::Restore { input, publication } => {
-                    let handle = runtime.block_on(newnative::restore(&config, &input, publication))?;
+                    let handle =
+                        runtime.block_on(newnative::restore(&config, &input, publication))?;
                     println!("{}", serde_json::to_string_pretty(&handle)?);
                 }
                 SnapshotCommand::Retire {
                     handle,
                     readers_stopped,
                 } => {
-                    let progress=runtime.block_on(newnative::retire(&config, &handle, readers_stopped))?;
-                    println!("{}",serde_json::to_string_pretty(&progress)?);
+                    let progress =
+                        runtime.block_on(newnative::retire(&config, &handle, readers_stopped))?;
+                    println!("{}", serde_json::to_string_pretty(&progress)?);
                 }
                 SnapshotCommand::Export {
                     projection,
@@ -802,12 +840,20 @@ fn run() -> anyhow::Result<()> {
                     println!("{}", serde_json::to_string_pretty(&selected)?);
                 }
                 SnapshotCommand::Show { handle } => {
-                    let details=runtime.block_on(newnative::show(&config,handle.as_deref()))?;
+                    let details = runtime.block_on(newnative::show(&config, handle.as_deref()))?;
                     println!("{}", serde_json::to_string_pretty(&details)?);
                 }
-                SnapshotCommand::Query { relation, limit, handle } => {
-                    let response =
-                        runtime.block_on(newnative::query(&config, handle.as_deref(), &relation, limit))?;
+                SnapshotCommand::Query {
+                    relation,
+                    limit,
+                    handle,
+                } => {
+                    let response = runtime.block_on(newnative::query(
+                        &config,
+                        handle.as_deref(),
+                        &relation,
+                        limit,
+                    ))?;
                     println!("{}", serde_json::to_string_pretty(&response)?);
                 }
             }
@@ -832,13 +878,34 @@ fn run() -> anyhow::Result<()> {
         } => {
             let config = newnative::config(&runtime_config)?;
             let runtime = runtime()?;
+            let reports_ready = !matches!(
+                &command,
+                StoreCommand::Init { keep_closed: true }
+                    | StoreCommand::Drain
+                    | StoreCommand::CloseAdmission
+                    | StoreCommand::Reconcile { .. }
+            );
             match command {
-                StoreCommand::Init => runtime.block_on(newnative::install(&config))?,
+                StoreCommand::Init { keep_closed } => {
+                    runtime.block_on(newnative::install(&config, keep_closed))?
+                }
                 StoreCommand::Check => {
                     runtime.block_on(newnative::ready(&config))?;
                 }
                 StoreCommand::Drain => {
                     runtime.block_on(lctx_surrealdb::compiler::drain_installation(&config))?;
+                }
+                StoreCommand::Reconcile {
+                    pin,
+                    backup_hold,
+                    readers_stopped,
+                } => {
+                    runtime.block_on(lctx_surrealdb::compiler::reconcile_maintenance(
+                        &config,
+                        &pin,
+                        &backup_hold,
+                        readers_stopped,
+                    ))?;
                 }
                 StoreCommand::CloseAdmission => {
                     runtime.block_on(lctx_surrealdb::compiler::close_admission(&config))?;
@@ -850,7 +917,7 @@ fn run() -> anyhow::Result<()> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
-                    "ready":true, "namespace":config.namespace, "cache_database":config.cache_database,
+                    "ready":reports_ready, "namespace":config.namespace, "database":config.database,
                 }))?
             );
             Ok(())
@@ -892,6 +959,63 @@ mod tests {
     fn parse(args: &[&str]) -> Result<Cli, String> {
         Cli::try_parse_from(std::iter::once("lctx").chain(args.iter().copied()))
             .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn maintenance_installation_can_retain_closed_admission() {
+        for (args, expected) in [
+            (vec!["store", "init"], false),
+            (vec!["store", "init", "--keep-closed"], true),
+        ] {
+            let cli = parse(&args).expect("maintenance installation command");
+            let Cmd::Store {
+                command: super::StoreCommand::Init { keep_closed },
+                ..
+            } = cli.command
+            else {
+                panic!("maintenance installation command");
+            };
+            assert_eq!(keep_closed, expected);
+        }
+    }
+
+    #[test]
+    fn maintenance_reconciliation_requires_explicit_stopped_readers_and_exact_ids() {
+        let identity = "ab".repeat(32);
+        assert!(parse(&["store", "reconcile", "--pin", &identity]).is_err());
+        assert!(
+            parse(&[
+                "store",
+                "reconcile",
+                "--pin",
+                "not-a-digest",
+                "--readers-stopped"
+            ])
+            .is_err()
+        );
+        let command = parse(&[
+            "store",
+            "reconcile",
+            "--pin",
+            &identity,
+            "--readers-stopped",
+        ])
+        .unwrap();
+        let Cmd::Store {
+            command:
+                super::StoreCommand::Reconcile {
+                    pin,
+                    backup_hold,
+                    readers_stopped,
+                },
+            ..
+        } = command.command
+        else {
+            panic!("maintenance command")
+        };
+        assert!(readers_stopped);
+        assert_eq!(pin.len(), 1);
+        assert!(backup_hold.is_empty());
     }
 
     #[tokio::test]

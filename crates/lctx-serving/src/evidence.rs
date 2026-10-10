@@ -1,13 +1,9 @@
 //! Original byte reads and graph derivations are independent of retrieval rank.
-use crate::records::{need, rows, wire, Prepared};
+use crate::records::{Prepared, need, rows, wire};
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
-use lctx_surrealdb::{
-    NativeReader,
-    batches::CanonicalNode,
-    reader::target_id,
-};
+use lctx_surrealdb::{NativeReader, batches::CanonicalNode, reader::target_id};
 pub async fn get(
     reader: &NativeReader,
     preparation: &crate::preparation::Preparation<'_>,
@@ -37,15 +33,16 @@ pub async fn get(
         "link",
         "access",
     ]);
-    let data = preparation.hydrate(
-        reader,
-        vec![target_id(crate::originals::target(source)?)],
-        &crate::source_evidence::inputs(),
-        &crate::source_evidence::owner_inputs(),
-        &fields,
-    )
-    .await?;
-    let data=std::sync::Arc::new(Prepared::new(&data,b));
+    let data = preparation
+        .hydrate(
+            reader,
+            vec![target_id(crate::originals::target(source)?)],
+            &crate::source_evidence::inputs(),
+            &crate::source_evidence::owner_inputs(),
+            &fields,
+        )
+        .await?;
+    let data = std::sync::Arc::new(Prepared::new(&data, b));
     let demand = request.page().evidence_demand.0.as_ref();
     let context = demand.and_then(|d| d.context.analysis.0);
     let prepared = crate::originals::Prepared::new(&data)?;
@@ -73,15 +70,21 @@ pub async fn get(
         prepared.range(source, context, None)?
     };
     let body = body(reader, &data, &original, request, channels, limits, b).await?;
-    let (flow_inventory, source_characterization) =
-        crate::source_evidence::sections(data.clone(), &original, request, reader.handle(), channels)
-            .await?;
+    let (flow_inventory, source_characterization) = crate::source_evidence::sections(
+        data.clone(),
+        &original,
+        request,
+        reader.handle(),
+        channels,
+    )
+    .await?;
     let derivation = derivations(reader, &original, request, channels, b).await?;
     let artifact = need(&rows::<source::SourceArtifact>(&data)?, original.artifact)?.clone();
     let release_row = need(&rows::<input::Release>(&data)?, original.release)?.clone();
     let package = need(&rows::<input::Package>(&data)?, release_row.package)?.clone();
     let corpora = rows::<input::CorpusLibrary>(&data)?;
-    let captures = rows::<input::InputDistribution>(&data)?.select_for("release",&[original.release])?
+    let captures = rows::<input::InputDistribution>(&data)?
+        .select_for("release", &[original.release])?
         .iter()
         .filter(|d| {
             d.release == original.release
@@ -103,12 +106,12 @@ pub async fn get(
         version: Name::new(release_row.version).map_err(wire)?,
     };
     let analyses = std::collections::BTreeSet::from([original.context]);
-    let qids = rows::<assertion::AssertionQualification>(&data)?.select_for("context",&[original.context])?
+    let qids = rows::<assertion::AssertionQualification>(&data)?
+        .select_for("context", &[original.context])?
         .iter()
         .map(|q| q.id())
         .collect();
-    let mut interpretation =
-        crate::defaults::qualified(&data, analyses, qids, original.release)?;
+    let mut interpretation = crate::defaults::qualified(&data, analyses, qids, original.release)?;
     crate::defaults::read_originals(reader, &mut interpretation, request, b).await?;
     Ok(EvidencePacket {
         release,
@@ -261,15 +264,16 @@ pub async fn hits(
         }
     }
     // Outgoing semantic dependencies remain complete; incoming ownership is window/part only.
-    let data = preparation.hydrate(
-        reader,
-        roots,
-        &inputs,
-        &inputs,
-        &["window", "part", "set", "universe"],
-    )
-    .await?;
-    let data=Prepared::new(&data,b);
+    let data = preparation
+        .hydrate(
+            reader,
+            roots,
+            &inputs,
+            &inputs,
+            &["window", "part", "set", "universe"],
+        )
+        .await?;
+    let data = Prepared::new(&data, b);
     hits.iter()
         .map(|hit| hit_packet(&data, hit, domains))
         .collect()
@@ -388,11 +392,8 @@ fn hit_packet(
                 "context part cannot be primary evidence",
             ));
         }
-        let selected_window_parts=window_parts.select_for("window",&[o.window])?;
-        if !selected_window_parts
-            .iter()
-            .any(|p| p.part == o.part)
-        {
+        let selected_window_parts = window_parts.select_for("window", &[o.window])?;
+        if !selected_window_parts.iter().any(|p| p.part == o.part) {
             return Err(ModelError::Schema("ranked part absent from window"));
         }
         for wp in &selected_window_parts {
@@ -437,7 +438,8 @@ fn hit_packet(
                 None
             };
             let mut source_maps = vec![];
-            for map in maps.select_for("part",&[wp.part])?
+            for map in maps
+                .select_for("part", &[wp.part])?
                 .iter()
                 .filter(|m| m.start < wp.end && m.end > wp.start)
             {

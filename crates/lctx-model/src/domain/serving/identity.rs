@@ -30,17 +30,33 @@ pub struct SnapshotHandle {
     pub database: DatabaseIdentity,
 }
 impl SnapshotHandle {
-    pub fn expected_publication(&self)->ContentHash {
-        let mut sink=KeySink::new("native-publication/v2");
-        self.semantic.encode(&mut sink);self.realization.encode(&mut sink);self.view.encode(&mut sink);
-        self.service_generation.encode(&mut sink);self.definition_epoch.encode(&mut sink);sink.finish()
+    pub fn expected_publication(&self) -> ContentHash {
+        let mut sink = KeySink::new("native-publication/v2");
+        self.semantic.encode(&mut sink);
+        self.realization.encode(&mut sink);
+        self.view.encode(&mut sink);
+        self.service_generation.encode(&mut sink);
+        self.definition_epoch.encode(&mut sink);
+        sink.finish()
     }
-    pub fn validate_identity(&self)->Result<(),crate::domain::ModelError>{
-        if self.publication!=self.expected_publication(){return Err(crate::domain::ModelError::Conflict("publication identity derivation"));}Ok(())
+    pub fn validate_identity(&self) -> Result<(), crate::domain::ModelError> {
+        if self.publication != self.expected_publication() {
+            return Err(crate::domain::ModelError::Conflict(
+                "publication identity derivation",
+            ));
+        }
+        Ok(())
     }
     /// Names are fixed trusted operation names; the epoch is a full content address.
-    pub fn operation_definition_function(&self)->String {format!("fn::lctx_e{}_operation_definition",self.definition_epoch.hex())}
-    pub fn library_roots_function(&self)->String {format!("fn::lctx_e{}_library_roots",self.definition_epoch.hex())}
+    pub fn operation_definition_function(&self) -> String {
+        format!(
+            "fn::lctx_e{}_operation_definition",
+            self.definition_epoch.hex()
+        )
+    }
+    pub fn library_roots_function(&self) -> String {
+        format!("fn::lctx_e{}_library_roots", self.definition_epoch.hex())
+    }
 }
 impl Key for SnapshotHandle {
     fn encode(&self, sink: &mut KeySink) {

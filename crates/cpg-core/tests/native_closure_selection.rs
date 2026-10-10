@@ -442,10 +442,10 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
         .unwrap();
     let admin = fixture_admin(&store, &config).await;
     let package = Package {
-        name: format!("selected-{}",store.attempt().hex()),
+        name: format!("selected-{}", store.attempt().hex()),
     };
     let unrelated = Package {
-        name: format!("unrelated-{}",store.attempt().hex()),
+        name: format!("unrelated-{}", store.attempt().hex()),
     };
     let mut releases = (0..TRANSFER_ROWS + 3)
         .map(|index| Release {

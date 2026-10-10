@@ -195,7 +195,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     )
     .await
     .unwrap();
-    lctx_surrealdb::Loader::for_attempt_views(admin,restored.native().attempt(),vec![])
+    lctx_surrealdb::Loader::for_attempt_views(admin, restored.native().attempt(), vec![])
         .entities(&[
             Entity::from(captured_supplier.clone()),
             Entity::from(package()),

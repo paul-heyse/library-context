@@ -1,28 +1,39 @@
 # Status
 
-_Updated 2026-10-09 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-10 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: unified persistent SurrealDB UP0–UP9 execution in progress, 2026-10-09.**
+**Current scope: unified persistent SurrealDB UP0–UP9 execution in progress, 2026-10-10.**
 [ADR-0143](docs/adr/0143-unified-persistent-content-and-execution.md) supersedes ADR-0138/0140
 for accepted RC01–RC07. The [unified companion](docs/plans/unified-persistent-surrealdb-plan_2026-10-09.md)
 owns packages; [persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
-owns Open findings and actual receipts. Shared-main changes implement immutable payloads/anchors,
-exact views, fenced attempts, admitted attachment, manifest publication, immutable definition epochs,
-data-only restore, native pins/retirement and stable service integration. Whole-operation portable
-replay is retired; selected kernels retain partitioned portable products. Patched gRPC remains initial.
-**passed:** current installer build, guard-free native refresh and `just ready`; actual owned-service
-installation/check; simultaneous logical attachments; equal-definition retry/drift refusal; protected
-cold backup/default restore validation/applied restore/final readiness. Four tooling modules passed123
-controls; scoped tooling types passed. The schema migration snapshot was read, accepted and rerun.
-Independent integration review approved examined source subject to runtime checks.
-**failed / corrections in progress:** initial native controls exposed masked transaction errors,
-obsolete cold payload reconstruction and invalid native lock targets. Search controls exposed stale
-partial-fixture scope construction. Corrections compile; focused native/search/core/publication reruns
-are active. UP9 `just qualify`, final extension refresh and leaves remain pending. No whole-plan
-closure or measured benefit is claimed; BC3 remains separate.
-The new owned service is installed outside checkouts; existing operator/PSE-arrow data, selection,
-protected evaluation and real-library pilots remain held. Next: finish focused runtime repairs,
-refresh final clients guard-free, then coordinated UP9 acceptance.
+owns Open findings and actual receipts. Implementation spans immutable payloads/exact views,
+fenced attempts, checked retained attachment, manifest publication, executable definition epochs,
+data-only restore, reader pins/retirement and one stable service. Patched gRPC remains initial.
+**passed:** owned installation/check, simultaneous logical attachments, equal-definition retry/drift
+refusal, protected backup/default validation/applied restore and readiness. Current guard-free
+`just ready` rebuilt and installed the native extension. Tooling controls and schema migration
+passed; actual receipts and source boundaries remain in the coordinator. Independent integration
+review accepts examined source subject to remaining runtime acceptance.
+Focused corrections passed ordering/acknowledgement17, exact-view/state-closure controls,
+projection immutable-collision refusal, sparse role corruption and multi-window ownership cleanup.
+Indexed canonical point selection, scoped reconciliation, exact lexical document nomination and
+prepared-stream terminal dispatch preserve full actual-state checks. All12 search controls have
+passed, including corrected occurrence mutations that prove an actual physical change.
+Publication passes sealing, bounded cleanup and readback; subsequent listing rejected an old
+malformed synthetic publication from a retention test. The test now uses a generic native guard.
+Explicit drained maintenance retired the one exact obsolete marker through native APIs, preserved
+private row/source/progress evidence, and checked reopening. The temporary repair helper is removed.
+**remaining acceptance:** final CLI build and generic-root retention control passed. Publication
+failed in a global test-side selection after sealing/readback; indexed point-selection correction
+and controlled acknowledgement-discard/concurrent same-dump extensions are in focused rerun.
+NativeSession close drains calls, releases its pin and shares terminal results across closers;
+compile/static review passed, actual Python acceptance awaits the final MCP journey. Earlier eight
+maintenance controls finished6passed/2failed before intended drift assertions; all eight need a
+final-source rerun. Next: fresh retained MCP producer/Python suite, maintenance8, two-worktree
+reuse, populated backup/restore/restart, then unfiltered UP9 `just qualify` and applicable leaves.
+No whole-plan closure or measured benefit is claimed; BC3 profile adoption remains separate.
+The owned service is outside checkouts; operator/PSE-arrow data, selections, protected evaluation
+and real-library adoption remain held. Shared build caches and recovery evidence stay protected.
 
 **Storage lifecycle implementation in progress, 2026-10-09:**
 [ADR-0144](docs/adr/0144-managed-storage-lifetimes.md) governs warm-cache preservation and

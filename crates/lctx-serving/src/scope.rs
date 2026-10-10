@@ -49,7 +49,11 @@ pub async fn hydrate_with_owners<Context>(
 }
 
 pub(crate) async fn hydrate_prepared_layout<Context>(
-    reader: &NativeReader<Context>, roots: Vec<RecordId>, prepared: &lctx_surrealdb::scope::PreparedServingScope, budget: &ResourceBudget, cancelled: Option<&(dyn Fn()->bool + Sync)>,
+    reader: &NativeReader<Context>,
+    roots: Vec<RecordId>,
+    prepared: &lctx_surrealdb::scope::PreparedServingScope,
+    budget: &ResourceBudget,
+    cancelled: Option<&(dyn Fn() -> bool + Sync)>,
 ) -> Result<CanonicalBatches, ModelError> {
     // The caller owns either request preparation or a viewer lease; roots remain values.
     let mut charge = budget.reserve("native-request-closure", roots.len().saturating_mul(384))?;
@@ -59,9 +63,13 @@ pub(crate) async fn hydrate_prepared_layout<Context>(
         .filter(|id| seen.insert(id.clone()))
         .collect();
     while !frontier.is_empty() {
-        if cancelled.is_some_and(|cancelled|cancelled()) {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
+        if cancelled.is_some_and(|cancelled| cancelled()) {
+            return Err(ModelError::Serving(
+                lctx_model::domain::serving::FailureKind::Unavailable,
+            ));
+        }
         let next: Vec<RecordId> = reader
-            .query_prepared(prepared.frontier_query(frontier)?)
+            .query_prepared_native(prepared.frontier_query(frontier)?)
             .await?;
         // Admit the result handoff before growing the retained set/frontier. The existing
         // NativeReader checks the whole response and all statement terminals before exposure.
@@ -73,7 +81,11 @@ pub(crate) async fn hydrate_prepared_layout<Context>(
         charge.try_resize(seen.len().saturating_mul(384))?;
         tokio::task::yield_now().await;
     }
-    if cancelled.is_some_and(|cancelled|cancelled()) {return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable));}
+    if cancelled.is_some_and(|cancelled| cancelled()) {
+        return Err(ModelError::Serving(
+            lctx_model::domain::serving::FailureKind::Unavailable,
+        ));
+    }
     prepared
         .hydrate(reader, seen.into_iter().collect(), budget)
         .await

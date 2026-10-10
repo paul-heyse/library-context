@@ -19,6 +19,181 @@ fn config() -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 #[tokio::test]
+async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisions() {
+    use lctx_surrealdb::compiler::NativeCompilerStore;
+    use std::collections::{BTreeMap, BTreeSet};
+    let cfg = scoped::config();
+    let store = NativeCompilerStore::begin(&cfg, admission::Frontier::Normalized)
+        .await
+        .unwrap();
+    let nonce = lctx_surrealdb::control::fresh_identity("exact-relation-control").unwrap();
+    let key = |byte: u8| {
+        let mut key = [byte; 16];
+        key[..8].copy_from_slice(&nonce.0[..8]);
+        key
+    };
+    let place = value::Place {
+        root: serde_json::from_value(serde_json::json!(key(1))).unwrap(),
+        path: serde_json::from_value(serde_json::json!(key(2))).unwrap(),
+    };
+    let mut foreign_place = place.clone();
+    foreign_place.root = serde_json::from_value(serde_json::json!(key(3))).unwrap();
+    let quality = analytics::QualityStep {
+        run: serde_json::from_value(serde_json::json!(key(4))).unwrap(),
+        ordinal: 0,
+        value: FiniteF64::new(0.5).unwrap(),
+    };
+    let mut foreign_quality = quality.clone();
+    foreign_quality.value = FiniteF64::new(0.75).unwrap();
+    let relations = [
+        Relation::of::<value::Place>(),
+        Relation::of::<analytics::QualityStep>(),
+    ];
+    let mut selected_views = vec![];
+    for (producer, place, quality) in [
+        ("selected", place.clone(), quality),
+        ("foreign", foreign_place, foreign_quality),
+    ] {
+        let owner = store
+            .begin_contribution(completed::ContributionSpec {
+                captured_binding: None,
+                producer: format!("{producer}-{}", nonce.hex()),
+                profile: stages::Profile::Catalog,
+                model: model().unwrap().digest(),
+                implementation: ContentHash::of(b"exact-relation-control"),
+                configuration: None,
+                inputs: vec![],
+                outputs: relations
+                    .iter()
+                    .map(|relation| relation.name().into())
+                    .collect::<BTreeSet<_>>(),
+            })
+            .await
+            .unwrap();
+        store
+            .write_batch(
+                &owner,
+                &relations[0],
+                &value::Place::encode(&[place]).unwrap(),
+            )
+            .await
+            .unwrap();
+        store
+            .write_batch(
+                &owner,
+                &relations[1],
+                &analytics::QualityStep::encode(&[quality]).unwrap(),
+            )
+            .await
+            .unwrap();
+        let views = store
+            .complete_contribution(
+                owner,
+                stages::ProviderOutcome::Complete,
+                &relations,
+                &BTreeMap::new(),
+            )
+            .await
+            .unwrap();
+        if producer == "selected" {
+            selected_views = views.values().map(|view| view.identity).collect();
+        }
+    }
+    let native = NativeReader::for_views(
+        lctx_surrealdb::compiler::check_installation(&cfg)
+            .await
+            .unwrap(),
+        selected_views,
+    );
+    let alias = normalized::entities::EntityRef::Place { place: place.id() };
+    let result = async {
+        let aliases = native
+            .records::<normalized::entities::EntityRef>(RecordSelection::Keys(vec![
+                *alias.id().bytes(),
+            ]))
+            .await?;
+        let mut streamed = native.record_stream_prepared::<normalized::entities::EntityRef>(
+            "true",
+            Variables::new(),
+            vec!["LET $alias_control = true".into()],
+            "semantic_key",
+        )?;
+        let stream_alias = streamed.next().await?;
+        let stream_end = streamed.next().await?;
+        drop(streamed);
+        let mut alias_rows = native.relation_rows(normalized::entities::EntityRef::NAME)?;
+        let mut alias_values = vec![];
+        while let Some(row) = alias_rows.next().await? {
+            alias_values.push(row);
+        }
+        alias_rows.drain_transport().await?;
+        drop(alias_rows);
+        let mut canonical = native.relation_rows(analytics::QualityStep::NAME)?;
+        let mut canonical_values = vec![];
+        while let Some(row) = canonical.next().await? {
+            canonical_values.push(row);
+        }
+        canonical.drain_transport().await?;
+        drop(canonical);
+        let mut bodies = native.relation_bodies(analytics::QualityStep::NAME, 1)?;
+        let mut body_values = vec![];
+        while let Some(row) = bodies.next().await? {
+            body_values.push(row);
+        }
+        bodies.drain_transport().await?;
+        drop(bodies);
+        Ok::<_, ModelError>((
+            aliases,
+            stream_alias,
+            stream_end,
+            alias_values,
+            canonical_values,
+            body_values,
+        ))
+    }
+    .await;
+    let mut completion = completion::Completion::default();
+    completion.step("exact relation reader close", native.close().await);
+    completion.step("exact relation attempt close", store.abandon().await);
+    let (aliases, stream_alias, stream_end, alias_values, canonical_values, body_values) =
+        completion::complete(result, completion).unwrap();
+    assert_eq!(aliases, vec![alias.clone()]);
+    assert_eq!(stream_alias, Some(alias.clone()));
+    assert!(stream_end.is_none());
+    assert_eq!(alias_values.len(), 1);
+    assert_eq!(canonical_values.len(), 1);
+    assert_eq!(body_values.len(), 1);
+    let Value::Object(alias_row) = &alias_values[0] else {
+        panic!("alias envelope")
+    };
+    let Some(Value::Bytes(bytes)) = alias_row.get("canonical") else {
+        panic!("alias canonical")
+    };
+    assert_eq!(
+        serde_json::from_slice::<Entity>(bytes).unwrap(),
+        Entity::from(alias)
+    );
+    let Value::Object(canonical) = &canonical_values[0] else {
+        panic!("canonical envelope")
+    };
+    let Some(Value::Bytes(bytes)) = canonical.get("canonical") else {
+        panic!("canonical bytes")
+    };
+    let Value::Object(body) = &body_values[0] else {
+        panic!("body envelope")
+    };
+    let Some(Value::Object(decoded)) = body.get("body") else {
+        panic!("compiler body")
+    };
+    assert_eq!(
+        bytes.as_ref(),
+        serde_json::to_vec(body.get("body").unwrap())
+            .unwrap()
+            .as_slice()
+    );
+    assert_eq!(decoded.get("value"), Some(&Value::from_t(0.5f64)));
+}
+#[tokio::test]
 async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_drainage() {
     let cfg = config();
     let credentials = Credentials::Database {
@@ -30,34 +205,67 @@ async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_
         &credentials,
         cfg["namespace"].as_str().unwrap(),
         cfg["database"].as_str().unwrap(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     // session::id is the server-assigned RPC session UUID, not the authenticated user.
     let sql = "RETURN { id: session::id(), ns: session::ns(), db: session::db() }";
     let native = NativeReader::private(client.clone());
     let expected: Value = native.query_native(sql, Variables::new()).await.unwrap();
-    let Value::Object(session) = &expected else { panic!("session descriptor must be an object") };
+    let Value::Object(session) = &expected else {
+        panic!("session descriptor must be an object")
+    };
     assert!(matches!(session.get("id"), Some(Value::Uuid(_))));
-    assert_eq!(session.get("ns"), Some(&Value::String(cfg["namespace"].as_str().unwrap().to_owned())));
-    assert_eq!(session.get("db"), Some(&Value::String(cfg["database"].as_str().unwrap().to_owned())));
+    assert_eq!(
+        session.get("ns"),
+        Some(&Value::String(
+            cfg["namespace"].as_str().unwrap().to_owned()
+        ))
+    );
+    assert_eq!(
+        session.get("db"),
+        Some(&Value::String(cfg["database"].as_str().unwrap().to_owned()))
+    );
     // Revealing contrast: cloning Surreal itself recreates a distinct authenticated session.
     let independent = NativeReader::private(std::sync::Arc::new(client.as_ref().clone()));
-    let other: Value = independent.query_native(sql, Variables::new()).await.unwrap();
-    let Value::Object(other) = other else { panic!("independent session descriptor") };
+    let other: Value = independent
+        .query_native(sql, Variables::new())
+        .await
+        .unwrap();
+    let Value::Object(other) = other else {
+        panic!("independent session descriptor")
+    };
     assert_ne!(session.get("id"), other.get("id"));
     drop(independent);
 
-    let make = || lctx_surrealdb::prepared::PreparedQuery::new(
-        Variables::new(), vec![], vec![sql.into(), sql.into()],
-    ).unwrap();
+    let make = || {
+        lctx_surrealdb::prepared::PreparedQuery::new(
+            Variables::new(),
+            vec![],
+            vec![sql.into(), sql.into()],
+        )
+        .unwrap()
+    };
     let first = native.stream_prepared(make()).unwrap();
     let second = native.stream_prepared(make()).unwrap();
-    let mut late = native.stream_prepared(lctx_surrealdb::prepared::PreparedQuery::from_sql(
-        format!("{sql}; THROW 'prepared late failure';"), Variables::new(), 2, vec![0],
-    ).unwrap()).unwrap();
+    let mut late = native
+        .stream_prepared(
+            lctx_surrealdb::prepared::PreparedQuery::from_sql(
+                format!("{sql}; THROW 'prepared late failure';"),
+                Variables::new(),
+                2,
+                vec![0],
+            )
+            .unwrap(),
+        )
+        .unwrap();
     let retained = std::sync::Arc::downgrade(&client);
     drop(native);
     drop(client);
-    assert!(retained.upgrade().is_some(), "streams retain their original session after reader drop");
+    assert!(
+        retained.upgrade().is_some(),
+        "streams retain their original session after reader drop"
+    );
     async fn consume(mut rows: lctx_surrealdb::reader::NativeRows, expected: &Value) {
         assert_eq!(rows.next().await.unwrap().as_ref(), Some(expected));
         assert_eq!(rows.next().await.unwrap().as_ref(), Some(expected));
@@ -71,7 +279,10 @@ async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_
     assert!(late.next().await.is_err(), "a late failure remains sticky");
     late.drain_transport().await.unwrap();
     drop(late);
-    assert!(retained.upgrade().is_none(), "drained streams release the session handle");
+    assert!(
+        retained.upgrade().is_none(),
+        "drained streams release the session handle"
+    );
 }
 #[tokio::test]
 async fn native_codec_graph_search_and_immutable_winners() {
@@ -114,7 +325,13 @@ async fn native_codec_graph_search_and_immutable_winners() {
         native_view[0].semantic_key,
         hex::encode(premise.id().bytes())
     );
-    let fixture = scoped::reader(&config,&[Entity::from(package.clone()),Entity::from(release.clone())],std::slice::from_ref(&assertion)).await.unwrap();
+    let fixture = scoped::reader(
+        &config,
+        &[Entity::from(package.clone()), Entity::from(release.clone())],
+        std::slice::from_ref(&assertion),
+    )
+    .await
+    .unwrap();
     let reader = &fixture.reader;
     let client = reader.shared_client();
     assert_eq!(
@@ -149,20 +366,60 @@ async fn native_codec_graph_search_and_immutable_winners() {
         reader::target_id(Target::Entity(EntityId::of(package.id()))),
     );
     let adjacency: Vec<String> = reader
-        .query(format!("SELECT VALUE in.semantic_type FROM reference WHERE out=$key AND ({})",reader.selected_node_predicate("in")), b)
+        .query(
+            format!(
+                "SELECT VALUE in.semantic_type FROM reference WHERE out=$key AND ({})",
+                reader.selected_node_predicate("in")
+            ),
+            b,
+        )
         .await
         .unwrap();
     assert_eq!(adjacency, vec!["releases"]);
     // Raw SQL preserves flexible bodies; independent admission owns semantic closure.
     let mut bindings = Variables::new();
-    bindings.insert("id",surrealdb::types::RecordId::new("entity",format!("malformed_{}",ContentHash::of(scope.as_bytes()).hex())));
-    bindings.insert("anchor",reader::target_id(Target::Entity(EntityId::of(package.id()))));
+    bindings.insert(
+        "id",
+        surrealdb::types::RecordId::new(
+            "entity",
+            format!("malformed_{}", ContentHash::of(scope.as_bytes()).hex()),
+        ),
+    );
+    bindings.insert(
+        "anchor",
+        reader::target_id(Target::Entity(EntityId::of(package.id()))),
+    );
     client.query("CREATE $id CONTENT {anchor:$anchor,semantic_type:'packages',semantic_key:'bad',kind:29,subtype:null,content:'bad',canonical:b\"00\",scope_keys:[],body:{__type:'packages',name:'bad',extra:1}};").bind(bindings.clone()).await.unwrap().check().unwrap();
-    client.query("DELETE $id").bind(bindings).await.unwrap().check().unwrap();
+    client
+        .query("DELETE $id")
+        .bind(bindings)
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     let mut bindings = Variables::new();
-    bindings.insert("source",surrealdb::types::RecordId::new("assertion",format!("absent_{}",ContentHash::of(scope.as_bytes()).hex())));
-    bindings.insert("target",surrealdb::types::RecordId::new("entity_anchor",format!("absent_{}",ContentHash::of(scope.as_bytes()).hex())));
-    let enforced=client.query("RELATE $source->participant->$target CONTENT {field:'missing',role:0,position:null};").bind(bindings).await.unwrap().check();
+    bindings.insert(
+        "source",
+        surrealdb::types::RecordId::new(
+            "assertion",
+            format!("absent_{}", ContentHash::of(scope.as_bytes()).hex()),
+        ),
+    );
+    bindings.insert(
+        "target",
+        surrealdb::types::RecordId::new(
+            "entity_anchor",
+            format!("absent_{}", ContentHash::of(scope.as_bytes()).hex()),
+        ),
+    );
+    let enforced = client
+        .query(
+            "RELATE $source->participant->$target CONTENT {field:'missing',role:0,position:null};",
+        )
+        .bind(bindings)
+        .await
+        .unwrap()
+        .check();
     assert!(enforced.is_err());
     let cache = NativeEmbeddingCache::connect(client.clone()).await.unwrap();
     let spec: Spec = serde_json::from_slice(include_bytes!(
@@ -244,7 +501,18 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
     let opaque = Literal::Bytes {
         value: EvidenceBytes(vec![0xff, 0, 0x80]),
     };
-    let fixture = scoped::reader(&config,&[Entity::from(corpus.clone()),Entity::from(unit.clone()),Entity::from(string.clone()),Entity::from(opaque.clone())],&[]).await.unwrap();
+    let fixture = scoped::reader(
+        &config,
+        &[
+            Entity::from(corpus.clone()),
+            Entity::from(unit.clone()),
+            Entity::from(string.clone()),
+            Entity::from(opaque.clone()),
+        ],
+        &[],
+    )
+    .await
+    .unwrap();
     let native = &fixture.reader;
     let client = native.shared_client();
     let loader = Loader::new(client.clone());

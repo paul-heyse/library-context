@@ -59,6 +59,17 @@ with its recovery route. Never synchronize a native extension while guarded clie
 Disruptive native controls use `just service maintenance --native-clients -- COMMAND`: the
 owner admits only that child, closes and drains it afterward, then revalidates before reopening.
 
+A failed client may leave durable pins requiring explicit recovery. After exact predecessor
+processes and their cleanup receipts establish drainage, use `just service maintenance --recover
+--reconcile-database validation --reconcile-pin <64-hex-id>` (repeat for each named pin; named
+backup holds use `--reconcile-backup-hold`). The service owns the exclusive host lease and checks
+released-client cleanup evidence. Native reconciliation requires installer authority, closed
+admission and an explicit readers-stopped assertion; it fences unresolved effects before guarded
+release of only the supplied identities. It never discovers and releases all pins automatically.
+The underlying trusted operator command is `lctx store reconcile --runtime-config ROOT.json
+--pin <64-hex-id> --readers-stopped`. Missing identities or unresolved ownership preserve closed
+admission; pin age, empty views and a lost heartbeat are not drainage proof.
+
 Patched gRPC3.3.0 remains the supported product transport. Progressive rows are provisional until
 checked statement/application completion and physical EOF; late errors and cancellation retain
 their disposition. WS/HTTP alternatives require equivalent streaming, cancellation, terminal-error
@@ -134,8 +145,10 @@ lctx snapshot restore main.surql --publication <64-hex-publication-digest>
 lctx snapshot retire build/native/handle.json --readers-stopped
 ```
 
-Logical backup uses one terminally checked database snapshot under a retention hold. Canonical
-content, exact completed state and manifests survive; derived search and executable definitions
+Logical backup retains the requested publication pin and uses one terminally checked database
+snapshot. RocksDB snapshot reads preserve rows retired concurrently, so unrelated retirement is
+not blocked by logical export. Canonical content, exact completed state and manifests survive;
+derived search and executable definitions
 are reconstructed. The owned exporter emits one record per statement to preserve finite parsing
 of admitted rows. A multi-manifest dump requires explicit publication selection. The convenience
 restore refuses ambiguity. Its inert recovery metadata references the current protected archive
@@ -149,6 +162,12 @@ mode0600 and must lie outside owned service state. `just service restore ARCHIVE
 stages without changing live state; `--apply` explicitly restores only the matching owned
 installation/generation under maintenance. Recovery validates asset digests and preserves the
 predecessor until readiness succeeds. Failure keeps admission closed and retains recovery assets.
+
+For a maintenance-owned schema transition, `lctx store --runtime-config INSTALLER_CONFIG init
+--keep-closed` installs compatible declarations without reopening native admission. The maintenance
+owner must check and drain every affected database before explicitly reopening. The ordinary
+`init` command still opens after successful installation; uncertain initialization does not
+prove that all administrative effects have completed.
 
 Restore parses closed literal data locally and lowers it through typed staging, independent
 semantic admission and trusted executable generation. Dump SQL is never sent as Root-authorized

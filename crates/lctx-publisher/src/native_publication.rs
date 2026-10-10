@@ -60,10 +60,18 @@ impl<'a> Publication<'a> {
         )
         .await;
         let client = lease.finish_with(connected)?;
-        let attempt=admission.native().attempt();
+        let attempt = admission.native().attempt();
         Ok(Self {
             admission,
-            loader: Loader::for_attempt_views(client,attempt,bindings.iter().filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect()),
+            loader: Loader::for_attempt_views(
+                client,
+                attempt,
+                bindings
+                    .iter()
+                    .filter(|binding| binding.boundary.is_none())
+                    .map(|binding| binding.view.identity)
+                    .collect(),
+            ),
             bindings,
         })
     }
@@ -81,8 +89,12 @@ impl<'a> Publication<'a> {
     /// Verify the selected immutable executable epoch; ordinary publication performs no DDL.
     pub(crate) async fn install_definitions(&self, definitions: &str) -> Result<(), ModelError> {
         lctx_surrealdb::materialization::validate_native_definitions(definitions)?;
-        let lease = self.store().begin_derived_operation("publication definitions")?;
-        let result = crate::definitions::verify_epoch(&self.loader, definitions).await.map(|_|());
+        let lease = self
+            .store()
+            .begin_derived_operation("publication definitions")?;
+        let result = crate::definitions::verify_epoch(&self.loader, definitions)
+            .await
+            .map(|_| ());
         lease.finish_with(result)
     }
 
@@ -174,8 +186,7 @@ async fn seal_staging(
 ) -> Result<SnapshotHandle, ModelError> {
     let client = loader.client();
     let realization_phase = Phase::begin("publication_realization");
-    let realization =
-        crate::definitions::verify_epoch(loader, native_definitions).await;
+    let realization = crate::definitions::verify_epoch(loader, native_definitions).await;
     realization_phase.finish_result(&realization);
     let realization = realization?;
     let definition_epoch = crate::definitions::epoch_identity(native_definitions);
@@ -208,31 +219,67 @@ async fn seal_staging(
         "manifest",
         Bytes::from(serde_json::to_vec(manifest).map_err(ModelError::codec)?),
     );
-    marker.insert("views", Bytes::from(serde_json::to_vec(views).map_err(ModelError::codec)?));
+    marker.insert(
+        "views",
+        Bytes::from(serde_json::to_vec(views).map_err(ModelError::codec)?),
+    );
     marker.insert("definition_epoch", definition_epoch.hex());
     // Prepare the committed identity before the effect, so later local encoding cannot lose it.
     let committed_identity = serde_json::to_string(&handle).map_err(ModelError::codec)?;
     let marker_phase = Phase::begin("publication_marker");
     // Establish guarded reachability before the manifest can become visible. If the
     // acknowledgement is unknown, the durable native operation retains reconciliation work.
-    lctx_surrealdb::control::hold(client, Some(attempt), RecordId::new("publication", handle.publication.hex()), views.iter().map(|binding|RecordId::new("compiler_view",binding.view.identity.hex())).collect()).await?;
+    lctx_surrealdb::control::hold(
+        client,
+        Some(attempt),
+        RecordId::new("publication", handle.publication.hex()),
+        views
+            .iter()
+            .map(|binding| RecordId::new("compiler_view", binding.view.identity.hex()))
+            .collect(),
+    )
+    .await?;
     // Transfer every retained attempt root before closing its mutable owner. Bounded
     // windows include originals, roles and derived search records, alongside exact views.
-    let mut variables=lctx_surrealdb::surrealdb::types::Variables::new();variables.insert("attempt",RecordId::new("native_attempt",attempt.hex()));
-    let retained_reader=loader.reader();
-    let mut roots=retained_reader.query_stream("SELECT VALUE object FROM native_hold WHERE owner=$attempt ORDER BY id",variables,1)?;
-    let transfer=async {
-        let mut window=Vec::new();
-        while let Some(root)=roots.next().await? {
-            let Value::RecordId(root)=root else{return Err(ModelError::Schema("publication retained root"));};
+    let mut variables = lctx_surrealdb::surrealdb::types::Variables::new();
+    variables.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
+    let retained_reader = loader.reader();
+    let mut roots=retained_reader.query_stream("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt ORDER BY id",variables,1)?;
+    let transfer = async {
+        let mut window = Vec::new();
+        while let Some(root) = roots.next().await? {
+            let Value::RecordId(root) = root else {
+                return Err(ModelError::Schema("publication retained root"));
+            };
             window.push(root);
-            if window.len()==128{lctx_surrealdb::control::hold(client,Some(attempt),RecordId::new("publication",handle.publication.hex()),std::mem::take(&mut window)).await?;}
+            if window.len() == 128 {
+                lctx_surrealdb::control::hold(
+                    client,
+                    Some(attempt),
+                    RecordId::new("publication", handle.publication.hex()),
+                    std::mem::take(&mut window),
+                )
+                .await?;
+            }
         }
-        lctx_surrealdb::control::hold(client,Some(attempt),RecordId::new("publication",handle.publication.hex()),window).await
-    }.await;
-    let mut root_finality=Completion::default();root_finality.step("publication retained-root stream drainage",roots.drain_transport().await);
-    complete(transfer,root_finality)?;
-    let marking = lctx_surrealdb::control::ensure_rows(client, Some(attempt), vec![Value::Object(marker)]).await;
+        lctx_surrealdb::control::hold(
+            client,
+            Some(attempt),
+            RecordId::new("publication", handle.publication.hex()),
+            window,
+        )
+        .await
+    }
+    .await;
+    let mut root_finality = Completion::default();
+    root_finality.step(
+        "publication retained-root stream drainage",
+        roots.drain_transport().await,
+    );
+    complete(transfer, root_finality)?;
+    let marking =
+        lctx_surrealdb::control::ensure_rows(client, Some(attempt), vec![Value::Object(marker)])
+            .await;
     marker_phase.finish_result(&marking);
     marking?;
     lease.record_committed(committed_identity.clone());
@@ -255,12 +302,20 @@ async fn seal_staging(
     )
     .await;
     let readback = match readback {
-        Ok(reader)=>{
-            let closed=reader.close().await;
-            let mut finality=Completion::default();finality.step("publication readback session invalidation",reader.client().invalidate().await.map_err(ModelError::codec));
-            complete(closed.map(|_|handle),finality)
-        },
-        Err(error)=>Err(error),
+        Ok(reader) => {
+            let closed = reader.close().await;
+            let mut finality = Completion::default();
+            finality.step(
+                "publication readback session invalidation",
+                reader
+                    .client()
+                    .invalidate()
+                    .await
+                    .map_err(ModelError::codec),
+            );
+            complete(closed.map(|_| handle), finality)
+        }
+        Err(error) => Err(error),
     };
     let result = complete(readback, completion);
     readback_phase.finish_result(&result);
@@ -268,6 +323,6 @@ async fn seal_staging(
 }
 
 /// The publication freezes this exact binding inventory, not the whole database.
-pub(crate) fn view_identity(bindings:&[CompletedBinding])->Result<ContentHash,ModelError>{
+pub(crate) fn view_identity(bindings: &[CompletedBinding]) -> Result<ContentHash, ModelError> {
     lctx_model::domain::completed::binding_inventory_identity(bindings)
 }

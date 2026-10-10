@@ -34,12 +34,21 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(label: &str) -> Self {
-        let config = RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("installed validation runtime"))).unwrap();
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("installed validation runtime"),
+        ))
+        .unwrap();
         let client = check_installation(&config).await.unwrap();
         let cache = NativeEmbeddingCache::connect(client.clone()).await.unwrap();
         let nonce = tempfile::NamedTempFile::new().unwrap();
         let scope = format!("{label}:{}", nonce.path().display());
-        Self {client, cache, config, scope}
+        Self {
+            client,
+            cache,
+            config,
+            scope,
+        }
     }
     async fn connect(config: &RuntimeConfig) -> Arc<Surreal<Client>> {
         check_installation(config).await.unwrap()
@@ -48,7 +57,10 @@ impl Fixture {
         self.client.invalidate().await.unwrap();
     }
     fn winner(&self, spec: &Spec, input: ContentHash) -> surrealdb::types::RecordId {
-        surrealdb::types::RecordId::new("embedding_cache", format!("{}_{}", spec.hash().hex(), input.hex()))
+        surrealdb::types::RecordId::new(
+            "embedding_cache",
+            format!("{}_{}", spec.hash().hex(), input.hex()),
+        )
     }
 }
 
@@ -123,7 +135,14 @@ async fn whole_batch_prevalidation_and_first_duplicate_proposal() {
     );
     let alternative = candidate(&f.scope, "first", 1, 3);
     let mut candidates: Vec<_> = (0..257)
-        .map(|i| candidate(&f.scope, &format!("batch-{i}"), i % spec.dimensions as usize, 3))
+        .map(|i| {
+            candidate(
+                &f.scope,
+                &format!("batch-{i}"),
+                i % spec.dimensions as usize,
+                3,
+            )
+        })
         .collect();
     candidates.extend([first.clone(), first.clone(), alternative]);
     let winners = f.cache.admit(&spec, &candidates).await.unwrap();
@@ -171,7 +190,9 @@ async fn overlapping_concurrent_batches_return_exact_existing_and_new_winners() 
             let mut proposals: Vec<_> = (0..32)
                 .map(|i| candidate(&scope, &format!("shared-{i}"), caller, 3))
                 .collect();
-            proposals.extend((0..8).map(|i| candidate(&scope, &format!("caller-{caller}-{i}"), caller, 3)));
+            proposals.extend(
+                (0..8).map(|i| candidate(&scope, &format!("caller-{caller}-{i}"), caller, 3)),
+            );
             barrier.wait().await;
             let winners = cache.admit(&spec, &proposals).await.unwrap();
             assert_eq!(winners.len(), proposals.len());
@@ -239,12 +260,30 @@ async fn ignored_row_failure_without_a_winner_refuses_admission() {
     // A unique-key conflict at an owned noncanonical physical ID is swallowed by
     // INSERT IGNORE, but cannot establish the exact canonical winner receipt.
     let mut bindings = Variables::new();
-    bindings.insert("id", surrealdb::types::RecordId::new("embedding_cache", format!("rejected_{}", rejected.input_hash.hex())));
+    bindings.insert(
+        "id",
+        surrealdb::types::RecordId::new(
+            "embedding_cache",
+            format!("rejected_{}", rejected.input_hash.hex()),
+        ),
+    );
     bindings.insert("spec", spec.hash().hex());
     bindings.insert("input", rejected.input_hash.hex());
-    bindings.insert("definition", surrealdb::types::Bytes::from(serde_json::to_vec(&lctx_model::domain::embedding::EmbeddingSpec::new(&spec).unwrap()).unwrap()));
-    bindings.insert("bytes", surrealdb::types::Bytes::from(encode_vector(&rejected.vector)));
-    bindings.insert("digest", lctx_model::domain::embedding::value::value_digest(&rejected.vector).hex());
+    bindings.insert(
+        "definition",
+        surrealdb::types::Bytes::from(
+            serde_json::to_vec(&lctx_model::domain::embedding::EmbeddingSpec::new(&spec).unwrap())
+                .unwrap(),
+        ),
+    );
+    bindings.insert(
+        "bytes",
+        surrealdb::types::Bytes::from(encode_vector(&rejected.vector)),
+    );
+    bindings.insert(
+        "digest",
+        lctx_model::domain::embedding::value::value_digest(&rejected.vector).hex(),
+    );
     f.client.query("CREATE $id CONTENT {spec:$spec,input:$input,definition:$definition,tokens:11,bytes:$bytes,digest:$digest}").bind(bindings).await.unwrap().check().unwrap();
     assert!(
         f.cache

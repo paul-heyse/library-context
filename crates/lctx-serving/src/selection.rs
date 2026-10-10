@@ -105,10 +105,22 @@ pub async fn classify(
 ) -> Result<MemberSelection, ModelError> {
     classify_inner(reader, members, selection, budget, None).await
 }
-pub(crate) async fn classify_prepared(reader: &NativeReader, members: &Members, selection: &selection::Selection, budget: &ResourceBudget, preparation: &crate::preparation::Preparation<'_>) -> Result<MemberSelection, ModelError> {
+pub(crate) async fn classify_prepared(
+    reader: &NativeReader,
+    members: &Members,
+    selection: &selection::Selection,
+    budget: &ResourceBudget,
+    preparation: &crate::preparation::Preparation<'_>,
+) -> Result<MemberSelection, ModelError> {
     classify_inner(reader, members, selection, budget, Some(preparation)).await
 }
-async fn classify_inner(reader: &NativeReader, members: &Members, selection: &selection::Selection, budget: &ResourceBudget, preparation: Option<&crate::preparation::Preparation<'_>>) -> Result<MemberSelection, ModelError> {
+async fn classify_inner(
+    reader: &NativeReader,
+    members: &Members,
+    selection: &selection::Selection,
+    budget: &ResourceBudget,
+    preparation: Option<&crate::preparation::Preparation<'_>>,
+) -> Result<MemberSelection, ModelError> {
     let mut inputs = selection::classification::ClassificationData::inputs();
     inputs.extend(selection::build::Output::inputs());
     inputs.sort_by_key(ValidationInput::name);
@@ -117,7 +129,15 @@ async fn classify_inner(reader: &NativeReader, members: &Members, selection: &se
     let cached;
     let fresh;
     let batches = if let Some(preparation) = preparation {
-        cached = preparation.hydrate(reader, request.take_roots(), &inputs, &inputs, crate::scope::OWNED_FIELDS).await?;
+        cached = preparation
+            .hydrate(
+                reader,
+                request.take_roots(),
+                &inputs,
+                &inputs,
+                crate::scope::OWNED_FIELDS,
+            )
+            .await?;
         &*cached
     } else {
         fresh = crate::scope::hydrate(reader, request.take_roots(), &inputs, budget).await?;
@@ -465,7 +485,7 @@ mod streamed_library_tests {
     #[tokio::test]
     async fn native_library_discovery_preserves_complete_eligibility_and_drains_late_upstream_failure()
      {
-        let config=crate::scoped_fixture::config();
+        let config = crate::scoped_fixture::config();
         let package = Package {
             name: "discovery-selected".into(),
         };
@@ -549,7 +569,9 @@ mod streamed_library_tests {
         .into_iter()
         .map(|row| Assertion::from_record(row).unwrap())
         .collect::<Vec<_>>();
-        let native=crate::scoped_fixture::reader(&config,&entities,&assertions).await.unwrap();
+        let native = crate::scoped_fixture::reader(&config, &entities, &assertions)
+            .await
+            .unwrap();
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let library = Name::new("discovery-selected").unwrap();
         let mut expected = members[..2].to_vec();
