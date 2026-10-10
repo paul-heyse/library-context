@@ -7,10 +7,10 @@ Use ``python3 scripts/build_environment.py --shell`` with eval in a shell,
 environment and uv settings. Intentional external targets use LCTX_CARGO_TARGET_DIR. Prefer Cargo
 config for non-default paths: exported CARGO_* paths participate in sccache's Rust key.
 
-This file is the justfile shell, so it runs under the system ``python3`` (3.12 on this machine)
-and must stay parseable there: no 3.13+ syntax such as PEP 758 unparenthesised ``except A, B:``.
-It imports only the standard library, never the harness helpers (``workspace_env``, ``harness``,
-``surrealdb_fixture``). Native input fingerprints are computed only on request
+This file is the justfile shell, launched with the pinned Python 3.14.7 independently of
+the checkout environment. Ordinary shared builds import only the standard library.
+Explicitly managed isolated roots additionally hold lifecycle admission through the command.
+Native input fingerprints are computed only on request
 (``native_inputs=True``): by native synchronization and native readiness, not for every recipe.
 The launcher path drops ``UV_NO_SYNC``: repository launchers carry explicit ``--no-sync`` or
 ``--no-project``, and uv warns when ``UV_NO_SYNC`` meets ``--no-project``.
@@ -19,10 +19,14 @@ The launcher path drops ``UV_NO_SYNC``: repository launchers carry explicit ``--
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shlex
+import signal
 import sys
+import time
 import tomllib
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -239,7 +243,102 @@ def main() -> None:
             return
         args = ["--", *command]
     if len(args) > 1 and args[0] == "--":
-        os.execvpe(args[1], args[1:], launcher_env(before))
+        environment = launcher_env(before)
+        # A fixed metadata lookup for explicitly selected managed roots; ordinary shared
+        # Cargo launches need neither policy evaluation nor a storage admission lock.
+        selected = {
+            value for key in (*TARGET_KEYS, BUILD_DIR_KEY) if (value := environment.get(key))
+        }
+        state = Path(
+            before.get(
+                "LCTX_STORAGE_STATE",
+                str(
+                    Path(before.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+                    / "library-context-storage"
+                ),
+            )
+        )
+        managed = []
+        for supplied in selected:
+            path = Path(os.path.abspath(Path(supplied).expanduser()))
+            index = state / "scopes" / (hashlib.sha256(os.fsencode(path)).hexdigest() + ".json")
+            if index.is_file():
+                managed.append(path)
+        if not managed:
+            os.execvpe(args[1], args[1:], environment)
+        from storage_lifecycle import Blocked, Storage, _nonce, admission, physical
+
+        try:
+            with admission(managed):
+                store = Storage()
+                for path in managed:
+                    index = (
+                        state / "scopes" / (hashlib.sha256(os.fsencode(path)).hexdigest() + ".json")
+                    )
+                    row = store.get(json.loads(index.read_text())["id"])
+                    if (
+                        row.get("retirement")
+                        or row.get("retired_at")
+                        or physical(path) != row["identity"]
+                        or _nonce(path) != row["nonce"]
+                    ):
+                        raise Blocked(f"managed build lifetime unavailable: {path}")
+                # Child admission inherits all managed scopes and acquires its own shared
+                # lifetime before detaching, so background jobs survive launcher exit.
+                if "LCTX_STORAGE_ADMISSION" in os.environ:
+                    environment["LCTX_STORAGE_ADMISSION"] = os.environ["LCTX_STORAGE_ADMISSION"]
+                from harness import SpawnGuard, observe_exit, spawn_group
+
+                consumer = "launcher:" + uuid.uuid4().hex
+                identities = []
+                for path in managed:
+                    index = (
+                        state / "scopes" / (hashlib.sha256(os.fsencode(path)).hexdigest() + ".json")
+                    )
+                    identity = json.loads(index.read_text())["id"]
+                    store.retain(identity, consumer, "immediate-use")
+                    identities.append(identity)
+                try:
+                    child = spawn_group(args[1:], env=environment, death_signal=signal.SIGTERM)
+                except OSError:
+                    for identity in identities:
+                        store.release(identity, consumer, "launcher failed before child exposure")
+                    raise
+                guard = SpawnGuard(child)
+
+                def interrupted(signum, _frame):
+                    raise KeyboardInterrupt
+
+                previous = signal.signal(signal.SIGTERM, interrupted)
+                try:
+                    with guard:
+                        while observe_exit(child) is None:
+                            time.sleep(0.01)
+                except KeyboardInterrupt:
+                    raise SystemExit(130) from None
+                finally:
+                    signal.signal(signal.SIGTERM, previous)
+                    if guard.cleanup.get("status") == "confirmed":
+                        for identity in identities:
+                            store.release(
+                                identity, consumer, "launcher confirmed process-group cleanup"
+                            )
+                    else:
+                        print(
+                            f"storage: launcher cleanup unresolved; hold retained: {consumer}",
+                            file=sys.stderr,
+                        )
+                code = guard.returncode
+                raise SystemExit(
+                    code
+                    if code is not None and code >= 0
+                    else 128 - code
+                    if code is not None
+                    else 75
+                )
+        except Blocked as error:
+            print(f"storage: blocked: {error}", file=sys.stderr)
+            raise SystemExit(75) from error
     raise SystemExit(
         "usage: build_environment.py --shell | --explain [-- COMMAND ...] | -- COMMAND ..."
     )

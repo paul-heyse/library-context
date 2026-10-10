@@ -24,19 +24,22 @@ The new owned service is installed outside checkouts; existing operator/PSE-arro
 protected evaluation and real-library pilots remain held. Next: finish focused runtime repairs,
 refresh final clients guard-free, then coordinated UP9 acceptance.
 
-**Storage lifecycle plan refreshed, 2026-10-09:** the [plan §9](docs/plans/storage-lifecycle-management-plan_2026-10-09.md#9-finding-disposition-owner)
-owns scheduled storage F01–F03; the [independent target review](docs/design_review/reviews/design_review_storage-lifecycle-plan_2026-10-09.md)
-accepts the corrected **Proposed / scoped** design. Operator-confirmed choices preserve warm
-caches, detailed profiling and performance settings, and select automatic rules-based lifecycle
-management across repository and shared host assets. Target-review F01/F02 are resolved in the
-Proposed target; operational closure remains open. AF1 retains its delivered cleanup/recovery slice.
-The plan now covers persistent-service attachments, native/recovery ownership and the maintenance
-executable's checkout dependency. Next: SM0/SM1 consume AF1/current service observations, then
-producer/dependency migration, legacy adoption and qualified automation. BC3/evidence stay protected.
-Cleanup, archival, configuration/agent-policy implementation and product controls **not_run**;
-this scope changes the plan only. Original publication **passed:** `just docs`,369pages, zero link errors;
-scoped `git diff --check` passed. Full `just docs-check` **failed** on the already-stale concurrent
-ADR index, which this task leaves untouched.
+**Storage lifecycle implementation in progress, 2026-10-09:**
+[ADR-0144](docs/adr/0144-managed-storage-lifetimes.md) governs warm-cache preservation and
+owner-backed retirement; [plan §9/§10](docs/plans/storage-lifecycle-management-plan_2026-10-09.md#10-current-checkpoint)
+owns findings and actual acceptance. Policy, lifecycle/admission/journals, producer integration,
+repository checkout bindings and archive/restore mechanisms are implemented with focused
+controls. The bootstrap uses pinned Python3.14.7 without the project venv; no3.12 helper.
+Only this repository and its two checkouts are registered; eight legacy roots and five retained captures have
+protective descriptors. Central skill stores and other repositories are excluded.
+No production content was removed and automation remains off.
+**passed:**163 producer controls,63 lifecycle/build/service controls,34 archive/CLI/replay controls;
+native acquisition compile/five controls; scoped lint/types, ADR lint and docs publication.
+Independent bounded review accepted examined mechanisms. Acquisition crash receipts and sampled
+import without meaningful symbols remain protected. SM8 gate/service-transfer acceptance is
+**blocked** by the native owner's active exclusive maintenance; scheduling is **not_run**.
+Next: native owner releases maintenance, then service survival control and coordinated matching-source
+`just qualify`/assembled review before scheduling. UP9/BC3/operator acceptance retains its owners.
 
 **Current scope: native-execution efficiency NE0–NE9 implemented; coordinated acceptance open.**
 The [native-efficiency plan](docs/plans/native-execution-efficiency-plan_2026-10-09.md)

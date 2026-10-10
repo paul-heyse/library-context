@@ -5,7 +5,7 @@
 # keeping going after a failure: `turn-end` at the end of a turn that changed files, and `ready`
 # after an environment change.
 
-set shell := ["python3", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
+set shell := ["env", "-u", "UV_NO_SYNC", "uv", "run", "--no-project", "--offline", "--no-python-downloads", "--python", "3.14.7", "python", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
 
 # List recipes
 default:
@@ -52,7 +52,12 @@ _sync-native: (sync "native")
 # Normalized environment: `just env [--explain] [-- cmd…]`
 [positional-arguments]
 env *args:
-    @python3 scripts/build_environment.py {{ if args == "" { "--explain" } else { "" } }} "$@"
+    @uv run --no-project --offline --no-python-downloads --python 3.14.7 python scripts/build_environment.py {{ if args == "" { "--explain" } else { "" } }} "$@"
+
+# Read-only observation by default; effects use named owner/consumer rules.
+[positional-arguments]
+storage *args="status":
+    @uv run --no-project --offline --no-python-downloads --python 3.14.7 python scripts/storage.py "$@"
 
 # Run each recipe, keep going after a failure, and list the failures
 [private]

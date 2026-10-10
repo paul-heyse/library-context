@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 from pathlib import Path
@@ -11,7 +12,8 @@ from repo_paths import local_skill
 
 
 @pytest.fixture
-def root(tmp_path):
+def root(tmp_path, monkeypatch):
+    monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path.parent / f"{tmp_path.name}-storage"))
     for name, body in {
         "README.md": "# Home\n",
         "docs/design/DESIGN.md": "# Design\n## §1 One\n",
@@ -287,7 +289,9 @@ def test_pipeline_failure_preserves_previous_artifact(publication, monkeypatch, 
     with pytest.raises(subprocess.CalledProcessError):
         docs.build(root, settings)
     assert (destination / "old.html").read_text() == "last successful artifact"
-    assert list((root / "build/docs").iterdir()) == [destination]
+    assert destination in list((root / "build/docs").iterdir())
+    candidates = list((root / "build/docs").glob("candidate-*"))
+    assert len(candidates) == 1  # Owned failed output retained through its seven-day grace.
 
 
 def test_receipt_matches_capture_and_observation_does_not_render(publication, monkeypatch):
@@ -388,7 +392,8 @@ def test_drift_during_render_refuses_publication_preserving_prior_site(
     with pytest.raises(ValueError, match="inputs changed"):
         docs.build(root, settings)
     assert before == {p.relative_to(site): p.read_bytes() for p in site.rglob("*") if p.is_file()}
-    assert list(site.parent.iterdir()) == [site]
+    assert site in list(site.parent.iterdir())
+    assert list(site.parent.glob("candidate-*"))  # Prior/failed temporary generations await grace.
     assert docs.observe_publication(root)[0] == "stale"
 
 
@@ -505,3 +510,62 @@ def test_architecture_frontmatter_preserves_stable_anchor_destinations(root, set
     body = (candidate / "src/docs/design/DESIGN.md").read_text()
     assert '<a id="section-1"></a>\n\n## §1 First' in body
     assert '<a id="section-2"></a>\n\n## §2 Second' in body
+
+
+def test_docs_owner_confirms_real_renderer_descendant_cleanup(tmp_path):
+    import sys
+
+    import storage_owners
+    from harness import ProcessIdentity
+    from storage_lifecycle import Storage
+
+    work = tmp_path / "docs"
+    work.mkdir()
+    with docs.candidate_output(work) as candidate:
+        result = docs.run(
+            [
+                sys.executable,
+                "-c",
+                "import subprocess; p=subprocess.Popen(['sleep','60']); print(p.pid,flush=True)",
+            ],
+            capture_output=True,
+        )
+        pid = int(result.stdout)
+        with contextlib.suppress(ProcessLookupError):
+            assert not ProcessIdentity.of(pid).alive()
+    row = next(row for row in Storage().records() if row["path"] == str(candidate))
+    assert storage_owners.observe(row)["state"] == "released"
+    assert candidate.is_dir()  # Released content waits for the configured grace.
+
+
+@pytest.mark.parametrize("failed_write", [1, 2])
+def test_docs_bookkeeping_failure_keeps_healthy_output_protected(
+    tmp_path, monkeypatch, failed_write
+):
+    import harness
+    import storage_owners
+    from storage_lifecycle import Storage
+
+    original = harness.write_json_atomic
+    writes = 0
+
+    def unavailable_receipt(path, value):
+        nonlocal writes
+        if path.name == "record.json" and "owners/docs" in str(path):
+            writes += 1
+            if writes == failed_write:
+                raise OSError("receipt volume unavailable")
+        return original(path, value)
+
+    monkeypatch.setattr(harness, "write_json_atomic", unavailable_receipt)
+    work = tmp_path / "docs"
+    work.mkdir()
+    with docs.candidate_output(work) as candidate:
+        (candidate / "healthy-output").write_text("published")
+    assert (candidate / "healthy-output").read_text() == "published"
+    rows = [row for row in Storage().records() if row["path"] == str(candidate)]
+    if failed_write == 1:
+        assert rows == []
+    else:
+        assert storage_owners.observe(rows[0])["state"] == "unresolved"
+        assert all(item.get("until") is None for item in rows[0]["obligations"].values())

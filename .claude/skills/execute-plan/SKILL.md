@@ -48,6 +48,13 @@ architecture or domain-model reviews. Route warranted architectural decision cha
 [adr](../adr/SKILL.md) and the architectural owner.
 
 Follow `AGENTS.md` for verification scope and timing, generation, formatting and hook ownership.
+For generated outputs, diagnostic captures and temporary environments, follow the
+[workspace storage contract](../../../docs/workspace-storage.md): identify the actual producer,
+consumer capabilities and authoritative cleanup/release event, and acquire storage admission before
+creation or use. Keep named immediate-use/replay/evidence holds; owner cleanup starts temporary
+retention. Do not treat a changed pin, absent checkout, old mtime or directory size as release.
+Protect legacy/unintegrated outputs instead of inventing deadlines. Preserve native cache policy
+and available concurrency; no broad clean/purge or resource cap substitutes for lifecycle wiring.
 Validate new behavior with relevant compile checks and targeted functional tests or probes;
 perform integrated qualification at the repository's prescribed boundary. Repair failures and
 rerun affected checks, broadening verification when a material change warrants it. Reassess

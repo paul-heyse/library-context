@@ -35,6 +35,7 @@ def isolated_locks(tmp_path, monkeypatch):
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path / "storage"))
     monkeypatch.delenv(OWNERSHIP_KEY, raising=False)
     monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
     return runtime / "library-context" / "locks"
@@ -165,8 +166,16 @@ def test_two_readers_overlap_and_sync_reports_and_waits(isolated_locks):
 def test_absolute_environment_from_another_checkout_contends(isolated_locks, tmp_path):
     other = tmp_path / "other-checkout"
     (other / "scripts").mkdir(parents=True)
-    for name in ("workspace_env.py", "build_environment.py", "harness.py"):
+    for name in (
+        "workspace_env.py",
+        "build_environment.py",
+        "harness.py",
+        "storage_lifecycle.py",
+        "storage_owners.py",
+    ):
         shutil.copy(ROOT / "scripts" / name, other / "scripts" / name)
+    (other / ".config").mkdir()
+    shutil.copy(ROOT / ".config/storage.toml", other / ".config/storage.toml")
     main_env = str(ROOT / ".venv")
     holder = hold(SCRIPT, "shared", "tools", "sleep", "2")
     (environment,) = resources_for("tools")
@@ -357,3 +366,19 @@ def test_foreign_namespace_owner_counts_while_its_lock_is_held(isolated_locks):
     assert workspace_env.inherited(token) == {}
     with ownership("shared", "tools", env={}):
         assert resource.name in workspace_env.inherited(token)
+
+
+def test_new_environment_is_enrolled_before_preparation_releases_ownership(
+    tmp_path, isolated_locks
+):
+    import storage_owners
+    from storage_lifecycle import Storage
+
+    checkout = tmp_path / "new-checkout"
+    checkout.mkdir()
+    with ownership("exclusive", "tools", root=checkout, env={}):
+        (checkout / ".venv").mkdir()
+    rows = [row for row in Storage().records() if row["path"] == str(checkout / ".venv")]
+    assert len(rows) == 1
+    assert rows[0]["managed"]
+    assert storage_owners.observe(rows[0])["state"] == "warm"

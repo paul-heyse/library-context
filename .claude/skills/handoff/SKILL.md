@@ -22,6 +22,11 @@ keep a dated receipt only while it bounds a current claim, with its original dat
   commands only when due and within scope.
 - Current plan disposition rows and review conclusions. Distinguish the bounded slice judgment,
   enclosing architectural status and remaining integrated acceptance.
+- For generated output and diagnostics, retain the object/run IDs, named consumer and required
+  local/replay/report capability in their existing owner. Follow
+  [workspace storage](../../../docs/workspace-storage.md) when releasing completed consumers;
+  verify owner cleanup and preserve cited evidence, unresolved legacy content and native caches.
+  Report storage qualification and automation activation separately from command implementation.
 
 ## Write
 

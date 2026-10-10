@@ -47,9 +47,17 @@ def tools_root() -> Path:
     return compile_profile_tools.tools_root()
 
 
-def execute(argv: list[str], *, cwd: Path = ROOT, timeout: float | None = 30) -> dict[str, Any]:
+def execute(
+    argv: list[str],
+    *,
+    cwd: Path = ROOT,
+    timeout: float | None = 30,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
     try:
-        proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            argv, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env
+        )
         return {
             "argv": argv,
             "exit_code": proc.returncode,
@@ -123,7 +131,7 @@ def focus_manifests(focus: str, command: list[str] | None = None) -> list[str]:
     return sorted(str(Path(p["manifest_path"]).resolve().parent) for p in packages)
 
 
-def doctor(*, check_analysis: bool = True) -> dict[str, Any]:
+def doctor(*, check_analysis: bool = True, diagnostic_root: Path | None = None) -> dict[str, Any]:
     checks: dict[str, Any] = {}
     observed = capture().doctor()
     checks["capture"] = {
@@ -158,14 +166,20 @@ def doctor(*, check_analysis: bool = True) -> dict[str, Any]:
             "reason": "exact measureme tools receipt unavailable",
             "repair": "just compile-profile-tools",
         }
-    destination = runs.runs_root()
+    destination = diagnostic_root or runs.runs_root()
     while not destination.exists():
         destination = destination.parent
     free = shutil.disk_usage(destination).free
     checks["disk"] = {
-        "outcome": "passed" if free >= MIN_FREE else "blocked",
+        "outcome": "passed",
         "free_bytes": free,
-        "minimum_bytes": MIN_FREE,
+        "sampler_floor_bytes": MIN_FREE,
+        "destinations": diagnostic_headroom(diagnostic_root),
+        "advisory": free < advisory_threshold("recording"),
+        "advisory_bytes": advisory_threshold("recording"),
+        "support_limit": (
+            "headroom is advisory; sampler floor cannot bound self-profile or Cargo writers"
+        ),
     }
     return {
         "outcome": "passed"
@@ -587,6 +601,176 @@ class OwnedCommandTree:
         return False
 
 
+def diagnostic_settings() -> dict[str, Any]:
+    settings = {}
+    host = Path(
+        os.environ.get(
+            "LCTX_STORAGE_CONFIG",
+            str(
+                Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+                / "library-context-storage/config.toml"
+            ),
+        )
+    )
+    for path in (ROOT / ".config/storage.toml", host):
+        if path.exists():
+            with path.open("rb") as stream:
+                values = tomllib.load(stream).get("diagnostics", {})
+            if not isinstance(values, dict):
+                raise ValueError("diagnostics configuration must be a table")
+            settings.update(values)
+            if path == host:
+                with path.open("rb") as stream:
+                    selected = tomllib.load(stream).get("diagnostic_root")
+                if selected is not None:
+                    settings["root"] = selected
+    return settings
+
+
+def advisory_threshold(kind: str) -> int:
+    name = (
+        "LCTX_STORAGE_RECORDING_ADVISORY_BYTES"
+        if kind == "recording"
+        else "LCTX_STORAGE_WORK_ADVISORY_BYTES"
+    )
+    key = "detailed_advisory_gib" if kind == "recording" else "general_advisory_gib"
+    default = diagnostic_settings().get(key, 100 if kind == "recording" else 64)
+    if type(default) not in (int, float) or default < 0:
+        raise ValueError(f"diagnostics.{key} must be nonnegative")
+    value = int(os.environ.get(name, str(int(default * 1024**3))))
+    if value < 0:
+        raise ValueError(f"{name} must be nonnegative")
+    return value
+
+
+def diagnostic_destination(requested: str | None = None) -> Path | None:
+    selected = (
+        requested
+        or os.environ.get("LCTX_COMPILE_PROFILE_ROOT")
+        or diagnostic_settings().get("root")
+    )
+    if not selected:
+        return None
+    path = Path(selected).expanduser().absolute()
+    # An explicit selection is never silently created/fallen back from during readiness.
+    if not path.is_dir() or path.is_symlink() or not os.access(path, os.W_OK | os.X_OK):
+        raise ValueError(f"selected diagnostic root unavailable or unwritable: {path}")
+    if os.statvfs(path).f_flag & os.ST_RDONLY:
+        raise ValueError(f"selected diagnostic root is on a read-only filesystem: {path}")
+    return path.resolve()
+
+
+def diagnostic_headroom(selected: Path | None = None) -> list[dict[str, Any]]:
+    observations = []
+    for destination in dict.fromkeys([runs.runs_root(), *([selected] if selected else [])]):
+        existing = destination
+        while not existing.exists():
+            existing = existing.parent
+        observations.append(
+            {
+                "destination": str(destination),
+                "observed_path": str(existing),
+                "device": existing.stat().st_dev,
+                "free_bytes": shutil.disk_usage(existing).free,
+            }
+        )
+    return observations
+
+
+def capacity_observation(directory: Path) -> dict[str, Any]:
+    free = shutil.disk_usage(directory).free
+    allocated = 0
+    files = 0
+    for base, _, names in os.walk(directory):
+        for name in names:
+            path = Path(base) / name
+            if not path.is_symlink():
+                try:
+                    allocated += path.stat().st_blocks * 512
+                    files += 1
+                except FileNotFoundError:
+                    pass
+    return {
+        "observed_ns": time.time_ns(),
+        "destination": str(directory),
+        "free_bytes": free,
+        "allocated_bytes": allocated,
+        "files": files,
+        "work_advisory_bytes": advisory_threshold("work"),
+        "recording_advisory_bytes": advisory_threshold("recording"),
+        "advisory": free < advisory_threshold("recording"),
+        "writers": [
+            "perf chunks",
+            "rustc self-profile",
+            "pass/mono sidecars",
+            "Cargo receipts",
+            "observer logs",
+        ],
+        "support_limit": (
+            "observations do not bound peak allocation; "
+            "self-profile cannot be stopped independently of rustc"
+        ),
+    }
+
+
+def reports_root(directory: Path) -> Path:
+    return directory.parent / "compile-profile-reports"
+
+
+def report_location(path: Path) -> Path:
+    # Separate new derived outputs from raw unit evidence. Legacy standalone readers
+    # remain useful for explicit inputs without inventing a profile owner.
+    if path.parent.parent.name == "units":
+        return reports_root(path.parent.parent.parent) / path.parent.name
+    return path.parent / "reports"
+
+
+def resolve_recorded_path(directory: Path, recorded: str) -> Path:
+    """Translate only the exact original profile prefix; never arbitrary suffix matching."""
+    original = (read_json(directory / "record.json") or {}).get("original_profile_root") or (
+        read_json(directory / "path-resolution.json") or {}
+    ).get("original_profile_root")
+    path = Path(recorded)
+    if original and path.is_absolute() and path.is_relative_to(Path(original)):
+        relative = path.relative_to(Path(original))
+        if ".." in relative.parts:
+            raise ValueError("unsafe recorded profile path")
+        return directory / relative
+    return path
+
+
+def lifecycle_components(run_dir: Path) -> list[dict[str, Any]]:
+    directory = profile_dir(str(run_dir))
+    meta = read_json(directory / "record.json") or {}
+    run = runs.view(run_dir)
+    cleanup = run.get("cleanup", {}).get("status") == "confirmed"
+    from storage_lifecycle import Storage
+
+    policy = Storage().policy
+    result = []
+    for category, path in (("profile-raw", directory), ("profile-report", reports_root(directory))):
+        days = policy["categories"][category].get("temporary_days")
+        if path.exists():
+            result.append(
+                {
+                    "category": category,
+                    "path": str(path),
+                    "temporary_days": days,
+                    "consumer": f"profile:{run_dir.name}:{category}",
+                    "owner": {
+                        "kind": "profile",
+                        "path": str(run_dir),
+                        "root": str(ROOT),
+                        "reference": run_dir.name,
+                    },
+                    "cleanup_confirmed": cleanup,
+                    "legacy_hold": not meta.get("storage_lifecycle_version"),
+                    "requires": "raw-replay" if category == "profile-raw" else "cited-report",
+                }
+            )
+    return result
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     command = list(args.command)
     if command[:1] == ["--"]:
@@ -594,12 +778,31 @@ def cmd_record(args: argparse.Namespace) -> int:
     if not command:
         raise ValueError("record requires a command after --")
     _effective, direct = cargo_command(command)
-    readiness = doctor(check_analysis=direct)
+    try:
+        selected = diagnostic_destination(getattr(args, "diagnostic_root", None))
+    except (OSError, ValueError) as error:
+        print(json.dumps({"outcome": "blocked", "reason": str(error)}))
+        return 75
+    readiness = doctor(check_analysis=direct, diagnostic_root=selected)
     if readiness["outcome"] != "passed":
         print(json.dumps(readiness, indent=2))
         return 75
+    for observation in readiness.get("checks", {}).get("disk", {}).get("destinations", []):
+        free = observation["free_bytes"]
+        warning = (
+            "; below detailed-recording advisory" if free < advisory_threshold("recording") else ""
+        )
+        print(
+            f"compile-profile: {observation['destination']}: "
+            f"{free / 1024**3:.1f} GiB free{warning}; "
+            "sampler floor does not bound self-profile/Cargo allocation",
+            file=sys.stderr,
+        )
     focus_manifests(args.focus, command)
-    internal = [sys.executable, str(SCRIPT), "_record", "--focus", args.focus, "--", *command]
+    internal = [sys.executable, str(SCRIPT), "_record", "--focus", args.focus]
+    if selected:
+        internal += ["--diagnostic-root", str(selected)]
+    internal += ["--", *command]
     return runs.cmd_run(
         argparse.Namespace(
             command=internal, background=args.background, label=args.label, json=args.json
@@ -608,18 +811,45 @@ def cmd_record(args: argparse.Namespace) -> int:
 
 
 def cmd_internal(args: argparse.Namespace) -> int:
+    from storage_lifecycle import admission
+
     run_dir = runs.current_run()
     if run_dir is None:
         raise ValueError("_record requires a live owned run")
-    directory = run_dir / "compile-profile"
+    selected = diagnostic_destination(getattr(args, "diagnostic_root", None))
+    directory = (
+        selected / run_dir.name / "compile-profile" if selected else run_dir / "compile-profile"
+    )
+    with admission([directory, reports_root(directory)]):
+        return _record_owned(args)
+
+
+def _record_owned(args: argparse.Namespace) -> int:
+    run_dir = runs.current_run()
+    if run_dir is None:
+        raise ValueError("_record requires a live owned run")
+    selected = diagnostic_destination(getattr(args, "diagnostic_root", None))
+    directory = (
+        (selected / run_dir.name / "compile-profile") if selected else run_dir / "compile-profile"
+    )
     directory.mkdir(parents=True, exist_ok=True)
-    (run_dir / runs.RETAIN).touch()
+    if selected:
+        info = directory.stat()
+        write_json_atomic(
+            run_dir / "compile-profile-location.json",
+            {"schema": 1, "path": str(directory), "device": info.st_dev, "inode": info.st_ino},
+        )
     if (directory / "record.json").exists():
         raise ValueError("this run already has a compile profile")
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     effective, direct = cargo_command(command)
     manifests = focus_manifests(args.focus, command)
     meta = provenance(directory, command, effective, args.focus, manifests)
+    meta.update(
+        original_profile_root=str(directory.resolve()),
+        storage_lifecycle_version=1,
+        capacity=capacity_observation(directory),
+    )
     env = normalized_env(dict(os.environ))
     env.update(
         LCTX_COMPILE_PROFILE_DIR=str(directory.resolve()),
@@ -651,6 +881,30 @@ def cmd_internal(args: argparse.Namespace) -> int:
         telemetry={"outcome": "not_run"},
     )
     write_json_atomic(directory / "record.json", meta)
+    try:
+        from storage_lifecycle import Storage
+
+        storage = Storage()
+        owner = {
+            "kind": "profile",
+            "path": str(run_dir),
+            "root": str(ROOT),
+            "reference": run_dir.name,
+        }
+        storage.publish(
+            directory,
+            "profile-raw",
+            owner,
+            consumer=f"profile:{run_dir.name}:profile-raw",
+            requires="raw-replay",
+            temporary_days=storage.policy["categories"]["profile-raw"].get("temporary_days"),
+            managed=True,
+        )
+    except (OSError, ValueError, RuntimeError) as error:
+        # Failed enrollment protects this scope through unresolved run ownership. No observer
+        # failure is allowed to replace the product command's exit.
+        (run_dir / runs.RETAIN).touch()
+        print(f"compile-profile lifecycle enrollment unresolved: {error}", file=sys.stderr)
     runs.set_progress(current_command=" ".join(command), waiting_reason=None)
     child: subprocess.Popen[bytes] | None = None
     descendants: OwnedCommandTree | None = None
@@ -798,6 +1052,10 @@ def cmd_internal(args: argparse.Namespace) -> int:
         except (OSError, ValueError) as error:
             stream_errors.append(f"capture finalization: {error}")
             units = []
+        try:
+            meta["capacity_final"] = capacity_observation(directory)
+        except OSError as error:
+            stream_errors.append(f"capacity observation: {error}")
         meta["stdout_errors"] = stream_errors
         if descendants is not None:
             meta["owned_descendants"] = list(descendants.processes.values())
@@ -842,8 +1100,30 @@ def cmd_internal(args: argparse.Namespace) -> int:
         subreaper.close()
 
 
-def profile_dir(ref: str) -> Path:
-    return runs.resolve(ref) / "compile-profile"
+def resolve_run(ref: str | Path) -> Path:
+    path = Path(ref)
+    if path.is_absolute():
+        if path.is_symlink() or not path.is_dir():
+            raise ValueError("invalid absolute profile run owner")
+        record = runs.load_record(path)
+        if not record or record.get("id", path.name) != path.name:
+            raise ValueError("absolute profile run owner record differs")
+        return path
+    return runs.resolve(str(ref))
+
+
+def profile_dir(ref: str | Path) -> Path:
+    run_dir = resolve_run(ref)
+    pointer = read_json(run_dir / "compile-profile-location.json")
+    if not pointer:
+        return run_dir / "compile-profile"
+    path = Path(pointer["path"])
+    if pointer.get("schema") != 1 or not path.is_absolute() or path.is_symlink():
+        raise ValueError("invalid diagnostic location pointer")
+    info = path.stat()
+    if (info.st_dev, info.st_ino) != (pointer.get("device"), pointer.get("inode")):
+        raise ValueError("diagnostic location identity changed")
+    return path
 
 
 def unit_records(directory: Path) -> list[tuple[Path, dict[str, Any]]]:
@@ -889,8 +1169,15 @@ def process_metrics(pid: int) -> dict[str, Any]:
 
 
 def sampled_report(chunk: Path, *, force: bool = False, readonly: bool = False) -> dict[str, Any]:
-    output = chunk.parent / "reports" / f"{chunk.name}.hotspots.txt"
-    signature = {"size": chunk.stat().st_size, "mtime_ns": chunk.stat().st_mtime_ns}
+    output = report_location(chunk) / f"{chunk.name}.hotspots.txt"
+    import compile_profile_tools
+
+    perf = Path(capture().resolve_perf()).resolve()
+    signature = {
+        "sha256": compile_profile_tools.digest(chunk),
+        "reader_sha256": compile_profile_tools.digest(perf),
+        "settings": ["--children", "--percent-limit", "0.5"],
+    }
     receipt = output.with_suffix(".json")
     previous = read_json(receipt)
     if not force and previous and previous.get("input") == signature and output.is_file():
@@ -935,7 +1222,7 @@ def unit_lifecycle(unit: dict[str, Any]) -> str:
 def status_data(ref: str) -> dict[str, Any]:
     directory = profile_dir(ref)
     data = {
-        "run": runs.view(directory.parent),
+        "run": runs.view(resolve_run(ref)),
         "profile": read_json(directory / "record.json"),
         "units": [],
     }
@@ -965,6 +1252,7 @@ def status_data(ref: str) -> dict[str, Any]:
                 "recent_hotspots": sampled_report(recent, readonly=True) if recent else None,
             }
         )
+    data["capacity"] = capacity_observation(directory)
     data["capture"] = capture_completeness(data["run"], data["profile"] or {})
     return data
 
@@ -1012,7 +1300,9 @@ def timeline_minimum_duration_us() -> int:
     return value
 
 
-def compiler_report(path: Path, *, force: bool = False) -> dict[str, Any]:
+def compiler_report(
+    path: Path, *, force: bool = False, readers: dict | None = None
+) -> dict[str, Any]:
     minimum_duration_us = timeline_minimum_duration_us()
     guard = format_guard(path)
     if guard["outcome"] != "passed":
@@ -1020,7 +1310,24 @@ def compiler_report(path: Path, *, force: bool = False) -> dict[str, Any]:
     root = tools_root()
     import compile_profile_tools
 
-    ready = compile_profile_tools.check(root)
+    ready: dict[str, Any]
+    if readers is not None:
+        binding = readers.get("readers", {})
+        valid = compile_profile_tools.reader_binding_valid(readers) and all(
+            name in binding for name in compile_profile_tools.NAMES
+        )
+        root = Path(readers.get("generation_root", "/nonexistent"))
+        receipt = dict(
+            readers.get("measureme_receipt", {}),
+            binaries={name: binding.get(name, {}) for name in compile_profile_tools.NAMES},
+        )
+        ready = {
+            "status": "passed" if valid else "blocked",
+            "receipt": receipt,
+            "errors": [] if valid else ["recorded reader generation unavailable"],
+        }
+    else:
+        ready = compile_profile_tools.check(root)
     if ready["status"] != "passed":
         return {
             "outcome": "blocked",
@@ -1028,9 +1335,12 @@ def compiler_report(path: Path, *, force: bool = False) -> dict[str, Any]:
             "readiness": ready,
             "repair": "just compile-profile-tools",
         }
-    output = path.parent / "reports" / path.stem
+    output = report_location(path) / path.stem
     output.mkdir(parents=True, exist_ok=True)
-    signature = {"size": path.stat().st_size, "mtime_ns": path.stat().st_mtime_ns}
+    signature = {
+        "sha256": compile_profile_tools.digest(path),
+        "readers": ready["receipt"].get("binaries", {}),
+    }
     receipt = output / "record.json"
     previous = read_json(receipt)
     if (
@@ -1040,9 +1350,13 @@ def compiler_report(path: Path, *, force: bool = False) -> dict[str, Any]:
         and previous.get("reader_revision") == ready["receipt"]["revision"]
         and previous.get("timeline_minimum_duration_us") == minimum_duration_us
         and previous.get("outcome") == "passed"
+        and previous.get("raw_capture") == str(path)
+        and previous.get("dir") == str(output)
     ):
         return previous
     report_input = output / path.name
+    if report_input.is_symlink() and report_input.resolve() != path.resolve():
+        report_input.unlink()
     if not report_input.exists():
         report_input.symlink_to(path.resolve())
     summary = execute(
@@ -1077,6 +1391,42 @@ def compiler_report(path: Path, *, force: bool = False) -> dict[str, Any]:
 
 
 def report_data(ref: str, *, force: bool = False) -> dict[str, Any]:
+    from storage_lifecycle import admission
+
+    directory = profile_dir(ref)
+    with admission([directory, reports_root(directory), tools_root()]):
+        data = _report_owned(ref, force=force)
+        try:
+            from storage_lifecycle import Storage
+
+            run_dir = resolve_run(ref)
+            owner = {
+                "kind": "profile",
+                "path": str(run_dir),
+                "root": str(ROOT),
+                "reference": run_dir.name,
+            }
+            storage = Storage()
+            consumer = f"profile:{run_dir.name}:profile-report"
+            identity = storage.publish(
+                reports_root(directory),
+                "profile-report",
+                owner,
+                consumer=consumer,
+                requires="cited-report",
+                temporary_days=storage.policy["categories"]["profile-report"].get("temporary_days"),
+                managed=True,
+            )
+            if runs.view(run_dir).get("cleanup", {}).get("status") == "confirmed":
+                storage.complete(
+                    identity, consumer, reason="profile report owner cleanup confirmed"
+                )
+        except (OSError, ValueError, RuntimeError) as error:
+            data["storage_enrollment"] = {"outcome": "blocked", "reason": str(error)}
+        return data
+
+
+def _report_owned(ref: str, *, force: bool = False) -> dict[str, Any]:
     directory = profile_dir(ref)
     status = status_data(ref)
     reports: list[dict[str, Any]] = []
@@ -1139,13 +1489,837 @@ def report_data(ref: str, *, force: bool = False) -> dict[str, Any]:
         "units": reports,
         "generated": runs.now(),
     }
-    write_json_atomic(directory / "report.json", data)
+    reports_root(directory).mkdir(parents=True, exist_ok=True)
+    write_json_atomic(reports_root(directory) / "report.json", data)
     return data
+
+
+def _sample_symbols(text: str) -> set[str]:
+    return {
+        match.group(1).strip()
+        for match in re.finditer(r"\[\.\]\s+(.+)", text)
+        if "[unknown]" not in match.group(1)
+    }
+
+
+def prepare_symbol_closure(
+    directory: Path, *, source_files: tuple[Path, ...] = (), expected_symbols: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    """Collect native build-ID cache objects, without implementing ELF resolution.
+
+    Only a newly owned private cache is populated. Global perf/debug/toolchain caches
+    are neither scanned for cleanup nor modified. Missing DSOs block the capability.
+    """
+    import tempfile
+
+    import compile_profile_tools
+
+    directory = Path(directory).resolve(strict=True)
+    target = directory / "replay-dependencies"
+    if target.exists():
+        return {
+            "outcome": "blocked",
+            "reason": "dependency closure already exists; preserve its identity",
+        }
+    if any(unit_lifecycle(unit) != "terminated" for _, unit in unit_records(directory)):
+        return {"outcome": "blocked", "reason": "capture unit cleanup is unresolved or active"}
+    chunks = [
+        chunk
+        for unit, _ in unit_records(directory)
+        for chunk in capture().read_completed_chunks(unit)
+    ]
+    if not chunks:
+        return {"outcome": "blocked", "reason": "no closed sampled chunk"}
+    perf = Path(capture().resolve_perf()).resolve(strict=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".profile-dependencies-", dir=directory.parent
+    ) as staging:
+        stage = Path(staging)
+        cache = stage / "native-cache"
+        cache.mkdir()
+        objects = {}
+        for chunk in chunks:
+            listed = execute(
+                [str(perf), "buildid-list", "--with-hits", "-i", str(chunk)], timeout=None
+            )
+            if listed["outcome"] != "passed":
+                return {
+                    "outcome": "blocked",
+                    "reason": "native build-ID discovery failed",
+                    "reader": listed,
+                }
+            for line in listed.get("stdout", "").splitlines():
+                parts = line.split(None, 1)
+                if len(parts) != 2:
+                    continue
+                build_id, filename = parts
+                path = Path(filename)
+                if not path.is_absolute() or not path.is_file():
+                    return {
+                        "outcome": "blocked",
+                        "reason": f"required sampled object unavailable: {filename}",
+                    }
+                added = execute(
+                    [str(perf), "--buildid-dir", str(cache), "buildid-cache", "--add", str(path)],
+                    timeout=None,
+                )
+                if added["outcome"] != "passed":
+                    return {
+                        "outcome": "blocked",
+                        "reason": "native build-ID caching failed",
+                        "reader": added,
+                    }
+                objects[build_id] = {
+                    "original_path": str(path),
+                    "sha256": compile_profile_tools.digest(path),
+                }
+        if not objects:
+            return {"outcome": "blocked", "reason": "no native build IDs discovered"}
+        bundle = stage / "bundle"
+        bundle.mkdir()
+        # Materialize only native-generated links whose targets remain in this private cache.
+        # The published closure has regular files, so generic archive extraction accepts no links.
+        for path in cache.rglob("*"):
+            if path.is_symlink() and not path.resolve().is_relative_to(cache):
+                return {
+                    "outcome": "blocked",
+                    "reason": "native cache produced an external dependency",
+                }
+        shutil.copytree(cache, bundle / "buildid-cache", symlinks=False)
+        (bundle / "symbols").mkdir()
+        for build_id, object_info in objects.items():
+            cached = cache / ".build-id" / build_id[:2] / build_id[2:] / "elf"
+            if not cached.is_file():
+                return {
+                    "outcome": "blocked",
+                    "reason": "native cache did not materialize the recorded build ID",
+                }
+            original_path = Path(object_info["original_path"])
+            symbol_path = bundle / "symbols" / original_path.relative_to(original_path.anchor)
+            symbol_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cached, symbol_path)
+        copied_sources = []
+        expected_source_lines = []
+        for source in source_files:
+            source = Path(source).resolve(strict=True)
+            copied = bundle / "source" / source.relative_to(source.anchor)
+            copied.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, copied)
+            copied_sources.append(
+                {"path": str(source), "sha256": compile_profile_tools.digest(source)}
+            )
+            expected_source_lines.extend(
+                line.strip()
+                for line in source.read_text().splitlines()
+                if line.strip() and any(symbol in line for symbol in expected_symbols)
+            )
+        symbols = set(expected_symbols)
+        expected_by_chunk = {}
+        for chunk in chunks:
+            result = execute(
+                [
+                    str(perf),
+                    "--buildid-dir",
+                    str(bundle / "buildid-cache"),
+                    "report",
+                    "--stdio",
+                    "--no-children",
+                    "--percent-limit",
+                    "0",
+                    "-i",
+                    str(chunk),
+                    "--symfs",
+                    str(bundle / "symbols"),
+                ],
+                timeout=None,
+            )
+            found = _sample_symbols(result.get("stdout", ""))
+            if (
+                result["outcome"] != "passed"
+                or not found
+                or (expected_symbols and not set(expected_symbols) <= found)
+            ):
+                return {
+                    "outcome": "blocked",
+                    "reason": "meaningful symbolized replay unavailable",
+                    "reader": result,
+                }
+            expected_by_chunk[chunk.relative_to(directory).as_posix()] = sorted(
+                set(expected_symbols) or found
+            )
+            if not expected_symbols:
+                symbols.update(found)
+        objdump = Path(shutil.which("objdump") or "/nonexistent")
+        samply = Path(shutil.which("samply") or "/nonexistent")
+        manifest = {
+            "schema": 1,
+            "perf_sha256": compile_profile_tools.digest(perf),
+            "objdump_sha256": compile_profile_tools.digest(objdump) if objdump.is_file() else None,
+            "samply_sha256": compile_profile_tools.digest(samply) if samply.is_file() else None,
+            "expected_source_lines": expected_source_lines,
+            "objects": objects,
+            "sources": copied_sources,
+            "expected_symbols": sorted(symbols),
+            "expected_by_chunk": expected_by_chunk,
+            "annotation_symbol": sorted(symbols)[0],
+        }
+        write_json_atomic(bundle / "record.json", manifest)
+        os.rename(bundle, target)
+        return {"outcome": "passed", "path": str(target), "manifest": manifest}
+
+
+def _replay_sample(
+    directory: Path, chunks: list[Path], readers: dict | None = None
+) -> dict[str, dict]:
+    import compile_profile_tools
+
+    blocked = {
+        "outcome": "blocked",
+        "reason": "symbol/debug/source closure qualification required",
+        "reader_executed": False,
+    }
+    capabilities: dict[str, dict[str, Any]] = {
+        name: dict(blocked)
+        for name in (
+            "sampled-symbolized-report",
+            "sampled-symbolized-import",
+            "disassembly",
+            "source-annotation",
+        )
+    }
+    closure = directory / "replay-dependencies"
+    manifest = read_json(closure / "record.json")
+    if not chunks or not manifest or manifest.get("schema") != 1:
+        return capabilities
+    selected = readers.get("readers", {}) if readers is not None else {}
+    if readers is not None and (
+        not compile_profile_tools.reader_binding_valid(readers) or "perf" not in selected
+    ):
+        return capabilities
+    perf = Path(
+        selected["perf"]["path"] if readers is not None else capture().resolve_perf()
+    ).resolve()
+    if compile_profile_tools.digest(perf) != manifest.get("perf_sha256"):
+        return capabilities
+    expected = set(manifest.get("expected_symbols", []))
+    reports, annotations, sources, imports, import_details = [], [], [], [], []
+    for chunk in chunks:
+        common = [str(perf), "--buildid-dir", str(closure / "buildid-cache")]
+        result = execute(
+            [
+                *common,
+                "report",
+                "--stdio",
+                "--no-children",
+                "--percent-limit",
+                "0",
+                "-i",
+                str(chunk),
+                "--symfs",
+                str(closure / "symbols"),
+            ],
+            timeout=None,
+        )
+        chunk_expected = set(
+            manifest.get("expected_by_chunk", {}).get(
+                chunk.relative_to(directory).as_posix(), expected
+            )
+        )
+        reports.append(
+            result["outcome"] == "passed"
+            and bool(chunk_expected)
+            and chunk_expected <= _sample_symbols(result.get("stdout", ""))
+        )
+        annotation = execute(
+            [
+                *common,
+                "annotate",
+                "--stdio",
+                "--no-source",
+                "-i",
+                str(chunk),
+                "--symfs",
+                str(closure / "symbols"),
+                "--symbol",
+                manifest["annotation_symbol"],
+            ],
+            timeout=None,
+        )
+        text = annotation.get("stdout", "")
+        annotations.append(
+            annotation["outcome"] == "passed" and bool(re.search(r"[0-9a-f]+:\s", text))
+        )
+        objdump = Path(
+            selected.get("objdump", {}).get("path", "/nonexistent")
+            if readers is not None
+            else shutil.which("objdump") or "/nonexistent"
+        )
+        expected_lines = manifest.get("expected_source_lines", [])
+        if (
+            expected_lines
+            and objdump.is_file()
+            and compile_profile_tools.digest(objdump) == manifest.get("objdump_sha256")
+        ):
+            source_annotation = execute(
+                [
+                    *common,
+                    "annotate",
+                    "--stdio",
+                    "--source",
+                    "--objdump",
+                    str(objdump),
+                    "--prefix",
+                    str(closure / "source"),
+                    "--prefix-strip",
+                    "0",
+                    "-i",
+                    str(chunk),
+                    "--symfs",
+                    str(closure / "symbols"),
+                    "--symbol",
+                    manifest["annotation_symbol"],
+                ],
+                timeout=None,
+            )
+            source_text = source_annotation.get("stdout", "")
+            sources.append(
+                source_annotation["outcome"] == "passed"
+                and any(line in source_text for line in expected_lines)
+            )
+        else:
+            sources.append(False)
+        samply = Path(
+            selected.get("samply", {}).get("path", "/nonexistent")
+            if readers is not None
+            else shutil.which("samply") or "/nonexistent"
+        )
+        if samply.is_file() and compile_profile_tools.digest(samply) == manifest.get(
+            "samply_sha256"
+        ):
+            output = reports_root(directory) / "replay-import" / chunk.parent.name / chunk.name
+            output.mkdir(parents=True, exist_ok=True)
+            command = [
+                str(samply),
+                "import",
+                "--save-only",
+                "--unstable-presymbolicate",
+                "--output",
+                str(output / "profile.json.gz"),
+            ]
+            symbol_dirs = sorted(
+                {
+                    str((closure / "symbols" / Path(obj["original_path"]).relative_to("/")).parent)
+                    for obj in manifest["objects"].values()
+                }
+            )
+            for symbol_dir in symbol_dirs:
+                command += ["--symbol-dir", symbol_dir]
+            command += [str(chunk)]
+            environment = dict(
+                os.environ,
+                HOME=str(output / "private-home"),
+                XDG_CACHE_HOME=str(output / "private-cache"),
+                DEBUGINFOD_URLS="",
+            )
+            imported = execute(command, timeout=None, env=environment)
+            import_details.append(imported)
+            sidecars = list(output.glob("*.syms.json"))
+            symbols_text = "\n".join(sidecar.read_text() for sidecar in sidecars)
+            imports.append(
+                imported["outcome"] == "passed"
+                and bool(sidecars)
+                and all(symbol in symbols_text for symbol in expected)
+            )
+        else:
+            imports.append(False)
+    capabilities["sampled-symbolized-report"] = {
+        "outcome": "passed" if all(reports) else "blocked",
+        "reader_executed": True,
+        "expected_symbols": sorted(expected),
+        "chunks": [str(chunk) for chunk in chunks],
+    }
+    capabilities["disassembly"] = {
+        "outcome": "passed" if all(annotations) else "blocked",
+        "reader_executed": True,
+    }
+    capabilities["source-annotation"] = {
+        "outcome": "passed" if all(sources) else "blocked",
+        "reader_executed": bool(manifest.get("expected_source_lines")),
+    }
+    capabilities["sampled-symbolized-import"] = {
+        "outcome": "passed" if all(imports) else "blocked",
+        "reader_executed": bool(manifest.get("samply_sha256")),
+        "readers": import_details,
+        "reason": None
+        if all(imports)
+        else "exact samply perf import did not produce qualified meaningful symbol sidecars",
+    }
+    return capabilities
+
+
+def replay_directory(directory: Path) -> dict[str, Any]:
+    """Execute selected exact readers and report capability-specific qualification.
+
+    This never treats an unsymbolized perf exit0 as symbolized or annotation replay.
+    Native symbol closure must be explicitly bundled and independently qualified.
+    """
+    directory = Path(directory).resolve(strict=True)
+    readers = read_json(directory / "replay-readers.json")
+    capabilities = {}
+    compiler = []
+    sampled = []
+    chunks_all = []
+    partial = False
+    for unit_path, unit in unit_records(directory):
+        lifecycle = unit_lifecycle(unit)
+        if lifecycle == "active":
+            return {"outcome": "blocked", "reason": "capture still active", "capabilities": {}}
+        partial |= unit.get("phase") != "completed" or unit.get("exit_code") != 0
+        for raw in sorted(unit_path.glob("*.mm_profdata")):
+            result = compiler_report(raw, force=True, readers=readers)
+            summary = result.get("summary", {})
+            timeline = result.get("timeline", {})
+            try:
+                summary_path = Path(result.get("dir", "/nonexistent")) / (raw.stem + ".json")
+                summary_value = json.loads(summary_path.read_text())
+                meaningful_summary = bool(summary_value.get("query_data"))
+            except OSError, ValueError, AttributeError:
+                meaningful_summary = False
+            timeline_path = Path(result.get("dir", "/nonexistent")) / "chrome_profiler.json"
+            try:
+                timeline_value = json.loads(timeline_path.read_text())
+                meaningful_timeline = (
+                    bool(timeline_value.get("traceEvents"))
+                    if isinstance(timeline_value, dict)
+                    else bool(timeline_value)
+                )
+            except OSError, ValueError:
+                meaningful_timeline = False
+            compiler.append(
+                {
+                    "raw": str(raw),
+                    "summary": summary.get("outcome") == "passed" and meaningful_summary,
+                    "timeline": timeline.get("outcome") == "passed" and meaningful_timeline,
+                    "reader_result": result,
+                }
+            )
+        chunks = capture().read_completed_chunks(unit_path)
+        chunks_all.extend(chunks)
+        for chunk in chunks:
+            sampled.append(
+                {
+                    "raw": str(chunk),
+                    "outcome": "blocked",
+                    "reason": (
+                        "symbol/debug/source closure has not been isolated-location qualified"
+                    ),
+                }
+            )
+    for capability, key in (("compiler-summary", "summary"), ("compiler-timeline", "timeline")):
+        capabilities[capability] = {
+            "outcome": "passed" if compiler and all(item[key] for item in compiler) else "blocked",
+            "reader_executed": bool(compiler),
+            "inputs": [item["raw"] for item in compiler],
+        }
+    capabilities.update(_replay_sample(directory, chunks_all, readers=readers))
+    return {
+        "outcome": "passed"
+        if any(item.get("outcome") == "passed" for item in capabilities.values())
+        else "blocked",
+        "partial": partial,
+        "capabilities": capabilities,
+        "compiler": compiler,
+        "sampled": sampled,
+    }
+
+
+def isolated_archive_replay(directory: Path, original: Path) -> dict[str, Any]:
+    """Qualify each archive with original evidence/dependency paths unavailable.
+
+    The fixed subprocess owns a disposable mount/user/network namespace. Masking is
+    never applied to the host. Original DSO routes expose only hash-verified archived
+    copies, including dynamic-loader dependencies; originals remain preserved.
+    """
+    import tempfile
+
+    bwrap = shutil.which("bwrap")
+    if bwrap is None:
+        return {
+            "outcome": "blocked",
+            "capabilities": {},
+            "reason": "bubblewrap unavailable; isolated replay required",
+        }
+    directory, original = directory.resolve(strict=True), original.resolve(strict=True)
+    meta = read_json(directory / "record.json") or {}
+    resolution = read_json(directory / "path-resolution.json") or {}
+    closure = read_json(directory / "replay-dependencies/record.json") or {}
+    paths = {original}
+    original_root = meta.get("original_profile_root") or resolution.get("original_profile_root")
+    if original_root:
+        paths.add(Path(original_root).absolute())
+    bundled: dict[Path, dict[str, Any]] = {}
+    for item in closure.get("objects", {}).values():
+        path = Path(item["original_path"]).absolute()
+        copy = directory / "replay-dependencies/symbols" / path.relative_to("/")
+        if not copy.is_file():
+            return {
+                "outcome": "blocked",
+                "capabilities": {},
+                "reason": f"archived DSO closure missing or changed: {path}",
+            }
+        with copy.open("rb") as copied:
+            matches = hashlib.file_digest(copied, "sha256").hexdigest() == item.get("sha256")
+        if not matches:
+            return {
+                "outcome": "blocked",
+                "capabilities": {},
+                "reason": f"archived DSO closure missing or changed: {path}",
+            }
+        for route in {path, path.resolve()}:
+            bundled[route] = {
+                "path": str(route),
+                "kind": "bundled-dso",
+                "bundle_path": str(copy),
+                "sha256": item["sha256"],
+                "bundle_identity": [copy.stat().st_dev, copy.stat().st_ino],
+            }
+            paths.add(route)
+    for item in closure.get("sources", []):
+        paths.add(Path(item["path"]).absolute())
+    for path in (
+        Path.home() / ".debug",
+        Path.home() / ".cache",
+        Path("/usr/lib/debug"),
+        Path("/lib/debug"),
+        Path("/var/cache/debuginfod"),
+        Path("/usr/src/debug"),
+    ):
+        paths.add(path)
+    # Follow aliases only while constructing the namespace, so no original spelling
+    # can escape a file mask through a recorded symlink target.
+    paths.update(path.resolve() for path in tuple(paths) if path.exists())
+    declared_paths = sorted(str(path) for path in paths)
+    # A read-only host bind cannot create absent mountpoints. Hide their nearest
+    # existing parent instead, so a host-side late creation cannot become visible.
+    # Runtime conflicts below block rather than weakening this coverage.
+    for path in tuple(paths):
+        if path not in bundled and not path.exists():
+            ancestor = path.parent
+            while not ancestor.exists() and ancestor != ancestor.parent:
+                ancestor = ancestor.parent
+            paths.remove(path)
+            paths.add(ancestor)
+    readers = read_json(directory / "replay-readers.json") or {}
+    reader_paths = tuple(Path(item["path"]) for item in readers.get("readers", {}).values())
+    protected = (directory, SCRIPT, Path(sys.executable).resolve(), tools_root(), *reader_paths)
+    for path in paths:
+        if (
+            not path.is_absolute()
+            or path == Path("/")
+            or any(item == path or item.is_relative_to(path) for item in protected)
+        ):
+            return {
+                "outcome": "blocked",
+                "capabilities": {},
+                "reason": f"isolation conflicts with required replay runtime: {path}",
+            }
+    # Ancestor directory masks already hide descendants. Existing file masks use
+    # /dev/null for original source files; DSO paths receive verified bundle copies.
+    masks: list[dict[str, Any]] = []
+    for path in sorted(paths, key=lambda value: (len(value.parts), str(value))):
+        if path not in bundled and any(
+            parent["kind"] == "directory" and path.is_relative_to(Path(parent["path"]))
+            for parent in masks
+        ):
+            continue
+        if path in bundled:
+            masks.append(bundled[path])
+        else:
+            masks.append({"path": str(path), "kind": "directory" if path.is_dir() else "file"})
+    with tempfile.TemporaryDirectory(
+        prefix=".replay-runtime-", dir=directory.parent
+    ) as runtime_name:
+        runtime = Path(runtime_name)
+        private_home = runtime / "home"
+        private_home.mkdir()
+        # The complete staging parent is the only writable host subtree; it contains
+        # restored raw, newly derived reports and this private runtime.
+        command: list[str] = [
+            bwrap,
+            "--die-with-parent",
+            "--new-session",
+            "--unshare-user",
+            "--unshare-pid",
+            "--unshare-net",
+            "--unshare-ipc",
+            "--unshare-uts",
+            "--ro-bind",
+            "/",
+            "/",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--bind",
+            str(directory.parent),
+            str(directory.parent),
+        ]
+        if readers.get("generation_root"):
+            command += ["--ro-bind", readers["generation_root"], readers["generation_root"]]
+        for item in masks:
+            if item["kind"] == "bundled-dso":
+                command += ["--ro-bind", item["bundle_path"], item["path"]]
+            else:
+                command += (
+                    ["--tmpfs", item["path"]]
+                    if item["kind"] == "directory"
+                    else ["--ro-bind", "/dev/null", item["path"]]
+                )
+        child = """import hashlib, json, os, pathlib, sys
+import compile_profile
+masks = json.loads(sys.argv[2])
+for item in masks:
+    path = pathlib.Path(item['path'])
+    if item['kind'] == 'bundled-dso':
+        info = path.stat()
+        if [info.st_dev, info.st_ino] != item['bundle_identity']:
+            raise RuntimeError('original host DSO remains accessible: ' + str(path))
+        with path.open('rb') as source:
+            if hashlib.file_digest(source, 'sha256').hexdigest() != item['sha256']:
+                raise RuntimeError('archive DSO route differs: ' + str(path))
+    elif item['kind'] == 'directory':
+        if path.exists() and any(path.iterdir()):
+            raise RuntimeError('original directory remains accessible: ' + str(path))
+    elif path.is_file() and path.stat().st_size:
+        raise RuntimeError('original file remains accessible: ' + str(path))
+result = compile_profile.replay_directory(pathlib.Path(sys.argv[1]))
+result['isolation'] = {'outcome': 'passed', 'method': 'bubblewrap-user-mount-network',
+                       'masked_paths': masks, 'private_home': os.environ['HOME'],
+                       'original_dso_routes': 'archive-only-read-only-bind',
+                       'declared_paths': json.loads(sys.argv[3])}
+print(json.dumps(result))
+"""
+        environment = dict(
+            os.environ,
+            HOME=str(private_home),
+            XDG_CACHE_HOME=str(private_home / ".cache"),
+            DEBUGINFOD_URLS="",
+            DEBUGINFOD_CACHE_PATH=str(private_home / ".cache/debuginfod"),
+            PERF_BUILDID_DIR=str(private_home / ".debug"),
+            PYTHONPATH=str(ROOT / "scripts"),
+            PYTHONDONTWRITEBYTECODE="1",
+            LCTX_COMPILE_PROFILE_TOOLS_ROOT=str(tools_root()),
+            LCTX_COMPILE_PROFILE_PERF=capture().resolve_perf(),
+        )
+        command += [
+            "--chdir",
+            str(directory.parent),
+            "--",
+            str(Path(sys.executable).resolve()),
+            "-c",
+            child,
+            str(directory),
+            json.dumps(masks),
+            json.dumps(declared_paths),
+        ]
+        observed = subprocess.run(
+            command, env=environment, capture_output=True, text=True, check=False
+        )
+        if observed.returncode:
+            return {
+                "outcome": "blocked",
+                "capabilities": {},
+                "reason": "isolated replay unavailable or reader/runtime could not execute",
+                "stderr": observed.stderr,
+                "isolation": {"outcome": "blocked", "masked_paths": masks},
+            }
+        try:
+            result = json.loads(observed.stdout)
+        except ValueError, TypeError:
+            return {
+                "outcome": "blocked",
+                "capabilities": {},
+                "reason": "isolated replay returned no valid receipt",
+                "stderr": observed.stderr,
+            }
+        if not isinstance(result, dict) or result.get("isolation", {}).get("outcome") != "passed":
+            return {
+                "outcome": "blocked",
+                "capabilities": {},
+                "reason": "isolated replay proof missing",
+            }
+        return result
+
+
+def archive_profile(
+    directory: Path,
+    destination: Path,
+    required_capabilities: tuple[str, ...],
+    *,
+    reader_binding: dict | None = None,
+) -> dict[str, Any]:
+    import storage_archive
+
+    directory = Path(directory).resolve(strict=True)
+    if any(unit_lifecycle(unit) != "terminated" for _, unit in unit_records(directory)):
+        return {
+            "outcome": "blocked",
+            "reason": "unit cleanup/identity unresolved",
+            "source_preserved": True,
+        }
+    meta = read_json(directory / "record.json") or {}
+    if not meta.get("original_profile_root") and not (directory / "path-resolution.json").exists():
+        write_json_atomic(
+            directory / "path-resolution.json",
+            {"schema": 1, "original_profile_root": str(directory)},
+        )
+    if not required_capabilities:
+        return {
+            "outcome": "blocked",
+            "reason": "explicit replay capability required",
+            "source_preserved": True,
+        }
+    if (
+        any(
+            capability.startswith("sampled-") or capability == "disassembly"
+            for capability in required_capabilities
+        )
+        and not (directory / "replay-dependencies").exists()
+    ):
+        prepared = prepare_symbol_closure(directory)
+        if prepared["outcome"] != "passed":
+            return {**prepared, "source_preserved": True}
+    import compile_profile_tools
+
+    try:
+        selected_readers = (
+            reader_binding
+            or read_json(directory / "replay-readers.json")
+            or compile_profile_tools.prepare_reader_generation(required_capabilities)
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        return {
+            "outcome": "blocked",
+            "reason": "exact reader generation unavailable: " + str(error),
+            "source_preserved": True,
+        }
+    if not compile_profile_tools.reader_binding_valid(selected_readers):
+        return {
+            "outcome": "blocked",
+            "reason": "recorded reader generation unavailable",
+            "source_preserved": True,
+        }
+    write_json_atomic(directory / "replay-readers.json", selected_readers)
+    result = storage_archive.create_archive(
+        directory,
+        destination,
+        replay=lambda restored: isolated_archive_replay(restored, directory),
+        required_capabilities=required_capabilities,
+        identity={
+            "run": directory.parent.name,
+            "original_root": meta.get("original_profile_root", str(directory)),
+            "tools": meta.get("tools", {}),
+        },
+    )
+    result["readers"] = selected_readers["readers"]
+    result["reader_generation"] = selected_readers
+    return result
+
+
+def restore_profile(archive: Path, destination: Path) -> dict[str, Any]:
+    """Restore immutable raw under a fresh run owner and a 14-day raw obligation."""
+    import storage_archive
+    from harness import hold_lock
+    from storage_lifecycle import Storage, admission
+
+    archive, destination = Path(archive).resolve(strict=True), Path(destination).absolute()
+    if destination.exists() or destination.is_symlink():
+        raise ValueError("restore destination already exists")
+    run_dir = runs.new_run_dir()
+    owner = runs.Owner(
+        run_dir,
+        ["storage", "restore", str(archive)],
+        label="profile-restore",
+        cwd=str(ROOT),
+        mode="foreground",
+        stream=False,
+    )
+    storage = Storage()
+    run_consumer = f"run:{run_dir.name}"
+    raw_consumer = f"profile:{run_dir.name}:profile-raw"
+    with admission([run_dir, destination, reports_root(destination), archive]):
+        lock = hold_lock(run_dir / runs.OWNER_LOCK)
+        try:
+            owner.record.update(phase="restoring", current_command="verified profile restore")
+            owner.write()
+            result = storage_archive.restore_archive(archive, destination)
+            info = destination.stat()
+            write_json_atomic(
+                run_dir / "compile-profile-location.json",
+                {
+                    "schema": 1,
+                    "path": str(destination),
+                    "device": info.st_dev,
+                    "inode": info.st_ino,
+                },
+            )
+            raw_id = storage.publish(
+                destination,
+                "profile-raw",
+                {
+                    "kind": "profile",
+                    "path": str(run_dir),
+                    "root": str(ROOT),
+                    "reference": run_dir.name,
+                },
+                raw_consumer,
+                requires="raw-replay",
+                temporary_days=storage.policy["categories"]["profile-raw"].get("temporary_days"),
+                managed=True,
+            )
+            owner.record.update(
+                phase="finished",
+                ended=runs.now(),
+                termination="completed",
+                exit={"code": 0},
+                current_command=None,
+                cleanup={
+                    "status": "confirmed",
+                    "observed": runs.now(),
+                    "reason": "synchronous verified extraction finished; no child processes",
+                },
+            )
+            owner.write()
+        except BaseException:
+            owner.record.update(
+                phase="finished",
+                ended=runs.now(),
+                termination="failed",
+                exit={"code": 1},
+                current_command=None,
+            )
+            owner.write()
+            raise
+        finally:
+            os.close(lock)
+        storage.complete(raw_id, raw_consumer, reason="verified restore completed")
+        run_id = storage.publish(
+            run_dir,
+            "run-receipt",
+            {"kind": "run", "path": str(run_dir)},
+            run_consumer,
+            temporary_days=storage.policy["categories"]["run-receipt"].get("temporary_days"),
+            managed=True,
+        )
+        storage.complete(run_id, run_consumer, reason="verified restore owner completed")
+        return {**result, "run": run_dir.name, "run_dir": str(run_dir), "raw_id": raw_id}
 
 
 def cmd_attach(args: argparse.Namespace) -> int:
     directory = profile_dir(args.run)
-    record = runs.load_record(directory.parent)
+    record = runs.load_record(resolve_run(args.run))
     if (
         not record
         or runs.state_of(directory.parent, record) != "running"
@@ -1253,6 +2427,14 @@ def cmd_attach(args: argparse.Namespace) -> int:
 
 
 def cmd_view(args: argparse.Namespace) -> int:
+    from storage_lifecycle import admission
+
+    directory = profile_dir(args.run)
+    with admission([directory, reports_root(directory), tools_root()]):
+        return _view_owned(args)
+
+
+def _view_owned(args: argparse.Namespace) -> int:
     directory = profile_dir(args.run)
     if args.kind == "sampled":
         chunks = [
@@ -1308,11 +2490,21 @@ def parser() -> argparse.ArgumentParser:
     for name in ("record", "_record"):
         cmd = sub.add_parser(name)
         cmd.add_argument("--focus", default="cpg-core")
+        cmd.add_argument(
+            "--diagnostic-root",
+            help="existing writable diagnostic root; does not change Cargo roots",
+        )
         if name == "record":
             cmd.add_argument("--background", action="store_true")
             cmd.add_argument("--label")
             cmd.add_argument("--json", action="store_true")
         cmd.add_argument("command", nargs=argparse.REMAINDER)
+    dependencies = sub.add_parser(
+        "dependencies", help="prepare native replay dependencies without releasing raw"
+    )
+    dependencies.add_argument("run")
+    dependencies.add_argument("--symbol", action="append", default=[])
+    dependencies.add_argument("--source-file", action="append", type=Path, default=[])
     for name in ("attach", "status", "report", "view"):
         cmd = sub.add_parser(name)
         cmd.add_argument("run")
@@ -1337,6 +2529,18 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_record(args)
         if args.action == "_record":
             return cmd_internal(args)
+        if args.action == "dependencies":
+            from storage_lifecycle import admission
+
+            directory = profile_dir(args.run)
+            with admission([directory, tools_root()]):
+                data = prepare_symbol_closure(
+                    directory,
+                    source_files=tuple(args.source_file),
+                    expected_symbols=tuple(args.symbol),
+                )
+            print(json.dumps(data, indent=2))
+            return 0 if data["outcome"] == "passed" else 75
         if args.action == "attach":
             return cmd_attach(args)
         if args.action == "view":

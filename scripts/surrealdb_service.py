@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from harness import ProcessIdentity, hold_lock, lock_held, read_json, write_json_atomic
+from storage_lifecycle import Blocked as StorageBlocked
 
 ROOT = Path(__file__).resolve().parent.parent
 UNIT = "library-context-surrealdb.service"
@@ -197,6 +198,12 @@ def state_root(env: Mapping[str, str] | None = None) -> Path:
 def private_json(path: Path, value: Any) -> None:
     write_json_atomic(path, value)
     path.chmod(0o600)
+
+
+def storage_observation() -> dict[str, Any]:
+    """Sanitized live dependencies, without database access or runtime credentials."""
+    from storage_service import dependencies
+    return dependencies(Installation.load(ready=False))
 
 
 def systemctl(*args: str, runner: Runner = subprocess.run) -> subprocess.CompletedProcess:
@@ -414,12 +421,15 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
             installation_id = str(uuid.uuid4())
             generation = list(secrets.token_bytes(32))
             port = _available_port()
+            from storage_service import prepare
+            installer_generation = prepare(root, installer)
+            installer = Path(installer_generation["path"])
             record = {"schema": SCHEMA, "installation_id": installation_id, "phase": "installing",
                       "service_generation": generation, "unit": UNIT, "state_root": str(root),
                       "endpoint": f"http://127.0.0.1:{port}", "grpc_endpoint": f"grpc://127.0.0.1:{port}",
                       "namespace": NAMESPACE, "databases": list(DATABASES), "export_batch_size":EXPORT_BATCH_SIZE,
                       "binary": {"path": str(binary.resolve()), "sha256": BINARY_SHA256, "version": VERSION},
-                      "installer": str(installer.resolve())}
+                      "installer": str(installer.resolve()), "installer_generation": installer_generation}
             installation = Installation(root, record)
             root_user, root_pass = "library_context_installer", secrets.token_urlsafe(32)
             server_env = {"SURREAL_USER": root_user, "SURREAL_PASS": root_pass, **SERVER_SETTINGS}
@@ -997,6 +1007,11 @@ def restore_service(installation: Installation, archive: Path, *, apply: bool = 
                     if asset["existed"]:
                         external_stage.rename(target)
                 installation.record = json.loads((root / "installation.json").read_text())
+                from storage_service import rebind_restored
+                installation.record = rebind_restored(
+                    installation.record, current,
+                    metadata["files"]["assets/lctx"]["sha256"],
+                )
                 installation.record["recovery"] = _recovery_pointer(installation, archive, digest, metadata)
                 private_json(root / "installation.json", installation.record)
                 (root / "tmp").mkdir(mode=0o700, exist_ok=True)
@@ -1070,12 +1085,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     operations.add_argument("--restart", action="store_true")
     operations.add_argument("--check", action="store_true")
     operations.add_argument("--recover", action="store_true", help="revalidate a failed operation after borrower/native recovery")
+    operations.add_argument("--stabilize-installer", action="store_true", help="transfer the exact maintenance executable out of its supplying checkout")
     maintenance_parser.add_argument("--native-clients", action="store_true", help="allow ordinary native clients only inside the explicit command under exclusive host maintenance")
     maintenance_parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if args.action == "maintenance" and args.native_clients:
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
-        if not command or args.restart or args.check or args.recover:
+        if not command or args.restart or args.check or args.recover or args.stabilize_installer:
             parser.error("--native-clients requires only an explicit command after --")
     try:
         if args.action == "install":
@@ -1089,6 +1105,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "maintenance": (installation.directory / "maintenance.json").exists(),
                          "protected_repair_assets": marker.get("recovery") if isinstance(marker, dict) else None,
                          "borrowers": [{k: r.get(k) for k in ("id", "checkout", "owner", "protected")} for r in borrowers(installation)]}
+                from storage_service import dependencies
+                value["storage"] = dependencies(installation)
             elif args.action == "check":
                 value = installation.check()
             elif args.action == "backup":
@@ -1121,6 +1139,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     finally:
                         os.close(gate)
                 else:
+                    if args.stabilize_installer:
+                        if command:
+                            parser.error("--stabilize-installer cannot take a command")
+                        from storage_service import stabilize
+                        print(json.dumps(stabilize(installation), indent=2))
+                        return 0
                     if not (args.restart or args.check or command):
                         parser.error("select --restart, --check, --recover or a command after --")
                     with maintenance(installation, native_clients=args.native_clients) as env:
@@ -1149,6 +1173,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 value = installation.check()
         print(json.dumps(value, indent=2))
         return 0
+    except StorageBlocked as error:
+        print(f"service: blocked: {error}", file=sys.stderr)
+        return EXIT_BLOCKED
     except FixtureBlocked as error:
         print("service: " + error.message().removeprefix("fixture: "), file=sys.stderr)
         return EXIT_BLOCKED

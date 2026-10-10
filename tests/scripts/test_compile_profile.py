@@ -991,7 +991,14 @@ time.sleep(90)
         assert cancelled.returncode == 0, cancelled.stderr
         assert json.loads(cancelled.stdout)["state"] == "cancelled"
         assert (run_dir / "compile-profile/source.patch").exists()
-        assert (run_dir / runs.RETAIN).exists()
+        # New profiles have an independently held raw descriptor, not blanket run retain.
+        from storage_lifecycle import Storage
+
+        descriptors = Storage().records()
+        assert any(
+            item["category"] == "profile-raw" and item["path"] == str(run_dir / "compile-profile")
+            for item in descriptors
+        )
         assert "partial compiler prefix retained" in (run_dir / "output.log").read_text()
         chunks = capture.read_completed_chunks(unit)
         assert chunks == [unit / "perf.data.123"]

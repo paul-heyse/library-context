@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -221,7 +222,7 @@ def _disk(path: Path) -> str:
     return result.stdout.split()[0] if result.returncode == 0 else "unknown"
 
 
-def create(
+def _create(
     name: str,
     *,
     ref: str = "HEAD",
@@ -231,6 +232,7 @@ def create(
     base: Path | None = None,
     prepare: bool = True,
     report: Report = _say,
+    selected_root: Path | None = None,
 ) -> int:
     if not NAME.fullmatch(name):
         raise ValueError(f"worktree names match {NAME.pattern}")
@@ -251,10 +253,34 @@ def create(
     report(f"worktree: {target} on {branch} from {ref} = {commit}")
     git("worktree", "add", "-b", branch, str(target), commit, cwd=root)
     conflicts = apply_carry(root, plan, target, report) if plan else []
+    selected = None
     if build_dir == "own":
-        selected = own_build_dir(name)
+        selected = selected_root or own_build_dir(f"{name}-{secrets.token_hex(6)}")
         (target / BUILD_DIR_SELECTION).parent.mkdir(parents=True, exist_ok=True)
         (target / BUILD_DIR_SELECTION).write_text(f"{selected}\n")
+        import storage_owners
+        from storage_lifecycle import admission
+
+        with admission([selected]):
+            selected.mkdir(parents=True, exist_ok=False)
+            consumer = f"task:{target.resolve()}"
+            ident = storage_owners.enroll(
+                selected,
+                "task-build",
+                {"kind": "task", "path": str(target.resolve()), "reference": selected.name},
+                consumer,
+                temporary_days=0,
+            )
+            (target / ".dev/build-dir.storage.json").write_text(
+                json.dumps(
+                    {
+                        "id": ident,
+                        "consumer": consumer,
+                        "path": str(selected),
+                        "reference": selected.name,
+                    }
+                )
+            )
         report(f"build dir: {selected} (own; recipes and `just env --` use it, bare cargo not)")
     else:
         report("build dir: shared (.cargo/config.toml, ADR-0136)")
@@ -270,12 +296,43 @@ def create(
         report(
             f"preparation (information only): {elapsed:.0f} s; worktree {_disk(target)},"
             f" .venv {_disk(target / '.venv')}"
-            + (f", own build dir {_disk(own_build_dir(name))}" if build_dir == "own" else "")
+            + (f", own build dir {_disk(selected)}" if selected is not None else "")
         )
         if code:
             report(f"ready failed ({code}); the worktree is kept: fix it there or remove it")
     report(f"remove with: just worktree-remove {name}")
     return 1 if conflicts else code
+
+
+def create(
+    name: str,
+    *,
+    ref: str = "HEAD",
+    carry: Sequence[str] | None = None,
+    build_dir: str = "shared",
+    root: Path = ROOT,
+    base: Path | None = None,
+    prepare: bool = True,
+    report: Report = _say,
+) -> int:
+    from storage_lifecycle import admission
+
+    if not NAME.fullmatch(name):
+        raise ValueError(f"worktree names match {NAME.pattern}")
+    target = (base or default_base()) / name
+    selected = own_build_dir(f"{name}-{secrets.token_hex(6)}") if build_dir == "own" else None
+    with admission([target, *([selected] if selected else [])]):
+        return _create(
+            name,
+            ref=ref,
+            carry=carry,
+            build_dir=build_dir,
+            root=root,
+            base=base,
+            prepare=prepare,
+            report=report,
+            selected_root=selected,
+        )
 
 
 def ready_environment(target: Path, source: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
@@ -351,27 +408,148 @@ def live_state(target: Path) -> list[Live]:
     since unknown is not absent.
     """
     found: list[Live] = []
+    # Installation descriptors, not private runtime configurations, own executable dependency.
+    import surrealdb_service as service
+
+    try:
+        observation = service.storage_observation()
+        dependencies = observation.get("dependencies")
+        if not isinstance(dependencies, list):
+            raise ValueError("service dependency observation incomplete")
+        scopes = [target.resolve()]
+        selection = target / BUILD_DIR_SELECTION
+        if selection.is_file():
+            scopes.append(Path(selection.read_text().strip()).resolve())
+        for dependency in dependencies:
+            raw = dependency.get("path")
+            if not isinstance(raw, str) or not Path(raw).is_absolute():
+                raise ValueError("service dependency path incomplete")
+            path = Path(raw).resolve()
+            if any(path == scope or scope in path.parents for scope in scopes):
+                found.append(
+                    Live(
+                        "service dependency",
+                        observation.get("installation_id", "unknown"),
+                        f"{dependency.get('role', 'installer')} {path}; "
+                        "stabilize through just service maintenance",
+                        None,
+                    )
+                )
+    except Exception:
+        if (service.state_root() / "installation.json").exists():
+            found.append(
+                Live(
+                    "service dependency",
+                    "unresolved",
+                    "owned installation dependency observation unavailable",
+                    None,
+                )
+            )
     # The daemon and canonical content outlive every checkout. Only this checkout's active
     # logical borrowers can prevent removal, and recovery never stops the shared service.
     for row in _listing(
         "surrealdb_fixture.py", ("--list", "--json"), "LCTX_FIXTURE_CHECKOUT", target
     ):
         if row.get("protected", True):
-            found.append(Live(
-                "validation attachment", row["id"],
-                f"{row.get('unit', 'shared service')}; cleanup {row.get('cleanup', 'unknown')}",
-                ("surrealdb_fixture.py", "--recover", row["id"])
-                if row.get("kind") == "attachment" and not row.get("owner_alive", True) else None,
-            ))
+            found.append(
+                Live(
+                    "validation attachment",
+                    row["id"],
+                    f"{row.get('unit', 'shared service')}; cleanup {row.get('cleanup', 'unknown')}",
+                    ("surrealdb_fixture.py", "--recover", row["id"])
+                    if row.get("kind") == "attachment" and not row.get("owner_alive", True)
+                    else None,
+                )
+            )
     runs = target / "build" / "runs"
     for row in _listing("runs.py", ("list", "--json"), "LCTX_RUNS_ROOT", runs):
-        if row.get("protected", True) or row.get("owner_live") or row.get("survivors"):
+        if (
+            row.get("retained")
+            or row.get("protected", True)
+            or row.get("owner_live")
+            or row.get("survivors")
+        ):
             text = row.get("label") or " ".join(row.get("argv") or [])
-            kind = "running run" if row.get("state") == "running" else "unresolved run"
+            kind = (
+                "retained run"
+                if row.get("retained")
+                else ("running run" if row.get("state") == "running" else "unresolved run")
+            )
             cleanup = (row.get("cleanup") or {}).get("status", "unknown")
             found.append(
                 Live(
-                    kind, row["id"], f"{text}; cleanup {cleanup}", ("runs.py", "cancel", row["id"])
+                    kind,
+                    row["id"],
+                    f"{text}; cleanup {cleanup}",
+                    None if row.get("retained") else ("runs.py", "cancel", row["id"]),
+                )
+            )
+    # Named descriptor consumers supplement the legacy marker: a terminal run can still own
+    # evidence. Source removal must not bypass those component lifetimes via Git's recursion.
+    from storage_lifecycle import Storage
+
+    storage = Storage()
+    from harness import read_json
+
+    selected_build = read_json(target / ".dev/build-dir.storage.json") or {}
+    if selected_build.get("id"):
+        own_record = storage.get(selected_build["id"])
+        launcher_holds = [
+            name
+            for name, item in own_record["obligations"].items()
+            if name.startswith("launcher:") and not item.get("released_at")
+        ]
+        if launcher_holds:
+            found.append(
+                Live(
+                    "unresolved build launcher",
+                    own_record["id"],
+                    f"{own_record['path']}; consumers {', '.join(launcher_holds)}",
+                    None,
+                )
+            )
+    records = [
+        row
+        for row in storage.records()
+        if not row.get("retired_at")
+        and row["category"] != "environment"
+        and target.resolve() in Path(row["path"]).parents
+    ]
+    for row in records:
+        found.append(
+            Live(
+                "retained storage",
+                row["id"],
+                f"{row['category']} {row['path']}; retire through just storage first",
+                None,
+            )
+        )
+    from datetime import UTC, datetime
+
+    from storage_lifecycle import instant
+
+    checkout_consumer = f"checkout:{target.resolve()}"
+    for row in storage.records():
+        if (
+            row.get("retired_at")
+            or row["category"] != "environment"
+            or target.resolve() not in Path(row["path"]).parents
+        ):
+            continue
+        extra = [
+            name
+            for name, item in row["obligations"].items()
+            if name != checkout_consumer
+            and not item.get("released_at")
+            and not (item.get("until") and instant(item["until"]) <= datetime.now(UTC))
+        ]
+        if extra or row["owner"].get("path") != str(target.resolve()):
+            found.append(
+                Live(
+                    "retained environment",
+                    row["id"],
+                    f"{row['path']}; additional consumers {', '.join(extra) or 'external owner'}",
+                    None,
                 )
             )
     return found
@@ -400,12 +578,12 @@ def inspect(root: Path, target: Path, branch: str, into: str) -> Removal:
         unintegrated = [line[2:] for line in cherry if line.startswith("+ ")]
     holders = []
     if target.exists():
-        for resource in workspace_env.resources_for("native", target, {}):
+        for resource in workspace_env.resources_for(("native", "vllm"), target, {}):
             holders += [holder.describe() for holder in workspace_env.holders(resource)]
     return Removal(dirty, unintegrated, holders, live_state(target))
 
 
-def remove(
+def _remove(
     name: str,
     *,
     force: bool = False,
@@ -428,6 +606,9 @@ def remove(
         report(f"in use: {line}")
     for item in found.live:
         report(f"live: {item.describe()}")
+    if found.holders:
+        report("worktree-remove: refused; release managed environment holders first")
+        return 1
     if found.blocked() and not force:
         report(f"worktree-remove: refused ({target} kept); --force discards the work listed above")
         return 1
@@ -453,23 +634,95 @@ def remove(
             return 1
     selection = target / BUILD_DIR_SELECTION
     own = Path(selection.read_text().strip()) if selection.is_file() else None
+    from harness import read_json
+
+    storage = read_json(target / ".dev/build-dir.storage.json") or {}
+    from storage_lifecycle import Storage, _nonce, physical
+
+    lifecycle = Storage()
+    environment_lifetimes = []
+    for row in lifecycle.records():
+        path = Path(row["path"])
+        if (
+            not row.get("retired_at")
+            and row["category"] == "environment"
+            and row["owner"].get("path") == str(target.resolve())
+            and target.resolve() in path.parents
+            and path.exists()
+            and physical(path) == row["identity"]
+            and (not row.get("managed") or _nonce(path) == row["nonce"])
+        ):
+            environment_lifetimes.append(row)
     if target.exists():
         git("worktree", "remove", *(["--force"] * 2 if force else []), str(target), cwd=root)
         report(f"removed worktree {target}")
+        # Git is the explicit source owner. Record only the exact environment lifetimes its
+        # actual removal consumed, so a later checkout at the same path can enroll anew.
+        from storage_lifecycle import now
+
+        with lifecycle.metadata():
+            for expected in environment_lifetimes:
+                current = lifecycle.get(expected["id"])
+                path = Path(current["path"])
+                if path.exists() or path.is_symlink() or current != expected:
+                    continue
+                stamp = now()
+                own_consumer = current["obligations"].get(f"checkout:{target.resolve()}")
+                if own_consumer is not None:
+                    own_consumer["released_at"] = stamp
+                current.update(
+                    retired_at=stamp,
+                    owner_removed={
+                        "reason": "explicit worktree owner removal",
+                        "identity": expected["identity"],
+                    },
+                )
+                lifecycle.save(current)
     else:
         git("worktree", "prune", cwd=root)
     if branch_exists(root, branch):
         tip = git("rev-parse", "--short", branch, cwd=root).stdout.decode().strip()
         git("branch", "-D", branch, cwd=root)
         report(f"deleted branch {branch} (was {tip})")
-    if own is not None:
-        if own == own_build_dir(name) and own.is_dir():
-            size = _disk(own)
-            shutil.rmtree(own)
-            report(f"removed own build dir {own} ({size})")
-        elif own.exists():
-            report(f"kept build dir {own} (not this worktree's own path)")
+    if own is not None and own.exists():
+        if storage.get("id") and storage.get("path") == str(own):
+            import storage_owners
+
+            released = storage_owners.complete(
+                storage["id"], storage["consumer"], reason="explicit worktree owner removal"
+            )
+            report(
+                f"released own build dir {own}; lifecycle grace protects immediate reuse"
+                if released
+                else f"kept own build dir {own}; lifecycle completion unresolved"
+            )
+        else:
+            report(f"kept build dir {own} (unmanaged legacy selection; adopt explicitly)")
     return 0
+
+
+def remove(
+    name: str,
+    *,
+    force: bool = False,
+    into: str = "main",
+    root: Path = ROOT,
+    base: Path | None = None,
+    report: Report = _say,
+) -> int:
+    from storage_lifecycle import Blocked, admission
+
+    if not NAME.fullmatch(name):
+        raise ValueError(f"worktree names match {NAME.pattern}")
+    target = (base or default_base()) / name
+    selection = target / BUILD_DIR_SELECTION
+    own = Path(selection.read_text().strip()) if selection.is_file() else None
+    try:
+        with admission([target, *([own] if own else [])], exclusive=True, blocking=False):
+            return _remove(name, force=force, into=into, root=root, base=base, report=report)
+    except Blocked as error:
+        report(f"worktree-remove: refused; {error}")
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:

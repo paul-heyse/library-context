@@ -75,7 +75,124 @@ def check(root: Path | None = None) -> dict:
     }
 
 
+def reader_generations_root() -> Path:
+    return (
+        Path(
+            os.environ.get(
+                "LCTX_COMPILE_PROFILE_READERS_ROOT",
+                str(Path.home() / ".local/share/compile-profile-reader-generations"),
+            )
+        )
+        .expanduser()
+        .absolute()
+    )
+
+
+def reader_binding_valid(binding: dict) -> bool:
+    if (
+        binding.get("schema") != 1
+        or binding.get("format_version") != FORMAT_VERSION
+        or not binding.get("readers")
+    ):
+        return False
+    try:
+        root = Path(binding["generation_root"])
+        if root.is_symlink() or json.loads((root / "record.json").read_text()) != binding:
+            return False
+        for item in binding["readers"].values():
+            path = Path(item["path"])
+            if (
+                not path.is_relative_to(root / "bin")
+                or path.is_symlink()
+                or not path.is_file()
+                or not os.access(path, os.X_OK)
+                or digest(path) != item["sha256"]
+            ):
+                return False
+        return True
+    except OSError, KeyError, TypeError, ValueError:
+        return False
+
+
+def prepare_reader_generation(capabilities: tuple[str, ...]) -> dict:
+    """Keep exact selected executables independently of mutable PATH/tool installs."""
+    import tempfile
+
+    import compile_profile_capture
+    from storage_lifecycle import Storage, admission, durable_json
+
+    selected = {}
+    measureme = {}
+    if any(name.startswith("compiler-") for name in capabilities):
+        ready = check()
+        if ready["status"] != "passed":
+            raise RuntimeError("exact compiler readers unavailable: " + str(ready["errors"]))
+        measureme = ready["receipt"]
+        selected.update({name: tools_root() / "bin" / name for name in NAMES})
+    if any(
+        name.startswith("sampled-") or name in {"disassembly", "source-annotation"}
+        for name in capabilities
+    ):
+        selected["perf"] = Path(compile_profile_capture.resolve_perf()).resolve(strict=True)
+    if "source-annotation" in capabilities:
+        selected["objdump"] = Path(shutil.which("objdump") or "/nonexistent").resolve(strict=True)
+    if "sampled-symbolized-import" in capabilities:
+        selected["samply"] = Path(shutil.which("samply") or "/nonexistent").resolve(strict=True)
+    identities = {
+        name: {"source_path": str(path), "sha256": digest(path)} for name, path in selected.items()
+    }
+    identity = hashlib.sha256(
+        json.dumps({"readers": identities, "measureme": measureme}, sort_keys=True).encode()
+    ).hexdigest()
+    target = reader_generations_root() / identity
+    with admission([target], exclusive=True):
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(
+                prefix=".reader-generation-", dir=target.parent
+            ) as temporary:
+                stage = Path(temporary) / "generation"
+                stage.mkdir(mode=0o700)
+                (stage / "bin").mkdir()
+                for name, source in selected.items():
+                    shutil.copy2(source, stage / "bin" / name)
+                binding = {
+                    "schema": 1,
+                    "identity": identity,
+                    "generation_root": str(target),
+                    "format_version": FORMAT_VERSION,
+                    "measureme_receipt": measureme,
+                    "readers": {
+                        name: {**item, "path": str(target / "bin" / name)}
+                        for name, item in identities.items()
+                    },
+                }
+                durable_json(stage / "record.json", binding)
+                os.rename(stage, target)
+        binding = json.loads((target / "record.json").read_text())
+        if not reader_binding_valid(binding):
+            raise RuntimeError("recorded exact reader generation missing or changed")
+        storage = Storage()
+        storage.publish(
+            target,
+            "native-content",
+            {"kind": "native", "path": str(target)},
+            "exact-reader-generation:" + identity,
+            requires="raw-replay",
+            managed=False,
+        )
+        return binding
+
+
 def sync(root: Path | None = None) -> dict:
+    from storage_lifecycle import admission
+
+    root = tools_root() if root is None else Path(root).resolve()
+    with admission([root], exclusive=True):
+        return _sync_owned(root)
+
+
+def _sync_owned(root: Path | None = None) -> dict:
     root = tools_root() if root is None else Path(root).resolve()
     if check(root)["status"] == "passed":
         return check(root)

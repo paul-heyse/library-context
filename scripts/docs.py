@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import html
 import json
@@ -13,7 +14,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
+import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
@@ -25,6 +29,7 @@ from repo_paths import local_skill
 ROOT = Path(__file__).resolve().parents[1]
 SCOPES = {"Current", "Reference", "History"}
 RECEIPT = ".publication.json"
+_CLEANUPS: ContextVar[list | None] = ContextVar("docs_process_cleanup", default=None)
 
 
 def receipt_digest(body: dict) -> str:
@@ -49,7 +54,113 @@ def config(root: Path) -> dict:
 
 
 def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, check=True, text=True, **kwargs)
+    """Keep the leader waitable through descendant cleanup, including renderer failures."""
+    from harness import SpawnGuard, observe_exit
+
+    capture = kwargs.pop("capture_output", False)
+    timeout = kwargs.pop("timeout", None)
+    with contextlib.ExitStack() as resources:
+        output = resources.enter_context(tempfile.TemporaryFile()) if capture else None
+        errors = resources.enter_context(tempfile.TemporaryFile()) if capture else None
+        if capture:
+            kwargs.update(stdout=output, stderr=errors)
+        child = subprocess.Popen(argv, start_new_session=True, text=True, **kwargs)
+        guard = SpawnGuard(child)
+        try:
+            with guard:
+                started = time.monotonic()
+                while observe_exit(child) is None:
+                    if timeout is not None and time.monotonic() - started >= timeout:
+                        raise subprocess.TimeoutExpired(argv, timeout)
+                    time.sleep(0.01)
+        finally:
+            receipts = _CLEANUPS.get()
+            if receipts is not None:
+                receipts.append(guard.cleanup)
+        stdout = stderr = None
+        if output is not None and errors is not None:
+            output.seek(0)
+            errors.seek(0)
+            stdout, stderr = output.read().decode(), errors.read().decode()
+        if guard.cleanup.get("status") != "confirmed":
+            raise RuntimeError("documentation subprocess cleanup unresolved")
+        if guard.returncode is None:
+            raise RuntimeError("documentation subprocess exit unresolved")
+        if guard.returncode:
+            raise subprocess.CalledProcessError(guard.returncode, argv, stdout, stderr)
+        return subprocess.CompletedProcess(argv, guard.returncode, stdout, stderr)
+
+
+@contextlib.contextmanager
+def candidate_output(work: Path):
+    """A publisher-owned temporary generation; release starts its policy grace."""
+    import storage_owners
+    from harness import ProcessIdentity, hold_lock, write_json_atomic
+    from storage_lifecycle import Storage, admission, now
+
+    storage = Storage()
+    with admission([work]):
+        candidate = Path(tempfile.mkdtemp(prefix="candidate-", dir=work))
+        owner = storage.state / "owners/docs" / uuid.uuid4().hex
+        lock = None
+        enrolled = False
+        record = {
+            "schema": 1,
+            "owner": ProcessIdentity.of().to_json(),
+            "phase": "active",
+            "cleanup": {"status": "unknown"},
+            "path": str(candidate),
+        }
+        try:
+            owner.mkdir(parents=True, mode=0o700)
+            lock = hold_lock(owner / "owner.lock")
+            write_json_atomic(owner / "record.json", record)
+            enrolled = True
+        except (OSError, ValueError, RuntimeError) as error:
+            print(
+                f"storage: documentation owner unavailable; candidate retained: {error}",
+                file=sys.stderr,
+            )
+        token = _CLEANUPS.set([])
+        consumer = f"docs:{candidate.name}"
+        ident = (
+            storage_owners.enroll(
+                candidate,
+                "docs-output",
+                {"kind": "docs", "path": str(owner)},
+                consumer,
+                temporary_days=0,
+            )
+            if enrolled
+            else None
+        )
+        try:
+            yield candidate
+        finally:
+            receipts = _CLEANUPS.get()
+            confirmed = receipts is not None and all(
+                item.get("status") == "confirmed" for item in receipts
+            )
+            record.update(
+                phase="finished",
+                cleanup={"status": "confirmed" if confirmed else "unknown", "observed": now()},
+            )
+            try:
+                if enrolled:
+                    write_json_atomic(owner / "record.json", record)
+            except (OSError, ValueError, RuntimeError) as error:
+                confirmed = False
+                print(
+                    "storage: documentation cleanup receipt unavailable; "
+                    f"candidate retained: {error}",
+                    file=sys.stderr,
+                )
+            finally:
+                if lock is not None:
+                    os.close(lock)
+                _CLEANUPS.reset(token)
+            if confirmed:
+                storage_owners.complete(ident, consumer)
 
 
 def checked(root: Path, path: str | Path) -> Path:
@@ -630,19 +741,18 @@ def install_command(tool: str, version: str) -> list[str]:
 
 
 def replace_site(candidate: Path, destination: Path) -> None:
-    backup = destination.with_name("previous")
-    if backup.exists():
-        shutil.rmtree(backup)
-    if destination.exists():
-        destination.rename(backup)
-    try:
-        candidate.rename(destination)
-    except OSError:
-        if backup.exists():
-            backup.rename(destination)
-        raise
-    if backup.exists():
-        shutil.rmtree(backup)
+    # A qualified replacement releases the previous generation into the same rules as failed
+    # candidates. A leftover legacy ``previous`` directory is not deletion authority.
+    with candidate_output(destination.parent) as previous:
+        backup = previous / "previous"
+        if destination.exists():
+            destination.rename(backup)
+        try:
+            candidate.rename(destination)
+        except OSError:
+            if backup.exists():
+                backup.rename(destination)
+            raise
 
 
 def build(root: Path, settings: dict) -> Path:
@@ -658,8 +768,7 @@ def build(root: Path, settings: dict) -> Path:
     settings = capture.settings
     work = root / "build/docs"
     work.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="candidate-", dir=work) as temporary:
-        candidate = Path(temporary)
+    with candidate_output(work) as candidate:
         inputs = candidate / "inputs"
         capture.stage_inputs(inputs)
         pages = stage(inputs, candidate, discover(inputs, settings), settings)
@@ -770,18 +879,21 @@ def main() -> int:
             run(isolated(ROOT, "python", "scripts/check_agents.py"), cwd=ROOT)
         site = build(ROOT, settings)
         if args.command == "serve":
-            run(
-                [
-                    sys.executable,
-                    "-m",
-                    "http.server",
-                    str(args.port),
-                    "--bind",
-                    "127.0.0.1",
-                    "--directory",
-                    str(site),
-                ]
-            )
+            from storage_lifecycle import admission
+
+            with admission([site]):
+                run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "http.server",
+                        str(args.port),
+                        "--bind",
+                        "127.0.0.1",
+                        "--directory",
+                        str(site),
+                    ]
+                )
     return 0
 
 

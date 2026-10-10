@@ -3,6 +3,7 @@
 //! publishes an immutable native snapshot without changing the selected handle.
 
 mod compile;
+mod acquisition;
 mod compile_options;
 mod model;
 mod newnative;
@@ -295,126 +296,6 @@ fn uv(args: &[&str], env_dir: &Path) -> anyhow::Result<()> {
     }
 }
 
-/// `uv sync --frozen` into the library's environment, ignoring user and system uv configuration
-/// (`--no-config`), on the interpreter `.python-version` pins, and copying files rather than
-/// hard-linking them from the uv cache, which other environments share (ADR-0013 review F3).
-/// `reinstall` rebuilds every package: the remedy when Stage A finds a changed file.
-fn acquire(library_dir: &Path, env_dir: &Path, reinstall: bool) -> anyhow::Result<()> {
-    if !library_dir.join("uv.lock").exists() {
-        return Err(anyhow::anyhow!(
-            "{} has no uv.lock; run `lctx library init` or `uv lock --project {}`",
-            library_dir.display(),
-            library_dir.display()
-        ));
-    }
-    let python = fs_err::read_to_string(library_dir.join(".python-version"))
-        .with_context(|| format!("{}/.python-version", library_dir.display()))?;
-    let project = library_dir.to_string_lossy();
-    let mut args = vec![
-        "sync",
-        "--project",
-        &project,
-        "--frozen",
-        "--no-install-project",
-        "--no-config",
-        "--python",
-        python.trim(),
-        "--link-mode",
-        "copy",
-    ];
-    if reinstall {
-        args.push("--reinstall");
-    }
-    uv(&args, env_dir)
-}
-
-/// Run git hermetically: every `GIT_*` variable removed, no system or global configuration, no
-/// prompts, so nothing ambient steers what is fetched (C5, like `uv`).
-fn git(args: &[&str], dir: &Path) -> anyhow::Result<String> {
-    let mut command = Command::new("git");
-    command.args(args).current_dir(dir);
-    for (key, _) in std::env::vars_os() {
-        let key = key.to_string_lossy().into_owned();
-        if key.starts_with("GIT_") {
-            command.env_remove(key);
-        }
-    }
-    // Nor attributes: an ambient `eol` rule would rewrite the checked-out bytes (C5 review F4).
-    command
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_ATTR_NOSYSTEM", "1")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    let output = command.output().context("blocked: `git` could not run")?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-    } else {
-        Err(anyhow::anyhow!(
-            "git {} failed ({}): {}",
-            args.join(" "),
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
-}
-
-/// The library's declared source tree at its pinned commit, fetched once into
-/// `<sources>/<commit>` (a shallow fetch of that one commit) and checked by `rev-parse` every
-/// time; `None` when no source is declared.
-fn fetch_source(
-    library_dir: &Path,
-    sources: &Path,
-) -> anyhow::Result<Option<(PathBuf, library::Source)>> {
-    let Some(source) = library::source(library_dir)? else {
-        return Ok(None);
-    };
-    let tree = sources.join(&source.commit);
-    if !tree.join(".git").is_dir() {
-        let partial = sources.join(format!("{}.partial", source.commit));
-        if partial.exists() {
-            fs_err::remove_dir_all(&partial)?;
-        }
-        fs_err::create_dir_all(&partial)?;
-        // No template directory: the system one is the last ambient git input (a hook there would
-        // run on checkout; H1 C6).
-        git(&["init", "-q", "--template="], &partial)?;
-        git(
-            &[
-                "fetch",
-                "-q",
-                "--depth",
-                "1",
-                &source.repository,
-                &source.commit,
-            ],
-            &partial,
-        )?;
-        git(
-            &[
-                "-c",
-                "advice.detachedHead=false",
-                "-c",
-                "core.attributesFile=/dev/null",
-                "-c",
-                "core.autocrlf=false",
-                "checkout",
-                "-q",
-                "FETCH_HEAD",
-            ],
-            &partial,
-        )?;
-        fs_err::rename(&partial, &tree)?;
-    }
-    let head = git(&["rev-parse", "HEAD"], &tree)?;
-    if head != source.commit {
-        return Err(anyhow::anyhow!(
-            "{} is at {head}, not the pinned {}; delete it to refetch",
-            tree.display(),
-            source.commit
-        ));
-    }
-    Ok(Some((tree, source)))
-}
 
 fn init(
     name: &str,
@@ -422,6 +303,7 @@ fn init(
     python: &str,
     libraries: &Path,
     envs: &Path,
+    sources: &Path,
 ) -> anyhow::Result<()> {
     let dist = library::requirement_name(requirement);
     let (major, minor) = {
@@ -458,8 +340,8 @@ fn init(
         &["lock", "--project", &library_dir.to_string_lossy()],
         &env_dir,
     )?;
-    acquire(&library_dir, &env_dir, false)?;
-    let site = fs_err::read_dir(env_dir.join("lib"))?
+    let mut acquired = acquisition::Lease::open(&library_dir, &env_dir, &sources.join(name), true, false, false)?;
+    let site = fs_err::read_dir(acquired.environment.join("lib"))?
         .filter_map(|e| e.ok().map(|e| e.path().join("site-packages")))
         .find(|p| p.is_dir())
         .context("the acquired environment has no site-packages")?;
@@ -476,6 +358,7 @@ fn init(
         })
         .collect();
     let (release, found) = propose::propose(&dist, &installed);
+    acquired.finish()?;
     write(&release)?;
     println!(
         "{} written and locked; proposed release = {release:?}{}. Review it, then commit the \
@@ -727,16 +610,16 @@ fn run() -> anyhow::Result<()> {
                     requirement,
                     python,
                 },
-        } => init(&name, &requirement, &python, &libraries, &envs),
+        } => init(&name, &requirement, &python, &libraries, &envs, &sources),
         Cmd::Acquire { name, reinstall } => {
             let library_dir = libraries.join(&name);
-            acquire(&library_dir, &envs.join(&name), reinstall)?;
-            fetch_source(&library_dir, &sources.join(&name)).map(|_| ())
+            acquisition::Lease::open(&library_dir, &envs.join(&name), &sources.join(&name), true, reinstall, true)?.finish()
         }
         Cmd::DeploymentIdentity { name } => {
+            let mut acquired = acquisition::Lease::open(&libraries.join(&name), &envs.join(&name), &sources.join(&name), false, false, false)?;
             let inventory = cpg_extract::acquisition::inventory_installed(
                 &libraries.join(&name),
-                &envs.join(&name),
+                &acquired.environment,
             )?;
             let budget = lctx_model::domain::resources::ResourceBudget::fixed(
                 lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
@@ -767,11 +650,12 @@ fn run() -> anyhow::Result<()> {
                 }
                 Ok(hash.finish())
             }
-            let environment = envs.join(&name);
+            let environment = &acquired.environment;
             identity["runtime_digest"] =
                 serde_json::to_value(reported_hash(&environment.join("pyvenv.cfg"))?)?;
             identity["interpreter_digest"] =
                 serde_json::to_value(reported_hash(&environment.join("bin/python"))?)?;
+            acquired.finish()?;
             println!("{}", serde_json::to_string(&identity)?);
             Ok(())
         }

@@ -1,0 +1,65 @@
+schema = 1
+
+# Days begin at an authoritative release/cleanup event, never file modification time.
+[categories.task-build]
+owner = "task"
+grace_days = 7
+[categories.run-receipt]
+owner = "run"
+temporary_days = 90
+[categories.run-log]
+owner = "run"
+temporary_days = 30
+[categories.profile-raw]
+owner = "profile"
+temporary_days = 14
+[categories.profile-report]
+owner = "profile"
+temporary_days = 30
+[categories.environment]
+owner = "environment"
+grace_days = 7
+[categories.acquired-source]
+owner = "acquisition"
+grace_days = 7
+[categories.acquired-environment]
+owner = "acquisition"
+grace_days = 7
+[categories.attachment]
+owner = "attachment"
+grace_days = 7
+[categories.docs-output]
+owner = "docs"
+grace_days = 7
+[categories.scratch]
+owner = "task"
+grace_days = 7
+[categories.tool]
+owner = "external"
+protected = true
+[categories.native-content]
+owner = "native"
+protected = true
+[categories.service-state]
+owner = "external"
+protected = true
+[categories.recovery-archive]
+owner = "external"
+protected = true
+[categories.tracked-evidence]
+owner = "external"
+protected = true
+[categories.native-cache]
+owner = "external"
+protected = true
+[categories.unknown]
+owner = "external"
+protected = true
+
+[diagnostics]
+general_advisory_gib = 64
+detailed_advisory_gib = 100
+
+[maintenance]
+tombstone_days = 90
+action_receipt_days = 30

@@ -167,11 +167,10 @@ def test_selected_environment_ignores_interpreter_and_virtual_env(tmp_path):
     assert project_environment(root, allowed) == Path("/abs/.venv")
 
 
-@pytest.mark.skipif(not Path("/usr/bin/python3").exists(), reason="no system interpreter")
-def test_explain_runs_under_the_system_interpreter():
-    """The justfile shell runs under the system python3 (3.12 here) and must parse there."""
+def test_explain_runs_under_the_pinned_interpreter():
+    """Launchers use the project's pinned interpreter independently of native imports."""
     result = subprocess.run(
-        ["/usr/bin/python3", str(ROOT / "scripts/build_environment.py"), "--explain"],
+        [sys.executable, str(ROOT / "scripts/build_environment.py"), "--explain"],
         capture_output=True,
         text=True,
         check=False,

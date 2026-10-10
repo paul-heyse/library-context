@@ -6,7 +6,14 @@ fn ordinary_compile_requires_native_configuration_before_acquisition() {
     let root = tempfile::tempdir().unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_lctx"))
         .current_dir(root.path())
-        .args(["compile", "absent", "--through", "catalog", "--runtime-config", "missing-runtime.json"])
+        .args([
+            "compile",
+            "absent",
+            "--through",
+            "catalog",
+            "--runtime-config",
+            "missing-runtime.json",
+        ])
         .output()
         .unwrap();
     assert_eq!(result.status.code(), Some(1));
@@ -18,18 +25,27 @@ async fn incompatible_native_generation_is_refused_before_acquisition() {
     use lctx_model::domain::ContentHash;
     use lctx_surrealdb::RuntimeConfig;
     use std::os::unix::fs::PermissionsExt;
-    let source=std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation service");
-    let mut config=RuntimeConfig::read(std::path::Path::new(&source)).unwrap();
-    let root=tempfile::tempdir().unwrap();
-    config.service_generation=ContentHash::of(b"not-the-installed-generation");
-    config.selection=root.path().join("selected.json");
-    let path=root.path().join("runtime.json");
-    std::fs::write(&path,serde_json::to_vec(&config).unwrap()).unwrap();
-    std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o600)).unwrap();
-    let result=Command::new(env!("CARGO_BIN_EXE_lctx"))
+    let source =
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation service");
+    let mut config = RuntimeConfig::read(std::path::Path::new(&source)).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    config.service_generation = ContentHash::of(b"not-the-installed-generation");
+    config.selection = root.path().join("selected.json");
+    let path = root.path().join("runtime.json");
+    std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_lctx"))
         .current_dir(root.path())
-        .args(["compile","absent","--through","facts","--runtime-config"])
-        .arg(&path).output().unwrap();
+        .args([
+            "compile",
+            "absent",
+            "--through",
+            "facts",
+            "--runtime-config",
+        ])
+        .arg(&path)
+        .output()
+        .unwrap();
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("generation"));
     assert!(!root.path().join("libraries").exists());
@@ -107,7 +123,7 @@ fn installed_fixture(root: &std::path::Path) {
     let uv = root.join("uv");
     std::fs::write(
         &uv,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$STUB_OUT/uv-args\"\n",
+        "#!/bin/sh\nif [ \"$1\" = run ]; then exec \"$LCTX_TEST_UV_REAL\" \"$@\"; fi\nprintf '%s\\n' \"$@\" > \"$STUB_OUT/uv-args\"\nmkdir -p \"$UV_PROJECT_ENVIRONMENT\"\ncp -a \"$STUB_OUT/envs/demo/lib\" \"$STUB_OUT/envs/demo/pyvenv.cfg\" \"$UV_PROJECT_ENVIRONMENT/\"\n",
     )
     .unwrap();
     use std::os::unix::fs::PermissionsExt;
@@ -126,7 +142,15 @@ fn cli(root: &std::path::Path) -> Command {
                 std::env::var("PATH").unwrap_or_default()
             ),
         )
-        .env("STUB_OUT", root);
+        .env("STUB_OUT", root)
+        .env(
+            "LCTX_TEST_UV_REAL",
+            String::from_utf8(Command::new("which").arg("uv").output().unwrap().stdout)
+                .unwrap()
+                .trim(),
+        )
+        .env("LCTX_STORAGE_STATE", root.join("storage-state"))
+        .env("LCTX_STORAGE_CONFIG", root.join("storage-host.toml"));
     command.args([
         "--libraries",
         "libraries",

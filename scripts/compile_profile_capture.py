@@ -1,7 +1,6 @@
 """Opt-in rustc telemetry and independently owned Linux perf observers.
 
-This module and the wrapper deliberately use Python 3.12-compatible stdlib syntax:
-Cargo invokes the executable wrapper with the system interpreter. No compiler flags
+The wrapper uses the pinned Python 3.14.7 interpreter. No compiler flags
 other than diagnostic profiling flags are introduced and no compilation is forced.
 """
 
@@ -112,7 +111,7 @@ def process_identity(pid: int) -> dict[str, Any]:
 def identity_matches(pid: int, identity: Mapping[str, Any]) -> bool:
     try:
         current = process_identity(pid)
-    except (OSError, ValueError, StopIteration, IndexError):
+    except OSError, ValueError, StopIteration, IndexError:
         return False
     return current == {key: identity[key] for key in ("pid", "uid", "start_time")}
 
@@ -282,9 +281,22 @@ def read_completed_chunks(unit_dir: Path) -> list[Path]:
     with suppress(FileNotFoundError):
         for line in (unit_dir / "collector.log").read_text(errors="replace").splitlines():
             if line.startswith("[ perf record: Dump ") and line.endswith(" ]"):
-                path = Path(line[len("[ perf record: Dump ") : -2]).resolve()
-                if path.parent == unit_dir.resolve():
-                    announced.add(path)
+                path = Path(line[len("[ perf record: Dump ") : -2])
+                profile_root = unit_dir.parent.parent
+                try:
+                    meta = json.loads((profile_root / "record.json").read_text())
+                except OSError, ValueError:
+                    meta = {}
+                original = meta.get("original_profile_root")
+                if not original:
+                    with suppress(OSError, ValueError):
+                        original = json.loads(
+                            (profile_root / "path-resolution.json").read_text()
+                        ).get("original_profile_root")
+                if original and path.is_absolute() and path.is_relative_to(Path(original)):
+                    path = profile_root / path.relative_to(Path(original))
+                if path.resolve().parent == unit_dir.resolve():
+                    announced.add(path.resolve())
     pid = int(metadata.get("recorder_pid", metadata["pid"]))
     recorder_identity = metadata.get("recorder_identity", metadata["identity"])
     alive = identity_matches(pid, recorder_identity)
@@ -297,7 +309,7 @@ def read_completed_chunks(unit_dir: Path) -> list[Path]:
                 except FileNotFoundError:
                     continue
             fd_readable = True
-        except (FileNotFoundError, PermissionError):
+        except FileNotFoundError, PermissionError:
             pass
     finalized = metadata.get("phase") == "completed" and metadata.get("exit_code") == 0
     return sorted(
@@ -465,6 +477,24 @@ def _tee_stderr(stream: Any, sidecar: Path, timing: Path, errors: list[str]) -> 
         stream.close()
 
 
+def storage_observation(unit_dir: Path) -> dict[str, Any]:
+    """Bounded unit-local allocation observation; never a writer quota."""
+    allocated = {}
+    for path in unit_dir.iterdir():
+        if path.is_file() and not path.is_symlink():
+            with suppress(FileNotFoundError):
+                allocated[path.name] = path.stat().st_blocks * 512
+    return {
+        "observed_ns": time.time_ns(),
+        "free_bytes": shutil.disk_usage(unit_dir).free,
+        "allocated_bytes": sum(allocated.values()),
+        "writers": allocated,
+        "support_limit": (
+            "sampler stopping does not stop rustc self-profile, Cargo, or other writers"
+        ),
+    }
+
+
 def capture_rustc(arguments: Sequence[str], expanded: list[str], env: dict[str, str]) -> int:
     root = Path(env["LCTX_COMPILE_PROFILE_DIR"])
     if not root.is_absolute():
@@ -559,6 +589,11 @@ def capture_rustc(arguments: Sequence[str], expanded: list[str], env: dict[str, 
         errors.append(str(error))
     try:
         while compiler.poll() is None:
+            try:
+                record["capacity_latest"] = storage_observation(unit_dir)
+            except OSError as error:
+                if str(error) not in errors:
+                    errors.append(str(error))
             if sampler is not None and sampler.poll() is None:
                 try:
                     if cancelled or errors or shutil.disk_usage(unit_dir).free < floor:

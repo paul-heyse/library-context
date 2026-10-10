@@ -46,15 +46,6 @@ target-version = "py314"
 extend-exclude = ["fixtures", ".claude/skills", "target", "docs", "libraries", "services"]
 force-exclude = true
 
-[tool.ruff.per-file-target-version]
-# The justfile shell runs under the system Python 3.12; keep the formatter and fixes from writing
-# 3.13+ syntax such as PEP 758 `except A, B:` into it (AE-04).
-"scripts/build_environment.py" = "py312"
-# Cargo executes the profiling wrapper through system python3; its imported capture module
-# must retain the same syntax compatibility even when project tooling runs on Python 3.14.
-"scripts/compile_profile_capture.py" = "py312"
-"scripts/compile_profile_wrapper.py" = "py312"
-
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 
@@ -64,5 +55,5 @@ project-includes = ["scripts", "tests", "python/lctx_mcp/src", "python/lctx_mcp/
 project-excludes = ["fixtures/**", ".claude/**", "**/target/**"]
 # The server's source is a project file, not a site package: its editable install puts it on the
 # interpreter's site path, which pyrefly excludes (increment-1 deep review F6).
-search-path = ["scripts", "python/lctx_mcp/src", "python/lctx_mcp/tests"]
+search-path = ["scripts", "tests/scripts", "python/lctx_mcp/src", "python/lctx_mcp/tests"]
 site-package-path = [".venv/lib/python3.14/site-packages"]

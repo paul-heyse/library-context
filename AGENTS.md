@@ -81,6 +81,7 @@ The [documentation task routes and repository map](docs/README.md) identify owne
 | At functional scope completion | Affected controls and applicable non-functional leaves once. `just qualify` (assembled: every family, representative journeys, compile-fail/doc contracts, keep-going Clippy and leaves) runs only when the plan STATUS names calls for it, or for a shared model/receipt/trust/transport change (ADR-0126). |
 | Environment preparation | `just sync tools` (dev tools; never builds the native extension), `just sync native` (the full locked sync and native extension; a no-op while current) or `just sync vllm`. `just ready` runs after a dependency, toolchain or skill-selection change, or an environment-shaped failure, in any checkout: it selects that checkout's own `.venv`, then links skills, syncs native once and reports. A blocked verification names its repair route (ADR-0134). |
 | Generated outputs | `just fresh [output…]` reports `clean`/`stale`/`heuristic`/`not_run` for Hakari, docs publication inputs, the ADR index, skill links, formatting, gold and insta, read-only, with each output's regenerate command |
+| Workspace storage | `just storage inventory`, `plan [ID…]` and `status [ID…]` observe owner-directed lifecycle state; `apply ID…`/`sweep [ID…]` recheck release, cleanup, consumer holds, grace and references before effects. Follow [workspace storage](docs/workspace-storage.md) for retention, explicit host registration, archives and protected boundaries within library-context and its worktrees. Legacy adoption does not authorize deletion; warm/native caches and current acquisition/environment inputs remain protected. |
 | End of a turn that changed files | The root agent runs `just turn-end`: ADR index, `build-features`, formatting. When the tree holds another agent's uncommitted work, use `just turn-end --paths P…` or `--staged`. It formats only those paths and reports any skipped step for a later whole-tree run (ADR-0134). Subagents don't run it. |
 | Parallel work | Concurrent commands may share one stable checkout when their effects do not conflict. For an independent revision or conflicting mutable state, such as another agent's uncommitted edits, use `just worktree NAME [--ref R] [--carry PATH…] [--build-dir shared\|own]`, and `just worktree-remove NAME`, which refuses dirty or unintegrated work without `--force`. |
 | The real library, end to end | `lctx compile fastmcp --artifact-only --output DIR --through facts\|normalized\|analysis\|catalog --profile catalog\|behavioral`. Ordinary compilation admits and publishes an unselected native handle. Run real-library qualification only when authorized. |
@@ -113,6 +114,15 @@ The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (A
 - An inherited absolute `UV_PROJECT_ENVIRONMENT` outside the checkout is ignored, unless `LCTX_ALLOW_FOREIGN_ENV=1`.
 - `just turn-end` refreshes the CLI's Hakari crate, and `just deps` checks it. Lower libraries and Python bindings stay outside its dependency closure.
 - Isolated benchmark trials own both artifact directories and never clean the shared build directory.
+
+**Storage lifetimes.** Give new generated output its actual owner and named consumer before use,
+with storage admission held through child cleanup; use the fixed owner adapters rather than copied
+process facts. Temporary retention starts at confirmed owner cleanup, never mtime. Preserve live,
+retained, cited and unresolved content; do not add job/thread caps or broad cache purges to manage
+growth. `just storage` explicitly uses Python 3.14.7 without project sync. See the
+[operating guide](docs/workspace-storage.md) before changing producer, evidence or build-output
+lifecycle rules. Persistent service dependencies use `just service maintenance --stabilize-installer`;
+local attachment release and generic sweeps never retire native database content.
 
 ## Operator state
 

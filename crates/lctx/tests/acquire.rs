@@ -9,7 +9,7 @@ fn stub(dir: &Path) {
     let uv = dir.join("uv");
     std::fs::write(
         &uv,
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$STUB_OUT/args\"\nenv > \"$STUB_OUT/env\"\n",
+        "#!/bin/sh\nif [ \"$1\" = run ]; then exec \"$LCTX_TEST_UV_REAL\" \"$@\"; fi\nprintf '%s\\n' \"$@\" > \"$STUB_OUT/args\"\nenv > \"$STUB_OUT/env\"\nmkdir -p \"$UV_PROJECT_ENVIRONMENT\"\n",
     )
     .unwrap();
     let chmod = Command::new("chmod").arg("+x").arg(&uv).status().unwrap();
@@ -85,6 +85,14 @@ fn run_with(
         .args(extra)
         .env("PATH", path)
         .env("STUB_OUT", &root)
+        .env(
+            "LCTX_TEST_UV_REAL",
+            String::from_utf8(Command::new("which").arg("uv").output().unwrap().stdout)
+                .unwrap()
+                .trim(),
+        )
+        .env("LCTX_STORAGE_STATE", root.join("storage-state"))
+        .env("LCTX_STORAGE_CONFIG", root.join("storage-host.toml"))
         .env("LCTX_DATABASE_CONFIG", root.join("absent-database.json"))
         .env("UV_INDEX_URL", "https://example.invalid/simple")
         .env("UV_CONFIG_FILE", "/tmp/elsewhere.toml")
@@ -134,10 +142,13 @@ fn acquire_is_frozen_config_free_pinned_and_copying() {
             "{ambient} reached uv"
         );
     }
+    let selected = env
+        .lines()
+        .find_map(|line| line.strip_prefix("UV_PROJECT_ENVIRONMENT="))
+        .unwrap();
     assert!(
-        env.lines()
-            .any(|l| l == format!("UV_PROJECT_ENVIRONMENT={}", envs.display())),
-        "the environment path is absolute and explicit"
+        Path::new(selected).starts_with(envs.join(".lctx-generations")),
+        "the environment generation is absolute and explicit"
     );
 }
 
@@ -206,7 +217,11 @@ fn a_declared_source_is_fetched_hermetically_at_its_commit() {
             "rev-parse HEAD",
         ]
     );
-    assert!(root.join("sources/demo").join(COMMIT).join(".git").is_dir());
+    assert!(
+        std::fs::read_dir(root.join("sources/demo/.lctx-generations"))
+            .unwrap()
+            .any(|entry| entry.unwrap().path().join(".git").is_dir())
+    );
     let env = std::fs::read_to_string(root.join("git-env")).unwrap();
     for ambient in ["GIT_DIR", "GIT_CONFIG_PARAMETERS"] {
         assert!(

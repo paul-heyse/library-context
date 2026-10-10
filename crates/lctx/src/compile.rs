@@ -109,18 +109,17 @@ pub async fn compile(
         Some(Arc::new(lctx_surrealdb::NativeEmbeddingCache::connect(crate::newnative::ready(&runtime).await?).await?)
             as Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>)
     } else {None};
-    let environment = envs.join(name);
-    crate::acquire(&library, &environment, false)?;
-    let source = crate::fetch_source(&library, &sources.join(name))?;
+    let mut acquired = crate::acquisition::Lease::open(&library, &envs.join(name), &sources.join(name), true, false, true)?;
     let inventory = cpg_extract::acquisition::inventory(
         &library,
-        &environment,
-        source.as_ref().map(|(path, _)| path.as_path()),
+        &acquired.environment,
+        acquired.source.as_deref(),
     )?;
     let configuration = inventory.library.configuration;
     let captured = Arc::new(cpg_extract::acquisition::capture_receipts(
         &inventory, budget, receipts, native,
     )?);
+    acquired.finish()?;
         Ok((upper,prepared,cache,captured,configuration))
     }.await;
     acquisition_phase.finish_result(&acquired);

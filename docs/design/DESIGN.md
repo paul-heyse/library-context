@@ -125,6 +125,21 @@ controls and operator-scoped acceptance. Product qualification and measured effe
 
 > Decision: ADR-0142
 
+**Implemented storage management; integrated qualification open, 2026-10-09:** owner-backed
+physical lifetimes and named consumer obligations govern independently disposable task roots,
+run receipts/logs, profile raw/reports, local attachments and documentation candidates.
+Executable policy is `.config/storage.toml`; [workspace storage](../workspace-storage.md) owns
+operation and the [storage plan](../plans/storage-lifecycle-management-plan_2026-10-09.md) owns
+remaining qualification. Ancestor admission and fixed producer locks exclude use during journaled
+retirement. Deadlines start at confirmed cleanup/release; legacy uncertainty remains protected.
+Warm compiler/package/model caches, current environments and tools retain immediate availability
+and existing performance settings. Native content/service state and Git/LFS retain their owners.
+Archive substitution requires explicit replay capabilities and exact isolated-location qualification.
+Other repositories and central skill stores remain outside this work. Stable service-owned
+executables outlive checkouts. Scheduling requires matching-source assembled acceptance and review.
+
+> Decision: ADR-0144
+
 **Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and
 acceptance, using reusable evidence, design-review, execution, implementation-review and functional
 testing roles. Shared responsibilities and permitted effects live in [agent role contracts](../../.agents/roles/README.md);

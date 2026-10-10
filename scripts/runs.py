@@ -36,7 +36,6 @@ import os
 import re
 import secrets
 import select
-import shutil
 import signal
 import subprocess
 import sys
@@ -279,7 +278,18 @@ def new_run_dir() -> Path:
     while True:
         run_dir = root / f"{stamp}-{secrets.token_hex(3)}"
         try:
-            run_dir.mkdir()
+            import storage_owners
+            from storage_lifecycle import admission
+
+            with admission([run_dir]):
+                run_dir.mkdir()
+                storage_owners.enroll(
+                    run_dir,
+                    "run-receipt",
+                    {"kind": "run", "path": str(run_dir.resolve())},
+                    f"run:{run_dir.name}",
+                    temporary_days=90,
+                )
             return run_dir
         except FileExistsError:
             continue
@@ -361,6 +371,58 @@ class Owner:
         return changed
 
     def run(self, ready: Callable[[str], None] = lambda _message: None) -> int:
+        import storage_owners
+        from storage_lifecycle import admission
+
+        consumer = f"run:{self.dir.name}"
+        import workspace_env
+
+        checkout = Path(self.record["cwd"])
+        resources = workspace_env.resources_for(("native", "vllm"), checkout)
+        with admission([self.dir, *[resource.path for resource in resources]]):
+            receipt = storage_owners.enroll(
+                self.dir,
+                "run-receipt",
+                {"kind": "run", "path": str(self.dir.resolve())},
+                consumer,
+                temporary_days=90,
+            )
+            result = self._run_owned(ready)
+            # Cleanup remains authoritative; complete refuses unknown/nonterminal owners.
+            storage_owners.complete(receipt, consumer)
+            if getattr(self, "_storage_log", None):
+                storage_owners.complete(self._storage_log, consumer)
+
+        if (self.dir / "compile-profile/record.json").exists() or (
+            self.dir / "compile-profile-location.json"
+        ).exists():
+            try:
+                import compile_profile
+
+                for component in compile_profile.lifecycle_components(self.dir):
+                    if component["legacy_hold"] or not component["cleanup_confirmed"]:
+                        continue
+                    from storage_lifecycle import Storage
+
+                    ident = Storage().publish(
+                        Path(component["path"]),
+                        component["category"],
+                        component["owner"],
+                        component["consumer"],
+                        requires=component["requires"],
+                        temporary_days=component["temporary_days"],
+                        managed=True,
+                    )
+                    storage_owners.complete(ident, component["consumer"])
+            except Exception as error:
+                print(
+                    f"storage: profile completion unresolved ({type(error).__name__}); "
+                    "content kept",
+                    file=sys.stderr,
+                )
+        return result
+
+    def _run_owned(self, ready: Callable[[str], None] = lambda _message: None) -> int:
         previous_signals = {sig: signal.signal(sig, self._on_signal) for sig in LAUNCHER_SIGNALS}
         lock_fd = hold_lock(self.dir / OWNER_LOCK)
         child = None
@@ -373,6 +435,15 @@ class Owner:
             env["LCTX_RUN_DIR"] = str(self.dir)
             output_path = self.dir / OUTPUT
             with open(output_path, "ab") as output:
+                import storage_owners
+
+                self._storage_log = storage_owners.enroll(
+                    output_path,
+                    "run-log",
+                    {"kind": "run", "path": str(self.dir.resolve())},
+                    f"run:{self.dir.name}",
+                    temporary_days=30,
+                )
                 if self.stream:
                     display = FileDisplay(
                         output_path, banner=f"runs: {self.dir.name}  ({output_path})"
@@ -742,7 +813,7 @@ def _wait_terminal(run_dir: Path, timeout: float) -> dict[str, Any] | None:
     return load_record(run_dir)
 
 
-def cancel(run_dir: Path, *, grace: float = 10.0) -> dict[str, Any]:
+def _cancel(run_dir: Path, *, grace: float = 10.0) -> dict[str, Any]:
     """Request a live owner to stop; recover a dead owner only under its exclusive lock."""
     record = load_record(run_dir)
     if record is None:
@@ -820,6 +891,27 @@ def cancel(run_dir: Path, *, grace: float = 10.0) -> dict[str, Any]:
     return {**view(run_dir), "cancel_result": result}
 
 
+def cancel(run_dir: Path, *, grace: float = 10.0) -> dict[str, Any]:
+    import storage_owners
+    from storage_lifecycle import Storage, admission
+
+    with admission([run_dir]):
+        data = _cancel(run_dir, grace=grace)
+        if data.get("cleanup", {}).get("status") == "confirmed":
+            # Only complete existing enrolled components; recovery does not adopt legacy scope.
+            for row in Storage().records():
+                if row.get("owner", {}).get("path") != str(run_dir.resolve()):
+                    continue
+                if row.get("retired_at"):
+                    continue
+                for consumer, obligation in row["obligations"].items():
+                    if obligation.get("temporary_days") is not None:
+                        storage_owners.complete(
+                            row["id"], consumer, reason="confirmed owner recovery"
+                        )
+        return data
+
+
 def cmd_cancel(args: argparse.Namespace) -> int:
     data = cancel(resolve(args.id), grace=args.grace)
     if args.json:
@@ -830,7 +922,7 @@ def cmd_cancel(args: argparse.Namespace) -> int:
     return 0 if data["cleanup"]["status"] == "confirmed" else 1
 
 
-def cmd_retain(args: argparse.Namespace) -> int:
+def _cmd_retain(args: argparse.Namespace) -> int:
     run_dir = resolve(args.id)
     marker = run_dir / RETAIN
     if args.release:
@@ -839,6 +931,14 @@ def cmd_retain(args: argparse.Namespace) -> int:
         marker.write_text(now() + "\n")
     print(f"{run_dir.name}  {'released' if args.release else 'retained'}")
     return 0
+
+
+def cmd_retain(args: argparse.Namespace) -> int:
+    from storage_lifecycle import admission
+
+    run_dir = resolve(args.id)
+    with admission([run_dir]):
+        return _cmd_retain(args)
 
 
 _DURATION = re.compile(r"(\d+)([smhdw])")
@@ -881,34 +981,67 @@ def prune_candidates(keep: int | None, older_than: float | None) -> list[Path]:
 
 
 def cmd_prune(args: argparse.Namespace) -> int:
-    doomed = prune_candidates(args.keep, args.older_than)
-    if not args.dry_run:
-        removed = []
-        for run_dir in doomed:
-            descriptor = try_hold_lock(run_dir / OWNER_LOCK)
-            if descriptor is None:
-                continue
-            try:
-                record = load_record(run_dir)
-                if (
-                    record is None
-                    or not record.get("termination")
-                    or (run_dir / RETAIN).exists()
-                    or cleanup_protected(record)
+    """Legacy selectors choose scope; lifecycle obligations alone authorize removal."""
+    from storage_lifecycle import Storage, admission
+
+    storage = Storage()
+    candidates = prune_candidates(args.keep, args.older_than)
+    ids = []
+    roots = {}
+    for run_dir in candidates:
+        with admission([run_dir]):
+            records = [
+                row
+                for row in storage.records()
+                if row["path"] == str(run_dir.resolve()) and not row.get("retired_at")
+            ]
+            if not records:
+                # Observation cannot retrospectively establish admission or cleanup deadlines.
+                ident = storage.publish(
+                    run_dir,
+                    "run-receipt",
+                    {"kind": "run", "path": str(run_dir.resolve())},
+                    f"legacy-run:{run_dir.name}",
+                    managed=False,
+                )
+                records = [storage.get(ident)]
+            for row in storage.records():
+                path = Path(row["path"])
+                if not row.get("retired_at") and (
+                    path == run_dir.resolve() or run_dir.resolve() in path.parents
                 ):
-                    continue
-                shutil.rmtree(run_dir)
-                removed.append(run_dir)
-            finally:
-                os.close(descriptor)
-        doomed = removed
+                    ids.append(row["id"])
+            roots[records[0]["id"]] = run_dir.name
+    result = (
+        (storage.plan(ids) if args.dry_run else storage.sweep(ids))
+        if ids
+        else {"dispositions": [], "actions": []}
+    )
+    if args.dry_run:
+        removed = [
+            roots[row["id"]]
+            for row in result["dispositions"]
+            if row["id"] in roots and row["disposition"] == "eligible"
+        ]
+    else:
+        removed = [
+            roots[row["id"]]
+            for row in result.get("actions", [])
+            if row["id"] in roots and row.get("action") == "retired"
+        ]
+    payload = {
+        "removed": removed,
+        "dry_run": args.dry_run,
+        "dispositions": result["dispositions"],
+        "actions": result.get("actions", []),
+    }
     if args.json:
-        print(json.dumps({"removed": [d.name for d in doomed], "dry_run": args.dry_run}))
+        print(json.dumps(payload))
     else:
         verb = "would remove" if args.dry_run else "removed"
-        print(f"{verb} {len(doomed)} completed run(s)")
-        for run_dir in doomed:
-            print(f"  {run_dir.name}")
+        print(f"{verb} {len(removed)} completed run(s); lifecycle obligations govern eligibility")
+        for name in removed:
+            print(f"  {name}")
     return 0
 
 

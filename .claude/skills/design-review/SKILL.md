@@ -142,6 +142,15 @@ an evidence folder merely because it is a review. When probes are useful, follow
 storage conventions and acceptance timing. Implementation acceptance checks and the evidence
 needed for Tested/Measured claims still apply.
 
+When probes produce raw captures or derived evidence, follow
+[workspace storage](../../../docs/workspace-storage.md): establish a run/profile owner and named
+consumer, keep raw replay and cited reports in independently managed components, and hold storage
+admission through process cleanup. Small retained evidence uses its existing Git/LFS owner;
+environments and build outputs stay outside it. Release a consumer only when its evidence/replay
+need ends. Archive publication must qualify the required replay operations; an unavailable
+destination or reader leaves the original protected. Evidence age and file mtime do not authorize
+deletion.
+
 Library-first means considering established implementations of the required capability. Both
 adoption and bespoke code can add excessive coupling, lifecycle or configuration. A planned
 consumer can justify a seam; catalog availability alone cannot. Shared library types can be an

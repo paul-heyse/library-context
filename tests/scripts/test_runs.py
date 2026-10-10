@@ -24,6 +24,7 @@ SCRIPTS = SCRIPT.parent
 def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "runs"
     monkeypatch.setenv("LCTX_RUNS_ROOT", str(path))
+    monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path / "storage"))
     monkeypatch.delenv("LCTX_RUN_DIR", raising=False)
     monkeypatch.delenv("LCTX_RUN_ID", raising=False)
     return path
@@ -215,20 +216,30 @@ def test_prune_removes_only_completed_unretained_runs(root: Path) -> None:
     for _ in range(3):
         assert cli("run", "--", "true").returncode == 0
     retained = runs.resolve("last").name
+    # Explicit owner/consumer release, not age/count selection, authorizes retirement.
+    from storage_lifecycle import Storage
+
+    storage = Storage()
+    for row in storage.records():
+        if row["owner"].get("path", "").endswith(retained):
+            continue
+        for consumer in row["obligations"]:
+            storage.release(row["id"], consumer, "test consumer completed")
     assert cli("retain", retained).returncode == 0
     running = start_background("sleep", "120")
     interrupted = start_background("sleep", "120")
-    os.kill(status(interrupted)["owner"]["pid"], signal.SIGKILL)
-    wait_for(lambda: status(interrupted)["state"] == "interrupted")
+    try:
+        os.kill(status(interrupted)["owner"]["pid"], signal.SIGKILL)
+        wait_for(lambda: status(interrupted)["state"] == "interrupted")
 
-    result = cli("prune", "--keep", "0", "--json")
-    removed = set(json.loads(result.stdout)["removed"])
-    assert len(removed) == 2 and retained not in removed
-    left = {d.name for d in root.iterdir()}
-    assert {retained, running, interrupted} <= left and not removed & left
-
-    for ref in (running, interrupted):
-        cli("cancel", ref)
+        result = cli("prune", "--keep", "0", "--json")
+        removed = set(json.loads(result.stdout)["removed"])
+        assert len(removed) == 2 and retained not in removed, result.stdout
+        left = {d.name for d in root.iterdir()}
+        assert {retained, running, interrupted} <= left and not removed & left
+    finally:
+        for ref in (running, interrupted):
+            cli("cancel", ref)
 
 
 def test_prune_keep_and_age(root: Path) -> None:
@@ -465,13 +476,20 @@ def test_live_owner_recovery_only_writes_request_and_preserves_legacy_record(roo
 def test_prune_rechecks_retention_under_owner_lock(root, monkeypatch):
     assert cli("run", "--", "true").returncode == 0
     run_dir = runs.resolve("last")
-    acquire = runs.try_hold_lock
+    import storage_owners
+    from storage_lifecycle import Storage
+
+    storage = Storage()
+    for row in storage.records():
+        for consumer in row["obligations"]:
+            storage.release(row["id"], consumer, "test consumer completed")
+    acquire = storage_owners.try_hold_lock
 
     def retain_before_acquisition(path):
         (run_dir / runs.RETAIN).touch()
         return acquire(path)
 
-    monkeypatch.setattr(runs, "try_hold_lock", retain_before_acquisition)
+    monkeypatch.setattr(storage_owners, "try_hold_lock", retain_before_acquisition)
     assert (
         runs.cmd_prune(argparse.Namespace(keep=0, older_than=None, dry_run=False, json=True)) == 0
     )
@@ -524,6 +542,7 @@ def test_terminal_child_keeps_failed_cleanup_recoverable(root, monkeypatch, refu
             patch.setattr(harness, "signal_group", refuse)
             assert owner.run() == 1
         record = runs.load_record(run_dir)
+        assert record is not None
         assert record["exit"] == {"code": 0}
         assert record["cleanup"]["status"] == status
         assert runs.group_of(record)["status"] == "owned"
@@ -554,12 +573,14 @@ def test_nonconsuming_or_broken_output_does_not_block_child_or_log(root, broken)
         stderr=subprocess.DEVNULL,
     )
     try:
+        assert launcher.stdout is not None
         if broken:
             launcher.stdout.close()
         assert launcher.wait(timeout=15) == 0
         run_dir = runs.resolve("last")
         assert (run_dir / runs.OUTPUT).read_bytes() == b"x" * size
         record = runs.load_record(run_dir)
+        assert record is not None
         assert record["exit"] == {"code": 0}
         assert record["supervisor_error"] is None
         assert record["cleanup"]["status"] == "confirmed"
@@ -567,7 +588,8 @@ def test_nonconsuming_or_broken_output_does_not_block_child_or_log(root, broken)
         if launcher.poll() is None:
             launcher.kill()
             launcher.wait()
-        launcher.stdout.close()
+        if launcher.stdout is not None:
+            launcher.stdout.close()
 
 
 def test_cancellation_remains_usable_with_nonconsuming_output(root):
@@ -606,7 +628,8 @@ def test_cancellation_remains_usable_with_nonconsuming_output(root):
         if launcher.poll() is None:
             launcher.kill()
             launcher.wait()
-        launcher.stdout.close()
+        if launcher.stdout is not None:
+            launcher.stdout.close()
 
 
 def test_logs_tail_zero_is_empty(root):
@@ -639,6 +662,7 @@ def test_run_owner_keeps_leader_unreaped_until_cleanup(root, monkeypatch):
     monkeypatch.setattr(harness, "cleanup_group", check_pin)
     assert owner.run() == 9
     record = runs.load_record(run_dir)
+    assert record is not None
     assert record["exit"] == {"code": 9}
     assert record["cleanup"]["status"] == "confirmed"
     assert pins == [record["child"]["pid"]]

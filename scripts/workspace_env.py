@@ -311,7 +311,7 @@ def _acquire(resource: Resource, mode: Mode, report: Report, env: Mapping[str, s
 
 
 @contextmanager
-def ownership(
+def _resource_ownership(
     mode: Mode,
     requirement: str | Iterable[str],
     *,
@@ -368,6 +368,62 @@ def ownership(
             os.environ[OWNERSHIP_KEY] = previous
         for _, descriptor in reversed(held):
             os.close(descriptor)  # closing the only descriptor releases the flock
+
+
+@contextmanager
+def ownership(
+    mode: Mode,
+    requirement: str | Iterable[str],
+    *,
+    root: Path = ROOT,
+    env: Mapping[str, str] | None = None,
+    command: str | None = None,
+    report: Report = _stderr,
+) -> Iterator[Ownership]:
+    """Storage admission precedes existing environment/extension ownership."""
+    import storage_owners
+    from storage_lifecycle import admission
+
+    resources = resources_for(requirement, root, env)
+    with (
+        admission([resource.path for resource in resources]),
+        _resource_ownership(
+            mode, requirement, root=root, env=env, command=command, report=report
+        ) as owned,
+    ):
+        existing = set()
+        for resource in resources:
+            if resource.path.exists():
+                storage_owners.enroll(
+                    resource.path,
+                    "environment",
+                    {
+                        "kind": "environment",
+                        "path": str(root.resolve()),
+                        "resource_kind": resource.kind,
+                        "resource_rank": resource.rank,
+                    },
+                    f"checkout:{root.resolve()}",
+                )
+                existing.add(resource.path)
+        try:
+            yield owned
+        finally:
+            # Preparation can create a previously absent environment/extension. Publish
+            # while both admissions still cover it, including interrupted preparation.
+            for resource in resources:
+                if resource.path not in existing and resource.path.exists():
+                    storage_owners.enroll(
+                        resource.path,
+                        "environment",
+                        {
+                            "kind": "environment",
+                            "path": str(root.resolve()),
+                            "resource_kind": resource.kind,
+                            "resource_rank": resource.rank,
+                        },
+                        f"checkout:{root.resolve()}",
+                    )
 
 
 # ---------------------------------------------------------------------------------------------

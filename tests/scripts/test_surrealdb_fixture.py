@@ -1,4 +1,5 @@
 """Shared validation attachment and truthful child ownership controls (no disposable DBs)."""
+
 from __future__ import annotations
 
 import io
@@ -9,6 +10,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+
 import surrealdb_fixture as fx
 import surrealdb_service as service
 from harness import group_members
@@ -16,26 +18,51 @@ from harness import group_members
 
 @pytest.fixture
 def installed(tmp_path, monkeypatch):
+    monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path / "storage"))
     root = tmp_path / "service"
     root.mkdir()
     (root / "attachments").mkdir()
     (root / "serving").mkdir()
     (root / "admission.lock").touch()
-    record = {"schema": 1, "phase": "ready", "installation_id": str(uuid.uuid4()),
-              "service_generation": list(range(32)), "unit": service.UNIT,
-              "namespace": service.NAMESPACE, "databases": ["main", "validation"], "export_batch_size":1,
-              "state_root": str(root), "endpoint": "http://127.0.0.1:29000",
-              "grpc_endpoint": "grpc://127.0.0.1:29000",
-              "binary": {"path": "/unavailable", "sha256": service.BINARY_SHA256, "version": service.VERSION}, "installer": "/unavailable/lctx"}
+    record = {
+        "schema": 1,
+        "phase": "ready",
+        "installation_id": str(uuid.uuid4()),
+        "service_generation": list(range(32)),
+        "unit": service.UNIT,
+        "namespace": service.NAMESPACE,
+        "databases": ["main", "validation"],
+        "export_batch_size": 1,
+        "state_root": str(root),
+        "endpoint": "http://127.0.0.1:29000",
+        "grpc_endpoint": "grpc://127.0.0.1:29000",
+        "binary": {
+            "path": "/unavailable",
+            "sha256": service.BINARY_SHA256,
+            "version": service.VERSION,
+        },
+        "installer": "/unavailable/lctx",
+    }
     service.private_json(root / "installation.json", record)
     for database in service.DATABASES:
-        cfg = {"endpoint": record["grpc_endpoint"], "namespace": service.NAMESPACE,
-               "database": database, "cache_database": database,
-               "service_generation": record["service_generation"], "authentication": "database",
-               "username": f"{database}_writer", "password": "private-password",
-               "viewer_username": f"{database}_viewer", "viewer_password": "viewer-password",
-               "selection": str(root / f"{database}-selected.json"),
-               "reuse": {"database": database,"capacity_bytes":service.PRODUCT_CAPACITY_BYTES,"lease_directory":str(root / "product-leases" / database)}}
+        cfg = {
+            "endpoint": record["grpc_endpoint"],
+            "namespace": service.NAMESPACE,
+            "database": database,
+            "cache_database": database,
+            "service_generation": record["service_generation"],
+            "authentication": "database",
+            "username": f"{database}_writer",
+            "password": "private-password",
+            "viewer_username": f"{database}_viewer",
+            "viewer_password": "viewer-password",
+            "selection": str(root / f"{database}-selected.json"),
+            "reuse": {
+                "database": database,
+                "capacity_bytes": service.PRODUCT_CAPACITY_BYTES,
+                "lease_directory": str(root / "product-leases" / database),
+            },
+        }
         service.private_json(root / f"{database}-runtime.json", cfg)
     monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(root / "installation.json"))
     monkeypatch.setattr(service.Installation, "check", lambda self, **kw: {"outcome": "passed"})
@@ -127,7 +154,10 @@ def test_unknown_dead_borrower_keeps_maintenance_closed(installed):
     attachment = fx.Attachment.create(installed)
     attachment._write_record(None, command_cleanup={"status": "unknown"})
     attachment.release()
-    with pytest.raises(fx.FixtureBlocked, match="unreleased borrower"), service.maintenance(installed.installation):
+    with (
+        pytest.raises(fx.FixtureBlocked, match="unreleased borrower"),
+        service.maintenance(installed.installation),
+    ):
         pytest.fail("unknown cleanup cannot drain")
     assert (installed.directory / "maintenance.json").exists()
     assert fx.inventory()[0]["protected"]
@@ -137,12 +167,14 @@ def test_run_attached_records_intent_and_cleanup_before_release(installed, monke
     attachment = fx.Attachment.create(installed)
     spawned = []
     spawn = fx.spawn_group
+
     def checked_spawn(*args, **kwargs):
         row = json.loads((attachment.directory / "record.json").read_text())
         assert row["command"]["leader"] is None
         assert row["command_cleanup"]["status"] == "unknown"
         spawned.append(args)
         return spawn(*args, **kwargs)
+
     monkeypatch.setattr(fx, "spawn_group", checked_spawn)
     try:
         assert fx.run_attached(attachment, [sys.executable, "-c", "pass"]) == 0
@@ -157,18 +189,28 @@ def test_run_attached_records_intent_and_cleanup_before_release(installed, monke
 def test_attached_post_spawn_failure_cleans_actual_process(tmp_path, monkeypatch, failure):
     spawned = []
     original_spawn = fx.spawn_group
+
     def spawn(*args, **kwargs):
         child = original_spawn(*args, **kwargs)
         spawned.append(child)
         return child
+
     def write_record(record, **extra):
         if failure == "receipt" and record and record.get("leader"):
             raise OSError("injected attachment receipt error")
+
     from typing import cast
-    attachment = cast(fx.Attachment, SimpleNamespace(environment=lambda: {}, _write_record=write_record))
+
+    attachment = cast(
+        fx.Attachment, SimpleNamespace(environment=lambda: {}, _write_record=write_record)
+    )
     monkeypatch.setattr(fx, "spawn_group", spawn)
     if failure == "identity":
-        monkeypatch.setattr(fx.ProcessIdentity, "of", classmethod(lambda cls, pid=None: (_ for _ in ()).throw(OSError("identity"))))
+        monkeypatch.setattr(
+            fx.ProcessIdentity,
+            "of",
+            classmethod(lambda cls, pid=None: (_ for _ in ()).throw(OSError("identity"))),
+        )
     with pytest.raises(OSError):
         fx.run_attached(attachment, ["sleep", "120"], cwd=tmp_path)
     assert spawned and group_members(spawned[0].pid) == []
@@ -177,12 +219,20 @@ def test_attached_post_spawn_failure_cleans_actual_process(tmp_path, monkeypatch
 
 def test_unresolved_child_cleanup_retains_exact_receipt(installed, monkeypatch):
     import harness
+
     attachment = fx.Attachment.create(installed)
     signal_group = harness.signal_group
     monkeypatch.setattr(harness, "signal_group", lambda *a, **kw: False)
     row = None
     try:
-        assert fx.run_attached(attachment, [sys.executable, "-c", "import subprocess; subprocess.Popen(['sleep','120'])"], report=lambda _: None) == 1
+        assert (
+            fx.run_attached(
+                attachment,
+                [sys.executable, "-c", "import subprocess; subprocess.Popen(['sleep','120'])"],
+                report=lambda _: None,
+            )
+            == 1
+        )
         row = read = json.loads((attachment.directory / "record.json").read_text())
         assert row["command_cleanup"]["status"] == "failed"
         assert group_members(row["command"]["leader"]["pid"])
@@ -197,8 +247,19 @@ def test_unresolved_child_cleanup_retains_exact_receipt(installed, monkeypatch):
             signal_group(row["command"]["leader"]["pid"])
 
 
-@pytest.mark.parametrize("ended,child,outcome,code", [(None,0,"passed",0),(None,2,"failed",2),("oom-kill",0,"blocked",75),("signal 9",2,"failed",2),("exit 0",0,"failed",1)])
-def test_server_end_preserves_child_and_unknown_cause(installed, monkeypatch, ended, child, outcome, code):
+@pytest.mark.parametrize(
+    "ended,child,outcome,code",
+    [
+        (None, 0, "passed", 0),
+        (None, 2, "failed", 2),
+        ("oom-kill", 0, "blocked", 75),
+        ("signal 9", 2, "failed", 2),
+        ("exit 0", 0, "failed", 1),
+    ],
+)
+def test_server_end_preserves_child_and_unknown_cause(
+    installed, monkeypatch, ended, child, outcome, code
+):
     monkeypatch.setattr(fx.Server, "exited", lambda self: ended)
     observed = fx.server_end_outcome(installed, child)
     assert observed["outcome"] == outcome and observed["exit_code"] == code
@@ -210,13 +271,19 @@ def test_server_end_preserves_child_and_unknown_cause(installed, monkeypatch, en
 def test_sql_diagnostic_preserves_indexed_errors_without_native_secrets(installed, monkeypatch):
     class Response(io.BytesIO):
         status = 200
+
     monkeypatch.setattr(service, "maintenance_owned", lambda *a, **kw: True)
-    body = [{"status": "OK", "result": "legitimate string"},
-            {"status": "ERR", "result": "secret-query credential-secret"}, {"status": "OK", "result": 3}]
-    monkeypatch.setattr(fx.urllib.request, "urlopen", lambda *a, **kw: Response(json.dumps(body).encode()))
+    body = [
+        {"status": "OK", "result": "legitimate string"},
+        {"status": "ERR", "result": "secret-query credential-secret"},
+        {"status": "OK", "result": 3},
+    ]
+    monkeypatch.setattr(
+        fx.urllib.request, "urlopen", lambda *a, **kw: Response(json.dumps(body).encode())
+    )
     observed = installed._diagnose("secret-query")
     assert observed["outcome"] == "failed"
-    assert [r["index"] for r in observed["statements"]] == [0,1,2]
+    assert [r["index"] for r in observed["statements"]] == [0, 1, 2]
     assert observed["statements"][0]["result"] == "legitimate string"
     assert "secret" not in json.dumps(observed)
     with pytest.raises(fx.FixtureQueryError, match="1:statement_refused"):
@@ -245,18 +312,26 @@ def test_old_provisioning_flags_are_not_available():
 
 def test_native_drain_precedes_disruptive_effect_and_reopening(installed, monkeypatch):
     events = []
-    monkeypatch.setattr(service, "_run_installer", lambda installation, installer, action: events.append(action))
+    monkeypatch.setattr(
+        service, "_run_installer", lambda installation, installer, action: events.append(action)
+    )
     with service.maintenance(installed.installation):
         events.append("effect")
     assert events == ["close-admission", "drain", "effect", "drain", "open-admission"]
     assert not (installed.directory / "maintenance.json").exists()
 
 
-def test_refused_native_drain_never_performs_effect_and_keeps_admission_closed(installed, monkeypatch):
+def test_refused_native_drain_never_performs_effect_and_keeps_admission_closed(
+    installed, monkeypatch
+):
     def refuse(*args):
         raise fx.FixtureBlocked("drainage", "native effects remain unresolved")
+
     monkeypatch.setattr(service, "_run_installer", refuse)
-    with pytest.raises(fx.FixtureBlocked, match="native effects"), service.maintenance(installed.installation):
+    with (
+        pytest.raises(fx.FixtureBlocked, match="native effects"),
+        service.maintenance(installed.installation),
+    ):
         pytest.fail("disruptive operation must not begin")
     assert (installed.directory / "maintenance.json").exists()
 
@@ -275,25 +350,33 @@ def test_retained_output_name_cannot_be_overwritten_by_another_attempt(installed
         second.release()
 
 
-def test_restart_releases_producer_before_maintenance_and_creates_fresh_consumer(installed, monkeypatch):
+def test_restart_releases_producer_before_maintenance_and_creates_fresh_consumer(
+    installed, monkeypatch
+):
     attachment = fx.Attachment.create(installed)
     old_id = attachment.id
     old_directory = attachment.directory
     events = []
     attachment.extra_env["LCTX_NATIVE_SERVING_CONFIG"] = str(old_directory / "scratch/serving.json")
-    monkeypatch.setattr(service, "_run_installer", lambda installation, installer, action: events.append(action))
+    monkeypatch.setattr(
+        service, "_run_installer", lambda installation, installer, action: events.append(action)
+    )
+
     def restart(server, env=None):
         assert not service.borrowers(server.installation)
         assert service.maintenance_owned(server.installation, env)
         assert json.loads((old_directory / "record.json").read_text())["released"]
         events.append("restart")
+
     monkeypatch.setattr(fx.Server, "restart", restart)
     try:
         attachment.restart()
         assert events == ["close-admission", "drain", "restart", "drain", "open-admission"]
         assert attachment.id != old_id
         assert attachment.environment()["LCTX_SURREAL_ATTEMPT_ID"] == attachment.id
-        assert attachment.extra_env["LCTX_NATIVE_SERVING_CONFIG"] == str(old_directory / "scratch/serving.json")
+        assert attachment.extra_env["LCTX_NATIVE_SERVING_CONFIG"] == str(
+            old_directory / "scratch/serving.json"
+        )
         assert [row["id"] for row in service.borrowers(installed.installation)] == [attachment.id]
     finally:
         attachment.release()
@@ -301,7 +384,9 @@ def test_restart_releases_producer_before_maintenance_and_creates_fresh_consumer
 
 def test_maintenance_native_clients_are_ordinary_and_host_exclusive(installed, monkeypatch):
     events = []
-    monkeypatch.setattr(service, "_run_installer", lambda installation, installer, action: events.append(action))
+    monkeypatch.setattr(
+        service, "_run_installer", lambda installation, installer, action: events.append(action)
+    )
     with service.maintenance(installed.installation, native_clients=True) as env:
         assert events == ["close-admission", "drain", "open-admission"]
         assert service.maintenance_owned(installed.installation, env)
@@ -312,21 +397,99 @@ def test_maintenance_native_clients_are_ordinary_and_host_exclusive(installed, m
         assert owned.config["authentication"] == "database"
         events.append("ordinary-client-control")
         owned.release()
-    assert events == ["close-admission", "drain", "open-admission", "ordinary-client-control", "close-admission", "drain", "open-admission"]
+    assert events == [
+        "close-admission",
+        "drain",
+        "open-admission",
+        "ordinary-client-control",
+        "close-admission",
+        "drain",
+        "open-admission",
+    ]
     assert not (installed.directory / "maintenance.json").exists()
 
 
 def test_failed_native_client_control_drains_and_keeps_admission_closed(installed, monkeypatch):
     events = []
-    monkeypatch.setattr(service, "_run_installer", lambda installation, installer, action: events.append(action))
-    with pytest.raises(RuntimeError, match="control failed"), service.maintenance(installed.installation, native_clients=True):
+    monkeypatch.setattr(
+        service, "_run_installer", lambda installation, installer, action: events.append(action)
+    )
+    with (
+        pytest.raises(RuntimeError, match="control failed"),
+        service.maintenance(installed.installation, native_clients=True),
+    ):
         raise RuntimeError("control failed")
-    assert events == ["close-admission", "drain", "open-admission", "close-admission", "drain", "close-admission"]
+    assert events == [
+        "close-admission",
+        "drain",
+        "open-admission",
+        "close-admission",
+        "drain",
+        "close-admission",
+    ]
     assert (installed.directory / "maintenance.json").exists()
 
 
 def test_native_client_maintenance_requires_explicit_command():
-    for args in (["maintenance", "--native-clients"], ["maintenance", "--native-clients", "--restart"], ["maintenance", "--native-clients", "--recover"]):
+    for args in (
+        ["maintenance", "--native-clients"],
+        ["maintenance", "--native-clients", "--restart"],
+        ["maintenance", "--native-clients", "--recover"],
+    ):
         with pytest.raises(SystemExit) as error:
             service.main(args)
         assert error.value.code == 2
+
+
+def test_local_attachment_lifecycle_does_not_retire_native_service(installed):
+    import storage_owners
+    from storage_lifecycle import Storage
+
+    attachment = fx.Attachment.create(installed)
+    assert attachment._storage_id is not None
+    row = Storage().get(attachment._storage_id)
+    assert storage_owners.observe(row)["state"] == "active"
+    attachment.release()
+    row = Storage().get(row["id"])
+    assert storage_owners.observe(row)["state"] == "released"
+    assert row["obligations"][f"attachment:{attachment.id}"]["until"]
+    assert installed.directory.is_dir()
+    assert (installed.directory / "installation.json").is_file()
+    assert attachment.directory.is_dir()  # Seven-day local grace; no native retirement.
+
+
+def test_attachment_recovery_completes_declared_local_obligation_after_process_death(installed):
+    import signal
+
+    import storage_owners
+    from storage_lifecycle import Storage
+
+    read_fd, write_fd = os.pipe()
+    child = os.fork()
+    if child == 0:
+        os.close(read_fd)
+        try:
+            attachment = fx.Attachment.create(installed)
+            os.write(write_fd, attachment.id.encode())
+            os.close(write_fd)
+            while True:
+                signal.pause()
+        finally:
+            os._exit(1)
+    os.close(write_fd)
+    try:
+        with os.fdopen(read_fd, "rb") as ready:
+            attachment_id = ready.read().decode()
+        assert attachment_id
+        row = next(row for row in Storage().records() if row["owner"].get("kind") == "attachment")
+        assert storage_owners.observe(row)["state"] == "active"
+        with pytest.raises(fx.FixtureBlocked, match="live owner"):
+            fx.recover(attachment_id)
+    finally:
+        os.kill(child, signal.SIGKILL)
+        os.waitpid(child, 0)
+    fx.recover(attachment_id)
+    row = Storage().get(row["id"])
+    assert storage_owners.observe(row)["state"] == "released"
+    assert row["obligations"][f"attachment:{attachment_id}"]["until"]
+    assert (installed.directory / "installation.json").is_file()
