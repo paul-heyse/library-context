@@ -333,17 +333,11 @@ impl<A: Adapter> Sorter<A> {
             .payload_bytes
             .saturating_add(row_bytes)
             .saturating_add(capacity * size_of::<Entry<A::Key>>());
-        // Ordinary candidate/physical windows keep the one-MiB run bound. Explicit
-        // portable envelopes may emit one charged larger row and flush immediately.
-        let oversized_singleton =
-            self.pending.is_empty() && pending_bytes > RUN_BYTES && self.row_bytes > ROW_BYTES;
-        if self.budget.is_some() && pending_bytes > RUN_BYTES && !oversized_singleton {
-            return Err(ModelError::Limit {
-                owner: OWNER,
-                limit: "candidate run bytes",
-                observed: pending_bytes,
-                bound: RUN_BYTES,
-            });
+        // The frame limit admits individual rows; the run limit bounds accumulated
+        // sorting state. A legal frame can exceed an empty run after allocation/key
+        // metadata, so write it directly as one charged run without accumulating it.
+        if pending_bytes > self.limit {
+            return self.spill_singleton(row);
         }
         self.charge(pending_bytes, self.runs.capacity())?;
         if capacity > self.pending.capacity() {
@@ -355,6 +349,25 @@ impl<A: Adapter> Sorter<A> {
             self.flush()?;
         }
         Ok(())
+    }
+    fn spill_singleton(&mut self, row: Entry<A::Key>) -> Result<(), ModelError> {
+        debug_assert!(self.pending.is_empty());
+        let bytes = row
+            .bytes
+            .capacity()
+            .saturating_add(A::key_bytes(&row.key))
+            .saturating_add(size_of::<Entry<A::Key>>());
+        self.charge(bytes, self.runs.capacity())?;
+        let mut run = NamedTempFile::new_in(self.directory.path()).map_err(ModelError::codec)?;
+        {
+            let _work = reserve(self.budget.as_ref(), IO_BYTES)?;
+            let mut writer = BufWriter::with_capacity(IO_BYTES, run.as_file_mut());
+            write(&mut writer, &row)?;
+            writer.flush().map_err(ModelError::codec)?;
+        }
+        drop(row);
+        self.charge(0, self.runs.capacity())?;
+        self.carry_run(run)
     }
     fn flush(&mut self) -> Result<(), ModelError> {
         if self.pending.is_empty() {
@@ -380,6 +393,9 @@ impl<A: Adapter> Sorter<A> {
         self.pending = Vec::new();
         self.payload_bytes = 0;
         self.charge(0, self.runs.capacity())?;
+        self.carry_run(run)
+    }
+    fn carry_run(&mut self, mut run: NamedTempFile) -> Result<(), ModelError> {
         let mut level = 0;
         loop {
             if level == self.runs.len() {
@@ -864,6 +880,86 @@ mod tests {
             sorted.push(row("large", Value::String("x".repeat(ROW_BYTES)))),
             Err(ModelError::Limit { .. })
         ));
+    }
+
+    fn ordinary_boundary_row(key: &str, fill: char) -> Value {
+        let overhead = serde_json::to_vec(&row(key, Value::String(String::new())))
+            .unwrap()
+            .len();
+        row(
+            key,
+            Value::String(fill.to_string().repeat(ROW_BYTES - overhead - 1)),
+        )
+    }
+
+    #[test]
+    fn ordinary_legal_frame_spills_when_allocation_and_key_exceed_the_run() {
+        let boundary = ordinary_boundary_row("middle", 'x');
+        {
+            let encoded = entry::<Physical>(boundary.clone(), ROW_BYTES).unwrap();
+            assert_eq!(encoded.bytes.len(), ROW_BYTES - 1);
+            assert!(
+                encoded.bytes.capacity()
+                    + Physical::key_bytes(&encoded.key)
+                    + size_of::<Entry<RecordId>>()
+                    > RUN_BYTES
+            );
+        }
+        let budget = ResourceBudget::fixed(128 << 20).unwrap();
+        let mut sorted = SortedRows::with_budget(&budget).unwrap();
+        let directory = sorted.0.directory.path().to_owned();
+        let before = row("before", Value::Null);
+        let after = row("z-after", Value::Bytes(Bytes::from(vec![0, 255])));
+        sorted.push(before.clone()).unwrap();
+        sorted.push(boundary.clone()).unwrap();
+        assert!(sorted.0.pending.is_empty());
+        assert_eq!(sorted.0.payload_bytes, 0);
+        sorted.push(boundary.clone()).unwrap();
+        sorted.push(after.clone()).unwrap();
+        let mut ordered = sorted.finish().unwrap();
+        for expected in [before, boundary, after] {
+            assert_eq!(ordered.next_row().unwrap(), Some(expected));
+        }
+        assert!(ordered.next_row().unwrap().is_none());
+        drop(ordered);
+        assert_eq!(budget.reserved(), 0);
+        assert!(!directory.exists());
+    }
+
+    #[test]
+    fn legal_singleton_conflicts_with_a_different_full_value_across_runs() {
+        let budget = ResourceBudget::fixed(128 << 20).unwrap();
+        let mut sorted = SortedRows::with_budget(&budget).unwrap();
+        let directory = sorted.0.directory.path().to_owned();
+        sorted.push(row("before", Value::Null)).unwrap();
+        sorted.push(ordinary_boundary_row("middle", 'x')).unwrap();
+        sorted.push(ordinary_boundary_row("middle", 'y')).unwrap();
+        assert!(matches!(
+            sorted.finish(),
+            Err(ModelError::Conflict("conflicting physical row identity"))
+        ));
+        assert_eq!(budget.reserved(), 0);
+        assert!(!directory.exists());
+    }
+
+    #[test]
+    fn legal_singleton_still_requires_its_composed_reservation() {
+        let budget = ResourceBudget::fixed(RUN_BYTES).unwrap();
+        let outer = budget.reserve("retained-input", 1024).unwrap();
+        let mut sorted = SortedRows::with_budget(&budget).unwrap();
+        let directory = sorted.0.directory.path().to_owned();
+        assert!(matches!(
+            sorted.push(ordinary_boundary_row("middle", 'x')),
+            Err(ModelError::Resource { .. })
+        ));
+        assert!(matches!(
+            sorted.finish(),
+            Err(ModelError::Conflict("failed external ordering"))
+        ));
+        assert!(!directory.exists());
+        assert_eq!(budget.reserved(), outer.size());
+        drop(outer);
+        assert_eq!(budget.reserved(), 0);
     }
 
     #[test]
