@@ -669,11 +669,8 @@ async fn omitted_backup_payloads_are_refused(
                     writeln!(altered, "{definition};").unwrap()
                 }
                 backup_decode::Item::Rows(rows) => {
-                    assert_eq!(
-                        rows.len(),
-                        1,
-                        "managed native export must emit one bounded record per statement"
-                    );
+                    // The bounded parser can return empty or multirow export frames.
+                    // Omission is per physical row; empty survivors emit no INSERT.
                     let mut kept = Vec::new();
                     for row in rows {
                         let omit = matches!(&row,lctx_surrealdb::surrealdb::types::Value::Object(object) if matches!(object.get("id"),Some(lctx_surrealdb::surrealdb::types::Value::RecordId(id)) if id.table.as_str()==table));
@@ -696,9 +693,10 @@ async fn omitted_backup_payloads_are_refused(
         }
         altered.flush().unwrap();
         drop(altered);
-        if removed == 0 {
-            continue;
-        }
+        assert!(
+            removed > 0,
+            "normalized fixture must exercise omitted {table} payloads"
+        );
         let error = lctx_publisher::backup::restore_publication(
             config,
             &input,

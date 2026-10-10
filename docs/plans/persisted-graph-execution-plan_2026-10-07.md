@@ -1249,6 +1249,21 @@ saved cursor, operation packet, attributed evidence, A handle/selection and epoc
 published; structured cleanup retires only B. These are source/compile outcomes, not runtime
 closure. Final focused rerun, fresh MCP, maintenance8, F01, populated recovery and UP9 remain pending.
 
+Run `20261010T050208.462Z-b150ac`, Nextest `c13d499e-998b-428b-b12e-897f876e0551`,
+finished **1passed/1failed**,256.086s after1m26s build. Controlled committed-acknowledgement
+discard/session-loss reconciliation passed. Publication's indexed point selection passed;
+the omission helper then rejected a zero-row parser frame. `DataDump` intentionally emits such
+frames for ignored derived records. The test now accepts bounded empty/multirow frames, filters
+each actual row and requires an actual omission from every target table before the unchanged
+negative restore check. Compile (`54ce2b`,0.69s) and independent review **passed**; runtime pending.
+Guard-free `just ready` **passed** (`439667`); native extension already current.
+Installer stabilization **blocked before transfer**: maintenance's actual native drain found
+durable pins left by failed test runtime shutdown. Admission stays closed. Named recovery is
+being grounded in exact pin identities and confirmed test descendant cleanup; no unknown reader
+release is authorized. The reviewed implementation/correction tree is committed in `4a13db4b`;
+UP9 remains open. The publication settings nonce is retained to isolate final-retirement controls
+under concurrent copies/worktrees; a stable shared handle alone would undermine that isolation.
+
 **NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
 operator-accepted complementary target. Exact bindings, membership access, typed replay,
 shared admission, wake-driven handoffs, scoped completion, stable flights and explicit
