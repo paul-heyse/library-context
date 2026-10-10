@@ -27,10 +27,12 @@ private row/source/progress evidence, and checked reopening. The temporary repai
 discard/session-loss reconciliation passed. Publication's indexed point selection passed; its dump
 omission helper handles bounded empty/multirow frames. The rerun passed its exact-pin panic cleanup
 check, then exposed exported FIELD OVERWRITE metadata comparing unequal to installed INFO.
-Grammar-owned comparison correction passed compile, eight pure controls and independent review;
-full publication rerun and concurrent restore remain pending.
-Named recovery released only two verified failed-test pins; installer stabilization passed and
-admission is open.
+Grammar-owned comparison correction passed compile, eight pure controls and independent review.
+Its rerun passed entity-omission refusal, then timed out decoding the next large shared-store dump.
+Terminal-owner cleanup passed its multi-window retention/receipt control. Selected closed-content
+backup preparation is implemented with focused checks in progress;
+full publication/concurrent restore remain pending. Exact named recovery released only verified
+failed-test pins; installer stabilization passed and admission is open.
 NativeSession close drains calls, releases its pin and shares terminal results across closers;
 compile/static review passed, actual Python acceptance awaits the final MCP journey. Earlier eight
 maintenance controls finished6passed/2failed before intended drift assertions; all eight need a

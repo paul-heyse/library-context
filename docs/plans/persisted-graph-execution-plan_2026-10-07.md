@@ -1309,6 +1309,47 @@ databases without named reader recovery. This establishes the awaited cleanup pa
 later assertion failure, not abrupt process termination. Concurrent restores and derived excess
 assertions were not reached. Earlier failed composites remain failed.
 
+Publication rerun `20261010T052948.598Z-5683cb`, Nextest
+`c1e16573-3b6b-47ba-9f90-09e5302a09e4`, **failed / timed out** at300.024s after43.68s build.
+The corrected definition comparison reached selected missing-entity refusal. The second omission
+case timed out during local decode: retained source dump `/tmp/.tmpTDawd0/snapshot.surql`
+is597,992,608bytes, while the interrupted `/tmp/.tmp4XYgiC` spool already contains214,449
+memberships and roughly94MB of contribution metadata. Both directories have the named current
+consumer of this correction diagnosis/qualification and remain protected; no broad cleanup.
+The immediate amplification is native table-only export including unrelated shared-store data,
+then repeated grammar decoding/re-encoding/spooling before selecting the requested graph.
+
+A bounded independent design judgment accepts selected closed-content compaction under
+ADR-0143/UP6: retain the native engine's single whole-main read snapshot and requested reader pin,
+prepare the claimed exact dependency closure from that completed dump, then publish a separate
+completed compact logical stage containing only the requested manifest and required data.
+The shared preparation is not admission authority; ordinary restore freshly decodes/prepares its
+own input before attempt creation, then still performs typed ingress/full cold admission.
+No ambient database payload fallback, schema/terminal waiver or larger deadline is selected.
+The engine export's global transfer/parse cost remains an explicit limit of this initial route.
+A separate bounded cleanup refinement uses the terminal attempt's exact original epoch for
+cleanup receipts, preserving intent/execution fences and reconciliation without allocating a new
+global installation epoch per page. That private terminal-owner correction passed compile
+(`cargo check --locked --release -p lctx-surrealdb --test native_control`,1.35s) and independent
+bounded source review. Its focused multi-window receipt/retention control **passed**:
+`just verify --select store --nextest-args "--test native_control -E
+'test(indexed_abandonment_removes_only_unadmitted_products_and_owned_holds)'"`,
+run `20261010T054722.768Z-c17257`, Nextest `8a570cd0-ed03-4087-b554-4d03cb2a9d59`,
+3.007s after1m04s build. The1025-target partial-cleanup, late-write refusal, admitted/unrelated
+retention and original terminal-owner epoch assertions remain. The receipt observations are
+exact-owner filters over shared effect history, not indexed access or a measured speed comparison. Backup compaction remains in progress; no measured benefit is claimed.
+
+Timeout cleanup confirmed empty descendants and released attachment. Exact inventory
+`timeout-publication-pin-inventory-af43660aa09f4c42a685c8da0b97828e/before.json` under owned
+service state, SHA256 `54f68618af4e7a662343aeacfd04d1cfe6b80cc4426e3f9bd27d4529388357bb`,
+identified only pin `c514528cc29bb8c6b9850115a143d945b1518ec1cc93e7f13266c1cffce8f3ae`:
+305 exact protected views and their one publication,0 backup holds/borrowers. Attribution uses the
+actual zero-pin maintenance20297 baseline and sole subsequent native run, not heartbeat age.
+Independent review approved only that identity. Standard named recovery **passed** (`73287`),
+draining/reopening both databases without changing generation/schema. Protected publication
+metadata is retained beside the inventory, SHA256
+`52562a2782517812cff7e8603931c9e873d91249f993c728065f5af7bcbd3c50`.
+
 **NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
 operator-accepted complementary target. Exact bindings, membership access, typed replay,
 shared admission, wake-driven handoffs, scoped completion, stable flights and explicit

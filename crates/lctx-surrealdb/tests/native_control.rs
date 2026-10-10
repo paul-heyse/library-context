@@ -151,14 +151,22 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
             ("SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$attempt","attempt_contributions","attempt",RecordId::new("native_attempt",private.attempt().hex())),
             ("SELECT VALUE id FROM native_product WITH INDEX contribution_products WHERE contribution=$contribution","contribution_products","contribution",RecordId::new("compiler_contribution",private_contribution.hex())),
         ] {let mut vars=Variables::new();vars.insert(variable,value);let plan:String=lctx_surrealdb::NativeReader::private(client.clone()).query(format!("EXPLAIN {sql}"),vars).await?;plans.push((index,plan));}
+        let receipt_reader = lctx_surrealdb::NativeReader::private(client.clone());
+        let mut receipt_scope = Variables::new();
+        receipt_scope.insert("attempts", vec![private_owner.clone(), RecordId::new("native_attempt", admitted.attempt().hex())]);
+        let original_epochs: Vec<Object> = receipt_reader.query_native("SELECT id,epoch FROM $attempts", receipt_scope.clone()).await?;
+        let prior_receipts: Vec<RecordId> = receipt_reader.query_native("SELECT VALUE id FROM native_effect WHERE attempt IN $attempts", receipt_scope.clone()).await?;
+        let prior_receipts = prior_receipts.into_iter().collect::<BTreeSet<_>>();
         private.abandon().await?;admitted.abandon().await?;
+        let receipts: Vec<Object> = receipt_reader.query_native("SELECT id,attempt,epoch,committed,resolved FROM native_effect WHERE attempt IN $attempts", receipt_scope).await?;
+        let cleanup_receipts = receipts.into_iter().filter(|receipt| !matches!(receipt.get("id"), Some(Value::RecordId(id)) if prior_receipts.contains(id))).collect::<Vec<_>>();
         let private_product=RecordId::new("native_product",format!("{}_{}",nonce.hex(),private.attempt().hex()));let admitted_product=RecordId::new("native_product",format!("{}_{}",nonce.hex(),admitted.attempt().hex()));
         let mut response=client.query("SELECT VALUE id FROM $products; SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$private; SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$admitted; SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$unrelated; SELECT VALUE state FROM $attempts; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt; SELECT VALUE id FROM $targets").bind(("products",vec![private_product.clone(),admitted_product.clone()])).bind(("private",private_product)).bind(("admitted",admitted_product.clone())).bind(("unrelated",RecordId::new("native_pin",unrelated.identity.hex()))).bind(("attempts",vec![private_owner.clone(),RecordId::new("native_attempt",admitted.attempt().hex())])).bind(("attempt",private_owner)).bind(("targets",targets)).await.map_err(lctx_model::domain::ModelError::codec)?.check().map_err(lctx_model::domain::ModelError::codec)?;
         let products:Vec<RecordId>=response.take(0).map_err(lctx_model::domain::ModelError::codec)?;let private_holds:Vec<RecordId>=response.take(1).map_err(lctx_model::domain::ModelError::codec)?;let admitted_holds:Vec<RecordId>=response.take(2).map_err(lctx_model::domain::ModelError::codec)?;let unrelated_holds:Vec<RecordId>=response.take(3).map_err(lctx_model::domain::ModelError::codec)?;
         let states:Vec<String>=response.take(4).map_err(ModelError::codec)?;
         let attempt_holds:Vec<RecordId>=response.take(5).map_err(ModelError::codec)?;
         let targets:Vec<RecordId>=response.take(6).map_err(ModelError::codec)?;
-        Ok::<_,lctx_model::domain::ModelError>((plans,products,admitted_product,private_holds,admitted_holds,unrelated_holds,post_fence_refused,states,attempt_holds,targets))
+        Ok::<_,lctx_model::domain::ModelError>((plans,products,admitted_product,private_holds,admitted_holds,unrelated_holds,post_fence_refused,states,attempt_holds,targets,original_epochs,cleanup_receipts))
     }.await;
     let mut completion = lctx_model::domain::completion::Completion::default();
     completion.step(
@@ -189,8 +197,57 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
         states,
         attempt_holds,
         targets,
+        original_epochs,
+        cleanup_receipts,
     ) = lctx_model::domain::completion::complete(result, completion).unwrap();
     assert!(post_fence_refused);
+    // Newly created cleanup receipts belong to the exact terminal owners and retain
+    // their original epochs, independently of unrelated installation revision changes.
+    let original_epochs = original_epochs
+        .into_iter()
+        .map(|row| {
+            let Some(Value::RecordId(owner)) = row.get("id") else {
+                panic!("original cleanup owner");
+            };
+            let Some(Value::Number(surrealdb::types::Number::Int(epoch))) = row.get("epoch") else {
+                panic!("original cleanup epoch");
+            };
+            (owner.clone(), *epoch)
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(original_epochs.len(), 2);
+    let mut windows = BTreeMap::<RecordId, usize>::new();
+    for receipt in cleanup_receipts {
+        let Some(Value::RecordId(owner)) = receipt.get("attempt") else {
+            panic!("cleanup receipt must name its terminal owner");
+        };
+        let expected = original_epochs
+            .get(owner)
+            .expect("cleanup receipt owner is exact");
+        assert_eq!(
+            receipt.get("epoch"),
+            Some(&Value::Number(surrealdb::types::Number::Int(*expected)))
+        );
+        assert_eq!(receipt.get("committed"), Some(&Value::Bool(true)));
+        assert_eq!(receipt.get("resolved"), Some(&Value::Bool(true)));
+        *windows.entry(owner.clone()).or_default() += 1;
+    }
+    assert!(
+        windows
+            .get(&RecordId::new("native_attempt", private.attempt().hex()))
+            .copied()
+            .unwrap_or_default()
+            >= 18,
+        "multiwindow product and attempt cleanup must leave original-owner receipts"
+    );
+    assert!(
+        windows
+            .get(&RecordId::new("native_attempt", admitted.attempt().hex()))
+            .copied()
+            .unwrap_or_default()
+            >= 1,
+        "admitted cleanup uses the same terminal authorization"
+    );
     assert_eq!(
         states.into_iter().collect::<BTreeSet<_>>(),
         BTreeSet::from(["frozen".to_string(), "maintenance_fenced".to_string()])

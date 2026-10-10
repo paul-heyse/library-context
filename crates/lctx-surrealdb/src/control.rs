@@ -160,17 +160,53 @@ pub async fn effect(
     sql: &str,
     bindings: Variables,
 ) -> Result<(), ModelError> {
-    effect_for_owner(client, attempt, None, sql, bindings).await
+    effect_for_owner(
+        client,
+        attempt
+            .map(EffectOwner::OpenAttempt)
+            .unwrap_or(EffectOwner::Installation),
+        sql,
+        bindings,
+    )
+    .await
 }
+// Cleanup can remove only this irreversible terminal owner's existing roots.
+// Reuse its original epoch instead of allocating a global installation epoch per page.
+#[derive(Clone, Copy)]
+struct TerminalAttempt {
+    identity: ContentHash,
+    epoch: i64,
+}
+enum EffectOwner {
+    Installation,
+    OpenAttempt(ContentHash),
+    Pin(RecordId),
+    TerminalAttempt(TerminalAttempt),
+}
+
 /// Intent permanently records the authorization epoch. Retry never borrows a newer
 /// installation/attempt/pin epoch to make an old operation eligible after retirement.
 async fn effect_for_owner(
     client: &Surreal<Client>,
-    attempt: Option<ContentHash>,
-    pin: Option<RecordId>,
+    owner: EffectOwner,
     sql: &str,
     mut bindings: Variables,
 ) -> Result<(), ModelError> {
+    if matches!(&owner, EffectOwner::TerminalAttempt(terminal) if terminal.epoch <= 0) {
+        return Err(ModelError::Invalid("native terminal cleanup epoch".into()));
+    }
+    let attempt = match &owner {
+        EffectOwner::OpenAttempt(identity) => Some(*identity),
+        EffectOwner::TerminalAttempt(terminal) => Some(terminal.identity),
+        _ => None,
+    };
+    let pin = match &owner {
+        EffectOwner::Pin(pin) => Some(pin.clone()),
+        _ => None,
+    };
+    if let EffectOwner::TerminalAttempt(terminal) = &owner {
+        bindings.insert("__expected_epoch", terminal.epoch);
+    }
     let operation = fresh_identity("effect")?;
     let request =
         ContentHash::of(&serde_json::to_vec(&(sql, &bindings)).map_err(ModelError::codec)?);
@@ -186,12 +222,19 @@ async fn effect_for_owner(
         "__pin",
         pin.clone().map(Value::RecordId).unwrap_or(Value::None),
     );
-    let authorization = if attempt.is_some() {
-        "LET $__authorized=SELECT * FROM ONLY $__attempt FOR UPDATE; IF $__authorized.state!='open' { THROW 'native attempt fenced'; }; LET $__epoch=$__authorized.epoch;"
-    } else if pin.is_some() {
-        "LET $__authorized=SELECT * FROM ONLY $__pin FOR UPDATE; IF $__authorized=NONE OR $__authorized.released { THROW 'native reader pin fenced'; }; LET $__epoch=$__authorized.epoch;"
-    } else {
-        "LET $__installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $__installation=NONE { THROW 'native installation missing'; }; UPDATE native_installation:current SET admission_revision=(admission_revision ?? 0)+1 RETURN NONE; LET $__epoch=($__installation.admission_revision ?? 0)+1;"
+    let authorization = match &owner {
+        EffectOwner::OpenAttempt(_) => {
+            "LET $__authorized=SELECT * FROM ONLY $__attempt FOR UPDATE; IF $__authorized.state!='open' { THROW 'native attempt fenced'; }; LET $__epoch=$__authorized.epoch;"
+        }
+        EffectOwner::Pin(_) => {
+            "LET $__authorized=SELECT * FROM ONLY $__pin FOR UPDATE; IF $__authorized=NONE OR $__authorized.released { THROW 'native reader pin fenced'; }; LET $__epoch=$__authorized.epoch;"
+        }
+        EffectOwner::TerminalAttempt(_) => {
+            "LET $__authorized=SELECT * FROM ONLY $__attempt FOR UPDATE; IF $__authorized=NONE OR $__authorized.epoch!=$__expected_epoch OR $__authorized.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] { THROW 'native terminal cleanup fenced'; }; LET $__epoch=$__authorized.epoch;"
+        }
+        EffectOwner::Installation => {
+            "LET $__installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $__installation=NONE { THROW 'native installation missing'; }; UPDATE native_installation:current SET admission_revision=(admission_revision ?? 0)+1 RETURN NONE; LET $__epoch=($__installation.admission_revision ?? 0)+1;"
+        }
     };
     let intent = format!(
         "BEGIN; {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; CREATE $__effect SET attempt=$__attempt,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch RETURN NONE; COMMIT;"
@@ -214,12 +257,17 @@ async fn effect_for_owner(
             }
         }
     }
-    let fence = if attempt.is_some() {
-        "LET $__owner=SELECT * FROM ONLY $__attempt FOR UPDATE; IF $__owner.state!='open' OR $__owner.epoch!=$__epoch { THROW 'native attempt fenced'; };"
-    } else if pin.is_some() {
-        "LET $__pin_owner=SELECT * FROM ONLY $__pin FOR UPDATE; IF $__pin_owner=NONE OR $__pin_owner.released OR $__pin_owner.epoch!=$__epoch { THROW 'native reader pin fenced'; };"
-    } else {
-        ""
+    let fence = match &owner {
+        EffectOwner::OpenAttempt(_) => {
+            "LET $__owner=SELECT * FROM ONLY $__attempt FOR UPDATE; IF $__owner.state!='open' OR $__owner.epoch!=$__epoch { THROW 'native attempt fenced'; };"
+        }
+        EffectOwner::Pin(_) => {
+            "LET $__pin_owner=SELECT * FROM ONLY $__pin FOR UPDATE; IF $__pin_owner=NONE OR $__pin_owner.released OR $__pin_owner.epoch!=$__epoch { THROW 'native reader pin fenced'; };"
+        }
+        EffectOwner::TerminalAttempt(_) => {
+            "LET $__owner=SELECT * FROM ONLY $__attempt FOR UPDATE; IF $__owner=NONE OR $__operation.attempt!=$__attempt OR $__epoch!=$__expected_epoch OR $__owner.epoch!=$__epoch OR $__owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] { THROW 'native terminal cleanup fenced'; };"
+        }
+        EffectOwner::Installation => "",
     };
     let query = format!(
         "BEGIN; LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.resolved {{ THROW 'native operation fenced'; }}; LET $__epoch=$__operation.epoch; IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native effect epoch missing'; }}; {fence} {sql}; UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; COMMIT;"
@@ -446,7 +494,15 @@ pub async fn hold_many(
     let mut bindings = Variables::new();
     bindings.insert("holds", rows);
     bindings.insert("guards", guards);
-    effect_for_owner(client,attempt,pins.into_iter().next(),"FOR $guard IN $guards { LET $prior=SELECT * FROM ONLY $guard FOR UPDATE; IF $__epoch<=($prior.retired_through ?? 0) { THROW 'native attachment epoch retired'; }; UPSERT $guard SET revision=(revision ?? 0)+1,retired=false,retired_through=(retired_through ?? 0) RETURN NONE; }; FOR $row IN $holds { IF (SELECT VALUE id FROM ONLY $row.object)=NONE { THROW 'native attachment target missing'; }; UPSERT $row.id CONTENT $row RETURN NONE; }",bindings).await
+    let owner = if let Some(attempt) = attempt {
+        EffectOwner::OpenAttempt(attempt)
+    } else {
+        pins.into_iter()
+            .next()
+            .map(EffectOwner::Pin)
+            .unwrap_or(EffectOwner::Installation)
+    };
+    effect_for_owner(client,owner,"FOR $guard IN $guards { LET $prior=SELECT * FROM ONLY $guard FOR UPDATE; IF $__epoch<=($prior.retired_through ?? 0) { THROW 'native attachment epoch retired'; }; UPSERT $guard SET revision=(revision ?? 0)+1,retired=false,retired_through=(retired_through ?? 0) RETURN NONE; }; FOR $row IN $holds { IF (SELECT VALUE id FROM ONLY $row.object)=NONE { THROW 'native attachment target missing'; }; UPSERT $row.id CONTENT $row RETURN NONE; }",bindings).await
 }
 
 pub async fn pin_views(
@@ -515,11 +571,16 @@ pub async fn close_attempt(
         return Err(ModelError::Conflict("native cleanup attempt fence"));
     }
     bindings.insert("attempt_epoch", *epoch);
+    let authorization = TerminalAttempt {
+        identity: attempt,
+        epoch: *epoch,
+    };
     match admitted.as_slice() {
         [true] => {
             return release_cleanup_holds(
                 client,
                 &bindings,
+                authorization,
                 vec![RecordId::new("native_attempt", attempt.hex())],
                 false,
             )
@@ -543,10 +604,10 @@ pub async fn close_attempt(
                 break;
             }
             // Keep the product itself until its outgoing ownership has drained.
-            release_cleanup_holds(client, &bindings, products.clone(), true).await?;
+            release_cleanup_holds(client, &bindings, authorization, products.clone(), true).await?;
             let mut deletion = product_bindings.clone();
             deletion.insert("products", products);
-            effect(client,None,"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR $owner.admitted { THROW 'native cleanup product owner'; }; LET $owned=SELECT VALUE id FROM $products WHERE contribution IN $contributions; DELETE $owned RETURN NONE",deletion).await?;
+            effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR $owner.admitted { THROW 'native cleanup product owner'; }; LET $owned=SELECT VALUE id FROM $products WHERE contribution IN $contributions; DELETE $owned RETURN NONE",deletion).await?;
         }
     }
     // These roots keep immutable contributor IDs discoverable across interrupted
@@ -554,6 +615,7 @@ pub async fn close_attempt(
     release_cleanup_holds(
         client,
         &bindings,
+        authorization,
         vec![RecordId::new("native_attempt", attempt.hex())],
         true,
     )
@@ -578,6 +640,7 @@ async fn cleanup_ids(
 async fn release_cleanup_holds(
     client: &Surreal<Client>,
     attempt: &Variables,
+    authorization: TerminalAttempt,
     owners: Vec<RecordId>,
     unadmitted: bool,
 ) -> Result<(), ModelError> {
@@ -590,7 +653,7 @@ async fn release_cleanup_holds(
             return Ok(());
         }
         bindings.insert("holds", holds);
-        effect(client,None,"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR ($unadmitted AND $owner.admitted) { THROW 'native cleanup hold owner'; }; LET $owned=SELECT VALUE id FROM $holds WHERE owner IN $owners; DELETE $owned RETURN NONE",bindings.clone()).await?;
+        effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closed','abandoned','frozen','maintenance_fenced'] OR ($unadmitted AND $owner.admitted) { THROW 'native cleanup hold owner'; }; LET $owned=SELECT VALUE id FROM $holds WHERE owner IN $owners; DELETE $owned RETURN NONE",bindings.clone()).await?;
     }
 }
 pub async fn acquire_backup_hold(client: &Surreal<Client>) -> Result<ContentHash, ModelError> {
