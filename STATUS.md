@@ -2,7 +2,15 @@
 
 _Updated 2026-10-10 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: unified persistent SurrealDB UP0–UP9 execution in progress, 2026-10-10.**
+**Holistic state-management design review complete; implementation paused, 2026-10-10.**
+The [review](docs/design_review/reviews/design_review_holistic-state-management_2026-10-10.md)
+assesses stored and active state across compiler graphs, caches, serving sessions, native
+ownership and host/worktree lifecycles. Verdict: **Revise**, ten HS-F findings; A1–A4 violated,
+G1/G5/G6 fail. Remedies remain Proposed; new findings retain source-review disposition.
+Review documentation: `just docs-check` **passed**, 2026-10-10 (378 pages, zero link errors).
+Product/native checks **not_run** for this review; previous acceptance remains open.
+
+**Unified persistent SurrealDB UP0–UP9 implementation / acceptance open.**
 [ADR-0143](docs/adr/0143-unified-persistent-content-and-execution.md) supersedes ADR-0138/0140
 for accepted RC01–RC07. The [unified companion](docs/plans/unified-persistent-surrealdb-plan_2026-10-09.md)
 owns packages; [persisted coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
@@ -19,35 +27,26 @@ projection immutable-collision refusal, sparse role corruption and multi-window 
 Indexed canonical point selection, scoped reconciliation, exact lexical document nomination and
 prepared-stream terminal dispatch preserve full actual-state checks. All12 search controls have
 passed, including corrected occurrence mutations that prove an actual physical change.
-Publication passes sealing, bounded cleanup and readback; subsequent listing rejected an old
-malformed synthetic publication from a retention test. The test now uses a generic native guard.
-Explicit drained maintenance retired the one exact obsolete marker through native APIs, preserved
-private row/source/progress evidence, and checked reopening. The temporary repair helper is removed.
-**remaining acceptance:** final CLI build, generic-root retention and committed acknowledgement-
-discard/session-loss reconciliation passed. Publication's indexed point selection passed; its dump
-omission helper handles bounded empty/multirow frames. The rerun passed its exact-pin panic cleanup
-check, then exposed exported FIELD OVERWRITE metadata comparing unequal to installed INFO.
-Grammar-owned comparison correction passed compile, eight pure controls and independent review.
-Its rerun passed entity-omission refusal, then timed out decoding the next large shared-store dump.
-Terminal-owner cleanup passed its multi-window retention/receipt control. Selected closed-content
-backup preparation passed compile,23 pure controls and independent review;
-full publication/concurrent restore remain pending. Buffering passed compile/24 pure controls/review;
-its native rerun completed compact backup/three omission refusals before timing out in valid restore.
-Scoped terminal cleanup passed interruption and large admitted/unadmitted controls, but its elapsed
-phase remains slow. Imported membership roots and test decomposition are implemented; their focused
-selection finished9passed/8timeouts, including a restore ordering refusal before timeout.
+Earlier sealing/readback, exact-pin panic cleanup, terminal-owner cleanup and compact backup
+controls retain their dated scopes in the coordinator. No whole publication/restore pass is implied.
 Legal singletons now spill with unchanged bounds;14 pure ordering controls passed. Bounded view
-registration is statically accepted; both new native ownership controls passed. Publication rerun
-finished9passed/7timeouts. Canonical marker ordering, portable restore framing and guarded retirement
-windows are implemented/static-reviewed; their focused native/pure controls are running. The last run's
-two identified reader pins were recovered through checked maintenance. Fresh MCP native journeys failed at the missing executable epoch;
+registration is statically accepted; both new native ownership controls passed. Canonical marker
+ordering, portable restore framing and exact-owner retirement child discovery are implemented;
+the last focused three retirement/backing controls **passed**, run `20261010T080622.398Z-9318a7`.
+The latest publication selection **failed**:11 passed/1 failed/4 timeouts/1 ignored, run
+`20261010T080857.871Z-ada670`; final guarded retirement remains problematic. Three timeouts
+were in cleanup and the full compiled-export timeout was in search publication.
+Fresh MCP native journeys **failed**:2 failed/1 ignored, run `20261010T080910.831Z-6c331b`.
+An absent-library request returned `ResourceRefused`; separately, browse publication hit the
+reconciliation array-size limit. Python acceptance is **blocked** by the failed native producer.
+The two earlier identified reader pins were recovered through checked maintenance. After the earlier missing executable epoch,
 explicit checked maintenance installed current933b… names, preserved prior functions and reopened.
 Guard-free final-source `just ready` passed, including the rebuilt native extension. NativeSession
 close drains calls, releases its pin and shares terminal results across closers;
-compile/static review passed, actual Python acceptance is not_run after the failed MCP producer. Earlier eight
-maintenance controls finished6passed/2failed before intended drift assertions; all eight need a
-final-source rerun. Next: fresh retained MCP producer/Python suite, maintenance8, two-worktree
-reuse, populated backup/restore/restart, then unfiltered UP9 `just verify --qualify --cli` and applicable leaves.
+compile/static review passed; actual Python acceptance remains blocked. Earlier maintenance8
+finished6passed/2failed before intended drift assertions; its final-source rerun, two-worktree reuse,
+populated backup/restore/restart and unfiltered UP9 `just verify --qualify --cli` remain pending.
+Next: resolve review recommendations through plan creation before resuming that execution.
 No whole-plan closure or measured benefit is claimed; BC3 profile adoption remains separate.
 Operator/PSE-arrow data, selections, real-library adoption, shared caches and recovery evidence stay protected.
 

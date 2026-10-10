@@ -1084,10 +1084,15 @@ claim of family-only preparation or measured speedup is made. No parallelism cap
 disruptive maintenance controls and final-source UP9 acceptance remain separate pending work.
 
 The compiler-state correction also passed compile checks (`20780`,2.59s) and independent
-static review: hashing, export and audit each capture exact bindings/dependency closure once
-per operation, use indexed candidate/point sources and check all prepared terminals. The
+static review of its individual state operations: hashing and export capture exact bindings/
+dependency closure, use indexed candidate/point sources and check all prepared terminals. The
 extended `completed_state_is_exact_binding_closure_in_current_and_cold_owners` control covers
 unbound exclusion, changed-binding recapture and preserved cold inventory; runtime is pending.
+**Current source qualification, 2026-10-10:** the assembled publication audit still reconstructs
+overlapping closure during publication-context construction, verification and checksum. The
+earlier description of one capture for the whole audit was too broad. Its isolated capture-sharing
+patch remains unintegrated and unverified; the holistic state-management review assesses that
+remedy alongside audit completion ownership.
 NativeSession explicit close now drains active requests and service clones, releases its reader
 pin, then invalidates the client. Concurrent closers share the same terminal result. Compile
 check (`52219`,10.66s), Python syntax check and independent static review passed; its actual
@@ -1637,6 +1642,32 @@ The focused rerun `just verify --select store --nextest-args "--lib --test compi
 Independent review accepted all three frozen source deltas, including guarded malformed-row
 restoration and exact-owner child stream completion. This is focused contract evidence;
 publication, serving, recovery and unfiltered UP9 acceptance still require their own runs.
+
+**Latest pre-review receipts, 2026-10-10 (not rerun during design review):**
+`just verify --select store --nextest-args "--test publication"` **failed**, run
+`20261010T080857.871Z-ada670`, Nextest `fcd92d58-9db8-46bf-8eee-11e174ed0b58`:
+11 passed,1 failed,4 timed out,1 ignored;44.37s build/300.038s test execution.
+The vector excess-row control failed during retirement with a10s transaction timeout inside
+the final guarded candidate window. Vector-occurrence, lexical-occurrence and concurrent-restore
+controls timed out after successful seals and reader finalization, during retirement; those
+timeouts do not establish failed cold-admission assertions. The compiled-export control reached
+restored admission and reference publication, then timed out in search publication. The exact
+expensive retirement operation remains unresolved; the three-control pass above retains its
+smaller scope. Full logs and commands remain in the run's `summary.json` and `verify/store-rust.log`.
+
+`just verify --select serving:mcp --retain-serving unified_up9_batched_source` **failed**, run
+`20261010T080910.831Z-6c331b`: native journeys0 passed/2 failed/1 ignored,501.07s execution.
+The ten-tool journey published/read back successfully, then returned `ResourceRefused` where
+the absent-library check expected `UnknownLibrary`; its underlying refusal is unresolved.
+The browse-scope journey separately failed in `publication_final_reconciliation` because
+`array::concat` exceeded1048576 bytes; the exact concatenating statement is not identified.
+The Python step is **blocked**, not executed, because the native producer failed. The retained
+fixture name is not a qualified serving source. Neither failure is a Python-suite result.
+The run's `summary.json` and `verify/serving-mcp.log` retain the separate evidence.
+Implementation and further runtime qualification are paused for the user-requested
+[holistic state-management review](../design_review/reviews/design_review_holistic-state-management_2026-10-10.md).
+This review does not close or reschedule existing §8 findings; new unscheduled findings retain
+their source-review disposition until subsequent plan creation.
 
 Checked retained-closure attachment during restore remains a bounded avenue for subsequent
 efficiency work if physical replay remains material. It requires fresh selected-input typed/full-row
