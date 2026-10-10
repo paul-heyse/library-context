@@ -1,7 +1,7 @@
 //! Ordinary restore lowers untrusted dump values through typed native ingress.
 //! Temporary files isolate parsing and large data, never a disposable database or raw SQL session.
 use crate::{
-    backup_import::{DATA_TABLES, DataDump, Item},
+    backup_import::{DATA_TABLES, DataDump, Item, definition_metadata},
     native_publication::{Admission, Publication},
 };
 use lctx_model::domain::{
@@ -14,7 +14,7 @@ use lctx_model::domain::{
 use lctx_surrealdb::{
     RuntimeConfig,
     compiler::NativeCompilerStore,
-    surrealdb::types::{Bytes, RecordId, ToSql, Value},
+    surrealdb::types::{Bytes, RecordId, Value},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -261,7 +261,12 @@ fn collect_definition(known: &mut BTreeSet<String>, value: &Value) -> Result<(),
     if parsed.expressions.len() != 1 {
         return Err(ModelError::Schema("installed definition inventory"));
     }
-    known.insert(parsed.expressions[0].to_sql());
+    let surrealdb_sql::TopLevelExpr::Expr(surrealdb_sql::Expr::Define(definition)) =
+        &parsed.expressions[0]
+    else {
+        return Err(ModelError::Schema("installed definition inventory"));
+    };
+    known.insert(definition_metadata(definition)?);
     Ok(())
 }
 struct Rows {
@@ -667,4 +672,36 @@ async fn reconstruct(
         .await?;
     runtime.restore(manifest.profile).await?;
     cpg_core::artifact::verify_restored(&runtime, manifest).await
+}
+
+#[cfg(test)]
+mod definition_tests {
+    use super::*;
+
+    #[test]
+    fn exported_field_metadata_matches_installed_info() {
+        let info = "DEFINE FIELD canonical ON entity TYPE bytes PERMISSIONS FULL";
+        let export = "OPTION IMPORT; DEFINE FIELD OVERWRITE canonical ON entity TYPE bytes PERMISSIONS FULL;";
+        let mut known = BTreeSet::new();
+        collect_definition(&mut known, &Value::String(info.into())).unwrap();
+        let mut dump = DataDump::new(export.as_bytes());
+        let Some(Item::Definition(metadata)) = dump.next().unwrap() else {
+            panic!("exported declaration");
+        };
+        assert!(
+            known.contains(&metadata),
+            "ordinary INFO and native export describe the same schema"
+        );
+        assert!(dump.next().unwrap().is_none());
+        let mut changed = BTreeSet::new();
+        collect_definition(
+            &mut changed,
+            &Value::String("DEFINE FIELD canonical ON entity TYPE string PERMISSIONS FULL".into()),
+        )
+        .unwrap();
+        assert!(
+            !changed.contains(&metadata),
+            "normalization cannot hide schema drift"
+        );
+    }
 }

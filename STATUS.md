@@ -25,9 +25,12 @@ Explicit drained maintenance retired the one exact obsolete marker through nativ
 private row/source/progress evidence, and checked reopening. The temporary repair helper is removed.
 **remaining acceptance:** final CLI build, generic-root retention and committed acknowledgement-
 discard/session-loss reconciliation passed. Publication's indexed point selection passed; its dump
-omission helper is corrected for bounded empty/multirow frames, with runtime rerun pending.
+omission helper handles bounded empty/multirow frames. The rerun passed its exact-pin panic cleanup
+check, then exposed exported FIELD OVERWRITE metadata comparing unequal to installed INFO.
+Grammar-owned comparison correction passed compile, eight pure controls and independent review;
+full publication rerun and concurrent restore remain pending.
 Named recovery released only two verified failed-test pins; installer stabilization passed and
-admission is open. Awaited assertion-failure cleanup passed compile and independent source review; runtime rerun is active.
+admission is open.
 NativeSession close drains calls, releases its pin and shares terminal results across closers;
 compile/static review passed, actual Python acceptance awaits the final MCP journey. Earlier eight
 maintenance controls finished6passed/2failed before intended drift assertions; all eight need a

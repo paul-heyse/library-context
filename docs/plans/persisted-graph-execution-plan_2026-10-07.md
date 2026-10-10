@@ -1287,6 +1287,28 @@ examined source, runtime pending.
 The publication settings nonce is retained to isolate final-retirement controls
 under concurrent copies/worktrees; a stable shared handle alone would undermine that isolation.
 
+Focused publication run `20261010T052010.244Z-dbf748`, Nextest
+`81a0b388-3ef7-413a-bd44-b640b0033e5a`, **failed**,251.517s after36.48s build.
+Publication sealing/readback and the contained assertion-panic exact-pin release check completed.
+The omission helper then received a definition mismatch before its intended missing-payload
+refusal. Exact3.3.0 core `kvs/export.rs:265–274` emits field definitions with `OVERWRITE` for
+idempotent administrative reimport; installed INFO definitions omit that application modifier.
+The ordinary data-only decoder retains it, causing legitimate exported metadata to compare
+unequal. The correction is one grammar-owned comparison normalization of application kind only,
+shared by imported and installed definition metadata; definition bodies remain exact, unsupported
+administrative forms still refuse and no imported SQL executes. The correction passed compile
+(`cargo check --locked --release -p lctx-publisher --lib`,0.60s), independent bounded review and
+all eight actual pure controls: `cargo nextest run --locked --release -p lctx-publisher --lib
+-E 'test(backup_import::tests) | test(restore::definition_tests)'`, Nextest
+`52a22b51-978d-4fd6-8233-89b0fb20ec0b`,0.005s after5.50s build. Controls cover all five
+allowed declaration kinds/modifier roundtrips, literal retention, semantic drift, valid-but-forbidden
+administrative grammar and both imported/INFO comparison paths. Native publication rerun pending.
+The run cleaned its attachment and no ordinary borrower remains. A subsequent
+`just service maintenance --native-clients -- true` **passed** (`20297`), draining/reopening both
+databases without named reader recovery. This establishes the awaited cleanup path on the real
+later assertion failure, not abrupt process termination. Concurrent restores and derived excess
+assertions were not reached. Earlier failed composites remain failed.
+
 **NE0–NE9 execution in progress, 2026-10-09, baseline `ebf1328e`.** ADR-0141 records the
 operator-accepted complementary target. Exact bindings, membership access, typed replay,
 shared admission, wake-driven handoffs, scoped completion, stable flights and explicit

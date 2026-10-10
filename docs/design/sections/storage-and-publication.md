@@ -73,7 +73,10 @@ publication's reader pin. RocksDB snapshot reads retain concurrently retired row
 retirement need not wait for logical export. Protected cold service recovery retains exclusive
 maintenance and drainage. Restore treats its input as data, never as
 Root-authorized SurrealQL: closed literal data is lowered through typed staging and independent
-admission. Definition metadata selects trusted executable generation; imported runtime control
+admission. Definition metadata selects trusted executable generation. Grammar-owned comparison
+normalizes only declaration application modifiers (`OVERWRITE`/`IF NOT EXISTS`); schema, bodies,
+permissions and other attributes remain exact, and imported definitions never execute.
+Imported runtime control
 records cannot restore grants, attempts, fences, pins or visibility. An explicitly selected manifest
 chooses the recovery closure; ambiguous multi-publication convenience restore refuses.
 

@@ -49,6 +49,31 @@ pub(crate) enum Item {
     Rows(Vec<Value>),
 }
 
+/// Compare declarations as immutable metadata, never as executable import instructions.
+/// SurrealDB 3.3 exports fields with OVERWRITE for idempotent SQL re-import, while
+/// INFO renders their installed definitions without that application modifier.
+/// Only the modifier is discarded; every schema/body/permission attribute remains.
+pub(crate) fn definition_metadata(
+    definition: &surrealdb_sql::statements::DefineStatement,
+) -> Result<String, ModelError> {
+    use surrealdb_sql::statements::{DefineStatement, define::DefineKind};
+    let mut definition = definition.clone();
+    let kind = match &mut definition {
+        DefineStatement::Table(value) => &mut value.kind,
+        DefineStatement::Field(value) => &mut value.kind,
+        DefineStatement::Index(value) => &mut value.kind,
+        DefineStatement::Analyzer(value) => &mut value.kind,
+        DefineStatement::Function(value) => &mut value.kind,
+        _ => {
+            return Err(ModelError::Schema(
+                "dump executable administrative definition",
+            ));
+        }
+    };
+    *kind = DefineKind::Default;
+    Ok(definition.to_sql())
+}
+
 struct Units<R> {
     input: R,
     parser: surrealdb_syn::parser::StatementStream,
@@ -168,19 +193,8 @@ impl<R: Read> DataDump<R> {
                     continue;
                 }
                 TopLevelExpr::Expr(Expr::Define(definition)) => {
-                    use surrealdb_sql::statements::DefineStatement;
-                    match definition.as_ref() {
-                        DefineStatement::Table(_)
-                        | DefineStatement::Field(_)
-                        | DefineStatement::Index(_)
-                        | DefineStatement::Analyzer(_)
-                        | DefineStatement::Function(_) => {
-                            Ok(Some(Item::Definition(definition.to_sql())))
-                        }
-                        _ => Err(ModelError::Schema(
-                            "dump executable administrative definition",
-                        )),
-                    }
+                    definition_metadata(definition.as_ref())
+                        .map(|metadata| Some(Item::Definition(metadata)))
                 }
                 TopLevelExpr::Expr(Expr::Insert(insert)) => {
                     if insert.into.is_some()
@@ -309,6 +323,108 @@ mod tests {
             result.push(item);
         }
         Ok(result)
+    }
+    fn metadata(sql: &str) -> String {
+        let items = decode(&format!("OPTION IMPORT; {sql};")).unwrap();
+        let [Item::Definition(metadata)] = items.as_slice() else {
+            panic!("one declaration metadata item");
+        };
+        metadata.clone()
+    }
+    #[test]
+    fn export_definition_metadata_normalizes_only_application_kind() {
+        for (kind, body) in [
+            ("TABLE", "entity SCHEMAFULL PERMISSIONS FULL"),
+            (
+                "FIELD",
+                "payload ON entity TYPE string DEFAULT 'OVERWRITE; IF NOT EXISTS' READONLY ASSERT $value != '' PERMISSIONS FULL COMMENT 'OVERWRITE'",
+            ),
+            ("INDEX", "payload ON entity FIELDS payload UNIQUE"),
+            ("ANALYZER", "search TOKENIZERS class FILTERS lowercase"),
+            (
+                "FUNCTION",
+                "fn::never_execute($input: string) { RETURN 'OVERWRITE; IF NOT EXISTS'; } PERMISSIONS FULL",
+            ),
+        ] {
+            let ordinary = metadata(&format!("DEFINE {kind} {body}"));
+            for modifier in ["OVERWRITE", "IF NOT EXISTS"] {
+                let exported = metadata(&format!("DEFINE {kind} {modifier} {body}"));
+                assert_eq!(exported, ordinary, "application modifier on {kind}");
+                assert_eq!(
+                    metadata(&exported),
+                    ordinary,
+                    "metadata roundtrip on {kind}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn export_definition_metadata_preserves_semantic_drift() {
+        for (installed, changed) in [
+            (
+                "DEFINE FIELD value ON entity TYPE string",
+                "DEFINE FIELD OVERWRITE value ON entity TYPE int",
+            ),
+            (
+                "DEFINE FIELD value ON entity TYPE string PERMISSIONS FULL",
+                "DEFINE FIELD OVERWRITE value ON entity TYPE string PERMISSIONS NONE",
+            ),
+            (
+                "DEFINE FIELD value ON entity TYPE string DEFAULT 'original'",
+                "DEFINE FIELD OVERWRITE value ON entity TYPE string DEFAULT 'changed'",
+            ),
+            (
+                "DEFINE FIELD value ON entity TYPE string ASSERT $value != ''",
+                "DEFINE FIELD OVERWRITE value ON entity TYPE string ASSERT $value = ''",
+            ),
+            (
+                "DEFINE FIELD value ON entity TYPE string READONLY",
+                "DEFINE FIELD OVERWRITE value ON entity TYPE string",
+            ),
+            (
+                "DEFINE TABLE entity SCHEMAFULL",
+                "DEFINE TABLE OVERWRITE entity SCHEMALESS",
+            ),
+            (
+                "DEFINE INDEX value ON entity FIELDS value UNIQUE",
+                "DEFINE INDEX OVERWRITE value ON entity FIELDS value",
+            ),
+            (
+                "DEFINE INDEX value ON entity FIELDS value",
+                "DEFINE INDEX OVERWRITE value ON entity FIELDS other",
+            ),
+            (
+                "DEFINE ANALYZER search TOKENIZERS class FILTERS lowercase",
+                "DEFINE ANALYZER OVERWRITE search TOKENIZERS class FILTERS uppercase",
+            ),
+            (
+                "DEFINE FUNCTION fn::answer() { RETURN 'original'; }",
+                "DEFINE FUNCTION OVERWRITE fn::answer() { RETURN 'changed'; }",
+            ),
+        ] {
+            assert_ne!(
+                metadata(installed),
+                metadata(changed),
+                "changed declaration: {changed}"
+            );
+        }
+    }
+    #[test]
+    fn export_definition_metadata_refuses_administrative_variants() {
+        for sql in [
+            "DEFINE DATABASE other",
+            "DEFINE NAMESPACE other",
+            "DEFINE USER root ON ROOT PASSWORD 'x' ROLES OWNER",
+            "DEFINE PARAM $secret VALUE 'x'",
+            "DEFINE EVENT mutation ON entity WHEN true THEN (DELETE entity)",
+        ] {
+            surrealdb_syn::parse(&format!("{sql};"))
+                .expect("valid administrative declaration grammar");
+            assert!(
+                decode(&format!("OPTION IMPORT; {sql};")).is_err(),
+                "accepted {sql}"
+            );
+        }
     }
     #[test]
     fn restore_decodes_native_literals_without_evaluating_definitions() {
