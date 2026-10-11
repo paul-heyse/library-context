@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+import contextvars
+import copy
 import fcntl
 import hashlib
 import io
@@ -292,8 +294,9 @@ def _descriptor(root: Path) -> dict[str, Any]:
             value["binary"]["sha256"] == BINARY_SHA256 and value["binary"]["version"] == VERSION
         )
         if generation := value["binary"].get("generation"):
-            valid_binary = value["binary"] == _generation_binary(
-                _owned_server_generation(root, Path(generation["descriptor_path"])))
+            # Loading is structural observation. Executable proof belongs inside the
+            # borrow/maintenance lifetime, after replacement protection is acquired.
+            valid_binary = value["binary"] == _generation_binary(generation)
     except KeyError, ValueError, TypeError:
         valid_endpoint = valid_binary = False
     if (
@@ -393,6 +396,13 @@ class Installation:
 
     def check_daemon(self) -> None:
         """Prove the exact owned daemon before any initial/retried administrative query."""
+        if checked := checked_generation(self):
+            checked.validate(self)
+            return
+        try:
+            selected_before = executable_identity(Path(self.record["binary"]["path"]).stat())
+        except OSError:
+            raise FixtureBlocked("binary", "installed executable is unavailable", BINARY_REPAIR) from None
         binary = _installed_binary(self)
         state = unit_properties(self.unit, "ActiveState", "Result", "MainPID", "ExecStart")
         if state.get("ActiveState") != "active":
@@ -402,7 +412,8 @@ class Installation:
                 "just service maintenance --restart",
             )
         try:
-            exe = Path(f"/proc/{int(state['MainPID'])}/exe").resolve(strict=True)
+            process = ProcessIdentity.of(int(state["MainPID"]))
+            exe = Path(f"/proc/{process.pid}/exe").resolve(strict=True)
             if exe != binary.resolve():
                 raise FixtureBlocked("identity", "running service binary differs from installation")
             argv = Path(f"/proc/{int(state['MainPID'])}/cmdline").read_bytes().split(b"\0")
@@ -432,6 +443,12 @@ class Installation:
             with local_urlopen(self.endpoint + "/version", timeout=2) as response:
                 if response.read().decode().strip() != self.record["binary"]["version"]:
                     raise FixtureBlocked("identity", "running server version differs from pin")
+            executable = Path(f"/proc/{process.pid}/exe").stat()
+            selected = binary.stat()
+            if (not process.alive() or selected_before != executable_identity(selected)
+                or executable_identity(executable) != executable_identity(selected)):
+                raise FixtureBlocked("identity", "running executable generation changed")
+            self._daemon_identity = (process, executable_identity(executable))
         except OSError, ValueError, KeyError:
             raise FixtureBlocked(
                 "readiness",
@@ -440,6 +457,9 @@ class Installation:
             ) from None
 
     def check(self, *, allow_maintenance: bool = False) -> dict[str, Any]:
+        if checked := checked_generation(self):
+            checked.validate(self)
+            return copy.deepcopy(checked.readiness)
         if not allow_maintenance and (self.directory / "maintenance.json").exists():
             raise FixtureBlocked(
                 "maintenance",
@@ -846,13 +866,73 @@ def borrowers(installation: Installation) -> list[dict[str, Any]]:
     return found
 
 
+def executable_identity(info: os.stat_result) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+_checked_generations = contextvars.ContextVar("checked_service_generations", default=())
+
+
+def checked_generation(installation: Installation) -> CheckedServiceGeneration | None:
+    return next((checked for checked in reversed(_checked_generations.get())
+                 if checked.installation.directory == installation.directory), None)
+
+
+@dataclass
+class CheckedServiceGeneration:
+    """In-process proof carried only while its authenticated borrower lease is live.
+
+    This is deliberately not deserializable authority. A child process borrows/checks for
+    itself; exported identity JSON is evidence only. The live daemon owns its loaded inode;
+    borrower protection excludes managed replacement/schema changes, while exact identity
+    checks below reject process, pathname, descriptor, runtime or admission changes.
+    """
+
+    installation: Installation
+    readiness: dict[str, Any]
+    lease: int
+    descriptor: dict[str, Any]
+    runtime_bytes: dict[Path, bytes]
+    daemon: Any
+    owner_pid: int
+    active: bool = True
+
+    def validate(self, installation: Installation) -> None:
+        try:
+            os.fstat(self.lease)
+            if (not self.active or self.owner_pid != os.getpid()
+                or installation.record != self.descriptor
+                or read_json(installation.directory / "installation.json") != self.descriptor
+                or (installation.directory / "maintenance.json").exists()
+                or any(path.read_bytes() != value for path, value in self.runtime_bytes.items())):
+                raise ValueError("generation or admission changed")
+            if self.daemon is not None:
+                process, executable = self.daemon
+                if (not process.alive()
+                    or executable_identity(Path(f"/proc/{process.pid}/exe").stat()) != executable
+                    or executable_identity(Path(self.descriptor["binary"]["path"]).stat()) != executable):
+                    raise ValueError("daemon or executable changed")
+        except OSError, ValueError:
+            raise FixtureBlocked("identity", "checked service generation is no longer protected",
+                                 "just service status; acquire a new fixture borrow") from None
+
+    def server_identity(self, installation: Installation) -> dict[str, str]:
+        self.validate(installation)
+        binary = self.descriptor["binary"]
+        result = {"version": binary["version"], "binary_sha256": binary["sha256"]}
+        if generation := binary.get("generation"):
+            result["generation"] = generation["identity"]
+        return result
+
+
 @contextlib.contextmanager
-def borrow(installation: Installation) -> Iterator[int | None]:
+def borrow(installation: Installation) -> Iterator[CheckedServiceGeneration | None]:
     root = installation.directory
     if maintenance_owned(installation):
         yield None
         return
     gate = os.open(root / "admission.lock", os.O_RDWR | os.O_CLOEXEC)
+    use = None
     try:
         try:
             fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
@@ -860,14 +940,27 @@ def borrow(installation: Installation) -> Iterator[int | None]:
             raise FixtureBlocked(
                 "maintenance", "borrower admission is closed", "just service status"
             ) from None
-        installation.check()
         use = os.open(root / "borrowers.lock", os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
         fcntl.flock(use, fcntl.LOCK_SH)
+        # Both admission and replacement protection precede executable/admin proof.
+        readiness = installation.check()
+        checked = CheckedServiceGeneration(
+            installation, readiness, use, copy.deepcopy(installation.record),
+            {installation.runtime_path(db): installation.runtime_path(db).read_bytes()
+             for db in DATABASES}, getattr(installation, "_daemon_identity", None), os.getpid())
+        checked.validate(installation)
+    except BaseException:
+        if use is not None:
+            os.close(use)
+        raise
     finally:
         os.close(gate)
+    token = _checked_generations.set((*_checked_generations.get(), checked))
     try:
-        yield use
+        yield checked
     finally:
+        checked.active = False
+        _checked_generations.reset(token)
         os.close(use)
 
 

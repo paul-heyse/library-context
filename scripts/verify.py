@@ -1124,9 +1124,19 @@ def _run_boundary(
     try:
         with runtime.owner(boundary.requirements, waiting) as owned:
             runtime.progress(waiting_reason=None)
-            observations = runtime.observe(set(boundary.requirements))
+            # Native prerequisites are checked under the fixture's borrower lifetime.
+            # Observation outside that lifetime cannot become reusable proof.
+            initial = set(boundary.requirements)
+            native = initial.intersection(NATIVE_REQUIREMENTS) if boundary.fixture else set()
+            initial -= native
+            observations = runtime.observe(initial) if initial else {}
             missing = [o for o in observations.values() if not o.ready]
             if missing:
+                # Still report independent missing prerequisites when Python blocks
+                # attachment setup. This outside-borrow observation grants no proof.
+                if native:
+                    observations.update(runtime.observe(native))
+                    missing = [o for o in observations.values() if not o.ready]
                 reason = "; ".join(
                     f"prerequisite {o.requirement}: {o.repair or o.message()}" for o in missing
                 )
@@ -1137,6 +1147,13 @@ def _run_boundary(
                 runtime.fixture(options) if boundary.fixture else contextlib.nullcontext()
             )
             with fixture_scope as attachment:
+                observations = runtime.observe(native) if native else {}
+                missing = [o for o in observations.values() if not o.ready]
+                if missing:
+                    reason = "; ".join(
+                        f"prerequisite {o.requirement}: {o.repair or o.message()}" for o in missing
+                    )
+                    return done("blocked", reason)
                 completed = _run_steps(
                     planned, runtime, options, attachment, base, log, live, result, done
                 )

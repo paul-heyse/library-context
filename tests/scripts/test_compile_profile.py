@@ -660,6 +660,56 @@ def test_status_skips_open_chunks_and_is_readonly(root, monkeypatch):
     assert not (directory / "report.json").exists()
 
 
+def test_repeated_status_never_decodes_closed_samples(root, monkeypatch):
+    directory = runs.new_run_dir() / "compile-profile"
+    unit = directory / "units/a"
+    write_json_atomic(unit / "record.json", {"phase": "completed", "exit_code": 0})
+    chunk = unit / "perf.data.closed"
+    chunk.write_bytes(b"retained capture")
+    monkeypatch.setattr(capture, "read_completed_chunks", lambda _: [chunk])
+    monkeypatch.setattr(runs, "view", lambda _: {"state": "completed"})
+    monkeypatch.setattr(profile, "sampled_report", lambda *_a, **_k: pytest.fail("status decoded"))
+    for _ in range(2):
+        data = profile.status_data(directory.parent.name)
+        assert data["units"][0]["analysis"]["outcome"] == "not_run"
+        assert data["units"][0]["analysis"]["latest_capture"] == str(chunk)
+        assert data["units"][0]["analysis"]["currency"] == "not_checked"
+
+
+def test_sampled_reader_changes_invalidate_and_missing_reader_is_analysis_blocked(tmp_path, monkeypatch):
+    chunk, reader = tmp_path / "perf.data", tmp_path / "perf"
+    chunk.write_bytes(b"capture")
+    reader.write_bytes(b"reader-one")
+    monkeypatch.setattr(capture, "resolve_perf", lambda: str(reader))
+    calls = []
+    monkeypatch.setattr(profile, "execute", lambda argv: calls.append(argv) or {"outcome": "passed", "stdout": "decoded"})
+    assert profile.sampled_report(chunk)["outcome"] == "passed"
+    assert profile.sampled_report(chunk)["outcome"] == "passed"
+    assert len(calls) == 1
+    reader.write_bytes(b"reader-two")
+    assert profile.sampled_report(chunk)["outcome"] == "passed"
+    assert len(calls) == 2
+    reader.unlink()
+    blocked = profile.sampled_report(chunk)
+    assert blocked["outcome"] == "blocked" and blocked["capture_preserved"]
+    assert len(calls) == 2
+    status = profile.sampled_analysis_status(chunk)
+    assert status["recorded_report"]["outcome"] == "blocked"
+    assert status["outcome"] == "not_run" and status["currency"] == "not_checked"
+
+
+def test_status_retains_corrupt_analysis_metadata_as_distinct_failure(tmp_path, monkeypatch):
+    chunk = tmp_path / "perf.data"
+    chunk.write_bytes(b"capture remains intact")
+    receipt = (profile.report_location(chunk) / f"{chunk.name}.hotspots.txt").with_suffix(".json")
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text("{broken metadata")
+    monkeypatch.setattr(profile, "execute", lambda *_a, **_k: pytest.fail("status invokes reader"))
+    status = profile.sampled_analysis_status(chunk)
+    assert status["recorded_report"]["outcome"] == "failed"
+    assert chunk.read_bytes() == b"capture remains intact"
+
+
 def test_report_never_reads_active_compiler_sidecars(root, monkeypatch):
     directory = runs.new_run_dir() / "compile-profile"
     unit_dir = directory / "units/a"

@@ -1172,12 +1172,24 @@ def sampled_report(chunk: Path, *, force: bool = False, readonly: bool = False) 
     output = report_location(chunk) / f"{chunk.name}.hotspots.txt"
     import compile_profile_tools
 
-    perf = Path(capture().resolve_perf()).resolve()
-    signature = {
-        "sha256": compile_profile_tools.digest(chunk),
-        "reader_sha256": compile_profile_tools.digest(perf),
-        "settings": ["--children", "--percent-limit", "0.5"],
-    }
+    try:
+        perf = Path(capture().resolve_perf()).resolve()
+        signature = {
+            "sha256": compile_profile_tools.digest(chunk),
+            "reader_sha256": compile_profile_tools.digest(perf),
+            "settings": ["--children", "--percent-limit", "0.5"],
+        }
+    except (OSError, ValueError) as error:
+        data = {
+            "outcome": "blocked", "reason": f"sample analysis unavailable: {error}",
+            "capture": str(chunk), "capture_preserved": chunk.is_file(),
+        }
+        if not readonly:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(data["reason"] + "\n")
+            data["path"] = str(output)
+            write_json_atomic(output.with_suffix(".json"), data)
+        return data
     receipt = output.with_suffix(".json")
     previous = read_json(receipt)
     if not force and previous and previous.get("input") == signature and output.is_file():
@@ -1219,6 +1231,28 @@ def unit_lifecycle(unit: dict[str, Any]) -> str:
     return "terminated" if unit.get("phase") == "completed" else "unknown"
 
 
+def sampled_analysis_status(recent: Path | None) -> dict[str, Any]:
+    """Observe a report receipt, without reading capture bytes or invoking readers."""
+    recorded = None
+    if recent:
+        receipt = (report_location(recent) / f"{recent.name}.hotspots.txt").with_suffix(".json")
+        try:
+            previous = read_json(receipt)
+            if previous:
+                recorded = {key: previous.get(key) for key in ("outcome", "reason", "path", "input")}
+            elif receipt.exists():
+                recorded = {"outcome": "failed", "reason": "analysis metadata unreadable"}
+        except (OSError, ValueError, AttributeError) as error:
+            recorded = {"outcome": "failed", "reason": f"analysis metadata unavailable: {error}"}
+    return {
+        "outcome": "not_run",
+        "reason": "status observes metadata only; use report/view to decode and validate analysis",
+        "latest_capture": str(recent) if recent else None,
+        "recorded_report": recorded,
+        "currency": "not_checked",
+    }
+
+
 def status_data(ref: str) -> dict[str, Any]:
     directory = profile_dir(ref)
     data = {
@@ -1249,7 +1283,8 @@ def status_data(ref: str) -> dict[str, Any]:
                 "resources": process_metrics(unit["pid"]) if active else {},
                 "completed_chunks": [str(p) for p in chunks],
                 "chunk_issue": issue,
-                "recent_hotspots": sampled_report(recent, readonly=True) if recent else None,
+                "recent_hotspots": None,
+                "analysis": sampled_analysis_status(recent),
             }
         )
     data["capacity"] = capacity_observation(directory)

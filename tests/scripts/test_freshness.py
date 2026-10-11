@@ -89,6 +89,157 @@ def test_hakari_missing_offline_resolution_never_certifies_clean(tmp_path):
     assert result.state == "not_run"
 
 
+@pytest.mark.parametrize("extra,files,directories", [
+    ("", {"src/lib.rs": "invalid source", "src/main.rs": "body", "tests/one.rs": "body", "tests/two/main.rs": "body", "src/bin/build/main.rs": "body"}, ["tests/empty"]),
+    ('autolib=false\nautobins=false\nautotests=false\nautoexamples=false\nautobenches=false\nbuild="custom/build.input"\n[[bin]]\nname="chosen"\npath="custom/target.input"\n', {"custom/build.input": "build body", "custom/target.input": "source body"}, []),
+    ('[lib]\npath="missing/custom.input"\n', {}, []),
+    ("", {}, ["src/bin/empty"]),
+    ("", {"src/lib.rs": "", "tests/one.rs": "", "tests/one/main.rs": ""}, []),
+    ('[target.\'cfg(unix)\'.dependencies]\nhelper={path="helper",optional=true}\n', {"src/lib.rs": "", "helper/Cargo.toml": '[package]\nname="helper"\nversion="0.1.0"\nedition="2024"\n', "helper/src/lib.rs": "body"}, []),
+])
+def test_metadata_placeholder_capture_matches_actual_cargo(tmp_path, extra, files, directories):
+    import shutil
+    import subprocess
+
+    if not shutil.which("cargo"):
+        pytest.skip("installed pinned Cargo required for metadata equivalence")
+    root, copy = tmp_path / "original", tmp_path / "capture"
+    root.mkdir()
+    (root / "Cargo.toml").write_text('[package]\nname="metadata-shape"\nversion="0.1.0"\nedition="2024"\n' + extra + '\n[workspace]\n')
+    (root / "Cargo.lock").write_text("version=4\n")
+    for name, body in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+    for name in directories:
+        (root / name).mkdir(parents=True, exist_ok=True)
+    captured = freshness.metadata_inputs(root)
+    for directory in captured.directories:
+        (copy / directory.relative_to(root)).mkdir(parents=True, exist_ok=True)
+    for path, body in captured.items():
+        if path.is_relative_to(root):
+            target = copy / path.relative_to(root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(body)
+
+    def observe(directory):
+        done = subprocess.run(["cargo", "metadata", "--offline", "--no-deps", "--format-version", "1"], cwd=directory, capture_output=True, text=True)
+        value = done.stdout if done.returncode == 0 else done.stderr
+        value = value.replace(str(directory), "<ROOT>")
+        return done.returncode, json.loads(value) if done.returncode == 0 else value
+
+    assert observe(root) == observe(copy)
+    for path in captured:
+        if path.suffix == ".rs":
+            assert captured[path] == b""
+
+
+def test_metadata_shape_and_declaration_changes_are_observed_but_source_bodies_are_not(tmp_path):
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers=["packages/*"]\nexclude=["packages/excluded"]\n')
+    (tmp_path / "Cargo.lock").write_text("version=4\n")
+    source = tmp_path / "source.rs"
+    source.write_text("original source")
+    asset = tmp_path / "runtime.json"
+    asset.write_text('{"retain":"bytes"}')
+    before = freshness.metadata_inputs(tmp_path)
+    source.write_text("changed source")
+    assert freshness.metadata_inputs(tmp_path) == before
+    assert before[asset] == asset.read_bytes()
+    empty = tmp_path / "packages/empty"
+    empty.mkdir(parents=True)
+    assert freshness.metadata_inputs(tmp_path) != before
+    empty.rmdir()
+    (tmp_path / "packages").rmdir()
+    assert freshness.metadata_inputs(tmp_path) == before
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers=[]\n')
+    assert freshness.metadata_inputs(tmp_path) != before
+
+
+@pytest.mark.parametrize("layout", ["symlink-file", "symlink-directory", "escape", "excluded-glob", "config-path"])
+def test_metadata_unsupported_layout_never_reports_clean(tmp_path, layout):
+    (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers=[]\n")
+    (tmp_path / "Cargo.lock").write_text("version=4\n")
+    if layout == "symlink-file":
+        (tmp_path / "lib.rs").symlink_to(tmp_path / "Cargo.lock")
+    elif layout == "symlink-directory":
+        (tmp_path / "source").mkdir()
+        (tmp_path / "alias").symlink_to(tmp_path / "source", target_is_directory=True)
+    elif layout == "escape":
+        (tmp_path / "Cargo.toml").write_text('[package]\nname="escape"\nversion="0.1.0"\n[lib]\npath="../outside.rs"\n')
+    elif layout == "excluded-glob":
+        (tmp_path / "target").mkdir()
+        (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers=["*"]\n')
+    else:
+        (tmp_path / ".cargo").mkdir()
+        (tmp_path / ".cargo/config.toml").write_text('[source.local]\ndirectory="../vendor"\n')
+    fake = Fake({"cargo metadata": Ran(1, "", "error: Cargo metadata oracle unavailable")})
+    result = freshness.hakari(fake, tmp_path)
+    assert result.state == "not_run" and "capture unavailable" in result.reason
+    assert all(call[1] == "metadata" for call in fake.calls)
+
+
+def test_conservative_fallback_qualifies_unrelated_skill_links_with_actual_metadata(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("cargo"):
+        pytest.skip("installed Cargo required for conservative fallback equivalence")
+    root = tmp_path / "project"
+    (root / "src").mkdir(parents=True)
+    (root / "Cargo.toml").write_text('[package]\nname="fallback-shape"\nversion="0.1.0"\nedition="2024"\n[workspace]\n')
+    (root / "src/lib.rs").write_text("nonempty source retained conservatively")
+    (root / ".claude/skills").mkdir(parents=True)
+    skill = tmp_path / "shared-skill"
+    skill.mkdir()
+    (skill / "Cargo.toml").write_text("this must never become a Cargo input")
+    (root / ".claude/skills/tool").symlink_to(skill, target_is_directory=True)
+    result = subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1", "--manifest-path", str(root / "Cargo.toml")], capture_output=True)
+    assert result.returncode == 0, result.stderr
+    captured = freshness.metadata_inputs(root, source_bodies=True, conservative=True)
+    assert captured[root / "src/lib.rs"] == (root / "src/lib.rs").read_bytes()
+    calls = []
+
+    def native_metadata(argv, **kwargs):
+        calls.append(tuple(argv))
+        if argv[1] == "metadata":
+            return freshness.run(argv, **kwargs)
+        return CLEAN
+
+    assert freshness.hakari(native_metadata, root).state == "clean"
+    assert sum(call[1] == "metadata" for call in calls) == 3
+
+
+def test_conservative_fallback_never_accepts_different_cargo_metadata(tmp_path):
+    (tmp_path / "Cargo.toml").write_text("[workspace]\nmembers=[]\n")
+    (tmp_path / "Cargo.lock").write_text("version=4\n")
+    (tmp_path / "link").symlink_to(tmp_path / "Cargo.lock")
+
+    def different(argv, *, cwd, environment):
+        assert argv[1] == "metadata"
+        return Ran(0, json.dumps({"scope": "live" if cwd == tmp_path else "different"}), "")
+
+    result = freshness.hakari(different, tmp_path)
+    assert result.state == "not_run" and "differs from actual Cargo metadata" in result.reason
+
+
+def test_hakari_does_not_duplicate_cargo_home_config(tmp_path, monkeypatch):
+    home = tmp_path / "home/.cargo"
+    home.mkdir(parents=True)
+    (home / "config.toml").write_text('[build]\nrustflags=["--cfg", "home_flag"]\n')
+    root = tmp_path / "home/project"
+    root.mkdir()
+    (root / "Cargo.toml").write_text("[workspace]\nmembers=[]\n")
+    (root / "Cargo.lock").write_text("version=4\n")
+    monkeypatch.setenv("CARGO_HOME", str(home))
+
+    def observe(argv, *, cwd, environment):
+        assert not (cwd.parent / ".cargo/config.toml").exists()
+        assert (home / "config.toml").read_text().count("home_flag") == 1
+        return CLEAN
+
+    assert freshness.hakari(observe, root).state == "clean"
+
+
 def test_hakari_actual_stale_lock_metadata_preserves_live_bytes(tmp_path):
     import shutil
 

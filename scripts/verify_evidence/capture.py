@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import storage_owners
+from executable_observation import observe as observe_executable
 from harness import write_json_atomic
 from storage_lifecycle import admission
 
@@ -158,42 +159,20 @@ class Invocation:
                     ):
                         continue
                     path = Path(event["executable"])
+                    package_name = None
                     try:
-                        before = path.stat()
-                        signature = (
-                            before.st_dev,
-                            before.st_ino,
-                            before.st_size,
-                            before.st_mtime_ns,
-                            before.st_ctime_ns,
-                        )
-                        cached = self.owner.binary_cache.get(str(path))
-                        digest = (
-                            cached[1] if cached and cached[0] == signature else digest_file(path)
-                        )
-                        after = path.stat()
-                        changed = (before.st_ino, before.st_mtime_ns, before.st_ctime_ns) != (
-                            after.st_ino,
-                            after.st_mtime_ns,
-                            after.st_ctime_ns,
-                        )
-                        if not changed:
-                            self.owner.binary_cache[str(path)] = (signature, digest)
-                        binaries.append(
-                            {
-                                "path": str(path),
-                                "sha256": None if changed else digest,
-                                "package_id": event.get("package_id"),
-                                "target": event.get("target"),
-                                "observation": "changed"
-                                if changed
-                                else "artifact bytes at completion",
-                                "executed_bytes": "unknown",
-                                "source_closure": "unknown",
-                            }
-                        )
-                    except OSError as error:
-                        binaries.append({"path": str(path), "unavailable": type(error).__name__})
+                        manifest = Path(event["manifest_path"]).read_bytes()
+                        package_name = tomllib.loads(manifest.decode())["package"]["name"]
+                    except (OSError, ValueError, KeyError, TypeError):
+                        pass
+                    binaries.append({
+                        **observe_executable(path),
+                        "package_id": event.get("package_id"),
+                        "package_name": package_name,
+                        "target": event.get("target"),
+                        "features": event.get("features"),
+                        "profile": event.get("profile"),
+                    })
             self.save(binaries=binaries)
 
 
@@ -204,7 +183,6 @@ class CaptureOwner:
         self.receipt = self.run_dir / "verify-evidence-receipt"
         self.manifest_path = self.receipt / "manifest.json"
         self.source = SourceObserver(root)
-        self.binary_cache: dict[str, tuple[tuple[int, ...], str]] = {}
         self.invocations: list[Invocation] = []
         self.warned = False
         self.manifest: dict[str, Any] = {"schema": SCHEMA, "run": run_dir.name, "invocations": []}

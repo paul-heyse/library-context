@@ -66,7 +66,13 @@ def installed(tmp_path, monkeypatch):
         }
         service.private_json(root / f"{database}-runtime.json", cfg)
     monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(root / "installation.json"))
-    monkeypatch.setattr(service.Installation, "check", lambda self, **kw: {"outcome": "passed"})
+    def checked(self, **kw):
+        if witness := service.checked_generation(self):
+            witness.validate(self)
+        else:
+            service._installed_binary(self)
+        return {"outcome": "passed"}
+    monkeypatch.setattr(service.Installation, "check", checked)
     monkeypatch.setattr(service, "verify_binary", lambda env: Path(env["LCTX_SURREAL_BIN"]))
     monkeypatch.setattr(service, "_run_installer", lambda *a, **kw: None)
     return fx.Server(service.Installation.load())
@@ -155,6 +161,18 @@ def test_missing_installation_blocks_without_provisioning(tmp_path, monkeypatch)
     with pytest.raises(fx.FixtureBlocked, match="no installed service"), fx.fixture():
         pytest.fail("missing installation cannot yield a fixture")
     assert not root.exists()
+
+
+def test_attachment_child_setup_refuses_changed_generation(installed):
+    attachment = fx.Attachment.create(installed)
+    try:
+        attachment.environment({})
+        changed = {**installed.record, "native_schema_version": 99}
+        service.private_json(installed.directory / "installation.json", changed)
+        with pytest.raises(fx.FixtureBlocked, match="no longer protected"):
+            attachment.environment({})
+    finally:
+        attachment.release()
 
 
 def test_two_attachments_share_stable_db_and_have_distinct_attempts(installed, monkeypatch):

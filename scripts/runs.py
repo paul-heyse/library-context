@@ -387,6 +387,7 @@ class Owner:
                 consumer,
                 temporary_days=90,
             )
+            self.record["storage"] = {"receipt": receipt}
             result = self._run_owned(ready)
             # Cleanup remains authoritative; complete refuses unknown/nonterminal owners.
             storage_owners.complete(receipt, consumer)
@@ -396,14 +397,10 @@ class Owner:
             # fixed, already-enrolled components after this owner confirmed cleanup.
             if (self.dir / "verify-evidence.json").exists():
                 try:
-                    from storage_lifecycle import Storage
-
-                    allowed = {self.dir / "verify-evidence", self.dir / "verify-evidence-receipt"}
-                    for component in Storage().records():
+                    for component in enrolled_components(self.dir, evidence_only=True):
                         if (
                             component.get("owner")
                             == {"kind": "run", "path": str(self.dir.resolve())}
-                            and Path(component["path"]) in allowed
                             and not component.get("retired_at")
                             and component.get("category") in ("run-log", "run-receipt")
                         ):
@@ -466,6 +463,7 @@ class Owner:
                     f"run:{self.dir.name}",
                     temporary_days=30,
                 )
+                self.record.setdefault("storage", {})["log"] = self._storage_log
                 if self.stream:
                     display = FileDisplay(
                         output_path, banner=f"runs: {self.dir.name}  ({output_path})"
@@ -915,23 +913,64 @@ def _cancel(run_dir: Path, *, grace: float = 10.0) -> dict[str, Any]:
 
 def cancel(run_dir: Path, *, grace: float = 10.0) -> dict[str, Any]:
     import storage_owners
-    from storage_lifecycle import Storage, admission
+    from storage_lifecycle import admission
 
     with admission([run_dir]):
         data = _cancel(run_dir, grace=grace)
+        data["storage_completion"] = []
         if data.get("cleanup", {}).get("status") == "confirmed":
             # Only complete existing enrolled components; recovery does not adopt legacy scope.
-            for row in Storage().records():
+            for row in enrolled_components(run_dir):
                 if row.get("owner", {}).get("path") != str(run_dir.resolve()):
                     continue
                 if row.get("retired_at"):
                     continue
                 for consumer, obligation in row["obligations"].items():
                     if obligation.get("temporary_days") is not None:
-                        storage_owners.complete(
+                        completed = storage_owners.complete(
                             row["id"], consumer, reason="confirmed owner recovery"
                         )
+                        data["storage_completion"].append({
+                            "id": row["id"], "consumer": consumer,
+                            "status": "confirmed" if completed else "unresolved",
+                        })
         return data
+
+
+def enrolled_components(run_dir: Path, *, evidence_only: bool = False) -> list[dict[str, Any]]:
+    """Resolve only this run owner's fixed, indexed components, including recovery.
+
+    Never inventory unrelated host descriptors to finish a known run. A damaged
+    index/descriptor in this exact scope still raises and leaves release unresolved.
+    """
+    from storage_lifecycle import Storage
+
+    storage = Storage()
+    paths = [run_dir / "verify-evidence", run_dir / "verify-evidence-receipt"]
+    evidence = read_json(run_dir / "verify-evidence.json") or {}
+    evidence_ids = evidence.get("storage", {})
+    enrolled_ids = {paths[0]: evidence_ids.get("raw"), paths[1]: evidence_ids.get("receipt")}
+    if not evidence_only:
+        paths.extend([run_dir, run_dir / OUTPUT])
+        run_ids = (load_record(run_dir) or {}).get("storage", {})
+        enrolled_ids.update({run_dir: run_ids.get("receipt"), run_dir / OUTPUT: run_ids.get("log")})
+        if (run_dir / "compile-profile/record.json").exists() or (
+            run_dir / "compile-profile-location.json"
+        ).exists():
+            import compile_profile
+
+            paths.extend(Path(row["path"]) for row in compile_profile.lifecycle_components(run_dir))
+    result = []
+    for path in dict.fromkeys(paths):
+        object_id = enrolled_ids.get(path)
+        row = storage.get(object_id) if object_id else storage.enrolled(path)
+        if row is not None:
+            if Path(row["path"]) != path.resolve() or row.get("retired_at"):
+                raise ValueError(f"enrolled run component has another or retired scope: {path}")
+            if row.get("owner", {}).get("path") != str(run_dir.resolve()):
+                raise ValueError(f"enrolled run component has another owner: {path}")
+            result.append(row)
+    return result
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:

@@ -20,6 +20,95 @@ import pytest
 import surrealdb_service as service
 from surrealdb_service import _run_installer, verify_binary as verify_official_binary
 
+INSTALLATION_CHECK = service.Installation.check
+
+
+def assert_borrow_protected(path):
+    with path.open("rb") as lock:
+        with pytest.raises(BlockingIOError):
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_borrow_protects_before_proof_and_reuses_one_checked_generation(recoverable, monkeypatch):
+    installation, _archive, _actions = recoverable
+    proofs, queries = [], []
+    monkeypatch.setattr(service.Installation, "check", INSTALLATION_CHECK)
+    def daemon(current):
+        assert_borrow_protected(current.directory / "admission.lock")
+        assert_borrow_protected(current.directory / "borrowers.lock")
+        proofs.append(current.id)
+    monkeypatch.setattr(service.Installation, "check_daemon", daemon)
+    def sql(current, statement, *, cfg):
+        queries.append(cfg["database"])
+        return [{"result": [{"generation": bytes(current.record["service_generation"]).hex(),
+                             "schema_version": 3}]}]
+    monkeypatch.setattr(service, "sql", sql)
+    with service.borrow(installation) as checked:
+        first = checked.readiness
+        for _ in range(3):
+            loaded = service.Installation.load({"LCTX_SURREAL_SERVICE_CONFIG":
+                str(installation.directory / "installation.json")})
+            assert loaded.check() == first
+            assert checked.server_identity(loaded)["binary_sha256"] == service.BINARY_SHA256
+        assert proofs == [installation.id] and queries == list(service.DATABASES)
+    assert service.checked_generation(installation) is None
+    with pytest.raises(service.FixtureBlocked, match="no longer protected"):
+        checked.validate(installation)
+
+
+@pytest.mark.parametrize("change", ["descriptor", "runtime", "admission"])
+def test_checked_generation_refuses_changed_premises(recoverable, monkeypatch, change):
+    installation, _archive, _actions = recoverable
+    with service.borrow(installation) as checked:
+        if change == "descriptor":
+            row = {**installation.record, "native_schema_version": 99}
+            service.private_json(installation.directory / "installation.json", row)
+        elif change == "runtime":
+            path = installation.runtime_path()
+            path.write_bytes(path.read_bytes() + b" ")
+        else:
+            service.private_json(installation.directory / "maintenance.json", {"token": "new"})
+        with pytest.raises(service.FixtureBlocked, match="no longer protected"):
+            checked.validate(installation)
+
+
+def test_failed_borrow_releases_locks_and_preserves_readiness_repair(recoverable, monkeypatch):
+    installation, _archive, _actions = recoverable
+    def refuse(self, **kw):
+        assert_borrow_protected(self.directory / "borrowers.lock")
+        raise service.FixtureBlocked("schema", "exact schema mismatch", "just service maintenance --check")
+    monkeypatch.setattr(service.Installation, "check", refuse)
+    with pytest.raises(service.FixtureBlocked) as error, service.borrow(installation):
+        pytest.fail("failed check cannot yield a witness")
+    assert error.value.repair == "just service maintenance --check"
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+    assert not service.lock_held(installation.directory / "admission.lock")
+
+
+@pytest.mark.parametrize("change", ["daemon", "executable", "owner"])
+def test_checked_generation_rejects_process_executable_or_process_handoff(recoverable, monkeypatch, change):
+    installation, _archive, _actions = recoverable
+    binary = Path(installation.record["binary"]["path"])
+    actual_stat = Path.stat
+    monkeypatch.setattr(Path, "stat", lambda path, *a, **kw:
+        actual_stat(binary, *a, **kw) if str(path) == "/proc/1234/exe"
+        else actual_stat(path, *a, **kw))
+    alive = True
+    installation._daemon_identity = (SimpleNamespace(pid=1234, alive=lambda: alive),
+                                    service.executable_identity(binary.stat()))
+    with service.borrow(installation) as checked:
+        checked.validate(installation)
+        if change == "daemon":
+            alive = False
+        elif change == "executable":
+            replacement = binary.with_name("replacement")
+            replacement.write_bytes(binary.read_bytes())
+            os.replace(replacement, binary)
+        else:
+            checked.owner_pid += 1
+        with pytest.raises(service.FixtureBlocked, match="no longer protected"):
+            checked.validate(installation)
+
 
 def test_default_state_is_host_owned_and_shared_across_checkouts():
     assert service.state_root({"HOME": "/home/test"}) == Path(
@@ -1868,6 +1957,11 @@ def test_check_daemon_checks_patched_actual_http_version_after_exact_executable(
         return read_bytes(path)
     monkeypatch.setattr(Path, "resolve", resolved)
     monkeypatch.setattr(Path, "read_bytes", bytes_for)
+    actual_stat = Path.stat
+    monkeypatch.setattr(Path, "stat", lambda path, *a, **kw:
+                        actual_stat(binary, *a, **kw) if str(path) == "/proc/1234/exe"
+                        else actual_stat(path, *a, **kw))
+    monkeypatch.setattr(service.ProcessIdentity, "of", lambda pid=None: SimpleNamespace(pid=1234, alive=lambda: True))
     reported = service.VERSION
     monkeypatch.setattr(service, "local_urlopen", lambda *args, **kw:
         contextlib.nullcontext(SimpleNamespace(status=200, read=lambda: reported.encode())))

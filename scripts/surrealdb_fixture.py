@@ -146,6 +146,8 @@ def _git(*args: str) -> str:
 
 
 def _server_identity(installation: Installation) -> dict[str, str]:
+    if checked := service.checked_generation(installation):
+        return checked.server_identity(installation)
     service._installed_binary(installation)
     binary = installation.record["binary"]
     identity = {"version": binary["version"], "binary_sha256": binary["sha256"]}
@@ -416,6 +418,7 @@ class Attachment:
     extra_env: dict[str, str] = field(default_factory=dict)
     _lock: int | None = field(default=None, repr=False)
     _borrow: Any = field(default=None, repr=False)
+    _generation: Any = field(default=None, repr=False)
     _command_cleanup: dict[str, Any] | None = field(default=None, repr=False)
     _unreaped_child: subprocess.Popen | None = field(default=None, repr=False)
     _retaining: Path | None = field(default=None, repr=False)
@@ -463,7 +466,7 @@ class Attachment:
             ownership = (
                 contextlib.nullcontext() if maintenance else service.borrow(server.installation)
             )
-            ownership.__enter__()
+            generation = ownership.__enter__()
             borrowed = True
             directory.mkdir(mode=0o700)
             lock = hold_lock(directory / "owner.lock")
@@ -486,7 +489,8 @@ class Attachment:
                 "server": _server_identity(server.installation),
             }
             attachment = cls(
-                server, attachment_id, directory, config, _lock=lock, _borrow=ownership
+                server, attachment_id, directory, config, _lock=lock, _borrow=ownership,
+                _generation=generation
             )
             if maintenance_env:
                 attachment.extra_env["LCTX_SURREAL_MAINTENANCE_TOKEN"] = maintenance_env[
@@ -532,6 +536,8 @@ class Attachment:
         write_json_atomic(self.directory / "record.json", record)
 
     def environment(self, source: Mapping[str, str] | None = None) -> dict[str, str]:
+        if self._generation is not None:
+            self._generation.validate(self.server.installation)
         env = dict(os.environ if source is None else source)
         env.update(
             {

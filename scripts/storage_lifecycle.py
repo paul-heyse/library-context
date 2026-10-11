@@ -510,7 +510,7 @@ class Storage:
     def validate(self, row: dict) -> None:
         import math
 
-        if row.get("schema") != 1 or row.get("category") not in self.policy["categories"]:
+        if not isinstance(row, dict) or row.get("schema") != 1 or row.get("category") not in self.policy["categories"]:
             raise Invalid("unknown descriptor schema/category")
         try:
             uuid.UUID(row["id"])
@@ -591,12 +591,21 @@ class Storage:
         if not target.exists():
             return None
         index = read_json(target)
-        if index.get("schema") != 1 or index.get("path") != str(path):
+        if not isinstance(index, dict) or index.get("schema") != 1 or index.get("path") != str(path) or not isinstance(index.get("id"), str):
             raise Invalid("physical path index differs")
         row = self.get(index["id"])
         if row["path"] != str(path):
             raise Invalid("physical path index points to another scope")
         return None if row.get("retired_at") else row
+
+    def enrolled(self, path: Path) -> dict | None:
+        """Read one already-enrolled physical scope without inventory or legacy adoption.
+
+        Producers publish the path index with their descriptor. A missing index is
+        unknown enrollment, never permission to discover or adopt unrelated objects.
+        Global inventory continues to validate every descriptor independently.
+        """
+        return self._path_row(absolute(path))
 
     def publish(
         self,

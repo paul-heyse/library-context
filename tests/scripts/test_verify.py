@@ -629,7 +629,9 @@ def test_test_all_keeps_profile_selection_and_pure_work_when_prerequisites_block
     for boundary in ("analytics:rust", "providers:flow", "tooling:rust", "tooling:docs"):
         assert outcomes[boundary]["outcome"] == "passed"
         assert any(p.get("current_command") == boundary for p in fake.progress)
-    assert not fake.attachments
+    # Native-only prerequisites are now observed inside the fixture owner. A fake
+    # attachment can be entered, but no blocked boundary may launch a child.
+    assert all(not row["steps"] for row in results if row["outcome"] == "blocked")
     assert not any("sync" in command or "maintenance" in command for command in fake.commands)
     monkeypatch.setattr(verify, "DEFAULT_CARGO_PROFILE", "test")
     selected = plan_of("--test-all", "--cargo-profile", "local-test-candidate")
@@ -909,6 +911,33 @@ def test_readiness_observes_native_substrate_and_never_synchronizes():
     assert observed["native-store"].ready is False
 
 
+def test_native_prerequisites_are_observed_within_fixture_lifetime():
+    fake = Fake()
+    runtime = fake.runtime()
+    active = False
+    original = runtime.fixture
+    @contextlib.contextmanager
+    def fixture(options):
+        nonlocal active
+        with original(options) as attachment:
+            active = True
+            try:
+                yield attachment
+            finally:
+                active = False
+    runtime.fixture = fixture
+    observed = []
+    def observe(requirements):
+        observed.append(set(requirements))
+        if set(requirements).intersection(verify.NATIVE_REQUIREMENTS):
+            assert active
+        return fake.observe(requirements)
+    runtime.observe = observe
+    (result,) = verify.execute(plan_of("--select", "providers:extract"), runtime, Options(), fake.logs)
+    assert result["outcome"] == "passed"
+    assert observed == [{"tools"}, {"native-store"}] and not active
+
+
 def test_execution_reobserves_each_boundary_under_real_ownership(tmp_path, monkeypatch):
     import workspace_env
 
@@ -935,7 +964,8 @@ def test_execution_reobserves_each_boundary_under_real_ownership(tmp_path, monke
         fake.logs,
     )
     assert [r["outcome"] for r in results] == ["passed", "blocked"]
-    assert len(fake.commands) == 1 and len(observed) == 2
+    assert len(fake.commands) == 1
+    assert observed == [{"tools"}, {"tools"}, {"native-store"}]
     assert not workspace_env.holders(resource)
 
 

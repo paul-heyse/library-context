@@ -2,10 +2,87 @@
 
 from __future__ import annotations
 
+import json
 import shlex
 from typing import Any
 
 from .contracts import CaptureUnsupported
+
+
+def cargo_target(invocation: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+    """Join the stable native binary ID to retained Cargo artifact declarations.
+
+    No current metadata/build discovery is allowed in a printed experiment plan.
+    Nextest 0.9.146 IDs distinguish libraries, integration tests and other kinds.
+    """
+    binary = case.get("binary_id")
+    if not binary:
+        raise CaptureUnsupported("exact native binary identity unavailable")
+    package, separator, suffix = binary.partition("::")
+    if not separator:
+        kind, name = "lib", None
+    elif "/" in suffix:
+        kind, name = suffix.split("/", 1)
+    else:
+        kind, name = "test", suffix
+    matches = {}
+    for row in invocation.get("binaries", []):
+        if (row.get("profile") or {}).get("test") is False:
+            continue  # Cargo also emits ordinary companion executables for integration tests.
+        target = row.get("target") or {}
+        kinds = target.get("kind", [])
+        actual_kind = "lib" if set(kinds) & {"lib", "proc-macro", "rlib", "dylib", "staticlib", "cdylib"} else kinds[0] if len(kinds) == 1 else None
+        if (
+            row.get("package_name") == package
+            and actual_kind == kind
+            and (name is None or target.get("name") == name)
+            and row.get("package_id")
+        ):
+            identity = (row["package_id"], tuple(kinds), target.get("name"),
+                json.dumps(row.get("profile"), sort_keys=True), json.dumps(row.get("features"), sort_keys=True))
+            matches[identity] = row
+    if len(matches) != 1:
+        raise CaptureUnsupported(
+            f"recorded Cargo target for {binary} is missing or ambiguous ({len(matches)} matches)"
+        )
+    row = next(iter(matches.values()))
+    if kind not in {"lib", "test", "bin", "example", "bench"}:
+        raise CaptureUnsupported(f"unsupported recorded Cargo target kind: {kind}")
+    return row
+
+
+def narrow_cargo(argv: list[str], artifact: dict[str, Any]) -> list[str]:
+    target = artifact["target"]
+    kinds = set(target["kind"])
+    kind = "lib" if kinds & {"lib", "proc-macro", "rlib", "dylib", "staticlib", "cdylib"} else next(iter(kinds))
+    if kind not in {"lib", "test", "bin", "example", "bench"} or not target.get("name"):
+        raise CaptureUnsupported("unsupported or incomplete Cargo target declaration")
+    flags = {"--workspace", "--all", "--all-targets", "--lib", "--bins", "--tests", "--examples", "--benches"}
+    values = {"-p", "--package", "--exclude", "--bin", "--test", "--example", "--bench"}
+    result = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "--":
+            result.extend(argv[index:])
+            break
+        option = token.split("=", 1)[0]
+        if option in values:
+            if "=" not in token:
+                if index + 1 == len(argv):
+                    raise CaptureUnsupported(f"missing value for {token}")
+                index += 1
+        elif token.startswith("-p") and not token.startswith("--") and token != "-p":
+            pass
+        elif token not in flags:
+            result.append(token)
+        index += 1
+    at = result.index("--") if "--" in result else len(result)
+    selection = ["--package", artifact["package_id"], "--" + kind]
+    if kind != "lib":
+        selection.append(target["name"])
+    result[at:at] = selection
+    return result
 
 
 def _matcher(value: str) -> str:
@@ -184,7 +261,8 @@ def plan(
     if target is None:
         raise CaptureUnsupported("recorded step no longer exists in current catalog")
     if invocation.get("tool") == "nextest":
-        argv = nextest_case(invocation["argv"], case)
+        artifact = cargo_target(invocation, case)
+        argv = nextest_case(narrow_cargo(invocation["argv"], artifact), case)
     elif invocation.get("tool") == "pytest":
         for tokens in (invocation.get("selection_options") or {}).values():
             pytest_case(["pytest", *tokens], "exact-node", require_no_targets=True)
@@ -251,9 +329,12 @@ def plan(
                     operations.append({"operation": "fixture-restart", "after": provider.name})
 
     require(target)
-    operations.append(
-        {"step": target.name, "argv": argv, "command": shlex.join(argv), "case_filter": True}
-    )
+    selected = {"step": target.name, "argv": argv, "command": shlex.join(argv), "case_filter": True}
+    if invocation.get("tool") == "nextest":
+        selected["cargo_target"] = {key: artifact.get(key) for key in (
+            "package_id", "package_name", "target", "features", "profile"
+        )}
+    operations.append(selected)
     by_name = {step.name: step for step in boundary.steps}
     for operation in operations:
         if operation.get("step") not in by_name:

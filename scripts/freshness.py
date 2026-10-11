@@ -17,6 +17,7 @@ Nothing here regenerates, formats or synchronizes. Uncommitted work is reported 
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import subprocess
@@ -99,31 +100,66 @@ def _relative(path: str, root: Path) -> str:
 # Outputs
 
 
-def metadata_inputs(root: Path) -> dict[Path, bytes]:
-    """Capture Cargo's local declarations and target discovery without build/env trees.
+class MetadataInputs(dict[Path, bytes]):
+    """Metadata-operation capture, never a source/producer semantic fingerprint."""
 
-    All captured files become ordinary owned files. Unsupported escaping path declarations
-    are refused rather than exposing a writable manifest outside the capture.
+    def __init__(self):
+        super().__init__()
+        self.directories: set[Path] = set()
+        self.symlinks: dict[Path, str] = {}
+
+    def __eq__(self, other):
+        return isinstance(other, MetadataInputs) and dict.__eq__(self, other) and self.directories == other.directories and self.symlinks == other.symlinks
+
+    def __ne__(self, other):
+        return not self == other
+
+
+class UnsupportedShape(ValueError):
+    """A conservative capture plus an actual Cargo oracle may qualify this shape."""
+
+
+def metadata_inputs(root: Path, *, source_bodies: bool = False, conservative: bool = False) -> MetadataInputs:
+    """Capture Cargo's declarations and complete target discovery shape.
+
+    Cargo owns target discovery, including arbitrary explicit suffixes and empty glob
+    directories. Only source bodies are placeholders; non-source/declaration bytes
+    retain their meaning. Unsupported layouts refuse instead of certifying clean.
     """
     root = root.resolve()
-    inputs = {}
+    inputs = MetadataInputs()
     excluded = {".git", ".venv", "target", "build", "__pycache__", "node_modules"}
+    omitted = set()
     for directory, dirs, files in os.walk(root, followlinks=False):
-        dirs[:] = [name for name in dirs if name not in excluded]
-        for name in files:
+        omitted.update(Path(directory) / name for name in dirs if name in excluded and (conservative or Path(directory) == root))
+        dirs[:] = [name for name in dirs if name not in excluded or (not conservative and Path(directory) != root)]
+        inputs.directories.add(Path(directory))
+        for name in list(dirs):
             path = Path(directory) / name
-            if (
-                name not in {"Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml"}
-                and path.suffix != ".rs"
-                and not (
-                    path.parent.name in {".cargo", ".config"}
-                    and name in {"config", "config.toml", "hakari.toml"}
-                )
-            ):
+            if path.is_symlink():
+                if not conservative:
+                    raise UnsupportedShape(f"unsupported symlink directory: {path}")
+                inputs.symlinks[path] = os.readlink(path)
+                inputs.directories.add(path)
+                dirs.remove(name)
+        for name in files:
+            if name == ".git" and Path(directory) == root:
                 continue
+            path = Path(directory) / name
+            declaration = name in {"Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", "config", "config.toml", "hakari.toml"}
+            if path.is_symlink():
+                if not conservative:
+                    raise UnsupportedShape(f"unsupported symlink input: {path}")
+                inputs.symlinks[path] = os.readlink(path)
+                if not declaration and path.suffix != ".rs":
+                    inputs[path] = b""
+                    continue
             if not path.resolve().is_relative_to(root):
-                raise ValueError(f"input escapes checkout: {path}")
-            inputs[path] = path.read_bytes()
+                raise ValueError(f"unsupported escaping input: {path}")
+            inputs[path] = b"" if (path.suffix == ".rs" and not source_bodies) or (conservative and not declaration and path.suffix != ".rs") else path.read_bytes()
+    declarations = {path for path in inputs if path.name in {
+        "Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", "config", "config.toml", "hakari.toml"
+    }}
     for path, data in list(inputs.items()):
         if path.name != "Cargo.toml":
             continue
@@ -143,22 +179,73 @@ def metadata_inputs(root: Path) -> dict[Path, bytes]:
                 for child in value:
                     yield from paths(child)
 
-        for declaration in paths(tomllib.loads(data.decode())):
-            source = path.parent / declaration
+        manifest = tomllib.loads(data.decode())
+        for declaration in paths(manifest):
+            source = (path.parent / declaration).resolve()
             if Path(declaration).is_absolute() or not source.resolve().is_relative_to(root):
                 raise ValueError(f"unsupported escaping path in {path}: {declaration}")
-            if source.is_file():
-                inputs[source] = source.read_bytes()
+            if any(source == skipped or source.is_relative_to(skipped) for skipped in omitted):
+                raise ValueError(f"declaration enters excluded capture tree in {path}: {declaration}")
+            for match in glob.glob(str(source), recursive=True, include_hidden=True):
+                if any(Path(match).resolve() == skipped or Path(match).resolve().is_relative_to(skipped) for skipped in omitted):
+                    raise ValueError(f"declaration glob enters excluded capture tree in {path}: {declaration}")
+        for package in (manifest.get("package", {}), manifest.get("workspace", {}).get("package", {})):
+            for key in ("readme", "license-file"):
+                name = package.get(key)
+                if isinstance(name, str):
+                    declared = (path.parent / name).resolve()
+                    if Path(name).is_absolute() or not declared.resolve().is_relative_to(root):
+                        raise ValueError(f"unsupported escaping {key} in {path}: {name}")
+                    if declared.is_file():
+                        declarations.add(declared)
+                        inputs[declared] = declared.read_bytes()
+        sources = []
+        for key in ("lib", "bin", "test", "example", "bench"):
+            targets = manifest.get(key, [])
+            if isinstance(targets, dict):
+                targets = [targets]
+            sources.extend(target["path"] for target in targets if "path" in target)
+        build = manifest.get("package", {}).get("build")
+        if isinstance(build, str):
+            sources.append(build)
+        for name in sources:
+            source = (path.parent / name).resolve()
+            if source.is_file() and source not in declarations:
+                inputs[path.parent / name] = source.read_bytes() if source_bodies else b""
     for parent in [root, *root.parents]:
         for name in ("config", "config.toml"):
             path = parent / ".cargo" / name
+            if path.is_symlink():
+                raise ValueError(f"unsupported symlink Cargo configuration: {path}")
             if path.is_file():
                 inputs[path] = path.read_bytes()
     cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
+    if not cargo_home.is_absolute():
+        raise ValueError("relative CARGO_HOME cannot be relocated faithfully")
     for name in ("config", "config.toml"):
         path = cargo_home / name
+        if path.is_symlink():
+            raise ValueError(f"unsupported symlink Cargo-home configuration: {path}")
         if path.is_file():
             inputs[path.resolve()] = path.read_bytes()
+    for path, data in inputs.items():
+        if path.parent.name == ".cargo" and path.name in {"config", "config.toml"}:
+            config = tomllib.loads(data.decode())
+            if any(key in config for key in ("include", "paths", "patch")) or any(
+                any(key in source for key in ("directory", "local-registry"))
+                for source in config.get("source", {}).values()
+            ):
+                raise ValueError(f"unsupported path-dependent Cargo configuration: {path}")
+            target = config.get("build", {}).get("target", [])
+            targets = [target] if isinstance(target, str) else target
+            if any(value.endswith(".json") or "/" in value or "\\" in value for value in targets) or any(
+                isinstance(value, dict) and value.get("relative")
+                for value in config.get("env", {}).values()
+            ):
+                raise ValueError(f"unsupported target/env path Cargo configuration: {path}")
+    target = os.environ.get("CARGO_BUILD_TARGET", "")
+    if target.endswith(".json") or "/" in target or "\\" in target:
+        raise ValueError("path-dependent CARGO_BUILD_TARGET cannot be relocated faithfully")
     if root / "Cargo.toml" not in inputs or root / "Cargo.lock" not in inputs:
         raise ValueError("Cargo.toml or Cargo.lock missing; prepare the workspace explicitly")
     return inputs
@@ -169,31 +256,63 @@ def hakari(runner: Runner, root: Path = ROOT) -> Freshness:
     generate = ("cargo", "hakari", "generate", "--diff")
     manage = ("cargo", "hakari", "manage-deps", "--dry-run")
     root = root.resolve()
+    conservative = False
     try:
-        captured = metadata_inputs(root)
+        try:
+            captured = metadata_inputs(root)
+        except UnsupportedShape:
+            conservative = True
+            captured = metadata_inputs(root, source_bodies=True, conservative=True)
         with tempfile.TemporaryDirectory(prefix="lctx-fresh-hakari-") as temporary:
             owned = Path(temporary)
             workspace = owned / root.relative_to(root.anchor)
+            for directory in captured.directories:
+                (owned / directory.relative_to(directory.anchor)).mkdir(parents=True, exist_ok=True)
+            cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo")).resolve()
+            home_configs = {cargo_home / "config", cargo_home / "config.toml"}
             for source, data in captured.items():
+                # Cargo still reads its real home configuration. Mirroring that same
+                # file into a capture ancestor would apply array settings twice.
+                if source in home_configs:
+                    continue
                 destination = owned / source.relative_to(source.anchor)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(data)
+            intended_configs = {owned / source.relative_to(source.anchor) for source in captured
+                if source.parent.name == ".cargo" and source.name in {"config", "config.toml"} and source not in home_configs}
+            for parent in [workspace, *workspace.parents]:
+                for name in ("config", "config.toml"):
+                    config = parent / ".cargo" / name
+                    if config.exists() and config not in intended_configs and config not in home_configs:
+                        raise ValueError(f"capture inherits additional Cargo configuration: {config}")
             environment = {
                 "CARGO_NET_OFFLINE": "true",
                 "RUSTUP_AUTO_INSTALL": "0",
                 "CARGO_TARGET_DIR": str(owned / "target"),
                 "CARGO_BUILD_BUILD_DIR": str(owned / "intermediates"),
             }
+            metadata = ("cargo", "metadata", "--offline", "--locked", "--format-version", "1")
+
+            def observe_metadata(cwd):
+                ran = runner(metadata, cwd=cwd, environment=environment)
+                if ran.returncode:
+                    raise ValueError(f"conservative Cargo metadata oracle unavailable (exit {ran.returncode}): {ran.stderr.strip()}")
+                return json.loads(ran.stdout.replace(cwd.as_uri(), "<WORKSPACE_URI>").replace(str(cwd), "<WORKSPACE>"))
+
+            original_metadata = observe_metadata(root) if conservative else None
+            if conservative and observe_metadata(workspace) != original_metadata:
+                raise ValueError("conservative capture differs from actual Cargo metadata; unsupported input layout")
             diff = runner(generate, cwd=workspace, environment=environment)
             deps = runner(manage, cwd=workspace, environment=environment)
+            metadata_unchanged = not conservative or observe_metadata(root) == original_metadata
             normalized_lock = (workspace / "Cargo.lock").read_bytes() != captured[
                 root / "Cargo.lock"
             ]
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, TypeError, KeyError) as error:
         return Freshness("hakari", "not_run", regenerate, f"metadata capture unavailable: {error}")
     try:
-        unchanged = metadata_inputs(root) == captured
-    except OSError, ValueError:
+        unchanged = metadata_unchanged and metadata_inputs(root, source_bodies=conservative, conservative=conservative) == captured
+    except OSError, ValueError, TypeError, KeyError:
         unchanged = False
     if not unchanged:
         return Freshness(

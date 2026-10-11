@@ -183,7 +183,8 @@ def retention(root: Path, consumer: str | None = None) -> dict[str, Any]:
     manifest = read_json(root / "verify-evidence.json") or {}
     ids = [ident for ident in manifest.get("storage", {}).values() if ident]
     if (root / "bundle.json").exists():
-        ids = [row["id"] for row in Storage().records() if Path(row["path"]) == root]
+        row = Storage().enrolled(root)
+        ids = [row["id"]] if row else []
     if consumer:
         if not ids:
             raise ValueError("evidence has no enrolled lifetime; cannot establish a citation hold")
