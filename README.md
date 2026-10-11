@@ -20,6 +20,40 @@ checkpoint and remaining qualification. Accepted architecture includes labeled t
 - [Development instructions](AGENTS.md)
 - [Decision records (current rationale)](docs/adr/README.md)
 
+## Tests
+
+Run `just test-all` for the complete ordinary repository test scope: workspace Rust unit and
+integration tests, Python tests, Rust doctests and compile-fail controls. Native boundaries borrow
+the installed persistent validation service with logical isolation; the command supplies their
+configuration and retains ownership through the existing fixture lifecycle. It checks this checkout's
+Python/native prerequisites and reports missing prerequisites as `blocked`, with the repair command.
+Environment synchronization, service installation and migrations remain explicit operations.
+
+`just test-all --print` previews the commands, readiness and coverage without building tests.
+`just test-all --live` follows output; full logs and `summary.json` stay under the run reported by
+the command. Independent boundaries continue after failures; `just verify --rerun RUN` repeats
+failed, blocked and unreached boundaries with their original scope and compilation profile.
+Compiler and test parallelism use their normal available settings. The current default Cargo
+profile is release pending local-profile qualification; `py314` is the Python/Ruff version target.
+
+The MCP journey uses fresh producer/consumer processes without restarting the shared daemon.
+`just test-all --restart-service` explicitly adds the existing drained maintenance/restart check;
+use it when that disruptive persistence assurance is intended. The same option applies to
+`just qualify --restart-service`.
+
+Coverage accounting compares the resolved plan with Cargo workspace targets and pytest-configured
+test files, and refuses unassigned ordinary targets or files. New tests inside an already selected
+target or directory are included automatically. Default-feature tests are covered; optional-feature
+combinations are listed separately. Ignored controls and their reasons are visible in the coverage
+report: the two fixture-only ignored native controls run explicitly, joined-process oracle children
+remain owned by their parents, and maintenance, historical-format and retained-fixture-only controls
+remain excluded by default. An ordinary-suite pass does not qualify those excluded scenarios.
+
+`just qualify` runs the same complete ordinary test scope plus Clippy, dependency, documentation
+and other non-functional leaves. Bare `cargo nextest run --workspace --no-fail-fast` covers Rust
+tests only and does not acquire native fixture configuration; use `just test-all` for the integrated
+repository scope or `just fixture -- cargo nextest run …` for a fixture-backed bare Rust selection.
+
 ## Documentation locally
 
 Run `just bootstrap-docs` once to install the declared documentation tools and cache isolated test

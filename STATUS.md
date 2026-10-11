@@ -1,6 +1,6 @@
 # Status
 
-_Updated 2026-10-10 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-11 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
 **Current scope: SurrealDB architecture SA0–SA9; paused for operator restart,2026-10-10.**
 The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
@@ -101,11 +101,10 @@ PSE-arrow's patched WebSocket buffers query results; progressive server `query_s
 need an adapter with equivalent cancellation and backup support. PSE-arrow is unchanged.
 No dependency version or public artifact schema changed; [pins](docs/pins.md) owns the SDK hold.
 
-**Agent effectiveness AF0–AF9 implemented / focused-Tested,2026-10-09:**
-[Follow-up plan §8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
-owns receipts and findings; ADR-0142 governs owned readiness, independent cleanup and detachable display.
-Independent integrated review accepted examined scope. Focused tooling, publisher/resolver, lint/types,
-ADR and documentation checks passed; comprehensive product acceptance remains separately open.
+**Agent effectiveness AF0–AF9 implemented / focused-Tested,2026-10-09:** [Follow-up plan §8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner) owns findings/receipts; ADR-0142 governs readiness/cleanup/display. Scoped acceptance does not establish comprehensive product acceptance.
+
+**Complete ordinary test entrypoint implemented,2026-10-11:** `just test-all` uses the existing verification/fixture owners; `just qualify` adds non-functional leaves. [README](README.md#tests) owns usage and scope limits.
+Coverage accounts for161 Rust targets and51 Python files; maintenance/historical/optional-feature scope is explicit. Daemon restart requires `--restart-service`. Full execution is **not_run**; focused verification is recorded in the command's implementation commit. Failure-based design review is paused; its supplied XML/recording and partial inventory are preserved.
 
 **Existing qualification follow-up:** source-specific failures require correction and affected reruns.
 Coordinator §9.1 retains failures/timeouts and the source-accepted foreign-context completion correction; resume with `just ready`, focused completion/sort/native controls, then the facts-phase diagnostic.

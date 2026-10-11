@@ -5,6 +5,7 @@
     just verify --print …     static plan: commands, environment names, prerequisites, readiness
     just verify --list …      builds: tool discovery (nextest list, pytest --collect-only)
     just verify --rerun ID    the failed, blocked or unexecuted boundaries of run ID's selection
+    just verify test-all     every ordinary test boundary; no reuse or scope filters
     just verify qualify       every boundary and leaf; no reuse, no filters, no self-preparation
     just verify-<family> [--command BOUNDARY] [-- ARGS]   shortcut; ARGS reach the primary tool
 
@@ -15,7 +16,8 @@ selected boundary that has that tool). ``BOUNDARIES`` is the only catalogue: pla
 
 Readiness observes and never synchronizes (ADR-0134): a missing prerequisite is ``blocked`` with
 its repair route. Fixture-backed boundaries each get an owned native SurrealDB attachment
-(``surrealdb_fixture``); all boundaries share the installed service with logical attempts. Outcomes are ``passed``,
+(``surrealdb_fixture``); all boundaries share the installed service with logical attempts.
+Outcomes are ``passed``,
 ``failed``, ``blocked`` or ``not_run``; ``blocked`` needs evidence (a failed readiness
 observation, evidenced fixture infrastructure failure, an actual launch error). Interruption is
 the run's termination, never an outcome. Execution always runs under a run handle (``runs.py``):
@@ -36,7 +38,7 @@ import sys
 import time
 import tomllib
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -271,7 +273,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
     Boundary(
         "serving",
         "mcp",
-        "MCP journey: produce serving content, restart, then the Python wire/session suite",
+        "MCP journey: produce serving content, then the Python wire/session suite",
         (
             Step(
                 "build",
@@ -294,7 +296,6 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 ),
                 env=(("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG", "{serving}"),),
                 produces_serving=True,
-                restart_after=True,
             ),
             Step(
                 "pytest",
@@ -350,6 +351,9 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 "pytest",
                 (
                     "tests/scripts",
+                    "python/lctx_mcp/tests/test_embedder.py",
+                    "python/lctx_mcp/tests/test_embed_serve.py",
+                    "python/lctx_mcp/tests/test_transport_envelope.py",
                     "--ignore=tests/scripts/test_flow_soundness.py",
                     "--ignore=tests/scripts/test_programmatic_native.py",
                     "--ignore=tests/scripts/test_programmatic_native_numeric.py",
@@ -357,6 +361,22 @@ BOUNDARIES: tuple[Boundary, ...] = (
             ),
         ),
         frozenset({"tools"}),
+    ),
+    Boundary(
+        "tooling",
+        "rust",
+        "workspace utility, evaluation, embedding and binding tests",
+        (
+            nextest(
+                "nextest",
+                "lctx-embed",
+                "lctx-eval",
+                "lctx-semantics",
+                "lctx-workspace-hack",
+                "lctx-model-macros",
+                targets=("--lib", "--tests"),
+            ),
+        ),
     ),
     Boundary(
         "tooling",
@@ -518,17 +538,27 @@ class Options:
     attach: str | None = None
     serving: str | None = None
     retain_serving: str | None = None
+    restart_service: bool = False
     qualify: bool = False
+    test_all: bool = False
+    complete_scope: bool = False  # Broadened commands survive focused full-mode reruns.
     required_release: bool = False  # Optimized acceptance provenance survives focused reruns.
+
+    def __post_init__(self) -> None:
+        if self.test_all or self.qualify:
+            object.__setattr__(self, "cli", True)
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "cli": self.cli,
+            "cli": self.cli or self.qualify or self.test_all,
             "cargo_config": list(self.cargo_config),
             "attach": self.attach,
             "serving": self.serving,
             "retain_serving": self.retain_serving,
+            "restart_service": self.restart_service,
             "qualify": self.qualify,
+            "test_all": self.test_all,
+            "complete_scope": self.complete_scope or self.qualify or self.test_all,
             "required_release": self.qualify or self.required_release,
         }
 
@@ -608,6 +638,7 @@ def step_receipt(planned: PlannedStep, target: Path) -> dict[str, Any]:
     return {
         "name": planned.step.name,
         "argv": list(planned.argv),
+        "restart_after": planned.step.restart_after,
         "cargo_profile": planned.cargo_profile,
         "artifact_dir": str(
             artifact_directory(planned.step.artifact_target_dir or target, planned.cargo_profile)
@@ -702,7 +733,8 @@ def step_argv(
 ) -> tuple[str, ...]:
     profile = step.cargo_profile or cargo_profile
     if step.tool == "nextest":
-        chosen, defaults = narrow(boundary, step, nextest_args, targets)
+        arguments = (*step.argv, *nextest_args)
+        chosen, defaults = narrow(boundary, step, arguments, targets)
         selection = (*(item for p in chosen for item in ("-p", p)), *defaults)
         head = ("cargo", "nextest", "list", "--message-format", "json") if listing else NEXTEST_RUN
         argv = (
@@ -710,7 +742,7 @@ def step_argv(
             "--cargo-profile",
             profile,
             *selection,
-            *restricted_arguments(step, nextest_args),
+            *restricted_arguments(step, arguments),
         )
     elif step.tool == "pytest":
         # Collection needs node IDs; repo addopts already contains -q, and -qq hides them.
@@ -735,6 +767,46 @@ def expand(select: str) -> list[Boundary]:
     raise PlanError(f"unknown selection {select!r}; choose a family or one of: {', '.join(known)}")
 
 
+def complete_boundary(boundary: Boundary) -> Boundary:
+    """Full ordinary scope, without changing the focused provider contracts."""
+    if boundary.id in {"providers:extract", "providers:flow"}:
+        return replace(
+            boundary,
+            steps=tuple(
+                replace(step, targets=("--lib", "--tests"), required_filter=None, target_filters=())
+                if step.tool == "nextest"
+                else step
+                for step in boundary.steps
+            ),
+        )
+    if boundary.id == "store:rust":
+        # These controls require only the installed validation fixture. Maintenance and
+        # history controls remain ignored; full verification never acquires that authority.
+        ignored = (
+            "control::tests::native_keyset_dynamic_scan_pushes_limit_and_preserves_full_ordered_pages",
+            "derived_search::occurrence_budget_tests::"
+            "occurrence_driver_refuses_changed_dependencies_unit_and_missing_payload",
+        )
+        return replace(
+            boundary,
+            steps=(
+                *boundary.steps,
+                *(
+                    Step(
+                        f"fixture-ignored-{index}",
+                        "nextest",
+                        argv=("--run-ignored", "only"),
+                        packages=("lctx-surrealdb",),
+                        targets=("--lib",),
+                        required_filter=f"test(={name})",
+                    )
+                    for index, name in enumerate(ignored, 1)
+                ),
+            ),
+        )
+    return boundary
+
+
 def resolve(
     selections: Sequence[Selection],
     options: Options,
@@ -743,12 +815,22 @@ def resolve(
     """One plan: every selected boundary with its own arguments routed to their owners."""
     shared = [s for s in selections if s.select is None]
     scoped = [s for s in selections if s.select is not None]
-    if options.qualify:
+    if options.qualify and options.test_all:
+        raise PlanError("--qualify and --test-all are mutually exclusive")
+    full = options.qualify or options.test_all
+    if (full or options.complete_scope) and os.environ.get("PYTEST_ADDOPTS", "").strip():
+        raise PlanError("complete test scope refuses PYTEST_ADDOPTS; unset this filtering override")
+    if full:
+        mode = "qualify" if options.qualify else "test-all"
         if any(s.nextest_args or s.pytest_args for s in selections) or scoped:
-            raise PlanError("qualify requires its complete declared selections (no filters)")
+            raise PlanError(f"{mode} requires its complete declared selections (no filters)")
         if options.attach or options.serving or options.retain_serving:
-            raise PlanError("qualify refuses reuse: no --attach, --serving or --retain-serving")
-        scoped = [Selection(boundary.id) for boundary in BOUNDARIES]
+            raise PlanError(f"{mode} refuses reuse: no --attach, --serving or --retain-serving")
+        scoped = [
+            Selection(boundary.id)
+            for boundary in BOUNDARIES
+            if options.qualify or boundary.family != "leaf"
+        ]
     if options.qualify or options.required_release:
         if any(s.cargo_profile not in (None, "release") for s in selections):
             raise PlanError(
@@ -788,6 +870,24 @@ def resolve(
                     f" {', '.join(owners)}"
                 )
         for boundary in chosen:
+            if full or options.complete_scope:
+                boundary = complete_boundary(boundary)
+            if boundary.id == "serving:mcp":
+                boundary = replace(
+                    boundary,
+                    description=(
+                        "MCP journey: produce serving content, restart service "
+                        "(explicit maintenance), then the Python wire/session suite"
+                        if options.restart_service
+                        else boundary.description
+                    ),
+                    steps=tuple(
+                        replace(step, restart_after=options.restart_service)
+                        if step.name == "native_journey"
+                        else step
+                        for step in boundary.steps
+                    ),
+                )
             if boundary.id in seen:
                 raise PlanError(
                     f"{boundary.id} selected twice ({seen[boundary.id]}, {selection.select})"
@@ -796,6 +896,8 @@ def resolve(
             nextest_args = [*common_nextest, *selection.nextest_args]
             pytest_args = [*common_pytest, *selection.pytest_args]
             validate_nextest_arguments(nextest_args)
+            if (full or options.complete_scope) and "--ignore-default-filter" not in nextest_args:
+                nextest_args.append("--ignore-default-filter")
             requested_profile = (
                 selection.cargo_profile
                 if selection.cargo_profile is not None
@@ -849,6 +951,8 @@ def resolve(
         raise PlanError("--serving applies to serving:mcp; select it")
     if options.retain_serving and not any(p.boundary.id == "serving:mcp" for p in plan):
         raise PlanError("--retain-serving applies to serving:mcp; select it")
+    if options.restart_service and not any(p.boundary.id == "serving:mcp" for p in plan):
+        raise PlanError("--restart-service applies to serving:mcp; select it")
     return plan
 
 
@@ -1282,6 +1386,17 @@ def describe(plan: Sequence[Planned], observations: Mapping[str, Any], options: 
 
 def print_plan(description: Mapping[str, Any]) -> None:
     print("static plan: builds nothing, starts no fixture, computes no fingerprint")
+    if "coverage" in description:
+        coverage = description["coverage"]
+        print("test scope coverage:")
+        for key, value in coverage.items():
+            if key != "ignored_controls":
+                print(f"  {key}: {value}")
+        for control in coverage.get("ignored_controls", []):
+            print(f"  ignored control: {control}")
+    if "coverage_context" in description:
+        print("prior full-run coverage context (this rerun selects only outstanding boundaries):")
+        print(json.dumps(description["coverage_context"], indent=2))
     for row in description["boundaries"]:
         needs = ", ".join(row["requirements"]) or "none"
         print(f"{row['boundary']}  ({row['description']}; requires {needs})")
@@ -1290,6 +1405,8 @@ def print_plan(description: Mapping[str, Any]) -> None:
         for step in row["steps"]:
             mark = f"  [not run: {step['skipped']}]" if step["skipped"] else ""
             print(f"  $ {shlex.join(step['argv'])}{mark}")
+            if step["restart_after"]:
+                print("    after success: restart service (explicit maintenance)")
             print(f"    env: {', '.join(step['env'])}")
     if description["readiness"] or description["unobserved"]:
         print("readiness:")
@@ -1457,10 +1574,19 @@ def parser() -> argparse.ArgumentParser:
         "--live", action="store_true", help="best-effort live display; full output in logs"
     )
     top.add_argument("--rerun", metavar="RUN", help="failed/blocked/unexecuted boundaries of RUN")
-    top.add_argument("--qualify", action="store_true", help="every boundary and leaf")
+    scope = top.add_mutually_exclusive_group()
+    scope.add_argument("--test-all", action="store_true", help="every ordinary test boundary")
+    scope.add_argument("--qualify", action="store_true", help="every test boundary and leaf")
     top.add_argument("--cli", action="store_true", help="store: build and exercise the native CLI")
+    top.add_argument(
+        "--restart-service",
+        action="store_true",
+        help="serving:mcp: restart the service through explicit maintenance after production",
+    )
     top.add_argument("--cargo-config", action="append", default=[], metavar="KEY=VALUE")
-    top.add_argument("--attach", metavar="INSTALLATION", help="require an exact installed service ID")
+    top.add_argument(
+        "--attach", metavar="INSTALLATION", help="require an exact installed service ID"
+    )
     serving = top.add_mutually_exclusive_group()
     serving.add_argument("--serving", metavar="NAME", help="serving:mcp reuses retained content")
     serving.add_argument("--retain-serving", metavar="NAME", help="serving:mcp retains its content")
@@ -1489,12 +1615,14 @@ def _bind_tool_args(argv: Sequence[str]) -> list[str]:
 
 def options_from(args: argparse.Namespace) -> Options:
     return Options(
-        cli=args.cli,
+        cli=args.cli or args.test_all or args.qualify,
         cargo_config=tuple(args.cargo_config),
         attach=args.attach,
         serving=args.serving,
         retain_serving=args.retain_serving,
+        restart_service=args.restart_service,
         qualify=args.qualify,
+        test_all=args.test_all,
     )
 
 
@@ -1508,8 +1636,8 @@ def legacy(argv: Sequence[str]) -> list[str]:
     if not items or items[0].startswith("-"):
         return items
     head = items.pop(0)
-    if head == "qualify":
-        return ["--qualify", *items]
+    if head in {"qualify", "test-all"}:
+        return [f"--{head}", *items]
     if head not in families():
         raise PlanError(f"unknown family {head!r}; choose from {', '.join(families())}")
     split = items.index("--") if "--" in items else len(items)
@@ -1585,7 +1713,15 @@ def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
         attach=saved.get("attach"),
         serving=saved.get("serving"),
         retain_serving=None,  # retained content is recorded once; a rerun does not re-retain
+        restart_service=saved.get("restart_service", False)
+        and any(selection.select == "serving:mcp" for selection in selections),
         qualify=False,
+        test_all=False,
+        complete_scope=(
+            saved.get("complete_scope", False)
+            or saved.get("qualify", False)
+            or saved.get("test_all", False)
+        ),
         required_release=saved.get("required_release", False) or saved.get("qualify", False),
     )
     return selections, options
@@ -1594,7 +1730,15 @@ def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
 class Summary:
     """`summary.json` in the current run directory (written only here, plan §5.8.5)."""
 
-    def __init__(self, path: Path | None, plan: Sequence[Planned], options: Options) -> None:
+    def __init__(
+        self,
+        path: Path | None,
+        plan: Sequence[Planned],
+        options: Options,
+        *,
+        coverage: dict[str, Any] | None = None,
+        coverage_context: dict[str, Any] | None = None,
+    ) -> None:
         self.path = path
         target = target_directory(base_environment(), options.cargo_config)
         self.data: dict[str, Any] = {
@@ -1611,6 +1755,10 @@ class Summary:
             "termination": None,
             "boundaries": [],
         }
+        if coverage is not None:
+            self.data["coverage"] = coverage
+        if coverage_context is not None:
+            self.data["coverage_context"] = coverage_context
         self.write()
 
     def write(self) -> None:
@@ -1649,20 +1797,37 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(translated)
     options = options_from(args)
     selections: list[Selection] = args.selections
+    coverage = None
+    coverage_context = None
     try:
         if args.rerun:
-            if any(
-                s.select or s.cargo_profile is not None or s.nextest_args or s.pytest_args
-                for s in selections
+            if (
+                args.test_all
+                or args.qualify
+                or any(
+                    s.select or s.cargo_profile is not None or s.nextest_args or s.pytest_args
+                    for s in selections
+                )
             ):
                 raise PlanError(
                     "--rerun repeats a prior selection and profile; do not add selection overrides"
                 )
             selections, options = rerun_selection(args.rerun)
+            prior = json.loads((runs.resolve(args.rerun) / runs.SUMMARY).read_text())
+            if prior.get("coverage") is not None:
+                coverage_context = {"rerun_of": args.rerun, "coverage": prior["coverage"]}
+            else:
+                coverage_context = prior.get("coverage_context")
             if not selections:
                 print(f"verify: nothing to rerun: every boundary of {args.rerun} passed")
                 return 0
         plan = resolve(selections, options)
+        if options.test_all or options.qualify:
+            from test_scope_coverage import audit
+
+            coverage = audit(plan, root=ROOT)
+            if not coverage["complete"]:
+                raise PlanError("incomplete test coverage: " + json.dumps(coverage, sort_keys=True))
         env = base_environment()
         target = target_directory(env, options.cargo_config)
     except (PlanError, runs.RunNotFound, OSError, ValueError) as error:
@@ -1672,6 +1837,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.print:
         observations = observe_requirements(requirements, static=True)
         description = describe(plan, observations, options)
+        if coverage is not None:
+            description["coverage"] = coverage
+        if coverage_context is not None:
+            description["coverage_context"] = coverage_context
         if args.json:
             print(json.dumps(description, indent=2))
         else:
@@ -1698,7 +1867,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, on_signal)
-    summary = Summary(runs.summary_path(), plan, options)
+    summary = Summary(
+        runs.summary_path(), plan, options, coverage=coverage, coverage_context=coverage_context
+    )
     runtime = Runtime(
         observe=lambda required: observe_requirements(required),
         run=launch,

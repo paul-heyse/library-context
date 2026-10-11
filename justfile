@@ -134,10 +134,18 @@ verify-oracles *args:
 verify-tooling *args:
     @uv run --no-project --offline --no-python-downloads python scripts/verify.py tooling "$@"
 
-# Target qualification: every boundary and leaf, keep-going; observes readiness, never prepares
-# or reuses retained content.
-qualify:
-    @uv run --no-project --offline --no-python-downloads python scripts/verify.py qualify
+# Run every ordinary Rust/Python/doc test with owned native fixtures; keep going and retain results.
+# `--print` previews coverage/prerequisites, `--live` follows logs. Maintenance-only controls are
+# Complete ordinary tests; --print previews scope, --restart-service opts into maintenance.
+[positional-arguments]
+test-all *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py test-all "$@"
+
+# Target qualification: every test boundary and leaf, keep-going; observes readiness, never prepares
+# Complete tests plus non-functional leaves; --restart-service explicitly adds restart assurance.
+[positional-arguments]
+qualify *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/verify.py qualify "$@"
 
 # One durable pinned native SurrealDB service. Installation and maintenance are explicit;
 # check/status never start a server or repair state. Credentials remain in host-private files.

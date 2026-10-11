@@ -7,6 +7,8 @@ import dataclasses
 import json
 import os
 import subprocess
+import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -131,6 +133,7 @@ def test_family_shortcuts_route_to_the_primary_tool():
     with pytest.raises(PlanError, match="choose --command"):
         verify.legacy(["serving", "--", "-k", "x"])
     assert verify.legacy(["qualify"]) == ["--qualify"]
+    assert verify.legacy(["test-all"]) == ["--test-all"]
 
 
 def test_cargo_configuration_reaches_cargo_and_nextest_only():
@@ -460,10 +463,12 @@ def test_failed_native_publication_keeps_dependent_evaluator_not_run():
     assert "native serving production" in result["steps"][-1]["reason"]
 
 
-def test_mcp_journey_produces_restarts_then_runs_pytest_with_the_serving_config():
+@pytest.mark.parametrize("restart_service", [False, True])
+def test_mcp_journey_restart_is_explicit_before_the_fresh_python_consumer(restart_service):
     fake = Fake()
+    options = Options(restart_service=restart_service)
     (result,) = verify.execute(
-        plan_of("--select", "serving:mcp"), fake.runtime(), Options(), fake.logs
+        plan_of("--select", "serving:mcp", options=options), fake.runtime(), options, fake.logs
     )
     assert result["outcome"] == "passed"
     assert [s["name"] for s in result["steps"]] == ["build", "native_journey", "pytest"]
@@ -471,7 +476,34 @@ def test_mcp_journey_produces_restarts_then_runs_pytest_with_the_serving_config(
     assert fake.envs[1]["LCTX_RETAIN_NATIVE_FIXTURE_CONFIG"] == serving
     assert fake.envs[2]["LCTX_NATIVE_SERVING_CONFIG"] == serving
     assert fake.envs[2]["LCTX_REMEDIATION_CLI_BIN"] == "/release/lctx"
-    assert fake.attachments[0].restarts == 1
+    assert fake.attachments[0].restarts == int(restart_service)
+    assert result["steps"][1]["restart_after"] is restart_service
+
+
+@pytest.mark.parametrize("mode", ["--test-all", "--qualify"])
+def test_full_modes_do_not_restart_services_without_explicit_maintenance_option(mode):
+    namespace = verify.parse_args([mode])
+    options = verify.options_from(namespace)
+    planned = next(p for p in verify.resolve([], options) if p.boundary.id == "serving:mcp")
+    fake = Fake()
+    (result,) = verify.execute([planned], fake.runtime(), options, fake.logs)
+    assert result["outcome"] == "passed" and fake.attachments[0].restarts == 0
+    assert all(not step["restart_after"] for step in result["steps"])
+    assert [step["name"] for step in result["steps"]] == ["build", "native_journey", "pytest"]
+
+
+def test_explicit_restart_option_is_visible_and_requires_mcp_owner(capsys):
+    namespace = verify.parse_args(["--select", "serving:mcp", "--restart-service"])
+    options = verify.options_from(namespace)
+    plan = verify.resolve(namespace.selections, options)
+    assert options.restart_service and options.to_json()["restart_service"]
+    assert "explicit maintenance" in plan[0].boundary.description
+    described = verify.describe(plan, {}, options)
+    assert described["boundaries"][0]["steps"][1]["restart_after"]
+    verify.print_plan(described)
+    assert "restart service (explicit maintenance)" in capsys.readouterr().out
+    with pytest.raises(PlanError, match="--restart-service applies to serving:mcp"):
+        plan_of("--select", "model", "--restart-service")
 
 
 def test_mcp_reuse_records_the_skipped_journey_as_not_run_with_identity():
@@ -513,6 +545,307 @@ def test_qualify_refuses_reuse_and_filters_and_selects_everything():
     assert any(p.boundary.family == "leaf" for p in plan)
     retained = plan_of("--select", "serving:mcp", "--serving", "x")
     assert retained[0].boundary.fixture  # Stable installation no longer needs a kept fixture.
+
+
+@pytest.mark.parametrize("mode", ["--test-all", "--qualify"])
+def test_full_modes_broaden_provider_scope_and_enable_actual_cli(mode):
+    namespace = verify.parse_args([mode])
+    options = verify.options_from(namespace)
+    plan = verify.resolve(namespace.selections, options)
+    by_id = {p.boundary.id: p for p in plan}
+    assert options.cli
+    assert {p.boundary.id for p in plan if p.boundary.family != "leaf"} == {
+        b.id for b in verify.BOUNDARIES if b.family != "leaf"
+    }
+    assert any(p.boundary.family == "leaf" for p in plan) == (mode == "--qualify")
+    for boundary in ("providers:extract", "providers:flow"):
+        step = by_id[boundary].steps[0]
+        assert verify.target_options(step.argv) == [("--lib", None), ("--tests", None)]
+        assert step.step.required_filter is None and not step.step.target_filters
+        assert "-E" not in step.argv and "--ignore-default-filter" in step.argv
+        assert "--no-tests=fail" in step.argv
+    store = by_id["store:rust"]
+    assert store.steps[0].step.name == "build-cli" and store.steps[0].skipped is None
+    assert [s.step.name for s in store.steps][-2:] == ["fixture-ignored-1", "fixture-ignored-2"]
+    for step in store.steps[-2:]:
+        assert "--no-tests=fail" in step.argv
+        assert step.argv[step.argv.index("--run-ignored") + 1] == "only"
+        assert step.step.required_filter.startswith("test(=")
+        assert step.step.required_filter in step.argv[step.argv.index("-E") + 1]
+    # The focused provider contract stays narrow after resolving either full mode.
+    (focused,) = plan_of("--select", "providers:extract")
+    assert "-E" in argv_of(focused, "nextest")
+    assert "--ignore-default-filter" not in argv_of(focused, "nextest")
+    fake = Fake()
+    verify.execute([store], fake.runtime(), options, fake.logs)
+    assert fake.envs[1]["LCTX_REMEDIATION_CLI_BIN"].endswith("/release/lctx")
+
+
+@pytest.mark.parametrize("mode", ["--test-all", "--qualify"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--select", "model"],
+        ["--nextest-args", "--ignore-default-filter"],
+        ["--pytest-args", "-k subset"],
+        ["--attach", "installation"],
+        ["--serving", "retained"],
+        ["--retain-serving", "retained"],
+    ],
+)
+def test_full_modes_refuse_scope_filters_and_reuse(mode, extra):
+    with pytest.raises(PlanError, match=r"no filters|refuses reuse"):
+        plan_of(mode, *extra)
+
+
+def test_full_modes_are_mutually_exclusive_and_cannot_override_reruns(capsys):
+    with pytest.raises(SystemExit) as error:
+        verify.parse_args(["--test-all", "--qualify"])
+    assert error.value.code == 2
+    assert verify.main(["--rerun", "prior", "--test-all", "--print"]) == 2
+    assert "prior selection and profile" in capsys.readouterr().err
+    with pytest.raises(PlanError, match="mutually exclusive"):
+        verify.resolve([], Options(test_all=True, qualify=True))
+
+
+@pytest.mark.parametrize("mode", ["--test-all", "--qualify"])
+def test_full_modes_refuse_inherited_pytest_filter_overrides(mode, monkeypatch):
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k hidden")
+    with pytest.raises(PlanError, match="unset this filtering override"):
+        plan_of(mode)
+    # Scoped controls retain the operator's ordinary pytest tool behavior.
+    assert plan_of("--select", "tooling:python")
+
+
+def test_test_all_keeps_profile_selection_and_pure_work_when_prerequisites_block(monkeypatch):
+    options = Options(test_all=True)
+    fake = Fake(ready=set())
+    plan = verify.resolve([], options)
+    results = verify.execute(plan, fake.runtime(), options, fake.logs)
+    outcomes = {row["boundary"]: row for row in results}
+    assert outcomes["providers:extract"]["outcome"] == "blocked"
+    assert "native-store" in outcomes["providers:extract"]["reason"]
+    assert outcomes["tooling:python"]["outcome"] == "blocked"
+    for boundary in ("analytics:rust", "providers:flow", "tooling:rust", "tooling:docs"):
+        assert outcomes[boundary]["outcome"] == "passed"
+        assert any(p.get("current_command") == boundary for p in fake.progress)
+    assert not fake.attachments
+    assert not any("sync" in command or "maintenance" in command for command in fake.commands)
+    monkeypatch.setattr(verify, "DEFAULT_CARGO_PROFILE", "test")
+    selected = plan_of("--test-all", "--cargo-profile", "local-test-candidate")
+    assert all(
+        p.selection["cargo_profile"] == "local-test-candidate"
+        for p in selected
+        if p.boundary.id != "oracles:flow"
+    )
+    defaults = plan_of("--test-all")
+    assert all(
+        p.selection["cargo_profile"] == "test" for p in defaults if p.boundary.id != "oracles:flow"
+    )
+
+
+def test_tooling_covers_remaining_workspace_packages_and_pure_mcp_files():
+    rust, python = plan_of("--select", "tooling:rust", "--select", "tooling:python")
+    assert set(rust.steps[0].step.packages) == {
+        "lctx-embed",
+        "lctx-eval",
+        "lctx-semantics",
+        "lctx-workspace-hack",
+        "lctx-model-macros",
+    }
+    assert verify.target_options(argv_of(rust, "nextest")) == [("--lib", None), ("--tests", None)]
+    for name in ("test_embedder.py", "test_embed_serve.py", "test_transport_envelope.py"):
+        assert f"python/lctx_mcp/tests/{name}" in argv_of(python, "pytest")
+
+
+def test_full_scope_audit_precedes_print_and_incomplete_scope_refuses_execution(
+    monkeypatch, capsys
+):
+    seen = []
+    coverage = {
+        "missing_rust_targets": [],
+        "missing_python_files": [],
+        "ignored_controls": [{"status": "excluded_by_default", "reason": "maintenance"}],
+        "complete": True,
+    }
+
+    def audit(plan, *, root):
+        seen.append((plan, root))
+        return coverage
+
+    monkeypatch.setitem(sys.modules, "test_scope_coverage", types.SimpleNamespace(audit=audit))
+    monkeypatch.setattr(verify, "observe_requirements", lambda *a, **k: {})
+    assert verify.main(["--test-all", "--print", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["coverage"] == coverage
+    assert len(seen) == 1 and seen[0][1] == verify.ROOT
+    assert not any(p.boundary.family == "leaf" for p in seen[0][0])
+    coverage.update(
+        complete=False,
+        missing_rust_targets=["new-crate::lib"],
+        missing_python_files=["tests/new.py"],
+    )
+    monkeypatch.setattr(verify, "wrap_in_run", lambda *_: pytest.fail("audit must reject first"))
+    assert verify.main(["--qualify"]) == 2
+    assert "new-crate::lib" in capsys.readouterr().err
+    assert len(seen) == 2 and any(p.boundary.family == "leaf" for p in seen[-1][0])
+    assert verify.main(["--select", "analytics", "--print", "--json"]) == 0
+    assert "coverage" not in json.loads(capsys.readouterr().out)
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize("mode", ["test_all", "qualify"])
+def test_full_mode_reruns_keep_broad_provider_commands_profiles_and_coverage_context(
+    mode, tmp_path, monkeypatch, capsys
+):
+    run = tmp_path / "full-run"
+    run.mkdir()
+    monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
+    options = Options(**{mode: True}, cargo_config=("build.incremental=true",))
+    shared = [Selection(None, cargo_profile="local-test-candidate")] if mode == "test_all" else []
+    plan = verify.resolve(shared, options)
+    coverage = {
+        "complete": True,
+        "missing_rust_targets": [],
+        "missing_python_files": [],
+        "ignored_controls": [],
+    }
+    summary = verify.Summary(run / "summary.json", plan, options, coverage=coverage)
+    # Only the extract boundary remains outstanding in this saved full selection.
+    summary.finish(
+        [
+            {
+                "selection": p.selection,
+                "outcome": "failed" if p.boundary.id == "providers:extract" else "passed",
+            }
+            for p in plan
+        ],
+        "completed",
+    )
+    assert summary.data["options"][mode] is True
+    assert summary.data["options"]["complete_scope"] is True
+    assert summary.data["options"]["cli"] is True
+    assert summary.data["coverage"] == coverage
+    selections, again_options = verify.rerun_selection("full")
+    assert not again_options.test_all and not again_options.qualify
+    assert again_options.complete_scope and again_options.cli
+    assert again_options.required_release == (mode == "qualify")
+    assert again_options.cargo_config == options.cargo_config
+    (again,) = verify.resolve(selections, again_options)
+    original = next(p for p in plan if p.boundary.id == "providers:extract")
+    assert again.steps[0].argv == original.steps[0].argv
+    assert "-E" not in again.steps[0].argv
+    monkeypatch.setitem(
+        sys.modules,
+        "test_scope_coverage",
+        types.SimpleNamespace(
+            audit=lambda *a, **k: pytest.fail("focused rerun must not audit full scope")
+        ),
+    )
+    monkeypatch.setattr(verify, "observe_requirements", lambda *a, **k: {})
+    assert verify.main(["--rerun", "full", "--print", "--json"]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert "coverage" not in printed
+    assert printed["coverage_context"] == {"rerun_of": "full", "coverage": coverage}
+    rerun_summary = verify.Summary(
+        run / "summary.json",
+        [again],
+        again_options,
+        coverage_context=printed["coverage_context"],
+    )
+    assert "coverage" not in rerun_summary.data
+    assert rerun_summary.data["coverage_context"]["coverage"] == coverage
+    rerun_summary.finish([], "interrupted")
+    assert verify.main(["--rerun", "focused", "--print", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["coverage_context"] == printed["coverage_context"]
+
+
+def test_complete_scope_python_rerun_refuses_inherited_subset_filter(tmp_path, monkeypatch, capsys):
+    run = tmp_path / "full-run"
+    run.mkdir()
+    monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
+    options = Options(test_all=True)
+    plan = verify.resolve([], options)
+    summary = verify.Summary(run / "summary.json", plan, options)
+    summary.finish(
+        [
+            {
+                "selection": p.selection,
+                "outcome": "failed" if p.boundary.id == "tooling:python" else "passed",
+            }
+            for p in plan
+        ],
+        "completed",
+    )
+    selections, rerun_options = verify.rerun_selection("full")
+    assert [s.select for s in selections] == ["tooling:python"]
+    assert rerun_options.complete_scope and not rerun_options.test_all
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k selected_subset")
+    monkeypatch.setattr(
+        verify, "wrap_in_run", lambda *_: pytest.fail("must reject before execution")
+    )
+    assert verify.main(["--rerun", "full", "--print"]) == 2
+    assert "unset this filtering override" in capsys.readouterr().err
+    assert plan_of("--select", "tooling:python")
+
+
+def test_full_scope_store_rerun_requires_both_exact_ignored_controls(tmp_path, monkeypatch):
+    run = tmp_path / "full-run"
+    run.mkdir()
+    monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
+    options = Options(test_all=True)
+    plan = verify.resolve([], options)
+    original = next(p for p in plan if p.boundary.id == "store:rust")
+    summary = verify.Summary(run / "summary.json", plan, options)
+    summary.finish(
+        [
+            {
+                "selection": p.selection,
+                "outcome": "failed" if p.boundary.id == "store:rust" else "passed",
+            }
+            for p in plan
+        ],
+        "completed",
+    )
+    selections, rerun_options = verify.rerun_selection("full")
+    (rerun,) = verify.resolve(selections, rerun_options)
+    assert [step.argv for step in rerun.steps] == [step.argv for step in original.steps]
+    for step in rerun.steps[-2:]:
+        assert step.step.tool == "nextest"
+        assert "--no-tests=fail" in step.argv
+        assert "--ignore-default-filter" in step.argv
+        assert step.argv[step.argv.index("--run-ignored") + 1] == "only"
+        assert step.step.required_filter.startswith("test(=")
+        assert step.step.required_filter in step.argv[step.argv.index("-E") + 1]
+
+
+def test_explicit_restart_survives_mcp_reruns_without_affecting_other_outstanding_boundaries(
+    tmp_path, monkeypatch
+):
+    run = tmp_path / "full-run"
+    run.mkdir()
+    monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
+    options = Options(test_all=True, restart_service=True)
+    plan = verify.resolve([], options)
+    for outstanding in ("serving:mcp", "providers:extract"):
+        summary = verify.Summary(run / "summary.json", plan, options)
+        summary.finish(
+            [
+                {
+                    "selection": p.selection,
+                    "outcome": "failed" if p.boundary.id == outstanding else "passed",
+                }
+                for p in plan
+            ],
+            "completed",
+        )
+        selections, rerun_options = verify.rerun_selection("full")
+        assert rerun_options.restart_service == (outstanding == "serving:mcp")
+        (rerun,) = verify.resolve(selections, rerun_options)
+        assert rerun.boundary.id == outstanding
+        if outstanding == "serving:mcp":
+            fake = Fake()
+            (result,) = verify.execute([rerun], fake.runtime(), rerun_options, fake.logs)
+            assert result["outcome"] == "passed" and fake.attachments[0].restarts == 1
 
 
 def test_rerun_repeats_only_failed_blocked_and_unreached_boundaries(tmp_path, monkeypatch):
