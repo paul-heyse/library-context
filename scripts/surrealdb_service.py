@@ -1285,7 +1285,88 @@ def _recovery_pointer(
     }
 
 
+class _ArchiveHashWriter:
+    """Non-seeking tar sink: hash exactly the bytes the underlying writer accepts."""
+    def __init__(self, stream):
+        self.stream, self.digest, self.count = stream, hashlib.sha256(), 0
+
+    def write(self, value):
+        view = memoryview(value)
+        while view:
+            count = self.stream.write(view)
+            if type(count) is not int or not 0 < count <= len(view):
+                raise OSError("archive writer made no valid progress")
+            self.digest.update(view[:count])
+            self.count += count
+            view = view[count:]
+        return len(value)
+
+    def flush(self):
+        self.stream.flush()
+
+    def seek(self, *args):
+        raise io.UnsupportedOperation("archive digest requires non-seeking output")
+
+
+class _AssetHashReader:
+    def __init__(self, stream):
+        self.stream, self.digest, self.count = stream, hashlib.sha256(), 0
+
+    def read(self, count=-1):
+        value = self.stream.read(count)
+        self.digest.update(value)
+        self.count += len(value)
+        return value
+
+
+def _asset_identity(info):
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+            info.st_ctime_ns, info.st_mode, info.st_uid, info.st_gid)
+
+
+def _archive_asset(tar, name: str, path: Path) -> tuple[dict, tuple]:
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        identity = _asset_identity(info)
+        if not stat.S_ISREG(info.st_mode) or _asset_identity(path.lstat()) != identity:
+            raise FixtureBlocked("recovery", "recovery asset changed before copy")
+        header = tarfile.TarInfo(name)
+        header.size, header.mode = info.st_size, stat.S_IMODE(info.st_mode)
+        header.uid, header.gid, header.mtime = info.st_uid, info.st_gid, info.st_mtime
+        reader = _AssetHashReader(source)
+        tar.addfile(header, reader)
+        if (reader.count != info.st_size or _asset_identity(os.fstat(source.fileno())) != identity
+                or _asset_identity(path.lstat()) != identity):
+            raise FixtureBlocked("recovery", "recovery asset changed during copy")
+        return {"sha256": reader.digest.hexdigest(), "size": reader.count,
+                "mode": stat.S_IMODE(info.st_mode)}, identity
+
+
+def _backup_shape(installation: Installation) -> tuple[list[str], list[dict]]:
+    directories = sorted(
+        path.relative_to(installation.directory).as_posix()
+        for path in installation.directory.rglob("*")
+        if path.is_dir()
+        and path.relative_to(installation.directory).parts[0] not in RECOVERY_EXCLUDED
+        and not path.relative_to(installation.directory).parts[0].startswith(".recovery-")
+    )
+    external = _external_recovery_assets(installation)
+    for asset in external:
+        path = Path(asset["path"])
+        asset["directories"] = (["."] + sorted(
+            p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_dir()
+        )) if asset["directory"] else []
+    return directories, external
+
+
 def backup_service(installation: Installation, archive: Path) -> dict[str, Any]:
+    from storage_lifecycle import admission
+    with admission([installation.directory, archive.expanduser().absolute()]):
+        return _backup_service(installation, archive)
+
+
+def _backup_service(installation: Installation, archive: Path) -> dict[str, Any]:
     archive = archive.expanduser().absolute()
     archive = archive.parent.resolve() / archive.name
     if archive.is_relative_to(installation.directory.resolve()):
@@ -1302,58 +1383,47 @@ def backup_service(installation: Installation, archive: Path) -> dict[str, Any]:
         primary = None
         try:
             sources = _recovery_sources(installation)
-            inventory = {
-                name: {
-                    "sha256": file_sha256(path),
-                    "size": path.stat().st_size,
-                    "mode": stat.S_IMODE(path.stat().st_mode),
-                }
-                for name, path in sources.items()
-            }
+            inventory, copied = {}, {}
+            directories, external_assets = _backup_shape(installation)
             metadata = {
                 "schema": RECOVERY_SCHEMA,
                 "identity": _recovery_identity(installation),
                 "native_schemas": schemas,
                 "coordination": locks,
                 "files": inventory,
-                "external_assets": _external_recovery_assets(installation),
-                "directories": [
-                    p.relative_to(installation.directory).as_posix()
-                    for p in installation.directory.rglob("*")
-                    if p.is_dir()
-                    and p.relative_to(installation.directory).parts[0] not in RECOVERY_EXCLUDED
-                    and not p.relative_to(installation.directory).parts[0].startswith(".recovery-")
-                ],
+                "external_assets": external_assets,
+                "directories": directories,
             }
-            for asset in metadata["external_assets"]:
-                path = Path(asset["path"])
-                asset["directories"] = (
-                    ["."] + [p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_dir()]
-                    if asset["directory"]
-                    else []
-                )
-            descriptor = json.dumps(metadata, sort_keys=True).encode()
-            fd = os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
-            with (
-                os.fdopen(fd, "wb") as stream,
-                tarfile.open(fileobj=stream, mode="w", dereference=True) as tar,
-            ):
-                header = tarfile.TarInfo("recovery.json")
-                header.size, header.mode = len(descriptor), 0o600
-                tar.addfile(header, io.BytesIO(descriptor))
-                for name, path in sources.items():
-                    tar.add(path, arcname=name, recursive=False)
-            with archive.open("rb") as durable:
-                os.fsync(durable.fileno())
+            fd = os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as stream:
+                writer = _ArchiveHashWriter(stream)
+                with tarfile.open(fileobj=writer, mode="w|", dereference=True) as tar:
+                    for name, path in sources.items():
+                        inventory[name], copied[name] = _archive_asset(tar, name, path)
+                    if (_recovery_sources(installation) != sources
+                            or _backup_shape(installation) != (directories, external_assets) or any(
+                            _asset_identity(path.lstat()) != copied[name]
+                            for name, path in sources.items())):
+                        raise FixtureBlocked("recovery", "recovery closure changed during copy")
+                    descriptor = json.dumps(metadata, sort_keys=True).encode()
+                    header = tarfile.TarInfo("recovery.json")
+                    header.size, header.mode = len(descriptor), 0o600
+                    tar.addfile(header, io.BytesIO(descriptor))
+                # Tar close includes padding and the final trailer. No digest escapes
+                # until finalization, flush, file durability and directory durability.
+                writer.flush()
+                os.fsync(stream.fileno())
             directory_fd = os.open(archive.parent, os.O_RDONLY | os.O_DIRECTORY)
             try:
                 os.fsync(directory_fd)
             finally:
                 os.close(directory_fd)
-            digest = file_sha256(archive)
+            digest = writer.digest.hexdigest()
             pointer = _recovery_pointer(installation, archive, digest, metadata)
-            installation.record["recovery"] = pointer
-            private_json(installation.directory / "installation.json", installation.record)
+            from storage_lifecycle import durable_json
+            successor = {**installation.record, "recovery": pointer}
+            durable_json(installation.directory / "installation.json", successor)
+            installation.record = successor
         except BaseException as error:
             primary = error
             raise

@@ -2644,3 +2644,109 @@ def test_campaign_stop_confirms_only_its_owned_unit(tmp_path, monkeypatch):
         calls.append(("show", unit)) or {"ActiveState": "inactive", "MainPID": "0"})
     service._stop_owned(installation)
     assert calls == [("stop", installation.unit), ("show", installation.unit)]
+
+
+def test_backup_hashes_exact_final_archive_and_copied_assets_without_rereads(recoverable, monkeypatch):
+    import hashlib
+    installation, archive, _actions = recoverable
+    original_digest = service.file_sha256
+    # Backup may verify identity through other owners, but cannot prehash tar assets
+    # or reread its finished archive to compute the pointer.
+    monkeypatch.setattr(service, "file_sha256", lambda path: pytest.fail(f"unneeded prehash/reread: {path}"))
+    result = service.backup_service(installation, archive)
+    data = archive.read_bytes()
+    assert result["recovery"]["sha256"] == hashlib.sha256(data).hexdigest()
+    with tarfile.open(archive, "r:") as tar:
+        assert tar.getnames()[-1] == "recovery.json"
+        metadata = json.load(tar.extractfile("recovery.json"))
+        for name, expected in metadata["files"].items():
+            body = tar.extractfile(name).read()
+            assert expected["sha256"] == hashlib.sha256(body).hexdigest()
+            assert expected["size"] == len(body)
+    monkeypatch.setattr(service, "file_sha256", original_digest)
+    assert service.restore_service(installation, archive)["outcome"] == "passed"
+
+
+def test_archive_hash_writer_counts_short_writes_and_refuses_nonprogress():
+    import hashlib
+    class Short(io.BytesIO):
+        def write(self, data):
+            return super().write(data[:37])
+    output = Short()
+    writer = service._ArchiveHashWriter(output)
+    body = bytes(range(256)) * 101
+    assert writer.write(body) == len(body)
+    writer.flush()
+    assert writer.count == len(body)
+    assert writer.digest.hexdigest() == hashlib.sha256(output.getvalue()).hexdigest()
+    with pytest.raises(io.UnsupportedOperation):
+        writer.seek(0)
+    for count in (None, 0, -1, 100, True):
+        broken = SimpleNamespace(write=lambda value, count=count: count)
+        with pytest.raises(OSError, match="valid progress"):
+            service._ArchiveHashWriter(broken).write(b"short")
+
+
+@pytest.mark.parametrize("fault", ["asset", "write", "finalize", "flush", "file-fsync", "directory-fsync"])
+def test_backup_fault_never_publishes_prefix_digest_and_restarts_owned_service(recoverable, monkeypatch, fault):
+    installation, archive, actions = recoverable
+    if fault == "asset":
+        original = service._AssetHashReader.read
+        def short(self, count=-1):
+            return original(self, min(count, 1)) if count > 1 else original(self, count)
+        monkeypatch.setattr(service._AssetHashReader, "read", short)
+    elif fault == "write":
+        monkeypatch.setattr(service._ArchiveHashWriter, "write", lambda self, data:
+            (_ for _ in ()).throw(OSError("write failure")))
+    elif fault == "finalize":
+        original = tarfile.TarFile.close
+        def close(self):
+            original(self)
+            if self.mode == "w":
+                raise OSError("finalization failure")
+        monkeypatch.setattr(tarfile.TarFile, "close", close)
+    elif fault == "flush":
+        monkeypatch.setattr(service._ArchiveHashWriter, "flush", lambda self:
+            (_ for _ in ()).throw(OSError("flush failure")))
+    else:
+        original = os.fsync
+        def fsync(fd):
+            target = Path(f"/proc/self/fd/{fd}").resolve()
+            if target == (archive if fault == "file-fsync" else archive.parent):
+                raise OSError("durability failure")
+            original(fd)
+        monkeypatch.setattr(os, "fsync", fsync)
+    with pytest.raises((OSError, service.FixtureBlocked)):
+        service.backup_service(installation, archive)
+    assert "recovery" not in installation.record
+    assert "recovery" not in json.loads((installation.directory / "installation.json").read_text())
+    assert "start" in actions and "open-admission" not in actions
+    assert (installation.directory / "maintenance.json").exists()
+
+
+@pytest.mark.parametrize("change", ["replace", "append", "add-directory"])
+def test_backup_refuses_copy_time_asset_or_shape_change(recoverable, monkeypatch, change):
+    installation, archive, actions = recoverable
+    original = service._AssetHashReader.read
+    changed = False
+    def read(self, count=-1):
+        nonlocal changed
+        body = original(self, count)
+        if body and not changed:
+            changed = True
+            path = Path(os.readlink(f"/proc/self/fd/{self.stream.fileno()}"))
+            if change == "replace":
+                replacement = path.with_name(".replacement")
+                replacement.write_bytes(path.read_bytes())
+                os.replace(replacement, path)
+            elif change == "append":
+                with path.open("ab") as output:
+                    output.write(b"changed")
+            else:
+                (installation.directory / "new-empty-directory").mkdir()
+        return body
+    monkeypatch.setattr(service._AssetHashReader, "read", read)
+    with pytest.raises(service.FixtureBlocked, match="changed"):
+        service.backup_service(installation, archive)
+    assert "recovery" not in installation.record
+    assert "start" in actions and "open-admission" not in actions
