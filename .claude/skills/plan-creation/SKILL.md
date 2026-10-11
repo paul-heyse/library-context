@@ -1,6 +1,6 @@
 ---
 name: plan-creation
-description: Plan how to create an implementation-plan document from a design review or existing plan, including the investigations and design questions that matter.
+description: Plan how to create an implementation-plan document from a design or test review or existing plan, including the investigations and design questions that matter.
 ---
 
 # Plan the creation of a plan
@@ -12,9 +12,9 @@ target and document structure responsive to what is learned.
 
 Load [create-plan](../create-plan/SKILL.md) for the authoring contract and follow its routes
 to the applicable design-review skills, principles and repository binding. Identify the
-reference review or existing plan and explore enough current code and architectural context
-to make the approach specific. The considerations below guide attention, not required stages
-or an exhaustive investigation sequence.
+reference review (design or test review) or existing plan and explore enough current code and
+architectural context to make the approach specific. The considerations below guide attention,
+not required stages or an exhaustive investigation sequence.
 
 ## Separate obligations from open design choices
 

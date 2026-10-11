@@ -313,6 +313,18 @@ that owner. Acceptance, implementation and verification remain distinct facts.
 
 > Decision: ADR-0040, ADR-0093, ADR-0130
 
+**Implemented test-review guidance, 2026-10-11.** Requested causal reviews start from test
+observations and investigate the relevant code, contracts, tests and execution conditions.
+`plan-test-review` prepares the inquiry; `execute-test-review` conducts it through useful source
+review, probes, experiments and research, then writes an integrated report. The
+[binding's test-review route](../design_review/design_principles/binding/library-context.md#test-reviews)
+uses the existing review collection and finding lifecycle. Flexible report guidance leaves
+organization and supporting material to reviewer judgment. No evidence packet, standing review
+obligation or automatic remediation follows. Formal architectural acceptance and product
+qualification retain their existing boundaries.
+
+> Decision: ADR-0148
+
 <a id="section-b1"></a>
 
 ### §B1 Independent Ruff syntax, Pyrefly typing and ty flow have distinct provider roles

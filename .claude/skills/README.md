@@ -16,7 +16,9 @@ Workflows for building this repository. A skill is added when a workflow has act
 | [`plan-design-review/`](plan-design-review/SKILL.md) | Plan an approach to the user's review goal, using the existing design-review skills and standard |
 | [`design-review/`](design-review/SKILL.md) | Review explicit domain models, ownership, contracts, change scenarios and qualitative workload execution fit against the layered design standard (`docs/design_review/design_principles/standard.toml`); cadence in the library-context binding |
 | [`design-review-code-intelligence/`](design-review-code-intelligence/SKILL.md) | The code-intelligence profile, loaded with `design-review` |
-| [`plan-creation/`](plan-creation/SKILL.md) | Plan the authoring approach from a design review or existing plan, including focused assessment of relevant dependencies |
+| [`plan-test-review/`](plan-test-review/SKILL.md) | Prepare a causal test-review inquiry, choosing useful code review, probes, research and comparisons |
+| [`execute-test-review/`](execute-test-review/SKILL.md) | Investigate across code, tests and execution conditions; write an integrated review with structural recommendations |
+| [`plan-creation/`](plan-creation/SKILL.md) | Plan the authoring approach from a design or test review or existing plan, including focused assessment of relevant dependencies |
 | [`create-plan/`](create-plan/SKILL.md) | Write the design and execution plan, including foundation improvements and an adaptable document structure |
 | [`plan-execution/`](plan-execution/SKILL.md) | Develop the approach to executing an existing plan: prerequisites, work ownership, integration and evidence |
 | [`execute-plan/`](execute-plan/SKILL.md) | Carry authorized plan scope through implementation, review, functional verification and handoff |
@@ -25,6 +27,14 @@ Workflows for building this repository. A skill is added when a workflow has act
 
 In Codex, invoke `/plan $plan-design-review <review goal>` to enter Plan mode and plan a review.
 The skill also works in an ordinary conversation; it does not itself switch modes.
+
+For test observations, invoke `$plan-test-review <runs or outputs and review goal>`, then
+`$execute-test-review <agreed scope>` to conduct the inquiry and write its report. Direct execution
+is also available when the approach is clear. Code review, probes, focused experiments and research
+are part of the review; subsequent remediation is separate. The
+[suggested report structure](execute-test-review/references/test-review-structure.md) leaves
+organization and supporting material to the reviewer. The binding supplies the report location
+and existing finding lifecycle; no evidence packet or extra review cadence is introduced.
 
 For a plan document, use `/plan $plan-creation <reference and goal>` to develop the authoring
 approach. When ready to write the document, leave Plan mode and invoke `$create-plan <reference and goal>`.
@@ -36,7 +46,7 @@ For execution, use `/plan $plan-execution <plan and scope>` to develop the appro
 mode and invoke `$execute-plan <plan and scope>` to implement it; invoke execution directly when
 the approach is already clear. Existing plans remain the durable owners of packages and receipts.
 
-All three pairs use the [shared agent roles](../../.agents/roles/README.md). Skills own workflows;
+All four pairs use the [shared agent roles](../../.agents/roles/README.md). Skills own workflows;
 roles supply reusable capabilities. The coordinator selects useful delegation and owns design,
 integration and acceptance. Planning skills do not themselves switch runtime modes, and no hook
 is needed.

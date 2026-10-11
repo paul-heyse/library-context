@@ -26,6 +26,8 @@ PROCESS_SKILLS = (
     "design-review",
     "design-review-code-intelligence",
     "plan-design-review",
+    "plan-test-review",
+    "execute-test-review",
     "plan-creation",
     "plan-execution",
     "handoff",

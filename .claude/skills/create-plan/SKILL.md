@@ -1,6 +1,6 @@
 ---
 name: create-plan
-description: Create or revise an implementation plan from a design review or existing plan, grounded in current code and the applicable design standard.
+description: Create or revise an implementation plan from a design or test review or existing plan, grounded in current code and the applicable design standard.
 ---
 
 # Create a plan
@@ -8,9 +8,9 @@ description: Create or revise an implementation plan from a design review or exi
 Develop a plan that gives an intelligent implementer a coherent understanding of the intended
 system, the reasoning behind its boundaries, and a credible path from the current state to
 completion. Explain consequential choices and leave room for implementation judgment.
-Use the supplied design review or existing plan as the starting reference. When the reference
-is implicit, resolve it from the conversation and current repository context; ask only when
-the ambiguity would materially change the work.
+Use the supplied design review, test review or existing plan as the starting reference. When the
+reference is implicit, resolve it from the conversation and current repository context; ask only
+when the ambiguity would materially change the work.
 
 Read the relevant architectural owners and current code. Load the [design-review skill](../design-review/SKILL.md)
 and discover the applicable principles, profiles and repository binding through the repository's
@@ -50,7 +50,7 @@ the coordinator retains design decisions. Delegation does not make the foundatio
 
 ## Confirm rule changes with the operator
 
-A design review lists the rules its recommendations would change, replace or retire (its rule
+A source review lists the rules its recommendations would change, replace or retire (its rule
 impacts, `review#RCnn`). Before fixing the target design, present each item to the operator with
 its consequence and obtain an explicit accept or reject; never infer acceptance from the review.
 Record the outcome in a short rule-changes section of the plan: the item, the decision and its

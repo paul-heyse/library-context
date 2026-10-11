@@ -50,7 +50,7 @@ include = ["docs/design_review/evidence/**/README.md"]
 scope = "Reference"
 [[collections]]
 title = "Process"
-include = [".claude/skills/README.md", ".claude/skills/adr/*.md", ".claude/skills/design-review/*.md", ".claude/skills/design-review-code-intelligence/*.md", ".claude/skills/handoff/*.md", ".claude/skills/pin-check/*.md", ".claude/agents/*.md"]
+include = [".claude/skills/README.md", ".claude/skills/adr/*.md", ".claude/skills/design-review/*.md", ".claude/skills/design-review-code-intelligence/*.md", ".claude/skills/plan-test-review/*.md", ".claude/skills/execute-test-review/**/*.md", ".claude/skills/handoff/*.md", ".claude/skills/pin-check/*.md", ".claude/agents/*.md"]
 scope = "Current"
 [[collections]]
 title = "Libraries"

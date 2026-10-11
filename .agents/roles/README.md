@@ -78,6 +78,7 @@ can resolve the uncertainty directly. A configuration edit does not change an al
 | Workflow | Typical contribution |
 |---|---|
 | Review planning and design review | Mappers and library researchers establish evidence; a fresh design reviewer forms the architectural judgment |
+| Test-review planning and execution | Code and library investigation, functional diagnosis and independent design judgment inform one integrated causal assessment |
 | Plan preparation and creation | Evidence workers inform options and the integral foundation assessment; focused design advice addresses consequential questions; one author assembles the document |
 | Execution planning and execution | The coordinator orders ready packages; executors implement; implementation reviewers and test agents assess stable work; design review follows the binding's cadence |
 

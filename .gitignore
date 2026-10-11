@@ -24,6 +24,8 @@ __pycache__/
 !/.claude/skills/design-review/
 !/.claude/skills/design-review-code-intelligence/
 !/.claude/skills/plan-design-review/
+!/.claude/skills/plan-test-review/
+!/.claude/skills/execute-test-review/
 !/.claude/skills/plan-creation/
 !/.claude/skills/plan-execution/
 !/.claude/skills/handoff/

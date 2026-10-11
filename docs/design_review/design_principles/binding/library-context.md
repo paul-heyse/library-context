@@ -36,7 +36,7 @@ remain bounded by the coordinator, not this qualitative assessment policy.
 
 ## Reviews in this repository
 
-- **Location:** `docs/design_review/reviews/design_review_{slug}_{YYYY-MM-DD}.md`.
+- **Design-review location:** `docs/design_review/reviews/design_review_{slug}_{YYYY-MM-DD}.md`.
 - **Evidence method:** static review can suffice, including for library features and fit.
   The reviewing agent judges whether complexity, criticality or unresolved uncertainty warrants
   creating and running probes; no review tier or kind requires them. When chosen, store probes
@@ -66,6 +66,28 @@ remain bounded by the coordinator, not this qualitative assessment policy.
   and are not fresh runs; a mocked provider is never a pass; outcomes are never turned into a percentage.
 - **Reviews are evidence, never authority.** A governed architectural section changes through the ADR that
   responds to a finding.
+
+### Test reviews
+
+**Implemented guidance, 2026-10-11 (ADR-0148).** Requested causal test reviews use
+[`plan-test-review`](../../../../.claude/skills/plan-test-review/SKILL.md) and
+[`execute-test-review`](../../../../.claude/skills/execute-test-review/SKILL.md).
+Write the principal report at `docs/design_review/reviews/test_review_{slug}_{YYYY-MM-DD}.md`.
+The execution skill's [suggested structure](../../../../.claude/skills/execute-test-review/references/test-review-structure.md)
+guides authoring; it imposes no fixed headings, evidence inventory, packet or exhaustive failure table.
+
+Test observations initiate investigation across code, contracts, tests and execution conditions.
+Source review, probes, experiments, comparisons and library research are available according to
+the question. Stale assertions, incomplete migration, environment/harness failures and production
+defects remain possibilities to assess, including where several coexist. The reviewer chooses
+supporting material and depth; existing evidence vocabulary and truthful outcome reporting apply.
+
+Use the same stable finding IDs, rule-impact route and single disposition owner in §4. Plan
+creation consumes a test review directly. This adds no recurring review, new agent role or
+automatic remediation. Completing a test review is not suite or architectural acceptance.
+The formal design-review cadence above remains in force. When the assignment includes that
+architectural judgment, apply its assessment obligations; one integrated report can serve both
+purposes when it satisfies them.
 
 **Documentation boundary (ADR-0041).** Read the architecture map, relevant section owner and
 adjacent consumers. Stable section IDs survive relocation; one resolver supplies ADR lint and the
