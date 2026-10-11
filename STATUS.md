@@ -94,6 +94,12 @@ Test-review process skills and flexible report guidance are Implemented2026-10-1
 Their validation, agent lint, scoped Ruff/Pyrefly, ADR lint and docs check passed397 pages/zero link errors.
 An independent read-only exercise found no concrete guidance issue. Those checks did not qualify product behavior.
 
+**Independent efficiency audit, 2026-10-11: Revise.**
+[Audit](docs/design_review/reviews/design_review_efficiency-alignment-audit_2026-10-11.md) compares all 50
+original findings and 18 rule impacts, adding six findings. Static baseline 2b05c6c plus captured overlay;
+product/service execution **not_run**. Evidence folder owns publication checks. Next: operator reconciliation
+during plan creation; original review and concurrent SA9 qualification remain separate.
+
 **Preservation and boundaries:** preserve operator references, PC3's dirty isolated planner copy,
 frozen recovery worktrees, shared Cargo intermediates and profiling/benchmark captures.
 No operator adoption/configuration/client registration, protected gold/heldout, Qwen, real FastMCP/Q1
