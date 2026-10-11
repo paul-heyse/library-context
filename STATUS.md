@@ -90,12 +90,15 @@ Test-review process skills and flexible report guidance are Implemented2026-10-1
 Their validation, agent lint, scoped Ruff/Pyrefly, ADR lint and docs check passed397 pages/zero link errors.
 An independent read-only exercise found no concrete guidance issue. Those checks did not qualify product behavior.
 
-**Reconciled efficiency track: Proposed, 2026-10-11.**
-[New coordinator](docs/plans/efficiency-alignment-plan_2026-10-11.md) and five companions capture all 50
-original findings, 20 audit findings and 18 operator-confirmed rule dispositions. Static plan authoring
-only; product execution and repo-level checks **not_run** by instruction. Next: authorize implementation
-of the new track's functional scope. Existing plans were not reviewed or superseded; their later resumption
-follows this track's implementation. Paused SA qualification and its preserved state remain separate.
+**Reconciled efficiency track: design investigation completed, 2026-10-11; product Planned.**
+[New coordinator](docs/plans/efficiency-alignment-plan_2026-10-11.md) and five companions retain all 50
+original findings, 20 audit findings and 18 confirmed rule dispositions. Their open mechanisms now have
+selected contracts and migrations; [decision evidence](docs/design_review/evidence/2026-10-11_efficiency-design-decisions/README.md)
+records bounded native/provider, finite, codec, Cargo/Hakari/profile and tar controls. Actual dedicated
+gRPC disconnect reproduced an unfinalized-transaction defect; S09/D10 requires a server execution owner.
+Product acceptance, real-library/performance campaigns and repo quality checks are **not_run**.
+Next: implement ready packages under product authority. Existing plans were not reviewed or superseded;
+shared service/paused SA state are unchanged. The owned probe checkout remains protected evidence.
 
 **Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
 branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)

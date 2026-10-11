@@ -1,10 +1,11 @@
 # Reconciled efficiency alignment — implementation plan
 
 **Proposed implementation track, 2026-10-11.** The operator approved creation of this new plan series
-and all 18 reconciled rule dispositions below. This authoring task creates the plans; it does not
-implement their product changes. Every implementation package is **Planned**, with product execution
-**not_run** during authoring. Functional completion is the track exit. Performance measurements and
-real-library campaigns remain explicit external follow-ups.
+and all 18 reconciled rule dispositions below. The subsequently authorized design-decision
+investigation resolves the mechanisms and migrations in §6, using static evidence and bounded
+probes. It does not implement the product changes. Every implementation package remains **Planned**;
+the investigation's controls are distinct from product acceptance. Functional completion is the track
+exit. Performance measurements and real-library campaigns remain explicit external follow-ups.
 
 This document owns the combined target, shared decisions, dependencies, current progress and source
 finding disposition. The five companions develop local contracts and acceptance; they do not maintain
@@ -58,6 +59,16 @@ does not certify the whole product. Docs publication tooling is excluded. Protec
 activation and real-library compiles are not authorized by plan creation. No builds, tests, services,
 fixtures, database queries, repo-level quality checks or measurements ran in authoring, as requested.
 Static source/document assessment and focused independent design advice supplied the plan.
+
+**Decision investigation, 2026-10-11:** pinned main and an owned probe checkout at `439f3d2d`.
+The [decision evidence](../design_review/evidence/2026-10-11_efficiency-design-decisions/README.md)
+records exact source, independently authored finite controls, actual native-provider observations,
+Cargo/profile/Hakari controls and a fresh dedicated RocksDB/gRPC campaign. The shared service and
+its paused qualification were untouched; the fixed-name systemd installer and ordinary fixture
+owner were not invoked. Only decision documents/evidence integrate from the probe checkout.
+The observed gRPC transaction-drop failure strengthens PD02 from an inquiry lead into an
+evidenced owner defect; it does not authorize operational remediation of the shared installation.
+Repo-level quality checks and real-library/performance campaigns remain not_run by instruction.
 
 ## 2. Combined target and preservation constraints
 
@@ -204,8 +215,9 @@ keep companion design prose current without duplicating progress logs.
 
 Priority is consequence, not a global barrier. Address tokenizer selected-byte validity, honest corpus
 origin, exact ranking statements and retained-derivation identity early. In parallel, ready independent
-work removal includes N01/N02, C07 preparation, A05, S02/S08 and D06–D09. Resolve N03's uncertainty early
-because it constrains that package, while keeping its independent alternatives moving. C02+N04 make
+work removal includes N01/N02, C07 preparation, A05, S02/S08 and D06–D09. Implement N03's selected
+protocol with its complete mutation partners before removing the existing fence; its native controls
+constrain that package rather than independent N01/N02 work. C02+N04 make
 reuse both sound and inexpensive. C05/C06 and N06/N08/N10/N11 are larger semantic/migration changes and
 need their consumers alongside them. Optional analytics need not gate delivery of catalog improvements,
 but their declared functional work still belongs to this track's exit.
@@ -253,7 +265,7 @@ original IDs; audit mapping follows in the next table.
 | [O-F24](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f24) | **C06** domain-total compact non-request with frontier/assessment/scoped-query migration. |
 | [O-F25](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f25) | **C06** invocation preparation; admission already uses compact projection, avoid overstating reconstruction. |
 | [O-F26](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f26) | **C07** reusable Pyrefly preparation and conditional Ruff walk fusion; diagnostic/noqa/correspondence parity. Reparse evidence is narrower than every class-containing module. |
-| [O-F27](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f27) | **C07** joined pool for dependency waves, normal available threads and owned drain. |
+| [O-F27](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f27) | **C07** retain the existing OnceLock AllThreads pool; amortize actual wave preparation/dispatch and preserve joined completion/serial extraction. A new pool is not required. |
 | [O-F28](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f28) | **C07** once-built multi-owner path/use/derivation indexes. |
 | [O-F29](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f29) | **C07** hash while copying; keep point-of-use integrity where ambient mutation remains possible. |
 | [O-F30](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f30) | **C07** selected captured-tree revision/modified identity, not checkout HEAD or global cleanliness. |
@@ -268,7 +280,7 @@ original IDs; audit mapping follows in the next table.
 | [O-F39](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f39) | **S07** pending-demand separation for tools/resources; Python slots are not native CPU thread counts. |
 | [O-F40](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f40) | **S06** no-spill small path, reservation-sized runs, bounded fan-in; all-runs merge can lose boundedness. |
 | [O-F41](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f41) | **Retained limitation / external M01:** per-process bounds do not establish host bounds; timeout causes unapportioned. RC12 retains policy; repeated-work remedies are separately scheduled. |
-| [O-F42](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f42) | **S09/D10** separate CLI and direct-test integration, actual remote drain/recovery limits; PD02 remains a prerequisite inquiry. |
+| [O-F42](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f42) | **S09/D10** separate CLI and direct-test integration and actual remote drain/recovery. PD02 is an evidenced execution-owner defect; implementing/qualifying its selected correction is a prerequisite, not another open inquiry. |
 | [O-F43](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f43) | **D09** selected per-root diagnostics, preserve coarse terminal/drain and current phase controls. |
 | [O-F44](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f44) | **S08** construct from selected verified buffers; narrow G3 validity issue, not claimed unchanged loaded-byte identity/G4 defect. |
 | [O-F45](../design_review/reviews/design_review_efficiency-alignment-codebase_2026-10-11.md#f45) | **D01** grouped immutable observations, fresh semantic variants and truthful case grain. |
@@ -308,26 +320,43 @@ its package. The six additional findings have explicit owners; audit F20 strengt
 
 ## 6. Investigations, smaller observations and coverage limits
 
-### Decisions still requiring bounded implementation evidence
+### Resolved design decisions and remaining implementation evidence
 
-These inquiries are part of their package, not an open-ended prerequisite to the whole track. A safe
-fallback permits other work; it does not establish closure of an undelivered accepted change. Record
-an unresolved package as blocked with the actual missing evidence, or return a concrete residual
-disposition to the operator if the intended scope must change.
+The authorized investigation selected the mechanisms below on 2026-10-11. The companion plans carry
+their concrete interfaces, rejected alternatives, consumer migrations and preservation constraints;
+the [evidence index](../design_review/evidence/2026-10-11_efficiency-design-decisions/README.md)
+records decisive sources/probes and limits. These selections are **Proposed designs**, with bounded
+Tested premises where stated. They do not close findings or qualify the future implementation.
+The remaining controls in the last column verify a selected contract; they are not unresolved
+architectural choices. If implementation contradicts a premise, reopen that specific decision with
+its evidence and affected consumers rather than silently retaining an undelivered accepted change.
 
-| Question / source lead | Evidence and owner | Consequence |
+| Question / source lead | Selected mechanism and evidence owner | Remaining implementation evidence |
 |---|---|---|
-| Complete phantom/predicate partners and recovery/maintenance authority, original R1 | N03 pinned engine and all affected mutation/scan routes, then revealing concurrent native controls | Choose safe read-only/guard/stripe design; retain current guard until established. No global N01/N02 barrier |
-| Complete provider input and outcome determinism, original R2/facts replay | C02/C07 controlled same-input replay plus changed origins/roles/settings and output-set comparison | Provider reuse needs complete keys and explicit outcome policy; upstream scheduler documentation alone is insufficient |
-| Exact view lookup route, original R5 | **Design settled here:** existing direct member address plus N04 complete-installation witness; C04 functional/refusal controls | No owner-count Cartesian scheme required; actual integration remains Planned |
-| Scoring policy, original R3 | **Decision settled by RC10:** exact frozen, actual reference migration S01 | Cohort-first route still requires S05 equivalence/losing-case assessment; exact result tests alone cannot justify early caps |
-| View-local predicate cost, original E-06/V06/P-E1 | S03 source/selected-query inspection; native query/EXPLAIN evidence when needed for changed route | No established catalog-alias correctness failure; retain truthful unmeasured query-cost status |
-| Complete composed state and physical validity | N06/N11 inspect all six state families, generic mutation surfaces, validator and incarnation consumers | No ordinary check removal from digest-only evidence; cold ingress rechecks |
-| Profile neutrality and receipt separation | C05 actual dependency/availability and receipt-bearing output consumers | Conservative exact keys remain until that consumer is safely migrated |
-| Optional analytics primitive substitution | A04 pinned capability and exact finite equivalence assessment | Keep required exact pair work/refusal; approximate shortlist/caps/bipartite redesign remains outside current method policy |
-| Remote stream drop and physical terminal ownership, PD02 | S09/D10 complete pinned installed server/SDK lifetime inspection or actual cancellation control | A local drop cannot claim remote drainage. Implement a proven missing owner if necessary; otherwise preserve current working owner |
-| Cargo/Hakari metadata-only freshness | D09 automatic/explicit target, path and concurrent-change equivalence | Preserve conservative source capture when equivalence is not established |
-| Cold-backup hash-while-write | Native companion transition section; exact finalized-byte and restore equivalence | Optional local fusion; retain independent cold coherence and existing route if not equivalent |
+| Complete phantom/predicate partners and recovery/maintenance authority, original R1 | N03 versioned finite write stripes plus exact object/reference/history/backup guards; all-stripe era/admission transition. Tested RocksDB conflicts, absent guards, phantom negative and rollback | Actual 64-stripe layout/admission budget, every mutation partner, recovery/successor/history and destructive-drain interleavings; current global guard stays until cutover |
+| Complete provider inputs, outcome determinism and PD01 | C02 one canonical captured request plus acquisition attribution/RECORD/roles/origin; whole-provider Complete and valid uniform NotRequested eligibility. C07 retains existing joined AllThreads pool and serial extraction | Complete production key construction, actual hit/miss/admission and metadata mutations; Partial output stays ineligible even if repeatable |
+| Exact view lookup and completion, original R5 | N04 view-scoped immutable six-family completion and exact physical realization mapping; C04 mandatory typed key demand with residuals and direct member addresses | Interrupted/late installation, foreign/missing/virtual/empty/member demand and receiver preflight; no whole-attempt freeze before later compiler frontiers |
+| Scoring policy, original R3 | Exact frozen S01; S05 selected-first remains default, cohort-first rejected for this track's sparse/failure-contract costs | Actual ANN reference migration, selected exact results/failures/ties and caps after eligibility |
+| View-local predicate cost, original E-06/V06/P-E1 | S03 compact pin/context preparation and bounded selected-root access; preserve current validated query route without an unmeasured wholesale query rewrite | Cold/warm contextual invalidation and native query/refusal controls; no new latency or catalog-alias failure claim |
+| Complete composed state, physical validity and migration | N06 logical six-family composition separated from N04 physical completion; N11 explicit factory/implementation/physical-epoch premises, cold invalidate/recheck. Adjacent conversion for non-reconstructible retained obligations | All closure-family mutations, bindings/aliases, incarnation/restart/import controls and actual typed transition; pinned-input rebuild only for proven reconstructible obligations |
+| Profile neutrality, sibling cutoff and receipt separation | C05 relation-local value tokens separate from held ActualSource, five configuration groups/per-method requests, separated CatalogCore/Retrieval payloads and explicit per-provider profile policy | Techniques-off analytics changes preserve unrelated compute requests while current exact receipts regenerate; changed consumed values/contracts/coverage invalidate. Source-bearing rows cannot be relabeled |
+| Optional analytics primitive substitution | A02 invocation-sorted charged adjacency; A04 retain exact ordered F32→F64 scalar reduction, bounded selection and necessary pair work; A06 existing Session queue with compact checked window-use expectations | Actual graph witnesses/Stops and refusal equivalence; exact analytics ties/winners; cross-root batching attribution, byte ownership and drain |
+| Remote stream drop and physical terminal ownership, PD02 | S09/D10 server execution-owner handoff with actual terminal cleanup; retain NativeRows/local drain and recovery-owned unknown on lost connection. Actual disconnect reproduced an unfinalized-transaction error | Implement/qualify the owner fix and its shutdown path; separate CLI and direct-test signals, transport loss and journal/recovery evidence. Healthy service/absent row is not terminal proof |
+| Cargo/Hakari metadata-only freshness | D09 declarations/configuration bytes plus complete file/directory shape and placeholders, stable recapture; conservative full route for unsupported symlink/escaping semantics. Actual Cargo/Hakari outputs matched on 988 current inputs | Product capture/discovery integration, ambient-config isolation, concurrent changes and fail-closed fallback; no second independently maintained target authority |
+| Cold-backup hash-while-write | Exact asset-reader and sequential finalized archive-writer hashes, metadata appended by name; six finite tar/failure controls passed | Actual restore staging, private source coherence, fsync faults, recovery/restart and dedicated-service cold round trip; independent destination checks remain |
+
+C01/D02 selects existing lower semantic-contract owners and an independently consumed native
+contract boundary with responsible fingerprints; Parquet remains explicitly supported through the
+public SessionContext surface. D03 selects O2 incremental ordinary dev/test with assertions/overflow
+checks, imported O3 non-incremental and distinct release; tiny exact-profile controls passed, while
+product qualification/default switching remains its future package. D04/D05 use actual protected
+generation capabilities and retain completion-time hashing when protection is absent. C06's compact
+NotRequested is exact-domain total at all four consumers. C08 selects the locked Postcard envelope
+over unchanged canonical section bodies, with allocation admission and the existing cache lifecycle.
+C07 retains the existing joined pool and separate Ruff walks, with complete captured-tree opening
+and per-reader closing checks; only Acquisition's independently redundant byte pass is removed.
+No optional replacement, delayed executable digest, disabled cache or resource cap is an escape from
+the accepted target.
 
 Original V13/P-E1-style inquiry searches supply partial engine knowledge, not an executed plan. V14's
 upstream thread behavior is not this producer's set determinism. V15's conflict log matches include
@@ -346,7 +375,7 @@ explicit disposition, not omission. Revisit triggers are narrower than a new bla
 | U02 — serial post-joined Pyrefly root extraction | C07 prepares/indexes safely; retain serial merge until Natives/input/lifetime parity is established. Provider phase-share measurement M03 before extra overlap |
 | U03 — admission Lookup growth (charged estimate 192 B/entry in source review) | Retain explicit charged refusal. M03 representative graph sizes/peak live state trigger a new physical design if needed; estimate is not measured allocation |
 | U04 — provider cross-batch seen index (source estimate about 130 B/row) | Retain early typed conflicts. Reopen only if an equivalent early-failure contract and actual memory pressure justify removal |
-| U05 — DataFusion Parquet feature | D02 bounded actual-consumer/transitive dependency inquiry; no blind feature removal |
+| U05 — DataFusion Parquet feature | D02 inquiry completed: retain the public unrestricted SessionContext capability; spill itself uses Arrow IPC. Revisit only with an explicit supported-surface decision and consumer migration |
 | U06 — process per stdio MCP client | Retain deployment shape. M04 actual multi-client demand/capacity need precedes any shared daemon/admission owner |
 | U07 — sequential serving families/channels | S03/S05 remove repeated work first. M04 latency evidence precedes added concurrent streams; overlap is not work reduction |
 | U08 — per-call HTTP client | S07 lifespan-owned client/drain; already acknowledged by the original, not an additional audit finding |
@@ -357,8 +386,8 @@ explicit disposition, not omission. Revisit triggers are narrower than a new bla
 | U13 — model mixes declarations and kernels / line count | D02 follows actual consumer coupling. No crate split solely for size; M03 build attribution can justify later boundaries |
 | U14 — cold effect Bytes/JSON expansion | N01/C08 correct active redundant serialization. Broader cold format rewrite awaits M02/M03 significance; no generic new codec framework |
 | U15 — four/five gRPC sessions per compile | Retain bounded owner-specific sessions and truthful drain; no shared session pool without an actual lifecycle-compatible need |
-| U16 — freshness copies source bodies | D09 bounded metadata equivalence inquiry; preserve conservative fallback and unknown states |
-| U17 — cold-backup repeated hashing | Native companion bounded write/hash equivalence inquiry; preserve stopped-service coherence/restore checks; M02 measures importance later |
+| U16 — freshness copies source bodies | D09 selects declarations/configuration bytes plus complete file/directory shape and placeholders, supported by actual Cargo/Hakari equivalence controls; preserve conservative fallback and unknown states |
+| U17 — cold-backup repeated hashing | Native companion selects exact hash-while-copy/write with trailing metadata; finite failure controls passed. Preserve stopped-service coherence/independent restore checks; actual backup/restore acceptance and M02 remain future work |
 
 The original's “Positions on prior leads” remains a provenance/reconciliation table in that review.
 Its confirmed/residual items flow through the stable O-F routes above. Its refuted/adequate/Not examined
@@ -378,13 +407,14 @@ and source inspection, not another codebase-wide certification. No protected eva
 | Acquisition metadata and lexical correspondence | **PD01** adds origin/role/ownership/distribution metadata to C02 keys; C07 preserves Ruff ambiguity and owned/inherited provider meaning. Byte identity alone is insufficient |
 | Lexical/native search lowering | S03/S05 retain exact selected context, family/view term statistics and lexical semantics; vector reorder assumptions do not transfer automatically. Remaining engine costs need focused evidence |
 | Python middleware and resources | S07 explicitly includes capability resources and final JSON-RPC envelope admission, not just tool calls/inner result bytes. This is not full middleware qualification |
-| Server gRPC scheduling/drop | **PD02** keeps remote drain ownership unresolved until S09/D10 establish the pinned actual contract. No remote-leak verdict or automatic server patch inferred |
+| Server gRPC scheduling/drop | **PD02** source plus dedicated native disconnect establish the missing execution-finality owner; S09/D10 selects a server handoff and truthful recovery-owned unknown. Fix qualification remains Planned; no assertion that every owned NativeRows operation leaks |
 | Upgrade/recovery/backup | N04/N08/N09/N10 migrate selected closure and first-binding consumers. Current source4→history-receipt-v5 upgrade is history-specific, not a generic new-format migrator |
 | Development owner interactions | D04/D05/D07/D09 separate protected service generation, original executable observation, local completion and metadata discovery. No global mutable-path cache or cleanup authority added |
 | vLLM/custom service boundary | Retain audit's sampled exact-custom-version limit; no runtime fairness/performance claim or service upgrade. Actual embedding performance is external M03/M04 |
 
 PD01 is an additional completeness requirement discovered during planning, assigned to C02 rather than
-a new standing rule. PD02 is an investigation obligation, not an asserted defect. The remaining breadth
+a new standing rule. PD02 became an evidenced source/native defect during the decision investigation;
+its selected correction and future acceptance belong to S09/D10. The remaining breadth
 is not silently declared sound: investigate a newly exposed concrete dependency within its owning
 package, without turning functional work into an unrequested exhaustive review.
 
@@ -467,14 +497,18 @@ or obligatory benchmark matrix is introduced; collect only evidence that answers
 
 ## 9. Functional closeout and later existing-plan resumption
 
-**Current checkpoint, 2026-10-11:** six plan documents authored from reconciled review/audit and targeted
-source assessment; 18 operator dispositions confirmed. All implementation packages Planned; product
-execution and measurements not_run. Bounded independent static integration review, 2026-10-11,
-found no remaining material issue after correction of abandoned-only reclamation, frozen continuation
-refusal and the cutoff-graph disposition, including preserved per-call query-vector validation. This is
-plan-content review, not implementation acceptance. Next executable work is G00's relevant owner/decision
-slices and ready independent packages in §4, after implementation is authorized. Existing shared-service and
-old-plan work retains its separately recorded paused/qualification state.
+**Current checkpoint, 2026-10-11:** the approved design-decision investigation selected mechanisms
+and migrations for the six new plans (§6), preserving all 18 confirmed rule dispositions. Engine,
+finite provider/semantic, Cargo/Hakari/profile and tar controls retain their exact scope in the
+[evidence folder](../design_review/evidence/2026-10-11_efficiency-design-decisions/README.md).
+The actual gRPC disconnect reproduced an unfinalized transaction; S09/D10 now requires a server
+execution-owner handoff, not just local signal propagation. All product implementation packages
+and source findings remain **Planned**. No implementation acceptance, real-library qualification
+or performance result is claimed. Next is G00's relevant owner/decision slices and ready packages
+in §4 under product-implementation authority; the present authorization covered investigation and
+decision documents only. Existing shared-service and old-plan work retains its separately recorded
+paused/qualification state. The earlier authoring review remains attributable to its original scope;
+the decision investigation has its own independent content review in the linked evidence.
 
 At X01 completion, this sole disposition table must distinguish delivered contracts, verified scope,
 accepted residual limits and external follow-ups. Preserve source reviews/evidence while they have

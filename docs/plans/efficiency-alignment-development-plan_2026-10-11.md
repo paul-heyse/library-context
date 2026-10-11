@@ -3,8 +3,10 @@
 **Proposed, 2026-10-11.** Companion to the new
 [coordinator](efficiency-alignment-plan_2026-10-11.md), the sole progress and finding-disposition
 owner. Sources: original O-F41–O-F43/O-F45–O-F50 and §7.10; audit A-F09/A-F12/A-F13/A-F17.
-No existing plan was reviewed or superseded. These are future implementation/control requirements;
-no build, service action or repository-level quality check ran during authoring.
+No existing plan was reviewed or superseded. Product implementation/control requirements remain
+Planned. The 2026-10-11 design-decision investigation ran isolated pure Cargo probes; it performed
+no product implementation, shared-service action or repository-level quality check. See
+[development/serving decisions](../design_review/evidence/2026-10-11_efficiency-design-decisions/development-serving.md).
 
 ## 1. Target and boundaries
 
@@ -59,9 +61,31 @@ identity boundaries alongside dependency changes; retain model, codec, ingestion
 implementation in their consumers' fingerprints. Avoid an under-keyed build cache disguised as a
 smaller dependency graph.
 
-Inspect the DataFusion Parquet feature and transitive consumers as a bounded dependency inquiry.
-Remove it only if real consumers and supported commands do not need it; an unused-looking declaration
-is not absence proof. Similarly prefer existing lower types over a new contracts crate for every name.
+Retain the DataFusion Parquet feature: the bounded dependency inquiry below found a supported
+public session capability that requires it. Prefer existing lower types over a new contracts crate
+for every name.
+
+**Decision selected, Interface-checked 2026-10-11:** move `Embedder`/`EmbedFuture` to the existing
+model embedding owner with `ModelError`; adapt compiler errors at its boundary. Consume C01's
+`domain::producer_contract` fact inventory and capture descriptors, retaining provider executables
+in extraction. Select a physically lower `lctx-compiler-store` native admission boundary for the
+publisher's admitted/export/restored capabilities, exact completed views and native handle; private
+validated construction preserves semantic admission. Restore invokes that admission without analyzer
+orchestration. Move publisher budget defaults to their resource/config owner. Keep shared codec,
+control/installed identity, canonical ingestion, transport and selected semantic admission below it;
+serving-only preparation/presentation/read adapters remain above the producer closure. Split compiler
+store/provider orchestration out of the current omnibus native crate, rather than merely feature-gating.
+All normal/build manifests and consumers move together. Shared selected-read changes affecting admission
+remain responsible semantic changes; only physically separated serving-only edits may leave compiler
+identity unchanged. Retain conservative full source/runtime-asset fingerprint bytes until that physical
+boundary exists, including model, ingestion, codec and N08 derivation implementation.
+
+**Parquet inquiry resolved:** retain the current feature. Literal product Parquet calls were not found
+in the inspected crate/script/Python scope, but `CompletedInputs::session` exposes unrestricted public
+`SessionContext`; DataFusion 55.1.0 registers `ParquetFormatFactory` under that feature. Removing it
+would silently narrow this capability. Exact transitive feature output is retained in the decision
+evidence. Its external sort spills Arrow IPC, so spill is not a Parquet requirement. This negative
+removal decision neither closes dependency/fingerprint migration nor authorizes a support-policy change.
 
 **Closure:** actual compiler dependency inspection and focused builds show publisher/embed/serving
 consumers avoid unrelated analyzers; reader-only edits leave producer identity unchanged; responsible
@@ -89,6 +113,16 @@ configuration/consumer cutover, not authorization to purge existing build caches
 a different optimization level, choose one shared dev/test family and rerun the affected controls;
 record the reason here through the coordinator before switching.
 
+**Decision selected, Interface-checked 2026-10-11:** keep O2 incremental dev/test with explicit
+assertions/overflow on and debug=0, imported O3 non-incremental and current toolchain/linker. The isolated
+exact-profile probe passed dev build/test/release and demonstrated reuse of the same imported dev artifact
+by tests, assertions/overflow enabled for test and separate release policy; it establishes no product
+qualification or elapsed-time improvement. Functional controls in this track precede switching
+`verify.DEFAULT_CARGO_PROFILE` to `test`, fixture/artifact-path consumers, profile docs and recorded rerun
+handling together. Retain production-only native Python/oracle leaves and qualifier guards as explicit
+release until their own consumer cutover. Remove `local-test-candidate` only after current consumers
+migrate; a shared directory does not make test-target and ordinary library objects identical.
+
 **Closure:** ordinary commands select the qualified family consistently, recorded reruns preserve it,
 release remains selectable, and affected controls pass. Artifact reuse is supported by actual profile/
 dependency configuration; faster elapsed time remains unmeasured. This package has no dependency on
@@ -104,6 +138,16 @@ invalidates the witness. A global stat/path cache is not protection against repl
 
 Integrate the existing fixture/service lifetime owners; preserve explicit readiness refusal, logical
 attempt isolation and maintenance authority. This package never installs or resets a service implicitly.
+
+**Decision selected, Interface-checked 2026-10-11:** the existing borrow owner returns a
+`CheckedServiceGeneration` only after acquiring protection and checking daemon process identity,
+immutable executable generation, installed service/schema generation and exact endpoint/database scope.
+Carry it through verify prerequisites, fixture attachment and child setup under the same borrower lease.
+Readiness outside a borrow remains observational. This replaces repeated administrative proof only within
+the protected generation; a changed generation/admission boundary invalidates it. Integrate
+`surrealdb_service.borrow`/`Installation.check` and `surrealdb_fixture.substrate_readiness`/
+`Attachment.create`; preserve exclusive maintenance and unknown attachment holds. No service action
+ran in this lane's design investigation.
 
 **Closure:** a borrow reuses checked premises within its protected generation; replacement or altered
 identity refuses/refreshes through the owner; failed readiness remains blocked with its actual repair;
@@ -121,6 +165,17 @@ Export and later report commands consume the original observation. They must not
 later and substitute that digest for the earlier one. If a stronger executed-artifact claim becomes
 necessary, design the launch/identity capture explicitly and obtain the corresponding rule decision;
 this plan does not add that requirement by accident.
+
+**Decision selected, Interface-checked 2026-10-11:** capture a completion-time executable descriptor,
+reading/hashing once with before/after `fstat` and pathname-binding checks, and retain its original time,
+descriptor identity, digest and observation policy in the receipt. A descriptor protects rename/unlink,
+not in-place writes. Rehash each unprotected mutable Cargo output at completion; stat equality alone is
+not reuse authority. Digest reuse requires an actual immutable producer-owned executable generation
+held through observation. Keep source `context_after`, service descriptor and the completion artifact
+digest distinct. Executed-byte identity and complete source-closure provenance remain unknown.
+Reports/exports consume
+the retained observation without reopening a later path. Replacement/mutation/race/missing/immutable-reuse
+controls remain functional work.
 
 **Closure:** a later executable replacement cannot alter retained receipt identity; protected repeated
 completion observations reuse safely; missing capture remains unknown. Reports state the original
@@ -178,11 +233,28 @@ states and logs. Reuse existing run/output ownership rather than a new analysis 
 selection while preserving coarse phase, terminal and drain observations. Current phase logging added
 by concurrent work is a foundation to retain; turning down logs cannot erase failure localization.
 
-Investigate metadata-only freshness capture for Cargo/Hakari inputs instead of copying whole source
-bodies. Its equivalence gate must cover automatic and explicit targets, build scripts, workspace/cfg
+Implement the metadata-only freshness capture selected below for supported Cargo/Hakari inputs.
+Its equivalence controls cover automatic and explicit targets, build scripts, workspace/cfg
 manifests, file existence/path escapes and concurrent additions/removals. If those declarations cannot
 be captured faithfully, retain the current conservative capture; record the unresolved optimization.
 Do not create an incomplete freshness key to save reading source.
+
+**Decision selected, Interface-checked 2026-10-11:** for supported Cargo/Hakari layouts, retain all
+file/directory shape and manifest/lock/toolchain/config/Hakari declaration bytes, with empty source-body
+placeholders. Cargo owns discovery, including explicit arbitrary suffixes and empty/glob directories.
+Reobserve membership and declaration bytes before/after; concurrent change makes the result stale or
+inconclusive. Preserve relevant non-source declaration/config bytes. Unsupported symlink/escaping/config
+layouts retain conservative full capture, or its honest refusal; no incomplete key can report clean.
+The independent actual Cargo metadata probe passed 19 cases with full metadata/error records, including
+valid and invalid discovery and explicit refusal boundaries. A subsequent actual current-checkout
+full-body/placeholder comparison over 988 captured inputs exercised whole resolved Cargo metadata,
+Hakari `generate --diff`/`manage-deps --dry-run`, and negative generated-dependency/CLI-dependency drift;
+all five complete outputs/exit results agreed with stable inputs. Positive commands returned 0 and
+intentional drift/edit cases returned 1. Preserve its recorded explicit effective
+Cargo flags and final implementation's ancestor/Cargo-home config, declared exclusions and lock
+normalization; an ambient duplicate-flag blocked run remains retained separately. This metadata-only optimization
+never applies to producer semantic fingerprints or their full runtime-asset/source bytes. Per-root
+logging is explicitly selected while ordinary phase/terminal/drain observations remain visible.
 
 **Closure:** ordinary output is bounded by phases rather than roots; diagnostic selection exposes
 needed root detail; terminal/drain errors remain visible. Freshness declares changed inputs stale and
@@ -200,6 +272,15 @@ owner. Hard stop or lost ownership remains unknown/protected rather than falsely
 Resolve S09's PD02 remote completion question before claiming remote drainage. Keep normal test
 parallelism, current request deadlines and shared-service logical isolation; no per-attempt database,
 fixed job cap or forced service reset is a substitute for a lifetime contract.
+
+**Decision selected, Interface-checked 2026-10-11:** install the cooperative cancellation owner
+inside the actual direct nextest/test process before native admission and fixture use; retain its guards,
+streams and completion channel until owned drainage settles. `verify` wrapper signalling and
+`surrealdb_fixture.run_attached` establish separate process facts, not this owner. Use S09's selected
+minimal server run-transfer target and current recovery-owned unknown disposition when physical remote
+terminal proof is lost. Preserve strong `NativeRows` owned transport drainage. Accepted effects remain
+journal/control-reconcilable before guard release; hard stop/lost runtime leaves protected unknown
+attachments. Independently exercise direct-nextest, CLI and wrapper entrypoints during functional work.
 
 **Closure:** cancellation of a direct fixture-backed process and the verify wrapper have truthful,
 separate child-exit/native-finality/cleanup results; accepted effects remain reconcilable; unrelated

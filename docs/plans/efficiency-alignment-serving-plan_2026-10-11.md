@@ -3,7 +3,9 @@
 **Proposed, 2026-10-11.** Companion to the new
 [coordinator](efficiency-alignment-plan_2026-10-11.md), which owns baseline, rule decisions,
 progress, finding disposition and combined completion. Sources: original O-F35–O-F40/O-F42/O-F44;
-audit A-F08–A-F11. No existing plan was read or superseded. No product execution occurred in authoring.
+audit A-F08–A-F11. No existing plan was read or superseded. Product implementation remains Planned. The 2026-10-11 design investigation is retained in
+[development/serving decisions](../design_review/evidence/2026-10-11_efficiency-design-decisions/development-serving.md);
+pure probe passes and source inspection establish no product closure or measured improvement.
 
 ## 1. Target and foundations
 
@@ -76,10 +78,15 @@ rows or nominal conflicts must still be detected at the appropriate protected bo
 causes recomputation, not semantic degradation. N08 supplies explicit derivation eligibility for
 retained manifests; no retained shortcut precedes it.
 
-Bounded investigation: inspect the remaining view-local subquery/selection shapes and actual native
-membership contract after preparation. If per-row work is avoidable, batch/project through that owner;
-if the query is already selective, retain it. Use focused native query/functional evidence for any
-changed route. Do not call absent EXPLAIN results proof of a better physical plan.
+**Decision selected, Interface-checked 2026-10-11:** retain the current native selection query
+owner. `selection::sparse_membership` nominates physical IDs, uses indexed reverse aliases and selected
+view membership, then validates nominal conflicts; relation nomination starts from selected membership.
+The inspected route is already batched/selective, so no query rewrite or native EXPLAIN claim follows.
+Extend the charged `PreparedCache` at its exact pin/epoch with domain/index preparation. Current-context
+eligibility still consumes primary binding absence and complete companion/support/map/anchor facts from
+`derived_search::eligible_context_rows`; a positive membership boolean cannot substitute for them.
+No native query experiment is needed for this retain decision. Cold/warm invalidation controls remain
+functional implementation work, including N08 eligibility before retained-manifest shortcuts.
 
 **Closure:** new binding, support, alias/conflict, definition and pin changes invalidate exactly the
 needed preparation; cold and warm calls have equal refusals; high-degree preparation charges/drains;
@@ -113,15 +120,22 @@ instead of full repeated sorts or linear victim selection. Default to batched ex
 eligible targets. Eligibility precedes admission, caps and tier counting. Preserve distinct-target
 counting, exact branches, unit/scope/context meaning, ties and full winner rescoring.
 
-A cohort-first lazy scorer is a bounded alternative investigation, not the default. It must preserve
-both results and failure semantics and avoid scanning a huge shared cohort for a tiny pin. Compare
-that losing case as well as the dense case before adoption. If equivalent laziness cannot be shown,
-retain selected-first exact scoring and close only the indexing/batching obligations actually delivered.
-No approximate shortlist or pre-eligibility cap is an acceptable replacement.
+A cohort-first lazy scorer was a bounded alternative, rejected by the decision below. Preserve both
+result and failure semantics without scanning a huge shared cohort for a tiny pin. Close only the
+indexing/batching obligations actually delivered. No approximate shortlist or pre-eligibility cap is
+an acceptable replacement.
 
 Lexical serving uses exact-view/family term statistics and FULLTEXT/equality paths; do not transplant a
 vector scoring reorder into lexical retrieval. A new ranking policy would need an explicit product
 decision beyond this package. S01 supplies one authoritative exact policy and independent controls.
+
+**Decision selected, Interface-checked 2026-10-11:** selected-first exact batching is final for this
+increment; reject optional cohort-first lazy scoring. It adds shared-cohort work for sparse pins and
+cannot skip malformed/nonfinite losing selected candidates while preserving present refusal semantics.
+Index document tiers and use bounded exact top-k/selection with eligibility before caps and distinct-target
+counting; preserve full winner rescoring, ties and branch policy. Finite functional controls must compare
+failure as well as result equivalence, including corrupt losers. No optional scorer campaign or speed
+claim is needed to reject the optional route.
 
 **Closure:** sparse/dense domains, equal scores, repeated targets, ineligible high scorers, corrupt
 losers and exact branch priorities preserve output and failure semantics; retained state is charged.
@@ -141,6 +155,17 @@ Do not add a second generic external-sort framework.
 
 Migrate all shared sorter consumers, including compiler, reconciliation and backup. Local improvements
 are not evidence that per-process reservation budgets bound aggregate host memory; RC12 remains unchanged.
+
+**Decision selected, Interface-checked 2026-10-11:** repair the shared sorter using explicit
+memory/disk backing: retain fitting sorted/deduplicated rows under reservation, lazily allocate scratch
+at first spill, and merge a memory tail through bounded existing carry/fan-in mechanics. Migrate replay/
+point-index/cursor consumers and keep poison/full-value collision checks and all reservations until final
+cleanup. Existing code eagerly allocates TempDir and flushes fitting tails at finish, which is the bounded
+defect. A credible replacement would compose public DataFusion `SortExec`/DataFrame sort, globally ordered
+output and an adjacent full canonical-value conflict validator; `ExternalSorter` is private at 55.1.0.
+It additionally needs budget/disk-lifetime and Arrow/async adapters for current synchronous/replayable
+consumers. Reject that broader replacement here; hash equality or DISTINCT does not satisfy conflict
+semantics. DataFusion spill is IPC, independent of Parquet.
 
 **Closure:** empty/small cases create no spill artifacts; oversized cases spill/merge under reservations;
 late conflicting duplicates refuse; cancellation and I/O failure drain and retain truthful cleanup;
@@ -186,19 +211,45 @@ committed, not-committed and unknown outcomes truthfully. Signal receipt or chil
 of transaction finality. D10 separately integrates direct nextest processes; a CLI handler cannot
 cover them.
 
-**Planning uncertainty PD02:** pinned server streaming code has bounded channels/watchdog and normal
-framing that drives the running operation. A scoped source search found drop signalling but did not
-establish that dropping the client response stream always leaves an owner driving the remote run to
-physical completion. SDK receiver disappearance and the explicit WebSocket drain pattern make this a
-real contract question, not a confirmed remote-leak defect. Source lead: server revision
-`238bfeb11f5725bebed370167656748df8067595`, `server/src/rpc/grpc.rs` QueryFraming/ReleaseOnDrop;
-recheck the installed patched implementation before transferring the claim.
+**PD02 resolved as a source/native defect, 2026-10-11:** the exact server revision
+`238bfeb11f5725bebed370167656748df8067595` has bounded channels and a deadline watchdog, but its
+framing state owns the running query future without a drop-time drain transfer. The scoped source
+trace and coordinator's dedicated engine campaign establish the missing owner on raw response-stream
+abandonment. Preserve recoverable request identity and unknown disposition until the selected owner
+fix is implemented and qualified; installed patched definitions remain the authority. Request deadlines,
+shared-service state and remote holds do not change because a Python/CLI task disappeared.
 
-Resolve through complete pinned lifetime inspection or a focused eventual native cancellation control
-before claiming remote drainage. Preserve recoverable request identity and unknown disposition if
-remote completion cannot be established. Do not infer a vendor patch, change request deadlines or
-release remote holds simply because the Python/CLI task disappeared. If a missing drain owner is proven,
-implement the smallest owner fix and qualify its affected transport boundary before this package closes.
+**Decision selected, Interface-checked 2026-10-11:** source inspection establishes that
+`QueryFraming.run: Option<QueryStreamRun>` is the sole server execution-future owner; `ReleaseOnDrop`
+trips cancellation and cleans session/live-query state but never polls/transfers the run. The timeout
+watchdog also does not drive a dropped future. The exact core construction invokes the executor inline;
+WebSocket teardown explicitly drains handlers to avoid the same open-transaction drop. This is an owned
+execution gap on raw gRPC abandonment, not proof that every current `NativeRows` operation leaks.
+
+Select the smallest server owner transfer as the target: on framing Drop cancel first, close item
+delivery, take/register the remaining run in a server-owned drain task before returning, preserve request/
+transaction/session authority until run finalization, reconcile late live-query results, then release
+ephemeral session authority exactly once. Retain drain tasks through shutdown; an untracked spawn or
+abort-on-timeout is insufficient. No main-tree vendor patch is authorized by this design investigation.
+The coordinator's dedicated campaign owns exact disconnect/normal-control evidence and executable identity.
+On 2026-10-11 its exact patched server emitted an open-transaction-drop error after raw tonic Begin plus
+250 ms disconnect inside a transaction; normal EOF committed, and autocommit disconnect preserved prior
+committed effects. Client exit 0, later health and confirmed server shutdown do not qualify the missing
+execution owner. See the linked decision evidence and `raw/grpc-01-*` receipts. The target owner transfer
+is required; interim unknown disposition and a defect-reproduction probe do not close S09/D10.
+
+Current lost-connection/terminal-proof disposition is recovery-owned unknown. Preserve operation/attempt
+identity and effect/reader holds until existing journal/control reconciliation proves finality; disconnect
+is not an acknowledgement and no-write observation is not read drainage. Keep `Completion::RemoteState::Unknown`
+and the stronger `NativeRows` explicit statement/outer-transport drain and pin protection. S09 bridges
+SIGINT/SIGTERM at `lctx::main` into shared cancellation/admission fences and awaits owned work rather than
+dropping the command future. D10 independently binds the same primitives inside actual test processes.
+Use actual `Workspace::cancellation`/`drain_report`, `NativeCompilerStore::drain_report` and reader
+`NativeRows::drain_transport`, composing their typed `Completion` reports before permitted fixture
+release. The server handoff owns request identity/run/release state under the existing gRPC lifetime;
+lost transport does not convert that internal terminal result to a client acknowledgement.
+Future functional controls cover pre-execution, in-transaction, blocked channel/no-output, committed
+before disconnect, deadlines, shutdown and lost acknowledgement with separate local/remote outcomes.
 
 **Closure:** cancel during capture/provider send/native effect/commit acknowledgement/reader work;
 accepted work drains or remains explicitly recovery-owned, with no false rollback claim; committed

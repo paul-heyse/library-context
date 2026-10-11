@@ -3,7 +3,13 @@
 **Proposed, 2026-10-11.** Supporting plan for the new
 [coordinator](efficiency-alignment-plan_2026-10-11.md), which owns baseline, rule decisions,
 progress, finding disposition and combined completion. Existing plans were not read or superseded.
-No product implementation or execution occurred during authoring.
+No product implementation occurred. The approved decision investigation was executed on 2026-10-11
+at `439f3d2dd73135cfada43a58e90361a56a96668e`; selected mechanisms and finite evidence are below.
+All product findings remain **Planned**. Design choices are Proposed until the architectural
+owner/ADR is updated at implementation; finite design checks do not establish product acceptance.
+
+Decision evidence: [native mechanisms](../design_review/evidence/2026-10-11_efficiency-design-decisions/native.md),
+[finite probes and raw result](../design_review/evidence/2026-10-11_efficiency-design-decisions/native/finite-results.json).
 
 Sources: original O-F01–O-F15/O-F17; audit A-F01–A-F06/A-F18/A-F19 and
 [native evidence](../design_review/evidence/2026-10-11_efficiency-alignment-audit/native-contracts.md).
@@ -32,6 +38,17 @@ realization, including negative/context eligibility; it does not reconstruct nat
 <a id="N01"></a>
 ### N01 — Fuse bounded effects without losing request recovery
 
+**Mechanism selected, Proposed, 2026-10-11.** Native `install_window(owner, mutation_permit,
+ImmutableWindow) -> NativeWriteReceipt` plans anchors/payloads/roles/holds together and commits them
+with the outcome in one guarded transaction. Budget SQL, binding, payload, guard and hold expansion
+together; split only at owned reachability boundaries. `PreparedNativeRequest` carries the complete
+digest once internally; public retained requests compare supplied bytes independently. Keep durable
+intent/outcome, bind only used intent controls, and let CTL own cancellation-aware jittered retry
+backoff/observation. A stopped retry reconciles the same request before returning its disposition.
+Reject no-intent writes and replacement request identity on ambiguous acknowledgement. Compiler
+ingress and Loader migrate onto this owner. Finite rollback/lost-ack countercases passed; native
+collision/ack/retirement races remain future implementation controls.
+
 **Sources:** O-F02/O-F03 and separate O-F05 payload/hash obligations.
 `compiler.rs::ensure_physical_rows`, `loader.rs::insert`, `control/authorization.rs` and
 `control.rs::run_transaction` are the executing boundaries.
@@ -57,6 +74,17 @@ outcomes. This package can complete before N03's global fencing replacement.
 <a id="N02"></a>
 ### N02 — Checked ingress, useful original windows and bounded producer progress
 
+**Mechanism selected, Proposed, 2026-10-11.** Model constructs nominal `CheckedCanonicalBatch`
+qualified by relation/model/schema/canonical codec; raw/imported inputs independently earn it.
+Native's `accept` transfers charge and returns an ingress sequence, while `await_committed` returns
+the durable request/disposition; enqueue acknowledgement never means database completion. Finish
+closes acceptance and drains accepted sequences/cleanup before contribution completion, including
+cancel/failure. One flattening original iterator windows across chunks within combined charges.
+Held frozen memberships use keyset pages with strict cursor/order/EOF checks and page drainage before
+new writes; protected spill is only the fallback for sources without exact paging. Compiler C07
+owns provider scheduling; native owns remote drain. Reject unbounded queues and whole-corpus
+collection. Finite charge/cross-chunk/keyset controls passed; actual transport/provider controls remain.
+
 **Sources:** O-F04/O-F06/O-F07/O-F08. Carry nominal checked canonical batches from model construction
 into native ingestion, qualified by relation/model/schema/encoding. Untyped, raw and imported input
 must earn that validity. Do not decode/sort/canonicalize again solely because a checked batch crosses
@@ -80,6 +108,24 @@ and interrupted paged streams neither omit nor duplicate members. Pair with C07 
 <a id="N03"></a>
 ### N03 — Replace global ordinary-effect coordination through a bounded safety decision
 
+**Mechanism selected, Proposed, 2026-10-11.** Use 64 format-versioned **write** admission stripes
+(`H(operation) mod 64`), plus exact object/owner/history-target/lineage guards. Intent/payload update
+their stripe; admission close/open and era cut atomically update all stripes and the marker, retaining
+current-era maintenance while new admission is closed. Dedicated backup-gate writes protect the
+global cold-backup predicate; selected logical backup retains transaction/pin semantics. Every hold,
+outcome reference, contribution/binding/cleanup/effect incidence and successor insertion/removal
+writes the exact predicate guard its collector checks. The evidence inventory covers every history
+eligibility phase, not merely retirement. Only actual attempt/pin/backup/lifecycle owner types with
+a named ordinal consumer retain monotone allocation. Ordinary installation effects use an owner
+derived from installation identity and operation UUID, with its exact guard/local epoch created in
+that operation's stripe transaction; they never allocate a global ordinal or update the installation
+record per window. Retries retain this owner and its effect/reference/history incidence until terminal
+cleanup. Replace cross-owner epoch ordering with
+request-bound expected object incarnation/tombstone revision; retries never refresh expected identity.
+Migrate these together under closed/drained format transition. Reject read-only era checks, stripes
+without exact predicate guards and a global ordinary write. The coordinator owns native conflict
+experiments; finite conflict-graph evidence establishes only the selected abstract protocol.
+
 **Sources:** O-F01/RC01. The target removes the single installation-record write from independent
 ordinary effects where equivalent protection can be established. It does not promise that a read-only
 era comparison is sufficient.
@@ -95,10 +141,11 @@ pinned engine and surrounding protocol establish protection. Finite stripes are 
 one shared record, not a new general scheduler. Old effects never execute under a successor epoch;
 successor recovery owns the predecessor's persisted remaining scope.
 
-**Investigation gate:** inspect pinned transaction semantics and use focused eventual native controls
-to settle the competing read/write cases. This is functional protocol evidence, not a benchmark.
-If a predicate's protection remains unresolved, preserve its existing guard and record that replacement
-as incomplete; N01/N02 remain executable. This fallback is not closure of the global-write finding.
+**Implementation gate:** the dedicated engine controls establish the selected write-conflict premises.
+Exercise the complete application predicates and the 64-stripe cut with focused actual native controls
+before replacing their guards. This is functional protocol evidence, not a benchmark. If implementation
+cannot establish a predicate's protection, preserve its existing guard and record replacement as
+incomplete; N01/N02 remain executable. This fallback is not closure of the global-write finding.
 
 **Closure:** era cut versus uncommitted intent, incoming hold/backup admission versus retirement,
 outcome reference versus history deletion, and successor versus predecessor page replay are protected.
@@ -106,6 +153,22 @@ Record the selected protocol in the architectural owner/ADR before changing `ERA
 
 <a id="N04"></a>
 ### N04 — Hold exact retained incarnations and publish installed-view completion
+
+**Mechanism selected, Proposed, 2026-10-11.** `hold_expected` produces a `HeldCandidate` naming exact
+physical record/incarnation and logical completion; compiler receiver preflight precedes attachment.
+Exact-spec hits hold existing contributors directly. Native publishes `InstalledViewCompletion/v1`
+only over the **view-scoped** frozen six-family dependency closure, selected logical→physical mappings, membership digest and
+checked EOF/backing/extra-row validation. Physical `view_realization_id` hashes logical view, sorted
+selected records/incarnations and member codec; direct addresses are
+`H(native-view-member/v2, view_realization_id, relation, key)`. `HeldInstalledView` carries that
+namespace/completion and holds through reads; missing rows imply absence only under it. Incomplete
+installation remains privately rooted and resumes/rebuilds before visibility. Completed contributors
+and their exact binding/alias/backing inventories freeze independently; unrelated attempt producers
+continue. N06 later freezes/composes the complete admitted attempt, avoiding a C04/final-freeze cycle.
+Reject count-only
+completion and first-logical-match recovery. Compiler C03/C04, selected backup, native recovery and
+retirement migrate together. Finite stale/prefix/same-count-substitution controls passed; native
+attachment/cold-recovery controls remain.
 
 **Sources:** O-F17; consumes compiler C02/C03 semantic contracts. Separate candidate discovery,
 held inspection, receiver preflight and attachment. Acquire a hold against the expected incarnation,
@@ -122,7 +185,7 @@ contributor closure, exact membership, collision/backing checks and checked EOF 
 Bind it to the view incarnation and membership realization/codec. Neither a descriptor nor count
 agreement establishes completeness. Interrupted installation resumes/rebuilds before visibility.
 
-**Compiler handoff:** C04 can multi-get existing addresses `H(view, relation, key)` under this fact.
+**Compiler handoff:** C04 can multi-get addresses `H(view_realization_id, relation, key)` under this fact.
 A missing row proves absence only under completed installation. Retrieved relation/key/node/content
 still receives semantic checks. Cold import/restore earns fresh completion and physical validity.
 
@@ -132,6 +195,16 @@ referenced content after source-attempt close. Shared retirement consumers migra
 
 <a id="N05"></a>
 ### N05 — Transfer a publication staging root rather than every child hold
+
+**Mechanism selected, Proposed, 2026-10-11.** Create `PublicationStagingRoot` under the attempt before
+any child; Loader/reference/search/statistics children hold beneath it. One guarded marker transaction
+compares equal marker bytes and installs publication→root reachability with sealed root state. Release
+attempt ownership afterwards; committed marker reporting survives cleanup/readback errors. Competing
+equal publishers converge under the publication guard; nominate a losing/abandoned root durably before
+last-owner release. Preserve existing paged retirement and lineage. Reject flat per-child transfer
+and undiscoverable private preparation. Portable recovery rebuilds destination roots. Finite crash
+prefix/shared-child cases passed; actual pre-child/mid-production/post-marker and paged retirement
+interruptions remain controls.
 
 **Source:** O-F12. Create a durable discoverable staging root before child effects. Derived rows hold
 under that root; preparation owns it through the attempt. Marker commit establishes publication-to-root
@@ -148,6 +221,19 @@ and never imports a source live attempt or marker as executable authority.
 
 <a id="N06"></a>
 ### N06 — Version completed identity over the complete frozen closure
+
+**Mechanism selected, Proposed, 2026-10-11.** Model `LogicalCompletedIdentity/v4` composes ordered
+family-tag/count/canonical-row-digest roots for contributions, memberships, views, typed backing,
+bindings and aliases, computed once at protected freeze. Normalize physical pointers to complete
+logical meaning, retain explicit empty views/selectors/absence, and reject conflicting duplicates.
+Native freeze closes/drains producing work and all identity-bearing mutation permits, including generic
+row, alias/backing/binding/descriptor/import routes; derived staging has a separate capability.
+Persist family roots only after exact actual closure/backing checks under that inventory revision.
+Seal composes the protected roots without repeated full-state/original reconstruction. Physical
+completion/incarnation remains N04's independent installation-local witness. Reject XOR/digest-sums,
+binding-revision-only freeze and custom incremental Merkle machinery. Model, compiler, manifest,
+detached transfer and restore version together. All six finite family mutation/order controls passed;
+native late-mutation and independent cold admission controls remain.
 
 **Sources:** O-F09/RC07. Compose normalized logical content for all six completed families:
 contributions, memberships, views, typed backing, bindings and aliases. Include explicit empty views,
@@ -170,6 +256,16 @@ cannot inherit source installation trust.
 <a id="N07"></a>
 ### N07 — Ordinary seal consumes established admission and reconciles stored derivations once
 
+**Mechanism selected, Proposed, 2026-10-11.** Lower each derived family once into an owned bounded
+or spilled expected stream, install it, then compare actual stored key/full-row/reference/context/
+statistical content once, including missing and extras. Keep semantic admission independent from
+this physical reconciliation. Verify trusted definitions once under their immutable epoch hold.
+Ordinary seal consumes N04/N06/N10 validity and freeze; stale/absent witnesses require fresh checking,
+and cold restore/audit keep independent admission. Reject repeating the producer as an oracle and
+skipping checks before the witness exists. NP, Loader/reconciliation, derived search and definitions
+migrate together. Finite missing/extra/changed detection passed; actual corruption/premise-change and
+committed-marker-after-cleanup-failure controls remain.
+
 **Sources:** O-F10/RC06. Require N06's protected freeze, drained effects, admitted logical identity
 and finalization ownership. Lower each derived family once and compare actual stored rows once,
 retaining missing/extra/reference/statistics detection. Verify the immutable definition epoch once
@@ -185,6 +281,17 @@ reporting. The fast path is unavailable until its complete witness exists.
 
 <a id="N08"></a>
 ### N08 — Bind current derivations and unchanged publication to one exact realization
+
+**Mechanism selected, Proposed, 2026-10-11.** `DerivationIdentity/v1` includes responsible lowering,
+lexical/statistics/vector/context code, model/physical codecs and trusted definition epoch. Qualify
+every derived address/index/eligibility predicate, staging root, marker and handle with it. Same-format
+named pinned realizations coexist; every reader/resource/continuation uses its handle's namespace.
+`try_existing_publication` compares full manifest/derivation/definitions/marker and exact reachable
+completed views/bindings, then acquires an expected-incarnation hold atomically under the retirement
+guard. A hit performs no derived staging. Reject handle-only hashing, “latest” fallbacks and check-then-
+pin races. C01/D02 narrowing preserves relevant native source. Serving, publication, backup/restore
+and retirement consumers migrate together. Finite namespace/shortcut mutation controls passed;
+actual two-derivation, identical publication and retirement races remain.
 
 **Sources:** O-F11/RC09. Ordinary fresh compilation already includes native implementation in producer
 inventory. The target adds explicit current derivation identity for retained old manifests: references,
@@ -206,6 +313,19 @@ converges; concurrent retirement cannot invalidate a successfully acquired short
 
 <a id="N09"></a>
 ### N09 — Complete product, terminal-recovery and binding release lifecycles
+
+**Mechanism selected, Proposed, 2026-10-11.** Native `retain_product`/`release_product` give warm reuse,
+view/publication/backup/reader/recovery consumers named incidence. Last-owner release atomically
+nominates exact roots before incidence deletion; attempt close includes failed/incomplete/no-product/
+artifact-only roots. `admit_terminal_candidate` checks reusable outcome/spec/capture/complete physical
+closure under a recovery hold and earns current admission, independently of source-attempt admission.
+Recovery terminal/qualified-expiry transition rechecks actual borrowers and nominates before release;
+expiry never authorizes deletion alone. Canonical complete `BindingDescriptor/v2` hashes selectors,
+roles/source/boundary/configuration/view and explicit absent/unrequested meaning; attempt incidence
+releases only after authoritative view/publication/recovery holders exist. Migrate selected backup
+to exact publication binding inventory first; HIST still checks all other attempt consumers. Reject
+age/size collection, permanent product roots and view-only binding keys. Finite shared-root/binding
+controls passed; interrupted release/recovery and fully eligible native compaction remain controls.
 
 **Sources:** O-F13, A-F18/A-F19. Keep four separate closure obligations: terminal-result reuse,
 abandoned-root reclamation, obsolete retained-product release, and redundant binding incidence.
@@ -240,6 +360,16 @@ eligible terminal attempts compact. No sweep or collection is authorized by auth
 <a id="N10"></a>
 ### N10 — Share original bytes beneath artifact identity
 
+**Mechanism selected, Proposed, 2026-10-11.** `OriginalBlob/v1` header carries full-content hash,
+length/format and earned completion; bounded chunks use `H(blob, offset)`. Revision/path-scoped
+`OriginalLayout` references/holds the blob and preserves logical ArtifactChunk rows through hydration,
+without another stored per-artifact body. Blob owns chunks; full-byte collision checks and contiguous
+exact `[0,length)`/hash/EOF validation precede completion, with explicit valid empty headers. Migrate
+ingress, projections/hydration, Loader/reconciliation/source retrieval, backing validation, all recovery
+families, selected backup, detached transfer/restore and retirement together. Reject artifact-keyed
+duplicate bytes and a second chunk-dedup layer. Finite malformed/empty/shared-revision controls passed;
+actual interrupted/concurrent install, range reads, shared retirement and cold round trips remain.
+
 **Sources:** O-F14/RC16. Use a full-content-addressed blob header `(content, byte length, format)`
 with bounded chunks keyed by blob identity/offset. Artifact layout/header references the blob and
 retains semantic revision/path identity. Blob ownership retains chunks. Do not introduce a second
@@ -256,6 +386,19 @@ construction gains no completion. Portable recovery carries content and earns de
 
 <a id="N11"></a>
 ### N11 — Carry durable admission premises only across protected physical validity
+
+**Mechanism selected, Proposed, 2026-10-11.** Compiler `AdmissionPremise/v2` hashes model/invariant,
+explicit validator-factory and relevant producer implementation, profile/configuration, ordered input
+roles/requested-resolved selectors/absent-unrequested state/exact logical dependencies, physical schema/
+codec, installation/validity epoch and held record/incarnation/completion IDs. Factories declare all
+dependencies; undeclared ambient input makes durable reuse ineligible. Native validates held physical
+completion before use. Missing/stale/failed records recheck; corruption errors never become quiet
+misses. Choose cold invalidation: host service owner changes physical-validity epoch under closed/drained
+restart/privileged mutation; restore/import earns fresh completion and premises. Reuse spans compiler
+processes within the same protected service epoch, not arbitrary daemon recovery. Reject declaration-
+only and portable trust. Factory registration, W premise keys, native completion and service lifecycle
+migrate together. Finite exact-key mutations passed; actual factory/incarnation/selector/restart and
+corrupt-backing controls remain.
 
 **Sources:** O-F15/RC17. Extend premise identity with validator/factory and relevant producer
 implementation, realization/codec and exact protected incarnations, retaining model/invariant,
@@ -276,25 +419,60 @@ backing integrity.
 
 ## 3. Transition, investigations and integration
 
-Current upgrade code names a particular source4-to-history-receipt-v5 transition, with history-specific
-preflight and no data backfill. It is not a generic migrator for blobs, composed identity or derivation
-eligibility. Implement each actual transition under the existing upgrade owner or use an explicit
-project-store rebuild/cutover. A format-number bump alone is not completion. Preserve operator stores
-and named live readers; installation/maintenance operations require their own execution authorization.
+**Transition selected, Proposed, 2026-10-11.** Use quiesced rebuild only for exact named obligations
+whose complete inputs/content and consumers are reconstructible. Pinned library inputs alone do not
+reconstruct detached imports, artifact-only output, warm retained products, older named derivations,
+outcome evidence or unfinished cleanup/retirement/recovery lineages. For those obligations select an
+actual adjacent old→new transition under the existing immutable upgrade execution owner. The full
+[transition contract](../design_review/evidence/2026-10-11_efficiency-design-decisions/native.md#transition-decision--adjacent-conversion-when-retained-obligations-cannot-be-rebuilt)
+requires exact consumer/drain inventory, typed six-family conversion, complete binding descriptors,
+selected contributor mappings, blob content/ownership and fresh destination admission/completion.
+It fences predecessors, preserves outcomes/evidence, rehomes remaining lifecycle scope with original
+incarnations/cutoffs/lineage references and invalidates source premises. Existing source4→history-v5
+no-backfill code is not a generic migration receipt. Cross-format handles require explicit release or
+exact named consumer cutover before old representation retirement; add no old runtime readers/dual
+writes. New marker/definitions publish only after converted obligations validate; partial progress
+resumes the immutable migration operation. This selects a mechanism, not permission to execute
+maintenance, reset operator stores or delete retained content.
 
 N01/N02 proceed independently. N03 gates only fencing replacement. N04 supplies compiler C03/C04.
 N06 precedes the N07 fast path and N11 trust reuse. N08 precedes a general retained-manifest shortcut.
 N05/N09/N10 share lifecycle surfaces but remain separately closable. Schedule consumer migration with
 each producing change, not in a trailing catch-all phase.
 
-Targeted cold-path inspection covered model recovery dispatch, selected backup, restore and upgrade.
-Preserve independent destination admission and selected logical closure. The smaller cold-backup
-hashing opportunity belongs here: fuse hashing with archive writing only if the exact completed bytes,
-flush/finalization, ownership and independent restore checks remain equivalent; otherwise retain the
-current cold route and record the unresolved optimization. Do not trade away cold coherence to reduce
-a stopped-service interval. Its measured importance is an external follow-up.
+**Cold hash lowering selected, Proposed, 2026-10-11.** Hash each asset through the exact reader
+supplying its tar member and collect the resulting inventory; append `recovery.json` after those
+members. Restore already locates metadata by name rather than first-entry position. Use one
+non-seeking archive writer that loops through short writes and hashes only bytes actually written,
+including tar headers, padding and final trailer. Publish its digest/pointer only after tar close,
+writer flush, file fsync and containing-directory fsync have all succeeded. Any short asset read,
+unsupported seek, write/finalization/fsync error leaves an incomplete unreferenced archive, preserves
+the original failure and still runs the exact service restart/recovery owner. Do not publish a
+prefix hash or hash reconstructed logical contents instead of finalized archive bytes.
+
+Preserve cold quiescence, exact source inventory/identity and post-copy coherence, private permissions,
+no-overwrite admission, independent restored-asset hashing, generation/executable/coordination checks,
+destination semantic admission and selected logical closure. This removes the asset prehash and final
+archive reread from the proposed writer; it does not remove independent ingress checks. The
+[finite tar/hash control](../design_review/evidence/2026-10-11_efficiency-design-decisions/cold_hash_probe.py)
+passed six synthetic I/O groups on 2026-10-11. It establishes framing/hash/failure properties, not
+actual service backup/restore acceptance. Implement inside `surrealdb_service.backup_service`, then
+exercise the actual restore staging and durability faults with synthetic private assets before a
+separately authorized dedicated-service round trip. The current service route remains in use until
+that implementation passes; no new design alternative remains open and no stopped-service saving
+is Measured. Cold backup timing stays external M02.
 
 Functional completion includes actual native conflict/recovery, selected backup/restore and retirement
 controls for the changed contracts. Mocks cannot establish persistence or drainage. The coordinator
 schedules these integrated boundaries once the relevant consumers have migrated. Performance and
 real-library campaigns are separate; none of the proposed savings is Measured.
+
+## 4. Decision-investigation completion
+
+**2026-10-11:** N01–N11 have selected mechanisms, rejected alternatives, concrete ownership/identity/
+failure interfaces and adjacent consumer/migration obligations in this plan and the linked native
+evidence. The finite synthetic groups passed; coordinator-owned engine and cold-path receipts retain
+their own scope. Product implementation, integrated native controls, full transition qualification,
+performance and operator adoption remain **not_run** by this worker. Every native product finding
+remains **Planned**. No ADR, production change, service operation, commit, generator or repository
+quality check was performed by this worker.

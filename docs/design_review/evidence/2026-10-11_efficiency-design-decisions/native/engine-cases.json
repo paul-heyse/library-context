@@ -1,0 +1,47 @@
+{
+  "purpose": "Coordinator-owned dedicated RocksDB campaign; no worker service execution. Each pair starts A then B during A SLEEP. Inspect every statement and final persisted state; conflicts may surface at either write or COMMIT.",
+  "cases": [
+    {
+      "name": "absent_guard_write_conflict",
+      "setup": "DELETE decision_guard; DELETE decision_effect;",
+      "a": "BEGIN; UPSERT decision_guard:absent SET revision=(revision ?? 0)+1; SLEEP 2s; CREATE decision_effect:a; COMMIT;",
+      "b": "BEGIN; UPSERT decision_guard:absent SET revision=(revision ?? 0)+1; CREATE decision_effect:b; COMMIT;",
+      "assertion": "At most one effect commits from overlapping snapshots; retry loser with fresh snapshot succeeds. Guard revision then equals 2."
+    },
+    {
+      "name": "read_only_named_record_is_insufficient",
+      "setup": "UPSERT decision_gate:one SET open=true,revision=0; DELETE decision_effect;",
+      "a": "BEGIN; LET $gate=SELECT * FROM ONLY decision_gate:one; SLEEP 2s; IF $gate.open { CREATE decision_effect:read_only; }; COMMIT;",
+      "b": "BEGIN; UPDATE decision_gate:one SET open=false,revision+=1; COMMIT;",
+      "assertion": "Both may commit: negative control demonstrating stale read-only admission."
+    },
+    {
+      "name": "all_stripes_cut_conflicts",
+      "setup": "UPSERT decision_stripe:zero SET era=1,revision=0; UPSERT decision_stripe:one SET era=1,revision=0; DELETE decision_effect;",
+      "a": "BEGIN; LET $gate=SELECT * FROM ONLY decision_stripe:zero FOR UPDATE; IF $gate.era!=1 { THROW 'fenced'; }; UPDATE decision_stripe:zero SET revision+=1; SLEEP 2s; CREATE decision_effect:old; COMMIT;",
+      "b": "BEGIN; UPDATE decision_stripe:zero,decision_stripe:one SET era=2,revision+=1; COMMIT;",
+      "assertion": "Overlapping old effect and era cut cannot both commit. Retry old request after cut refuses."
+    },
+    {
+      "name": "predicate_phantom_negative",
+      "setup": "DELETE decision_hold; DELETE decision_effect;",
+      "a": "BEGIN; LET $incoming=SELECT VALUE id FROM decision_hold WHERE object='x' LIMIT 1; SLEEP 2s; IF array::len($incoming)=0 { CREATE decision_effect:retired; }; COMMIT;",
+      "b": "BEGIN; CREATE decision_hold:new SET object='x'; COMMIT;",
+      "assertion": "Both may commit: phantom negative control; range read alone cannot protect retirement."
+    },
+    {
+      "name": "target_guard_protects_reference_predicate",
+      "setup": "UPSERT decision_guard:x SET revision=0; DELETE decision_hold; DELETE decision_effect;",
+      "a": "BEGIN; UPDATE decision_guard:x SET revision+=1; LET $incoming=SELECT VALUE id FROM decision_hold WHERE object='x' LIMIT 1; SLEEP 2s; IF array::len($incoming)=0 { CREATE decision_effect:retired; }; COMMIT;",
+      "b": "BEGIN; UPDATE decision_guard:x SET revision+=1; CREATE decision_hold:new SET object='x'; COMMIT;",
+      "assertion": "Both competing operations cannot commit from overlapping snapshots; retry must re-evaluate actual incoming hold. Same experiment models outcome-reference/history predicate."
+    },
+    {
+      "name": "fused_late_collision_rollback",
+      "setup": "DELETE decision_row; DELETE decision_hold; UPSERT decision_row:collision SET bytes='old';",
+      "a": "BEGIN; CREATE decision_row:new SET bytes='new'; CREATE decision_hold:new SET object=decision_row:new; LET $actual=SELECT VALUE bytes FROM ONLY decision_row:collision; IF $actual!='changed' { THROW 'late collision'; }; UPDATE decision_row:collision SET bytes='changed'; COMMIT;",
+      "b": null,
+      "assertion": "THROW leaves no decision_row:new or decision_hold:new and collision bytes stay old."
+    }
+  ]
+}
